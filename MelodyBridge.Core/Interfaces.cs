@@ -7,7 +7,6 @@ namespace MelodyBridge.Core;
 public interface IDownloaderPlugin
 {
     //DownloadSource SupportedDownloadSource { get; } //Which download source this plugin uses
-    List<TrackQuality> GetSupportedQualities(); //Get supported qualities by this downloader
     Track DownloadTrack(SongID songID, TrackQuality quality); //Download a track with specified quality
 }
 
@@ -55,4 +54,19 @@ public static class SoundQualities
         };
     }
 
+}
+
+/// <summary>
+/// Interface for file download strategies for different sites.
+/// </summary>
+public interface IFileDownloadStrategy
+{
+    /// <summary>
+    /// Downloads a file from the given URL to the specified file path.
+    /// </summary>
+    Task DownloadFileAsync(string url, string filePath);
+    /// <summary>
+    /// Returns true if this strategy can handle the given URL.
+    /// </summary>
+    bool CanHandle(string url);
 }

@@ -6,7 +6,8 @@ public class Track
 {
     public string? Title;
     public string? Artist;
-    public SongID? SongID;
+    public SongID? SongID; //The ISRC song ID
+    public SongID? PlatformSongID; //Like the qobuz ID for squid.wtf downloads
     public TrackQuality? Quality;
     public Platform SourcePlatform;
     public SyncStatus SyncStatus;
