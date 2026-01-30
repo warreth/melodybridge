@@ -8,10 +8,10 @@ public class Track
     public string? Artist;
     public SongID? SongID;
     public TrackQuality? Quality;
-    public FileLocation? CurrentTrackLocation;
     public Platform SourcePlatform;
     public SyncStatus SyncStatus;
     public MediaType MediaType;
+    public FileLocation? CurrentTrackLocation;
 }
 
 public class Playlist
