@@ -1,0 +1,28 @@
+name: CI
+
+on:
+    push:
+        branches: [main]
+        paths-ignore:
+            - "docs/**"
+    pull_request:
+        branches: [main]
+
+jobs:
+    build-and-test:
+        runs-on: ubuntu-22.04
+        steps:
+            - uses: actions/checkout@v4
+            - name: Setup .NET
+              uses: actions/setup-dotnet@v4
+              with:
+                  dotnet-version: "8.0.x"
+
+            - name: Restore
+              run: dotnet restore MelodyBridge.sln
+
+            - name: Build
+              run: dotnet build MelodyBridge.sln -c Release --no-restore
+
+            - name: Run tests
+              run: dotnet test MelodyBridge.sln -c Release --no-build --verbosity normal

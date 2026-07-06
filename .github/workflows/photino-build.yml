@@ -1,0 +1,27 @@
+name: Photino Build
+
+on:
+    workflow_dispatch:
+
+jobs:
+    build-photino:
+        runs-on: windows-latest
+        steps:
+            - uses: actions/checkout@v4
+            - name: Setup .NET
+              uses: actions/setup-dotnet@v4
+              with:
+                  dotnet-version: "8.0.x"
+
+            - name: Restore
+              run: dotnet restore MelodyBridge.sln
+
+            - name: Publish Desktop (win-x64)
+              run: |
+                  if (Test-Path -Path "MelodyBridge.Desktop"){ 
+                    dotnet publish MelodyBridge.Desktop -c Release -r win-x64 --self-contained=false -p:PublishSingleFile=false -o out\win-x64
+                    echo "Photino publish completed";
+                  } else { 
+                    echo "No MelodyBridge.Desktop project found; skipping."; 
+                    exit 0; 
+                  }
