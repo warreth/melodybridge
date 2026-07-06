@@ -1,9 +1,14 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
-
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFramework>net8.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>
-
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Http" Version="8.0.0"/>
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\MelodyBridge.Core\MelodyBridge.Core.csproj"/>
+    <ProjectReference Include="..\MelodyBridge.Infrastructure\MelodyBridge.Infrastructure.csproj"/>
+  </ItemGroup>
 </Project>
