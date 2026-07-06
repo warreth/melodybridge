@@ -1,30 +1,27 @@
-﻿<div class="top-row ps-3 navbar navbar-dark">
-    <div class="container-fluid">
-        <a class="navbar-brand" href="">MelodyBridge.Server</a>
+﻿<div class="brand-block">
+    <div class="brand-logo">M</div>
+    <div>
+        <strong>MelodyBridge</strong>
+        <span>Sync studio</span>
     </div>
 </div>
 
 <input type="checkbox" title="Navigation menu" class="navbar-toggler" />
 
-<div class="nav-scrollable" onclick="document.querySelector('.navbar-toggler').click()">
-    <nav class="nav flex-column">
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
-                <span class="bi bi-house-door-fill-nav-menu" aria-hidden="true"></span> Home
-            </NavLink>
-        </div>
+<nav class="app-nav" aria-label="Primary navigation">
+    <NavLink class="nav-link" href="" Match="NavLinkMatch.All"><span>⌂</span>Dashboard</NavLink>
+    <NavLink class="nav-link" href="accounts"><span>◎</span>Accounts</NavLink>
+    <NavLink class="nav-link" href="library"><span>◇</span>Library</NavLink>
+    <NavLink class="nav-link" href="downloads"><span>↓</span>Downloads</NavLink>
+    <NavLink class="nav-link" href="sync-jobs"><span>↻</span>Sync Jobs</NavLink>
+    <NavLink class="nav-link" href="settings"><span>⚙</span>Settings</NavLink>
+</nav>
 
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="counter">
-                <span class="bi bi-plus-square-fill-nav-menu" aria-hidden="true"></span> Counter
-            </NavLink>
-        </div>
-
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="weather">
-                <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> Weather
-            </NavLink>
-        </div>
-    </nav>
+<div class="sidebar-footer">
+    <span class="status-dot online"></span>
+    <div>
+        <strong>Runtime ready</strong>
+        <small>Docker compose</small>
+    </div>
 </div>
 

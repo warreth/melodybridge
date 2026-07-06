@@ -1,23 +1,30 @@
 ﻿@inherits LayoutComponentBase
 
-<div class="page">
-    <div class="sidebar">
+<div class="app-shell">
+    <aside class="app-sidebar">
         <NavMenu />
-    </div>
+    </aside>
 
-    <main>
-        <div class="top-row px-4">
-            <a href="https://learn.microsoft.com/aspnet/core/" target="_blank">About</a>
-        </div>
+    <main class="app-main">
+        <header class="app-topbar">
+            <div class="topbar-title">
+                <span class="eyebrow">Workspace</span>
+                <strong>Local Studio</strong>
+            </div>
+            <div class="topbar-actions">
+                <span class="pill ok">Online</span>
+                <button class="icon-button" type="button" title="Toggle theme" onclick="window.melodyBridgeTheme?.toggle()">◐</button>
+            </div>
+        </header>
 
-        <article class="content px-4">
+        <article class="app-content">
             @Body
         </article>
     </main>
 </div>
 
 <div id="blazor-error-ui" data-nosnippet>
-    An unhandled error has occurred.
+    Something went wrong in the UI.
     <a href="." class="reload">Reload</a>
-    <span class="dismiss">🗙</span>
+    <span class="dismiss">×</span>
 </div>

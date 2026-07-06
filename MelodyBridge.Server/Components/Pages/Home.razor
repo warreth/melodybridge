@@ -1,7 +1,79 @@
 ﻿@page "/"
 
-<PageTitle>Home</PageTitle>
+<PageTitle>MelodyBridge Dashboard</PageTitle>
 
-<h1>Hello, world!</h1>
+<section class="hero-panel">
+    <div>
+        <span class="eyebrow">Music sync cockpit</span>
+        <h1>Bridge your playlists, downloads and media server.</h1>
+        <p>Connect sources, scan your library, resolve tracks and publish clean playlists to Jellyfin or M3U outputs.</p>
+        <div class="hero-actions">
+            <a class="btn-modern primary" href="sync-jobs">Create sync job</a>
+            <a class="btn-modern secondary" href="accounts">Add account</a>
+        </div>
+    </div>
+    <div class="hero-card">
+        <span class="status-dot online"></span>
+        <strong>Local test stack</strong>
+        <p>Docker Compose is running this app at <code>localhost:3333</code>.</p>
+    </div>
+</section>
 
-Welcome to your new app.
+<section class="stat-grid">
+    <div class="stat-card">
+        <span class="stat-icon">🎧</span>
+        <label>Sources</label>
+        <strong>6</strong>
+        <small>YouTube, Qobuz, Tidal, Spotify, manual import</small>
+    </div>
+    <div class="stat-card">
+        <span class="stat-icon">🧭</span>
+        <label>Library scanner</label>
+        <strong>Ready</strong>
+        <small>Reads MELODY_ID tags</small>
+    </div>
+    <div class="stat-card">
+        <span class="stat-icon">📀</span>
+        <label>Downloaders</label>
+        <strong>5</strong>
+        <small>yt-dlp + 4 provider plugins</small>
+    </div>
+    <div class="stat-card">
+        <span class="stat-icon">🪄</span>
+        <label>Sync target</label>
+        <strong>Jellyfin</strong>
+        <small>Path and metadata resolver</small>
+    </div>
+</section>
+
+<section class="content-grid two">
+    <div class="panel-card">
+        <div class="panel-header">
+            <div>
+                <span class="eyebrow">Pipeline</span>
+                <h2>Recommended setup flow</h2>
+            </div>
+        </div>
+        <div class="timeline-list">
+            <div class="timeline-item done"><span>1</span><div><strong>Add accounts</strong><p>Connect playlist sources and download providers.</p></div></div>
+            <div class="timeline-item done"><span>2</span><div><strong>Configure library paths</strong><p>Map host music paths to container/Jellyfin paths.</p></div></div>
+            <div class="timeline-item active"><span>3</span><div><strong>Create a sync job</strong><p>Resolve tracks, generate reports and publish playlists.</p></div></div>
+            <div class="timeline-item"><span>4</span><div><strong>Review missing tracks</strong><p>Use unresolved path reports to improve mappings.</p></div></div>
+        </div>
+    </div>
+
+    <div class="panel-card">
+        <div class="panel-header">
+            <div>
+                <span class="eyebrow">Health</span>
+                <h2>Local environment</h2>
+            </div>
+        </div>
+        <div class="health-list">
+            <div><span class="status-dot online"></span><strong>Server</strong><small>Listening on port 3333</small></div>
+            <div><span class="status-dot warning"></span><strong>Jellyfin</strong><small>Configure host/API key in Settings</small></div>
+            <div><span class="status-dot online"></span><strong>Database</strong><small>SQLite local file</small></div>
+            <div><span class="status-dot online"></span><strong>Docker volumes</strong><small>music, playlists, keys</small></div>
+        </div>
+    </div>
+</section>

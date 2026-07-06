@@ -1,10 +1,14 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
-
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <BlazorDisableThrowNavigationException>true</BlazorDisableThrowNavigationException>
   </PropertyGroup>
-
+  <ItemGroup>
+    <ProjectReference Include="..\MelodyBridge.Core\MelodyBridge.Core.csproj"/>
+    <ProjectReference Include="..\MelodyBridge.Application\MelodyBridge.Application.csproj"/>
+    <ProjectReference Include="..\MelodyBridge.Infrastructure\MelodyBridge.Infrastructure.csproj"/>
+    <ProjectReference Include="..\MelodyBridge.UI.Components\MelodyBridge.UI.Components.csproj"/>
+  </ItemGroup>
 </Project>
