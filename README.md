@@ -1,100 +1,87 @@
 # MelodyBridge
 
-A self-hosted music retrieval and playlist-sync system focused on keeping downloads, metadata and playlists in sync across multiple storage locations and media servers.
+Self-hosted music retrieval and playlist sync. Downloads tracks from YouTube and plugin providers, tags them with MELODY_ID, keeps library paths in sync after moves/renames, generates M3U playlists, and pushes them to Jellyfin.
 
-**Your playlists, downloaded, tracked and delivered — reliably and modularly.**
+---
+
+## Install
+
+### Docker Compose
+
+```yaml
+services:
+  melodybridge:
+    image: ghcr.io/<your-org>/melodybridge:latest
+    container_name: melodybridge
+    ports:
+      - "3333:80"
+    volumes:
+      - ./data/music:/music
+      - ./data/playlists:/app/playlists
+      - ./data/keys:/root/.aspnet/DataProtection-Keys
+    environment:
+      - Jellyfin__BaseUrl=http://host.docker.internal:8096
+    restart: unless-stopped
+```
+
+```bash
+docker compose up -d
+# open http://localhost:3333
+```
+
+### GHCR Pull
+
+```bash
+docker pull ghcr.io/<your-org>/melodybridge:latest
+```
+
+### Build from Source
+
+```bash
+git clone https://github.com/<your-org>/melodybridge
+cd melodybridge
+docker build -t melodybridge .
+docker compose up -d
+```
 
 ---
 
 ## Features
 
-| Feature | What it does |
-|---|---|
-| **Downloaders (pluggable)** | YouTube via yt-dlp by default; plugin architecture for Qobuz, Tidal, SoundCloud, Amazon Music, etc. |
-| **Quality Waterfall** | Configurable quality fallback chain (24 FLAC → 16 FLAC → 320 MP3 → ...) with provider-aware routing |
-| **MELODY_ID tagging** | Unique ID embedded in file metadata so the library can always identify tracks |
-| **Library Scanner** | Scans tag metadata (not filenames) to keep database paths current after moves/renames; cron-based scheduling |
-| **Playlist Sync** | Create M3U files or sync playlists to Jellyfin; path remapping and extension remapping for containerized setups |
-| **Source Accounts** | Manage playlist sources (YouTube, Spotify, etc.) with auto-sync scheduling |
-| **Sync Jobs** | Configurable sync jobs with search locations, output targets (M3U, Jellyfin), and scheduling |
-| **Media Server Sync** | Jellyfin plugin included; extensible for other media servers via `IMediaServerSync` |
-| **Path Remapping** | Rewrite paths and extensions for containerized or converted libraries |
-| **Docker-first** | Designed to run in Docker with yt-dlp + ffmpeg pre-installed; Photino desktop build also available |
-| **Blazor UI** | Full web-based management UI (Accounts, Downloads, Library, Settings, Sync Jobs) |
-
----
-
-## Quick Start with Docker
-
-```bash
-docker compose up -d
-```
-
-Or build manually:
-
-```bash
-docker build -t melodybridge:latest -f Dockerfile .
-docker run -d \
-  -v ./data/music:/music \
-  -v ./data/playlists:/app/playlists \
-  -v ./data/keys:/root/.aspnet/DataProtection-Keys \
-  -p 3333:80 \
-  --name melodybridge melodybridge:latest
-```
-
-Open [http://localhost:3333](http://localhost:3333) and configure settings.
-
----
-
-## Project Structure
-
-```
-MelodyBridge.sln
-├── MelodyBridge.Core/              # Interfaces, contracts, enums, models
-├── MelodyBridge.Infrastructure/     # Implementations: downloaders, scanners, taggers, media servers
-├── MelodyBridge.Application/       # Orchestration: SyncEngine, DownloadManager, DI extensions
-├── MelodyBridge.Server/            # ASP.NET Blazor web UI + REST API controllers
-├── MelodyBridge.Desktop/           # Optional Photino desktop wrapper
-├── MelodyBridge.UI.Components/     # Shared Blazor components
-└── MelodyBridge.Tests/             # NUnit test suite (231+ tests)
-    ├── Core/                       # Model, enum, mapping tests
-    ├── Infrastructure/             # Scanner, tagger, M3U, Python runner, DB context tests
-    ├── Services/                   # SyncEngine, DownloadManager, registry tests
-    ├── Providers/                  # Music provider (Lucida, SquidWtf, etc.) tests
-    └── Server/                     # ASP.NET controller tests
-```
+- **yt-dlp** — YouTube and generic URL downloads
+- **Plugin providers** — Qobuz, Tidal, SoundCloud, Amazon Music (Lucida, SquidWtf, etc.)
+- **Quality waterfall** — falls through 24 FLAC → 16 FLAC → 320 MP3 → ... per provider capabilities
+- **MELODY_ID tagging** — unique ID embedded in file metadata survives moves/renames
+- **Library scanner** — reads tags (not filenames), keeps DB paths current; cron scheduling
+- **Playlist sync** — M3U generation with path/extension remapping; Jellyfin push via plugin
+- **Source accounts** — YouTube/Spotify playlist sources with auto-sync scheduling
+- **Sync jobs** — configurable pipelines (search → tag → playlist → media server)
+- **Blazor UI** — web dashboard (Accounts, Downloads, Library, Settings, Sync Jobs)
+- **REST API** — all operations exposed via HTTP controllers
 
 ---
 
 ## Documentation
 
-| Document | Description |
-|---|---|
-| [docs/index.md](docs/index.md) | Full documentation landing page |
-| [docs/docker.md](docs/docker.md) | Docker deployment guide with compose examples |
-| [docs/developer.md](docs/developer.md) | Plugin interfaces, architecture, and testing guide |
-| [docs/photino.md](docs/photino.md) | Photino desktop build instructions |
+| Link | What |
+|------|------|
+| [docs/index.md](docs/index.md) | Full documentation hub |
+| [docs/docker.md](docs/docker.md) | Compose reference, env vars, volumes |
+| [docs/photino.md](docs/photino.md) | Desktop build & distribution |
+| [docs/developer.md](docs/developer.md) | Plugin interfaces, architecture |
 
----
-
-## Testing
-
-The project has **231 unit tests** covering all layers. Run them with:
+### Preview Docs Locally
 
 ```bash
-dotnet test MelodyBridge.Tests/MelodyBridge.Tests.csproj
+npm install
+npm run docs:dev
+# opens http://localhost:5173
 ```
 
-Tests use NUnit 4 + Moq + EF Core InMemory. See [docs/developer.md](docs/developer.md#testing) for the testing guide.
-
----
-
-## Contributing
-
-Contributions are welcome. See [docs/developer.md](docs/developer.md) for plugin guidelines, architecture notes, and the testing guide.
+Requires Node.js 18+. Uses [VitePress](https://vitepress.dev).
 
 ---
 
 ## License
 
-This project is currently unlicensed in the repository. Add a license file before distributing binaries.
+AGPL v3. See [LICENSE](LICENSE).

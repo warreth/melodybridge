@@ -22,6 +22,16 @@ Optional manual build steps for the Photino desktop wrapper around the Blazor UI
 - [docker-compose.yml](../docker-compose.yml) — Compose with dev defaults
 - [MelodyBridge.Tests](../MelodyBridge.Tests/) — NUnit test suite
 
+## Preview Docs Locally
+
+```bash
+npm install
+npm run docs:dev
+# opens http://localhost:5173
+```
+
+Requires Node.js 18+. Uses [VitePress](https://vitepress.dev).
+
 ## Project Layering
 
 ```mermaid
