@@ -1,0 +1,29 @@
+version: "3.8"
+
+services:
+  melodybridge:
+    build: .
+    image: melodybridge:local
+    container_name: melodybridge_local
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "3333:80"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_DETAILEDERRORS=true
+      - ASPNETCORE_URLS=http://+:80
+      - Logging__LogLevel__Default=Information
+      - Logging__LogLevel__Microsoft=Debug
+      - Logging__LogLevel__System=Debug
+      - Logging__LogLevel__Microsoft_AspNetCore_SignalR=Debug
+      - Logging__LogLevel__Microsoft_AspNetCore_Components=Debug
+      - Logging__LogLevel__Microsoft_AspNetCore_Components_Server_Circuits=Debug
+      # Default Jellyfin base URL (override in env or compose override)
+      - Jellyfin__BaseUrl=http://host.docker.internal:8096
+      - Jellyfin__ApiKey=
+    volumes:
+      - ./data/keys:/root/.aspnet/DataProtection-Keys
+      - ./data/music:/music
+      - ./data/playlists:/app/playlists
+    restart: unless-stopped

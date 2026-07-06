@@ -13,6 +13,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MelodyBridge.UI.Components"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MelodyBridge.Server", "MelodyBridge.Server\MelodyBridge.Server.csproj", "{41655112-7FE0-49FE-A709-C3F25D243D23}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MelodyBridge.Desktop", "MelodyBridge.Desktop\MelodyBridge.Desktop.csproj", "{905E4422-5A61-421C-836B-DDD49ADD3CC6}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -83,6 +85,18 @@ Global
 		{41655112-7FE0-49FE-A709-C3F25D243D23}.Release|x64.Build.0 = Release|Any CPU
 		{41655112-7FE0-49FE-A709-C3F25D243D23}.Release|x86.ActiveCfg = Release|Any CPU
 		{41655112-7FE0-49FE-A709-C3F25D243D23}.Release|x86.Build.0 = Release|Any CPU
+		{905E4422-5A61-421C-836B-DDD49ADD3CC6}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{905E4422-5A61-421C-836B-DDD49ADD3CC6}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{905E4422-5A61-421C-836B-DDD49ADD3CC6}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{905E4422-5A61-421C-836B-DDD49ADD3CC6}.Debug|x64.Build.0 = Debug|Any CPU
+		{905E4422-5A61-421C-836B-DDD49ADD3CC6}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{905E4422-5A61-421C-836B-DDD49ADD3CC6}.Debug|x86.Build.0 = Debug|Any CPU
+		{905E4422-5A61-421C-836B-DDD49ADD3CC6}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{905E4422-5A61-421C-836B-DDD49ADD3CC6}.Release|Any CPU.Build.0 = Release|Any CPU
+		{905E4422-5A61-421C-836B-DDD49ADD3CC6}.Release|x64.ActiveCfg = Release|Any CPU
+		{905E4422-5A61-421C-836B-DDD49ADD3CC6}.Release|x64.Build.0 = Release|Any CPU
+		{905E4422-5A61-421C-836B-DDD49ADD3CC6}.Release|x86.ActiveCfg = Release|Any CPU
+		{905E4422-5A61-421C-836B-DDD49ADD3CC6}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
