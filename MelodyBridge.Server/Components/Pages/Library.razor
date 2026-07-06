@@ -1,0 +1,30 @@
+@page "/library"
+
+<PageTitle>Library</PageTitle>
+
+<section class="page-title">
+    <div>
+        <span class="eyebrow">Detective</span>
+        <h1>Library scanner</h1>
+        <p>Scan local music folders, read MELODY_ID tags and prepare tracks for playlist matching.</p>
+    </div>
+    <button class="btn-modern primary">Run scan</button>
+</section>
+
+<section class="content-grid two">
+    <div class="panel-card">
+        <div class="panel-header"><div><span class="eyebrow">Scan locations</span><h2>Folders</h2></div></div>
+        <div class="path-list">
+            <div><strong>/music</strong><small>Docker volume mounted from <code>./data/music</code></small></div>
+            <div><strong>/app/playlists</strong><small>Generated M3U output folder</small></div>
+        </div>
+    </div>
+    <div class="panel-card">
+        <div class="panel-header"><div><span class="eyebrow">Metadata</span><h2>Tag strategy</h2></div></div>
+        <div class="health-list">
+            <div><span class="status-dot online"></span><strong>MELODY_ID</strong><small>ID3v2 TXXX frame</small></div>
+            <div><span class="status-dot online"></span><strong>Fallback</strong><small>Comment-based marker</small></div>
+            <div><span class="status-dot warning"></span><strong>Missing IDs</strong><small>Resolver reports unresolved tracks</small></div>
+        </div>
+    </div>
+</section>

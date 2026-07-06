@@ -1,0 +1,35 @@
+@page "/"
+@namespace MelodyBridge.Server.Pages
+@addTagHelper *, Microsoft.AspNetCore.Mvc.TagHelpers
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <base href="/" />
+    <script>
+        (() => {
+            const saved = localStorage.getItem('melodybridge-theme');
+            const prefersLight = window.matchMedia?.('(prefers-color-scheme: light)').matches;
+            document.documentElement.dataset.theme = saved || (prefersLight ? 'light' : 'dark');
+        })();
+    </script>
+    <link href="/app.css" rel="stylesheet" />
+    <title>MelodyBridge</title>
+    <component type="typeof(Microsoft.AspNetCore.Components.Web.HeadOutlet)" render-mode="ServerPrerendered" />
+</head>
+<body>
+    <component type="typeof(MelodyBridge.Server.Components.App)" render-mode="ServerPrerendered" />
+    <script>
+        window.melodyBridgeTheme = {
+            toggle() {
+                const current = document.documentElement.dataset.theme === 'light' ? 'light' : 'dark';
+                const next = current === 'light' ? 'dark' : 'light';
+                document.documentElement.dataset.theme = next;
+                localStorage.setItem('melodybridge-theme', next);
+            }
+        };
+    </script>
+    <script src="/_framework/blazor.server.js"></script>
+</body>
+</html>

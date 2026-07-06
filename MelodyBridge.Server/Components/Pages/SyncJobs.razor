@@ -1,0 +1,160 @@
+@page "/sync-jobs"
+@using System.Net.Http.Json
+@inject HttpClient Http
+
+<PageTitle>Sync Jobs</PageTitle>
+
+<section class="page-title">
+    <div>
+        <span class="eyebrow">Automation</span>
+        <h1>Sync jobs</h1>
+        <p>Create a playlist sync, resolve tracks, publish to Jellyfin and inspect unresolved files.</p>
+    </div>
+    <button class="btn-modern primary" @onclick="RunSync" disabled="@running">@(running ? "Running..." : "Run sync")</button>
+</section>
+
+<section class="content-grid two">
+    <div class="panel-card">
+        <div class="panel-header">
+            <div>
+                <span class="eyebrow">Job builder</span>
+                <h2>Playlist settings</h2>
+            </div>
+        </div>
+        <div class="form-grid single">
+            <label>
+                Job / playlist name
+                <input @bind="playlistName" />
+            </label>
+            <label>
+                Track file path known by MelodyBridge
+                <input @bind="trackPath" />
+            </label>
+            <label>
+                Title
+                <input @bind="trackTitle" />
+            </label>
+            <label>
+                Artist
+                <input @bind="trackArtist" />
+            </label>
+            <label>
+                Server plugin
+                <select @bind="serverName">
+                    <option>Jellyfin</option>
+                </select>
+            </label>
+        </div>
+    </div>
+
+    <div class="panel-card">
+        <div class="panel-header">
+            <div>
+                <span class="eyebrow">Path mapping</span>
+                <h2>Container → Jellyfin</h2>
+            </div>
+        </div>
+        <div class="form-grid single">
+            <label>
+                MelodyBridge/container prefix
+                <input @bind="fromPrefix" placeholder="/music" />
+            </label>
+            <label>
+                Jellyfin-visible prefix
+                <input @bind="toPrefix" placeholder="/media/music" />
+            </label>
+            <label>
+                M3U output path
+                <input @bind="outputPath" />
+            </label>
+        </div>
+        <div class="hint-box">Use this when Jellyfin sees your files under a different path than the container.</div>
+    </div>
+</section>
+
+<section class="panel-card">
+    <div class="panel-header">
+        <div>
+            <span class="eyebrow">Result</span>
+            <h2>Last run report</h2>
+        </div>
+        @if (lastStatus != null)
+        {
+            <span class="pill @(lastOk ? "ok" : "warn")">@lastStatus</span>
+        }
+    </div>
+
+    @if (string.IsNullOrWhiteSpace(resultMessage))
+    {
+        <div class="empty-state">No run yet. Configure the job and press <strong>Run sync</strong>.</div>
+    }
+    else
+    {
+        <pre class="result-box">@resultMessage</pre>
+    }
+</section>
+
+@code {
+    private string playlistName = "Test Playlist";
+    private string trackPath = "/music/sample.mp3";
+    private string trackTitle = "Sample";
+    private string trackArtist = "Artist";
+    private string serverName = "Jellyfin";
+    private string fromPrefix = "/music";
+    private string toPrefix = "/music";
+    private string outputPath = "/app/playlists/test.m3u";
+    private string? resultMessage;
+    private string? lastStatus;
+    private bool lastOk;
+    private bool running;
+
+    private async Task RunSync()
+    {
+        running = true;
+        lastStatus = null;
+        resultMessage = null;
+
+        var remap = new Dictionary<string, string>();
+        if (!string.IsNullOrWhiteSpace(fromPrefix) && !string.IsNullOrWhiteSpace(toPrefix))
+        {
+            remap[fromPrefix] = toPrefix;
+        }
+
+        var req = new
+        {
+            Playlist = new
+            {
+                Name = playlistName,
+                Tracks = new[]
+                {
+                    new
+                    {
+                        Title = trackTitle,
+                        Artist = trackArtist,
+                        CurrentTrackLocation = new { Path = trackPath }
+                    }
+                }
+            },
+            ServerName = serverName,
+            Options = new { OutputPath = outputPath, UseRelativePaths = false, PathRemap = remap }
+        };
+
+        try
+        {
+            var resp = await Http.PostAsJsonAsync("api/sync/run", req);
+            resultMessage = await resp.Content.ReadAsStringAsync();
+            lastOk = resp.IsSuccessStatusCode;
+            lastStatus = resp.IsSuccessStatusCode ? "Completed" : $"Failed ({(int)resp.StatusCode})";
+        }
+        catch (Exception ex)
+        {
+            lastOk = false;
+            lastStatus = "Failed";
+            resultMessage = ex.ToString();
+        }
+        finally
+        {
+            running = false;
+        }
+    }
+}

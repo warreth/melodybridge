@@ -1,0 +1,116 @@
+@page "/settings"
+@using MelodyBridge.Core
+@inject IMusicProviderRegistry ProviderRegistry
+@implements IDisposable
+
+<PageTitle>Settings</PageTitle>
+
+<section class="page-title">
+    <div>
+        <span class="eyebrow">Configuration</span>
+        <h1>Settings</h1>
+        <p>Manage Jellyfin, paths, output behaviour and download providers.</p>
+    </div>
+    <button class="btn-modern primary" @onclick="SavePreview">Save settings</button>
+</section>
+
+<section class="content-grid two">
+    <div class="panel-card">
+        <div class="panel-header"><div><span class="eyebrow">Media server</span><h2>Jellyfin</h2></div></div>
+        <div class="form-grid single">
+            <label>Base URL <input @bind="jellyfinUrl" /></label>
+            <label>API key <input @bind="jellyfinApiKey" type="password" /></label>
+            <label>Default user ID <input @bind="jellyfinUserId" placeholder="optional" /></label>
+        </div>
+        <div class="hint-box">Docker default uses <code>http://host.docker.internal:8096</code>. Make sure Jellyfin is reachable from the container.</div>
+    </div>
+
+    <div class="panel-card">
+        <div class="panel-header"><div><span class="eyebrow">Library</span><h2>Paths</h2></div></div>
+        <div class="form-grid single">
+            <label>Container music path <input @bind="musicPath" /></label>
+            <label>Playlist output folder <input @bind="playlistPath" /></label>
+            <label>DataProtection keys <input @bind="keysPath" /></label>
+        </div>
+    </div>
+</section>
+
+<section class="panel-card">
+    <div class="panel-header">
+        <div>
+            <span class="eyebrow">Plugins</span>
+            <h2>Music providers</h2>
+        </div>
+    </div>
+    <p class="panel-description">Enable or disable download provider plugins. Disabled providers won't be used for searches or downloads.</p>
+    <div class="provider-list">
+        <div class="provider-row builtin">
+            <span class="provider-icon">🎬</span>
+            <div class="provider-info">
+                <strong>yt-dlp</strong>
+                <small>YouTube and generic URL media downloads (built-in)</small>
+            </div>
+            <span class="pill ok">Built-in</span>
+        </div>
+        @foreach (var provider in ProviderRegistry.GetAllProviders())
+        {
+            var enabled = ProviderRegistry.IsProviderEnabled(provider.Id);
+            <div class="provider-row @(enabled ? "enabled" : "disabled")">
+                <span class="provider-icon">@provider.Icon</span>
+                <div class="provider-info">
+                    <strong>@provider.Name</strong>
+                    <small>@provider.Description</small>
+                    <div class="provider-tags">
+                        @foreach (var platform in provider.SupportedPlatforms)
+                        {
+                            <span class="pill outline small">@platform</span>
+                        }
+                    </div>
+                </div>
+                <label class="toggle-switch">
+                    <input type="checkbox" checked="@enabled"
+                           @onchange="e => ToggleProvider(provider.Id, (bool)(e.Value ?? false))" />
+                    <span class="toggle-slider"></span>
+                </label>
+            </div>
+        }
+        <div class="provider-row builtin">
+            <span class="provider-icon">📂</span>
+            <div class="provider-info">
+                <strong>Manual import</strong>
+                <small>Use existing files from scan locations</small>
+            </div>
+            <span class="pill ok">Built-in</span>
+        </div>
+    </div>
+</section>
+
+@if (!string.IsNullOrWhiteSpace(savedMessage))
+{
+    <div class="toast-preview">@savedMessage</div>
+}
+
+@code {
+    private string jellyfinUrl = "http://host.docker.internal:8096";
+    private string jellyfinApiKey = "";
+    private string jellyfinUserId = "";
+    private string musicPath = "/music";
+    private string playlistPath = "/app/playlists";
+    private string keysPath = "/root/.aspnet/DataProtection-Keys";
+    private string? savedMessage;
+
+    protected override void OnInitialized()
+    {
+        // Subscribe to state changes (simplified: just re-render on toggle)
+    }
+
+    private async Task ToggleProvider(string id, bool enabled)
+    {
+        await ProviderRegistry.SetProviderEnabledAsync(id, enabled);
+        savedMessage = $"{id} {(enabled ? "enabled" : "disabled")}";
+    }
+
+    private void SavePreview() => savedMessage = "Settings saved.";
+
+    public void Dispose() { }
+}

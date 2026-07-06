@@ -1,0 +1,21 @@
+@page "/dashboard"
+@inject MelodyBridge.Infrastructure.Scanning.LibraryScanner Scanner
+@inject MelodyBridge.Application.Services.DownloadManager Downloader
+@inject MelodyBridge.Application.Services.SyncEngine SyncEngine
+
+<h3>MelodyBridge Dashboard</h3>
+
+<button class="btn btn-primary" @onclick="RunScan">Run Library Scan</button>
+<button class="btn btn-secondary" @onclick="RunSampleDownload">Download Sample (YouTube)</button>
+
+@code {
+    private async Task RunScan()
+    {
+        await Scanner.ScanAsync(new[] { new MelodyBridge.Core.ScanLocation("./") });
+    }
+
+    private async Task RunSampleDownload()
+    {
+        await Downloader.DownloadAsync("https://www.youtube.com/watch?v=dQw4w9WgXcQ", "./downloads", Guid.NewGuid().ToString());
+    }
+}

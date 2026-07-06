@@ -1,0 +1,56 @@
+@page "/downloads"
+@using MelodyBridge.Core
+@inject IMusicProviderRegistry ProviderRegistry
+
+<PageTitle>Downloads</PageTitle>
+
+<section class="page-title">
+    <div>
+        <span class="eyebrow">Retriever</span>
+        <h1>Download manager</h1>
+        <p>Queue downloads, choose provider priority and tag files with MELODY_ID for future scans.</p>
+    </div>
+    <button class="btn-modern primary">New download</button>
+</section>
+
+<section class="content-grid three">
+    <div class="panel-card">
+        <span class="stat-icon">🎬</span>
+        <h2>yt-dlp</h2>
+        <p>Handles YouTube and generic URL media downloads.</p>
+        <span class="pill ok">Built-in</span>
+    </div>
+    @foreach (var provider in ProviderRegistry.GetAllProviders())
+    {
+        var enabled = ProviderRegistry.IsProviderEnabled(provider.Id);
+        <div class="panel-card">
+            <span class="stat-icon">@provider.Icon</span>
+            <h2>@provider.Name</h2>
+            <p>@provider.Description</p>
+            <div class="provider-platforms">
+                @foreach (var platform in provider.SupportedPlatforms.Take(3))
+                {
+                    <span class="pill outline">@platform</span>
+                }
+                @if (provider.SupportedPlatforms.Count > 3)
+                {
+                    <span class="pill outline">+@(provider.SupportedPlatforms.Count - 3)</span>
+                }
+            </div>
+            <span class="pill @(enabled ? "ok" : "neutral")">
+                @(enabled ? "Enabled" : "Disabled")
+            </span>
+        </div>
+    }
+    <div class="panel-card">
+        <span class="stat-icon">🏷️</span>
+        <h2>Tagging</h2>
+        <p>Downloaded files are tagged with MELODY_ID for stable matching.</p>
+        <span class="pill ok">Ready</span>
+    </div>
+</section>
+
+<section class="panel-card">
+    <div class="panel-header"><div><span class="eyebrow">Queue</span><h2>Download queue</h2></div></div>
+    <div class="empty-state">No active downloads. Add a source account or create a job to queue tracks.</div>
+</section>

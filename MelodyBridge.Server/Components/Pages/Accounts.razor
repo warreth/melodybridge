@@ -1,0 +1,83 @@
+@page "/accounts"
+
+<PageTitle>Accounts</PageTitle>
+
+<section class="page-title">
+    <div>
+        <span class="eyebrow">Connections</span>
+        <h1>Accounts & providers</h1>
+        <p>Add playlist sources, download providers and media servers. These cards are ready for persistence wiring.</p>
+    </div>
+    <button class="btn-modern primary">Add account</button>
+</section>
+
+<section class="content-grid three">
+    @foreach (var account in accounts)
+    {
+        <div class="panel-card account-card">
+            <div class="provider-icon">@account.Icon</div>
+            <div>
+                <h2>@account.Name</h2>
+                <p>@account.Description</p>
+            </div>
+            <div class="account-meta">
+                <span class="pill @account.StateClass">@account.State</span>
+                <button class="btn-modern ghost">Configure</button>
+            </div>
+        </div>
+    }
+</section>
+
+<section class="panel-card">
+    <div class="panel-header">
+        <div>
+            <span class="eyebrow">Add new</span>
+            <h2>Connect a service</h2>
+        </div>
+    </div>
+    <div class="form-grid">
+        <label>
+            Provider
+            <select @bind="newProvider">
+                <option>YouTube</option>
+                <option>Spotify</option>
+                <option>Jellyfin</option>
+                <option>Manual playlist URL</option>
+            </select>
+        </label>
+        <label>
+            Display name
+            <input @bind="newName" placeholder="My music account" />
+        </label>
+        <label class="wide">
+            API key / token / URL
+            <input @bind="newSecret" placeholder="Paste token, URL or leave empty for later" />
+        </label>
+    </div>
+    <button class="btn-modern primary" @onclick="AddLocalAccount">Save locally (UI preview)</button>
+</section>
+
+@code {
+    private string newProvider = "YouTube";
+    private string newName = "";
+    private string newSecret = "";
+
+    private readonly List<AccountVm> accounts = new()
+    {
+        new("🎬", "YouTube", "Download and resolve tracks through yt-dlp.", "Configured", "ok"),
+        new("🪼", "Jellyfin", "Publish resolved playlists to your media server.", "Needs API key", "warn"),
+        new("�", "Squid.wtf", "Qobuz/Tidal/etc. download via squid.wtf.", "Plugin", "ok"),
+        new("🔮", "Lucida.to", "Multi-service download via lucida.to.", "Plugin", "ok"),
+        new("🎵", "Monochrome (TIDAL)", "TIDAL Hi-Res FLAC via TIDAL API.", "Plugin", "ok"),
+        new("🔁", "DoubleDouble", "Multi-service via doubledouble.top.", "Plugin", "neutral")
+    };
+
+    private void AddLocalAccount()
+    {
+        accounts.Add(new AccountVm("🔌", string.IsNullOrWhiteSpace(newName) ? newProvider : newName, newSecret.Length > 0 ? "Credential provided for later persistence." : "Created without credentials.", "Local draft", "neutral"));
+        newName = string.Empty;
+        newSecret = string.Empty;
+    }
+
+    private record AccountVm(string Icon, string Name, string Description, string State, string StateClass);
+}
