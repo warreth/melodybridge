@@ -10,50 +10,48 @@ public interface IDownloaderPlugin
     Track DownloadTrack(SongID songID, TrackQuality quality); //Download a track with specified quality
 }
 
-public static class SoundQualities
+/// <summary>
+/// Static helpers that return supported qualities for various sources.
+/// </summary>
+public static class ProviderQualities
 {
-    // Returns the list of supported Qobuz qualities
-    public static List<TrackQuality> GetSquidwtfQualities()
+    public static List<TrackQuality> SquidWtf => new()
     {
-        return new List<TrackQuality>
-        {
-            new TrackQuality(320, MediaType.AAC), //Tidal
-            new TrackQuality(320, MediaType.OPUS), //Amazon Music
-            new TrackQuality(320, MediaType.MP3), //Soundcloud or Qobuz
-            new TrackQuality(24, MediaType.FLAC), //Tidal 192kHz/24bit
-            new TrackQuality(24, MediaType.FLAC), //AmazonMusic
-            new TrackQuality(24, MediaType.FLAC) //Qobuz
-        };
-    }
-    public static List<TrackQuality> GetDabmusicxyzQualities()
-    {
-        return new List<TrackQuality>
-        {
-            new TrackQuality(16, MediaType.FLAC),
-            new TrackQuality(24, MediaType.FLAC), //Not always, but highest available
-        };
-    }
-    public static List<TrackQuality> GetJumodlQualities()
-    {
-        return new List<TrackQuality>
-        {
-            new TrackQuality(320, MediaType.MP3),
-            new TrackQuality(16, MediaType.FLAC),
-            new TrackQuality(24, MediaType.FLAC), //Not always, but highest available
-        };
-    }
-    public static List<TrackQuality> GetStreamripQualities()
-    {
-        return new List<TrackQuality>
-        {
-            new TrackQuality(128, MediaType.MP3), //0
-            new TrackQuality(320, MediaType.FLAC), //1
-            new TrackQuality(16, MediaType.FLAC), //2
-            new TrackQuality(24, MediaType.FLAC), //3
-            //I dont include 192kHz cuz nobody uses it 
-        };
-    }
+        new(320, MediaType.AAC),   // Tidal
+        new(320, MediaType.OPUS),  // Amazon Music
+        new(320, MediaType.MP3),   // SoundCloud / Qobuz
+        new(24, MediaType.FLAC),   // Tidal / Amazon / Qobuz Hi-Res
+    };
 
+    public static List<TrackQuality> Lucida => new()
+    {
+        new(128, MediaType.MP3),
+        new(320, MediaType.MP3),
+        new(16, MediaType.FLAC),
+        new(24, MediaType.FLAC),
+    };
+
+    public static List<TrackQuality> DoubleDouble => new()
+    {
+        new(320, MediaType.MP3),
+        new(16, MediaType.FLAC),
+        new(24, MediaType.FLAC),
+    };
+
+    public static List<TrackQuality> Monochrome => new()
+    {
+        new(320, MediaType.AAC),
+        new(16, MediaType.FLAC),
+        new(24, MediaType.FLAC),
+    };
+
+    public static List<TrackQuality> YouTubeDlp => new()
+    {
+        new(128, MediaType.MP3),
+        new(192, MediaType.MP3),
+        new(320, MediaType.MP3),
+        new(256, MediaType.AAC),
+    };
 }
 
 /// <summary>

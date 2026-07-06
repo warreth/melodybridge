@@ -4,28 +4,28 @@
 
 public class Track
 {
-    public string? Title;
-    public string? Artist;
-    public SongID? SongID; //The ISRC song ID
-    public SongID? PlatformSongID; //Like the qobuz ID for squid.wtf downloads
-    public TrackQuality? Quality;
-    public Platform SourcePlatform;
-    public SyncStatus SyncStatus;
-    public MediaType MediaType;
-    public FileLocation? CurrentTrackLocation;
+    public string? Title { get; set; }
+    public string? Artist { get; set; }
+    public SongID? SongID { get; set; } //The ISRC song ID
+    public SongID? PlatformSongID { get; set; } //Like the qobuz ID for squid.wtf downloads
+    public TrackQuality? Quality { get; set; }
+    public Platform SourcePlatform { get; set; }
+    public SyncStatus SyncStatus { get; set; }
+    public MediaType MediaType { get; set; }
+    public FileLocation? CurrentTrackLocation { get; set; }
 }
 
 public class Playlist
 {
-    public string? Name;
-    public List<Track>? Tracks; //TODO: Implement in sql
+    public string? Name { get; set; }
+    public List<Track>? Tracks { get; set; } //TODO: Implement in sql
 }
 
 public class SyncPlaylistJob
 {
-    public Playlist? PlaylistToSync;
-    public SyncStatus Status;
-    public DownloadLocation? DownloadLocation;
+    public Playlist? PlaylistToSync { get; set; }
+    public SyncStatus Status { get; set; }
+    public DownloadLocation? DownloadLocation { get; set; }
 
 }
 

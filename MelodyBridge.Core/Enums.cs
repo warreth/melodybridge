@@ -12,20 +12,15 @@ public enum Platform
     Soundcloud,
     Deezer,
     Unknown,
-    Zero, //for streamrip quality 0
-    One,
-    Two,
-    Three
 }
 
 public enum DownloadSource
 {
     ytdlp,
     squidwtf,
-    dabmusicxyz,
-    jumodl,
-    hifiapi,
-    streamrip
+    lucida,
+    doubledouble,
+    monochrome,
 }
 
 public enum SyncStatus
