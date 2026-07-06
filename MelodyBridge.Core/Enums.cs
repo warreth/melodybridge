@@ -1,6 +1,5 @@
 namespace MelodyBridge.Core;
-// Contains enums
-// Used by other projects
+
 public enum Platform
 {
     Spotify,
@@ -29,6 +28,23 @@ public enum SyncStatus
     InProgress,
     Completed,
     Failed
+}
+
+public enum SyncJobSchedule
+{
+    Manual,
+    Hourly,
+    Daily,
+    Weekly,
+    Monthly,
+    Cron
+}
+
+public enum OutputTargetType
+{
+    M3uFile,
+    JellyfinApi,
+    PlexApi
 }
 
 public enum MediaType

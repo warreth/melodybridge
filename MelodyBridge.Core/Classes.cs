@@ -1,13 +1,11 @@
 ﻿namespace MelodyBridge.Core;
-// Contains models, interfaces
-// Used by other projects
 
 public class Track
 {
     public string? Title { get; set; }
     public string? Artist { get; set; }
-    public SongID? SongID { get; set; } //The ISRC song ID
-    public SongID? PlatformSongID { get; set; } //Like the qobuz ID for squid.wtf downloads
+    public SongID? SongID { get; set; }
+    public SongID? PlatformSongID { get; set; }
     public TrackQuality? Quality { get; set; }
     public Platform SourcePlatform { get; set; }
     public SyncStatus SyncStatus { get; set; }
@@ -18,7 +16,7 @@ public class Track
 public class Playlist
 {
     public string? Name { get; set; }
-    public List<Track>? Tracks { get; set; } //TODO: Implement in sql
+    public List<Track>? Tracks { get; set; }
 }
 
 public class SyncPlaylistJob
@@ -26,12 +24,52 @@ public class SyncPlaylistJob
     public Playlist? PlaylistToSync { get; set; }
     public SyncStatus Status { get; set; }
     public DownloadLocation? DownloadLocation { get; set; }
+}
 
+public class MusicSource
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString();
+    public string Name { get; set; } = string.Empty;
+    public Platform Platform { get; set; } = Platform.YouTubeMusic;
+    public string SourceUrl { get; set; } = string.Empty;
+    public string? TargetDirectory { get; set; }
+    public bool AutoSyncEnabled { get; set; }
+    public int? AutoSyncIntervalMinutes { get; set; }
+    public DateTime? LastSyncAt { get; set; }
+    public SyncStatus Status { get; set; }
+}
+
+public class SyncJob
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString();
+    public string Name { get; set; } = string.Empty;
+    public string? SourceId { get; set; }
+    public List<string> SearchLocationPaths { get; set; } = new();
+    public OutputTargetType OutputTarget { get; set; } = OutputTargetType.M3uFile;
+    public string? JellyfinServerUrl { get; set; }
+    public string? JellyfinApiKey { get; set; }
+    public string? JellyfinUserId { get; set; }
+    public string? M3uOutputPath { get; set; }
+    public Dictionary<string, string> PathRemapRules { get; set; } = new();
+    public Dictionary<string, string> ExtensionRemapRules { get; set; } = new();
+    public SyncJobSchedule Schedule { get; set; } = SyncJobSchedule.Manual;
+    public string? CronExpression { get; set; }
+    public SyncStatus LastRunStatus { get; set; }
+    public DateTime? LastRunAt { get; set; }
+    public string? LastRunSummary { get; set; }
+}
+
+public class DownloaderConfig
+{
+    public string ProviderId { get; set; } = string.Empty;
+    public int Priority { get; set; }
+    public bool IsEnabled { get; set; } = true;
+    public Dictionary<string, string> Settings { get; set; } = new();
 }
 
 public record SongID(Platform Platform, string ID);
 public record TrackQuality(int Bitrate, MediaType Format);
-
-public record ScanLocation(string Path); //Path to scan for media files
-public record DownloadLocation(string Path); //Path to save downloaded files
-public record FileLocation(string Path); //Path to the file on disk
+public record ScanLocation(string Path);
+public record DownloadLocation(string Path);
+public record FileLocation(string Path);
+public record SyncJobRunLog(DateTime Timestamp, SyncStatus Status, string Message, int ResolvedTracks, int TotalTracks);
