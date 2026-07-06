@@ -14,10 +14,12 @@ builder.Services.AddScoped(sp => new HttpClient
 });
 
 // Register DB context (SQLite file in approot)
-builder.Services.AddDbContext<MelodyBridgeDbContext>(options =>
-    options.UseSqlite("Data Source=melodybridge.db"));
+// Uses AddDbContextFactory (singleton) to avoid lifetime conflicts,
+// plus a scoped factory delegate for services that inject MelodyBridgeDbContext directly.
 builder.Services.AddDbContextFactory<MelodyBridgeDbContext>(options =>
     options.UseSqlite("Data Source=melodybridge.db"));
+builder.Services.AddScoped<MelodyBridgeDbContext>(sp =>
+    sp.GetRequiredService<IDbContextFactory<MelodyBridgeDbContext>>().CreateDbContext());
 
 // Register all MelodyBridge services
 builder.Services.AddMelodyBridge();
