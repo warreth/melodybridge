@@ -1,5 +1,6 @@
 using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.Data;
+using MelodyBridge.Infrastructure.Tagging;
 using TagLib;
 using Microsoft.Extensions.Logging;
 using Microsoft.EntityFrameworkCore;
@@ -17,7 +18,7 @@ public class LibraryScanner : ILibraryScanner
         _logger = logger;
     }
 
-    public async Task ScanAsync(IEnumerable<ScanLocation> paths, CancellationToken cancellationToken = default)
+    public async Task ScanAsync(IEnumerable<ScanLocation> paths, CancellationToken ct = default)
     {
         var extensions = new[] { ".mp3", ".flac", ".ogg", ".opus", ".m4a", ".wav", ".webm" };
 
@@ -35,37 +36,57 @@ public class LibraryScanner : ILibraryScanner
 
             foreach (var filePath in files)
             {
-                cancellationToken.ThrowIfCancellationRequested();
+                ct.ThrowIfCancellationRequested();
                 try
                 {
-                    var id = MelodyBridge.Infrastructure.Tagging.TaglibHelper.ReadMelodyId(filePath);
+                    var id = TaglibHelper.ReadMelodyId(filePath);
                     if (string.IsNullOrWhiteSpace(id))
-                    {
-                        // Try reading custom TXXX or other tags if present (not implemented yet)
                         continue;
-                    }
 
-                    var existing = await _db.Tracks.FirstOrDefaultAsync(t => t.MelodyId == id, cancellationToken);
+                    var existing = await _db.Tracks.FirstOrDefaultAsync(t => t.MelodyId == id, ct);
                     if (existing == null)
                     {
-                        var tf = TagLib.File.Create(filePath);
-                        var te = new TrackEntity
+                        try
                         {
-                            MelodyId = id,
-                            Title = tf.Tag.Title,
-                            Artist = tf.Tag.FirstPerformer,
-                            MediaType = Path.GetExtension(filePath),
-                            CurrentPath = filePath
-                        };
-                        _db.Tracks.Add(te);
+                            var tf = TagLib.File.Create(filePath);
+                            existing = new TrackEntity
+                            {
+                                MelodyId = id,
+                                Title = tf.Tag.Title,
+                                Artist = tf.Tag.FirstPerformer,
+                                Album = tf.Tag.Album,
+                                MediaType = Path.GetExtension(filePath).TrimStart('.'),
+                                CurrentPath = filePath,
+                                LastSeenAt = DateTime.UtcNow,
+                            };
+
+                            // Extract bitrate if available
+                            if (tf.Properties?.AudioBitrate > 0)
+                                existing.Bitrate = tf.Properties.AudioBitrate;
+
+                            _db.Tracks.Add(existing);
+                        }
+                        catch
+                        {
+                            // Add a minimal record even if tagging fails
+                            existing = new TrackEntity
+                            {
+                                MelodyId = id,
+                                CurrentPath = filePath,
+                                MediaType = Path.GetExtension(filePath).TrimStart('.'),
+                                LastSeenAt = DateTime.UtcNow,
+                            };
+                            _db.Tracks.Add(existing);
+                        }
                     }
                     else
                     {
                         existing.CurrentPath = filePath;
+                        existing.LastSeenAt = DateTime.UtcNow;
                         _db.Tracks.Update(existing);
                     }
 
-                    await _db.SaveChangesAsync(cancellationToken);
+                    await _db.SaveChangesAsync(ct);
                 }
                 catch (Exception ex)
                 {
@@ -73,16 +94,5 @@ public class LibraryScanner : ILibraryScanner
                 }
             }
         }
-    }
-
-    private string? ExtractMelodyId(string comment)
-    {
-        if (string.IsNullOrEmpty(comment)) return null;
-        var marker = "MELODY_ID=";
-        var idx = comment.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
-        if (idx < 0) return null;
-        var after = comment.Substring(idx + marker.Length).Trim();
-        var parts = after.Split(new[] { ' ', ';', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
-        return parts.Length > 0 ? parts[0] : after;
     }
 }
