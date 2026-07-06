@@ -22,6 +22,12 @@ Open [http://localhost:3333](http://localhost:3333).
 
 ---
 
+## Included Tools
+
+The Docker image includes `yt-dlp` and `ffmpeg` pre-installed for YouTube and generic URL media downloads. No additional installation steps are required.
+
+---
+
 ## Manual Docker Build
 
 ```bash

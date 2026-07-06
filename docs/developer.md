@@ -65,10 +65,48 @@ Implement this to sync playlists to a media server (e.g., Jellyfin). Place imple
 ```csharp
 public interface IMusicProvider
 {
+    string Name { get; }
+    string Id { get; }
+    string Icon { get; }
+    string Description { get; }
+    IReadOnlyCollection<string> SupportedPlatforms { get; }
     string ProviderName { get; }
     Task<Track?> SearchSingleAsync(string query, CancellationToken ct = default);
     Task<List<Track>> SearchAsync(string query, CancellationToken ct = default);
     Task<Track?> ResolveTrackAsync(string trackId, CancellationToken ct = default);
+    Task<TrackDownloadResult?> DownloadAsync(SongID songId, TrackQuality quality, string targetDir, IProgress<double>? progress = null, CancellationToken ct = default);
+}```
+
+### `IDownloadManager`
+
+```csharp
+public interface IDownloadManager
+{
+    Task<TrackDownloadResult?> DownloadTrackAsync(string url, QualityThresholdMode qualityMode = QualityThresholdMode.Best, string? targetDir = null, CancellationToken ct = default);
+}
+```
+
+### `IMusicSourceProvider`
+
+```csharp
+public interface IMusicSourceProvider
+{
+    Task<IReadOnlyList<SourceConfig>> GetSourcesAsync(CancellationToken ct = default);
+    Task<SourceConfig?> AddSourceAsync(string url, string name, string platform, string targetDir, bool autoSync, CancellationToken ct = default);
+    Task RemoveSourceAsync(string sourceId, CancellationToken ct = default);
+    Task SyncSourceAsync(string sourceId, CancellationToken ct = default);
+}
+```
+
+### `ISyncScheduler`
+
+```csharp
+public interface ISyncScheduler
+{
+    Task<IReadOnlyList<SyncJobConfig>> GetJobsAsync(CancellationToken ct = default);
+    Task<SyncJobConfig> CreateJobAsync(SyncJobConfig config, CancellationToken ct = default);
+    Task RunJobAsync(string jobId, CancellationToken ct = default);
+    Task DeleteJobAsync(string jobId, CancellationToken ct = default);
 }
 ```
 
@@ -78,6 +116,8 @@ public interface IMusicProvider
 - **`PlaylistOutputOptions`** — Output path, relative path toggle, path remap dictionary
 - **`MediaServerSyncReport`** — Result report returned after a sync operation
 - **`TrackEntity`**, **`PlaylistEntity`**, **`ProviderStateRow`** — EF Core entity classes for persistence
+- **`SourceEntity`**, **`ScanLocationEntity`**, **`SyncJobEntity`**, **`SyncJobRunEntity`** — New entities for source management and sync job tracking
+- **`DownloaderSettingEntity`** — Key-value settings storage with provider-specific JSON support
 
 ---
 
@@ -87,7 +127,12 @@ The `MelodyBridge.Application` project provides extension methods for registerin
 
 ### `AddMelodyBridge()`
 
-Registers core services: `DownloadManager`, `SyncEngine`, library scanner, M3U generator, and all infrastructure services.
+Registers core services: `DownloadManager`, `SyncEngine`, library scanner, M3U generator, and all infrastructure services including:
+- `MusicSourceManager` — manages playlist source accounts and auto-sync
+- `SyncJobRunner` — orchestrates sync jobs (search, tag, playlist output, media server sync)
+- `AutoSyncBackgroundService` — periodic auto-sync of source accounts
+- `ScanSchedulingBackgroundService` — scheduled library path scans
+- `YouTubeSourceProvider` — YouTube playlist source provider
 
 ### `AddJellyfinSync()`
 

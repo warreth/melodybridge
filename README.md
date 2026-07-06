@@ -10,12 +10,17 @@ A self-hosted music retrieval and playlist-sync system focused on keeping downlo
 
 | Feature | What it does |
 |---|---|
-| **Downloaders (pluggable)** | YouTube via yt-dlp by default; plugin architecture for Streamrip, Soulseek, Qobuz, Tidal, etc. |
+| **Downloaders (pluggable)** | YouTube via yt-dlp by default; plugin architecture for Qobuz, Tidal, SoundCloud, Amazon Music, etc. |
+| **Quality Waterfall** | Configurable quality fallback chain (24 FLAC → 16 FLAC → 320 MP3 → ...) with provider-aware routing |
 | **MELODY_ID tagging** | Unique ID embedded in file metadata so the library can always identify tracks |
-| **Library Detective** | Scans tag metadata (not filenames) to keep database paths current after moves/renames |
-| **Playlist Composer** | Create M3U files or sync playlists to media servers (Jellyfin plugin included) |
+| **Library Scanner** | Scans tag metadata (not filenames) to keep database paths current after moves/renames; cron-based scheduling |
+| **Playlist Sync** | Create M3U files or sync playlists to Jellyfin; path remapping and extension remapping for containerized setups |
+| **Source Accounts** | Manage playlist sources (YouTube, Spotify, etc.) with auto-sync scheduling |
+| **Sync Jobs** | Configurable sync jobs with search locations, output targets (M3U, Jellyfin), and scheduling |
+| **Media Server Sync** | Jellyfin plugin included; extensible for other media servers via `IMediaServerSync` |
 | **Path Remapping** | Rewrite paths and extensions for containerized or converted libraries |
-| **Docker-first** | Designed to run in Docker; Photino desktop build also available |
+| **Docker-first** | Designed to run in Docker with yt-dlp + ffmpeg pre-installed; Photino desktop build also available |
+| **Blazor UI** | Full web-based management UI (Accounts, Downloads, Library, Settings, Sync Jobs) |
 
 ---
 
