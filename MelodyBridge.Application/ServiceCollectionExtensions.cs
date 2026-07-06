@@ -10,20 +10,14 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace MelodyBridge.Application;
 
-/// <summary>
-/// Extension methods for registering MelodyBridge services in a DI container.
-/// </summary>
 public static class ServiceCollectionExtensions
 {
-    /// <summary>
-    /// Registers all MelodyBridge infrastructure and application services.
-    /// </summary>
     public static IServiceCollection AddMelodyBridge(this IServiceCollection services)
     {
         // Infrastructure services
         services.AddScoped<M3uGenerator>();
         services.AddScoped<LibraryScanner>();
-        services.AddScoped<MusicProviderRegistry>();
+        services.AddSingleton<MusicProviderRegistry>();
 
         // Legacy downloaders
         services.AddSingleton<YouTubeDownloader>();
@@ -39,17 +33,23 @@ public static class ServiceCollectionExtensions
         // Registry
         services.AddSingleton<IMusicProviderRegistry, MusicProviderRegistry>();
 
+        // Source providers
+        services.AddSingleton<ISourceProvider, YouTubeSourceProvider>();
+
         // Application services
+        services.AddScoped<IDownloadManager, DownloadManager>();
         services.AddScoped<DownloadManager>();
         services.AddScoped<SyncEngine>();
+        services.AddScoped<ISyncJobRunner, SyncJobRunner>();
+        services.AddScoped<IMusicSourceManager, MusicSourceManager>();
+
+        // Background services
+        services.AddHostedService<AutoSyncBackgroundService>();
+        services.AddHostedService<ScanSchedulingBackgroundService>();
 
         return services;
     }
 
-    /// <summary>
-    /// Registers the Jellyfin media server sync client.
-    /// Requires Jellyfin:BaseUrl and optionally Jellyfin:ApiKey in configuration.
-    /// </summary>
     public static IServiceCollection AddJellyfinSync(this IServiceCollection services)
     {
         services.AddHttpClient<JellyfinSync>((sp, client) =>
