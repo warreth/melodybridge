@@ -1,6 +1,7 @@
 @page "/downloads"
 @using MelodyBridge.Core
 @inject IMusicProviderRegistry ProviderRegistry
+@inject IDbContextFactory<MelodyBridgeDbContext> DbFactory
 
 <PageTitle>Downloads</PageTitle>
 
@@ -10,43 +11,79 @@
         <h1>Download manager</h1>
         <p>Queue downloads, choose provider priority and tag files with MELODY_ID for future scans.</p>
     </div>
-    <button class="btn-modern primary">New download</button>
 </section>
 
-<section class="content-grid three">
-    <div class="panel-card">
-        <span class="stat-icon">🎬</span>
-        <h2>yt-dlp</h2>
-        <p>Handles YouTube and generic URL media downloads.</p>
-        <span class="pill ok">Built-in</span>
-    </div>
-    @foreach (var provider in ProviderRegistry.GetAllProviders())
-    {
-        var enabled = ProviderRegistry.IsProviderEnabled(provider.Id);
-        <div class="panel-card">
-            <span class="stat-icon">@provider.Icon</span>
-            <h2>@provider.Name</h2>
-            <p>@provider.Description</p>
-            <div class="provider-platforms">
-                @foreach (var platform in provider.SupportedPlatforms.Take(3))
-                {
-                    <span class="pill outline">@platform</span>
-                }
-                @if (provider.SupportedPlatforms.Count > 3)
-                {
-                    <span class="pill outline">+@(provider.SupportedPlatforms.Count - 3)</span>
-                }
-            </div>
-            <span class="pill @(enabled ? "ok" : "neutral")">
-                @(enabled ? "Enabled" : "Disabled")
-            </span>
+<section class="panel-card">
+    <div class="panel-header">
+        <div>
+            <span class="eyebrow">Providers</span>
+            <h2>Downloader settings</h2>
         </div>
-    }
+    </div>
+    <div class="provider-list">
+        <div class="provider-row builtin">
+            <span class="provider-icon">🎬</span>
+            <div class="provider-info">
+                <strong>yt-dlp</strong>
+                <small>YouTube and generic URL media downloads (built-in)</small>
+            </div>
+            <span class="pill ok">Built-in</span>
+        </div>
+        @foreach (var provider in ProviderRegistry.GetAllProviders())
+        {
+            var enabled = ProviderRegistry.IsProviderEnabled(provider.Id);
+            <div class="provider-row @(enabled ? "enabled" : "disabled")">
+                <span class="provider-icon">@provider.Icon</span>
+                <div class="provider-info">
+                    <strong>@provider.Name</strong>
+                    <small>@provider.Description</small>
+                    <div class="provider-tags">
+                        @foreach (var platform in provider.SupportedPlatforms)
+                        {
+                            <span class="pill outline small">@platform</span>
+                        }
+                    </div>
+                </div>
+                <label class="toggle-switch">
+                    <input type="checkbox" checked="@enabled"
+                           @onchange="e => ToggleProvider(provider.Id, (bool)(e.Value ?? false))" />
+                    <span class="toggle-slider"></span>
+                </label>
+            </div>
+        }
+    </div>
+</section>
+
+<section class="content-grid two">
     <div class="panel-card">
-        <span class="stat-icon">🏷️</span>
-        <h2>Tagging</h2>
-        <p>Downloaded files are tagged with MELODY_ID for stable matching.</p>
-        <span class="pill ok">Ready</span>
+        <div class="panel-header"><div><span class="eyebrow">Quality waterfall</span><h2>Download fallback</h2></div></div>
+        <p class="panel-description">When downloading, MelodyBridge tries the highest quality first and falls back through lower tiers.</p>
+        <div class="provider-qualities" style="margin-top:.5rem;">
+            <span class="quality-badge">24 FLAC</span>
+            <span class="quality-badge">16 FLAC</span>
+            <span class="quality-badge">320 MP3</span>
+            <span class="quality-badge">256 AAC</span>
+            <span class="quality-badge">192 MP3</span>
+            <span class="quality-badge">128 MP3</span>
+        </div>
+    </div>
+    <div class="panel-card">
+        <div class="panel-header"><div><span class="eyebrow">Settings</span><h2>Downloader config</h2></div></div>
+        <div class="form-grid single">
+            <label>
+                Max concurrent downloads
+                <input @bind="maxConcurrent" type="number" min="1" max="10" />
+            </label>
+            <label>
+                Default target directory
+                <input @bind="defaultTargetDir" placeholder="/music" />
+            </label>
+            <label>
+                Temp download directory
+                <input @bind="tempDir" placeholder="/tmp/downloads" />
+            </label>
+        </div>
+        <button class="btn-modern primary" @onclick="SaveConfig" style="margin-top:.75rem;">Save preferences</button>
     </div>
 </section>
 
@@ -54,3 +91,48 @@
     <div class="panel-header"><div><span class="eyebrow">Queue</span><h2>Download queue</h2></div></div>
     <div class="empty-state">No active downloads. Add a source account or create a job to queue tracks.</div>
 </section>
+
+@if (!string.IsNullOrWhiteSpace(savedMessage))
+{
+    <div class="toast-preview">@savedMessage</div>
+}
+
+@code {
+    private int maxConcurrent = 2;
+    private string defaultTargetDir = "/music";
+    private string tempDir = "/tmp/downloads";
+    private string? savedMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var settings = await db.DownloaderSettings.ToListAsync();
+        var conc = settings.FirstOrDefault(s => s.Key == "max_concurrent");
+        if (conc != null && int.TryParse(conc.Value, out var c)) maxConcurrent = c;
+        var dir = settings.FirstOrDefault(s => s.Key == "default_target_dir");
+        if (dir != null) defaultTargetDir = dir.Value;
+    }
+
+    private async Task ToggleProvider(string id, bool enabled)
+    {
+        await ProviderRegistry.SetProviderEnabledAsync(id, enabled);
+        savedMessage = $"{id} {(enabled ? "enabled" : "disabled")}";
+    }
+
+    private async Task SaveConfig()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        await UpsertSetting(db, "max_concurrent", maxConcurrent.ToString());
+        await UpsertSetting(db, "default_target_dir", defaultTargetDir);
+        await UpsertSetting(db, "temp_dir", tempDir);
+        await db.SaveChangesAsync();
+        savedMessage = "Download preferences saved.";
+    }
+
+    private static async Task UpsertSetting(MelodyBridgeDbContext db, string key, string value)
+    {
+        var existing = await db.DownloaderSettings.FirstOrDefaultAsync(s => s.Key == key);
+        if (existing != null) existing.Value = value;
+        else db.DownloaderSettings.Add(new DownloaderSettingEntity { Key = key, Value = value });
+    }
+}

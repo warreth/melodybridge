@@ -407,6 +407,88 @@ select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-s
     box-shadow: var(--shadow);
 }
 
+/* Wizard modal */
+.wizard-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    display: grid;
+    place-items: center;
+    background: rgba(0, 0, 0, .6);
+    backdrop-filter: blur(4px);
+}
+.wizard-modal {
+    width: min(580px, calc(100vw - 2rem));
+    max-height: 85vh;
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: var(--surface);
+    box-shadow: 0 24px 48px rgba(0, 0, 0, .3);
+}
+.wizard-header {
+    display: flex;
+    align-items: start;
+    justify-content: space-between;
+    gap: .75rem;
+    padding: 1.25rem 1.25rem 0;
+}
+.wizard-header h2 { font-size: 1.15rem; }
+.wizard-body {
+    padding: 1.25rem;
+    overflow-y: auto;
+    flex: 1;
+}
+.wizard-footer {
+    display: flex;
+    justify-content: space-between;
+    gap: .75rem;
+    padding: 1rem 1.25rem 1.25rem;
+    border-top: 1px solid var(--border);
+}
+.review-list {
+    display: grid;
+    gap: .6rem;
+}
+.review-list > div {
+    padding: .55rem .7rem;
+    border-radius: 6px;
+    background: var(--surface-2);
+    font-size: .9rem;
+}
+.log-entry {
+    display: flex;
+    gap: .65rem;
+    align-items: start;
+    padding: .65rem .75rem;
+    border-radius: 8px;
+    background: var(--surface-2);
+    margin-bottom: .5rem;
+}
+.log-entry > div { min-width: 0; flex: 1; }
+.log-entry strong { display: block; }
+.log-entry p { margin: .15rem 0; font-size: .85rem; }
+.log-entry small { font-size: .78rem; }
+.job-meta {
+    display: flex;
+    gap: 1rem;
+    margin-top: .35rem;
+}
+textarea {
+    width: 100%;
+    min-height: 40px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: .55rem .7rem;
+    background: var(--bg);
+    color: var(--text);
+    outline: none;
+    font-family: inherit;
+    resize: vertical;
+}
+textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+
 #blazor-error-ui {
     display: none;
     position: fixed;

@@ -1,19 +1,5 @@
+@* Legacy page — sources moved to /accounts. *@
 @page "/sources"
-<h3>Sources</h3>
-<p>Manage connected sources (YouTube playlists, future providers).</p>
-
-<div class="card">
-  <div class="card-body">
-    <h5 class="card-title">Add Source</h5>
-    <div class="mb-3">
-      <label class="form-label">Playlist URL</label>
-      <input class="form-control" @bind="url" />
-    </div>
-    <button class="btn btn-primary" @onclick="AddSource">Add</button>
-  </div>
-</div>
-
-@code {
-  private string url = string.Empty;
-  private Task AddSource() => Task.CompletedTask; // placeholder
-}
+@using Microsoft.AspNetCore.Components.Web
+<PageTitle>Sources</PageTitle>
+<p>Sources management moved to <a href="/accounts">Accounts</a>.</p>

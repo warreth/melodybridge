@@ -1,6 +1,7 @@
 @page "/settings"
 @using MelodyBridge.Core
 @inject IMusicProviderRegistry ProviderRegistry
+@inject IDbContextFactory<MelodyBridgeDbContext> DbFactory
 @implements IDisposable
 
 <PageTitle>Settings</PageTitle>
@@ -11,7 +12,7 @@
         <h1>Settings</h1>
         <p>Manage Jellyfin, paths, output behaviour and download providers.</p>
     </div>
-    <button class="btn-modern primary" @onclick="SavePreview">Save settings</button>
+    <button class="btn-modern primary" @onclick="SaveAll">Save all settings</button>
 </section>
 
 <section class="content-grid two">
@@ -22,13 +23,13 @@
             <label>API key <input @bind="jellyfinApiKey" type="password" /></label>
             <label>Default user ID <input @bind="jellyfinUserId" placeholder="optional" /></label>
         </div>
-        <div class="hint-box">Docker default uses <code>http://host.docker.internal:8096</code>. Make sure Jellyfin is reachable from the container.</div>
+        <div class="hint-box">Docker default uses <code>http://host.docker.internal:8096</code>. Make sure Jellyfin is reachable.</div>
     </div>
 
     <div class="panel-card">
         <div class="panel-header"><div><span class="eyebrow">Library</span><h2>Paths</h2></div></div>
         <div class="form-grid single">
-            <label>Container music path <input @bind="musicPath" /></label>
+            <label>Music path <input @bind="musicPath" /></label>
             <label>Playlist output folder <input @bind="playlistPath" /></label>
             <label>DataProtection keys <input @bind="keysPath" /></label>
         </div>
@@ -85,6 +86,25 @@
     </div>
 </section>
 
+<section class="panel-card">
+    <div class="panel-header">
+        <div>
+            <span class="eyebrow">Behaviour</span>
+            <h2>Sync & scanning</h2>
+        </div>
+    </div>
+    <div class="form-grid">
+        <label>
+            Auto-scan interval (seconds)
+            <input @bind="autoScanIntervalSec" type="number" min="30" step="10" />
+        </label>
+        <label>
+            Sync check interval (seconds)
+            <input @bind="syncCheckIntervalSec" type="number" min="60" step="30" />
+        </label>
+    </div>
+</section>
+
 @if (!string.IsNullOrWhiteSpace(savedMessage))
 {
     <div class="toast-preview">@savedMessage</div>
@@ -97,11 +117,20 @@
     private string musicPath = "/music";
     private string playlistPath = "/app/playlists";
     private string keysPath = "/root/.aspnet/DataProtection-Keys";
+    private int autoScanIntervalSec = 60;
+    private int syncCheckIntervalSec = 300;
     private string? savedMessage;
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
-        // Subscribe to state changes (simplified: just re-render on toggle)
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var settings = await db.DownloaderSettings.ToListAsync();
+        var jUrl = settings.FirstOrDefault(s => s.Key == "jellyfin_url");
+        if (jUrl != null) jellyfinUrl = jUrl.Value;
+        var jKey = settings.FirstOrDefault(s => s.Key == "jellyfin_key");
+        if (jKey != null) jellyfinApiKey = jKey.Value;
+        var jUser = settings.FirstOrDefault(s => s.Key == "jellyfin_user");
+        if (jUser != null) jellyfinUserId = jUser.Value;
     }
 
     private async Task ToggleProvider(string id, bool enabled)
@@ -110,7 +139,22 @@
         savedMessage = $"{id} {(enabled ? "enabled" : "disabled")}";
     }
 
-    private void SavePreview() => savedMessage = "Settings saved.";
+    private async Task SaveAll()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        await Upsert(db, "jellyfin_url", jellyfinUrl);
+        await Upsert(db, "jellyfin_key", jellyfinApiKey);
+        await Upsert(db, "jellyfin_user", jellyfinUserId);
+        await db.SaveChangesAsync();
+        savedMessage = "Settings saved.";
+    }
+
+    private static async Task Upsert(MelodyBridgeDbContext db, string key, string value)
+    {
+        var existing = await db.DownloaderSettings.FirstOrDefaultAsync(s => s.Key == key);
+        if (existing != null) existing.Value = value;
+        else db.DownloaderSettings.Add(new DownloaderSettingEntity { Key = key, Value = value });
+    }
 
     public void Dispose() { }
 }

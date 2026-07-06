@@ -1,6 +1,8 @@
 @page "/sync-jobs"
-@using System.Net.Http.Json
-@inject HttpClient Http
+@using System.Text.Json
+@inject ISyncJobRunner JobRunner
+@inject IDbContextFactory<MelodyBridgeDbContext> DbFactory
+@implements IDisposable
 
 <PageTitle>Sync Jobs</PageTitle>
 
@@ -8,153 +10,399 @@
     <div>
         <span class="eyebrow">Automation</span>
         <h1>Sync jobs</h1>
-        <p>Create a playlist sync, resolve tracks, publish to Jellyfin and inspect unresolved files.</p>
+        <p>Create playlist sync jobs that resolve tracks and publish to Jellyfin or M3U files.</p>
     </div>
-    <button class="btn-modern primary" @onclick="RunSync" disabled="@running">@(running ? "Running..." : "Run sync")</button>
+    <div class="topbar-actions">
+        <button class="btn-modern primary" @onclick="StartNewJob">New sync job</button>
+    </div>
 </section>
 
-<section class="content-grid two">
-    <div class="panel-card">
-        <div class="panel-header">
-            <div>
-                <span class="eyebrow">Job builder</span>
-                <h2>Playlist settings</h2>
+@if (showWizard)
+{
+    <div class="wizard-overlay">
+        <div class="wizard-modal">
+            <div class="wizard-header">
+                <span class="eyebrow">Step @(currentStep + 1) of 5</span>
+                <h2>@GetStepTitle()</h2>
+                <button class="icon-button" @onclick="CancelWizard">&times;</button>
             </div>
-        </div>
-        <div class="form-grid single">
-            <label>
-                Job / playlist name
-                <input @bind="playlistName" />
-            </label>
-            <label>
-                Track file path known by MelodyBridge
-                <input @bind="trackPath" />
-            </label>
-            <label>
-                Title
-                <input @bind="trackTitle" />
-            </label>
-            <label>
-                Artist
-                <input @bind="trackArtist" />
-            </label>
-            <label>
-                Server plugin
-                <select @bind="serverName">
-                    <option>Jellyfin</option>
-                </select>
-            </label>
-        </div>
-    </div>
-
-    <div class="panel-card">
-        <div class="panel-header">
-            <div>
-                <span class="eyebrow">Path mapping</span>
-                <h2>Container → Jellyfin</h2>
-            </div>
-        </div>
-        <div class="form-grid single">
-            <label>
-                MelodyBridge/container prefix
-                <input @bind="fromPrefix" placeholder="/music" />
-            </label>
-            <label>
-                Jellyfin-visible prefix
-                <input @bind="toPrefix" placeholder="/media/music" />
-            </label>
-            <label>
-                M3U output path
-                <input @bind="outputPath" />
-            </label>
-        </div>
-        <div class="hint-box">Use this when Jellyfin sees your files under a different path than the container.</div>
-    </div>
-</section>
-
-<section class="panel-card">
-    <div class="panel-header">
-        <div>
-            <span class="eyebrow">Result</span>
-            <h2>Last run report</h2>
-        </div>
-        @if (lastStatus != null)
-        {
-            <span class="pill @(lastOk ? "ok" : "warn")">@lastStatus</span>
-        }
-    </div>
-
-    @if (string.IsNullOrWhiteSpace(resultMessage))
-    {
-        <div class="empty-state">No run yet. Configure the job and press <strong>Run sync</strong>.</div>
-    }
-    else
-    {
-        <pre class="result-box">@resultMessage</pre>
-    }
-</section>
-
-@code {
-    private string playlistName = "Test Playlist";
-    private string trackPath = "/music/sample.mp3";
-    private string trackTitle = "Sample";
-    private string trackArtist = "Artist";
-    private string serverName = "Jellyfin";
-    private string fromPrefix = "/music";
-    private string toPrefix = "/music";
-    private string outputPath = "/app/playlists/test.m3u";
-    private string? resultMessage;
-    private string? lastStatus;
-    private bool lastOk;
-    private bool running;
-
-    private async Task RunSync()
-    {
-        running = true;
-        lastStatus = null;
-        resultMessage = null;
-
-        var remap = new Dictionary<string, string>();
-        if (!string.IsNullOrWhiteSpace(fromPrefix) && !string.IsNullOrWhiteSpace(toPrefix))
-        {
-            remap[fromPrefix] = toPrefix;
-        }
-
-        var req = new
-        {
-            Playlist = new
-            {
-                Name = playlistName,
-                Tracks = new[]
+            <div class="wizard-body">
+                @if (currentStep == 0)
                 {
-                    new
+                    <div class="form-grid single">
+                        <label>
+                            Job name
+                            <input @bind="draft.Name" placeholder="e.g. My Summer Hits" />
+                        </label>
+                        <label>
+                            Source playlist
+                            <select @bind="selectedSourceId">
+                                <option value="">Select a source...</option>
+                                @foreach (var src in sources)
+                                {
+                                    <option value="@src.Id">@src.Name (@src.Platform)</option>
+                                }
+                            </select>
+                        </label>
+                    </div>
+                    @if (sources.Count == 0)
                     {
-                        Title = trackTitle,
-                        Artist = trackArtist,
-                        CurrentTrackLocation = new { Path = trackPath }
+                        <div class="hint-box" style="margin-top:0.75rem;">
+                            No sources configured yet. Go to <a href="/accounts">Accounts</a> to add a music source first.
+                        </div>
                     }
                 }
-            },
-            ServerName = serverName,
-            Options = new { OutputPath = outputPath, UseRelativePaths = false, PathRemap = remap }
-        };
+                else if (currentStep == 1)
+                {
+                    <div class="form-grid single">
+                        <label>
+                            Search location paths (one per line)
+                            <textarea @bind="searchLocationsText" rows="4" placeholder="/music&#10;/mnt/ssd/music_opus" />
+                        </label>
+                    </div>
+                    <div class="hint-box">
+                        Directories where the scanner will look for files matching MELODY_ID tags.
+                        Leave empty to search all known scan locations.
+                    </div>
+                }
+                else if (currentStep == 2)
+                {
+                    <div class="form-grid">
+                        <label>
+                            Output type
+                            <select @bind="draft.OutputTarget">
+                                <option value="@OutputTargetType.M3uFile">M3U File</option>
+                                <option value="@OutputTargetType.JellyfinApi">Jellyfin API</option>
+                            </select>
+                        </label>
+                        @if (draft.OutputTarget == OutputTargetType.M3uFile)
+                        {
+                            <label>
+                                M3U output path
+                                <input @bind="draft.M3uOutputPath" placeholder="/app/playlists/playlist.m3u" />
+                            </label>
+                        }
+                        else if (draft.OutputTarget == OutputTargetType.JellyfinApi)
+                        {
+                            <label>
+                                Jellyfin server URL
+                                <input @bind="draft.JellyfinServerUrl" placeholder="http://host.docker.internal:8096" />
+                            </label>
+                            <label>
+                                Jellyfin API key
+                                <input @bind="draft.JellyfinApiKey" type="password" placeholder="API key" />
+                            </label>
+                            <label>
+                                Jellyfin user ID (optional)
+                                <input @bind="draft.JellyfinUserId" placeholder="User ID" />
+                            </label>
+                        }
+                        <label>
+                            Schedule
+                            <select @bind="draft.Schedule">
+                                <option value="@SyncJobSchedule.Manual">Manual</option>
+                                <option value="@SyncJobSchedule.Hourly">Hourly</option>
+                                <option value="@SyncJobSchedule.Daily">Daily</option>
+                                <option value="@SyncJobSchedule.Weekly">Weekly</option>
+                            </select>
+                        </label>
+                    </div>
+                }
+                else if (currentStep == 3)
+                {
+                    <div class="form-grid two">
+                        <label>
+                            Replace path prefix (from)
+                            <input @bind="remapFrom" placeholder="/mnt/BackupHDD/Music" />
+                        </label>
+                        <label>
+                            Replace with (to)
+                            <input @bind="remapTo" placeholder="/media/music" />
+                        </label>
+                        <label>
+                            Replace extension (from)
+                            <input @bind="extFrom" placeholder=".flac" />
+                        </label>
+                        <label>
+                            Replace with (to)
+                            <input @bind="extTo" placeholder=".opus" />
+                        </label>
+                    </div>
+                    <div class="hint-box">
+                        Use path remapping when your media server sees files under a different path than MelodyBridge.
+                        Extension remapping is useful for pointing to transcoded versions (e.g., FLAC to OPUS).
+                    </div>
+                }
+                else if (currentStep == 4)
+                {
+                    <div class="review-list">
+                        <div><strong>Name:</strong> @draft.Name</div>
+                        <div><strong>Source:</strong> @selectedSourceId</div>
+                        <div><strong>Search locations:</strong> @(string.IsNullOrWhiteSpace(searchLocationsText) ? "All known" : searchLocationsText.Replace("\n", ", "))</div>
+                        <div><strong>Output target:</strong> @draft.OutputTarget</div>
+                        @if (draft.OutputTarget == OutputTargetType.M3uFile)
+                        {
+                            <div><strong>M3U path:</strong> @draft.M3uOutputPath</div>
+                        }
+                        <div><strong>Schedule:</strong> @draft.Schedule</div>
+                        @if (!string.IsNullOrWhiteSpace(remapFrom)) { <div><strong>Path remap:</strong> @remapFrom &rarr; @remapTo</div> }
+                        @if (!string.IsNullOrWhiteSpace(extFrom)) { <div><strong>Extension remap:</strong> @extFrom &rarr; @extTo</div> }
+                    </div>
+                }
+            </div>
+            <div class="wizard-footer">
+                @if (currentStep > 0)
+                {
+                    <button class="btn-modern" @onclick="PrevStep">Back</button>
+                }
+                <span></span>
+                @if (currentStep < 4)
+                {
+                    <button class="btn-modern primary" @onclick="NextStep">Next</button>
+                }
+                else
+                {
+                    <button class="btn-modern primary" @onclick="SaveJob" disabled="@saving">
+                        @(saving ? "Saving..." : "Create sync job")
+                    </button>
+                }
+            </div>
+        </div>
+    </div>
+}
 
+<section class="content-grid two">
+    @foreach (var job in jobs)
+    {
+        <div class="panel-card">
+            <div class="panel-header">
+                <div>
+                    <span class="eyebrow">@job.OutputTarget</span>
+                    <h2>@job.Name</h2>
+                </div>
+                <span class="pill @(job.LastRunStatus == "Completed" ? "ok" : "neutral")">
+                    @job.LastRunStatus
+                </span>
+            </div>
+            <p>@job.LastRunSummary</p>
+            <div class="job-meta">
+                <small>Last run: @(job.LastRunAt?.ToString("g") ?? "never")</small>
+                <small>Schedule: @job.Schedule</small>
+            </div>
+            <div class="topbar-actions" style="margin-top:0.75rem;">
+                <button class="btn-modern primary" @onclick="() => RunJobNow(job.Id)" disabled="@runningJobs.Contains(job.Id)">
+                    @(runningJobs.Contains(job.Id) ? "Running..." : "Run now")
+                </button>
+                <button class="btn-modern secondary" @onclick="() => ViewJobLog(job)">Log</button>
+                <button class="btn-modern ghost" @onclick="() => DeleteJob(job.Id)">Delete</button>
+            </div>
+        </div>
+    }
+</section>
+
+@if (jobs.Count == 0 && !showWizard)
+{
+    <div class="empty-state">
+        No sync jobs yet. Click <strong>New sync job</strong> to create one.
+    </div>
+}
+
+@if (showLog)
+{
+    <div class="wizard-overlay">
+        <div class="wizard-modal" style="max-width:640px;">
+            <div class="wizard-header">
+                <span class="eyebrow">Run history</span>
+                <h2>@logJobName</h2>
+                <button class="icon-button" @onclick="() => showLog = false">&times;</button>
+            </div>
+            <div class="wizard-body">
+                @if (logEntries.Count == 0)
+                {
+                    <p>No runs recorded yet.</p>
+                }
+                @foreach (var entry in logEntries)
+                {
+                    <div class="log-entry">
+                        <span class="pill @(entry.Status == "Completed" ? "ok" : "warn")">@entry.Status</span>
+                        <div>
+                            <strong>@entry.Timestamp.ToString("g")</strong>
+                            <p>@entry.Message</p>
+                            <small>@entry.ResolvedTracks / @entry.TotalTracks tracks resolved</small>
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<SyncJobEntity> jobs = new();
+    private List<SourceEntity> sources = new();
+    private bool showWizard;
+    private bool saving;
+    private int currentStep;
+    private bool showLog;
+    private string logJobName = "";
+    private List<SyncJobRunEntity> logEntries = new();
+    private HashSet<string> runningJobs = new();
+
+    private SyncJob draft = new();
+    private string selectedSourceId = "";
+    private string searchLocationsText = "";
+    private string remapFrom = "";
+    private string remapTo = "";
+    private string extFrom = "";
+    private string extTo = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDataAsync();
+    }
+
+    private async Task LoadDataAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        jobs = await db.SyncJobs.OrderByDescending(j => j.LastRunAt).ToListAsync();
+        sources = await db.Sources.ToListAsync();
+    }
+
+    private void StartNewJob()
+    {
+        draft = new SyncJob();
+        selectedSourceId = "";
+        searchLocationsText = "";
+        remapFrom = "";
+        remapTo = "";
+        extFrom = "";
+        extTo = "";
+        currentStep = 0;
+        showWizard = true;
+    }
+
+    private void CancelWizard() { showWizard = false; }
+
+    private string GetStepTitle() => currentStep switch
+    {
+        0 => "Select playlist source",
+        1 => "Choose search locations",
+        2 => "Configure output target",
+        3 => "Advanced path remapping (optional)",
+        4 => "Review and confirm",
+        _ => ""
+    };
+
+    private void NextStep()
+    {
+        if (currentStep == 2 && draft.OutputTarget == OutputTargetType.M3uFile && string.IsNullOrWhiteSpace(draft.M3uOutputPath))
+            return;
+        if (currentStep < 4) currentStep++;
+    }
+
+    private void PrevStep() { if (currentStep > 0) currentStep--; }
+
+    private async Task SaveJob()
+    {
+        saving = true;
         try
         {
-            var resp = await Http.PostAsJsonAsync("api/sync/run", req);
-            resultMessage = await resp.Content.ReadAsStringAsync();
-            lastOk = resp.IsSuccessStatusCode;
-            lastStatus = resp.IsSuccessStatusCode ? "Completed" : $"Failed ({(int)resp.StatusCode})";
+            await using var db = await DbFactory.CreateDbContextAsync();
+            var pathsList = searchLocationsText.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+            var remapRules = new Dictionary<string, string>();
+            if (!string.IsNullOrWhiteSpace(remapFrom) && !string.IsNullOrWhiteSpace(remapTo))
+                remapRules[remapFrom] = remapTo;
+            var extRules = new Dictionary<string, string>();
+            if (!string.IsNullOrWhiteSpace(extFrom) && !string.IsNullOrWhiteSpace(extTo))
+                extRules[extFrom] = extTo;
+
+            db.SyncJobs.Add(new SyncJobEntity
+            {
+                Id = Guid.NewGuid().ToString(),
+                Name = draft.Name,
+                SourceId = string.IsNullOrWhiteSpace(selectedSourceId) ? null : selectedSourceId,
+                SearchLocationPaths = JsonSerializer.Serialize(pathsList),
+                OutputTarget = draft.OutputTarget.ToString(),
+                M3uOutputPath = draft.M3uOutputPath,
+                JellyfinServerUrl = draft.JellyfinServerUrl,
+                JellyfinApiKey = draft.JellyfinApiKey,
+                JellyfinUserId = draft.JellyfinUserId,
+                PathRemapRules = JsonSerializer.Serialize(remapRules),
+                ExtensionRemapRules = JsonSerializer.Serialize(extRules),
+                Schedule = draft.Schedule.ToString(),
+                LastRunStatus = "Pending",
+            });
+            await db.SaveChangesAsync();
+            showWizard = false;
+            await LoadDataAsync();
         }
-        catch (Exception ex)
+        finally { saving = false; }
+    }
+
+    private async Task RunJobNow(string jobId)
+    {
+        runningJobs.Add(jobId);
+        try
         {
-            lastOk = false;
-            lastStatus = "Failed";
-            resultMessage = ex.ToString();
+            await using var db = await DbFactory.CreateDbContextAsync();
+            var entity = await db.SyncJobs.FindAsync(jobId);
+            if (entity == null) return;
+            await JobRunner.RunJobAsync(MapToDomain(entity));
+            await LoadDataAsync();
         }
-        finally
+        finally { runningJobs.Remove(jobId); }
+    }
+
+    private async Task ViewJobLog(SyncJobEntity job)
+    {
+        logJobName = job.Name ?? "";
+        await using var db = await DbFactory.CreateDbContextAsync();
+        logEntries = await db.SyncJobRuns.Where(r => r.SyncJobId == job.Id).OrderByDescending(r => r.Timestamp).Take(20).ToListAsync();
+        showLog = true;
+    }
+
+    private async Task DeleteJob(string jobId)
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var entity = await db.SyncJobs.FindAsync(jobId);
+        if (entity != null)
         {
-            running = false;
+            db.SyncJobs.Remove(entity);
+            var runs = await db.SyncJobRuns.Where(r => r.SyncJobId == jobId).ToListAsync();
+            db.SyncJobRuns.RemoveRange(runs);
+            await db.SaveChangesAsync();
+            await LoadDataAsync();
         }
     }
+
+    private static SyncJob MapToDomain(SyncJobEntity entity)
+    {
+        List<string>? searchPaths = null;
+        try { searchPaths = JsonSerializer.Deserialize<List<string>>(entity.SearchLocationPaths ?? "[]"); } catch { }
+        var remapRules = new Dictionary<string, string>();
+        try { remapRules = JsonSerializer.Deserialize<Dictionary<string, string>>(entity.PathRemapRules ?? "{}") ?? new(); } catch { }
+        var extRules = new Dictionary<string, string>();
+        try { extRules = JsonSerializer.Deserialize<Dictionary<string, string>>(entity.ExtensionRemapRules ?? "{}") ?? new(); } catch { }
+
+        return new SyncJob
+        {
+            Id = entity.Id,
+            Name = entity.Name ?? "",
+            SourceId = entity.SourceId,
+            SearchLocationPaths = searchPaths ?? new(),
+            OutputTarget = Enum.TryParse<OutputTargetType>(entity.OutputTarget, true, out var ot) ? ot : OutputTargetType.M3uFile,
+            M3uOutputPath = entity.M3uOutputPath,
+            JellyfinServerUrl = entity.JellyfinServerUrl,
+            JellyfinApiKey = entity.JellyfinApiKey,
+            JellyfinUserId = entity.JellyfinUserId,
+            PathRemapRules = remapRules,
+            ExtensionRemapRules = extRules,
+            Schedule = Enum.TryParse<SyncJobSchedule>(entity.Schedule, true, out var s) ? s : SyncJobSchedule.Manual,
+            CronExpression = entity.CronExpression,
+            LastRunAt = entity.LastRunAt,
+            LastRunSummary = entity.LastRunSummary,
+        };
+    }
+
+    public void Dispose() { }
 }
