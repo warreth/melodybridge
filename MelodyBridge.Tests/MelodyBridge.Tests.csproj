@@ -1,0 +1,29 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <RollForward>LatestMajor</RollForward>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="6.0.4"/>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.0"/>
+    <PackageReference Include="NUnit" Version="4.3.2"/>
+    <PackageReference Include="NUnit.Analyzers" Version="4.7.0"/>
+    <PackageReference Include="NUnit3TestAdapter" Version="5.0.0"/>
+    <PackageReference Include="Moq" Version="4.20.72"/>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="8.0.0"/>
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="8.0.0"/>
+  </ItemGroup>
+  <ItemGroup>
+    <Using Include="NUnit.Framework"/>
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\MelodyBridge.Core\MelodyBridge.Core.csproj"/>
+    <ProjectReference Include="..\MelodyBridge.Infrastructure\MelodyBridge.Infrastructure.csproj"/>
+    <ProjectReference Include="..\MelodyBridge.Application\MelodyBridge.Application.csproj"/>
+    <ProjectReference Include="..\MelodyBridge.Server\MelodyBridge.Server.csproj"/>
+  </ItemGroup>
+</Project>
