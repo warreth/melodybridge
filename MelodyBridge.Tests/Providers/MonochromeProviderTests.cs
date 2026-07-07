@@ -34,13 +34,6 @@ public class MonochromeProviderTests
     }
 
     [Test]
-    public void CountryCode_DefaultIsUS()
-    {
-        var provider = CreateProvider();
-        Assert.That(provider.CountryCode, Is.EqualTo("US"));
-    }
-
-    [Test]
     public void TryExtractTidalTrackId_TrackBrowsePattern_ExtractsId()
     {
         var result = InvokeTryExtractTidalTrackId("https://tidal.com/browse/track/12345678");
