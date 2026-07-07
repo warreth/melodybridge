@@ -4,6 +4,7 @@ public class Track
 {
     public string? Title { get; set; }
     public string? Artist { get; set; }
+    public TimeSpan? Duration { get; set; }
     public SongID? SongID { get; set; }
     public SongID? PlatformSongID { get; set; }
     public TrackQuality? Quality { get; set; }
@@ -15,7 +16,14 @@ public class Track
 
 public class Playlist
 {
+    public string? Id { get; set; }
     public string? Name { get; set; }
+    public string? Owner { get; set; }
+    public string? Description { get; set; }
+    public string? SourceUrl { get; set; }
+    public string? CoverImageUrl { get; set; }
+    public int? TrackCount { get; set; }
+    public TimeSpan? Duration { get; set; }
     public List<Track>? Tracks { get; set; }
 }
 

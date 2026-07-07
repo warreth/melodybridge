@@ -88,7 +88,7 @@ public class DbContextTests
         var entity = new PlaylistEntity
         {
             Name = "My Playlist",
-            SourceIdentifier = "spotify:playlist:abc123"
+            SourceUrl = "https://open.spotify.com/playlist/abc123"
         };
         db.Playlists.Add(entity);
         await db.SaveChangesAsync();
@@ -98,7 +98,7 @@ public class DbContextTests
         {
             Assert.That(loaded, Is.Not.Null);
             Assert.That(loaded!.Name, Is.EqualTo("My Playlist"));
-            Assert.That(loaded.SourceIdentifier, Is.EqualTo("spotify:playlist:abc123"));
+            Assert.That(loaded.SourceUrl, Is.EqualTo("https://open.spotify.com/playlist/abc123"));
         });
     }
 

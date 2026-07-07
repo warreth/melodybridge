@@ -35,6 +35,7 @@ public static class ServiceCollectionExtensions
 
         // Source providers
         services.AddSingleton<ISourceProvider, YouTubeSourceProvider>();
+        services.AddSingleton<ISourceProvider, SpotifySourceProvider>();
 
         // Application services
         services.AddScoped<IDownloadManager, DownloadManager>();
@@ -42,6 +43,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<SyncEngine>();
         services.AddScoped<ISyncJobRunner, SyncJobRunner>();
         services.AddScoped<IMusicSourceManager, MusicSourceManager>();
+        services.AddScoped<IPlaylistService, PlaylistService>();
 
         // Background services
         services.AddHostedService<AutoSyncBackgroundService>();

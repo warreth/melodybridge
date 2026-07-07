@@ -34,7 +34,10 @@ public class MelodyBridgeDbContext : DbContext
         {
             e.HasKey(p => p.Id);
             e.Property(p => p.Name).HasMaxLength(256);
-            e.Property(p => p.SourceIdentifier).HasMaxLength(1024);
+            e.Property(p => p.SourceUrl).HasMaxLength(2048);
+            e.Property(p => p.Description).HasMaxLength(2048);
+            e.Property(p => p.CoverImageUrl).HasMaxLength(2048);
+            e.Property(p => p.Owner).HasMaxLength(256);
         });
 
         modelBuilder.Entity<ProviderStateRow>(e =>
@@ -108,9 +111,19 @@ public class TrackEntity
 
 public class PlaylistEntity
 {
-    public int Id { get; set; }
-    public string? Name { get; set; }
-    public string? SourceIdentifier { get; set; }
+    public string Id { get; set; } = Guid.NewGuid().ToString();
+    public string Name { get; set; } = string.Empty;
+    public string? Description { get; set; }
+    public string SourceUrl { get; set; } = string.Empty;
+    public Platform SourcePlatform { get; set; }
+    public string? CoverImageUrl { get; set; }
+    public string? Owner { get; set; }
+    public int TrackCount { get; set; }
+    public bool AutoSyncEnabled { get; set; }
+    public int? AutoSyncIntervalMinutes { get; set; }
+    public DateTime? LastSyncAt { get; set; }
+    public SyncStatus LastSyncStatus { get; set; }
+    public List<TrackEntity> Tracks { get; set; } = new();
 }
 
 public class ProviderStateRow
