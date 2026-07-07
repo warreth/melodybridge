@@ -1,5 +1,4 @@
 @page "/accounts"
-@inject IDbContextFactory<MelodyBridgeDbContext> DbFactory
 @inject IMusicSourceManager SourceMgr
 
 <PageTitle>Accounts</PageTitle>
@@ -16,19 +15,14 @@
 <section class="content-grid three">
     @foreach (var source in sources)
     {
+        var platInfo = PlatformDisplay(source.Platform);
         <div class="panel-card account-card">
             <div class="provider-icon">
-                @(source.Platform switch
-                {
-                    "YouTube" => "🎬",
-                    "Spotify" => "🔀",
-                    "Jellyfin" => "🪼",
-                    _ => "🔌"
-                })
+                @platInfo.Icon
             </div>
             <div>
                 <h2>@source.Name</h2>
-                <p>@source.Platform@(string.IsNullOrWhiteSpace(source.SourceUrl) ? "" : " · playlist")</p>
+                <p>@platInfo.Label@(string.IsNullOrWhiteSpace(source.SourceUrl) ? "" : " · playlist")</p>
             </div>
             <div class="account-meta">
                 <span class="pill @(source.AutoSyncEnabled ? "ok" : "neutral")">
@@ -96,7 +90,7 @@
 }
 
 @code {
-    private List<SourceEntity> sources = new();
+    private List<MusicSource> sources = new();
     private bool showForm;
     private bool saving;
     private string newName = "";
@@ -112,8 +106,7 @@
 
     private async Task LoadSourcesAsync()
     {
-        await using var db = await DbFactory.CreateDbContextAsync();
-        sources = await db.Sources.OrderBy(s => s.Name).ToListAsync();
+        sources = (await SourceMgr.GetAllSourcesAsync()).OrderBy(s => s.Name).ToList();
     }
 
     private void ShowAddForm()
@@ -131,17 +124,20 @@
         saving = true;
         try
         {
-            await using var db = await DbFactory.CreateDbContextAsync();
-            db.Sources.Add(new SourceEntity
+            var source = new MusicSource
             {
-                Id = Guid.NewGuid().ToString(),
                 Name = newName,
-                Platform = newPlatform,
+                Platform = newPlatform switch
+                {
+                    "YouTube" => Platform.YouTubeMusic,
+                    "Spotify" => Platform.Spotify,
+                    _ => Platform.Unknown,
+                },
                 SourceUrl = newUrl,
                 TargetDirectory = newTargetDir,
                 AutoSyncEnabled = newAutoSync,
-            });
-            await db.SaveChangesAsync();
+            };
+            await SourceMgr.AddSourceAsync(source);
             showForm = false;
             await LoadSourcesAsync();
         }
@@ -150,13 +146,15 @@
 
     private async Task DeleteSource(string id)
     {
-        await using var db = await DbFactory.CreateDbContextAsync();
-        var entity = await db.Sources.FindAsync(id);
-        if (entity != null)
-        {
-            db.Sources.Remove(entity);
-            await db.SaveChangesAsync();
-            await LoadSourcesAsync();
-        }
+        await SourceMgr.RemoveSourceAsync(id);
+        await LoadSourcesAsync();
     }
+
+    private static (string Icon, string Label) PlatformDisplay(Platform p)
+        => p switch
+        {
+            Platform.Spotify => ("🔀", "Spotify"),
+            Platform.YouTubeMusic => ("🎬", "YouTube"),
+            _ => ("🔌", p.ToString()),
+        };
 }
