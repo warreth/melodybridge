@@ -34,14 +34,7 @@ public class MonochromeProviderTests
     }
 
     [Test]
-    public void DefaultSessionId_IsNull()
-    {
-        var provider = CreateProvider();
-        Assert.That(provider.SessionId, Is.Null);
-    }
-
-    [Test]
-    public void DefaultCountryCode_IsUS()
+    public void CountryCode_DefaultIsUS()
     {
         var provider = CreateProvider();
         Assert.That(provider.CountryCode, Is.EqualTo("US"));
@@ -91,24 +84,9 @@ public class MonochromeProviderTests
     }
 
     [Test]
-    public void DownloadAsync_WithoutSessionId_ReturnsFailureWithMessage()
-    {
-        var provider = CreateProvider();
-        var result = provider.DownloadAsync("https://tidal.com/browse/track/123", new TrackQuality(320, MediaType.AAC), "/tmp").Result;
-
-        Assert.Multiple(() =>
-        {
-            Assert.That(result.Success, Is.False);
-            Assert.That(result.ErrorMessage, Does.Contain("authentication"));
-            Assert.That(result.FilePath, Is.Null);
-        });
-    }
-
-    [Test]
     public void DownloadAsync_InvalidUrl_ReturnsFailure()
     {
         var provider = CreateProvider();
-        provider.SessionId = "test-session";
         var result = provider.DownloadAsync("https://example.com/not-tidal", new TrackQuality(320, MediaType.AAC), "/tmp").Result;
 
         Assert.Multiple(() =>
