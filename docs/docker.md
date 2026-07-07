@@ -23,7 +23,6 @@ docker build -t melodybridge:latest .
 docker run -d \
   -v ./data/music:/music \
   -v ./data/playlists:/app/playlists \
-  -v ./data/keys:/root/.aspnet/DataProtection-Keys \
   -p 3333:80 \
   -e ASPNETCORE_ENVIRONMENT=Production \
   -e Jellyfin__BaseUrl=http://your-jellyfin:8096 \
@@ -55,7 +54,6 @@ See [docker-compose.yml](../docker-compose.yml) for the full setup with dev defa
 |---|---|---|
 | `./data/music` | `/music` | Music file storage |
 | `./data/playlists` | `/app/playlists` | Generated playlist output |
-| `./data/keys` | `/root/.aspnet/DataProtection-Keys` | Data protection key persistence |
 
 ---
 
@@ -69,6 +67,5 @@ The Docker image includes `yt-dlp` and `ffmpeg` pre-installed for YouTube and ge
 
 1. Set `ASPNETCORE_ENVIRONMENT=Production`
 2. Configure a reverse proxy (nginx, Caddy, Traefik) for TLS
-3. Use persistent volumes for database and keys
-4. Set `Jellyfin__ApiKey` via environment or secrets
-5. Remove `ASPNETCORE_DETAILEDERRORS=true` in production
+3. Set `Jellyfin__ApiKey` via environment or secrets
+4. Remove `ASPNETCORE_DETAILEDERRORS=true` in production
