@@ -1,0 +1,326 @@
+@page "/dev"
+@inject DevPanelService Dev
+@inject IMusicProviderRegistry Registry
+@inject IDownloadManager DownloadMgr
+@attribute [Microsoft.AspNetCore.Authorization.AllowAnonymous]
+
+<PageTitle>Dev Panel</PageTitle>
+
+<section class="page-title">
+    <div>
+        <span class="eyebrow">Developer</span>
+        <h1>Dev panel</h1>
+        <p>Manual testing tools — downloads, search, provider health and live logs.</p>
+    </div>
+    <button class="btn-modern ghost" @onclick="ClearAll">Clear logs</button>
+</section>
+
+<div class="dev-grid">
+    @* ── Download Tester ── *@
+    <section class="panel-card">
+        <div class="panel-header">
+            <span class="eyebrow">Tester</span>
+            <h2>Download tester</h2>
+        </div>
+        <div class="form-grid single">
+            <label>
+                Track / playlist URL
+                <input @bind="Dev.DownloadUrl" placeholder="https://open.spotify.com/track/..." />
+            </label>
+            <label>
+                Provider
+                <select @bind="Dev.SelectedProviderId">
+                    <option value="">Auto (any enabled)</option>
+                    @foreach (var p in _providers)
+                    {
+                        <option value="@p.Id">@p.Name</option>
+                    }
+                </select>
+            </label>
+            <label>
+                Quality
+                <select @bind="Dev.SelectedQuality">
+                    <option value="">Highest available</option>
+                    <option value="flac_24">24-bit FLAC</option>
+                    <option value="flac_16">16-bit FLAC</option>
+                    <option value="aac_320">320 AAC</option>
+                    <option value="mp3_320">320 MP3</option>
+                    <option value="mp3_128">128 MP3</option>
+                </select>
+            </label>
+        </div>
+        <div class="flex-actions">
+            <button class="btn-modern primary" @onclick="TestDownload" disabled="@_downloading">
+                @(_downloading ? "Downloading…" : "Download & verify")
+            </button>
+            @if (!string.IsNullOrEmpty(Dev.LastDownloadResult))
+            {
+                <pre class="dev-result">@Dev.LastDownloadResult</pre>
+            }
+        </div>
+    </section>
+
+    @* ── Search Tester ── *@
+    <section class="panel-card">
+        <div class="panel-header">
+            <span class="eyebrow">Tester</span>
+            <h2>Search tester</h2>
+        </div>
+        <div class="form-grid single">
+            <label>
+                Query
+                <input @bind="Dev.SearchQuery" placeholder="artist - song title" />
+            </label>
+            <label>
+                Provider
+                <select @bind="Dev.SearchProviderId">
+                    <option value="">All enabled providers</option>
+                    @foreach (var p in _providers)
+                    {
+                        <option value="@p.Id">@p.Name</option>
+                    }
+                </select>
+            </label>
+        </div>
+        <div class="flex-actions">
+            <button class="btn-modern primary" @onclick="TestSearch" disabled="@_searching">
+                @(_searching ? "Searching…" : "Search")
+            </button>
+        </div>
+        @if (!string.IsNullOrEmpty(Dev.LastSearchResult))
+        {
+            <pre class="dev-result dev-search-result">@Dev.LastSearchResult</pre>
+        }
+    </section>
+
+    @* ── Provider Health ── *@
+    <section class="panel-card">
+        <div class="panel-header">
+            <span class="eyebrow">Status</span>
+            <h2>Provider health</h2>
+        </div>
+        <ul class="health-list">
+            @foreach (var p in _providers)
+            {
+                <li>
+                    <span class="pill @(Registry.IsProviderEnabled(p.Id) ? "ok" : "neutral")">
+                        @(Registry.IsProviderEnabled(p.Id) ? "enabled" : "disabled")
+                    </span>
+                    <strong>@p.Icon @p.Name</strong>
+                    <span class="platform-tags">@string.Join(", ", p.SupportedPlatforms)</span>
+                </li>
+            }
+        </ul>
+    </section>
+</div>
+
+@* ── Log Viewer ── *@
+<section class="panel-card log-section">
+    <div class="panel-header">
+        <span class="eyebrow">Output</span>
+        <h2>Log viewer <span class="pill neutral">@_logs.Count entries</span></h2>
+    </div>
+    <div class="log-container">
+        @foreach (var entry in _logs)
+        {
+            <div class="log-line log-@entry.Level.ToLowerInvariant()">
+                <span class="log-time">@entry.Timestamp.ToString("HH:mm:ss.fff")</span>
+                <span class="log-level">@entry.Level</span>
+                <span class="log-cat">[@entry.Category]</span>
+                <span class="log-msg">@entry.Message</span>
+                @if (!string.IsNullOrEmpty(entry.Detail))
+                {
+                    <pre class="log-detail">@entry.Detail</pre>
+                }
+            </div>
+        }
+    </div>
+</section>
+
+@code {
+    private List<MelodyBridge.Core.IMusicProvider> _providers = new();
+    private List<DevLogEntry> _logs = new();
+    private bool _downloading;
+    private bool _searching;
+
+    protected override void OnInitialized()
+    {
+        _providers = Registry.GetAllProviders().ToList();
+        RefreshLogs();
+    }
+
+    private void RefreshLogs()
+    {
+        _logs = Dev.GetLogs().ToList();
+    }
+
+    private async Task TestDownload()
+    {
+        var url = Dev.DownloadUrl;
+        if (string.IsNullOrWhiteSpace(url))
+        {
+            Dev.LogWarn("Download", "No URL provided");
+            RefreshLogs();
+            return;
+        }
+
+        _downloading = true;
+        Dev.LastDownloadResult = null;
+
+        try
+        {
+            Dev.LogInfo("Download", $"Starting download test for {url}");
+
+            var quality = ParseQuality(Dev.SelectedQuality);
+            var outputDir = Path.Combine(Path.GetTempPath(), "MelodyBridge_DevTest");
+
+            string? filePath;
+
+            if (!string.IsNullOrEmpty(Dev.SelectedProviderId))
+            {
+                // Use a specific provider
+                var provider = _providers.FirstOrDefault(p => p.Id == Dev.SelectedProviderId);
+                if (provider == null)
+                {
+                    Dev.LogError("Download", $"Provider '{Dev.SelectedProviderId}' not found");
+                    RefreshLogs();
+                    return;
+                }
+
+                var result = await provider.DownloadAsync(url, quality, outputDir);
+                filePath = result.Success ? result.FilePath : null;
+                Dev.LogInfo("Download", $"Provider result: {(result.Success ? "OK" : "Failed")} | {result.ErrorMessage ?? result.FilePath}");
+            }
+            else
+            {
+                // Use the download manager (waterfall)
+                filePath = await DownloadMgr.DownloadWithQualityFallbackAsync(url, outputDir, "dev-test", quality);
+                Dev.LogInfo("Download", $"Download manager returned: {filePath ?? "null (all failed)"}");
+            }
+
+            if (filePath != null && File.Exists(filePath))
+            {
+                var fi = new FileInfo(filePath);
+                var header = await CheckAudioHeaderAsync(filePath);
+                Dev.LastDownloadResult = $"✅ {fi.Name}  ({fi.Length:N0} bytes)  header: {header}";
+                Dev.LogInfo("Download", $"Success: {Dev.LastDownloadResult}");
+            }
+            else
+            {
+                Dev.LastDownloadResult = "❌ Download failed — no file returned";
+                Dev.LogError("Download", "Download failed: no file returned by provider(s)");
+            }
+        }
+        catch (Exception ex)
+        {
+            Dev.LastDownloadResult = $"❌ Exception: {ex.Message}";
+            Dev.LogError("Download", $"Exception: {ex.Message}", ex.ToString());
+        }
+        finally
+        {
+            _downloading = false;
+            RefreshLogs();
+        }
+    }
+
+    private async Task TestSearch()
+    {
+        var query = Dev.SearchQuery;
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            Dev.LogWarn("Search", "No query provided");
+            RefreshLogs();
+            return;
+        }
+
+        _searching = true;
+        Dev.LastSearchResult = null;
+
+        try
+        {
+            Dev.LogInfo("Search", $"Searching for \"{query}\"");
+
+            var providers = string.IsNullOrEmpty(Dev.SearchProviderId)
+                ? _providers.Where(p => Registry.IsProviderEnabled(p.Id)).ToList()
+                : _providers.Where(p => p.Id == Dev.SearchProviderId).ToList();
+
+            var allResults = new List<MelodyBridge.Core.SearchResult>();
+            foreach (var provider in providers)
+            {
+                try
+                {
+                    var results = await provider.SearchAsync(query);
+                    allResults.AddRange(results);
+                    Dev.LogInfo("Search", $"{provider.Name}: {results.Count} results");
+                }
+                catch (Exception ex)
+                {
+                    Dev.LogWarn("Search", $"{provider.Name}: error — {ex.Message}");
+                }
+            }
+
+            var grouped = allResults.GroupBy(r => r.SourcePlatform).ToList();
+            Dev.LastSearchResult = $"Found {allResults.Count} total result(s) across {grouped.Count} platform(s).\n"
+                + string.Join("\n", grouped.Select(g => $"  {g.Key}: {g.Count()} result(s)"));
+            Dev.LogInfo("Search", $"Total: {allResults.Count} results");
+        }
+        catch (Exception ex)
+        {
+            Dev.LastSearchResult = $"❌ Exception: {ex.Message}";
+            Dev.LogError("Search", $"Exception: {ex.Message}", ex.ToString());
+        }
+        finally
+        {
+            _searching = false;
+            RefreshLogs();
+        }
+    }
+
+    private void ClearAll()
+    {
+        Dev.ClearLogs();
+        Dev.LastDownloadResult = null;
+        Dev.LastSearchResult = null;
+        RefreshLogs();
+    }
+
+    private static MelodyBridge.Core.TrackQuality ParseQuality(string? q)
+    {
+        return q switch
+        {
+            "flac_24" => new(24, MelodyBridge.Core.MediaType.FLAC),
+            "flac_16" => new(16, MelodyBridge.Core.MediaType.FLAC),
+            "aac_320" => new(320, MelodyBridge.Core.MediaType.AAC),
+            "mp3_320" => new(320, MelodyBridge.Core.MediaType.MP3),
+            "mp3_128" => new(128, MelodyBridge.Core.MediaType.MP3),
+            _ => new(320, MelodyBridge.Core.MediaType.MP3), // default
+        };
+    }
+
+    /// <summary>Read the first bytes of a file to guess audio format.</summary>
+    private static async Task<string> CheckAudioHeaderAsync(string filePath)
+    {
+        using var fs = File.OpenRead(filePath);
+        var header = new byte[16];
+        var read = await fs.ReadAsync(header, 0, Math.Min(16, header.Length));
+        if (read < 4) return "too small";
+
+        // MP3: ID3 tag or 0xFF frame sync
+        if (header[0] == 0x49 && header[1] == 0x44 && header[2] == 0x33) return "MP3 (ID3v2)";
+        if (header[0] == 0xFF && (header[1] & 0xE0) == 0xE0) return "MP3";
+
+        // FLAC: fLaC
+        if (header[0] == 0x66 && header[1] == 0x4C && header[2] == 0x61 && header[3] == 0x43) return "FLAC";
+
+        // Ogg (OPUS/Vorbis)
+        if (header[0] == 0x4F && header[1] == 0x67 && header[2] == 0x67 && header[3] == 0x53) return "OGG (Vorbis/Opus)";
+
+        // AAC / M4A (MP4 container): ftyp
+        if (header[4] == 0x66 && header[5] == 0x74 && header[6] == 0x79 && header[7] == 0x70) return "M4A/AAC (MP4)";
+
+        // WAV: RIFF
+        if (header[0] == 0x52 && header[1] == 0x49 && header[2] == 0x46 && header[3] == 0x46) return "WAV";
+
+        return $"Unknown (first bytes: {BitConverter.ToString(header, 0, read)})";
+    }
+}

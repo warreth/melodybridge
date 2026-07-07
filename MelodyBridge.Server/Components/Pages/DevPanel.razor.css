@@ -1,0 +1,123 @@
+.dev-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.dev-grid .panel-card {
+    margin-bottom: 0;
+}
+
+.flex-actions {
+    margin-top: 1rem;
+}
+
+.dev-result {
+    margin-top: 0.75rem;
+    padding: 0.75rem 1rem;
+    background: var(--surface-2, #1a1d23);
+    border: 1px solid var(--border, #2a2d35);
+    border-radius: 8px;
+    font-size: 0.85rem;
+    font-family: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', monospace;
+    white-space: pre-wrap;
+    word-break: break-all;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.dev-search-result {
+    max-height: 300px;
+}
+
+/* Log viewer */
+.log-section {
+    margin-bottom: 0;
+}
+
+.log-container {
+    max-height: 400px;
+    overflow-y: auto;
+    background: var(--surface-2, #0d0f13);
+    border: 1px solid var(--border, #2a2d35);
+    border-radius: 8px;
+    padding: 0.5rem;
+    font-family: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', monospace;
+    font-size: 0.78rem;
+    line-height: 1.5;
+}
+
+.log-line {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem 0.5rem;
+    padding: 0.15rem 0.35rem;
+    border-radius: 4px;
+}
+
+.log-line:hover {
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.log-time {
+    color: var(--text-3, #6b7280);
+    user-select: none;
+}
+
+.log-level {
+    font-weight: 600;
+    min-width: 3.5em;
+}
+
+.log-info .log-level { color: var(--accent, #3b82f6); }
+.log-warn .log-level { color: var(--warning, #eab308); }
+.log-error .log-level { color: var(--danger, #ef4444); }
+.log-debug .log-level { color: var(--text-3, #6b7280); }
+
+.log-cat {
+    color: var(--text-2, #9ca3af);
+}
+
+.log-msg {
+    flex: 1;
+    color: var(--text-1, #e5e7eb);
+}
+
+.log-detail {
+    width: 100%;
+    margin: 0.25rem 0 0 1.5rem;
+    padding: 0.5rem;
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 4px;
+    font-size: 0.72rem;
+    white-space: pre-wrap;
+    word-break: break-all;
+    max-height: 150px;
+    overflow-y: auto;
+    color: var(--text-2, #9ca3af);
+}
+
+.health-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.health-list li {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.5rem 0;
+    border-bottom: 1px solid var(--border, #2a2d35);
+}
+
+.health-list li:last-child {
+    border-bottom: none;
+}
+
+.platform-tags {
+    font-size: 0.8rem;
+    color: var(--text-2, #9ca3af);
+    margin-left: auto;
+}

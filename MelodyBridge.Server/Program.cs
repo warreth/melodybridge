@@ -1,5 +1,6 @@
 using MelodyBridge.Application;
 using MelodyBridge.Infrastructure.Data;
+using MelodyBridge.Server.Services;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -22,6 +23,9 @@ builder.Services.AddScoped<MelodyBridgeDbContext>(sp =>
 // Register all MelodyBridge services
 builder.Services.AddMelodyBridge();
 builder.Services.AddJellyfinSync();
+
+// Dev panel (singleton, off by default — enable in development)
+builder.Services.AddSingleton<DevPanelService>();
 
 var app = builder.Build();
 

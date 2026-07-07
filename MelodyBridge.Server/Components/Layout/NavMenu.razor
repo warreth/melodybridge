@@ -1,4 +1,6 @@
-﻿<div class="brand-block">
+﻿@inject MelodyBridge.Server.Services.DevPanelService DevPanel
+
+<div class="brand-block">
     <div class="brand-logo">M</div>
     <div>
         <strong>MelodyBridge</strong>
@@ -15,6 +17,10 @@
     <NavLink class="nav-link" href="downloads"><span>↓</span>Downloads</NavLink>
     <NavLink class="nav-link" href="sync-jobs"><span>↻</span>Sync Jobs</NavLink>
     <NavLink class="nav-link" href="settings"><span>⚙</span>Settings</NavLink>
+    @if (DevPanel.Enabled)
+    {
+        <NavLink class="nav-link" href="dev"><span>🛠</span>Dev Panel</NavLink>
+    }
 </nav>
 
 <div class="sidebar-footer">
