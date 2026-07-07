@@ -71,8 +71,10 @@ public class DownloadManager : IDownloadManager
         {
             foreach (var provider in providers)
             {
-                // Check if provider supports this quality
-                if (!provider.SupportedQualities.Any(q =>
+                // Check if provider supports this quality.
+                // Empty SupportedQualities means "all qualities supported".
+                if (provider.SupportedQualities.Count > 0 &&
+                    !provider.SupportedQualities.Any(q =>
                         q.Bitrate == quality.Bitrate && q.Format == quality.Format))
                 {
                     continue;
