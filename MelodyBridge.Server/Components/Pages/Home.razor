@@ -1,6 +1,9 @@
-﻿@page "/"
+﻿@using System.Text.Json
+@page "/"
 @inject IDbContextFactory<MelodyBridgeDbContext> DbFactory
 @inject IMusicSourceManager SourceMgr
+@inject ISyncJobRunner JobRunner
+@inject IMusicProviderRegistry ProviderRegistry
 
 <PageTitle>MelodyBridge Dashboard</PageTitle>
 
@@ -118,8 +121,9 @@
         syncJobsCount = await db.SyncJobs.CountAsync();
         pendingJobs = await db.SyncJobs.CountAsync(j => j.LastRunStatus == "Pending");
         completedJobs = await db.SyncJobs.CountAsync(j => j.LastRunStatus == "Completed");
-        downloadersCount = 1 + 4; // yt-dlp + 4 providers
-        activeProviders = 4;
+        var allProviders = ProviderRegistry.GetAllProviders();
+        downloadersCount = 1 + allProviders.Count; // yt-dlp + all registered providers
+        activeProviders = allProviders.Count(p => ProviderRegistry.IsProviderEnabled(p.Id));
     }
 
     private async Task RunAllSync()
@@ -129,9 +133,10 @@
         {
             await using var db = await DbFactory.CreateDbContextAsync();
             var jobs = await db.SyncJobs.ToListAsync();
-            foreach (var job in jobs)
+            foreach (var entity in jobs)
             {
-                // simplified: trigger each via ISyncJobRunner
+                var job = MapToDomain(entity);
+                await JobRunner.RunJobAsync(job);
             }
             await RefreshStats();
         }
@@ -142,5 +147,34 @@
     {
         await SourceMgr.AutoSyncAllAsync();
         await RefreshStats();
+    }
+
+    private static SyncJob MapToDomain(SyncJobEntity entity)
+    {
+        var searchPaths = new List<string>();
+        try { searchPaths = JsonSerializer.Deserialize<List<string>>(entity.SearchLocationPaths ?? "[]") ?? new(); } catch { }
+        var remapRules = new Dictionary<string, string>();
+        try { remapRules = JsonSerializer.Deserialize<Dictionary<string, string>>(entity.PathRemapRules ?? "{}") ?? new(); } catch { }
+        var extRules = new Dictionary<string, string>();
+        try { extRules = JsonSerializer.Deserialize<Dictionary<string, string>>(entity.ExtensionRemapRules ?? "{}") ?? new(); } catch { }
+
+        return new SyncJob
+        {
+            Id = entity.Id,
+            Name = entity.Name ?? "",
+            SourceId = entity.SourceId,
+            SearchLocationPaths = searchPaths,
+            OutputTarget = Enum.TryParse<OutputTargetType>(entity.OutputTarget, true, out var ot) ? ot : OutputTargetType.M3uFile,
+            M3uOutputPath = entity.M3uOutputPath,
+            JellyfinServerUrl = entity.JellyfinServerUrl,
+            JellyfinApiKey = entity.JellyfinApiKey,
+            JellyfinUserId = entity.JellyfinUserId,
+            PathRemapRules = remapRules,
+            ExtensionRemapRules = extRules,
+            Schedule = Enum.TryParse<SyncJobSchedule>(entity.Schedule, true, out var s) ? s : SyncJobSchedule.Manual,
+            CronExpression = entity.CronExpression,
+            LastRunAt = entity.LastRunAt,
+            LastRunSummary = entity.LastRunSummary,
+        };
     }
 }

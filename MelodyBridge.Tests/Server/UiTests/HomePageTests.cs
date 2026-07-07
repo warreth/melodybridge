@@ -16,6 +16,7 @@ public class HomePageTests
     private TestContext _ctx = null!;
     private Mock<IMusicSourceManager> _sourceMgr = null!;
     private Mock<ISyncJobRunner> _jobRunner = null!;
+    private Mock<IMusicProviderRegistry> _providerRegistry = null!;
 
     [SetUp]
     public void Setup()
@@ -23,6 +24,7 @@ public class HomePageTests
         _ctx = new TestContext();
         _sourceMgr = new Mock<IMusicSourceManager>();
         _jobRunner = new Mock<ISyncJobRunner>();
+        _providerRegistry = new Mock<IMusicProviderRegistry>();
 
         var options = new DbContextOptionsBuilder<MelodyBridgeDbContext>()
             .UseInMemoryDatabase($"HomeTest_{Guid.NewGuid()}")
@@ -38,8 +40,13 @@ public class HomePageTests
             db.SaveChanges();
         }
 
+        // Setup provider registry defaults
+        _providerRegistry.Setup(r => r.GetAllProviders()).Returns(new List<IMusicProvider>());
+        _providerRegistry.Setup(r => r.IsProviderEnabled(It.IsAny<string>())).Returns(true);
+
         _ctx.Services.AddSingleton<IMusicSourceManager>(_sourceMgr.Object);
         _ctx.Services.AddSingleton<ISyncJobRunner>(_jobRunner.Object);
+        _ctx.Services.AddSingleton<IMusicProviderRegistry>(_providerRegistry.Object);
         _ctx.Services.AddSingleton<IDbContextFactory<MelodyBridgeDbContext>>(dbFactory);
     }
 
