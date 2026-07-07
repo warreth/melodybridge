@@ -99,7 +99,7 @@ public partial class MonochromeProvider : IMusicProvider
 
     public async Task<TrackInfo?> GetTrackInfoAsync(string url, CancellationToken ct = default)
     {
-        if (!TryExtractTidalTrackId(url, out var trackId))
+        if (!ProviderHelpers.TryExtractTidalTrackId(url, out var trackId))
         {
             _logger.LogWarning("Could not extract TIDAL track ID from {Url}", url);
             return null;
@@ -138,7 +138,7 @@ public partial class MonochromeProvider : IMusicProvider
 
     public async Task<DownloadResult> DownloadAsync(string trackUrl, TrackQuality quality, string outputDirectory, CancellationToken ct = default)
     {
-        if (!TryExtractTidalTrackId(trackUrl, out var trackId))
+        if (!ProviderHelpers.TryExtractTidalTrackId(trackUrl, out var trackId))
             return new DownloadResult(false, null, "Could not extract TIDAL track ID", null);
 
         Directory.CreateDirectory(outputDirectory);
@@ -197,7 +197,7 @@ public partial class MonochromeProvider : IMusicProvider
             }
         }
 
-        return new DownloadResult(false, null, "All Monochrome API instances failed for download", null);
+        return new DownloadResult(false, null, "All Monochrome API instances failed for download — check network connectivity or authentication session", null);
     }
 
     // ── Response Parsing ────────────────────────────────────────────────
@@ -354,16 +354,6 @@ public partial class MonochromeProvider : IMusicProvider
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────
-
-    private static bool TryExtractTidalTrackId(string url, out long id)
-    {
-        id = 0;
-        var match = Regex.Match(url, @"track[/=](\d+)");
-        if (match.Success && long.TryParse(match.Groups[1].Value, out var parsed))
-        {
-            id = parsed;
-            return true;
-        }
-        return false;
-    }
+    // Delegates to ProviderHelpers (kept for reflection-based tests)
+    private static bool TryExtractTidalTrackId(string url, out long id) => ProviderHelpers.TryExtractTidalTrackId(url, out id);
 }

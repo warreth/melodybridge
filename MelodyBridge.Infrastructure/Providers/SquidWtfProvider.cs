@@ -26,6 +26,7 @@ public class SquidWtfProvider : IMusicProvider
     public IReadOnlyList<Platform> SupportedPlatforms { get; } = new[]
     {
         Platform.Qobuz,
+        Platform.Tidal,
         Platform.AmazonMusic,
         Platform.Soundcloud,
     };
@@ -102,7 +103,7 @@ public class SquidWtfProvider : IMusicProvider
     {
         try
         {
-            var platform = DetectPlatform(url);
+            var platform = ProviderHelpers.DetectPlatform(url);
             if (platform == Platform.Unknown)
             {
                 _logger.LogWarning("Unknown platform URL: {Url}", url);
@@ -110,7 +111,7 @@ public class SquidWtfProvider : IMusicProvider
             }
 
             // For Qobuz tracks: extract track ID and fetch metadata
-            if (platform == Platform.Qobuz && TryExtractQobuzTrackId(url, out var qobuzId))
+            if (platform == Platform.Qobuz && ProviderHelpers.TryExtractQobuzTrackId(url, out var qobuzId))
             {
                 using var request = new HttpRequestMessage(HttpMethod.Get,
                     $"https://www.qobuz.com/api.json/0.2/track/get?track_id={qobuzId}");
@@ -151,7 +152,7 @@ public class SquidWtfProvider : IMusicProvider
     {
         try
         {
-            var platform = DetectPlatform(trackUrl);
+            var platform = ProviderHelpers.DetectPlatform(trackUrl);
             Directory.CreateDirectory(outputDirectory);
 
             switch (platform)
@@ -174,7 +175,7 @@ public class SquidWtfProvider : IMusicProvider
     {
         // Resolve Qobuz track ID from ISRC or URL
         long? qobuzId;
-        if (TryExtractQobuzTrackId(trackUrl, out var extractedId))
+        if (ProviderHelpers.TryExtractQobuzTrackId(trackUrl, out var extractedId))
         {
             qobuzId = extractedId;
         }
@@ -219,26 +220,10 @@ public class SquidWtfProvider : IMusicProvider
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────
-    private static Platform DetectPlatform(string url)
-    {
-        if (url.Contains("qobuz.com", StringComparison.OrdinalIgnoreCase)) return Platform.Qobuz;
-        if (url.Contains("amazon", StringComparison.OrdinalIgnoreCase)) return Platform.AmazonMusic;
-        if (url.Contains("soundcloud", StringComparison.OrdinalIgnoreCase)) return Platform.Soundcloud;
-        return Platform.Unknown;
-    }
-
-    private static bool TryExtractQobuzTrackId(string url, out long id)
-    {
-        id = 0;
-        // Pattern: https://www.qobuz.com/track/123456 or ?track_id=123456
-        var match = System.Text.RegularExpressions.Regex.Match(url, @"(?:track/|track_id=)(\d+)");
-        if (match.Success && long.TryParse(match.Groups[1].Value, out var parsed))
-        {
-            id = parsed;
-            return true;
-        }
-        return false;
-    }
+    // Delegates to ProviderHelpers (kept for reflection-based tests)
+    private static Platform DetectPlatform(string url) => ProviderHelpers.DetectPlatform(url);
+    private static bool TryExtractQobuzTrackId(string url, out long id) => ProviderHelpers.TryExtractQobuzTrackId(url, out id);
+    private static bool TryExtractTidalTrackId(string url, out long id) => ProviderHelpers.TryExtractTidalTrackId(url, out id);
 
     private static string MapQualityToCode(TrackQuality quality)
     {

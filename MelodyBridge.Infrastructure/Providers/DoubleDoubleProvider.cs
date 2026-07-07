@@ -68,7 +68,7 @@ public class DoubleDoubleProvider : IMusicProvider
 
             // DoubleDouble search API: GET /search?q=<query>&service=<service>
             // Returns JSON: { results: [ { name, artist, album, cover, link, type, links }, ... ] }
-            var searchUrl = $"{BaseUrl}/search?q={HttpUtility.UrlEncode(query)}&service={MapPlatformToService(targetPlatform)}";
+            var searchUrl = $"{BaseUrl}/search?q={HttpUtility.UrlEncode(query)}&service={ProviderHelpers.MapPlatformToService(targetPlatform)}";
             var response = await _httpClient.GetAsync(searchUrl, ct);
 
             if (response.StatusCode == System.Net.HttpStatusCode.Forbidden)
@@ -94,7 +94,7 @@ public class DoubleDoubleProvider : IMusicProvider
     {
         try
         {
-            var platform = DetectPlatform(url);
+            var platform = ProviderHelpers.DetectPlatform(url);
             if (platform == Platform.Unknown)
             {
                 _logger.LogWarning("Unknown platform URL: {Url}", url);
@@ -141,7 +141,7 @@ public class DoubleDoubleProvider : IMusicProvider
         try
         {
             Directory.CreateDirectory(outputDirectory);
-            var platform = DetectPlatform(trackUrl);
+            var platform = ProviderHelpers.DetectPlatform(trackUrl);
 
             if (platform == Platform.Unknown)
                 return new DownloadResult(false, null, "Unknown platform URL", null);
@@ -267,25 +267,11 @@ public class DoubleDoubleProvider : IMusicProvider
     }
 
     // ── Internal ────────────────────────────────────────────────────────
-    private static string MapPlatformToService(Platform platform) => platform switch
-    {
-        Platform.Qobuz => "qobuz",
-        Platform.Tidal => "tidal",
-        Platform.Deezer => "deezer",
-        Platform.Soundcloud => "soundcloud",
-        Platform.AmazonMusic => "amazon",
-        _ => "qobuz",
-    };
-
-    private static Platform DetectPlatform(string url)
-    {
-        if (url.Contains("amazon", StringComparison.OrdinalIgnoreCase)) return Platform.AmazonMusic;
-        if (url.Contains("soundcloud.com", StringComparison.OrdinalIgnoreCase)) return Platform.Soundcloud;
-        if (url.Contains("qobuz.com", StringComparison.OrdinalIgnoreCase)) return Platform.Qobuz;
-        if (url.Contains("deezer.com", StringComparison.OrdinalIgnoreCase)) return Platform.Deezer;
-        if (url.Contains("tidal.com", StringComparison.OrdinalIgnoreCase)) return Platform.Tidal;
-        return Platform.Unknown;
-    }
+    // Delegates to ProviderHelpers (kept for reflection-based tests).
+    // Note: Unknown defaults to "qobuz" (DoubleDouble-specific default).
+    private static Platform DetectPlatform(string url) => ProviderHelpers.DetectPlatform(url);
+    private static string MapPlatformToService(Platform platform)
+        => platform == Platform.Unknown ? "qobuz" : ProviderHelpers.MapPlatformToService(platform);
 
     private static IReadOnlyList<SearchResult> ParseSearchResults(string json, Platform platform)
     {
@@ -320,6 +306,40 @@ public class DoubleDoubleProvider : IMusicProvider
         catch (JsonException)
         {
             // Ignore malformed responses
+        }
+
+        return results;
+    }
+
+    /// <summary>
+    /// Extracts a download URL from HTML anchor tag href.
+    /// </summary>
+    private static string? ExtractDownloadUrl(string html)
+    {
+        if (string.IsNullOrEmpty(html)) return null;
+        var match = System.Text.RegularExpressions.Regex.Match(html, @"<a\s+href=""([^""]+)"">");
+        return match.Success ? match.Groups[1].Value : null;
+    }
+
+    /// <summary>
+    /// Parses search results from HTML anchor tags.
+    /// </summary>
+    private static List<SearchResult> ParseResults(string html, Platform platform)
+    {
+        var results = new List<SearchResult>();
+        if (string.IsNullOrEmpty(html)) return results;
+
+        var matches = System.Text.RegularExpressions.Regex.Matches(html, @"<a\s+href=""([^""]+)"">([^<]+)</a>");
+        foreach (System.Text.RegularExpressions.Match match in matches)
+        {
+            if (match.Success)
+            {
+                var url = match.Groups[1].Value;
+                var title = match.Groups[2].Value;
+                results.Add(new SearchResult(
+                    title, "", null, url, platform,
+                    new[] { new TrackQuality(320, MediaType.MP3), new TrackQuality(24, MediaType.FLAC) }));
+            }
         }
 
         return results;

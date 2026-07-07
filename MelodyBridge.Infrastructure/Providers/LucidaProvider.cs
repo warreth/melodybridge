@@ -114,7 +114,7 @@ public partial class LucidaProvider : IMusicProvider
     {
         try
         {
-            var platform = DetectPlatform(url);
+            var platform = ProviderHelpers.DetectPlatform(url);
             if (platform == Platform.Unknown)
             {
                 _logger.LogWarning("Unknown platform URL: {Url}", url);
@@ -128,7 +128,7 @@ public partial class LucidaProvider : IMusicProvider
             // Qobuz → Qobuz public API
             if (platform == Platform.Qobuz)
             {
-                if (!TryExtractQobuzTrackId(url, out var qobuzId))
+                if (!ProviderHelpers.TryExtractQobuzTrackId(url, out var qobuzId))
                     return null;
 
                 using var request = new HttpRequestMessage(HttpMethod.Get,
@@ -173,14 +173,14 @@ public partial class LucidaProvider : IMusicProvider
         {
             Directory.CreateDirectory(outputDirectory);
 
-            var platform = DetectPlatform(trackUrl);
+            var platform = ProviderHelpers.DetectPlatform(trackUrl);
 
             // Tidal → download via Monochrome API instances
             if (platform == Platform.Tidal)
                 return await _monochromeClient.DownloadAsync(trackUrl, quality, outputDirectory, ct);
 
             // Qobuz → download via SquidWtf
-            if (platform == Platform.Qobuz && TryExtractQobuzTrackId(trackUrl, out var qobuzId))
+            if (platform == Platform.Qobuz && ProviderHelpers.TryExtractQobuzTrackId(trackUrl, out var qobuzId))
             {
                 var qualityCode = quality switch
                 {
@@ -222,26 +222,9 @@ public partial class LucidaProvider : IMusicProvider
     }
 
     // ── Internal ────────────────────────────────────────────────────────
-    private static Platform DetectPlatform(string url)
-    {
-        if (url.Contains("tidal.com", StringComparison.OrdinalIgnoreCase)) return Platform.Tidal;
-        if (url.Contains("qobuz.com", StringComparison.OrdinalIgnoreCase)) return Platform.Qobuz;
-        if (url.Contains("deezer.com", StringComparison.OrdinalIgnoreCase)) return Platform.Deezer;
-        if (url.Contains("soundcloud.com", StringComparison.OrdinalIgnoreCase)) return Platform.Soundcloud;
-        if (url.Contains("amazon", StringComparison.OrdinalIgnoreCase)) return Platform.AmazonMusic;
-        if (url.Contains("spotify.com", StringComparison.OrdinalIgnoreCase)) return Platform.Spotify;
-        return Platform.Unknown;
-    }
+    // Delegates to ProviderHelpers (kept for reflection-based tests)
+    private static Platform DetectPlatform(string url) => ProviderHelpers.DetectPlatform(url);
+    private static bool TryExtractQobuzTrackId(string url, out long id) => ProviderHelpers.TryExtractQobuzTrackId(url, out id);
+    private static string MapPlatformToService(Platform platform) => ProviderHelpers.MapPlatformToService(platform);
 
-    private static bool TryExtractQobuzTrackId(string url, out long id)
-    {
-        id = 0;
-        var match = System.Text.RegularExpressions.Regex.Match(url, @"(?:track/|track_id=)(\d+)");
-        if (match.Success && long.TryParse(match.Groups[1].Value, out var parsed))
-        {
-            id = parsed;
-            return true;
-        }
-        return false;
-    }
 }

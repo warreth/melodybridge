@@ -72,7 +72,7 @@ public class MonochromeApiClient
 
     public async Task<TrackInfo?> GetTrackInfoAsync(string url, CancellationToken ct = default)
     {
-        if (!TryExtractTidalTrackId(url, out var trackId))
+        if (!ProviderHelpers.TryExtractTidalTrackId(url, out var trackId))
             return null;
 
         var endpoint = $"/info/?id={trackId}";
@@ -101,7 +101,7 @@ public class MonochromeApiClient
 
     public async Task<DownloadResult> DownloadAsync(string trackUrl, TrackQuality quality, string outputDirectory, CancellationToken ct = default)
     {
-        if (!TryExtractTidalTrackId(trackUrl, out var trackId))
+        if (!ProviderHelpers.TryExtractTidalTrackId(trackUrl, out var trackId))
             return new DownloadResult(false, null, "Could not extract TIDAL track ID", null);
 
         Directory.CreateDirectory(outputDirectory);
@@ -303,10 +303,5 @@ public class MonochromeApiClient
         return "";
     }
 
-    private static bool TryExtractTidalTrackId(string url, out long id)
-    {
-        id = 0;
-        var match = System.Text.RegularExpressions.Regex.Match(url, @"track[/=](\d+)");
-        return match.Success && long.TryParse(match.Groups[1].Value, out id);
-    }
+    // (TryExtractTidalTrackId moved to ProviderHelpers in MelodyBridge.Infrastructure.Helpers)
 }
