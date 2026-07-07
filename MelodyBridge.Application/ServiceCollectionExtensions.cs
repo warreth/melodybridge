@@ -16,7 +16,7 @@ public static class ServiceCollectionExtensions
     {
         // Infrastructure services
         services.AddScoped<M3uGenerator>();
-        services.AddScoped<LibraryScanner>();
+        services.AddScoped<ILibraryScanner, LibraryScanner>();
         services.AddSingleton<MusicProviderRegistry>();
 
         // Legacy downloaders
