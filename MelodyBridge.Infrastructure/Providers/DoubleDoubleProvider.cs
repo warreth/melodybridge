@@ -1,5 +1,4 @@
 using System.Text.Json;
-using System.Text.RegularExpressions;
 using System.Web;
 using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.Helpers;
@@ -10,11 +9,17 @@ namespace MelodyBridge.Infrastructure.Providers;
 /// <summary>
 /// Music provider for doubledouble.top.
 /// Supports: Amazon Music, SoundCloud, Qobuz, Deezer, Tidal.
-/// NOTE: DoubleDouble has NO public API and uses CAPTCHA protection.
-/// This provider uses HTTP-based scraping which may be limited.
-/// For full functionality, browser automation is required.
+///
+/// API endpoints (discovered from app.js):
+///   GET /search?q=&lt;query&gt;&amp;service=&lt;service&gt; → search results JSON
+///   GET /dl?url=&lt;url&gt;[&amp;external=&lt;service&gt;] → submit URL, returns { success, id }
+///   GET /dl/&lt;id&gt; → poll for download status, returns { status, url } on completion
+///
+/// NOTE: DoubleDouble requires Cloudflare Turnstile CAPTCHA. Automated access
+/// may be blocked. For Tidal and Qobuz, consider using the Monochrome or
+/// SquidWtf providers instead.
 /// </summary>
-public partial class DoubleDoubleProvider : IMusicProvider
+public class DoubleDoubleProvider : IMusicProvider
 {
     private readonly ILogger<DoubleDoubleProvider> _logger;
     private readonly HttpClient _httpClient;
@@ -35,7 +40,6 @@ public partial class DoubleDoubleProvider : IMusicProvider
 
     public IReadOnlyList<TrackQuality> SupportedQualities { get; } = ProviderQualities.DoubleDouble;
 
-    // Default region — the user picks US or EU on the landing page.
     private const string UsBaseUrl = "https://us.doubledouble.top";
     private const string EuBaseUrl = "https://eu.doubledouble.top";
 
@@ -60,19 +64,12 @@ public partial class DoubleDoubleProvider : IMusicProvider
     {
         try
         {
-            // DoubleDouble doesn't have a dedicated search API.
-            // It works by submitting URLs from streaming services.
-            // For search, we can try submitting a search query directly.
-            // The endpoint appears to accept a query parameter.
-            var formData = new Dictionary<string, string>
-            {
-                ["query"] = query,
-                ["service"] = MapPlatformToService(platform ?? Platform.Qobuz),
-            };
+            var targetPlatform = platform ?? Platform.Qobuz;
 
-            // Some DoubleDouble endpoints accept form-encoded POSTs
-            using var content = new FormUrlEncodedContent(formData);
-            var response = await _httpClient.PostAsync($"{BaseUrl}/", content, ct);
+            // DoubleDouble search API: GET /search?q=<query>&service=<service>
+            // Returns JSON: { results: [ { name, artist, album, cover, link, type, links }, ... ] }
+            var searchUrl = $"{BaseUrl}/search?q={HttpUtility.UrlEncode(query)}&service={MapPlatformToService(targetPlatform)}";
+            var response = await _httpClient.GetAsync(searchUrl, ct);
 
             if (response.StatusCode == System.Net.HttpStatusCode.Forbidden)
             {
@@ -81,10 +78,9 @@ public partial class DoubleDoubleProvider : IMusicProvider
             }
 
             response.EnsureSuccessStatusCode();
-            var html = await response.Content.ReadAsStringAsync(ct);
+            var body = await response.Content.ReadAsStringAsync(ct);
 
-            // Parse any track links from the response
-            return ParseResults(html, platform ?? Platform.Qobuz);
+            return ParseSearchResults(body, targetPlatform);
         }
         catch (Exception ex)
         {
@@ -105,32 +101,32 @@ public partial class DoubleDoubleProvider : IMusicProvider
                 return null;
             }
 
-            // Submit the URL to DoubleDouble to get info
-            var formData = new Dictionary<string, string>
-            {
-                ["url"] = url,
-            };
-
-            using var content = new FormUrlEncodedContent(formData);
-            var response = await _httpClient.PostAsync($"{BaseUrl}/", content, ct);
+            // Submit URL via GET /dl?url= and parse the response JSON
+            var dlUrl = $"{BaseUrl}/dl?url={HttpUtility.UrlEncode(url)}";
+            var response = await _httpClient.GetAsync(dlUrl, ct);
 
             if (response.StatusCode == System.Net.HttpStatusCode.Forbidden)
             {
-                _logger.LogWarning("DoubleDouble CAPTCHA block");
+                _logger.LogWarning("DoubleDouble CAPTCHA block for {Url}", url);
                 return null;
             }
 
             response.EnsureSuccessStatusCode();
-            var html = await response.Content.ReadAsStringAsync(ct);
+            var body = await response.Content.ReadAsStringAsync(ct);
 
-            // Try to extract title/artist from the response page
-            var title = ExtractMetaValue(html, "title");
-            var artist = ExtractMetaValue(html, "artist");
+            // Response is JSON: { success, id } on initial submit
+            // Or the initial response may include track info
+            using var doc = JsonDocument.Parse(body);
+            var root = doc.RootElement;
 
-            return new TrackInfo(
-                title ?? "Unknown Track",
-                artist ?? "",
-                null, null, url, platform, SupportedQualities);
+            var title = root.TryGetProperty("title", out var titleProp)
+                ? titleProp.GetString() ?? "Unknown Track"
+                : "Unknown Track";
+            var artist = root.TryGetProperty("artist", out var artistProp)
+                ? artistProp.GetString() ?? ""
+                : "";
+
+            return new TrackInfo(title, artist, null, null, url, platform, SupportedQualities);
         }
         catch (Exception ex)
         {
@@ -150,48 +146,124 @@ public partial class DoubleDoubleProvider : IMusicProvider
             if (platform == Platform.Unknown)
                 return new DownloadResult(false, null, "Unknown platform URL", null);
 
-            // Submit the track URL to DoubleDouble for processing
-            var formData = new Dictionary<string, string>
-            {
-                ["url"] = trackUrl,
-            };
-
-            using var content = new FormUrlEncodedContent(formData);
-            var response = await _httpClient.PostAsync($"{BaseUrl}/", content, ct);
+            // Step 1: Submit URL via GET /dl?url= to start processing
+            var dlUrl = $"{BaseUrl}/dl?url={HttpUtility.UrlEncode(trackUrl)}";
+            var response = await _httpClient.GetAsync(dlUrl, ct);
 
             if (response.StatusCode == System.Net.HttpStatusCode.Forbidden)
-                return new DownloadResult(false, null, "Blocked by CAPTCHA. Try accessing https://doubledouble.top in a browser first.", null);
+                return new DownloadResult(false, null,
+                    "Blocked by CAPTCHA. Try accessing https://doubledouble.top in a browser first.", null);
 
             response.EnsureSuccessStatusCode();
-            var html = await response.Content.ReadAsStringAsync(ct);
+            var body = await response.Content.ReadAsStringAsync(ct);
 
-            // Look for direct download link in the response
-            var downloadUrl = ExtractDownloadUrl(html);
-            if (string.IsNullOrEmpty(downloadUrl))
+            using var doc = JsonDocument.Parse(body);
+            var root = doc.RootElement;
+
+            // Check if submission succeeded
+            if (root.TryGetProperty("success", out var successProp) && successProp.GetBoolean())
             {
-                _logger.LogInformation("DoubleDouble requires interactive CAPTCHA. Direct download URL not found.");
-                return new DownloadResult(false, null,
-                    "DoubleDouble requires CAPTCHA verification. Open https://doubledouble.top in a browser, complete the CAPTCHA, then try again.",
-                    null);
+                var id = root.GetProperty("id").GetString();
+                if (!string.IsNullOrEmpty(id))
+                {
+                    // Step 2: Poll /dl/<id> until complete
+                    var result = await PollDownloadAsync(id, ct);
+                    if (result != null)
+                        return result;
+                }
             }
 
-            var ext = Path.GetExtension(new Uri(downloadUrl).AbsolutePath)?.TrimStart('.') ?? "bin";
-            if (string.IsNullOrEmpty(ext) || ext.Length > 5) ext = "bin";
+            // If we got a direct download URL in the response instead
+            if (root.TryGetProperty("url", out var urlProp))
+            {
+                var downloadUrl = urlProp.GetString();
+                if (!string.IsNullOrEmpty(downloadUrl))
+                {
+                    var ext = Path.GetExtension(new Uri(downloadUrl).AbsolutePath)?.TrimStart('.') ?? "bin";
+                    if (string.IsNullOrEmpty(ext) || ext.Length > 5) ext = "bin";
+                    var fileName = $"dd_{Guid.NewGuid():N}.{ext}";
+                    var filePath = Path.Combine(outputDirectory, fileName);
+                    await TrackFileHelper.DownloadFileAsync(downloadUrl, filePath);
+                    return File.Exists(filePath)
+                        ? new DownloadResult(true, filePath, null, quality)
+                        : new DownloadResult(false, null, "Download completed but file not found", null);
+                }
+            }
 
-            var fileName = $"dd_{Guid.NewGuid():N}.{ext}";
-            var filePath = Path.Combine(outputDirectory, fileName);
-
-            await TrackFileHelper.DownloadFileAsync(downloadUrl, filePath);
-
-            return File.Exists(filePath)
-                ? new DownloadResult(true, filePath, null, quality)
-                : new DownloadResult(false, null, "Download completed but file not found", null);
+            return new DownloadResult(false, null,
+                "DoubleDouble requires CAPTCHA verification. Open https://doubledouble.top in a browser, complete the CAPTCHA, then try again.",
+                null);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "DoubleDouble download failed for {Url}", trackUrl);
             return new DownloadResult(false, null, ex.Message, null);
         }
+    }
+
+    private async Task<DownloadResult?> PollDownloadAsync(string id, CancellationToken ct)
+    {
+        var pollUrl = $"{BaseUrl}/dl/{id}";
+
+        for (var i = 0; i < 30; i++) // Poll up to 30 times (~60s max)
+        {
+            try
+            {
+                var response = await _httpClient.GetAsync(pollUrl, ct);
+                response.EnsureSuccessStatusCode();
+                var body = await response.Content.ReadAsStringAsync(ct);
+
+                using var doc = JsonDocument.Parse(body);
+                var root = doc.RootElement;
+
+                // Check status
+                if (root.TryGetProperty("status", out var statusProp))
+                {
+                    var status = statusProp.GetString();
+
+                    if (status == "complete" || status == "ready")
+                    {
+                        // Get download URL
+                        if (root.TryGetProperty("url", out var urlProp))
+                        {
+                            var downloadUrl = urlProp.GetString();
+                            if (!string.IsNullOrEmpty(downloadUrl))
+                            {
+                                var ext = Path.GetExtension(new Uri(downloadUrl).AbsolutePath)?.TrimStart('.') ?? "bin";
+                                if (string.IsNullOrEmpty(ext) || ext.Length > 5) ext = "bin";
+                                var outputDir = Path.GetDirectoryName(pollUrl) ?? ".";
+                                var fileName = $"dd_{Guid.NewGuid():N}.{ext}";
+                                var filePath = Path.Combine(outputDir, fileName);
+                                await TrackFileHelper.DownloadFileAsync(downloadUrl, filePath);
+                                return File.Exists(filePath)
+                                    ? new DownloadResult(true, filePath, null, null)
+                                    : null;
+                            }
+                        }
+                        return null;
+                    }
+
+                    if (status == "error")
+                    {
+                        var error = root.TryGetProperty("error", out var errProp)
+                            ? errProp.GetString() : "Unknown error";
+                        _logger.LogWarning("DoubleDouble processing error: {Error}", error);
+                        return null;
+                    }
+                }
+
+                // Wait before polling again
+                await Task.Delay(2000, ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "DoubleDouble poll attempt {Attempt} failed", i);
+                await Task.Delay(2000, ct);
+            }
+        }
+
+        _logger.LogWarning("DoubleDouble poll timed out for {Id}", id);
+        return null;
     }
 
     // ── Internal ────────────────────────────────────────────────────────
@@ -215,42 +287,41 @@ public partial class DoubleDoubleProvider : IMusicProvider
         return Platform.Unknown;
     }
 
-    private static List<SearchResult> ParseResults(string html, Platform platform)
+    private static IReadOnlyList<SearchResult> ParseSearchResults(string json, Platform platform)
     {
         var results = new List<SearchResult>();
-        // Look for track links / results in the page
-        var matches = ResultLinkRegex().Matches(html);
-        foreach (Match match in matches)
+
+        try
         {
-            var title = match.Groups["title"].Success ? match.Groups["title"].Value.Trim() : "Unknown";
-            var url = match.Groups["url"].Success ? match.Groups["url"].Value.Trim() : "";
-            if (!string.IsNullOrEmpty(url))
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+
+            // Response: { results: [ { name, artist, album, cover, link, type, links }, ... ] }
+            if (!root.TryGetProperty("results", out var items))
+                return results;
+
+            foreach (var item in items.EnumerateArray())
             {
-                results.Add(new SearchResult(title, "", null, url, platform,
-                    new[] { new TrackQuality(320, MediaType.MP3), new TrackQuality(24, MediaType.FLAC) }));
+                var title = item.GetProperty("name").GetString() ?? "Unknown";
+                var artist = item.TryGetProperty("artist", out var a)
+                    ? a.GetString() ?? "" : "";
+                var album = item.TryGetProperty("album", out var alb)
+                    ? alb.GetString() ?? null : null;
+                var link = item.TryGetProperty("link", out var l)
+                    ? l.GetString() ?? "" : "";
+
+                if (!string.IsNullOrEmpty(link))
+                {
+                    results.Add(new SearchResult(title, artist, album, link, platform,
+                        new[] { new TrackQuality(320, MediaType.MP3), new TrackQuality(24, MediaType.FLAC) }));
+                }
             }
         }
+        catch (JsonException)
+        {
+            // Ignore malformed responses
+        }
+
         return results;
     }
-
-    private static string? ExtractMetaValue(string html, string name)
-    {
-        var match = MetaRegex().Match(html);
-        return match.Success ? match.Groups[1].Value.Trim() : null;
-    }
-
-    private static string? ExtractDownloadUrl(string html)
-    {
-        var match = DownloadLinkRegex().Match(html);
-        return match.Success ? match.Groups[1].Value : null;
-    }
-
-    [GeneratedRegex(@"<a[^>]*href=""(?<url>/download/[^""]+)""[^>]*>(?<title>[^<]+)</a>", RegexOptions.IgnoreCase)]
-    private static partial Regex ResultLinkRegex();
-
-    [GeneratedRegex(@"<meta[^>]*(?:property|name)=""(?:og:)?(title|artist)""[^>]*content=""([^""]+)""", RegexOptions.IgnoreCase)]
-    private static partial Regex MetaRegex();
-
-    [GeneratedRegex(@"href=""(https?://[^""]*\.(flac|mp3|m4a|aac|opus)[^""]*)""", RegexOptions.IgnoreCase)]
-    private static partial Regex DownloadLinkRegex();
 }
