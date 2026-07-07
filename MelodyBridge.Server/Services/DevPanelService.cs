@@ -1,4 +1,6 @@
 using MelodyBridge.Core;
+using MelodyBridge.Core.Logging;
+using CoreLogLevel = MelodyBridge.Core.Logging.LogLevel;
 
 namespace MelodyBridge.Server.Services;
 
@@ -58,11 +60,40 @@ public class DevDownloadTask
 /// <summary>
 /// Singleton service that tracks dev-panel state and accumulates
 /// log entries for in-browser inspection.
+///
+/// Logging is delegated to the application-wide <see cref="ILogCollector"/>
+/// so that all components (providers, services, controllers) share the same
+/// unified log buffer visible in the DevPanel.
 /// </summary>
 public class DevPanelService
 {
-    private readonly List<DevLogEntry> _logs = new();
-    private readonly object _lock = new();
+    private readonly ILogCollector _logCollector;
+    private static readonly Dictionary<string, CoreLogLevel> StringToLevel = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Trace"] = CoreLogLevel.Trace,
+        ["Debug"] = CoreLogLevel.Debug,
+        ["Info"] = CoreLogLevel.Info,
+        ["Warn"] = CoreLogLevel.Warn,
+        ["Error"] = CoreLogLevel.Error,
+        ["Critical"] = CoreLogLevel.Critical,
+    };
+
+    private static readonly Dictionary<CoreLogLevel, string> LevelToString = new()
+    {
+        [CoreLogLevel.Trace] = "Trace",
+        [CoreLogLevel.Debug] = "Debug",
+        [CoreLogLevel.Info] = "Info",
+        [CoreLogLevel.Warn] = "Warn",
+        [CoreLogLevel.Error] = "Error",
+        [CoreLogLevel.Critical] = "Critical",
+    };
+
+    public DevPanelService() : this(new LogCollector()) { }
+
+    public DevPanelService(ILogCollector logCollector)
+    {
+        _logCollector = logCollector;
+    }
 
     /// <summary>Whether the dev panel sidebar link is visible.</summary>
     public bool Enabled { get; set; }
@@ -87,17 +118,12 @@ public class DevPanelService
     public string NextDownloadTaskId() =>
         $"dev-{Interlocked.Increment(ref _downloadTaskCounter)}";
 
-    // ── Logging ──
+    // ── Logging (delegated to ILogCollector) ──
 
     public void Log(string level, string category, string message, string? detail = null)
     {
-        var entry = new DevLogEntry(DateTime.UtcNow, level, category, message, detail);
-        lock (_lock)
-        {
-            _logs.Add(entry);
-            if (_logs.Count > 500)
-                _logs.RemoveRange(0, _logs.Count - 500);
-        }
+        var mapped = StringToLevel.TryGetValue(level, out var l) ? l : CoreLogLevel.Info;
+        _logCollector.Log(mapped, category, message, detail);
     }
 
     public void LogInfo(string category, string message, string? detail = null)
@@ -115,13 +141,19 @@ public class DevPanelService
     /// <summary>Get a snapshot of all logs (newest first).</summary>
     public IReadOnlyList<DevLogEntry> GetLogs()
     {
-        lock (_lock)
-            return _logs.OrderByDescending(e => e.Timestamp).ToList();
+        return _logCollector.GetEntries()
+            .Select(e => new DevLogEntry(
+                e.Timestamp,
+                LevelToString.TryGetValue(e.Level, out var s) ? s : e.Level.ToString(),
+                e.Category,
+                e.Message,
+                e.Detail))
+            .ToList();
     }
 
     /// <summary>Clear all logs.</summary>
-    public void ClearLogs()
-    {
-        lock (_lock) _logs.Clear();
-    }
+    public void ClearLogs() => _logCollector.Clear();
+
+    /// <summary>The underlying ILogCollector, for direct access (export, etc.).</summary>
+    public ILogCollector LogCollector => _logCollector;
 }

@@ -1,7 +1,10 @@
 @page "/settings"
 @using MelodyBridge.Core
+@using MelodyBridge.Server.Services
 @inject IMusicProviderRegistry ProviderRegistry
 @inject IDbContextFactory<MelodyBridgeDbContext> DbFactory
+@inject LogExporter Exporter
+@inject NavigationManager Nav
 @implements IDisposable
 
 <PageTitle>Settings</PageTitle>
@@ -109,6 +112,23 @@
     <div class="toast-preview">@savedMessage</div>
 }
 
+@* ── Logs ── *@
+<section class="panel-card">
+    <div class="panel-header">
+        <div>
+            <span class="eyebrow">Diagnostics</span>
+            <h2>Logs</h2>
+        </div>
+    </div>
+    <p class="panel-description">
+        Export the most recent application logs (up to 1000 entries)
+        as a plain-text file for debugging or sharing.
+    </p>
+    <button class="btn-modern primary-outline" @onclick="ExportLogs">
+        <span class="btn-icon">📥</span> Export logs
+    </button>
+</section>
+
 @* ── About / Support ── *@
 <section class="panel-card about-card">
     <div class="panel-header">
@@ -182,6 +202,8 @@
         if (existing != null) existing.Value = value;
         else db.DownloaderSettings.Add(new DownloaderSettingEntity { Key = key, Value = value });
     }
+
+    private void ExportLogs() => Nav.NavigateTo("/api/logs/export", true);
 
     public void Dispose() { }
 }

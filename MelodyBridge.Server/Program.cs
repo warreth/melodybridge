@@ -1,5 +1,7 @@
 using MelodyBridge.Application;
+using MelodyBridge.Core.Logging;
 using MelodyBridge.Infrastructure.Data;
+using MelodyBridge.Server.Logging;
 using MelodyBridge.Server.Services;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
@@ -21,12 +23,22 @@ builder.Services.AddDbContextFactory<MelodyBridgeDbContext>(options =>
 builder.Services.AddScoped<MelodyBridgeDbContext>(sp =>
     sp.GetRequiredService<IDbContextFactory<MelodyBridgeDbContext>>().CreateDbContext());
 
+// ── Unified logging ──────────────────────────────────────
+// Singleton log collector shared by all components
+var logCollector = new LogCollector(maxEntries: 1000);
+builder.Services.AddSingleton<ILogCollector>(logCollector);
+builder.Services.AddSingleton<LogExporter>();
+
+// Bridge the standard ILogger<T> pipeline into the log collector
+// so providers, services, and controllers appear in the DevPanel
+builder.Logging.AddProvider(new DevPanelLoggerProvider(logCollector));
+
 // Register all MelodyBridge services
 builder.Services.AddMelodyBridge();
 builder.Services.AddJellyfinSync();
 
 // Dev panel (singleton, off by default — enable via DevPanel__Enabled=true env var)
-var devPanel = new DevPanelService();
+var devPanel = new DevPanelService(logCollector);
 devPanel.Enabled = builder.Configuration.GetValue<bool>("DevPanel:Enabled");
 builder.Services.AddSingleton(devPanel);
 
@@ -58,6 +70,17 @@ app.UseStaticFiles();
 
 app.MapBlazorHub();
 app.MapControllers();
+
+// ── Log export endpoint ──────────────────────────────────
+app.MapGet("/api/logs/export", (LogExporter exporter) =>
+{
+    var bytes = exporter.ExportToBytes();
+    return Results.File(
+        bytes,
+        "text/plain; charset=utf-8",
+        $"melodybridge-logs-{DateTime.UtcNow:yyyy-MM-dd-HHmmss}.txt");
+});
+
 app.MapFallbackToPage("/_Host");
 
 app.Run();

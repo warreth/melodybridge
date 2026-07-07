@@ -1,8 +1,11 @@
 using TestContext = Bunit.TestContext;
 using Bunit;
 using MelodyBridge.Core;
+using MelodyBridge.Core.Logging;
 using MelodyBridge.Infrastructure.Data;
 using MelodyBridge.Server.Components.Pages;
+using MelodyBridge.Server.Logging;
+using MelodyBridge.Server.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Moq;
@@ -44,6 +47,11 @@ public class SettingsPageTests
 
         _ctx.Services.AddSingleton<IMusicProviderRegistry>(_registry.Object);
         _ctx.Services.AddSingleton<IDbContextFactory<MelodyBridgeDbContext>>(dbFactory);
+
+        // Logging services required by the Settings page
+        var logCollector = new LogCollector();
+        _ctx.Services.AddSingleton<ILogCollector>(logCollector);
+        _ctx.Services.AddSingleton(new LogExporter(logCollector));
     }
 
     [TearDown]

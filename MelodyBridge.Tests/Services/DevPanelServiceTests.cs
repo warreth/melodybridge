@@ -94,11 +94,11 @@ public class DevPanelServiceTests
     }
 
     [Test]
-    public void LogsAreCappedAt500()
+    public void LogsAreCappedAt1000()
     {
-        for (int i = 0; i < 600; i++)
+        for (int i = 0; i < 1100; i++)
             _service.LogInfo("Cat", $"msg {i}");
-        Assert.That(_service.GetLogs(), Has.Count.EqualTo(500));
+        Assert.That(_service.GetLogs(), Has.Count.EqualTo(1000));
     }
 
     [Test]
