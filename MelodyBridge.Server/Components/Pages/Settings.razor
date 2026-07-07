@@ -125,13 +125,18 @@
     {
         await using var db = await DbFactory.CreateDbContextAsync();
         var settings = await db.DownloaderSettings.ToListAsync();
-        var jUrl = settings.FirstOrDefault(s => s.Key == "jellyfin_url");
-        if (jUrl != null) jellyfinUrl = jUrl.Value;
-        var jKey = settings.FirstOrDefault(s => s.Key == "jellyfin_key");
-        if (jKey != null) jellyfinApiKey = jKey.Value;
-        var jUser = settings.FirstOrDefault(s => s.Key == "jellyfin_user");
-        if (jUser != null) jellyfinUserId = jUser.Value;
+        jellyfinUrl = FindSetting(settings, "jellyfin_url", "http://host.docker.internal:8096");
+        jellyfinApiKey = FindSetting(settings, "jellyfin_key", "");
+        jellyfinUserId = FindSetting(settings, "jellyfin_user", "");
+        musicPath = FindSetting(settings, "music_path", "/music");
+        playlistPath = FindSetting(settings, "playlist_path", "/app/playlists");
+        keysPath = FindSetting(settings, "keys_path", "/root/.aspnet/DataProtection-Keys");
+        autoScanIntervalSec = int.Parse(FindSetting(settings, "auto_scan_interval", "60"));
+        syncCheckIntervalSec = int.Parse(FindSetting(settings, "sync_check_interval", "300"));
     }
+
+    private static string FindSetting(List<DownloaderSettingEntity> settings, string key, string fallback)
+        => settings.FirstOrDefault(s => s.Key == key)?.Value ?? fallback;
 
     private async Task ToggleProvider(string id, bool enabled)
     {
@@ -145,6 +150,11 @@
         await Upsert(db, "jellyfin_url", jellyfinUrl);
         await Upsert(db, "jellyfin_key", jellyfinApiKey);
         await Upsert(db, "jellyfin_user", jellyfinUserId);
+        await Upsert(db, "music_path", musicPath);
+        await Upsert(db, "playlist_path", playlistPath);
+        await Upsert(db, "keys_path", keysPath);
+        await Upsert(db, "auto_scan_interval", autoScanIntervalSec.ToString());
+        await Upsert(db, "sync_check_interval", syncCheckIntervalSec.ToString());
         await db.SaveChangesAsync();
         savedMessage = "Settings saved.";
     }
