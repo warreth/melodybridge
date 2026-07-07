@@ -37,7 +37,7 @@ public class PlaylistService : IPlaylistService
     public async Task<PlaylistEntity?> GetPlaylistByIdAsync(string id, CancellationToken ct = default)
     {
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
-        return await db.Playlists.AsNoTracking().FirstOrDefaultAsync(p => p.Id == id, ct);
+        return await db.Playlists.Include(p => p.Tracks).AsNoTracking().FirstOrDefaultAsync(p => p.Id == id, ct);
     }
 
     public async Task<PlaylistEntity> CreatePlaylistAsync(PlaylistEntity playlist, CancellationToken ct = default)
@@ -73,8 +73,8 @@ public class PlaylistService : IPlaylistService
     public async Task SyncPlaylistAsync(string id, ISourceProvider sourceProvider, CancellationToken ct = default)
     {
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
-        var playlist = await db.Playlists.FirstOrDefaultAsync(p => p.Id == id, ct);
-        
+        var playlist = await db.Playlists.Include(p => p.Tracks).FirstOrDefaultAsync(p => p.Id == id, ct);
+
         if (playlist == null)
         {
             _logger.LogWarning("Playlist not found: {PlaylistId}", id);
@@ -84,7 +84,7 @@ public class PlaylistService : IPlaylistService
         try
         {
             _logger.LogInformation("Syncing playlist: {PlaylistName}", playlist.Name);
-            
+
             var sourcePlaylist = await sourceProvider.GetPlaylistAsync(playlist.SourceUrl);
             if (sourcePlaylist == null)
             {
@@ -103,7 +103,7 @@ public class PlaylistService : IPlaylistService
                 playlist.TrackCount = playlist.Tracks.Count;
                 playlist.LastSyncAt = DateTime.UtcNow;
                 playlist.LastSyncStatus = SyncStatus.Completed;
-                _logger.LogInformation("Successfully synced playlist: {PlaylistName} with {TrackCount} tracks", 
+                _logger.LogInformation("Successfully synced playlist: {PlaylistName} with {TrackCount} tracks",
                     playlist.Name, playlist.Tracks.Count);
             }
         }
@@ -121,16 +121,16 @@ public class PlaylistService : IPlaylistService
     {
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var query = db.Playlists.Include(p => p.Tracks).AsNoTracking();
-        
+
         if (playlistIds != null && playlistIds.Any())
         {
             query = query.Where(p => playlistIds.Contains(p.Id));
         }
-        
+
         var playlists = await query.ToListAsync(ct);
-        return System.Text.Json.JsonSerializer.Serialize(playlists, new System.Text.Json.JsonSerializerOptions 
-        { 
-            WriteIndented = true 
+        return System.Text.Json.JsonSerializer.Serialize(playlists, new System.Text.Json.JsonSerializerOptions
+        {
+            WriteIndented = true
         });
     }
 
@@ -156,7 +156,7 @@ public class PlaylistService : IPlaylistService
                     {
                         track.Id = 0; // Let DB generate new ID
                     }
-                    
+
                     db.Playlists.Add(playlist);
                     importedCount++;
                 }
@@ -167,7 +167,7 @@ public class PlaylistService : IPlaylistService
                 await db.SaveChangesAsync(ct);
                 _logger.LogInformation("Imported {Count} playlists", importedCount);
             }
-            
+
             return importedCount;
         }
         catch (Exception ex)

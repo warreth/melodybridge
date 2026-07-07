@@ -57,3 +57,6 @@ TestResult.xml
 nunit-*.xml
 data/keys/key-7a9765a3-41b9-48eb-ae05-7b8c2c2458e3.xml
 node_modules/
+MelodyBridge.Server/melodybridge.db
+MelodyBridge.Server/melodybridge.db-shm
+MelodyBridge.Server/melodybridge.db-wal
