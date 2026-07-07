@@ -20,7 +20,7 @@
     <div class="hero-card">
         <span class="status-dot online"></span>
         <strong>MelodyBridge ready</strong>
-        <p><code>@tracksCount</code> tracks · <code>@sourcesCount</code> sources · <code>@syncJobsCount</code> sync jobs</p>
+        <p><code>@tracksCount</code> tracks · <code>@playlistsCount</code> playlists · <code>@syncJobsCount</code> sync jobs</p>
     </div>
 </section>
 
@@ -30,6 +30,12 @@
         <label>Tracks in library</label>
         <strong>@tracksCount</strong>
         <small>Scanned from scan locations</small>
+    </div>
+    <div class="stat-card">
+        <span class="stat-icon">♫</span>
+        <label>Saved Playlists</label>
+        <strong>@playlistsCount</strong>
+        <small>Managed playlists</small>
     </div>
     <div class="stat-card">
         <span class="stat-icon">📡</span>
@@ -99,6 +105,7 @@
 
 @code {
     private int tracksCount;
+    private int playlistsCount;
     private int sourcesCount;
     private int syncJobsCount;
     private int pendingJobs;
@@ -117,6 +124,7 @@
     {
         await using var db = await DbFactory.CreateDbContextAsync();
         tracksCount = await db.Tracks.CountAsync();
+        playlistsCount = await db.Playlists.CountAsync();
         sourcesCount = await db.Sources.CountAsync();
         syncJobsCount = await db.SyncJobs.CountAsync();
         pendingJobs = await db.SyncJobs.CountAsync(j => j.LastRunStatus == "Pending");

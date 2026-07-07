@@ -5,16 +5,34 @@
 @inject IPlaylistService PlaylistService
 @inject IEnumerable<ISourceProvider> SourceProviders
 @inject NavigationManager Navigation
+@inject IJSRuntime JS
 
 <PageTitle>Playlists - MelodyBridge</PageTitle>
 
 <div class="container-fluid p-4">
     <div class="d-flex justify-content-between align-items-center mb-4">
         <h1 class="h3 mb-0">Playlists</h1>
-        <button class="btn btn-primary" @onclick="ShowAddPlaylistModal">
-            <i class="bi bi-plus-circle"></i> Add Playlist
-        </button>
+        <div class="btn-group">
+            <button class="btn btn-outline-secondary" @onclick="ExportAllPlaylists">
+                <i class="bi bi-download"></i> Export All
+            </button>
+            <label class="btn btn-outline-secondary mb-0">
+                <i class="bi bi-upload"></i> Import
+                <InputFile OnChange="ImportPlaylists" style="display: none;" accept=".json" />
+            </label>
+            <button class="btn btn-primary" @onclick="ShowAddPlaylistModal">
+                <i class="bi bi-plus-circle"></i> Add Playlist
+            </button>
+        </div>
     </div>
+
+    @if (!string.IsNullOrEmpty(importMessage))
+    {
+        <div class="alert alert-@(isImportSuccess ? "success" : "danger") alert-dismissible fade show" role="alert">
+            @importMessage
+            <button type="button" class="btn-close" @onclick="() => importMessage = string.Empty"></button>
+        </div>
+    }
 
     @if (isLoading)
     {
@@ -174,6 +192,8 @@
     private bool newPlaylistAutoSync = false;
     private int newPlaylistSyncInterval = 60;
     private PlaylistEntity? editingPlaylist = null;
+    private string importMessage = string.Empty;
+    private bool isImportSuccess = false;
 
     protected override async Task OnInitializedAsync()
     {
@@ -203,6 +223,49 @@
     {
         showAddModal = false;
         editingPlaylist = null;
+    }
+
+    private async Task ExportAllPlaylists()
+    {
+        try
+        {
+            var json = await PlaylistService.ExportPlaylistsAsync();
+            var bytes = System.Text.Encoding.UTF8.GetBytes(json);
+            var fileName = $"melodybridge_playlists_{DateTime.Now:yyyyMMdd}.json";
+            
+            // Trigger download via JS interop
+            await JS.InvokeVoidAsync("downloadFileFromBytes", fileName, "application/json", bytes);
+        }
+        catch (Exception ex)
+        {
+            importMessage = $"Export failed: {ex.Message}";
+            isImportSuccess = false;
+        }
+    }
+
+    private async Task ImportPlaylists(InputFileChangeEventArgs e)
+    {
+        try
+        {
+            var file = e.File;
+            if (file == null) return;
+
+            using var stream = file.OpenReadStream(maxAllowedSize: 10 * 1024 * 1024); // 10MB max
+            using var reader = new System.IO.StreamReader(stream);
+            var json = await reader.ReadToEndAsync();
+
+            var count = await PlaylistService.ImportPlaylistsAsync(json);
+            
+            importMessage = $"Successfully imported {count} new playlists.";
+            isImportSuccess = true;
+            
+            await LoadPlaylists();
+        }
+        catch (Exception ex)
+        {
+            importMessage = $"Import failed: {ex.Message}";
+            isImportSuccess = false;
+        }
     }
 
     private void EditPlaylist(PlaylistEntity playlist)

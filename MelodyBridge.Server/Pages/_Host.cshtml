@@ -29,6 +29,15 @@
                 localStorage.setItem('melodybridge-theme', next);
             }
         };
+        
+        window.downloadFileFromBytes = function (fileName, contentType, byteBase64) {
+            const link = document.createElement('a');
+            link.download = fileName;
+            link.href = `data:${contentType};base64,${byteBase64}`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        };
     </script>
     <script src="/_framework/blazor.server.js"></script>
 </body>

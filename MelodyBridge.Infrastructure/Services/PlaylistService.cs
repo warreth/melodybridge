@@ -13,6 +13,8 @@ public interface IPlaylistService
     Task<PlaylistEntity> UpdatePlaylistAsync(PlaylistEntity playlist, CancellationToken ct = default);
     Task DeletePlaylistAsync(string id, CancellationToken ct = default);
     Task SyncPlaylistAsync(string id, ISourceProvider sourceProvider, CancellationToken ct = default);
+    Task<string> ExportPlaylistsAsync(IEnumerable<string>? playlistIds = null, CancellationToken ct = default);
+    Task<int> ImportPlaylistsAsync(string jsonContent, CancellationToken ct = default);
 }
 
 public class PlaylistService : IPlaylistService
@@ -113,5 +115,65 @@ public class PlaylistService : IPlaylistService
 
         db.Playlists.Update(playlist);
         await db.SaveChangesAsync(ct);
+    }
+
+    public async Task<string> ExportPlaylistsAsync(IEnumerable<string>? playlistIds = null, CancellationToken ct = default)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var query = db.Playlists.Include(p => p.Tracks).AsNoTracking();
+        
+        if (playlistIds != null && playlistIds.Any())
+        {
+            query = query.Where(p => playlistIds.Contains(p.Id));
+        }
+        
+        var playlists = await query.ToListAsync(ct);
+        return System.Text.Json.JsonSerializer.Serialize(playlists, new System.Text.Json.JsonSerializerOptions 
+        { 
+            WriteIndented = true 
+        });
+    }
+
+    public async Task<int> ImportPlaylistsAsync(string jsonContent, CancellationToken ct = default)
+    {
+        try
+        {
+            var playlists = System.Text.Json.JsonSerializer.Deserialize<List<PlaylistEntity>>(jsonContent);
+            if (playlists == null || !playlists.Any()) return 0;
+
+            await using var db = await _dbFactory.CreateDbContextAsync(ct);
+            int importedCount = 0;
+
+            foreach (var playlist in playlists)
+            {
+                // Check if playlist with same SourceUrl already exists
+                var existing = await db.Playlists.FirstOrDefaultAsync(p => p.SourceUrl == playlist.SourceUrl, ct);
+                if (existing == null)
+                {
+                    // Ensure new IDs are generated to avoid conflicts
+                    playlist.Id = Guid.NewGuid().ToString();
+                    foreach (var track in playlist.Tracks)
+                    {
+                        track.Id = 0; // Let DB generate new ID
+                    }
+                    
+                    db.Playlists.Add(playlist);
+                    importedCount++;
+                }
+            }
+
+            if (importedCount > 0)
+            {
+                await db.SaveChangesAsync(ct);
+                _logger.LogInformation("Imported {Count} playlists", importedCount);
+            }
+            
+            return importedCount;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to import playlists");
+            throw;
+        }
     }
 }
