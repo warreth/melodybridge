@@ -1,3 +1,5 @@
+using MelodyBridge.Core;
+
 namespace MelodyBridge.Server.Services;
 
 /// <summary>
@@ -5,11 +7,53 @@ namespace MelodyBridge.Server.Services;
 /// </summary>
 public record DevLogEntry(
     DateTime Timestamp,
-    string Level,    // Info, Warn, Error, Debug
-    string Category, // e.g. Download, Search, Provider
+    string Level,
+    string Category,
     string Message,
     string? Detail = null
 );
+
+/// <summary>
+/// A search result enriched with the provider that found it, for interactive display.
+/// </summary>
+public record InteractiveSearchResult(
+    string Title,
+    string Artist,
+    string? Album,
+    string Url,
+    Platform SourcePlatform,
+    IReadOnlyList<TrackQuality> AvailableQualities,
+    string ProviderId,
+    string ProviderName
+);
+
+/// <summary>
+/// Tracks the state of a single download in the dev panel.
+/// </summary>
+public class DevDownloadTask
+{
+    public string Id { get; set; } = "";
+    public string TrackInfo { get; set; } = "";
+    public string Url { get; set; } = "";
+    public string ProviderName { get; set; } = "";
+    public string Status { get; set; } = "Pending";
+    public string? ResultPath { get; set; }
+    public string? ErrorMessage { get; set; }
+
+    public DevDownloadTask() { }
+
+    public DevDownloadTask(string id, string trackInfo, string url, string providerName,
+        string status, string? resultPath, string? errorMessage)
+    {
+        Id = id;
+        TrackInfo = trackInfo;
+        Url = url;
+        ProviderName = providerName;
+        Status = status;
+        ResultPath = resultPath;
+        ErrorMessage = errorMessage;
+    }
+}
 
 /// <summary>
 /// Singleton service that tracks dev-panel state and accumulates
@@ -23,28 +67,28 @@ public class DevPanelService
     /// <summary>Whether the dev panel sidebar link is visible.</summary>
     public bool Enabled { get; set; }
 
-    /// <summary>Current page being tested in the Download Tester section.</summary>
-    public string? DownloadUrl { get; set; }
-
-    /// <summary>Selected provider ID for the Download Tester.</summary>
-    public string? SelectedProviderId { get; set; }
-
-    /// <summary>Selected quality for the Download Tester.</summary>
-    public string? SelectedQuality { get; set; }
-
-    /// <summary>Query text for the Search Tester section.</summary>
+    // ── Search state ──
     public string? SearchQuery { get; set; }
-
-    /// <summary>Selected provider ID for the Search Tester.</summary>
     public string? SearchProviderId { get; set; }
+    public string? LastSearchResult { get; set; }
+    public List<InteractiveSearchResult> SearchResults { get; set; } = new();
 
-    /// <summary>Last download result path or error.</summary>
+    // ── Download state (single direct download) ──
+    public string? DownloadUrl { get; set; }
+    public string? SelectedProviderId { get; set; }
+    public string? SelectedQuality { get; set; }
     public string? LastDownloadResult { get; set; }
 
-    /// <summary>Last search result summary.</summary>
-    public string? LastSearchResult { get; set; }
+    // ── Download queue ──
+    public List<DevDownloadTask> DownloadQueue { get; set; } = new();
+    private int _downloadTaskCounter;
 
-    /// <summary>Append a log entry.</summary>
+    /// <summary>Allocate a new download task ID.</summary>
+    public string NextDownloadTaskId() =>
+        $"dev-{Interlocked.Increment(ref _downloadTaskCounter)}";
+
+    // ── Logging ──
+
     public void Log(string level, string category, string message, string? detail = null)
     {
         var entry = new DevLogEntry(DateTime.UtcNow, level, category, message, detail);
