@@ -24,8 +24,10 @@ builder.Services.AddScoped<MelodyBridgeDbContext>(sp =>
 builder.Services.AddMelodyBridge();
 builder.Services.AddJellyfinSync();
 
-// Dev panel (singleton, off by default — enable in development)
-builder.Services.AddSingleton<DevPanelService>();
+// Dev panel (singleton, off by default — enable via DevPanel__Enabled=true env var)
+var devPanel = new DevPanelService();
+devPanel.Enabled = builder.Configuration.GetValue<bool>("DevPanel:Enabled");
+builder.Services.AddSingleton(devPanel);
 
 var app = builder.Build();
 

@@ -22,6 +22,8 @@ services:
       # Default Jellyfin base URL (override in env or compose override)
       - Jellyfin__BaseUrl=http://host.docker.internal:8096
       - Jellyfin__ApiKey=
+      # Dev panel — set to true to enable the /dev testing dashboard
+      - DevPanel__Enabled=false
     volumes:
       - ./data/keys:/root/.aspnet/DataProtection-Keys
       - ./data/music:/music

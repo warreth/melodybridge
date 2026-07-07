@@ -1,37 +1,25 @@
 # Docker Deployment Guide
 
-This guide covers running MelodyBridge as a self-hosted service using Docker and docker-compose.
+Run MelodyBridge as a self-hosted service using Docker.
 
 ---
 
-## Quick Start (docker-compose)
+## Quick Start
 
 ```bash
-# Clone the repository
 git clone https://github.com/yourusername/melodybridge.git
 cd melodybridge
-
-# Start the service
 docker compose up -d
-
-# View logs
-docker compose logs -f
 ```
 
 Open [http://localhost:3333](http://localhost:3333).
 
 ---
 
-## Included Tools
-
-The Docker image includes `yt-dlp` and `ffmpeg` pre-installed for YouTube and generic URL media downloads. No additional installation steps are required.
-
----
-
-## Manual Docker Build
+## Manual Build
 
 ```bash
-docker build -t melodybridge:latest -f Dockerfile .
+docker build -t melodybridge:latest .
 docker run -d \
   -v ./data/music:/music \
   -v ./data/playlists:/app/playlists \
@@ -45,32 +33,9 @@ docker run -d \
 
 ---
 
-## docker-compose.yml Reference
+## Configuration
 
-The included [docker-compose.yml](../docker-compose.yml) provides a development-ready setup:
-
-```yaml
-services:
-  melodybridge:
-    build: .
-    image: melodybridge:local
-    container_name: melodybridge_local
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    ports:
-      - "3333:80"
-    environment:
-      - ASPNETCORE_ENVIRONMENT=Development
-      - ASPNETCORE_URLS=http://+:80
-      - Jellyfin__BaseUrl=http://host.docker.internal:8096
-      - Jellyfin__ApiKey=
-      - Logging__LogLevel__Default=Information
-    volumes:
-      - ./data/keys:/root/.aspnet/DataProtection-Keys
-      - ./data/music:/music
-      - ./data/playlists:/app/playlists
-    restart: unless-stopped
-```
+See [docker-compose.yml](../docker-compose.yml) for the full setup with dev defaults.
 
 ### Environment Variables
 
@@ -81,8 +46,8 @@ services:
 | `ASPNETCORE_DETAILEDERRORS` | `true` | Detailed error pages (dev only) |
 | `Jellyfin__BaseUrl` | `http://host.docker.internal:8096` | Jellyfin server URL |
 | `Jellyfin__ApiKey` | *(empty)* | Jellyfin API key |
+| `DevPanel__Enabled` | `false` | Enable the /dev testing dashboard |
 | `Logging__LogLevel__Default` | `Information` | Default log level |
-| `Logging__LogLevel__Microsoft` | `Debug` | ASP.NET framework log level |
 
 ### Volumes
 
@@ -94,23 +59,13 @@ services:
 
 ---
 
-## Path Remapping
+## Included Tools
 
-If your media server (Jellyfin/Plex) accesses music files at a different path than the MelodyBridge container, use the Path Remapping feature in the Playlist Sync settings.
-
-**Example:** When Jellyfin container sees `/media/music` but MelodyBridge stores at `/music`:
-
-```json
-{
-  "remap": {
-    "/music": "/media/music"
-  }
-}
-```
+The Docker image includes `yt-dlp` and `ffmpeg` pre-installed for YouTube and generic URL media downloads.
 
 ---
 
-## Production Considerations
+## Production Checklist
 
 1. Set `ASPNETCORE_ENVIRONMENT=Production`
 2. Configure a reverse proxy (nginx, Caddy, Traefik) for TLS

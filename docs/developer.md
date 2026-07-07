@@ -260,12 +260,4 @@ Assert.That(result, Is.InstanceOf<OkObjectResult>());
 
 ---
 
-## Environment Variables
-
-| Variable | Default | Description |
-|---|---|---|
-| `ASPNETCORE_ENVIRONMENT` | `Development` | ASP.NET environment |
-| `ASPNETCORE_URLS` | `http://+:80` | Server binding |
-| `Jellyfin__BaseUrl` | `http://host.docker.internal:8096` | Jellyfin server address |
-| `Jellyfin__ApiKey` | *(empty)* | Jellyfin API key |
-| `Logging__LogLevel__Default` | `Information` | Global log level |
+## Adding a New Downloader Plugin
