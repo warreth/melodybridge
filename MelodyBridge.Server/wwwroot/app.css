@@ -112,7 +112,26 @@ code { color: var(--accent-strong); background: var(--accent-soft); border-radiu
 .brand-block span { display: block; color: var(--muted); font-size: .8rem; }
 .navbar-toggler { display: none; }
 
-.app-nav { display: grid; gap: .2rem; }
+.app-nav {
+    display: flex;
+    flex-direction: column;
+    gap: .25rem;
+}
+
+.nav-section {
+    margin-bottom: 1rem;
+}
+
+.nav-section-header {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 0 0.75rem;
+    margin-bottom: 0.5rem;
+}
+
 .app-nav .nav-link {
     min-height: 40px;
     display: flex;

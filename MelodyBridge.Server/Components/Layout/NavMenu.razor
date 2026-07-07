@@ -11,17 +11,28 @@
 <input type="checkbox" title="Navigation menu" class="navbar-toggler" />
 
 <nav class="app-nav" aria-label="Primary navigation">
-    <NavLink class="nav-link" href="" Match="NavLinkMatch.All"><span>⌂</span>Dashboard</NavLink>
-    <NavLink class="nav-link" href="accounts"><span>◎</span>Accounts</NavLink>
-    <NavLink class="nav-link" href="playlists"><span>♫</span>Playlists</NavLink>
-    <NavLink class="nav-link" href="library"><span>◇</span>Library</NavLink>
-    <NavLink class="nav-link" href="downloads"><span>↓</span>Downloads</NavLink>
-    <NavLink class="nav-link" href="sync-jobs"><span>↻</span>Sync Jobs</NavLink>
-    <NavLink class="nav-link" href="settings"><span>⚙</span>Settings</NavLink>
-    @if (DevPanel.Enabled)
-    {
-        <NavLink class="nav-link" href="dev"><span>🛠</span>Dev Panel</NavLink>
-    }
+    <div class="nav-section">
+        <NavLink class="nav-link" href="" Match="NavLinkMatch.All"><i class="bi bi-house-door"></i> Dashboard</NavLink>
+    </div>
+    <div class="nav-section">
+        <h6 class="nav-section-header">Library</h6>
+        <NavLink class="nav-link" href="playlists"><i class="bi bi-music-note-list"></i> Playlists</NavLink>
+        <NavLink class="nav-link" href="library"><i class="bi bi-collection"></i> Tracks</NavLink>
+        <NavLink class="nav-link" href="downloads"><i class="bi bi-download"></i> Downloads</NavLink>
+    </div>
+    <div class="nav-section">
+        <h6 class="nav-section-header">Automation</h6>
+        <NavLink class="nav-link" href="sync-jobs"><i class="bi bi-arrow-repeat"></i> Sync Jobs</NavLink>
+        <NavLink class="nav-link" href="accounts"><i class="bi bi-people"></i> Accounts</NavLink>
+    </div>
+    <div class="nav-section">
+        <h6 class="nav-section-header">System</h6>
+        <NavLink class="nav-link" href="settings"><i class="bi bi-gear"></i> Settings</NavLink>
+        @if (DevPanel.Enabled)
+        {
+            <NavLink class="nav-link" href="dev"><i class="bi bi-tools"></i> Dev Panel</NavLink>
+        }
+    </div>
 </nav>
 
 <div class="sidebar-footer">
