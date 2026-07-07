@@ -23,9 +23,8 @@ services:
       - Jellyfin__BaseUrl=http://host.docker.internal:8096
       - Jellyfin__ApiKey=
       # Dev panel — set to true to enable the /dev testing dashboard
-      - DevPanel__Enabled=false
+      - DevPanel__Enabled=true
     volumes:
-      - ./data/keys:/root/.aspnet/DataProtection-Keys
       - ./data/music:/music
       - ./data/playlists:/app/playlists
     restart: unless-stopped

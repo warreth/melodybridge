@@ -31,7 +31,6 @@
         <div class="form-grid single">
             <label>Music path <input @bind="musicPath" /></label>
             <label>Playlist output folder <input @bind="playlistPath" /></label>
-            <label>DataProtection keys <input @bind="keysPath" /></label>
         </div>
     </div>
 </section>
@@ -137,7 +136,6 @@
     private string jellyfinUserId = "";
     private string musicPath = "/music";
     private string playlistPath = "/app/playlists";
-    private string keysPath = "/root/.aspnet/DataProtection-Keys";
     private int autoScanIntervalSec = 60;
     private int syncCheckIntervalSec = 300;
     private string? savedMessage;
@@ -151,7 +149,6 @@
         jellyfinUserId = FindSetting(settings, "jellyfin_user", "");
         musicPath = FindSetting(settings, "music_path", "/music");
         playlistPath = FindSetting(settings, "playlist_path", "/app/playlists");
-        keysPath = FindSetting(settings, "keys_path", "/root/.aspnet/DataProtection-Keys");
         autoScanIntervalSec = int.Parse(FindSetting(settings, "auto_scan_interval", "60"));
         syncCheckIntervalSec = int.Parse(FindSetting(settings, "sync_check_interval", "300"));
     }
@@ -173,7 +170,6 @@
         await Upsert(db, "jellyfin_user", jellyfinUserId);
         await Upsert(db, "music_path", musicPath);
         await Upsert(db, "playlist_path", playlistPath);
-        await Upsert(db, "keys_path", keysPath);
         await Upsert(db, "auto_scan_interval", autoScanIntervalSec.ToString());
         await Upsert(db, "sync_check_interval", syncCheckIntervalSec.ToString());
         await db.SaveChangesAsync();

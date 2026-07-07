@@ -1,6 +1,7 @@
 using MelodyBridge.Application;
 using MelodyBridge.Infrastructure.Data;
 using MelodyBridge.Server.Services;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -28,6 +29,11 @@ builder.Services.AddJellyfinSync();
 var devPanel = new DevPanelService();
 devPanel.Enabled = builder.Configuration.GetValue<bool>("DevPanel:Enabled");
 builder.Services.AddSingleton(devPanel);
+
+// Data Protection — keys live in the default container location, no volume needed.
+// Existing Blazor circuits invalidate on restart, which is fine for a personal app.
+builder.Services.AddDataProtection()
+    .SetApplicationName("MelodyBridge");
 
 var app = builder.Build();
 
