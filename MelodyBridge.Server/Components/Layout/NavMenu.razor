@@ -1,45 +1,23 @@
 ﻿@inject MelodyBridge.Server.Services.DevPanelService DevPanel
 
-<div class="brand-block">
-    <div class="brand-logo">M</div>
-    <div>
-        <strong>MelodyBridge</strong>
-        <span>Sync studio</span>
-    </div>
-</div>
+<MudNavMenu>
+    <MudNavLink Href="" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.Home">Dashboard</MudNavLink>
 
-<input type="checkbox" title="Navigation menu" class="navbar-toggler" />
+    <MudListSubheader>Library</MudListSubheader>
+    <MudNavLink Href="playlists" Icon="@Icons.Material.Filled.MusicNote">Playlists</MudNavLink>
+    <MudNavLink Href="library" Icon="@Icons.Material.Filled.LibraryMusic">Tracks</MudNavLink>
+    <MudNavLink Href="downloads" Icon="@Icons.Material.Filled.Download">Downloads</MudNavLink>
 
-<nav class="app-nav" aria-label="Primary navigation">
-    <div class="nav-section">
-        <NavLink class="nav-link" href="" Match="NavLinkMatch.All"><i class="bi bi-house-door"></i> Dashboard</NavLink>
-    </div>
-    <div class="nav-section">
-        <h6 class="nav-section-header">Library</h6>
-        <NavLink class="nav-link" href="playlists"><i class="bi bi-music-note-list"></i> Playlists</NavLink>
-        <NavLink class="nav-link" href="library"><i class="bi bi-collection"></i> Tracks</NavLink>
-        <NavLink class="nav-link" href="downloads"><i class="bi bi-download"></i> Downloads</NavLink>
-    </div>
-    <div class="nav-section">
-        <h6 class="nav-section-header">Automation</h6>
-        <NavLink class="nav-link" href="sync-jobs"><i class="bi bi-arrow-repeat"></i> Sync Jobs</NavLink>
-        <NavLink class="nav-link" href="accounts"><i class="bi bi-people"></i> Accounts</NavLink>
-    </div>
-    <div class="nav-section">
-        <h6 class="nav-section-header">System</h6>
-        <NavLink class="nav-link" href="settings"><i class="bi bi-gear"></i> Settings</NavLink>
-        @if (DevPanel.Enabled)
-        {
-            <NavLink class="nav-link" href="dev"><i class="bi bi-tools"></i> Dev Panel</NavLink>
-        }
-    </div>
-</nav>
+    <MudListSubheader>Automation</MudListSubheader>
+    <MudNavLink Href="sync-jobs" Icon="@Icons.Material.Filled.Sync">Sync Jobs</MudNavLink>
+    <MudNavLink Href="accounts" Icon="@Icons.Material.Filled.People">Accounts</MudNavLink>
 
-<div class="sidebar-footer">
-    <span class="status-dot online"></span>
-    <div>
-        <strong>Runtime ready</strong>
-        <small>Docker compose</small>
-    </div>
-</div>
+    <MudListSubheader>System</MudListSubheader>
+    <MudNavLink Href="settings" Icon="@Icons.Material.Filled.Settings">Settings</MudNavLink>
+    @if (DevPanel.Enabled)
+    {
+        <MudNavLink Href="dev" Icon="@Icons.Material.Filled.Build">Dev Panel</MudNavLink>
+    }
+</MudNavMenu>
+
 

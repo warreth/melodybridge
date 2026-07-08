@@ -1,30 +1,39 @@
 ﻿@inherits LayoutComponentBase
+@inject DevPanelService DevPanel
+@using MelodyBridge.Server.Themes
 
-<div class="app-shell">
-    <aside class="app-sidebar">
+<MudThemeProvider Theme="_mainTheme" />
+<MudDialogProvider />
+<MudSnackbarProvider />
+
+<MudLayout>
+    <MudAppBar Elevation="1">
+        <MudIconButton Icon="@Icons.Material.Filled.Menu" Color="Color.Inherit" Edge="Edge.Start"
+                       OnClick="@((e) => DrawerToggle())" />
+        <MudText Typo="Typo.h5" Class="ml-3">MelodyBridge</MudText>
+        <MudSpacer />
+        <MudIconButton Icon="@Icons.Material.Filled.MoreVert" Color="Color.Inherit" Edge="Edge.End" />
+    </MudAppBar>
+    <MudDrawer @bind-Open="_drawerOpen" Elevation="2">
+        <MudDrawerHeader>
+            <MudText Typo="Typo.h6">MelodyBridge</MudText>
+        </MudDrawerHeader>
         <NavMenu />
-    </aside>
-
-    <main class="app-main">
-        <header class="app-topbar">
-            <div class="topbar-title">
-                <span class="eyebrow">Workspace</span>
-                <strong>Local Studio</strong>
-            </div>
-            <div class="topbar-actions">
-                <span class="pill ok">Online</span>
-                <button class="icon-button" type="button" title="Toggle theme" onclick="window.melodyBridgeTheme?.toggle()">◐</button>
-            </div>
-        </header>
-
-        <article class="app-content">
+    </MudDrawer>
+    <MudMainContent>
+        <MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="my-4">
             @Body
-        </article>
-    </main>
-</div>
+        </MudContainer>
+    </MudMainContent>
+</MudLayout>
 
-<div id="blazor-error-ui" data-nosnippet>
-    Something went wrong in the UI.
-    <a href="." class="reload">Reload</a>
-    <span class="dismiss">×</span>
-</div>
+@code {
+    private bool _drawerOpen = true;
+    private readonly MainTheme _mainTheme = new();
+
+    private void DrawerToggle()
+    {
+        _drawerOpen = !_drawerOpen;
+    }
+}
+

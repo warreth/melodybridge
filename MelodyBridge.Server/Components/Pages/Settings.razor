@@ -20,135 +20,146 @@
 
 <section class="content-grid two">
     <div class="panel-card">
-        <div class="panel-header"><div><span class="eyebrow">Media server</span><h2>Jellyfin</h2></div></div>
+        <div class="panel-header">
+            <div><span class="eyebrow">Media server</span>
+                <h2>Jellyfin</h2>
+            </div>
+        </div>
         <div class="form-grid single">
             <label>Base URL <input @bind="jellyfinUrl" /></label>
             <label>API key <input @bind="jellyfinApiKey" type="password" /></label>
             <label>Default user ID <input @bind="jellyfinUserId" placeholder="optional" /></label>
         </div>
-        <div class="hint-box">Docker default uses <code>http://host.docker.internal:8096</code>. Make sure Jellyfin is reachable.</div>
-    </div>
+        <div class="hint-box">Docker default uses <code>http://host.docker.internal:8096</code>. Make sure Jellyfin is
+            reachable.</div>
+        </div>
 
-    <div class="panel-card">
-        <div class="panel-header"><div><span class="eyebrow">Library</span><h2>Paths</h2></div></div>
-        <div class="form-grid single">
-            <label>Music path <input @bind="musicPath" /></label>
-            <label>Playlist output folder <input @bind="playlistPath" /></label>
-        </div>
-    </div>
-</section>
-
-<section class="panel-card">
-    <div class="panel-header">
-        <div>
-            <span class="eyebrow">Plugins</span>
-            <h2>Music providers</h2>
-        </div>
-    </div>
-    <p class="panel-description">Enable or disable download provider plugins. Disabled providers won't be used for searches or downloads.</p>
-    <div class="provider-list">
-        <div class="provider-row builtin">
-            <span class="provider-icon">🎬</span>
-            <div class="provider-info">
-                <strong>yt-dlp</strong>
-                <small>YouTube and generic URL media downloads (built-in)</small>
-            </div>
-            <span class="pill ok">Built-in</span>
-        </div>
-        @foreach (var provider in ProviderRegistry.GetAllProviders())
-        {
-            var enabled = ProviderRegistry.IsProviderEnabled(provider.Id);
-            <div class="provider-row @(enabled ? "enabled" : "disabled")">
-                <span class="provider-icon">@provider.Icon</span>
-                <div class="provider-info">
-                    <strong>@provider.Name</strong>
-                    <small>@provider.Description</small>
-                    <div class="provider-tags">
-                        @foreach (var platform in provider.SupportedPlatforms)
-                        {
-                            <span class="pill outline small">@platform</span>
-                        }
-                    </div>
+        <div class="panel-card">
+            <div class="panel-header">
+                <div><span class="eyebrow">Library</span>
+                    <h2>Paths</h2>
                 </div>
-                <label class="toggle-switch">
-                    <input type="checkbox" checked="@enabled"
-                           @onchange="e => ToggleProvider(provider.Id, (bool)(e.Value ?? false))" />
-                    <span class="toggle-slider"></span>
+            </div>
+            <div class="form-grid single">
+                <label>Music path <input @bind="musicPath" /></label>
+                <label>Playlist output folder <input @bind="playlistPath" /></label>
+            </div>
+        </div>
+    </section>
+
+    <section class="panel-card">
+        <div class="panel-header">
+            <div>
+                <span class="eyebrow">Plugins</span>
+                <h2>Music providers</h2>
+            </div>
+        </div>
+        <p class="panel-description">Enable or disable download provider plugins. Disabled providers won't be used for
+            searches or downloads.</p>
+            <div class="provider-list">
+                <div class="provider-row builtin">
+                    <span class="provider-icon">🎬</span>
+                    <div class="provider-info">
+                        <strong>yt-dlp</strong>
+                        <small>YouTube and generic URL media downloads (built-in)</small>
+                    </div>
+                    <span class="pill ok">Built-in</span>
+                </div>
+                @foreach (var provider in ProviderRegistry.GetAllProviders())
+                {
+                    var enabled = ProviderRegistry.IsProviderEnabled(provider.Id);
+                    <div class="provider-row @(enabled ? "enabled" : "disabled")">
+                        <span class="provider-icon">@provider.Icon</span>
+                        <div class="provider-info">
+                            <strong>@provider.Name</strong>
+                            <small>@provider.Description</small>
+                            <div class="provider-tags">
+                                @foreach (var platform in provider.SupportedPlatforms)
+                                {
+                                    <span class="pill outline small">@platform</span>
+                                }
+                            </div>
+                        </div>
+                        <label class="toggle-switch">
+                            <input type="checkbox" checked="@enabled"
+                                   @onchange="e => ToggleProvider(provider.Id, (bool)(e.Value ?? false))" />
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                }
+                <div class="provider-row builtin">
+                    <span class="provider-icon">📂</span>
+                    <div class="provider-info">
+                        <strong>Manual import</strong>
+                        <small>Use existing files from scan locations</small>
+                    </div>
+                    <span class="pill ok">Built-in</span>
+                </div>
+            </div>
+        </section>
+
+        <section class="panel-card">
+            <div class="panel-header">
+                <div>
+                    <span class="eyebrow">Behaviour</span>
+                    <h2>Sync & scanning</h2>
+                </div>
+            </div>
+            <div class="form-grid">
+                <label>
+                    Auto-scan interval (seconds)
+                    <input @bind="autoScanIntervalSec" type="number" min="30" step="10" />
+                </label>
+                <label>
+                    Sync check interval (seconds)
+                    <input @bind="syncCheckIntervalSec" type="number" min="60" step="30" />
                 </label>
             </div>
+        </section>
+
+        @if (!string.IsNullOrWhiteSpace(savedMessage))
+        {
+            <div class="toast-preview">@savedMessage</div>
         }
-        <div class="provider-row builtin">
-            <span class="provider-icon">📂</span>
-            <div class="provider-info">
-                <strong>Manual import</strong>
-                <small>Use existing files from scan locations</small>
+
+        @* ── Logs ── *@
+        <section class="panel-card">
+            <div class="panel-header">
+                <div>
+                    <span class="eyebrow">Diagnostics</span>
+                    <h2>Logs</h2>
+                </div>
             </div>
-            <span class="pill ok">Built-in</span>
-        </div>
-    </div>
-</section>
+            <p class="panel-description">
+                Export the most recent application logs (up to 1000 entries)
+                as a plain-text file for debugging or sharing.
+            </p>
+            <button class="btn-modern primary-outline" @onclick="ExportLogs">
+                <span class="btn-icon">📥</span> Export logs
+            </button>
+        </section>
 
-<section class="panel-card">
-    <div class="panel-header">
-        <div>
-            <span class="eyebrow">Behaviour</span>
-            <h2>Sync & scanning</h2>
-        </div>
-    </div>
-    <div class="form-grid">
-        <label>
-            Auto-scan interval (seconds)
-            <input @bind="autoScanIntervalSec" type="number" min="30" step="10" />
-        </label>
-        <label>
-            Sync check interval (seconds)
-            <input @bind="syncCheckIntervalSec" type="number" min="60" step="30" />
-        </label>
-    </div>
-</section>
-
-@if (!string.IsNullOrWhiteSpace(savedMessage))
-{
-    <div class="toast-preview">@savedMessage</div>
-}
-
-@* ── Logs ── *@
-<section class="panel-card">
-    <div class="panel-header">
-        <div>
-            <span class="eyebrow">Diagnostics</span>
-            <h2>Logs</h2>
-        </div>
-    </div>
-    <p class="panel-description">
-        Export the most recent application logs (up to 1000 entries)
-        as a plain-text file for debugging or sharing.
-    </p>
-    <button class="btn-modern primary-outline" @onclick="ExportLogs">
-        <span class="btn-icon">📥</span> Export logs
-    </button>
-</section>
-
-@* ── About / Support ── *@
-<section class="panel-card about-card">
-    <div class="panel-header">
-        <div>
-            <span class="eyebrow">About</span>
-            <h2>Support the project</h2>
-        </div>
-    </div>
-    <p>
-        MelodyBridge is an open-source project.
-        Found it useful? Consider supporting the developer on GitHub.
-    </p>
-    <a href="https://github.com/warreth" target="_blank" rel="noopener noreferrer"
-       class="btn-modern primary-outline github-link">
-        <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
-            <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/>
-        </svg>
-        github.com/warreth
-    </a>
-</section>
+        @* ── About / Support ── *@
+        <section class="panel-card about-card">
+            <div class="panel-header">
+                <div>
+                    <span class="eyebrow">About</span>
+                    <h2>Support the project</h2>
+                </div>
+            </div>
+            <p>
+                MelodyBridge is an open-source project.
+                Found it useful? Consider supporting the developer on GitHub.
+            </p>
+            <a href="https://github.com/warreth" target="_blank" rel="noopener noreferrer"
+               class="btn-modern primary-outline github-link">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                    <path
+                    d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z" />
+                </svg>
+                github.com/warreth
+            </a>
+        </section>
 
 @code {
     private string jellyfinUrl = "http://host.docker.internal:8096";

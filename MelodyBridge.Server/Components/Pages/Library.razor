@@ -36,68 +36,75 @@
                 <div>
                     <strong>@loc.Path</strong>
                     <small>@(loc.ScanIntervalHours.HasValue ? $"Every {loc.ScanIntervalHours}h" : "Manual only")</small>
-                    <button class="btn-modern ghost" @onclick="() => DeleteLocation(loc.Id)" style="margin-left:auto;">Remove</button>
+                    <button class="btn-modern ghost" @onclick="() => DeleteLocation(loc.Id)"
+                            style="margin-left:auto;">Remove</button>
                 </div>
             }
         </div>
     </div>
     <div class="panel-card">
-        <div class="panel-header"><div><span class="eyebrow">Metadata</span><h2>Tag strategy</h2></div></div>
+        <div class="panel-header">
+            <div><span class="eyebrow">Metadata</span>
+                <h2>Tag strategy</h2>
+            </div>
+        </div>
         <div class="health-list">
             <div><span class="status-dot online"></span><strong>MELODY_ID</strong><small>ID3v2 TXXX frame</small></div>
-            <div><span class="status-dot online"></span><strong>Fallback</strong><small>Comment-based marker</small></div>
-            <div><span class="status-dot online"></span><strong>Database</strong><small>@tracksCount tracks in library</small></div>
-        </div>
-    </div>
-</section>
-
-@if (scanResult != null)
-{
-    <section class="panel-card">
-        <div class="panel-header">
-            <div>
-                <span class="eyebrow">Last scan</span>
-                <h2>Result</h2>
+            <div><span class="status-dot online"></span><strong>Fallback</strong><small>Comment-based marker</small>
             </div>
-            <span class="pill @(scanResultOk ? "ok" : "warn")">@(scanResultOk ? "Success" : "Issues")</span>
+            <div><span class="status-dot online"></span><strong>Database</strong><small>@tracksCount tracks in
+                library</small></div>
+            </div>
         </div>
-        <pre class="result-box">@scanResult</pre>
     </section>
-}
 
-@if (showForm)
-{
-    <div class="wizard-overlay">
-        <div class="wizard-modal" style="max-width:480px;">
-            <div class="wizard-header">
-                <span class="eyebrow">New location</span>
-                <h2>Add scan location</h2>
-                <button class="icon-button" @onclick="() => showForm = false">&times;</button>
+    @if (scanResult != null)
+    {
+        <section class="panel-card">
+            <div class="panel-header">
+                <div>
+                    <span class="eyebrow">Last scan</span>
+                    <h2>Result</h2>
+                </div>
+                <span class="pill @(scanResultOk ? "ok" : "warn")">@(scanResultOk ? "Success" : "Issues")</span>
             </div>
-            <div class="wizard-body">
-                <div class="form-grid single">
-                    <label>
-                        Directory path
-                        <input @bind="newPath" placeholder="/music" />
-                    </label>
-                    <label>
-                        Scan interval (minutes, 0 = manual)
-                        <input @bind="newInterval" type="number" min="0" step="5" />
-                    </label>
-                    <label class="toggle-switch" style="display:flex; gap:.75rem; align-items:center; width:auto;">
-                        <input type="checkbox" @bind="liveMonitoring" />
-                        <span class="toggle-slider"></span>
-                        Live monitoring
-                    </label>
+            <pre class="result-box">@scanResult</pre>
+        </section>
+    }
+
+    @if (showForm)
+    {
+        <div class="wizard-overlay">
+            <div class="wizard-modal" style="max-width:480px;">
+                <div class="wizard-header">
+                    <span class="eyebrow">New location</span>
+                    <h2>Add scan location</h2>
+                    <button class="icon-button" @onclick="() => showForm = false">&times;</button>
+                </div>
+                <div class="wizard-body">
+                    <div class="form-grid single">
+                        <label>
+                            Directory path
+                            <input @bind="newPath" placeholder="/music" />
+                        </label>
+                        <label>
+                            Scan interval (minutes, 0 = manual)
+                            <input @bind="newInterval" type="number" min="0" step="5" />
+                        </label>
+                        <label class="toggle-switch" style="display:flex; gap:.75rem; align-items:center; width:auto;">
+                            <input type="checkbox" @bind="liveMonitoring" />
+                            <span class="toggle-slider"></span>
+                            Live monitoring
+                        </label>
+                    </div>
+                </div>
+                <div class="wizard-footer">
+                    <button class="btn-modern" @onclick="() => showForm = false">Cancel</button>
+                    <button class="btn-modern primary" @onclick="SaveLocation">Add location</button>
                 </div>
             </div>
-            <div class="wizard-footer">
-                <button class="btn-modern" @onclick="() => showForm = false">Cancel</button>
-                <button class="btn-modern primary" @onclick="SaveLocation">Add location</button>
-            </div>
         </div>
-    </div>
-}
+    }
 
 @code {
     private List<ScanLocationEntity> locations = new();

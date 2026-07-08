@@ -1,12 +1,14 @@
 ﻿<Router AppAssembly="@typeof(Program).Assembly">
     <Found Context="routeData">
-        <RouteView RouteData="@routeData" DefaultLayout="@typeof(MelodyBridge.Server.Components.Layout.MainLayout)" />
+        <RouteView RouteData="@routeData" DefaultLayout="@typeof(MainLayout)" />
+        <FocusOnNavigate RouteData="@routeData" Selector="h1" />
     </Found>
     <NotFound>
-        <LayoutView Layout="@typeof(MelodyBridge.Server.Components.Layout.MainLayout)">
-            <p>Sorry, there's nothing at this address.</p>
+        <PageTitle>Not found</PageTitle>
+        <LayoutView Layout="@typeof(MainLayout)">
+            <MudText Typo="Typo.h3" GutterBottom="true">Page not found</MudText>
+            <MudText>Sorry, there's nothing at this address.</MudText>
         </LayoutView>
     </NotFound>
 </Router>
 
-<!-- ReconnectModal placeholder removed; default Blazor reconnect UI is used -->

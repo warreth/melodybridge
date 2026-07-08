@@ -11,7 +11,8 @@
     <div>
         <span class="eyebrow">Music sync cockpit</span>
         <h1>Bridge your playlists, downloads and media server.</h1>
-        <p>Connect sources, scan your library, resolve tracks and publish clean playlists to Jellyfin or M3U outputs.</p>
+        <p>Connect sources, scan your library, resolve tracks and publish clean playlists to Jellyfin or M3U outputs.
+        </p>
         <div class="hero-actions">
             <a class="btn-modern primary" href="sync-jobs">Create sync job</a>
             <a class="btn-modern secondary" href="accounts">Add account</a>
@@ -20,88 +21,108 @@
     <div class="hero-card">
         <span class="status-dot online"></span>
         <strong>MelodyBridge ready</strong>
-        <p><code>@tracksCount</code> tracks · <code>@playlistsCount</code> playlists · <code>@syncJobsCount</code> sync jobs</p>
-    </div>
-</section>
+        <p><code>@tracksCount</code> tracks · <code>@playlistsCount</code> playlists · <code>@syncJobsCount</code> sync
+            jobs</p>
+        </div>
+    </section>
 
-<section class="stat-grid">
-    <div class="stat-card">
-        <span class="stat-icon">🎧</span>
-        <label>Tracks in library</label>
-        <strong>@tracksCount</strong>
-        <small>Scanned from scan locations</small>
-    </div>
-    <div class="stat-card">
-        <span class="stat-icon">♫</span>
-        <label>Saved Playlists</label>
-        <strong>@playlistsCount</strong>
-        <small>Managed playlists</small>
-    </div>
-    <div class="stat-card">
-        <span class="stat-icon">📡</span>
-        <label>Music sources</label>
-        <strong>@sourcesCount</strong>
-        <small>Connected playlist providers</small>
-    </div>
-    <div class="stat-card">
-        <span class="stat-icon">📀</span>
-        <label>Downloaders</label>
-        <strong>@downloadersCount</strong>
-        <small>yt-dlp + @activeProviders active plugin(s)</small>
-    </div>
-    <div class="stat-card">
-        <span class="stat-icon">↻</span>
-        <label>Sync jobs</label>
-        <strong>@syncJobsCount</strong>
-        <small>@pendingJobs pending · @completedJobs completed</small>
-    </div>
-</section>
+    <section class="stat-grid">
+        <div class="stat-card">
+            <span class="stat-icon">🎧</span>
+            <label>Tracks in library</label>
+            <strong>@tracksCount</strong>
+            <small>Scanned from scan locations</small>
+        </div>
+        <div class="stat-card">
+            <span class="stat-icon">♫</span>
+            <label>Saved Playlists</label>
+            <strong>@playlistsCount</strong>
+            <small>Managed playlists</small>
+        </div>
+        <div class="stat-card">
+            <span class="stat-icon">📡</span>
+            <label>Music sources</label>
+            <strong>@sourcesCount</strong>
+            <small>Connected playlist providers</small>
+        </div>
+        <div class="stat-card">
+            <span class="stat-icon">📀</span>
+            <label>Downloaders</label>
+            <strong>@downloadersCount</strong>
+            <small>yt-dlp + @activeProviders active plugin(s)</small>
+        </div>
+        <div class="stat-card">
+            <span class="stat-icon">↻</span>
+            <label>Sync jobs</label>
+            <strong>@syncJobsCount</strong>
+            <small>@pendingJobs pending · @completedJobs completed</small>
+        </div>
+    </section>
 
-<section class="content-grid two">
-    <div class="panel-card">
-        <div class="panel-header">
-            <div>
-                <span class="eyebrow">Pipeline</span>
-                <h2>Recommended setup flow</h2>
+    <section class="content-grid two">
+        <div class="panel-card">
+            <div class="panel-header">
+                <div>
+                    <span class="eyebrow">Pipeline</span>
+                    <h2>Recommended setup flow</h2>
+                </div>
+            </div>
+            <div class="timeline-list">
+                <div class="timeline-item done"><span>1</span>
+                    <div><strong>Add accounts</strong>
+                        <p>Connect playlist sources and download providers.</p>
+                    </div>
+                </div>
+                <div class="timeline-item done"><span>2</span>
+                    <div><strong>Configure library paths</strong>
+                        <p>Map host music paths to container/Jellyfin paths.</p>
+                    </div>
+                </div>
+                <div class="timeline-item active"><span>3</span>
+                    <div><strong>Create a sync job</strong>
+                        <p>Resolve tracks, generate reports and publish playlists.</p>
+                    </div>
+                </div>
+                <div class="timeline-item"><span>4</span>
+                    <div><strong>Review missing tracks</strong>
+                        <p>Use unresolved path reports to improve mappings.</p>
+                    </div>
+                </div>
             </div>
         </div>
-        <div class="timeline-list">
-            <div class="timeline-item done"><span>1</span><div><strong>Add accounts</strong><p>Connect playlist sources and download providers.</p></div></div>
-            <div class="timeline-item done"><span>2</span><div><strong>Configure library paths</strong><p>Map host music paths to container/Jellyfin paths.</p></div></div>
-            <div class="timeline-item active"><span>3</span><div><strong>Create a sync job</strong><p>Resolve tracks, generate reports and publish playlists.</p></div></div>
-            <div class="timeline-item"><span>4</span><div><strong>Review missing tracks</strong><p>Use unresolved path reports to improve mappings.</p></div></div>
-        </div>
-    </div>
 
-    <div class="panel-card">
-        <div class="panel-header">
-            <div>
-                <span class="eyebrow">Actions</span>
-                <h2>Quick tasks</h2>
+        <div class="panel-card">
+            <div class="panel-header">
+                <div>
+                    <span class="eyebrow">Actions</span>
+                    <h2>Quick tasks</h2>
+                </div>
+            </div>
+            <div class="topbar-actions" style="flex-wrap:wrap; gap:.65rem;">
+                <button class="btn-modern primary" @onclick="RunAllSync" disabled="@busy">@(busy ? "Running..." : "Run all sync jobs")</button>
+                <button class="btn-modern secondary" @onclick="AutoSyncAll">Auto-sync sources</button>
+                <button class="btn-modern ghost" @onclick="RefreshStats">Refresh stats</button>
             </div>
         </div>
-        <div class="topbar-actions" style="flex-wrap:wrap; gap:.65rem;">
-            <button class="btn-modern primary" @onclick="RunAllSync" disabled="@busy">@(busy ? "Running..." : "Run all sync jobs")</button>
-            <button class="btn-modern secondary" @onclick="AutoSyncAll">Auto-sync sources</button>
-            <button class="btn-modern ghost" @onclick="RefreshStats">Refresh stats</button>
-        </div>
-    </div>
-</section>
+    </section>
 
-<section class="panel-card">
-    <div class="panel-header">
-        <div>
-            <span class="eyebrow">Environment</span>
-            <h2>Health</h2>
+    <section class="panel-card">
+        <div class="panel-header">
+            <div>
+                <span class="eyebrow">Environment</span>
+                <h2>Health</h2>
+            </div>
         </div>
-    </div>
-    <div class="health-list">
-        <div><span class="status-dot online"></span><strong>Server</strong><small>Listening @appBaseUrl</small></div>
-        <div><span class="status-dot warning"></span><strong>Jellyfin</strong><small>Configure host/API key in Settings</small></div>
-        <div><span class="status-dot online"></span><strong>Database</strong><small>SQLite — @tracksCount tracks, @sourcesCount sources</small></div>
-        <div><span class="status-dot online"></span><strong>Docker volumes</strong><small>music, playlists, keys</small></div>
-    </div>
-</section>
+        <div class="health-list">
+            <div><span class="status-dot online"></span><strong>Server</strong><small>Listening @appBaseUrl</small></div>
+            <div><span class="status-dot warning"></span><strong>Jellyfin</strong><small>Configure host/API key in
+                Settings</small></div>
+                <div><span class="status-dot online"></span><strong>Database</strong><small>SQLite — @tracksCount tracks,
+                    @sourcesCount sources</small></div>
+                    <div><span class="status-dot online"></span><strong>Docker volumes</strong><small>music, playlists, keys</small>
+                    </div>
+                </div>
+            </section>
 
 @code {
     private int tracksCount;
@@ -162,9 +183,11 @@
         var searchPaths = new List<string>();
         try { searchPaths = JsonSerializer.Deserialize<List<string>>(entity.SearchLocationPaths ?? "[]") ?? new(); } catch { }
         var remapRules = new Dictionary<string, string>();
-        try { remapRules = JsonSerializer.Deserialize<Dictionary<string, string>>(entity.PathRemapRules ?? "{}") ?? new(); } catch { }
+        try { remapRules = JsonSerializer.Deserialize<Dictionary<string, string>>(entity.PathRemapRules ?? "{}") ?? new(); }
+        catch { }
         var extRules = new Dictionary<string, string>();
-        try { extRules = JsonSerializer.Deserialize<Dictionary<string, string>>(entity.ExtensionRemapRules ?? "{}") ?? new(); } catch { }
+        try { extRules = JsonSerializer.Deserialize<Dictionary<string, string>>(entity.ExtensionRemapRules ?? "{}") ?? new(); }
+        catch { }
 
         return new SyncJob
         {
