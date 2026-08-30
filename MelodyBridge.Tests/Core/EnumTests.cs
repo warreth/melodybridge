@@ -23,19 +23,6 @@ public class EnumTests
     }
 
     [Test]
-    public void DownloadSource_ContainsExpectedValues()
-    {
-        Assert.Multiple(() =>
-        {
-            Assert.That(Enum.IsDefined(typeof(DownloadSource), "ytdlp"), Is.True);
-            Assert.That(Enum.IsDefined(typeof(DownloadSource), "squidwtf"), Is.True);
-            Assert.That(Enum.IsDefined(typeof(DownloadSource), "lucida"), Is.True);
-            Assert.That(Enum.IsDefined(typeof(DownloadSource), "doubledouble"), Is.True);
-            Assert.That(Enum.IsDefined(typeof(DownloadSource), "monochrome"), Is.True);
-        });
-    }
-
-    [Test]
     public void MediaType_ContainsExpectedValues()
     {
         Assert.Multiple(() =>
@@ -61,13 +48,6 @@ public class EnumTests
             Assert.That(Enum.IsDefined(typeof(SyncStatus), "Completed"), Is.True);
             Assert.That(Enum.IsDefined(typeof(SyncStatus), "Failed"), Is.True);
         });
-    }
-
-    [Test]
-    public void DownloadSource_Values_AreDistinct()
-    {
-        var values = Enum.GetValues<DownloadSource>();
-        Assert.That(values.Length, Is.EqualTo(5));
     }
 
     [Test]

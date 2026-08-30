@@ -37,26 +37,32 @@ public class SyncJobRunner : ISyncJobRunner
         {
             await using var db = await _dbFactory.CreateDbContextAsync(ct);
 
-            // Build a playlist from the tracked tracks in the database
             var searchPaths = job.SearchLocationPaths.Select(p => new ScanLocation(p));
-            var trackEntities = await db.Tracks.ToListAsync(ct);
 
-            // Filter tracks by the source ID if specified
+            // SourceId refers to a PlaylistEntity (the wizard binds playlist IDs).
+            // Only tracks with a local file are usable in an M3U / media-server playlist.
             List<TrackEntity> matchedTracks;
             if (!string.IsNullOrEmpty(job.SourceId))
             {
-                // Find source by ID and match its tracks from the DB
-                var source = await db.Sources.FirstOrDefaultAsync(s => s.Id == job.SourceId, ct);
-                if (source == null)
+                var sourcePlaylist = await db.Playlists
+                    .Include(p => p.Tracks)
+                    .FirstOrDefaultAsync(p => p.Id == job.SourceId, ct);
+                if (sourcePlaylist == null)
                 {
                     return new SyncJobRunLog(DateTime.UtcNow, SyncStatus.Failed,
-                        $"Source '{job.SourceId}' not found", 0, 0);
+                        $"Playlist '{job.SourceId}' not found", 0, 0);
                 }
-                matchedTracks = trackEntities; // Use all known tracks for this source
+                matchedTracks = sourcePlaylist.Tracks
+                    .Where(t => t.DownloadStatus == "downloaded" && !string.IsNullOrEmpty(t.CurrentPath))
+                    .OrderBy(t => t.Position)
+                    .ToList();
             }
             else
             {
-                matchedTracks = trackEntities;
+                matchedTracks = await db.Tracks
+                    .Where(t => t.DownloadStatus == "downloaded" && !string.IsNullOrEmpty(t.CurrentPath))
+                    .OrderBy(t => t.PlaylistSnapshotId).ThenBy(t => t.Position)
+                    .ToListAsync(ct);
             }
 
             totalTracks = matchedTracks.Count;
@@ -79,6 +85,9 @@ public class SyncJobRunner : ISyncJobRunner
                 Tracks = matchedTracks.Select(t => new Track
                 {
                     Title = t.Title,
+                    Duration = t.DurationMs is > 0
+                        ? TimeSpan.FromMilliseconds(t.DurationMs.Value)
+                        : null,
                     Artist = t.Artist,
                     SongID = !string.IsNullOrEmpty(t.MelodyId)
                         ? new SongID(Platform.Unknown, t.MelodyId)

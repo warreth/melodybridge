@@ -1,221 +1,160 @@
 using MelodyBridge.Core;
-using MelodyBridge.Infrastructure.Data;
 using MelodyBridge.Infrastructure.Playlists;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace MelodyBridge.Tests.Infrastructure;
 
+/// <summary>
+/// M3uGenerator tests. Every assertion reads the produced file back
+/// from disk — no mocked writers.
+/// </summary>
 [TestFixture]
 public class M3uGeneratorTests
 {
-    private MelodyBridgeDbContext CreateDbContext()
-    {
-        var options = new DbContextOptionsBuilder<MelodyBridgeDbContext>()
-            .UseInMemoryDatabase($"M3uTest_{Guid.NewGuid()}")
-            .Options;
-        var db = new MelodyBridgeDbContext(options);
-        db.Database.EnsureCreated();
-        return db;
-    }
+    private M3uGenerator NewGenerator() => new(NullLogger<M3uGenerator>.Instance);
+
+    private static string TempM3u()
+        => Path.Combine(Path.GetTempPath(), $"mb-m3u-{Guid.NewGuid():N}.m3u");
+
+    private static Playlist Tracks(params Track[] tracks)
+        => new() { Name = "Test", Tracks = tracks.ToList() };
 
     [Test]
-    public async Task GenerateM3uAsync_CreatesFileWithHeader()
+    public async Task EmptyPlaylist_WritesHeaderOnly()
     {
-        using var db = CreateDbContext();
-        var generator = new M3uGenerator(db, NullLogger<M3uGenerator>.Instance);
-
-        var playlist = new Playlist
-        {
-            Name = "Test",
-            Tracks = new List<Track>()
-        };
-
-        var outputPath = Path.GetTempFileName() + ".m3u";
+        var outputPath = TempM3u();
         try
         {
-            var options = new PlaylistOutputOptions(outputPath, false, null);
-            var result = await generator.GenerateM3uAsync(playlist, Array.Empty<ScanLocation>(), options);
+            var result = await NewGenerator().GenerateM3uAsync(
+                Tracks(), Array.Empty<ScanLocation>(), new PlaylistOutputOptions(outputPath, false, null));
 
             Assert.That(result, Is.EqualTo(outputPath));
-            Assert.That(File.Exists(outputPath), Is.True);
-
             var content = await File.ReadAllLinesAsync(outputPath);
-            Assert.That(content[0], Is.EqualTo("#EXTM3U"));
+            Assert.That(content, Is.EqualTo(new[] { "#EXTM3U" }));
         }
-        finally
-        {
-            if (File.Exists(outputPath)) File.Delete(outputPath);
-        }
+        finally { File.Delete(outputPath); }
     }
 
     [Test]
-    public async Task GenerateM3uAsync_IncludesDbTrackPaths()
+    public async Task TrackWithPath_GetsExtinfMetadataAndPath()
     {
-        using var db = CreateDbContext();
-        db.Tracks.Add(new TrackEntity
-        {
-            MelodyId = "melody-test-1",
-            Title = "Test Track",
-            Artist = "Test Artist",
-            CurrentPath = "/music/test.flac",
-        });
-        await db.SaveChangesAsync();
-
-        var generator = new M3uGenerator(db, NullLogger<M3uGenerator>.Instance);
-
-        var playlist = new Playlist
-        {
-            Tracks = new List<Track>
-            {
-                new()
-                {
-                    SongID = new SongID(Platform.Qobuz, "melody-test-1"),
-                    Title = "Test Track",
-                }
-            }
-        };
-
-        var outputPath = Path.GetTempFileName() + ".m3u";
+        var outputPath = TempM3u();
         try
         {
-            var options = new PlaylistOutputOptions(outputPath, false, null);
-            await generator.GenerateM3uAsync(playlist, Array.Empty<ScanLocation>(), options);
+            var playlist = Tracks(new Track
+            {
+                Title = "Für Elise",
+                Artist = "Beethoven",
+                Duration = TimeSpan.FromSeconds(173),
+                CurrentTrackLocation = new FileLocation("/music/fur-elise.mp3"),
+            });
+
+            await NewGenerator().GenerateM3uAsync(
+                playlist, Array.Empty<ScanLocation>(), new PlaylistOutputOptions(outputPath, false, null));
 
             var content = await File.ReadAllLinesAsync(outputPath);
-            Assert.That(content, Has.Some.Matches<string>(x => x.Contains("/music/test.flac")));
+            Assert.That(content, Has.Length.EqualTo(3), "header + EXTINF + path");
+            Assert.That(content[1], Is.EqualTo("#EXTINF:173,Beethoven - Für Elise"));
+            Assert.That(content[2], Is.EqualTo("/music/fur-elise.mp3"));
         }
-        finally
-        {
-            if (File.Exists(outputPath)) File.Delete(outputPath);
-        }
+        finally { File.Delete(outputPath); }
     }
 
     [Test]
-    public void GenerateM3uAsync_NoTracks_Throws()
+    public async Task TrackWithoutArtist_LabelsTitleOnly()
     {
-        using var db = CreateDbContext();
-        var generator = new M3uGenerator(db, NullLogger<M3uGenerator>.Instance);
-
-        var playlist = new Playlist
+        var outputPath = TempM3u();
+        try
         {
-            Name = "No Tracks",
-            Tracks = null
-        };
+            var playlist = Tracks(new Track
+            {
+                Title = "Untitled",
+                CurrentTrackLocation = new FileLocation("/music/a.mp3"),
+            });
 
+            await NewGenerator().GenerateM3uAsync(
+                playlist, Array.Empty<ScanLocation>(), new PlaylistOutputOptions(outputPath, false, null));
+
+            var content = await File.ReadAllLinesAsync(outputPath);
+            Assert.That(content[1], Is.EqualTo("#EXTINF:-1,Untitled"), "unknown duration is -1");
+        }
+        finally { File.Delete(outputPath); }
+    }
+
+    [Test]
+    public async Task TrackWithoutPath_IsSkipped()
+    {
+        var outputPath = TempM3u();
+        try
+        {
+            var playlist = Tracks(
+                new Track { Title = "No file", SongID = new SongID(Platform.Qobuz, "x") },
+                new Track { Title = "Has file", CurrentTrackLocation = new FileLocation("/music/b.mp3") });
+
+            await NewGenerator().GenerateM3uAsync(
+                playlist, Array.Empty<ScanLocation>(), new PlaylistOutputOptions(outputPath, false, null));
+
+            var content = await File.ReadAllLinesAsync(outputPath);
+            Assert.That(content, Has.Length.EqualTo(3), "only the track with a file is written");
+            Assert.That(content[2], Is.EqualTo("/music/b.mp3"));
+        }
+        finally { File.Delete(outputPath); }
+    }
+
+    [Test]
+    public async Task PathRemap_RewritesPrefix()
+    {
+        var outputPath = TempM3u();
+        try
+        {
+            var playlist = Tracks(new Track
+            {
+                Title = "Song",
+                CurrentTrackLocation = new FileLocation("/mnt/music/artist/album/song.flac"),
+            });
+
+            await NewGenerator().GenerateM3uAsync(
+                playlist, Array.Empty<ScanLocation>(),
+                new PlaylistOutputOptions(outputPath, false,
+                    new Dictionary<string, string> { ["/mnt/music"] = "/data/music" }));
+
+            var content = await File.ReadAllLinesAsync(outputPath);
+            Assert.That(content[2], Is.EqualTo("/data/music/artist/album/song.flac"));
+        }
+        finally { File.Delete(outputPath); }
+    }
+
+    [Test]
+    public async Task RelativePaths_AreRelativeToOutputDir()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), $"mb-m3u-dir-{Guid.NewGuid():N}");
+        var outputPath = Path.Combine(dir, "test.m3u");
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var playlist = Tracks(new Track
+            {
+                Title = "Song",
+                CurrentTrackLocation = new FileLocation(Path.Combine(dir, "sub", "song.flac")),
+            });
+
+            await NewGenerator().GenerateM3uAsync(
+                playlist, Array.Empty<ScanLocation>(), new PlaylistOutputOptions(outputPath, true, null));
+
+            var content = await File.ReadAllLinesAsync(outputPath);
+            Assert.That(content[2], Is.EqualTo(Path.Combine("sub", "song.flac")));
+        }
+        finally { Directory.Delete(dir, recursive: true); }
+    }
+
+    [Test]
+    public void NullTracks_Throws()
+    {
         var ex = Assert.ThrowsAsync<ArgumentException>(async () =>
-            await generator.GenerateM3uAsync(playlist!, Array.Empty<ScanLocation>(),
-                new PlaylistOutputOptions("/tmp/test.m3u", false, null)));
-
+            await NewGenerator().GenerateM3uAsync(
+                new Playlist { Name = "X", Tracks = null! },
+                Array.Empty<ScanLocation>(),
+                new PlaylistOutputOptions(TempM3u(), false, null)));
         Assert.That(ex!.Message, Does.Contain("no tracks"));
-    }
-
-    [Test]
-    public async Task GenerateM3uAsync_AppliesPathRemap()
-    {
-        using var db = CreateDbContext();
-        db.Tracks.Add(new TrackEntity
-        {
-            MelodyId = "remap-test",
-            CurrentPath = "/mnt/music/artist/album/song.flac",
-        });
-        await db.SaveChangesAsync();
-
-        var generator = new M3uGenerator(db, NullLogger<M3uGenerator>.Instance);
-
-        var playlist = new Playlist
-        {
-            Tracks = new List<Track>
-            {
-                new() { SongID = new SongID(Platform.Qobuz, "remap-test") }
-            }
-        };
-
-        var remap = new Dictionary<string, string>
-        {
-            ["/mnt/music"] = "/data/music"
-        };
-
-        var outputPath = Path.GetTempFileName() + ".m3u";
-        try
-        {
-            var options = new PlaylistOutputOptions(outputPath, false, remap);
-            await generator.GenerateM3uAsync(playlist, Array.Empty<ScanLocation>(), options);
-
-            var content = await File.ReadAllLinesAsync(outputPath);
-            Assert.That(content, Has.Some.Matches<string>(x => x.Contains("/data/music/artist/album/song.flac")));
-        }
-        finally
-        {
-            if (File.Exists(outputPath)) File.Delete(outputPath);
-        }
-    }
-
-    [Test]
-    public async Task GenerateM3uAsync_RelativePaths()
-    {
-        using var db = CreateDbContext();
-        db.Tracks.Add(new TrackEntity
-        {
-            MelodyId = "relative-test",
-            CurrentPath = "/music/artist/album/song.flac",
-        });
-        await db.SaveChangesAsync();
-
-        var generator = new M3uGenerator(db, NullLogger<M3uGenerator>.Instance);
-
-        var playlist = new Playlist
-        {
-            Tracks = new List<Track>
-            {
-                new() { SongID = new SongID(Platform.Qobuz, "relative-test") }
-            }
-        };
-
-        var outputPath = Path.Combine(Path.GetTempPath(), "playlists", "test.m3u");
-        Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
-        try
-        {
-            var options = new PlaylistOutputOptions(outputPath, true, null);
-            await generator.GenerateM3uAsync(playlist, Array.Empty<ScanLocation>(), options);
-
-            var content = await File.ReadAllLinesAsync(outputPath);
-            Assert.That(content, Has.Some.Matches<string>(x => x.Contains("artist/album/song.flac")));
-        }
-        finally
-        {
-            if (File.Exists(outputPath)) File.Delete(outputPath);
-            Directory.Delete(Path.GetDirectoryName(outputPath)!, true);
-        }
-    }
-
-    [Test]
-    public async Task GenerateM3uAsync_SkipsTrack_WhenMelodyIdMissing()
-    {
-        using var db = CreateDbContext();
-        var generator = new M3uGenerator(db, NullLogger<M3uGenerator>.Instance);
-
-        var playlist = new Playlist
-        {
-            Tracks = new List<Track>
-            {
-                new() { SongID = null, Title = "No ID" },
-                new() { SongID = new SongID(Platform.Qobuz, ""), Title = "Empty ID" },
-            }
-        };
-
-        var outputPath = Path.GetTempFileName() + ".m3u";
-        try
-        {
-            var options = new PlaylistOutputOptions(outputPath, false, null);
-            await generator.GenerateM3uAsync(playlist, Array.Empty<ScanLocation>(), options);
-
-            var content = await File.ReadAllLinesAsync(outputPath);
-            Assert.That(content, Has.Exactly(1).Items); // Just the header
-        }
-        finally
-        {
-            if (File.Exists(outputPath)) File.Delete(outputPath);
-        }
     }
 }

@@ -13,15 +13,6 @@ public enum Platform
     Unknown,
 }
 
-public enum DownloadSource
-{
-    ytdlp,
-    squidwtf,
-    lucida,
-    doubledouble,
-    monochrome,
-}
-
 public enum SyncStatus
 {
     Pending,

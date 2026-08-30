@@ -24,7 +24,7 @@ public class SyncEngineTests
     public async Task GenerateM3uForPlaylistAsync_CreatesM3uFile()
     {
         using var db = CreateDbContext();
-        var m3u = new M3uGenerator(db, NullLogger<M3uGenerator>.Instance);
+        var m3u = new M3uGenerator(NullLogger<M3uGenerator>.Instance);
         var engine = new SyncEngine(db, m3u, Array.Empty<IMediaServerSync>(),
             NullLogger<SyncEngine>.Instance);
 
@@ -54,7 +54,7 @@ public class SyncEngineTests
     public void SyncToServerAsync_UnknownServer_Throws()
     {
         using var db = CreateDbContext();
-        var m3u = new M3uGenerator(db, NullLogger<M3uGenerator>.Instance);
+        var m3u = new M3uGenerator(NullLogger<M3uGenerator>.Instance);
         var engine = new SyncEngine(db, m3u, Array.Empty<IMediaServerSync>(),
             NullLogger<SyncEngine>.Instance);
 
@@ -68,7 +68,7 @@ public class SyncEngineTests
     public void SyncToServerWithReportAsync_UnknownServer_Throws()
     {
         using var db = CreateDbContext();
-        var m3u = new M3uGenerator(db, NullLogger<M3uGenerator>.Instance);
+        var m3u = new M3uGenerator(NullLogger<M3uGenerator>.Instance);
         var engine = new SyncEngine(db, m3u, Array.Empty<IMediaServerSync>(),
             NullLogger<SyncEngine>.Instance);
 

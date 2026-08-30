@@ -1,42 +1,47 @@
 using MelodyBridge.Core;
-using MelodyBridge.Infrastructure.Data;
 using Microsoft.Extensions.Logging;
-using Microsoft.EntityFrameworkCore;
 
 namespace MelodyBridge.Infrastructure.Playlists;
 
+/// <summary>
+/// Writes standard M3U playlists with #EXTINF metadata lines
+/// (duration, artist - title) so media players show proper labels.
+/// </summary>
 public class M3uGenerator
 {
-    private readonly MelodyBridgeDbContext _db;
     private readonly ILogger<M3uGenerator> _logger;
 
-    public M3uGenerator(MelodyBridgeDbContext db, ILogger<M3uGenerator> logger)
+    public M3uGenerator(ILogger<M3uGenerator> logger)
     {
-        _db = db;
         _logger = logger;
     }
 
-    public async Task<string> GenerateM3uAsync(Playlist playlist, IEnumerable<ScanLocation> searchLocations, PlaylistOutputOptions options, CancellationToken ct = default)
+    public Task<string> GenerateM3uAsync(
+        MelodyBridge.Core.Playlist playlist,
+        IEnumerable<ScanLocation> searchLocations,
+        PlaylistOutputOptions options,
+        CancellationToken ct = default)
     {
-        // Resolve tracks by MelodyId — Playlist.Tracks should contain Track with SongID as identifier
-        var lines = new List<string> { "#EXTM3U" };
-
-        if (playlist.Tracks == null)
+        if (playlist?.Tracks == null)
             throw new ArgumentException("Playlist has no tracks");
+        if (string.IsNullOrWhiteSpace(options.OutputPath))
+            throw new ArgumentException("OutputPath required");
+
+        var lines = new List<string> { "#EXTM3U" };
+        var skipped = 0;
 
         foreach (var track in playlist.Tracks)
         {
             ct.ThrowIfCancellationRequested();
-            var melodyId = track.SongID?.ID;
-            if (string.IsNullOrEmpty(melodyId)) continue;
-            var found = await _db.Tracks.FirstOrDefaultAsync(t => t.MelodyId == melodyId, ct);
-            if (found == null)
+
+            var path = track.CurrentTrackLocation?.Path;
+            if (string.IsNullOrEmpty(path))
             {
-                _logger.LogWarning("Track {id} not found in DB", melodyId);
+                skipped++;
                 continue;
             }
 
-            var path = found.CurrentPath ?? string.Empty;
+            // Path remap: media servers often see files under a different mount.
             if (options.PathRemap != null)
             {
                 foreach (var kv in options.PathRemap)
@@ -49,25 +54,36 @@ public class M3uGenerator
                 }
             }
 
-            if (options.UseRelativePaths && !string.IsNullOrEmpty(options.OutputPath))
+            if (options.UseRelativePaths)
             {
                 try
                 {
-                    var rel = Path.GetRelativePath(Path.GetDirectoryName(options.OutputPath) ?? string.Empty, path);
-                    path = rel;
+                    path = Path.GetRelativePath(
+                        Path.GetDirectoryName(options.OutputPath) ?? ".", path);
                 }
-                catch { }
+                catch { /* keep absolute */ }
             }
 
+            // #EXTINF:<seconds>,<artist> - <title>
+            var seconds = (int)Math.Round(track.Duration?.TotalSeconds ?? -1);
+            var label = string.IsNullOrEmpty(track.Artist)
+                ? (track.Title ?? "Unknown")
+                : $"{track.Artist} - {track.Title}";
+            lines.Add($"#EXTINF:{seconds},{label}");
             lines.Add(path);
         }
 
-        var outPath = options.OutputPath;
-        if (string.IsNullOrWhiteSpace(outPath))
-            throw new ArgumentException("OutputPath required");
+        if (skipped > 0)
+            _logger.LogWarning("M3U {Output}: skipped {Skipped} track(s) without a file",
+                options.OutputPath, skipped);
 
-        Directory.CreateDirectory(Path.GetDirectoryName(outPath) ?? ".");
-        await File.WriteAllLinesAsync(outPath, lines, ct);
-        return outPath;
+        Directory.CreateDirectory(Path.GetDirectoryName(options.OutputPath) ?? ".");
+        File.WriteAllLines(options.OutputPath, lines);
+
+        if (skipped > 0 || lines.Count <= 1)
+            _logger.LogInformation("M3U {Output}: {Tracks} track(s), {Skipped} skipped",
+                options.OutputPath, lines.Count / 2, skipped);
+
+        return Task.FromResult(options.OutputPath);
     }
 }

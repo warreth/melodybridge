@@ -26,7 +26,7 @@ public class SyncEngineExtendedTests
         MelodyBridgeDbContext db,
         IEnumerable<IMediaServerSync>? servers = null)
     {
-        var m3u = new M3uGenerator(db, NullLogger<M3uGenerator>.Instance);
+        var m3u = new M3uGenerator(NullLogger<M3uGenerator>.Instance);
         servers ??= Array.Empty<IMediaServerSync>();
 
         return new SyncEngine(db, m3u, servers, NullLogger<SyncEngine>.Instance);
