@@ -8,7 +8,7 @@ Welcome to the MelodyBridge documentation. This site covers deployment, usage, p
 Run MelodyBridge as a self-hosted service using Docker or docker-compose. Includes environment variable reference and path remapping notes.
 
 ### 🔌 [Developer Guide](developer.md)
-Architecture overview, plugin interfaces (`IDownloaderPlugin`, `IMediaServerSync`), DI extensions, and the testing guide.
+Architecture overview, plugin interfaces (`IDownloader`, `ISourceProvider`, `IMediaServerSync`), DI extensions, and the honest-testing guide.
 
 ### 🖥️ [Photino Desktop Build](photino.md)
 Optional manual build steps for the Photino desktop wrapper around the Blazor UI.
@@ -40,7 +40,7 @@ flowchart LR
     Infra["MelodyBridge.Infrastructure<br/>Downloaders, Scanners, Media Servers"]
     App["MelodyBridge.Application<br/>SyncEngine, DownloadManager, DI"]
     Server["MelodyBridge.Server<br/>ASP.NET Blazor UI + REST API"]
-    Tests["MelodyBridge.Tests<br/>NUnit (231+ tests)"]
+    Tests["MelodyBridge.Tests<br/>NUnit (220+ tests)"]
 
     Core --> Infra
     Core --> App

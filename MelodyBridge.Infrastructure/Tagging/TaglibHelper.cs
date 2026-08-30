@@ -35,6 +35,26 @@ public static class TaglibHelper
         }
     }
 
+    /// <summary>
+    /// Writes standard title/artist/album tags. Missing values are left untouched.
+    /// Non-fatal: failures are swallowed (tagging must never break a download).
+    /// </summary>
+    public static void WriteTags(string filePath, string? title = null, string? artist = null, string? album = null)
+    {
+        try
+        {
+            var file = TagLib.File.Create(filePath);
+            if (!string.IsNullOrWhiteSpace(title)) file.Tag.Title = title;
+            if (!string.IsNullOrWhiteSpace(artist)) file.Tag.Performers = new[] { artist };
+            if (!string.IsNullOrWhiteSpace(album)) file.Tag.Album = album;
+            file.Save();
+        }
+        catch
+        {
+            // Non-fatal: tagging failure
+        }
+    }
+
     public static string? ReadMelodyId(string filePath)
     {
         try

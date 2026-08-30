@@ -130,6 +130,18 @@ public class YtDlpDownloader : IDownloader
 
             if (melodyId is not null)
                 Tagging.TaglibHelper.WriteMelodyId(file, melodyId);
+            // --embed-metadata carries the YouTube title; strip common "Artist - Title"
+            // prefixes so media servers show a clean label.
+            try
+            {
+                var embedded = System.IO.Path.GetFileNameWithoutExtension(file);
+                var sep = embedded.IndexOf(" - ", StringComparison.Ordinal);
+                if (sep > 0 && sep < embedded.Length - 3)
+                    Tagging.TaglibHelper.WriteTags(file,
+                        title: embedded[(sep + 3)..].Trim(),
+                        artist: embedded[..sep].Trim());
+            }
+            catch { /* tagging must never fail a download */ }
 
             return new DownloaderDownloadResult(true, file, null);
         }

@@ -33,22 +33,56 @@ MelodyBridge.Tests              — NUnit test suite targeting all layers
 | Desktop | Server |
 | Tests | Core, Infrastructure, Application, Server |
 
+### The Data Flow
+
+```
+Spotify playlist URL
+   → SpotifySourceProvider (embed page scraping, no API key)
+   → PlaylistStore (SQLite snapshot, ExternalId identity, sync modes)
+   → DownloadMissingAsync → DownloadManager waterfall → YtDlpDownloader
+   → MP3 file + MELODY_ID tag + title/artist tags
+   → LibraryScanner (reads tags, keeps DB current as files move)
+   → SyncJobRunner → M3uGenerator (#EXTINF) or JellyfinSync
+```
+
 ---
 
 ## Core Interfaces
 
-### `IDownloaderPlugin`
+### `IDownloader` — download plugins
 
 ```csharp
-public interface IDownloaderPlugin
+public interface IDownloader
 {
-    Track DownloadTrack(SongID songID, TrackQuality quality);
+    string Id { get; }
+    string Name { get; }
+    Task<bool> IsAvailableAsync(CancellationToken ct = default);
+    Task<DownloaderSearchHit?> SearchAsync(string artist, string title, CancellationToken ct = default);
+    Task<DownloaderDownloadResult> DownloadAsync(
+        string sourceUrl, string outputDirectory, string? melodyId, CancellationToken ct = default);
 }
 ```
 
-Implement this to add a new download source. Place implementations in `MelodyBridge.Infrastructure/Downloaders/`.
+Implement this to add a download source (the built-in `YtDlpDownloader` searches YouTube Music first, then YouTube). Place implementations in `MelodyBridge.Infrastructure/Downloaders/` and register via `services.AddSingleton<IDownloader, YourPlugin>()`.
 
-### `IMediaServerSync`
+`IDownloaderRegistry` manages the plugin waterfall: enable/disable and priority are persisted per plugin in the `ProviderStates` table.
+
+### `ISourceProvider` — playlist sources
+
+```csharp
+public interface ISourceProvider
+{
+    string Name { get; }
+    Platform Platform { get; }
+    bool CanHandle(string sourceIdentifier);
+    Task<Playlist> GetPlaylistAsync(string sourceIdentifier);
+    Task<string?> ResolveTrackUrlAsync(string query);
+}
+```
+
+Implement this to support a new playlist platform. `PlaylistStore` picks the provider whose `CanHandle` accepts the URL.
+
+### `IMediaServerSync` — media server targets
 
 ```csharp
 public interface IMediaServerSync
@@ -58,66 +92,28 @@ public interface IMediaServerSync
 }
 ```
 
-Implement this to sync playlists to a media server (e.g., Jellyfin). Place implementations in `MelodyBridge.Infrastructure/MediaServers/`.
+Implement this to sync playlists to a media server (e.g. Jellyfin). Place implementations in `MelodyBridge.Infrastructure/MediaServers/`.
 
-### `IMusicProvider`
-
-```csharp
-public interface IMusicProvider
-{
-    string Name { get; }
-    string Id { get; }
-    string Icon { get; }
-    string Description { get; }
-    IReadOnlyCollection<string> SupportedPlatforms { get; }
-    string ProviderName { get; }
-    Task<Track?> SearchSingleAsync(string query, CancellationToken ct = default);
-    Task<List<Track>> SearchAsync(string query, CancellationToken ct = default);
-    Task<Track?> ResolveTrackAsync(string trackId, CancellationToken ct = default);
-    Task<TrackDownloadResult?> DownloadAsync(SongID songId, TrackQuality quality, string targetDir, IProgress<double>? progress = null, CancellationToken ct = default);
-}```
-
-### `IDownloadManager`
+### `IDownloadManager` — the waterfall
 
 ```csharp
 public interface IDownloadManager
 {
-    Task<TrackDownloadResult?> DownloadTrackAsync(string url, QualityThresholdMode qualityMode = QualityThresholdMode.Best, string? targetDir = null, CancellationToken ct = default);
+    Task<string?> DownloadAsync(string url, string outputDirectory, string melodyId, CancellationToken ct = default);
+    Task<string?> DownloadTrackAsync(string artist, string title, string outputDirectory, string melodyId, CancellationToken ct = default);
+    IReadOnlyList<DownloadProgress> SnapshotProgress();
 }
 ```
 
-### `IMusicSourceProvider`
-
-```csharp
-public interface IMusicSourceProvider
-{
-    Task<IReadOnlyList<SourceConfig>> GetSourcesAsync(CancellationToken ct = default);
-    Task<SourceConfig?> AddSourceAsync(string url, string name, string platform, string targetDir, bool autoSync, CancellationToken ct = default);
-    Task RemoveSourceAsync(string sourceId, CancellationToken ct = default);
-    Task SyncSourceAsync(string sourceId, CancellationToken ct = default);
-}
-```
-
-### `ISyncScheduler`
-
-```csharp
-public interface ISyncScheduler
-{
-    Task<IReadOnlyList<SyncJobConfig>> GetJobsAsync(CancellationToken ct = default);
-    Task<SyncJobConfig> CreateJobAsync(SyncJobConfig config, CancellationToken ct = default);
-    Task RunJobAsync(string jobId, CancellationToken ct = default);
-    Task DeleteJobAsync(string jobId, CancellationToken ct = default);
-}
-```
+`DownloadTrackAsync` iterates enabled plugins by priority: each searches by artist/title and the first successful download wins. `DownloadAsync` passes a direct URL to the plugins that can handle it.
 
 ### Other Key Types
 
 - **`Playlist`**, **`Track`**, **`TrackQuality`**, **`MediaType`** — Core models in `MelodyBridge.Core/Classes.cs`
 - **`PlaylistOutputOptions`** — Output path, relative path toggle, path remap dictionary
-- **`MediaServerSyncReport`** — Result report returned after a sync operation
-- **`TrackEntity`**, **`PlaylistEntity`**, **`ProviderStateRow`** — EF Core entity classes for persistence
-- **`SourceEntity`**, **`ScanLocationEntity`**, **`SyncJobEntity`**, **`SyncJobRunEntity`** — New entities for source management and sync job tracking
-- **`DownloaderSettingEntity`** — Key-value settings storage with provider-specific JSON support
+- **`TrackEntity`**, **`PlaylistEntity`**, **`ProviderStateRow`** — EF Core entities for persistence
+- **`ScanLocationEntity`**, **`SyncJobEntity`**, **`SyncJobRunEntity`** — Library paths and sync job tracking
+- **`PlaylistSyncMode`** — `Additive` (removed tracks stay as flagged history) / `Mirror` (local copy matches the source exactly)
 
 ---
 
@@ -128,11 +124,12 @@ The `MelodyBridge.Application` project provides extension methods for registerin
 ### `AddMelodyBridge()`
 
 Registers core services: `DownloadManager`, `SyncEngine`, library scanner, M3U generator, and all infrastructure services including:
-- `MusicSourceManager` — manages playlist source accounts and auto-sync
-- `SyncJobRunner` — orchestrates sync jobs (search, tag, playlist output, media server sync)
-- `AutoSyncBackgroundService` — periodic auto-sync of source accounts
+- `PlaylistStore` — playlist snapshots, sync modes, `DownloadMissingAsync`, auto-sync due logic
+- `DownloaderRegistry` — plugin enable/priority state (DB-persisted)
+- `SyncJobRunner` — orchestrates sync jobs (resolve downloaded tracks → M3U / media server)
+- `AutoSyncBackgroundService` — syncs playlists whose per-playlist interval has elapsed
 - `ScanSchedulingBackgroundService` — scheduled library path scans
-- `YouTubeSourceProvider` — YouTube playlist source provider
+- `SpotifySourceProvider`, `YouTubeSourceProvider` — playlist sources
 
 ### `AddJellyfinSync()`
 
@@ -142,122 +139,81 @@ Registers the Jellyfin media server sync plugin with `HttpClient` via `AddHttpCl
 
 ```csharp
 builder.Services.AddMelodyBridge();
-builder.Services.AddJellyfinSync(builder.Configuration);
+builder.Services.AddJellyfinSync();
 ```
 
 ---
 
 ## Testing
 
-The test suite uses **NUnit 4** with **Moq** for mocking and **EF Core InMemory** for database tests.
+The suite is **NUnit 4** with **Moq** for UI-level DI mocks only.
+
+### Honest-test rules
+
+1. **No InMemory provider for persistence logic** — playlist/store tests use real SQLite files (`UseSqlite("Data Source=...")`), deleted in teardown
+2. **Live tests hit the real network** — real open.spotify.com fetches, real yt-dlp downloads (`[Category("Live")]`, CI runs them in a separate job)
+3. **Assertions read back from disk or a fresh DbContext** — nothing is asserted from in-memory cached objects
+4. **Downloaded files are validated deeply** — the MELODY_ID tag is read from the actual bytes, durations ffprobe-validated
 
 ### Running Tests
 
 ```bash
-# Run all tests
-dotnet test MelodyBridge.Tests/MelodyBridge.Tests.csproj
+# Fast suite (CI default)
+dotnet test MelodyBridge.sln --filter "FullyQualifiedName!~Tests.Integration"
 
-# Run with verbose output
-dotnet test MelodyBridge.Tests/MelodyBridge.Tests.csproj -v n
-
-# Filter by category or test name
-dotnet test MelodyBridge.Tests/MelodyBridge.Tests.csproj --filter "FullyQualifiedName~SyncEngine"
+# Live suite (needs yt-dlp on PATH + ffprobe)
+dotnet test MelodyBridge.sln --filter "Category=PlaylistStore|Category=Live"
 ```
 
 ### Test Organization
 
 ```
 MelodyBridge.Tests/
-├── Core/                  # Model, enum, mapping, provider qualities tests
-├── Infrastructure/        # Scanner, tagger, M3U, DB context, Python runner tests
-│   ├── DbContextTests.cs           # CRUD and edge cases for EF Core entities
-│   ├── JellyfinSyncTests.cs        # Jellyfin server sync tests
-│   ├── LibraryScannerTests.cs      # File scanning and metadata detection
-│   ├── M3uGeneratorTests.cs        # M3U generation and path remapping
-│   ├── TaglibHelperTests.cs        # Tag reading/writing tests
-│   ├── TrackFileHelperTests.cs     # File download strategies
-│   └── PythonRunnerTests.cs        # Python script execution tests
-├── Services/              # SyncEngine, DownloadManager, registry tests
-│   ├── SyncEngineTests.cs          # Core sync orchestration tests
-│   ├── DownloadManagerTests.cs     # Download dispatch logic tests
-│   └── MusicProviderRegistryTests.cs
-├── Providers/             # Music provider API tests
-│   ├── LucidaProviderTests.cs
-│   ├── SquidWtfProviderTests.cs
-│   ├── DoubleDoubleProviderTests.cs
-│   ├── MonochromeProviderTests.cs
-│   └── ProviderEdgeCaseTests.cs    # Null/empty/error handling tests
-└── Server/                # ASP.NET controller tests
-    └── SyncControllerTests.cs      # Sync API endpoint tests
-```
-
-### Testing Patterns
-
-**InMemory Database** (for repository/EF Core tests):
-
-```csharp
-private MelodyBridgeDbContext CreateDbContext()
-{
-    var options = new DbContextOptionsBuilder<MelodyBridgeDbContext>()
-        .UseInMemoryDatabase($"TestDb_{Guid.NewGuid()}")
-        .Options;
-    var db = new MelodyBridgeDbContext(options);
-    db.Database.EnsureCreated();
-    return db;
-}
-```
-
-**Mocking HttpClient** (for external API tests):
-
-```csharp
-var handler = new Mock<HttpMessageHandler>();
-handler.Protected()
-    .Setup<Task<HttpResponseMessage>>("SendAsync", ItExpr.IsAny<HttpRequestMessage>(), ItExpr.IsAny<CancellationToken>())
-    .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{}") });
-var client = new HttpClient(handler.Object);
-```
-
-**Mocking IMediaServerSync** (for SyncEngine tests):
-
-```csharp
-var mockServer = new Mock<IMediaServerSync>();
-mockServer.Setup(s => s.Name).Returns("TestServer");
-mockServer.Setup(s => s.SyncPlaylistAsync(It.IsAny<Playlist>(), It.IsAny<PlaylistOutputOptions>(), It.IsAny<CancellationToken>()))
-    .Returns(Task.CompletedTask);
-```
-
-**Controller Tests** (using real InMemory DB):
-
-```csharp
-using var db = CreateDbContext();
-var engine = new SyncEngine(db, new M3uGenerator(db, NullLogger<M3uGenerator>.Instance),
-    Array.Empty<IMediaServerSync>(), NullLogger<SyncEngine>.Instance);
-var controller = new SyncController(engine, NullLogger<SyncController>.Instance);
-var result = await controller.Run(request, CancellationToken.None);
-Assert.That(result, Is.InstanceOf<OkObjectResult>());
+├── Core/                  # Model and enum tests
+├── Infrastructure/        # Scanner, tagger, M3U, DB context tests
+│   ├── LibraryScannerTests.cs       # Real tagged MP3s: register + move/update identity
+│   ├── M3uGeneratorTests.cs         # Read-back of produced .m3u files
+│   ├── JellyfinSyncTests.cs         # Jellyfin client behavior
+│   ├── TaglibHelperTests.cs         # Tag reading/writing
+│   └── DbContextTests.cs
+├── Services/
+│   ├── PlaylistStoreLiveTests.cs    # Live Spotify fetch → real SQLite
+│   ├── PlaylistStoreSyncModeTests.cs# Additive/Mirror with real SQLite
+│   ├── SpotifySourceProviderTests.cs
+│   └── SyncEngineTests.cs
+├── Integration/
+│   ├── YtDlpDownloaderLiveTests.cs  # Live search/download/tag/ffprobe
+│   ├── DownloadMissingAsyncTests.cs # Real plugin writing real tagged files
+│   └── SyncJobRunnerTests.cs         # Real .m3u on disk + run history
+└── Server/
+    ├── UiTests/           # bUnit component tests
+    └── SyncControllerTests.cs
 ```
 
 ### Adding New Tests
 
 1. Create a new `.cs` file in the appropriate folder under `MelodyBridge.Tests/`
-2. Add `[TestFixture]` attribute to the class
-3. Add `[Test]` or `[TestCase]` attributes to methods
+2. Add `[TestFixture]` / `[Test]` attributes; tag live tests with `[Category("Live")]`
+3. Follow the honest-test rules above
 4. Run with `dotnet test` to verify
 
 ---
 
 ## Adding a New Downloader Plugin
 
-1. Create a class implementing `IDownloaderPlugin` in `MelodyBridge.Infrastructure/Downloaders/`.
-2. Register it in the DI container via `ServiceCollectionExtensions`.
-3. Add tests in `MelodyBridge.Tests/Infrastructure/`.
+1. Create a class implementing `IDownloader` in `MelodyBridge.Infrastructure/Downloaders/`.
+2. Register it: `services.AddSingleton<IDownloader, YourPlugin>();`
+3. It appears in the UI (Downloads page) automatically with enable/priority controls.
+4. Add tests in `MelodyBridge.Tests/Integration/`.
+
+## Adding a New Playlist Source
+
+1. Create a class implementing `ISourceProvider` in `MelodyBridge.Infrastructure/Services/`.
+2. Register it: `services.AddSingleton<ISourceProvider, YourProvider>();`
+3. `PlaylistStore.AddOrRefreshAsync(url)` will route by `CanHandle`.
 
 ## Adding a New Media Server Plugin
 
 1. Create a class implementing `IMediaServerSync` in `MelodyBridge.Infrastructure/MediaServers/`.
 2. Register it via `ServiceCollectionExtensions`.
 3. Add tests following the `JellyfinSyncTests` pattern.
-
----
-
-## Adding a New Downloader Plugin
