@@ -19,6 +19,15 @@ public class YouTubeSourceProvider : ISourceProvider
     public string Name => "YouTube";
     public Platform Platform => Platform.YouTubeMusic;
 
+    public bool CanHandle(string sourceIdentifier)
+        => !string.IsNullOrWhiteSpace(sourceIdentifier)
+           && (sourceIdentifier.Contains("youtube.com", StringComparison.OrdinalIgnoreCase)
+               || sourceIdentifier.Contains("youtu.be", StringComparison.OrdinalIgnoreCase)
+               || sourceIdentifier.StartsWith("PL", StringComparison.Ordinal)
+               || sourceIdentifier.StartsWith("OL", StringComparison.Ordinal)
+               || sourceIdentifier.StartsWith("LL", StringComparison.Ordinal)
+               || sourceIdentifier.StartsWith("RD", StringComparison.Ordinal));
+
     public YouTubeSourceProvider(ILogger<YouTubeSourceProvider> logger)
     {
         _logger = logger;

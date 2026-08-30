@@ -1,141 +1,101 @@
-using System;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
-using System.Collections.Generic;
+using System.Collections.Concurrent;
 using MelodyBridge.Core;
 using Microsoft.Extensions.Logging;
 
 namespace MelodyBridge.Application.Services;
 
+/// <summary>
+/// Coordinates downloader plugins (the waterfall): given track metadata,
+/// search and download through enabled plugins in priority order.
+/// </summary>
 public class DownloadManager : IDownloadManager
 {
-    private readonly IEnumerable<IAsyncDownloader> _legacyDownloaders;
-    private readonly IMusicProviderRegistry _providerRegistry;
+    private readonly IDownloaderRegistry _registry;
     private readonly ILogger<DownloadManager> _logger;
 
-    public DownloadManager(
-        IEnumerable<IAsyncDownloader> legacyDownloaders,
-        IMusicProviderRegistry providerRegistry,
-        ILogger<DownloadManager> logger)
+    public DownloadManager(IDownloaderRegistry registry, ILogger<DownloadManager> logger)
     {
-        _legacyDownloaders = legacyDownloaders;
-        _providerRegistry = providerRegistry;
+        _registry = registry;
         _logger = logger;
     }
 
+    /// <summary>Live progress reporting per melodyId, for the UI.</summary>
+    private readonly ConcurrentDictionary<string, DownloadProgress> _progress = new();
+
+    public IReadOnlyList<DownloadProgress> SnapshotProgress()
+        => _progress.Values.ToList();
+
+    /// <inheritdoc />
     public async Task<string?> DownloadAsync(string sourceUrl, string outputDirectory, string melodyId, CancellationToken ct = default)
     {
-        return await DownloadWithQualityFallbackAsync(sourceUrl, outputDirectory, melodyId,
-            new TrackQuality(320, MediaType.MP3), null, ct);
-    }
-
-    /// <summary>
-    /// Quality waterfall download.
-    /// Tries legacy downloaders first, then iterates through enabled providers
-    /// attempting the highest quality first and falling back to lower qualities.
-    /// </summary>
-    public async Task<string?> DownloadWithQualityFallbackAsync(
-        string sourceUrl, string outputDirectory, string melodyId,
-        TrackQuality maxQuality, TrackQuality? minQuality = null, CancellationToken ct = default)
-    {
-        // Build quality ladder: from maxQuality down to minQuality
-        var qualityLadder = BuildQualityLadder(maxQuality, minQuality ?? maxQuality);
-        if (qualityLadder.Count == 0)
-            qualityLadder.Add(maxQuality);
-
-        // Phase 1: Try legacy downloaders (they handle their own quality)
-        var legacy = _legacyDownloaders.FirstOrDefault(d => d.CanHandle(sourceUrl));
-        if (legacy != null)
+        // Direct URL case: let plugins download the URL as-is.
+        foreach (var downloader in _registry.GetEnabled())
         {
+            if (!await downloader.IsAvailableAsync(ct))
+            {
+                _logger.LogDebug("Skipping {Name}: unavailable", downloader.Name);
+                continue;
+            }
+
             try
             {
-                _logger.LogInformation("Trying legacy downloader {Name} for {url}", legacy.Name, sourceUrl);
-                return await legacy.DownloadAsync(sourceUrl, outputDirectory, melodyId, ct);
+                var result = await downloader.DownloadAsync(sourceUrl, outputDirectory, melodyId, ct);
+                if (result.Success && result.FilePath is not null)
+                    return result.FilePath;
+                _logger.LogWarning("{Name} failed for {Url}: {Error}", downloader.Name, sourceUrl, result.ErrorMessage);
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Legacy downloader {Name} failed for {url}", legacy.Name, sourceUrl);
+                _logger.LogWarning(ex, "{Name} threw for {Url}", downloader.Name, sourceUrl);
             }
         }
-
-        // Phase 2: Try enabled music providers with quality waterfall
-        var providers = _providerRegistry.GetEnabledProviders();
-        if (providers.Count == 0)
-        {
-            _logger.LogWarning("No enabled providers available for {url}", sourceUrl);
-            return null;
-        }
-
-        foreach (var quality in qualityLadder)
-        {
-            foreach (var provider in providers)
-            {
-                // Check if provider supports this quality.
-                // Empty SupportedQualities means "all qualities supported".
-                if (provider.SupportedQualities.Count > 0 &&
-                    !provider.SupportedQualities.Any(q =>
-                        q.Bitrate == quality.Bitrate && q.Format == quality.Format))
-                {
-                    continue;
-                }
-
-                try
-                {
-                    _logger.LogInformation("Trying provider {Name} with quality {bitrate}{format} for {url}",
-                        provider.Name, quality.Bitrate, quality.Format, sourceUrl);
-
-                    var result = await provider.DownloadAsync(sourceUrl, quality, outputDirectory, ct);
-
-                    if (result.Success && result.FilePath != null)
-                    {
-                        _logger.LogInformation("Download succeeded via {Name} at {bitrate}{format}",
-                            provider.Name, quality.Bitrate, quality.Format);
-                        return result.FilePath;
-                    }
-
-                    _logger.LogWarning("Provider {Name} returned failure for {url}: {Error}",
-                        provider.Name, sourceUrl, result.ErrorMessage);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Provider {Name} failed for {url} at {bitrate}{format}",
-                        provider.Name, sourceUrl, quality.Bitrate, quality.Format);
-                }
-            }
-        }
-
-        _logger.LogWarning("All providers exhausted for {url}", sourceUrl);
         return null;
     }
 
-    private List<TrackQuality> BuildQualityLadder(TrackQuality max, TrackQuality min)
+    /// <summary>
+    /// The main entry for playlist tracks: search by artist/title through the
+    /// plugin waterfall and download the first hit.
+    /// </summary>
+    public async Task<string?> DownloadTrackAsync(
+        string artist, string title, string outputDirectory, string melodyId, CancellationToken ct = default)
     {
-        // Ordered list of all known quality tiers (highest to lowest)
-        var allQualities = new List<TrackQuality>
+        _progress[melodyId] = new DownloadProgress(melodyId, title, "searching", null, null);
+        try
         {
-            new(24, MediaType.FLAC),
-            new(192, MediaType.FLAC),
-            new(16, MediaType.FLAC),
-            new(320, MediaType.AAC),
-            new(320, MediaType.OPUS),
-            new(320, MediaType.MP3),
-            new(256, MediaType.AAC),
-            new(192, MediaType.MP3),
-            new(128, MediaType.MP3),
-        };
+            foreach (var downloader in _registry.GetEnabled())
+            {
+                if (!await downloader.IsAvailableAsync(ct))
+                {
+                    _logger.LogDebug("Skipping {Name}: unavailable", downloader.Name);
+                    continue;
+                }
 
-        // Find range between max and min
-        var maxIdx = allQualities.FindIndex(q => q.Bitrate == max.Bitrate && q.Format == max.Format);
-        var minIdx = allQualities.FindIndex(q => q.Bitrate == min.Bitrate && q.Format == min.Format);
+                var hit = await downloader.SearchAsync(artist, title, ct);
+                if (hit is null || hit.SourceUrl is null)
+                {
+                    _logger.LogDebug("{Name}: no search hit for '{Artist} - {Title}'", downloader.Name, artist, title);
+                    continue;
+                }
 
-        if (maxIdx < 0) maxIdx = 0;
-        if (minIdx < 0) minIdx = allQualities.Count - 1;
+                _progress[melodyId] = new DownloadProgress(melodyId, title, "downloading", downloader.Name, null);
+                var result = await downloader.DownloadAsync(hit.SourceUrl, outputDirectory, melodyId, ct);
+                if (result.Success && result.FilePath is not null)
+                {
+                    _progress[melodyId] = new DownloadProgress(melodyId, title, "done", downloader.Name, result.FilePath);
+                    return result.FilePath;
+                }
 
-        // Ensure max is higher priority than min
-        if (maxIdx > minIdx)
-            (maxIdx, minIdx) = (minIdx, maxIdx);
+                _logger.LogWarning("{Name} download failed for '{Artist} - {Title}': {Error}",
+                    downloader.Name, artist, title, result.ErrorMessage);
+            }
 
-        return allQualities.Skip(maxIdx).Take(minIdx - maxIdx + 1).ToList();
+            _progress[melodyId] = new DownloadProgress(melodyId, title, "failed", null, "No plugin could download this track");
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _progress[melodyId] = new DownloadProgress(melodyId, title, "failed", null, ex.Message);
+            throw;
+        }
     }
 }

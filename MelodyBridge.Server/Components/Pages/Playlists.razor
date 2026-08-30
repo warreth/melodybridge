@@ -1,178 +1,146 @@
 @page "/playlists"
 @using MelodyBridge.Core
 @using MelodyBridge.Infrastructure.Data
-@using MelodyBridge.Infrastructure.Services
-@inject IPlaylistService PlaylistService
-@inject IEnumerable<ISourceProvider> SourceProviders
+@inject PlaylistStore Store
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
 
 <PageTitle>Playlists - MelodyBridge</PageTitle>
 
-<div class="container-fluid p-4">
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <h1 class="h3 mb-0">Playlists</h1>
-        <div class="btn-group">
-            <button class="btn btn-outline-secondary" @onclick="ExportAllPlaylists">
-                <i class="bi bi-download"></i> Export All
-            </button>
-            <label class="btn btn-outline-secondary mb-0">
-                <i class="bi bi-upload"></i> Import
-                <InputFile OnChange="ImportPlaylists" style="display: none;" accept=".json" />
-            </label>
-            <button class="btn btn-primary" @onclick="ShowAddPlaylistModal">
-                <i class="bi bi-plus-circle"></i> Add Playlist
-            </button>
-        </div>
+<section class="page-title">
+    <div>
+        <span class="eyebrow">Sources</span>
+        <h1>Playlists</h1>
+        <p>Fetch public playlists from Spotify or YouTube and keep a local snapshot of every track.</p>
     </div>
+    <div class="topbar-actions">
+        <button class="btn-modern ghost" @onclick="ExportAll" disabled="@busy">Export</button>
+        <label class="btn-modern ghost" style="margin:0;">
+            Import
+            <InputFile OnChange="ImportFile" accept=".json" style="display:none;" />
+        </label>
+        <button class="btn-modern primary" @onclick="ShowAddForm">Add playlist</button>
+    </div>
+</section>
 
-    @if (!string.IsNullOrEmpty(importMessage))
-    {
-        <div class="alert alert-@(isImportSuccess ? "success" : "danger") alert-dismissible fade show" role="alert">
-            @importMessage
-            <button type="button" class="btn-close" @onclick="() => importMessage = string.Empty"></button>
-        </div>
-    }
-
-    @if (isLoading)
-    {
-        <div class="text-center py-5">
-            <div class="spinner-border" role="status">
-                <span class="visually-hidden">Loading...</span>
-            </div>
-        </div>
-    }
-    else if (playlists.Count == 0)
-    {
-        <div class="alert alert-info">
-            <i class="bi bi-info-circle"></i> No playlists yet. Add your first playlist to get started.
-        </div>
-    }
-    else
-    {
-        <div class="row g-4">
-            @foreach (var playlist in playlists)
-            {
-                <div class="col-md-6 col-lg-4">
-                    <div class="card h-100 shadow-sm">
-                        @if (!string.IsNullOrEmpty(playlist.CoverImageUrl))
-                        {
-                            <img src="@playlist.CoverImageUrl" class="card-img-top" alt="@playlist.Name" style="height: 200px; object-fit: cover;">
-                        }
-                        else
-                        {
-                            <div class="card-img-top bg-secondary d-flex align-items-center justify-content-center" style="height: 200px;">
-                                <i class="bi bi-music-note-list" style="font-size: 4rem; color: white;"></i>
-                            </div>
-                        }
-                        <div class="card-body">
-                            <h5 class="card-title">@playlist.Name</h5>
-                            @if (!string.IsNullOrEmpty(playlist.Description))
-                            {
-                                <p class="card-text text-muted small">@playlist.Description</p>
-                            }
-                            <div class="d-flex justify-content-between align-items-center mb-2">
-                                <small class="text-muted">
-                                    <i class="bi bi-music-note"></i> @playlist.TrackCount tracks
-                                </small>
-                                <span class="badge bg-@GetStatusBadgeClass(playlist.LastSyncStatus)">
-                                    @playlist.LastSyncStatus
-                                </span>
-                            </div>
-                            @if (playlist.LastSyncAt.HasValue)
-                            {
-                                <small class="text-muted d-block mb-2">
-                                    Last synced: @playlist.LastSyncAt.Value.ToLocalTime().ToString("g")
-                                </small>
-                            }
-                            @if (playlist.AutoSyncEnabled)
-                            {
-                                <small class="text-success d-block mb-2">
-                                    <i class="bi bi-arrow-repeat"></i> Auto-sync every @playlist.AutoSyncIntervalMinutes min
-                                </small>
-                            }
-                        </div>
-                        <div class="card-footer bg-transparent border-top-0">
-                            <div class="btn-group w-100" role="group">
-                                <button class="btn btn-sm btn-outline-primary" @onclick="() => ViewPlaylist(playlist.Id)">
-                                    <i class="bi bi-eye"></i> View
-                                </button>
-                                <button class="btn btn-sm btn-outline-success" @onclick="() => SyncPlaylist(playlist.Id)" disabled="@(syncingPlaylistId == playlist.Id)">
-                                    @if (syncingPlaylistId == playlist.Id)
-                                    {
-                                        <span class="spinner-border spinner-border-sm" role="status"></span>
-                                    }
-                                    else
-                                    {
-                                        <i class="bi bi-arrow-clockwise"></i>
-                                    }
-                                    Sync
-                                </button>
-                                <button class="btn btn-sm btn-outline-secondary" @onclick="() => EditPlaylist(playlist)">
-                                    <i class="bi bi-pencil"></i> Edit
-                                </button>
-                                <button class="btn btn-sm btn-outline-danger" @onclick="() => DeletePlaylist(playlist.Id)">
-                                    <i class="bi bi-trash"></i>
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            }
-        </div>
-    }
-</div>
-
-@if (showAddModal)
+@if (!string.IsNullOrEmpty(message))
 {
-    <div class="modal show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title">@(editingPlaylist == null ? "Add Playlist" : "Edit Playlist")</h5>
-                    <button type="button" class="btn-close" @onclick="HideAddPlaylistModal"></button>
-                </div>
-                <div class="modal-body">
-                    <div class="mb-3">
-                        <label class="form-label">Playlist URL</label>
-                        <input type="text" class="form-control" @bind="newPlaylistUrl" placeholder="https://open.spotify.com/playlist/..." disabled="@(editingPlaylist != null)" />
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Name (optional)</label>
-                        <input type="text" class="form-control" @bind="newPlaylistName" placeholder="Auto-detected from URL" />
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Description (optional)</label>
-                        <textarea class="form-control" @bind="newPlaylistDescription" rows="3"></textarea>
-                    </div>
-                    <div class="form-check mb-3">
-                        <input class="form-check-input" type="checkbox" @bind="newPlaylistAutoSync" id="autoSyncCheck">
-                        <label class="form-check-label" for="autoSyncCheck">
-                            Enable auto-sync
-                        </label>
-                    </div>
-                    @if (newPlaylistAutoSync)
+    <div class="result-box @(messageIsError ? "error" : "ok")">@message</div>
+}
+
+@if (loading)
+{
+    <div class="empty-state">Loading playlists…</div>
+}
+else if (playlists.Count == 0)
+{
+    <div class="empty-state">
+        <strong>No playlists yet.</strong><br />
+        Paste a public Spotify or YouTube playlist URL to save its tracks locally.
+    </div>
+}
+else
+{
+    <section class="content-grid three">
+        @foreach (var playlist in playlists)
+        {
+            <div class="panel-card playlist-card">
+                <div class="playlist-cover">
+                    @if (!string.IsNullOrEmpty(playlist.CoverImageUrl))
                     {
-                        <div class="mb-3">
-                            <label class="form-label">Auto-sync interval (minutes)</label>
-                            <input type="number" class="form-control" @bind="newPlaylistSyncInterval" min="5" />
-                        </div>
+                        <img src="@playlist.CoverImageUrl" alt="@playlist.Name" loading="lazy" />
                     }
-                    @if (!string.IsNullOrEmpty(addPlaylistError))
+                    else
                     {
-                        <div class="alert alert-danger">@addPlaylistError</div>
+                        <span class="playlist-cover-placeholder">♫</span>
                     }
                 </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" @onclick="HideAddPlaylistModal">Cancel</button>
-                    <button type="button" class="btn btn-primary" @onclick="SavePlaylist" disabled="@isSaving">
-                        @if (isSaving)
-                        {
-                            <span class="spinner-border spinner-border-sm" role="status"></span>
-                        }
-                        @(editingPlaylist == null ? "Add" : "Save")
+                <div class="panel-header">
+                    <div>
+                        <span class="eyebrow">@playlist.SourcePlatform</span>
+                        <h2>@playlist.Name</h2>
+                    </div>
+                    <span class="pill @(StatusClass(playlist.LastSyncStatus))">@playlist.LastSyncStatus</span>
+                </div>
+                <p class="panel-description">
+                    @playlist.TrackCount tracks
+                    @if (!string.IsNullOrEmpty(playlist.Owner))
+                    {
+                        <span> · by @playlist.Owner</span>
+                    }
+                    @if (playlist.AutoSyncEnabled)
+                    {
+                        <span> · auto-sync every @(playlist.AutoSyncIntervalMinutes ?? 60) min</span>
+                    }
+                </p>
+                <small class="job-meta">
+                    Last synced: @(playlist.LastSyncAt?.ToLocalTime().ToString("g") ?? "never")
+                </small>
+                <div class="topbar-actions" style="margin-top:.75rem;">
+                    <button class="btn-modern primary small" @onclick="() => Refresh(playlist)" disabled="@(busy || refreshingId == playlist.Id)">
+                        @(refreshingId == playlist.Id ? "Fetching…" : "Refresh")
                     </button>
+                    <button class="btn-modern secondary small" @onclick="() => Open(playlist)">Open</button>
+                    <button class="btn-modern ghost small" @onclick="() => Delete(playlist)">Delete</button>
                 </div>
+            </div>
+        }
+    </section>
+}
+
+@if (showAddForm)
+{
+    <div class="wizard-overlay">
+        <div class="wizard-modal">
+            <div class="wizard-header">
+                <div>
+                    <span class="eyebrow">New source</span>
+                    <h2>Add playlist</h2>
+                </div>
+                <button class="icon-button" @onclick="HideAddForm">&times;</button>
+            </div>
+            <div class="wizard-body">
+                <div class="form-grid single">
+                    <label>
+                        Playlist URL or ID
+                        <input @bind="newUrl" placeholder="https://open.spotify.com/playlist/… or YouTube playlist URL" />
+                    </label>
+                    <label>
+                        Download folder (optional)
+                        <input @bind="newTargetDirectory" placeholder="/music/downloads" />
+                    </label>
+                    <label class="toggle-row">
+                        <input type="checkbox" @bind="newAutoSync" />
+                        <span>Auto-sync this playlist</span>
+                    </label>
+                    @if (newAutoSync)
+                    {
+                        <label>
+                            Check interval (minutes)
+                            <input type="number" min="5" step="5" @bind="newIntervalMinutes" />
+                        </label>
+                    }
+                    <label>
+                        Sync mode
+                        <select @bind="newSyncMode">
+                            <option value="@PlaylistSyncMode.Additive">Additive — keep removed tracks as history</option>
+                            <option value="@PlaylistSyncMode.Mirror">Mirror — remove tracks deleted from source</option>
+                        </select>
+                    </label>
+                </div>
+                @if (!string.IsNullOrEmpty(addError))
+                {
+                    <div class="result-box error">@addError</div>
+                }
+                <div class="hint-box">
+                    Public Spotify playlists work out of the box — no account needed.
+                    The playlist is fetched live and every track is stored with its platform ID.
+                </div>
+            </div>
+            <div class="wizard-footer">
+                <button class="btn-modern" @onclick="HideAddForm">Cancel</button>
+                <span></span>
+                <button class="btn-modern primary" @onclick="Add" disabled="@busy">@(busy ? "Fetching…" : "Fetch & save")</button>
             </div>
         </div>
     </div>
@@ -180,236 +148,138 @@
 
 @code {
     private List<PlaylistEntity> playlists = new();
-    private bool isLoading = true;
-    private bool showAddModal = false;
-    private bool isSaving = false;
-    private string? syncingPlaylistId = null;
-    private string addPlaylistError = string.Empty;
-    
-    private string newPlaylistUrl = string.Empty;
-    private string newPlaylistName = string.Empty;
-    private string newPlaylistDescription = string.Empty;
-    private bool newPlaylistAutoSync = false;
-    private int newPlaylistSyncInterval = 60;
-    private PlaylistEntity? editingPlaylist = null;
-    private string importMessage = string.Empty;
-    private bool isImportSuccess = false;
+    private bool loading = true;
+    private bool busy;
+    private bool showAddForm;
+    private string? refreshingId;
 
-    protected override async Task OnInitializedAsync()
+    private string newUrl = string.Empty;
+    private string newTargetDirectory = string.Empty;
+    private bool newAutoSync;
+    private int newIntervalMinutes = 60;
+    private PlaylistSyncMode newSyncMode = PlaylistSyncMode.Additive;
+
+    private string message = string.Empty;
+    private bool messageIsError;
+    private string addError = string.Empty;
+
+    protected override async Task OnInitializedAsync() => await Load();
+
+    private async Task Load()
     {
-        await LoadPlaylists();
+        loading = true;
+        playlists = await Store.GetAllAsync();
+        loading = false;
     }
 
-    private async Task LoadPlaylists()
+    private void ShowAddForm()
     {
-        isLoading = true;
-        playlists = await PlaylistService.GetAllPlaylistsAsync();
-        isLoading = false;
+        newUrl = string.Empty;
+        newTargetDirectory = string.Empty;
+        newAutoSync = false;
+        newIntervalMinutes = 60;
+        newSyncMode = PlaylistSyncMode.Additive;
+        addError = string.Empty;
+        showAddForm = true;
     }
 
-    private void ShowAddPlaylistModal()
-    {
-        showAddModal = true;
-        editingPlaylist = null;
-        newPlaylistUrl = string.Empty;
-        newPlaylistName = string.Empty;
-        newPlaylistDescription = string.Empty;
-        newPlaylistAutoSync = false;
-        newPlaylistSyncInterval = 60;
-        addPlaylistError = string.Empty;
-    }
+    private void HideAddForm() => showAddForm = false;
 
-    private void HideAddPlaylistModal()
+    private async Task Add()
     {
-        showAddModal = false;
-        editingPlaylist = null;
-    }
-
-    private async Task ExportAllPlaylists()
-    {
+        if (string.IsNullOrWhiteSpace(newUrl))
+        {
+            addError = "Paste a playlist URL first.";
+            return;
+        }
+        busy = true;
+        addError = string.Empty;
         try
         {
-            var json = await PlaylistService.ExportPlaylistsAsync();
-            var bytes = System.Text.Encoding.UTF8.GetBytes(json);
-            var fileName = $"melodybridge_playlists_{DateTime.Now:yyyyMMdd}.json";
-            
-            // Trigger download via JS interop
-            await JS.InvokeVoidAsync("downloadFileFromBytes", fileName, "application/json", bytes);
+            var target = string.IsNullOrWhiteSpace(newTargetDirectory) ? null : newTargetDirectory;
+            var playlist = await Store.AddOrRefreshAsync(newUrl.Trim(), target);
+            await Store.UpdateSettingsAsync(playlist.Id, null, newAutoSync, newIntervalMinutes, target, newSyncMode);
+            showAddForm = false;
+            message = $"Saved '{playlist.Name}' with {playlist.TrackCount} tracks.";
+            messageIsError = false;
+            await Load();
         }
         catch (Exception ex)
         {
-            importMessage = $"Export failed: {ex.Message}";
-            isImportSuccess = false;
+            addError = ex.Message;
+        }
+        finally { busy = false; }
+    }
+
+    private async Task Refresh(PlaylistEntity playlist)
+    {
+        refreshingId = playlist.Id;
+        message = string.Empty;
+        try
+        {
+            var refreshed = await Store.RefreshAsync(playlist.Id);
+            message = $"Refreshed '{refreshed.Name}': {refreshed.TrackCount} tracks.";
+            messageIsError = false;
+            await Load();
+        }
+        catch (Exception ex)
+        {
+            message = $"Refresh failed: {ex.Message}";
+            messageIsError = true;
+            await Load();
+        }
+        finally { refreshingId = null; }
+    }
+
+    private void Open(PlaylistEntity playlist) => Navigation.NavigateTo($"/playlists/{playlist.Id}");
+
+    private async Task Delete(PlaylistEntity playlist)
+    {
+        if (await Store.DeleteAsync(playlist.Id))
+        {
+            message = $"Deleted '{playlist.Name}'.";
+            messageIsError = false;
+            await Load();
         }
     }
 
-    private async Task ImportPlaylists(InputFileChangeEventArgs e)
+    private async Task ExportAll()
+    {
+        busy = true;
+        try
+        {
+            var json = await Store.ExportAsync();
+            var bytes = System.Text.Encoding.UTF8.GetBytes(json);
+            await JS.InvokeVoidAsync("melody.downloadFile", $"melodybridge-playlists-{DateTime.Now:yyyyMMdd}.json", "application/json", bytes);
+        }
+        finally { busy = false; }
+    }
+
+    private async Task ImportFile(InputFileChangeEventArgs e)
     {
         try
         {
-            var file = e.File;
-            if (file == null) return;
-
-            using var stream = file.OpenReadStream(maxAllowedSize: 10 * 1024 * 1024); // 10MB max
+            using var stream = e.File.OpenReadStream(maxAllowedSize: 20 * 1024 * 1024);
             using var reader = new System.IO.StreamReader(stream);
             var json = await reader.ReadToEndAsync();
 
-            var count = await PlaylistService.ImportPlaylistsAsync(json);
-            
-            importMessage = $"Successfully imported {count} new playlists.";
-            isImportSuccess = true;
-            
-            await LoadPlaylists();
+            var count = await Store.ImportAsync(json);
+            message = count > 0 ? $"Imported {count} playlist(s)." : "Nothing new to import.";
+            messageIsError = false;
+            await Load();
         }
         catch (Exception ex)
         {
-            importMessage = $"Import failed: {ex.Message}";
-            isImportSuccess = false;
+            message = $"Import failed: {ex.Message}";
+            messageIsError = true;
         }
     }
 
-    private void EditPlaylist(PlaylistEntity playlist)
+    private static string StatusClass(SyncStatus status) => status switch
     {
-        editingPlaylist = playlist;
-        newPlaylistUrl = playlist.SourceUrl;
-        newPlaylistName = playlist.Name;
-        newPlaylistDescription = playlist.Description ?? string.Empty;
-        newPlaylistAutoSync = playlist.AutoSyncEnabled;
-        newPlaylistSyncInterval = playlist.AutoSyncIntervalMinutes ?? 60;
-        showAddModal = true;
-        addPlaylistError = string.Empty;
-    }
-
-    private async Task SavePlaylist()
-    {
-        if (string.IsNullOrWhiteSpace(newPlaylistUrl))
-        {
-            addPlaylistError = "Please enter a playlist URL";
-            return;
-        }
-
-        isSaving = true;
-        addPlaylistError = string.Empty;
-
-        try
-        {
-            if (editingPlaylist != null)
-            {
-                // Update existing playlist
-                editingPlaylist.Name = string.IsNullOrWhiteSpace(newPlaylistName) ? editingPlaylist.Name : newPlaylistName;
-                editingPlaylist.Description = newPlaylistDescription;
-                editingPlaylist.AutoSyncEnabled = newPlaylistAutoSync;
-                editingPlaylist.AutoSyncIntervalMinutes = newPlaylistAutoSync ? newPlaylistSyncInterval : null;
-                await PlaylistService.UpdatePlaylistAsync(editingPlaylist);
-            }
-            else
-            {
-                // Create new playlist
-                var sourceProvider = SourceProviders.FirstOrDefault(p => 
-                    newPlaylistUrl.Contains(p.Name, StringComparison.OrdinalIgnoreCase));
-
-                if (sourceProvider == null)
-                {
-                    addPlaylistError = "Unsupported playlist URL. Currently supported: Spotify, YouTube";
-                    return;
-                }
-
-                // Fetch playlist metadata
-                var sourcePlaylist = await sourceProvider.GetPlaylistAsync(newPlaylistUrl);
-                if (sourcePlaylist == null)
-                {
-                    addPlaylistError = "Failed to fetch playlist. Please check the URL and try again.";
-                    return;
-                }
-
-                var playlist = new PlaylistEntity
-                {
-                    Name = string.IsNullOrWhiteSpace(newPlaylistName) ? (sourcePlaylist.Name ?? "Untitled Playlist") : newPlaylistName,
-                    Description = string.IsNullOrWhiteSpace(newPlaylistDescription) ? sourcePlaylist.Description : newPlaylistDescription,
-                    SourceUrl = newPlaylistUrl,
-                    SourcePlatform = sourceProvider.Platform,
-                    CoverImageUrl = sourcePlaylist.CoverImageUrl,
-                    Owner = sourcePlaylist.Owner,
-                    TrackCount = sourcePlaylist.Tracks?.Count ?? 0,
-                    Tracks = sourcePlaylist.Tracks?.Select(t => new TrackEntity
-                    {
-                        Title = t.Title,
-                        Artist = t.Artist,
-                        Album = null,
-                        SourceUrl = null,
-                        Platform = sourceProvider.Platform.ToString()
-                    }).ToList() ?? new(),
-                    AutoSyncEnabled = newPlaylistAutoSync,
-                    AutoSyncIntervalMinutes = newPlaylistAutoSync ? newPlaylistSyncInterval : null,
-                    LastSyncAt = DateTime.UtcNow,
-                    LastSyncStatus = SyncStatus.Completed
-                };
-
-                await PlaylistService.CreatePlaylistAsync(playlist);
-            }
-
-            await LoadPlaylists();
-            HideAddPlaylistModal();
-        }
-        catch (Exception ex)
-        {
-            addPlaylistError = $"Error: {ex.Message}";
-        }
-        finally
-        {
-            isSaving = false;
-        }
-    }
-
-    private async Task SyncPlaylist(string playlistId)
-    {
-        syncingPlaylistId = playlistId;
-        try
-        {
-            var playlist = playlists.FirstOrDefault(p => p.Id == playlistId);
-            if (playlist == null) return;
-
-            var sourceProvider = SourceProviders.FirstOrDefault(p => p.Platform == playlist.SourcePlatform);
-            if (sourceProvider != null)
-            {
-                await PlaylistService.SyncPlaylistAsync(playlistId, sourceProvider);
-                await LoadPlaylists();
-            }
-        }
-        finally
-        {
-            syncingPlaylistId = null;
-        }
-    }
-
-    private async Task DeletePlaylist(string playlistId)
-    {
-        if (confirm($"Are you sure you want to delete this playlist?"))
-        {
-            await PlaylistService.DeletePlaylistAsync(playlistId);
-            await LoadPlaylists();
-        }
-    }
-
-    private void ViewPlaylist(string playlistId)
-    {
-        Navigation.NavigateTo($"/playlists/{playlistId}");
-    }
-
-    private string GetStatusBadgeClass(SyncStatus status)
-    {
-        return status switch
-        {
-            SyncStatus.Completed => "success",
-            SyncStatus.Failed => "danger",
-            SyncStatus.InProgress => "warning",
-            _ => "secondary"
-        };
-    }
-
-    private bool confirm(string message)
-    {
-        // In a real app, use JS interop for confirmation
-        return true;
-    }
+        SyncStatus.Completed => "ok",
+        SyncStatus.Failed => "err",
+        SyncStatus.InProgress => "warn",
+        _ => "neutral"
+    };
 }

@@ -1,4 +1,3 @@
-using MelodyBridge.Core;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -6,13 +5,16 @@ using Microsoft.Extensions.Logging;
 namespace MelodyBridge.Infrastructure.Services;
 
 /// <summary>
-/// Background service that periodically checks all music sources with auto-sync enabled
-/// and downloads any new tracks found.
+/// Background service that periodically syncs playlists whose auto-sync
+/// interval has elapsed (per-playlist intervals via PlaylistStore).
 /// </summary>
 public class AutoSyncBackgroundService : BackgroundService
 {
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<AutoSyncBackgroundService> _logger;
+
+    // Check frequently; each playlist's own interval decides what is due.
+    private static readonly TimeSpan PollInterval = TimeSpan.FromMinutes(1);
 
     public AutoSyncBackgroundService(
         IServiceProvider serviceProvider,
@@ -30,11 +32,25 @@ public class AutoSyncBackgroundService : BackgroundService
         {
             try
             {
-                await Task.Delay(TimeSpan.FromMinutes(5), stoppingToken);
+                await Task.Delay(PollInterval, stoppingToken);
 
                 using var scope = _serviceProvider.CreateScope();
-                var sourceManager = scope.ServiceProvider.GetRequiredService<IMusicSourceManager>();
-                await sourceManager.AutoSyncAllAsync(stoppingToken);
+                var store = scope.ServiceProvider.GetRequiredService<PlaylistStore>();
+                var due = await store.GetDueForAutoSyncAsync(stoppingToken);
+
+                foreach (var playlist in due)
+                {
+                    try
+                    {
+                        _logger.LogInformation("Auto-syncing playlist {Playlist} ({Source})",
+                            playlist.Name, playlist.SourceUrl);
+                        await store.AddOrRefreshAsync(playlist.SourceUrl, playlist.TargetDirectory, stoppingToken);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Auto-sync failed for playlist {Playlist}", playlist.Name);
+                    }
+                }
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {

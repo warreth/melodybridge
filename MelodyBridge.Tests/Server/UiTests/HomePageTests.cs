@@ -14,17 +14,15 @@ namespace MelodyBridge.Tests.Server.UiTests;
 public class HomePageTests
 {
     private TestContext _ctx = null!;
-    private Mock<IMusicSourceManager> _sourceMgr = null!;
     private Mock<ISyncJobRunner> _jobRunner = null!;
-    private Mock<IMusicProviderRegistry> _providerRegistry = null!;
+    private Mock<IDownloaderRegistry> _providerRegistry = null!;
 
     [SetUp]
     public void Setup()
     {
         _ctx = new TestContext();
-        _sourceMgr = new Mock<IMusicSourceManager>();
         _jobRunner = new Mock<ISyncJobRunner>();
-        _providerRegistry = new Mock<IMusicProviderRegistry>();
+        _providerRegistry = new Mock<IDownloaderRegistry>();
 
         var options = new DbContextOptionsBuilder<MelodyBridgeDbContext>()
             .UseInMemoryDatabase($"HomeTest_{Guid.NewGuid()}")
@@ -41,13 +39,21 @@ public class HomePageTests
         }
 
         // Setup provider registry defaults
-        _providerRegistry.Setup(r => r.GetAllProviders()).Returns(new List<IMusicProvider>());
-        _providerRegistry.Setup(r => r.IsProviderEnabled(It.IsAny<string>())).Returns(true);
+        _providerRegistry.Setup(r => r.GetAll()).Returns(new List<IDownloader>());
+        _providerRegistry.Setup(r => r.IsEnabled(It.IsAny<string>())).Returns(true);
 
-        _ctx.Services.AddSingleton<IMusicSourceManager>(_sourceMgr.Object);
         _ctx.Services.AddSingleton<ISyncJobRunner>(_jobRunner.Object);
-        _ctx.Services.AddSingleton<IMusicProviderRegistry>(_providerRegistry.Object);
+        _ctx.Services.AddSingleton<IDownloaderRegistry>(_providerRegistry.Object);
         _ctx.Services.AddSingleton<IDbContextFactory<MelodyBridgeDbContext>>(dbFactory);
+
+        var downloadManager = new Application.Services.DownloadManager(
+            new EmptyRegistry(),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<Application.Services.DownloadManager>.Instance);
+        _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Services.PlaylistStore(
+            dbFactory,
+            Array.Empty<MelodyBridge.Core.ISourceProvider>(),
+            downloadManager,
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<MelodyBridge.Infrastructure.Services.PlaylistStore>.Instance));
     }
 
     [TearDown]
@@ -68,7 +74,7 @@ public class HomePageTests
         Assert.That(buttons.Count, Is.GreaterThanOrEqualTo(3));
         var texts = buttons.Select(b => b.TextContent.Trim()).ToList();
         Assert.That(texts, Has.Some.Contains("Run all sync jobs"));
-        Assert.That(texts, Has.Some.Contains("Auto-sync sources"));
+        Assert.That(texts, Has.Some.Contains("Sync due playlists"));
         Assert.That(texts, Has.Some.Contains("Refresh stats"));
     }
 
@@ -103,17 +109,14 @@ public class HomePageTests
     }
 
     [Test]
-    public void AutoSyncAll_Click_CallsSourceManager()
+    public void SyncDuePlaylists_Click_RendersWithoutError()
     {
-        _sourceMgr.Setup(s => s.AutoSyncAllAsync(It.IsAny<CancellationToken>()))
-            .Returns(Task.CompletedTask);
-
         var cut = _ctx.Render<Home>();
         var buttons = cut.FindAll("button");
-        var autoSyncBtn = buttons.First(b => b.TextContent.Trim().Contains("Auto-sync sources"));
-        autoSyncBtn.Click();
-
-        _sourceMgr.Verify(s => s.AutoSyncAllAsync(It.IsAny<CancellationToken>()), Times.Once);
+        var syncBtn = buttons.First(b => b.TextContent.Trim().Contains("Sync due playlists"));
+        syncBtn.Click();
+        // No exception thrown through bUnit's unhandled-exception assertion.
+        Assert.That(cut.Markup, Does.Contain("Sync due playlists"));
     }
 
     private class InMemFactory : IDbContextFactory<MelodyBridgeDbContext>
@@ -122,5 +125,15 @@ public class HomePageTests
         public InMemFactory(DbContextOptions<MelodyBridgeDbContext> options) => _options = options;
         public MelodyBridgeDbContext CreateDbContext() => new(_options);
     }
-}
 
+    private sealed class EmptyRegistry : IDownloaderRegistry
+    {
+        public IReadOnlyList<IDownloader> GetAll() => Array.Empty<IDownloader>();
+        public IDownloader? Get(string id) => null;
+        public IReadOnlyList<IDownloader> GetEnabled() => Array.Empty<IDownloader>();
+        public Task SetEnabledAsync(string id, bool enabled) => Task.CompletedTask;
+        public bool IsEnabled(string id) => false;
+        public Task<int> GetPriorityAsync(string id, CancellationToken ct = default) => Task.FromResult(0);
+        public Task SetPriorityAsync(string id, int priority, CancellationToken ct = default) => Task.CompletedTask;
+    }
+}

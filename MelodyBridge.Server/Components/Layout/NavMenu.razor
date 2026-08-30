@@ -1,23 +1,28 @@
-﻿@inject MelodyBridge.Server.Services.DevPanelService DevPanel
+@inject DevPanelService DevPanel
 
-<MudNavMenu>
-    <MudNavLink Href="" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.Home">Dashboard</MudNavLink>
-
-    <MudListSubheader>Library</MudListSubheader>
-    <MudNavLink Href="playlists" Icon="@Icons.Material.Filled.MusicNote">Playlists</MudNavLink>
-    <MudNavLink Href="library" Icon="@Icons.Material.Filled.LibraryMusic">Tracks</MudNavLink>
-    <MudNavLink Href="downloads" Icon="@Icons.Material.Filled.Download">Downloads</MudNavLink>
-
-    <MudListSubheader>Automation</MudListSubheader>
-    <MudNavLink Href="sync-jobs" Icon="@Icons.Material.Filled.Sync">Sync Jobs</MudNavLink>
-    <MudNavLink Href="accounts" Icon="@Icons.Material.Filled.People">Accounts</MudNavLink>
-
-    <MudListSubheader>System</MudListSubheader>
-    <MudNavLink Href="settings" Icon="@Icons.Material.Filled.Settings">Settings</MudNavLink>
-    @if (DevPanel.Enabled)
-    {
-        <MudNavLink Href="dev" Icon="@Icons.Material.Filled.Build">Dev Panel</MudNavLink>
-    }
-</MudNavMenu>
-
-
+<nav class="app-nav">
+    <div class="nav-section">
+        <a class="nav-link" href="" Match="NavLinkMatch.All"><span>◈</span> Dashboard</a>
+    </div>
+    <div class="nav-section">
+        <div class="nav-section-header">Sources</div>
+        <a class="nav-link" href="playlists"><span>♫</span> Playlists</a>
+    </div>
+    <div class="nav-section">
+        <div class="nav-section-header">Library</div>
+        <a class="nav-link" href="library"><span>≡</span> Tracks</a>
+        <a class="nav-link" href="downloads"><span>↓</span> Downloads</a>
+    </div>
+    <div class="nav-section">
+        <div class="nav-section-header">Automation</div>
+        <a class="nav-link" href="sync-jobs"><span>↻</span> Sync Jobs</a>
+    </div>
+    <div class="nav-section">
+        <div class="nav-section-header">System</div>
+        <a class="nav-link" href="settings"><span>⚙</span> Settings</a>
+        @if (DevPanel.Enabled)
+        {
+            <a class="nav-link" href="dev"><span>⚡</span> Dev Panel</a>
+        }
+    </div>
+</nav>

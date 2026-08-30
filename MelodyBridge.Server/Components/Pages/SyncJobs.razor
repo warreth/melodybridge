@@ -40,7 +40,7 @@
                                 <option value="">Select a source...</option>
                                 @foreach (var src in sources)
                                 {
-                                    <option value="@src.Id">@src.Name (@src.Platform)</option>
+                                    <option value="@src.Id">@src.Name (@src.SourcePlatform)</option>
                                 }
                             </select>
                         </label>
@@ -48,7 +48,7 @@
                     @if (sources.Count == 0)
                     {
                         <div class="hint-box" style="margin-top:0.75rem;">
-                            No sources configured yet. Go to <a href="/accounts">Accounts</a> to add a music source first.
+                            No playlists saved yet. Go to <a href="/playlists">Playlists</a> to add one first.
                         </div>
                     }
                 }
@@ -239,7 +239,7 @@
 
 @code {
     private List<SyncJobEntity> jobs = new();
-    private List<SourceEntity> sources = new();
+    private List<PlaylistEntity> sources = new();
     private bool showWizard;
     private bool saving;
     private int currentStep;
@@ -265,7 +265,7 @@
     {
         await using var db = await DbFactory.CreateDbContextAsync();
         jobs = await db.SyncJobs.OrderByDescending(j => j.LastRunAt).ToListAsync();
-        sources = await db.Sources.ToListAsync();
+        sources = await db.Playlists.ToListAsync();
     }
 
     private void StartNewJob()

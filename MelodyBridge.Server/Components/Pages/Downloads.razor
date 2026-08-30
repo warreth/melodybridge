@@ -1,138 +1,157 @@
 @page "/downloads"
 @using MelodyBridge.Core
-@inject IMusicProviderRegistry ProviderRegistry
+@implements IDisposable
+@inject IDownloaderRegistry Registry
+@inject IDownloadManager DownloadMgr
 @inject IDbContextFactory<MelodyBridgeDbContext> DbFactory
 
-<PageTitle>Downloads</PageTitle>
+<PageTitle>Downloads - MelodyBridge</PageTitle>
 
 <section class="page-title">
     <div>
         <span class="eyebrow">Retriever</span>
-        <h1>Download manager</h1>
-        <p>Queue downloads, choose provider priority and tag files with MELODY_ID for future scans.</p>
+        <h1>Download plugins</h1>
+        <p>Plugins are tried top-down for every track. Toggle them, reorder priority, and watch live progress.</p>
     </div>
 </section>
 
 <section class="panel-card">
     <div class="panel-header">
         <div>
-            <span class="eyebrow">Providers</span>
-            <h2>Downloader settings</h2>
+            <span class="eyebrow">Waterfall</span>
+            <h2>Priority order</h2>
         </div>
     </div>
     <div class="provider-list">
-        <div class="provider-row builtin">
-            <span class="provider-icon">🎬</span>
-            <div class="provider-info">
-                <strong>yt-dlp</strong>
-                <small>YouTube and generic URL media downloads (built-in)</small>
-            </div>
-            <span class="pill ok">Built-in</span>
-        </div>
-        @foreach (var provider in ProviderRegistry.GetAllProviders())
+        @for (var i = 0; i < orderedPlugins.Count; i++)
         {
-            var enabled = ProviderRegistry.IsProviderEnabled(provider.Id);
+            var plugin = orderedPlugins[i];
+            var enabled = Registry.IsEnabled(plugin.Id);
             <div class="provider-row @(enabled ? "enabled" : "disabled")">
-                <span class="provider-icon">@provider.Icon</span>
+                <span class="provider-icon">@(plugin.Id == "ytdlp" ? "▶" : "🔌")</span>
                 <div class="provider-info">
-                    <strong>@provider.Name</strong>
-                    <small>@provider.Description</small>
-                    <div class="provider-tags">
-                        @foreach (var platform in provider.SupportedPlatforms)
-                        {
-                            <span class="pill outline small">@platform</span>
-                        }
-                    </div>
+                    <strong>@plugin.Name</strong>
+                    <small>@plugin.Id</small>
                 </div>
-                <label class="toggle-switch">
-                    <input type="checkbox" checked="@enabled"
-                           @onchange="e => ToggleProvider(provider.Id, (bool)(e.Value ?? false))" />
-                    <span class="toggle-slider"></span>
-                </label>
+                <div class="provider-actions">
+                    <button class="btn-modern small ghost" title="Move up"
+                            disabled="@(i == 0)" @onclick="() => MoveUp(plugin.Id)">↑</button>
+                    <button class="btn-modern small ghost" title="Move down"
+                            disabled="@(i == orderedPlugins.Count - 1)" @onclick="() => MoveDown(plugin.Id)">↓</button>
+                    <label class="toggle-switch">
+                        <input type="checkbox" checked="@enabled"
+                               @onchange="e => TogglePlugin(plugin.Id, (bool)(e.Value ?? false))" />
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
             </div>
         }
     </div>
-</section>
-
-<section class="content-grid two">
-    <div class="panel-card">
-        <div class="panel-header"><div><span class="eyebrow">Quality waterfall</span><h2>Download fallback</h2></div></div>
-        <p class="panel-description">When downloading, MelodyBridge tries the highest quality first and falls back through lower tiers.</p>
-        <div class="provider-qualities" style="margin-top:.5rem;">
-            <span class="quality-badge">24 FLAC</span>
-            <span class="quality-badge">16 FLAC</span>
-            <span class="quality-badge">320 MP3</span>
-            <span class="quality-badge">256 AAC</span>
-            <span class="quality-badge">192 MP3</span>
-            <span class="quality-badge">128 MP3</span>
-        </div>
-    </div>
-    <div class="panel-card">
-        <div class="panel-header"><div><span class="eyebrow">Settings</span><h2>Downloader config</h2></div></div>
-        <div class="form-grid single">
-            <label>
-                Max concurrent downloads
-                <input @bind="maxConcurrent" type="number" min="1" max="10" />
-            </label>
-            <label>
-                Default target directory
-                <input @bind="defaultTargetDir" placeholder="/music" />
-            </label>
-            <label>
-                Temp download directory
-                <input @bind="tempDir" placeholder="/tmp/downloads" />
-            </label>
-        </div>
-        <button class="btn-modern primary" @onclick="SaveConfig" style="margin-top:.75rem;">Save preferences</button>
+    <div class="hint-box">
+        The first enabled plugin that can find and download a track wins. Unavailable
+        plugins (missing binary, service down) are skipped automatically.
     </div>
 </section>
 
 <section class="panel-card">
-    <div class="panel-header"><div><span class="eyebrow">Queue</span><h2>Download queue</h2></div></div>
-    <div class="empty-state">No active downloads. Add a source account or create a job to queue tracks.</div>
+    <div class="panel-header">
+        <div>
+            <span class="eyebrow">Queue</span>
+            <h2>Live downloads</h2>
+        </div>
+        <button class="btn-modern ghost small" @onclick="RefreshProgress">Refresh</button>
+    </div>
+    @if (progressItems.Count == 0)
+    {
+        <div class="empty-state">No active downloads. Start one from a playlist's page.</div>
+    }
+    else
+    {
+        <div class="qi-result">
+            @foreach (var item in progressItems)
+            {
+                <div class="qi-item">
+                    <span class="qi-icon @(item.Status switch {
+                        "done" => "ok",
+                        "failed" => "err",
+                        _ => "pending"
+                    })">
+                        @(item.Status switch { "done" => "✓", "failed" => "✕", _ => "…" })
+                    </span>
+                    <div style="flex:1; min-width:0;">
+                        <strong>@item.Title</strong>
+                        <div class="qi-meta">@item.Status@(item.Plugin is null ? "" : $" · {item.Plugin}")</div>
+                        @if (item.FilePath is not null)
+                        {
+                            <div class="qi-path">@item.FilePath</div>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+    }
 </section>
 
 @if (!string.IsNullOrWhiteSpace(savedMessage))
 {
-    <div class="toast-preview">@savedMessage</div>
+    <div class="result-box ok">@savedMessage</div>
 }
 
 @code {
-    private int maxConcurrent = 2;
-    private string defaultTargetDir = "/music";
-    private string tempDir = "/tmp/downloads";
+    private List<DownloadProgress> progressItems = new();
+    private List<IDownloader> orderedPlugins = new();
+    private Timer? _timer;
     private string? savedMessage;
 
     protected override async Task OnInitializedAsync()
     {
-        await using var db = await DbFactory.CreateDbContextAsync();
-        var settings = await db.DownloaderSettings.ToListAsync();
-        var conc = settings.FirstOrDefault(s => s.Key == "max_concurrent");
-        if (conc != null && int.TryParse(conc.Value, out var c)) maxConcurrent = c;
-        var dir = settings.FirstOrDefault(s => s.Key == "default_target_dir");
-        if (dir != null) defaultTargetDir = dir.Value;
+        _ = Registry.GetEnabled(); // force cache load
+        ReorderPlugins();
+        _timer = new Timer(_ => InvokeAsync(async () =>
+        {
+            progressItems = DownloadMgr.SnapshotProgress().ToList();
+            StateHasChanged();
+            await Task.CompletedTask;
+        }), null, 1000, 1000);
     }
 
-    private async Task ToggleProvider(string id, bool enabled)
+    private void ReorderPlugins()
     {
-        await ProviderRegistry.SetProviderEnabledAsync(id, enabled);
+        // Registry.GetEnabled already sorts by priority; show disabled ones too, in priority order.
+        var enabled = (Registry.GetEnabled() ?? Array.Empty<IDownloader>()).ToList();
+        var rest = (Registry.GetAll() ?? Array.Empty<IDownloader>())
+            .Where(p => !enabled.Contains(p))
+            .ToList();
+        orderedPlugins = enabled.Concat(rest).ToList();
+    }
+
+    private async Task TogglePlugin(string id, bool enabled)
+    {
+        await Registry.SetEnabledAsync(id, enabled);
+        ReorderPlugins();
         savedMessage = $"{id} {(enabled ? "enabled" : "disabled")}";
     }
 
-    private async Task SaveConfig()
+    private async Task MoveUp(string id) => await SwapPriority(id, -1);
+    private async Task MoveDown(string id) => await SwapPriority(id, +1);
+
+    private async Task SwapPriority(string id, int direction)
     {
-        await using var db = await DbFactory.CreateDbContextAsync();
-        await UpsertSetting(db, "max_concurrent", maxConcurrent.ToString());
-        await UpsertSetting(db, "default_target_dir", defaultTargetDir);
-        await UpsertSetting(db, "temp_dir", tempDir);
-        await db.SaveChangesAsync();
-        savedMessage = "Download preferences saved.";
+        var idx = orderedPlugins.FindIndex(p => p.Id == id);
+        var other = idx + direction;
+        if (other < 0 || other >= orderedPlugins.Count) return;
+
+        var a = await Registry.GetPriorityAsync(orderedPlugins[idx].Id);
+        var b = await Registry.GetPriorityAsync(orderedPlugins[other].Id);
+        await Registry.SetPriorityAsync(orderedPlugins[idx].Id, b);
+        await Registry.SetPriorityAsync(orderedPlugins[other].Id, a);
+        ReorderPlugins();
     }
 
-    private static async Task UpsertSetting(MelodyBridgeDbContext db, string key, string value)
+    private void RefreshProgress()
     {
-        var existing = await db.DownloaderSettings.FirstOrDefaultAsync(s => s.Key == key);
-        if (existing != null) existing.Value = value;
-        else db.DownloaderSettings.Add(new DownloaderSettingEntity { Key = key, Value = value });
+        progressItems = DownloadMgr.SnapshotProgress().ToList();
     }
+
+    public void Dispose() => _timer?.Dispose();
 }

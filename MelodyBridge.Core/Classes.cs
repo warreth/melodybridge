@@ -34,19 +34,6 @@ public class SyncPlaylistJob
     public DownloadLocation? DownloadLocation { get; set; }
 }
 
-public class MusicSource
-{
-    public string Id { get; set; } = Guid.NewGuid().ToString();
-    public string Name { get; set; } = string.Empty;
-    public Platform Platform { get; set; } = Platform.YouTubeMusic;
-    public string SourceUrl { get; set; } = string.Empty;
-    public string? TargetDirectory { get; set; }
-    public bool AutoSyncEnabled { get; set; }
-    public int? AutoSyncIntervalMinutes { get; set; }
-    public DateTime? LastSyncAt { get; set; }
-    public SyncStatus Status { get; set; }
-}
-
 public class SyncJob
 {
     public string Id { get; set; } = Guid.NewGuid().ToString();

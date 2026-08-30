@@ -1,7 +1,7 @@
 @page "/settings"
 @using MelodyBridge.Core
 @using MelodyBridge.Server.Services
-@inject IMusicProviderRegistry ProviderRegistry
+@inject IDownloaderRegistry DownloaderRegistry
 @inject IDbContextFactory<MelodyBridgeDbContext> DbFactory
 @inject LogExporter Exporter
 @inject NavigationManager Nav
@@ -65,20 +65,14 @@
                     </div>
                     <span class="pill ok">Built-in</span>
                 </div>
-                @foreach (var provider in ProviderRegistry.GetAllProviders())
+                @foreach (var provider in DownloaderRegistry.GetAll())
                 {
-                    var enabled = ProviderRegistry.IsProviderEnabled(provider.Id);
+                    var enabled = DownloaderRegistry.IsEnabled(provider.Id);
                     <div class="provider-row @(enabled ? "enabled" : "disabled")">
-                        <span class="provider-icon">@provider.Icon</span>
+                        <span class="provider-icon">🔌</span>
                         <div class="provider-info">
                             <strong>@provider.Name</strong>
-                            <small>@provider.Description</small>
-                            <div class="provider-tags">
-                                @foreach (var platform in provider.SupportedPlatforms)
-                                {
-                                    <span class="pill outline small">@platform</span>
-                                }
-                            </div>
+                            <small>@provider.Id — enable, disable and reorder on the Downloads page</small>
                         </div>
                         <label class="toggle-switch">
                             <input type="checkbox" checked="@enabled"
@@ -189,7 +183,7 @@
 
     private async Task ToggleProvider(string id, bool enabled)
     {
-        await ProviderRegistry.SetProviderEnabledAsync(id, enabled);
+        await DownloaderRegistry.SetEnabledAsync(id, enabled);
         savedMessage = $"{id} {(enabled ? "enabled" : "disabled")}";
     }
 

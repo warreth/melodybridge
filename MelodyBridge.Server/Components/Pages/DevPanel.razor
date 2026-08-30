@@ -2,7 +2,8 @@
 @rendermode InteractiveServer
 @using MelodyBridge.Core
 @inject DevPanelService Dev
-@inject IMusicProviderRegistry Registry
+@inject IDownloaderRegistry Registry
+@inject IDownloadManager DownloadMgr
 @inject IDownloadManager DownloadMgr
 @attribute [Microsoft.AspNetCore.Authorization.AllowAnonymous]
 
@@ -258,7 +259,7 @@
 </section>
 
 @code {
-    private List<IMusicProvider> _providers = new();
+    private List<IDownloader> _providers = new();
     private List<DevLogEntry> _logs = new();
     private List<DevLogEntry> _filteredLogs = new();
     private bool _searching;
@@ -272,7 +273,7 @@
 
     protected override void OnInitialized()
     {
-        _providers = Registry.GetAllProviders().ToList();
+        _providers = Registry.GetAll().ToList();
         RefreshState();
     }
 
@@ -340,43 +341,51 @@
         {
             Dev.LogInfo("Search", $"Searching for \"{query}\"");
 
-            var providers = string.IsNullOrEmpty(Dev.SearchProviderId)
-                ? _providers.Where(p => Registry.IsProviderEnabled(p.Id)).ToList()
-                : _providers.Where(p => p.Id == Dev.SearchProviderId).ToList();
+            // Query is "artist - title" or plain text; split on " - " when present.
+            var parts = query.Split(" - ", 2, StringSplitOptions.TrimEntries);
+            var artist = parts.Length == 2 ? parts[0] : query;
+            var title = parts.Length == 2 ? parts[1] : query;
 
-            var responded = 0;
-            foreach (var provider in providers)
+            foreach (var plugin in Registry.GetEnabled())
             {
                 try
                 {
-                    var results = await provider.SearchAsync(query);
-                    responded++;
-                    Dev.LogInfo("Search", $"{provider.Name}: {results.Count} results");
-
-                    foreach (var r in results)
+                    if (!await plugin.IsAvailableAsync())
                     {
-                        Dev.SearchResults.Add(new InteractiveSearchResult(
-                            r.Title, r.Artist, r.Album, r.Url, r.SourcePlatform,
-                            r.AvailableQualities, provider.Id, provider.Name
-                        ));
+                        Dev.LogWarn("Search", $"{plugin.Name}: unavailable, skipped");
+                        continue;
                     }
+
+                    var hit = await plugin.SearchAsync(artist, title);
+                    if (hit is null || hit.SourceUrl is null)
+                    {
+                        Dev.LogInfo("Search", $"{plugin.Name}: no hit");
+                        continue;
+                    }
+
+                    Dev.LogInfo("Search", $"{plugin.Name}: found \"{hit.Title}\"");
+                    Dev.SearchResults.Add(new InteractiveSearchResult(
+                        hit.Title, hit.Artist ?? artist, null, hit.SourceUrl,
+                        Core.Platform.Unknown, Array.Empty<Core.TrackQuality>(),
+                        plugin.Id, plugin.Name
+                    ));
                 }
                 catch (Exception ex)
                 {
-                    Dev.LogWarn("Search", $"{provider.Name}: error — {ex.Message}");
+                    Dev.LogWarn("Search", $"{plugin.Name}: error — {ex.Message}");
                 }
             }
 
-            _hasMoreProviders = responded < providers.Count;
+            _hasMoreProviders = false;
 
             if (Dev.SearchResults.Count == 0)
             {
-                Dev.LastSearchResult = "No results found from any provider.";
-                Dev.LogInfo("Search", "No results across all providers");
+                Dev.LastSearchResult = "No results found from any plugin.";
+                Dev.LogInfo("Search", "No results across all plugins");
             }
             else
             {
-                Dev.LogInfo("Search", $"Total: {Dev.SearchResults.Count} results across {responded} provider(s)");
+                Dev.LogInfo("Search", $"Total: {Dev.SearchResults.Count} result(s)");
             }
         }
         catch (Exception ex)
@@ -427,27 +436,17 @@
             var outputDir = Path.Combine(Path.GetTempPath(), "MelodyBridge_DevTest");
             Directory.CreateDirectory(outputDir);
 
-            var provider = _providers.FirstOrDefault(p => p.Id == result.ProviderId);
-            if (provider == null)
-            {
-                task.Status = "Failed";
-                task.ErrorMessage = "Provider not found";
-                RefreshState();
-                return;
-            }
-
-            var dlResult = await provider.DownloadAsync(result.Url, quality, outputDir);
-
-            if (dlResult.Success && dlResult.FilePath != null)
+            var path = await DownloadMgr.DownloadAsync(result.Url, outputDir, $"dev-{task.Id}");
+            if (path != null)
             {
                 task.Status = "Completed";
-                task.ResultPath = dlResult.FilePath;
-                Dev.LogInfo("Queue", $"Downloaded: {Path.GetFileName(dlResult.FilePath)} ({new FileInfo(dlResult.FilePath).Length:N0} bytes)");
+                task.ResultPath = path;
+                Dev.LogInfo("Queue", $"Downloaded: {Path.GetFileName(path)} ({new FileInfo(path).Length:N0} bytes)");
             }
             else
             {
                 task.Status = "Failed";
-                task.ErrorMessage = dlResult.ErrorMessage ?? "Unknown error";
+                task.ErrorMessage = "no plugin could download this URL";
                 Dev.LogError("Queue", $"Failed: {task.TrackInfo} — {task.ErrorMessage}");
             }
         }
@@ -478,7 +477,6 @@
         {
             Dev.LogInfo("Download", $"Starting direct download: {url}");
 
-            var quality = ParseQuality(Dev.SelectedQuality);
             var outputDir = Path.Combine(Path.GetTempPath(), "MelodyBridge_DevTest");
             Directory.CreateDirectory(outputDir);
 
@@ -486,21 +484,21 @@
 
             if (!string.IsNullOrEmpty(Dev.SelectedProviderId))
             {
-                var provider = _providers.FirstOrDefault(p => p.Id == Dev.SelectedProviderId);
-                if (provider == null)
+                var plugin = _providers.FirstOrDefault(p => p.Id == Dev.SelectedProviderId);
+                if (plugin == null)
                 {
-                    Dev.LogError("Download", $"Provider '{Dev.SelectedProviderId}' not found");
+                    Dev.LogError("Download", $"Plugin '{Dev.SelectedProviderId}' not found");
                     RefreshState();
                     return;
                 }
 
-                var result = await provider.DownloadAsync(url, quality, outputDir);
+                var result = await plugin.DownloadAsync(url, outputDir, $"dev-{Dev.NextDownloadTaskId()}");
                 filePath = result.Success ? result.FilePath : null;
-                Dev.LogInfo("Download", $"Provider result: {(result.Success ? "OK" : "Failed")} | {result.ErrorMessage ?? result.FilePath}");
+                Dev.LogInfo("Download", $"Plugin result: {(result.Success ? "OK" : "Failed")} | {result.ErrorMessage ?? result.FilePath}");
             }
             else
             {
-                filePath = await DownloadMgr.DownloadWithQualityFallbackAsync(url, outputDir, "dev-test", quality);
+                filePath = await DownloadMgr.DownloadAsync(url, outputDir, "dev-test");
                 Dev.LogInfo("Download", $"Waterfall returned: {filePath ?? "null (all failed)"}");
             }
 

@@ -18,11 +18,55 @@ jobs:
         with:
           dotnet-version: "8.0.x"
 
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj') }}
+          restore-keys: nuget-${{ runner.os }}-
+
       - name: Restore
         run: dotnet restore MelodyBridge.sln
 
       - name: Build
         run: dotnet build MelodyBridge.sln -c Release --no-restore
 
-      - name: Run tests
+      # Fast suite: everything except live-network tests.
+      - name: Unit tests
         run: dotnet test MelodyBridge.sln -c Release --no-build --verbosity normal
+          --filter "FullyQualifiedName!~Tests.Integration"
+
+  # Honest suite: real network to open.spotify.com, real SQLite files.
+  # If the public embed page changes shape, this job fails loudly.
+  live-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj') }}
+          restore-keys: nuget-${{ runner.os }}-
+
+      - name: Restore
+        run: dotnet restore MelodyBridge.sln
+
+      - name: Build
+        run: dotnet build MelodyBridge.sln -c Release --no-restore
+
+      - name: Install yt-dlp and ffprobe
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          sudo pip3 install --break-system-packages yt-dlp
+          yt-dlp --version
+
+      - name: Live tests (Spotify + yt-dlp + real SQLite)
+        run: dotnet test MelodyBridge.sln -c Release --no-build
+          --filter "Category=PlaylistStore|Category=Live"

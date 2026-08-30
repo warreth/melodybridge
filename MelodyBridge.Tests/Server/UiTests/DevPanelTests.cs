@@ -14,26 +14,29 @@ public class DevPanelTests
 {
     private TestContext _ctx = null!;
     private DevPanelService _devPanelService = null!;
-    private Mock<IMusicProviderRegistry> _registry = null!;
+    private Mock<IDownloaderRegistry> _registry = null!;
     private Mock<IDownloadManager> _downloadManager = null!;
 
-    private static readonly TestProvider Provider1 = new("monochrome", "Monochrome (TIDAL)");
-    private static readonly TestProvider Provider2 = new("squidwtf", "Squid.wtf");
+    private static readonly TestDownloader Provider1 = new("monochrome", "Monochrome (TIDAL)");
+    private static readonly TestDownloader Provider2 = new("squidwtf", "Squid.wtf");
 
     [SetUp]
     public void Setup()
     {
         _ctx = new TestContext();
         _devPanelService = new DevPanelService();
-        _registry = new Mock<IMusicProviderRegistry>();
+        _registry = new Mock<IDownloaderRegistry>();
         _downloadManager = new Mock<IDownloadManager>();
 
-        var providers = new List<IMusicProvider> { Provider1, Provider2 };
-        _registry.Setup(r => r.GetAllProviders()).Returns(providers);
-        _registry.Setup(r => r.IsProviderEnabled(It.IsAny<string>())).Returns(true);
+        var providers = new List<IDownloader> { Provider1, Provider2 };
+        _registry.Setup(r => r.GetAll()).Returns(providers);
+        _registry.Setup(r => r.IsEnabled(It.IsAny<string>())).Returns(true);
 
         _ctx.Services.AddSingleton<DevPanelService>(_devPanelService);
-        _ctx.Services.AddSingleton<IMusicProviderRegistry>(_registry.Object);
+        _ctx.Services.AddSingleton<IDownloaderRegistry>(_registry.Object);
+        _ctx.Services.AddSingleton<IDownloadManager>(new Application.Services.DownloadManager(
+            new EmptyTestRegistry(),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<Application.Services.DownloadManager>.Instance));
         _ctx.Services.AddSingleton<IDownloadManager>(_downloadManager.Object);
     }
 
@@ -159,8 +162,8 @@ public class DevPanelTests
         var searchBtn = cut.FindAll("button").First(b => b.TextContent.Trim().Contains("Search"));
         searchBtn.Click();
 
-        // Providers should be called
-        _registry.Verify(r => r.IsProviderEnabled(It.IsAny<string>()), Times.AtLeast(1));
+        // Search must consult the plugin waterfall
+        _registry.Verify(r => r.GetEnabled(), Times.AtLeast(1));
     }
 
     [Test]
@@ -610,25 +613,32 @@ public class DevPanelTests
 }
 
 /// <summary>
-/// Minimal IMusicProvider implementation for UI test mocking.
+/// Minimal IDownloader implementation for UI test mocking.
 /// </summary>
-public class TestProvider : IMusicProvider
+public class TestDownloader : IDownloader
 {
     public string Id { get; }
     public string Name { get; }
-    public string Description => $"Test {Name}";
-    public string Icon => "🧪";
-    public IReadOnlyList<Platform> SupportedPlatforms => new[] { Platform.Tidal, Platform.Qobuz };
-    public IReadOnlyList<TrackQuality> SupportedQualities => Array.Empty<TrackQuality>();
 
-    public TestProvider(string id, string name) { Id = id; Name = name; }
+    public TestDownloader(string id, string name) { Id = id; Name = name; }
 
-    public Task<IReadOnlyList<SearchResult>> SearchAsync(string query, Platform? platform = null, CancellationToken ct = default)
-        => Task.FromResult<IReadOnlyList<SearchResult>>(Array.Empty<SearchResult>());
+    public Task<bool> IsAvailableAsync(CancellationToken ct = default) => Task.FromResult(true);
 
-    public Task<TrackInfo?> GetTrackInfoAsync(string url, CancellationToken ct = default)
-        => Task.FromResult<TrackInfo?>(null);
+    public Task<DownloaderSearchHit?> SearchAsync(string artist, string title, CancellationToken ct = default)
+        => Task.FromResult<DownloaderSearchHit?>(null);
 
-    public Task<DownloadResult> DownloadAsync(string url, TrackQuality quality, string outputDirectory, CancellationToken ct = default)
-        => Task.FromResult(new DownloadResult(false, null, "mock", null));
+    public Task<DownloaderDownloadResult> DownloadAsync(
+        string sourceUrl, string outputDirectory, string? melodyId, CancellationToken ct = default)
+        => Task.FromResult(new DownloaderDownloadResult(false, null, "mock"));
+}
+
+public sealed class EmptyTestRegistry : IDownloaderRegistry
+{
+    public IReadOnlyList<IDownloader> GetAll() => Array.Empty<IDownloader>();
+    public IDownloader? Get(string id) => null;
+    public IReadOnlyList<IDownloader> GetEnabled() => Array.Empty<IDownloader>();
+    public Task SetEnabledAsync(string id, bool enabled) => Task.CompletedTask;
+    public bool IsEnabled(string id) => false;
+    public Task<int> GetPriorityAsync(string id, CancellationToken ct = default) => Task.FromResult(0);
+    public Task SetPriorityAsync(string id, int priority, CancellationToken ct = default) => Task.CompletedTask;
 }

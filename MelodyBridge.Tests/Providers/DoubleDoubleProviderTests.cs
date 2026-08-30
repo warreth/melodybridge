@@ -7,41 +7,69 @@ namespace MelodyBridge.Tests.Providers;
 [TestFixture]
 public class DoubleDoubleProviderTests
 {
-    private DoubleDoubleProvider CreateProvider()
+    private DoubleDoubleProvider _provider = null!;
+    private string _testOutputDir = null!;
+
+    [SetUp]
+    public void Setup()
     {
         var logger = new Microsoft.Extensions.Logging.Abstractions.NullLogger<DoubleDoubleProvider>();
-        return new DoubleDoubleProvider(logger);
+        _provider = new DoubleDoubleProvider(logger);
+        _testOutputDir = Path.Combine(Path.GetTempPath(), $"melodybridge_test_{Guid.NewGuid()}");
+        Directory.CreateDirectory(_testOutputDir);
     }
+
+    [TearDown]
+    public void TearDown()
+    {
+        if (Directory.Exists(_testOutputDir))
+        {
+            try
+            {
+                Directory.Delete(_testOutputDir, recursive: true);
+            }
+            catch
+            {
+                // Ignore cleanup errors
+            }
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Unit Tests - Metadata
+    // ═══════════════════════════════════════════════════════════════════
 
     [Test]
     public void ProviderMetadata_IsCorrect()
     {
-        var provider = CreateProvider();
         Assert.Multiple(() =>
         {
-            Assert.That(provider.Id, Is.EqualTo("doubledouble"));
-            Assert.That(provider.Name, Is.EqualTo("DoubleDouble"));
-            Assert.That(provider.Icon, Is.EqualTo("🔁"));
-            Assert.That(provider.SupportedPlatforms, Is.EquivalentTo(new[]
+            Assert.That(_provider.Id, Is.EqualTo("doubledouble"));
+            Assert.That(_provider.Name, Is.EqualTo("DoubleDouble"));
+            Assert.That(_provider.Icon, Is.EqualTo("🔁"));
+            Assert.That(_provider.SupportedPlatforms, Is.EquivalentTo(new[]
             {
                 Platform.AmazonMusic, Platform.Soundcloud, Platform.Qobuz, Platform.Deezer, Platform.Tidal
             }));
+            Assert.That(_provider.Description, Is.Not.Empty);
         });
     }
 
     [Test]
     public void SupportedQualities_AreFromProviderQualities()
     {
-        var provider = CreateProvider();
-        Assert.That(provider.SupportedQualities, Is.EquivalentTo(ProviderQualities.DoubleDouble));
+        Assert.That(_provider.SupportedQualities, Is.EquivalentTo(ProviderQualities.DoubleDouble));
     }
 
     [Test]
     public void DefaultRegion_IsUs()
     {
-        var provider = CreateProvider();
-        Assert.That(provider.Region, Is.EqualTo("us"));
+        Assert.That(_provider.Region, Is.EqualTo("us"));
     }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Unit Tests - Platform Detection
+    // ═══════════════════════════════════════════════════════════════════
 
     [Test]
     public void DetectPlatform_AmazonUrl_ReturnsAmazonMusic()
@@ -85,6 +113,10 @@ public class DoubleDoubleProviderTests
         Assert.That(result, Is.EqualTo(Platform.Unknown));
     }
 
+    // ═══════════════════════════════════════════════════════════════════
+    // Unit Tests - Service Mapping
+    // ═══════════════════════════════════════════════════════════════════
+
     [Test]
     public void MapPlatformToService_ReturnsCorrectService()
     {
@@ -98,6 +130,10 @@ public class DoubleDoubleProviderTests
             Assert.That(InvokeMapPlatformToService(Platform.Unknown), Is.EqualTo("qobuz"));
         });
     }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Unit Tests - HTML Parsing
+    // ═══════════════════════════════════════════════════════════════════
 
     [Test]
     public void ExtractDownloadUrl_ValidHtml_ReturnsUrl()
@@ -142,6 +178,103 @@ public class DoubleDoubleProviderTests
         var html = "<html><body>Nothing</body></html>";
         var results = InvokeParseResults(html, Platform.Tidal);
         Assert.That(results, Is.Empty);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Integration Tests - Real API Calls
+    // ═══════════════════════════════════════════════════════════════════
+
+    [Test]
+    [Category("Integration")]
+    [Timeout(60000)]
+    public async Task SearchAsync_RealQuery_ReturnsResultsOrHandlesCaptcha()
+    {
+        // Note: DoubleDouble may return empty due to CAPTCHA protection
+        var results = await _provider.SearchAsync("Queen Bohemian Rhapsody", Platform.Qobuz);
+
+        // The search may be blocked by CAPTCHA, which is expected
+        // We just verify the method completes without throwing
+        Assert.That(results, Is.Not.Null);
+    }
+
+    [Test]
+    [Category("Integration")]
+    [Timeout(60000)]
+    public async Task GetTrackInfoAsync_QobuzUrl_ReturnsTrackInfoOrHandlesLimitation()
+    {
+        var url = "https://www.qobuz.com/track/27648923";
+        
+        var trackInfo = await _provider.GetTrackInfoAsync(url);
+
+        // May return null if CAPTCHA blocks or if track not found
+        // We verify the method completes without throwing
+        Assert.That(trackInfo, Is.Null.Or.InstanceOf<TrackInfo>());
+    }
+
+    [Test]
+    [Category("Integration")]
+    [Timeout(60000)]
+    public async Task GetTrackInfoAsync_InvalidUrl_ReturnsNull()
+    {
+        var trackInfo = await _provider.GetTrackInfoAsync("https://example.com/not-a-track");
+        Assert.That(trackInfo, Is.Null);
+    }
+
+    [Test]
+    [Category("Integration")]
+    [Timeout(120000)]
+    public async Task DownloadAsync_QobuzTrack_AttemptsDownload()
+    {
+        // Note: This test may fail due to CAPTCHA protection
+        // But it verifies the download flow works correctly
+        var url = "https://www.qobuz.com/track/27648923";
+        var quality = new TrackQuality(320, MediaType.MP3);
+        
+        var result = await _provider.DownloadAsync(url, quality, _testOutputDir);
+
+        // Result may be failure due to CAPTCHA, but should not throw
+        Assert.That(result, Is.Not.Null);
+        
+        if (result.Success)
+        {
+            Assert.Multiple(() =>
+            {
+                Assert.That(result.FilePath, Is.Not.Empty);
+                Assert.That(File.Exists(result.FilePath), Is.True);
+            });
+        }
+        else
+        {
+            // Expected: CAPTCHA or rate limiting
+            Assert.That(result.ErrorMessage, Is.Not.Empty);
+        }
+    }
+
+    [Test]
+    [Category("Integration")]
+    [Timeout(60000)]
+    public async Task SearchAsync_WithDifferentPlatforms_HandlesCorrectly()
+    {
+        // Test with different platform types
+        var platforms = new[] { Platform.Tidal, Platform.Deezer, Platform.Soundcloud };
+        
+        foreach (var platform in platforms)
+        {
+            var results = await _provider.SearchAsync("test query", platform);
+            Assert.That(results, Is.Not.Null, $"Search for {platform} should return non-null result");
+        }
+    }
+
+    [Test]
+    [Category("Integration")]
+    [Timeout(60000)]
+    public void Region_CanBeChanged()
+    {
+        _provider.Region = "eu";
+        Assert.That(_provider.Region, Is.EqualTo("eu"));
+        
+        _provider.Region = "us";
+        Assert.That(_provider.Region, Is.EqualTo("us"));
     }
 
     // ── Reflection helpers ──

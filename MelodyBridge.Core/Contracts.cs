@@ -4,6 +4,8 @@ public interface ISourceProvider
 {
     string Name { get; }
     Platform Platform { get; }
+    /// <summary>True when this provider can parse and fetch the given identifier/URL.</summary>
+    bool CanHandle(string sourceIdentifier);
     Task<Playlist> GetPlaylistAsync(string sourceIdentifier);
     Task<string?> ResolveTrackUrlAsync(string query);
 }
@@ -32,17 +34,13 @@ public interface ISyncJobRunner
 public interface IDownloadManager
 {
     Task<string?> DownloadAsync(string sourceUrl, string outputDirectory, string melodyId, CancellationToken ct = default);
-    Task<string?> DownloadWithQualityFallbackAsync(string sourceUrl, string outputDirectory, string melodyId, TrackQuality maxQuality, TrackQuality? minQuality = null, CancellationToken ct = default);
-}
-
-public interface IMusicSourceManager
-{
-    Task<MusicSource> AddSourceAsync(MusicSource source);
-    Task RemoveSourceAsync(string sourceId);
-    Task<IReadOnlyList<MusicSource>> GetAllSourcesAsync();
-    Task<MusicSource?> GetSourceAsync(string sourceId);
-    Task UpdateSourceAsync(MusicSource source);
-    Task AutoSyncAllAsync(CancellationToken ct = default);
+    /// <summary>
+    /// Search for the track by metadata through the plugin waterfall,
+    /// download it into outputDirectory, tag the MELODY_ID, return the path.
+    /// </summary>
+    Task<string?> DownloadTrackAsync(string artist, string title, string outputDirectory, string melodyId, CancellationToken ct = default);
+    /// <summary>Current in-flight download states (for UI polling).</summary>
+    IReadOnlyList<DownloadProgress> SnapshotProgress();
 }
 
 public record PlaylistOutputOptions(

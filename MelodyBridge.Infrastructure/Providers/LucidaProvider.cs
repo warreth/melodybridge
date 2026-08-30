@@ -156,8 +156,9 @@ public partial class LucidaProvider : IMusicProvider
                     new[] { new TrackQuality(320, MediaType.MP3), new TrackQuality(24, MediaType.FLAC) });
             }
 
-            // Other platforms → return basic info from URL
-            return new TrackInfo("Unknown Track", "", null, null, url, platform, SupportedQualities);
+            // Other platforms are not supported for GetTrackInfoAsync
+            _logger.LogWarning("Lucida provider does not support getting track info for {Platform}", platform);
+            return null;
         }
         catch (Exception ex)
         {

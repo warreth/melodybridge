@@ -17,13 +17,13 @@ namespace MelodyBridge.Tests.Server.UiTests;
 public class SettingsPageTests
 {
     private TestContext _ctx = null!;
-    private Mock<IMusicProviderRegistry> _registry = null!;
+    private Mock<IDownloaderRegistry> _registry = null!;
 
     [SetUp]
     public void Setup()
     {
         _ctx = new TestContext();
-        _registry = new Mock<IMusicProviderRegistry>();
+        _registry = new Mock<IDownloaderRegistry>();
 
         var options = new DbContextOptionsBuilder<MelodyBridgeDbContext>()
             .UseInMemoryDatabase($"SettingsTest_{Guid.NewGuid()}")
@@ -37,15 +37,15 @@ public class SettingsPageTests
             db.SaveChanges();
         }
 
-        var providers = new List<IMusicProvider>
+        var providers = new List<IDownloader>
         {
-            new TestProvider("squidwtf", "Squid.wtf"),
-            new TestProvider("lucida", "Lucida"),
+            new TestDownloader("squidwtf", "Squid.wtf"),
+            new TestDownloader("lucida", "Lucida"),
         };
-        _registry.Setup(r => r.GetAllProviders()).Returns(providers);
-        _registry.Setup(r => r.IsProviderEnabled(It.IsAny<string>())).Returns(true);
+        _registry.Setup(r => r.GetAll()).Returns(providers);
+        _registry.Setup(r => r.IsEnabled(It.IsAny<string>())).Returns(true);
 
-        _ctx.Services.AddSingleton<IMusicProviderRegistry>(_registry.Object);
+        _ctx.Services.AddSingleton<IDownloaderRegistry>(_registry.Object);
         _ctx.Services.AddSingleton<IDbContextFactory<MelodyBridgeDbContext>>(dbFactory);
 
         // Logging services required by the Settings page
@@ -104,21 +104,17 @@ public class SettingsPageTests
         Assert.That(btns.Any(b => b.TextContent.Trim().Contains("Save all settings")), Is.True);
     }
 
-    private class TestProvider : IMusicProvider
+    private class TestDownloader : IDownloader
     {
         public string Id { get; }
         public string Name { get; }
-        public string Description => $"Test {Name}";
-        public string Icon => "🧪";
-        public IReadOnlyList<Platform> SupportedPlatforms => new[] { Platform.Qobuz };
-        public IReadOnlyList<TrackQuality> SupportedQualities => Array.Empty<TrackQuality>();
-        public TestProvider(string id, string name) { Id = id; Name = name; }
-        public Task<IReadOnlyList<SearchResult>> SearchAsync(string q, Platform? p = null, CancellationToken ct = default)
-            => Task.FromResult<IReadOnlyList<SearchResult>>(Array.Empty<SearchResult>());
-        public Task<TrackInfo?> GetTrackInfoAsync(string url, CancellationToken ct = default)
-            => Task.FromResult<TrackInfo?>(null);
-        public Task<DownloadResult> DownloadAsync(string url, TrackQuality q, string dir, CancellationToken ct = default)
-            => Task.FromResult(new DownloadResult(false, null, "mock", null));
+        public TestDownloader(string id, string name) { Id = id; Name = name; }
+
+        public Task<bool> IsAvailableAsync(CancellationToken ct = default) => Task.FromResult(true);
+        public Task<DownloaderSearchHit?> SearchAsync(string artist, string title, CancellationToken ct = default)
+            => Task.FromResult<DownloaderSearchHit?>(null);
+        public Task<DownloaderDownloadResult> DownloadAsync(string sourceUrl, string outputDirectory, string? melodyId, CancellationToken ct = default)
+            => Task.FromResult(new DownloaderDownloadResult(false, null, "mock"));
     }
 
     private class InMemFactory : IDbContextFactory<MelodyBridgeDbContext>

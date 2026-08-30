@@ -1,175 +1,291 @@
 @page "/playlists/{PlaylistId}"
 @using MelodyBridge.Core
 @using MelodyBridge.Infrastructure.Data
-@using MelodyBridge.Infrastructure.Services
-@inject IPlaylistService PlaylistService
+@inject PlaylistStore Store
 @inject NavigationManager Navigation
 
-<PageTitle>@(playlist?.Name ?? "Playlist Details") - MelodyBridge</PageTitle>
+<PageTitle>@(playlist?.Name ?? "Playlist") - MelodyBridge</PageTitle>
 
-<div class="container-fluid p-4">
-    @if (isLoading)
-    {
-        <div class="text-center py-5">
-            <div class="spinner-border" role="status">
-                <span class="visually-hidden">Loading...</span>
-            </div>
+@if (loading)
+{
+    <div class="empty-state">Loading playlist…</div>
+}
+else if (playlist == null)
+{
+    <section class="page-title">
+        <div>
+            <span class="eyebrow">Error</span>
+            <h1>Playlist not found</h1>
+            <p>It may have been deleted.</p>
         </div>
-    }
-    else if (playlist == null)
-    {
-        <div class="alert alert-danger">
-            <i class="bi bi-exclamation-triangle"></i> Playlist not found.
-        </div>
-        <button class="btn btn-secondary" @onclick="GoBack">
-            <i class="bi bi-arrow-left"></i> Back to Playlists
-        </button>
-    }
-    else
-    {
-        <div class="d-flex justify-content-between align-items-start mb-4">
-            <button class="btn btn-outline-secondary" @onclick="GoBack">
-                <i class="bi bi-arrow-left"></i> Back
-            </button>
-        </div>
-
-        <div class="row mb-4">
-            <div class="col-md-3">
+        <a class="btn-modern" href="playlists">Back to playlists</a>
+    </section>
+}
+else
+{
+    <section class="page-title">
+        <div class="playlist-header">
+            <div class="playlist-cover small">
                 @if (!string.IsNullOrEmpty(playlist.CoverImageUrl))
                 {
-                    <img src="@playlist.CoverImageUrl" class="img-fluid rounded shadow" alt="@playlist.Name">
+                    <img src="@playlist.CoverImageUrl" alt="@playlist.Name" />
                 }
                 else
                 {
-                    <div class="bg-secondary rounded shadow d-flex align-items-center justify-content-center" style="aspect-ratio: 1/1;">
-                        <i class="bi bi-music-note-list" style="font-size: 5rem; color: white;"></i>
-                    </div>
+                    <span class="playlist-cover-placeholder">♫</span>
                 }
             </div>
-            <div class="col-md-9">
-                <h1 class="h2">@playlist.Name</h1>
-                @if (!string.IsNullOrEmpty(playlist.Owner))
-                {
-                    <p class="text-muted">By @playlist.Owner</p>
-                }
-                @if (!string.IsNullOrEmpty(playlist.Description))
-                {
-                    <p class="mt-3">@playlist.Description</p>
-                }
-                <div class="d-flex gap-3 align-items-center mt-3">
-                    <span class="badge bg-primary">@playlist.TrackCount tracks</span>
-                    <span class="badge bg-@GetStatusBadgeClass(playlist.LastSyncStatus)">@playlist.LastSyncStatus</span>
-                    @if (playlist.LastSyncAt.HasValue)
+            <div>
+                <span class="eyebrow">@playlist.SourcePlatform playlist</span>
+                <h1>@playlist.Name</h1>
+                <p>
+                    @playlist.TrackCount tracks
+                    @if (!string.IsNullOrEmpty(playlist.Owner))
                     {
-                        <small class="text-muted">
-                            Last synced: @playlist.LastSyncAt.Value.ToLocalTime().ToString("g")
-                        </small>
+                        <span> · by @playlist.Owner</span>
                     }
+                    <span> · last synced @(playlist.LastSyncAt?.ToLocalTime().ToString("g") ?? "never")</span>
+                </p>
+            </div>
+        </div>
+        <div class="topbar-actions">
+            <button class="btn-modern primary" @onclick="Refresh" disabled="@busy">@(busy ? "Fetching…" : "Refresh")</button>
+            <button class="btn-modern secondary" @onclick="DownloadMissing" disabled="@(busy || downloading)">
+                @(downloading ? $"Downloading… ({downloadProgress.done + downloadProgress.failed}/{downloadProgress.total})" : "Download missing")
+            </button>
+            <button class="btn-modern ghost" @onclick="SaveSettings" disabled="@busy">Save settings</button>
+            <a class="btn-modern ghost" href="playlists">Back</a>
+        </div>
+    </section>
+
+    <section class="content-grid two">
+        <div class="panel-card">
+            <div class="panel-header">
+                <div>
+                    <span class="eyebrow">Settings</span>
+                    <h2>Sync configuration</h2>
                 </div>
-                <div class="mt-3">
-                    <a href="@playlist.SourceUrl" target="_blank" class="btn btn-sm btn-outline-secondary">
-                        <i class="bi bi-box-arrow-up-right"></i> Open in @playlist.SourcePlatform
-                    </a>
-                </div>
+            </div>
+            @if (!string.IsNullOrEmpty(message))
+            {
+                <div class="hint-box">@message</div>
+            }
+            <div class="form-grid single">
+                <label>
+                    Name
+                    <input @bind="editName" />
+                </label>
+                <label>
+                    Download folder
+                    <input @bind="editTargetDirectory" placeholder="/music/downloads" />
+                </label>
+                <label class="toggle-row">
+                    <input type="checkbox" @bind="editAutoSync" />
+                    <span>Auto-sync this playlist</span>
+                </label>
+                @if (editAutoSync)
+                {
+                    <label>
+                        Check interval (minutes)
+                        <input type="number" min="5" step="5" @bind="editInterval" />
+                    </label>
+                }
+                <label>
+                    Sync mode
+                    <select @bind="editSyncMode">
+                        <option value="@PlaylistSyncMode.Additive">Additive — keep removed tracks as history</option>
+                        <option value="@PlaylistSyncMode.Mirror">Mirror — remove tracks deleted from source</option>
+                    </select>
+                </label>
+                <a href="@playlist.SourceUrl" target="_blank" rel="noopener" class="hint-box">
+                    @playlist.SourceUrl ↗
+                </a>
             </div>
         </div>
 
+        <div class="panel-card">
+            <div class="panel-header">
+                <div>
+                    <span class="eyebrow">Library</span>
+                    <h2>Track status</h2>
+                </div>
+            </div>
+            <div class="stat-grid two">
+                <div class="stat-card">
+                    <span class="stat-icon">♫</span>
+                    <label>Tracks</label>
+                    <strong>@playlist.TrackCount</strong>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-icon">↓</span>
+                    <label>Downloaded</label>
+                    <strong>@downloadedCount / @playlist.Tracks.Count</strong>
+                </div>
+            </div>
+            @if (downloading)
+            {
+                <div class="hint-box">
+                    Downloading… @downloadProgress.done done, @downloadProgress.failed failed of @downloadProgress.total.
+                </div>
+            }
+            else if (lastDownloadSummary is not null)
+            {
+                <div class="hint-box">@lastDownloadSummary</div>
+            }
+        </div>
+    </section>
+
+    <section class="panel-card">
+        <div class="panel-header">
+            <div>
+                <span class="eyebrow">Snapshot</span>
+                <h2>Tracks (@playlist.Tracks.Count)</h2>
+            </div>
+            <input class="search-input" placeholder="Filter tracks…"
+                   value="@trackFilter" @oninput="OnFilterChanged" />
+        </div>
         @if (playlist.Tracks.Count == 0)
         {
-            <div class="alert alert-info">
-                <i class="bi bi-info-circle"></i> No tracks in this playlist. Try syncing it.
-            </div>
+            <div class="empty-state">No tracks in this snapshot. Refresh the playlist.</div>
         }
         else
         {
-            <div class="card shadow-sm">
-                <div class="card-header bg-white">
-                    <h5 class="mb-0">Tracks (@playlist.Tracks.Count)</h5>
-                </div>
-                <div class="card-body p-0">
-                    <div class="table-responsive">
-                        <table class="table table-hover mb-0">
-                            <thead class="table-light">
-                                <tr>
-                                    <th style="width: 50px;">#</th>
-                                    <th>Title</th>
-                                    <th>Artist</th>
-                                    <th style="width: 100px;">Duration</th>
-                                    <th style="width: 120px;">Status</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @foreach (var (track, index) in playlist.Tracks.Select((t, i) => (t, i + 1)))
-                                {
-                                    <tr>
-                                        <td class="text-muted">@index</td>
-                                        <td>
-                                            <strong>@(track.Title ?? "Unknown")</strong>
-                                        </td>
-                                        <td>@(track.Artist ?? "Unknown Artist")</td>
-                                        <td class="text-muted">
-                                            @if (!string.IsNullOrEmpty(track.CurrentPath))
-                                            {
-                                                <i class="bi bi-check-circle text-success" title="Downloaded"></i>
-                                            }
-                                            else
-                                            {
-                                                <i class="bi bi-dash-circle text-secondary" title="Not downloaded"></i>
-                                            }
-                                        </td>
-                                        <td>
-                                            @if (!string.IsNullOrEmpty(track.CurrentPath))
-                                            {
-                                                <span class="badge bg-success">Downloaded</span>
-                                            }
-                                            else
-                                            {
-                                                <span class="badge bg-secondary">Not synced</span>
-                                            }
-                                        </td>
-                                    </tr>
-                                }
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
+            <div class="table-wrap">
+                <table class="modern-table">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Title</th>
+                            <th>Artist</th>
+                            <th>Duration</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var track in FilteredTracks())
+                        {
+                            <tr>
+                                <td class="text-muted">@(track.Position + 1)</td>
+                                <td><strong>@(track.Title ?? "Unknown")</strong></td>
+                                <td>@(track.Artist ?? "Unknown artist")</td>
+                                <td class="text-muted">@FormatDuration(track.DurationMs)</td>
+                                <td>
+                                    <span class="pill @(DownloadStatusClass(track.DownloadStatus))">
+                                        @(track.DownloadStatus ?? "pending")
+                                    </span>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
             </div>
         }
-    }
-</div>
+    </section>
+}
 
 @code {
-    [Parameter]
-    public string PlaylistId { get; set; } = string.Empty;
+    [Parameter] public string PlaylistId { get; set; } = string.Empty;
 
     private PlaylistEntity? playlist;
-    private bool isLoading = true;
+    private bool loading = true;
+    private bool busy;
+    private string message = string.Empty;
+    private string trackFilter = string.Empty;
 
-    protected override async Task OnInitializedAsync()
-    {
-        await LoadPlaylist();
-    }
+    private string editName = string.Empty;
+    private string editTargetDirectory = string.Empty;
+    private bool editAutoSync;
+    private int editInterval = 60;
+    private PlaylistSyncMode editSyncMode = PlaylistSyncMode.Additive;
+    private int downloadedCount;
+    private bool downloading;
+    private (int total, int done, int failed) downloadProgress;
+    private string? lastDownloadSummary;
 
-    private async Task LoadPlaylist()
-    {
-        isLoading = true;
-        playlist = await PlaylistService.GetPlaylistByIdAsync(PlaylistId);
-        isLoading = false;
-    }
+    protected override async Task OnInitializedAsync() => await Load();
 
-    private void GoBack()
+    private async Task Load()
     {
-        Navigation.NavigateTo("/playlists");
-    }
-
-    private string GetStatusBadgeClass(SyncStatus status)
-    {
-        return status switch
+        loading = true;
+        playlist = await Store.GetByIdAsync(PlaylistId);
+        if (playlist is not null)
         {
-            SyncStatus.Completed => "success",
-            SyncStatus.Failed => "danger",
-            SyncStatus.InProgress => "warning",
-            _ => "secondary"
-        };
+            editName = playlist.Name;
+            editTargetDirectory = playlist.TargetDirectory ?? string.Empty;
+            editAutoSync = playlist.AutoSyncEnabled;
+            editInterval = playlist.AutoSyncIntervalMinutes ?? 60;
+            editSyncMode = Enum.TryParse<PlaylistSyncMode>(playlist.SyncMode, out var mode)
+                ? mode : PlaylistSyncMode.Additive;
+            downloadedCount = playlist.Tracks.Count(t => t.DownloadStatus == "downloaded");
+        }
+        loading = false;
     }
+
+    private async Task Refresh()
+    {
+        busy = true;
+        try
+        {
+            var target = string.IsNullOrWhiteSpace(editTargetDirectory) ? null : editTargetDirectory;
+            playlist = string.IsNullOrWhiteSpace(target)
+                ? await Store.RefreshAsync(PlaylistId)
+                : await Store.RefreshAsync(PlaylistId, target);
+            await Load();
+        }
+        finally { busy = false; }
+    }
+
+    private async Task SaveSettings()
+    {
+        var target = string.IsNullOrWhiteSpace(editTargetDirectory) ? null : editTargetDirectory;
+        await Store.UpdateSettingsAsync(PlaylistId, editName, editAutoSync, editInterval, target, editSyncMode);
+        message = "Settings saved.";
+        await Load();
+    }
+
+    private async Task DownloadMissing()
+    {
+        downloading = true;
+        downloadProgress = (playlist?.Tracks.Count ?? 0, 0, 0);
+        try
+        {
+            var result = await Store.DownloadMissingAsync(PlaylistId);
+            lastDownloadSummary = result.downloaded == 0 && result.failed == 0
+                ? "Nothing to download — all tracks already have files."
+                : $"Downloaded {result.downloaded}, failed {result.failed}.";
+            await Load();
+        }
+        catch (Exception ex)
+        {
+            lastDownloadSummary = $"Download failed: {ex.Message}";
+        }
+        finally
+        {
+            downloading = false;
+        }
+    }
+
+    private void OnFilterChanged(ChangeEventArgs e) => trackFilter = e.Value?.ToString() ?? string.Empty;
+
+    private IEnumerable<TrackEntity> FilteredTracks()
+    {
+        var source = playlist?.Tracks ?? Enumerable.Empty<TrackEntity>();
+        if (string.IsNullOrWhiteSpace(trackFilter)) return source;
+        return source.Where(t =>
+            (t.Title ?? "").Contains(trackFilter, StringComparison.OrdinalIgnoreCase) ||
+            (t.Artist ?? "").Contains(trackFilter, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string FormatDuration(long? ms)
+        => ms is > 0
+            ? TimeSpan.FromMilliseconds(ms.Value).ToString(@"mm\:ss")
+            : "—";
+
+    private static string DownloadStatusClass(string? status) => status switch
+    {
+        "downloaded" => "ok",
+        "failed" => "err",
+        "queued" or "in_progress" => "warn",
+        _ => "neutral"
+    };
 }

@@ -1,9 +1,9 @@
 ﻿@using System.Text.Json
 @page "/"
 @inject IDbContextFactory<MelodyBridgeDbContext> DbFactory
-@inject IMusicSourceManager SourceMgr
+@inject PlaylistStore PlaylistStore
 @inject ISyncJobRunner JobRunner
-@inject IMusicProviderRegistry ProviderRegistry
+@inject IDownloaderRegistry DownloaderRegistry
 
 <PageTitle>MelodyBridge Dashboard</PageTitle>
 
@@ -15,7 +15,7 @@
         </p>
         <div class="hero-actions">
             <a class="btn-modern primary" href="sync-jobs">Create sync job</a>
-            <a class="btn-modern secondary" href="accounts">Add account</a>
+            <a class="btn-modern secondary" href="playlists">Add playlist</a>
         </div>
     </div>
     <div class="hero-card">
@@ -49,7 +49,7 @@
             <span class="stat-icon">📀</span>
             <label>Downloaders</label>
             <strong>@downloadersCount</strong>
-            <small>yt-dlp + @activeProviders active plugin(s)</small>
+            <small>@activeProviders active plugin(s)</small>
         </div>
         <div class="stat-card">
             <span class="stat-icon">↻</span>
@@ -100,7 +100,7 @@
             </div>
             <div class="topbar-actions" style="flex-wrap:wrap; gap:.65rem;">
                 <button class="btn-modern primary" @onclick="RunAllSync" disabled="@busy">@(busy ? "Running..." : "Run all sync jobs")</button>
-                <button class="btn-modern secondary" @onclick="AutoSyncAll">Auto-sync sources</button>
+                <button class="btn-modern secondary" @onclick="AutoSyncAll" disabled="@busy">Sync due playlists</button>
                 <button class="btn-modern ghost" @onclick="RefreshStats">Refresh stats</button>
             </div>
         </div>
@@ -150,9 +150,9 @@
         syncJobsCount = await db.SyncJobs.CountAsync();
         pendingJobs = await db.SyncJobs.CountAsync(j => j.LastRunStatus == "Pending");
         completedJobs = await db.SyncJobs.CountAsync(j => j.LastRunStatus == "Completed");
-        var allProviders = ProviderRegistry.GetAllProviders();
-        downloadersCount = 1 + allProviders.Count; // yt-dlp + all registered providers
-        activeProviders = allProviders.Count(p => ProviderRegistry.IsProviderEnabled(p.Id));
+        var allPlugins = DownloaderRegistry.GetAll();
+        downloadersCount = allPlugins.Count;
+        activeProviders = allPlugins.Count(p => DownloaderRegistry.IsEnabled(p.Id));
     }
 
     private async Task RunAllSync()
@@ -174,7 +174,12 @@
 
     private async Task AutoSyncAll()
     {
-        await SourceMgr.AutoSyncAllAsync();
+        var due = await PlaylistStore.GetDueForAutoSyncAsync();
+        foreach (var playlist in due)
+        {
+            try { await PlaylistStore.AddOrRefreshAsync(playlist.SourceUrl, playlist.TargetDirectory); }
+            catch (Exception ex) { Console.Error.WriteLine($"Auto-sync failed for {playlist.Name}: {ex.Message}"); }
+        }
         await RefreshStats();
     }
 

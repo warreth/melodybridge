@@ -1,39 +1,61 @@
-﻿@inherits LayoutComponentBase
+@inherits LayoutComponentBase
 @inject DevPanelService DevPanel
-@using MelodyBridge.Server.Themes
 
-<MudThemeProvider Theme="_mainTheme" />
-<MudDialogProvider />
-<MudSnackbarProvider />
-
-<MudLayout>
-    <MudAppBar Elevation="1">
-        <MudIconButton Icon="@Icons.Material.Filled.Menu" Color="Color.Inherit" Edge="Edge.Start"
-                       OnClick="@((e) => DrawerToggle())" />
-        <MudText Typo="Typo.h5" Class="ml-3">MelodyBridge</MudText>
-        <MudSpacer />
-        <MudIconButton Icon="@Icons.Material.Filled.MoreVert" Color="Color.Inherit" Edge="Edge.End" />
-    </MudAppBar>
-    <MudDrawer @bind-Open="_drawerOpen" Elevation="2">
-        <MudDrawerHeader>
-            <MudText Typo="Typo.h6">MelodyBridge</MudText>
-        </MudDrawerHeader>
+<div class="app-shell">
+    <aside class="app-sidebar">
+        <a class="brand-block" href="">
+            <span class="brand-logo">MB</span>
+            <span class="brand-text">Melody<strong>Bridge</strong></span>
+        </a>
         <NavMenu />
-    </MudDrawer>
-    <MudMainContent>
-        <MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="my-4">
+        <div class="sidebar-footer">
+            <button class="theme-toggle" @onclick="ToggleTheme" title="Toggle theme">
+                <span class="theme-icon">@(_isDark ? "☾" : "☀")</span>
+            </button>
+            <small>v@Version</small>
+        </div>
+    </aside>
+    <div class="app-main">
+        <header class="app-topbar">
+            <div class="topbar-title">@PageTitleText</div>
+            <div class="topbar-actions">
+                <a class="btn-modern ghost small" href="/playlists">Playlists</a>
+                <a class="btn-modern ghost small" href="/sync-jobs">Sync jobs</a>
+            </div>
+        </header>
+        <main class="app-content">
             @Body
-        </MudContainer>
-    </MudMainContent>
-</MudLayout>
+        </main>
+    </div>
+</div>
 
 @code {
-    private bool _drawerOpen = true;
-    private readonly MainTheme _mainTheme = new();
+    private bool _isDark = true;
+    private static readonly System.Reflection.Assembly Assembly =
+        typeof(MelodyBridge.Server.Components.App).Assembly;
+    private static readonly string Version =
+        Assembly.GetName().Version?.ToString(3) ?? "0.1.0";
 
-    private void DrawerToggle()
+    private string PageTitleText
     {
-        _drawerOpen = !_drawerOpen;
+        get
+        {
+            var path = Nav.ToBaseRelativePath(Nav.Uri).Split('?')[0].TrimEnd('/');
+            if (string.IsNullOrWhiteSpace(path)) return "Dashboard";
+            var segments = path.Split('/');
+            var last = segments[^1];
+            if (Guid.TryParse(segments[^1], out _)) last = segments.Length > 1 ? segments[^2] : last;
+            return char.ToUpperInvariant(last[0]) + last[1..].Replace('-', ' ');
+        }
     }
-}
 
+    [Inject] private NavigationManager Nav { get; set; } = default!;
+
+    private void ToggleTheme()
+    {
+        _isDark = !_isDark;
+        _ = JS.InvokeVoidAsync("melody.setTheme", _isDark ? "dark" : "light");
+    }
+
+    [Inject] private IJSRuntime JS { get; set; } = default!;
+}

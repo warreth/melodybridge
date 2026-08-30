@@ -30,6 +30,18 @@ public enum SyncStatus
     Failed
 }
 
+/// <summary>
+/// How a playlist re-sync reconciles with its source.
+/// </summary>
+public enum PlaylistSyncMode
+{
+    /// <summary>New tracks are added; tracks removed from the source stay local.</summary>
+    Additive,
+
+    /// <summary>Local snapshot exactly matches the source; removed tracks are deleted.</summary>
+    Mirror
+}
+
 public enum SyncJobSchedule
 {
     Manual,

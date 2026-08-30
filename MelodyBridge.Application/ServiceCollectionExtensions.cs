@@ -3,7 +3,6 @@ using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.Downloaders;
 using MelodyBridge.Infrastructure.MediaServers;
 using MelodyBridge.Infrastructure.Playlists;
-using MelodyBridge.Infrastructure.Providers;
 using MelodyBridge.Infrastructure.Scanning;
 using MelodyBridge.Infrastructure.Services;
 using Microsoft.Extensions.DependencyInjection;
@@ -17,33 +16,20 @@ public static class ServiceCollectionExtensions
         // Infrastructure services
         services.AddScoped<M3uGenerator>();
         services.AddScoped<ILibraryScanner, LibraryScanner>();
-        services.AddSingleton<MusicProviderRegistry>();
 
-        // Legacy downloaders
-        services.AddSingleton<YouTubeDownloader>();
-        services.AddSingleton<IAsyncDownloader>(sp =>
-            sp.GetRequiredService<YouTubeDownloader>());
+        // ── Downloader plugins (the waterfall) ──
+        services.AddSingleton<IDownloader, YtDlpDownloader>();
+        services.AddSingleton<IDownloaderRegistry, DownloaderRegistry>();
 
-        // Music providers (plugins)
-        services.AddSingleton<IMusicProvider, SquidWtfProvider>();
-        services.AddSingleton<IMusicProvider, LucidaProvider>();
-        services.AddSingleton<IMusicProvider, DoubleDoubleProvider>();
-        services.AddSingleton<IMusicProvider, MonochromeProvider>();
-
-        // Registry
-        services.AddSingleton<IMusicProviderRegistry, MusicProviderRegistry>();
-
-        // Source providers
+        // Source providers (playlists)
         services.AddSingleton<ISourceProvider, YouTubeSourceProvider>();
         services.AddSingleton<ISourceProvider, SpotifySourceProvider>();
 
         // Application services
         services.AddScoped<IDownloadManager, DownloadManager>();
-        services.AddScoped<DownloadManager>();
         services.AddScoped<SyncEngine>();
         services.AddScoped<ISyncJobRunner, SyncJobRunner>();
-        services.AddScoped<IMusicSourceManager, MusicSourceManager>();
-        services.AddScoped<IPlaylistService, PlaylistService>();
+        services.AddScoped<PlaylistStore>();
 
         // Background services
         services.AddHostedService<AutoSyncBackgroundService>();

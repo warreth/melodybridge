@@ -5,14 +5,12 @@ using MelodyBridge.Server.Logging;
 using MelodyBridge.Server.Services;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
-using MudBlazor.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services
 builder.Services.AddRazorPages();
 builder.Services.AddServerSideBlazor();
-builder.Services.AddMudServices();
 builder.Services.AddControllers();
 builder.Services.AddScoped(sp => new HttpClient
 {

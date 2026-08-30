@@ -7,54 +7,72 @@ namespace MelodyBridge.Tests.Providers;
 [TestFixture]
 public class SquidWtfProviderTests
 {
-    private SquidWtfProvider CreateProvider()
+    private SquidWtfProvider _provider = null!;
+    private string _testOutputDir = null!;
+
+    [SetUp]
+    public void Setup()
     {
         var logger = new Microsoft.Extensions.Logging.Abstractions.NullLogger<SquidWtfProvider>();
-        return new SquidWtfProvider(logger);
+        _provider = new SquidWtfProvider(logger);
+        _testOutputDir = Path.Combine(Path.GetTempPath(), $"melodybridge_test_{Guid.NewGuid()}");
+        Directory.CreateDirectory(_testOutputDir);
     }
+
+    [TearDown]
+    public void TearDown()
+    {
+        if (Directory.Exists(_testOutputDir))
+        {
+            try
+            {
+                Directory.Delete(_testOutputDir, recursive: true);
+            }
+            catch
+            {
+                // Ignore cleanup errors
+            }
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Unit Tests - Metadata & Helper Methods
+    // ═══════════════════════════════════════════════════════════════════
 
     [Test]
     public void ProviderMetadata_IsCorrect()
     {
-        var provider = CreateProvider();
         Assert.Multiple(() =>
         {
-            Assert.That(provider.Id, Is.EqualTo("squidwtf"));
-            Assert.That(provider.Name, Is.EqualTo("Squid.wtf"));
-            Assert.That(provider.Icon, Is.EqualTo("🐙"));
-            Assert.That(provider.SupportedPlatforms, Is.EquivalentTo(new[]
+            Assert.That(_provider.Id, Is.EqualTo("squidwtf"));
+            Assert.That(_provider.Name, Is.EqualTo("Squid.wtf"));
+            Assert.That(_provider.Icon, Is.EqualTo("🐙"));
+            Assert.That(_provider.SupportedPlatforms, Is.EquivalentTo(new[]
             {
                 Platform.Qobuz, Platform.Tidal, Platform.AmazonMusic, Platform.Soundcloud
             }));
+            Assert.That(_provider.Description, Is.Not.Empty);
         });
     }
 
     [Test]
     public void SupportedQualities_AreFromProviderQualities()
     {
-        var provider = CreateProvider();
-        Assert.That(provider.SupportedQualities, Is.EquivalentTo(ProviderQualities.SquidWtf));
+        Assert.That(_provider.SupportedQualities, Is.EquivalentTo(ProviderQualities.SquidWtf));
     }
 
-    [Test]
-    public void SearchAsync_WithUnknownPlatform_ReturnsEmpty()
-    {
-        var provider = CreateProvider();
-
-        // Use reflection to call the HttpClient-less parts if search throws due to no network
-        // Just verify the method exists and returns the right type
-        Assert.That(provider.SearchAsync("test song").Result, Is.InstanceOf<IReadOnlyList<SearchResult>>());
-    }
+    // ── Helper method tests via reflection ──
 
     [Test]
     public void GetTrackInfoAsync_InvalidUrl_ReturnsNull()
     {
-        var provider = CreateProvider();
-        var result = provider.GetTrackInfoAsync("https://example.com/not-a-track").Result;
+        var result = _provider.GetTrackInfoAsync("https://example.com/not-a-track").Result;
         Assert.That(result, Is.Null);
     }
 
-    // ── Helper method tests via reflection ──
+    // ═══════════════════════════════════════════════════════════════════
+    // Unit Tests - Platform Detection
+    // ═══════════════════════════════════════════════════════════════════
 
     [Test]
     public void DetectPlatform_QobuzUrl_ReturnsQobuz()
@@ -97,6 +115,10 @@ public class SquidWtfProviderTests
         Assert.That(() => InvokeDetectPlatform(null!),
             Throws.TypeOf<TargetInvocationException>());
     }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Unit Tests - ID Extraction
+    // ═══════════════════════════════════════════════════════════════════
 
     [Test]
     public void TryExtractQobuzTrackId_TrackPattern_ExtractsId()
@@ -144,7 +166,9 @@ public class SquidWtfProviderTests
         Assert.That(result.isSuccess, Is.False);
     }
 
-    // ── Quality mapping tests ──
+    // ═══════════════════════════════════════════════════════════════════
+    // Unit Tests - Quality Mapping
+    // ═══════════════════════════════════════════════════════════════════
 
     [TestCase(24, MediaType.FLAC, "27")]
     [TestCase(320, MediaType.MP3, "6")]
@@ -164,6 +188,134 @@ public class SquidWtfProviderTests
         var quality = new TrackQuality(128, MediaType.MP3);
         var code = InvokeMapQualityToCode(quality);
         Assert.That(code, Is.EqualTo("6"));
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Integration Tests - Real API Calls (Qobuz)
+    // ═══════════════════════════════════════════════════════════════════
+
+    [Test]
+    [Category("Integration")]
+    [Timeout(60000)]
+    public async Task SearchAsync_RealQobuzQuery_ReturnsResults()
+    {
+        // Search for a popular track on Qobuz
+        var results = await _provider.SearchAsync("Bohemian Rhapsody Queen", Platform.Qobuz);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(results, Is.Not.Null);
+            Assert.That(results.Count, Is.GreaterThan(0), "Should return at least one search result");
+            
+            var firstResult = results[0];
+            Assert.That(firstResult.Title, Is.Not.Empty);
+            Assert.That(firstResult.Artist, Is.Not.Empty);
+            Assert.That(firstResult.Url, Is.Not.Empty);
+            Assert.That(firstResult.SourcePlatform, Is.EqualTo(Platform.Qobuz));
+            Assert.That(firstResult.AvailableQualities, Is.Not.Empty);
+        });
+    }
+
+    [Test]
+    [Category("Integration")]
+    [Timeout(60000)]
+    public async Task SearchAsync_QobuzPublicApi_FindsSpecificTrack()
+    {
+        // Search for Pink Floyd - The Dark Side of the Moon
+        var results = await _provider.SearchAsync("Pink Floyd Dark Side Moon", Platform.Qobuz);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(results, Is.Not.Null);
+            Assert.That(results.Count, Is.GreaterThan(0));
+            
+            // Verify we got results with proper metadata
+            foreach (var result in results.Take(5))
+            {
+                Assert.That(result.Title, Is.Not.Empty);
+                Assert.That(result.Url, Does.Contain("qobuz.com"));
+            }
+        });
+    }
+
+    [Test]
+    [Category("Integration")]
+    [Timeout(60000)]
+    public async Task GetTrackInfoAsync_RealQobuzUrl_ReturnsTrackInfo()
+    {
+        // Use a known Qobuz track - popular classical or jazz track
+        var url = "https://www.qobuz.com/track/27648923";
+        
+        var trackInfo = await _provider.GetTrackInfoAsync(url);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(trackInfo, Is.Not.Null);
+            Assert.That(trackInfo!.Title, Is.Not.Empty);
+            Assert.That(trackInfo.SourcePlatform, Is.EqualTo(Platform.Qobuz));
+        });
+    }
+
+    [Test]
+    [Category("Integration")]
+    [Timeout(120000)]
+    public async Task DownloadAsync_RealQobuzTrack_DownloadsSuccessfully()
+    {
+        // Use a known Qobuz track
+        var url = "https://www.qobuz.com/track/27648923";
+        var quality = new TrackQuality(320, MediaType.MP3);
+        
+        var result = await _provider.DownloadAsync(url, quality, _testOutputDir);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.True, $"Download failed: {result.ErrorMessage}");
+            Assert.That(result.FilePath, Is.Not.Empty);
+            Assert.That(File.Exists(result.FilePath), Is.True, "Downloaded file should exist");
+            
+            var fileInfo = new FileInfo(result.FilePath);
+            Assert.That(fileInfo.Length, Is.GreaterThan(1000), "Downloaded file should have content");
+        });
+    }
+
+    [Test]
+    [Category("Integration")]
+    [Timeout(120000)]
+    public async Task DownloadAsync_HighQualityFLAC_Qobuz_DownloadsSuccessfully()
+    {
+        var url = "https://www.qobuz.com/track/27648923";
+        var quality = new TrackQuality(24, MediaType.FLAC);
+        
+        var result = await _provider.DownloadAsync(url, quality, _testOutputDir);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.True, $"Download failed: {result.ErrorMessage}");
+            if (result.Success && !string.IsNullOrEmpty(result.FilePath))
+            {
+                Assert.That(File.Exists(result.FilePath), Is.True);
+                Assert.That(result.FilePath, Does.Contain(".flac").Or.Contains(".mp3"));
+            }
+        });
+    }
+
+    [Test]
+    [Category("Integration")]
+    [Timeout(60000)]
+    public async Task SearchAsync_NonQobuzPlatform_ReturnsEmpty()
+    {
+        // SquidWtf only supports Qobuz search
+        var results = await _provider.SearchAsync("test song", Platform.Tidal);
+        Assert.That(results, Is.Empty);
+    }
+
+    [Test]
+    [Category("Integration")]
+    [Timeout(60000)]
+    public async Task GetTrackInfoAsync_InvalidQobuzUrl_ReturnsNull()
+    {
+        var trackInfo = await _provider.GetTrackInfoAsync("https://www.qobuz.com/track/999999999999999");
+        Assert.That(trackInfo, Is.Null);
     }
 
     // ── Reflection helpers ──

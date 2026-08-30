@@ -125,13 +125,3 @@ public class FileSystemMonitoringBackgroundService : BackgroundService
         // by checking if it's time for a rescan
     }
 }
-
-public class ScanLocationEntity
-{
-    public int Id { get; set; }
-    public string Path { get; set; } = string.Empty;
-    public int? ScanIntervalHours { get; set; }
-    public string? ScheduleCron { get; set; }
-    public bool LiveMonitoring { get; set; }
-    public DateTime? LastScannedAt { get; set; }
-}

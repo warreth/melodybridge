@@ -28,6 +28,12 @@ public partial class SpotifySourceProvider : ISourceProvider
     public string Name => "Spotify";
     public Platform Platform => Platform.Spotify;
 
+    public bool CanHandle(string sourceIdentifier)
+        => !string.IsNullOrWhiteSpace(sourceIdentifier)
+           && (sourceIdentifier.Contains("open.spotify.com", StringComparison.OrdinalIgnoreCase)
+               || sourceIdentifier.StartsWith("spotify:", StringComparison.OrdinalIgnoreCase)
+               || SpotifyIdRegex().IsMatch(sourceIdentifier.Trim()));
+
     public SpotifySourceProvider(
         ILogger<SpotifySourceProvider> logger,
         IConfiguration? configuration = null)

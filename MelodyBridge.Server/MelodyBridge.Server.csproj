@@ -11,7 +11,4 @@
     <ProjectReference Include="..\MelodyBridge.Infrastructure\MelodyBridge.Infrastructure.csproj"/>
     <ProjectReference Include="..\MelodyBridge.UI.Components\MelodyBridge.UI.Components.csproj"/>
   </ItemGroup>
-  <ItemGroup>
-    <PackageReference Include="MudBlazor" Version="6.18.0"/>
-  </ItemGroup>
 </Project>
