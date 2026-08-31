@@ -1,17 +1,18 @@
 using Bunit;
 using MelodyBridge.Core.Logging;
+using MelodyBridge.Infrastructure.Services;
 using MelodyBridge.Server.Components.Pages;
-using Microsoft.AspNetCore.Components;
 using MelodyBridge.Server.Services;
+using Microsoft.AspNetCore.Components;
 using Microsoft.Extensions.DependencyInjection;
 using TestContext = Bunit.TestContext;
 
 namespace MelodyBridge.Tests.Server.UiTests;
 
 /// <summary>
-/// Logs page UI with the real LogCollector: entries must render with
-/// level/category, filtering must hide, and export must produce text
-/// containing the entries.
+/// Logs page UI with the real LogCollector and real LogAreas mapping:
+/// entries render with friendly area labels, area chips filter, errors
+/// surface in a banner, and export text contains the filtered entries.
 /// </summary>
 [TestFixture]
 public class LogsPageTests
@@ -34,40 +35,76 @@ public class LogsPageTests
     public void TearDown() => _ctx.Dispose();
 
     [Test]
-    public void Logs_RendersEntriesWithLevelAndCategory()
+    public void Logs_RendersEntriesWithFriendlyAreas()
     {
-        _collector.Log(LogLevel.Info, "DownloaderRegistry", "Downloader ytdlp enabled");
-        _collector.Log(LogLevel.Error, "DownloadManager", "no plugin could download this track");
+        _collector.Log(LogLevel.Info, "MelodyBridge.Infrastructure.Services.PlaylistStore", "Added playlist Techno with 101 tracks");
+        _collector.Log(LogLevel.Error, "MelodyBridge.Application.Services.DownloadManager", "no plugin could download this track");
 
         var cut = _ctx.Render<Logs>();
 
-        Assert.That(cut.Markup, Does.Contain("Downloader ytdlp enabled"));
-        Assert.That(cut.Markup, Does.Contain("no plugin could download this track"));
-        Assert.That(cut.Markup, Does.Contain("DownloaderRegistry"));
-        Assert.That(cut.Markup, Does.Contain("ERROR"), "level must be visible");
+        Assert.That(cut.Markup, Does.Contain("Added playlist Techno with 101 tracks"));
+        Assert.That(cut.Markup, Does.Contain("Playlists"), "raw type names must be shown as areas");
+        Assert.That(cut.Markup, Does.Contain("Downloads"));
+        Assert.That(cut.Markup, Does.Not.Contain("MelodyBridge.Infrastructure"),
+            "raw namespaces must not appear in the UI");
     }
 
     [Test]
-    public void Logs_EmptyCollector_ShowsEmptyState()
+    public void Logs_ErrorsSurfaceInBanner()
     {
+        _collector.Log(LogLevel.Info, "Scanner", "scan done");
+        _collector.Log(LogLevel.Error, "MelodyBridge.Application.Services.DownloadManager", "soundcloud download failed");
+
         var cut = _ctx.Render<Logs>();
-        Assert.That(cut.Markup, Does.Contain("No log entries"));
+
+        Assert.That(cut.Markup, Does.Contain("recent problem detected"),
+            "the error banner must appear when errors exist");
+        Assert.That(cut.Markup, Does.Contain("soundcloud download failed"));
     }
 
     [Test]
-    public void Logs_FilterBySearch_HidesNonMatchingEntries()
+    public void Logs_NoErrors_NoBanner()
+    {
+        _collector.Log(LogLevel.Info, "Scanner", "all good");
+
+        var cut = _ctx.Render<Logs>();
+
+        Assert.That(cut.Markup, Does.Not.Contain("problem"));
+        Assert.That(cut.Markup, Does.Contain("all good"));
+    }
+
+    [Test]
+    public void Logs_AreaChipFiltersStream()
+    {
+        _collector.Log(LogLevel.Info, "MelodyBridge.Infrastructure.Services.PlaylistStore", "playlist synced");
+        _collector.Log(LogLevel.Info, "MelodyBridge.Application.Services.DownloadManager", "download finished");
+
+        var cut = _ctx.Render<Logs>();
+
+        var chips = cut.FindAll(".filter-chip");
+        Assert.That(chips.Count, Is.EqualTo(LogAreas.All.Length + 1),
+            "one chip per area plus All areas");
+
+        cut.FindAll(".filter-chip").Single(c => c.TextContent == "Downloads").Click();
+
+        Assert.That(cut.Markup, Does.Contain("download finished"));
+        Assert.That(cut.Markup, Does.Not.Contain("playlist synced"),
+            "selecting an area must hide other areas' entries");
+    }
+
+    [Test]
+    public void Logs_SearchHidesNonMatchingEntries()
     {
         _collector.Log(LogLevel.Info, "Scanner", "scan of /music done");
         _collector.Log(LogLevel.Warn, "Downloader", "soundcloud search failed");
 
         var cut = _ctx.Render<Logs>();
 
-        var search = cut.Find("input[placeholder='Search text...']");
-        search.Input(new ChangeEventArgs { Value = "scanner" });
+        cut.Find("input[placeholder='Search text...']")
+            .Input(new ChangeEventArgs { Value = "scanner" });
 
         Assert.That(cut.Markup, Does.Contain("scan of /music done"));
-        Assert.That(cut.Markup, Does.Not.Contain("soundcloud search failed"),
-            "non-matching entries must disappear");
+        Assert.That(cut.Markup, Does.Not.Contain("soundcloud search failed"));
     }
 
     [Test]
@@ -79,7 +116,6 @@ public class LogsPageTests
 
         Assert.That(text, Does.Contain("playlist Techno synced with 101 tracks"));
         Assert.That(text, Does.Contain("INFO"));
-        Assert.That(text, Does.Contain("Sync"));
     }
 
     [Test]

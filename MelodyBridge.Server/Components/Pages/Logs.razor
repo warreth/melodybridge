@@ -1,5 +1,6 @@
 @page "/logs"
 @using MelodyBridge.Core.Logging
+@using MelodyBridge.Infrastructure.Services
 @using MelodyBridge.Server.Services
 @implements IDisposable
 @inject ILogCollector LogCollector
@@ -12,9 +13,42 @@
     <div>
         <span class="eyebrow">System</span>
         <h1>Logs</h1>
-        <p>Recent application events: playlist syncs, downloads, scans, and errors.</p>
+        <p>Everything the app did recently: playlist syncs, downloads, scans, and errors.</p>
+    </div>
+    <div class="topbar-actions">
+        <button class="btn-modern ghost" @onclick="CopyToClipboardAsync" disabled="@FilteredEmpty">Copy</button>
+        <button class="btn-modern ghost" @onclick="DownloadFileAsync" disabled="@FilteredEmpty">Export</button>
+        <button class="btn-modern secondary" @onclick="ClearLogs">Clear</button>
     </div>
 </section>
+
+@if (errorCount > 0)
+{
+    <section class="panel-card log-error-banner">
+        <div class="log-error-head">
+            <span class="qi-icon err">✕</span>
+            <div>
+                <strong>@errorCount recent problem@(errorCount == 1 ? "" : "s") detected</strong>
+                <p>Errors the app ran into. Click one to jump to that area.</p>
+            </div>
+            <button class="btn-modern ghost small" @onclick="ShowOnlyErrors">
+                @(showingErrorsOnly ? "Show all" : "Show only problems")
+            </button>
+        </div>
+        @foreach (var entry in errorPreview)
+        {
+            <div class="log-row err clickable" @onclick="() => SelectEntry(entry)">
+                <span class="log-time">@entry.Timestamp.ToLocalTime().ToString("HH:mm:ss")</span>
+                <span class="log-category">@LogAreas.FromCategory(entry.Category)</span>
+                <span class="log-message">@entry.Message</span>
+            </div>
+        }
+        @if (errorPreview.Count < errorCount)
+        {
+            <div class="logs-count">and @(errorCount - errorPreview.Count) more in the stream below</div>
+        }
+    </section>
+}
 
 <section class="panel-card">
     <div class="panel-header">
@@ -22,21 +56,19 @@
             <span class="eyebrow">Filter</span>
             <h2>Event stream</h2>
         </div>
-        <div class="logs-actions">
-            <select class="search-input" @bind="selectedLevel">
-                <option value="">All levels</option>
-                <option value="@LogLevel.Info">Info</option>
-                <option value="@LogLevel.Warn">Warnings</option>
-                <option value="@LogLevel.Error">Errors</option>
-            </select>
-            <input class="search-input" placeholder="Search text..."
-                   value="@searchText" @oninput="OnSearchChanged" />
-            <button class="btn-modern ghost small" @onclick="CopyToClipboardAsync"
-                    title="Copy the filtered log text to the clipboard">Copy</button>
-            <button class="btn-modern ghost small" @onclick="DownloadFileAsync"
-                    title="Download the filtered log as a text file">Export</button>
-            <button class="btn-modern ghost small" @onclick="ClearLogs">Clear</button>
-        </div>
+        <input class="search-input" placeholder="Search text..."
+               value="@searchText" @oninput="OnSearchChanged" />
+    </div>
+    <div class="filter-chips">
+        <button class="filter-chip @(selectedArea is null ? "active" : "")" @onclick="() => SelectArea(null)">
+            All areas
+        </button>
+        @foreach (var area in LogAreas.All)
+        {
+            <button class="filter-chip @(selectedArea == area ? "active" : "")" @onclick="() => SelectArea(area)">
+                @area
+            </button>
+        }
     </div>
 
     @if (filtered.Count == 0)
@@ -45,13 +77,13 @@
     }
     else
     {
-        <div class="logs-list" id="logsList">
-            @foreach (var entry in Filtered())
+        <div class="logs-list">
+            @foreach (var entry in filtered)
             {
                 <div class="log-row @LevelClass(entry.Level)">
                     <span class="log-time">@entry.Timestamp.ToLocalTime().ToString("HH:mm:ss")</span>
                     <span class="log-level">@entry.Level.ToString().ToUpperInvariant()</span>
-                    <span class="log-category">@entry.Category</span>
+                    <span class="log-category">@LogAreas.FromCategory(entry.Category)</span>
                     <span class="log-message">@entry.Message</span>
                 </div>
             }
@@ -66,12 +98,19 @@
 }
 
 @code {
+    private const int ErrorPreviewLimit = 3;
+
     private List<LogEntry> filtered = new();
+    private List<LogEntry> errorPreview = new();
     private int totalEntries;
-    private string selectedLevel = string.Empty;
+    private int errorCount;
+    private string? selectedArea;
+    private bool showingErrorsOnly;
     private string searchText = string.Empty;
     private string? statusMessage;
     private Timer? _timer;
+
+    private bool FilteredEmpty => filtered.Count == 0;
 
     protected override void OnInitialized()
     {
@@ -87,27 +126,25 @@
     {
         var entries = LogCollector.GetEntries();
         totalEntries = entries.Count;
+        errorCount = entries.Count(IsError);
+        errorPreview = entries.Where(IsError).Take(ErrorPreviewLimit).ToList();
         filtered = entries.Where(Matches).ToList();
     }
 
+    private static bool IsError(LogEntry e)
+        => e.Level is LogLevel.Error or LogLevel.Critical;
+
     private bool Matches(LogEntry e)
     {
-        if (!string.IsNullOrEmpty(selectedLevel) &&
-            !Enum.TryParse<LogLevel>(selectedLevel, out var lvl))
-            return true;
-
-        if (!string.IsNullOrEmpty(selectedLevel) &&
-            (int)e.Level < (int)Enum.Parse<LogLevel>(selectedLevel))
+        if (showingErrorsOnly && !IsError(e))
             return false;
-
+        if (selectedArea is not null && LogAreas.FromCategory(e.Category) != selectedArea)
+            return false;
         if (string.IsNullOrWhiteSpace(searchText))
             return true;
-
         return e.Message?.Contains(searchText, StringComparison.OrdinalIgnoreCase) == true
             || e.Category?.Contains(searchText, StringComparison.OrdinalIgnoreCase) == true;
     }
-
-    private IEnumerable<LogEntry> Filtered() => filtered;
 
     private static string LevelClass(LogLevel level) => level switch
     {
@@ -115,6 +152,27 @@
         LogLevel.Warn => "warn",
         _ => "info",
     };
+
+    private void SelectArea(string? area)
+    {
+        selectedArea = area;
+        Refresh();
+    }
+
+    private void ShowOnlyErrors()
+    {
+        showingErrorsOnly = !showingErrorsOnly;
+        Refresh();
+    }
+
+    private void SelectEntry(LogEntry entry)
+    {
+        // Jump into the stream: that area, only errors until cleared.
+        showingErrorsOnly = true;
+        selectedArea = LogAreas.FromCategory(entry.Category);
+        Refresh();
+        statusMessage = $"Showing errors from {selectedArea}";
+    }
 
     private void OnSearchChanged(ChangeEventArgs e)
     {
@@ -124,8 +182,7 @@
 
     private async Task CopyToClipboardAsync()
     {
-        var text = BuildText();
-        await JS.InvokeVoidAsync("navigator.clipboard.writeText", text);
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", BuildText());
         statusMessage = $"Copied {filtered.Count} entries to clipboard";
     }
 
@@ -133,18 +190,19 @@
     {
         var bytes = System.Text.Encoding.UTF8.GetBytes(BuildText());
         var name = $"melodybridge-logs-{DateTime.Now:yyyyMMdd-HHmmss}.txt";
-        await JS.InvokeVoidAsync("melodybridge.downloadFile", name, Convert.ToBase64String(bytes));
+        await JS.InvokeVoidAsync("melody.downloadFile", name, "text/plain", bytes);
         statusMessage = $"Exported {filtered.Count} entries to {name}";
     }
 
     private void ClearLogs()
     {
         LogCollector.Clear();
+        showingErrorsOnly = false;
         Refresh();
         statusMessage = "Log buffer cleared";
     }
 
-    /// <summary>Plain text, oldest first, honoring the active filter.</summary>
+    /// <summary>Plain text, oldest first, honoring the active filters.</summary>
     private string BuildText()
     {
         var sb = new System.Text.StringBuilder();
@@ -153,7 +211,7 @@
         {
             sb.Append('[').Append(e.Timestamp.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"))
               .Append("] ").Append(e.Level.ToString().ToUpperInvariant())
-              .Append(" [").Append(e.Category).Append("] ").AppendLine(e.Message);
+              .Append(" [").Append(LogAreas.FromCategory(e.Category)).Append("] ").AppendLine(e.Message);
             if (!string.IsNullOrEmpty(e.Detail))
                 sb.AppendLine($"    {e.Detail.Replace("\n", "\n    ")}");
         }

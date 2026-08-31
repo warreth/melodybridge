@@ -760,15 +760,71 @@ textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent
 }
 
 /* ── Logs page ─────────────────────────────────────────────────── */
-.logs-actions {
+.filter-chips {
     display: flex;
-    align-items: center;
-    gap: .5rem;
     flex-wrap: wrap;
+    gap: .4rem;
+    margin-bottom: .9rem;
 }
 
-.logs-actions .search-input {
-    width: 11rem;
+.filter-chip {
+    border: 1px solid var(--border, rgba(128, 128, 128, .3));
+    background: transparent;
+    color: var(--text-muted, #999);
+    border-radius: 99px;
+    padding: .22rem .8rem;
+    font-size: .74rem;
+    cursor: pointer;
+    transition: all .15s ease;
+}
+
+.filter-chip:hover {
+    color: var(--text, #eee);
+    border-color: var(--accent, #7F5AF0);
+}
+
+.filter-chip.active {
+    background: color-mix(in srgb, var(--accent, #7F5AF0) 18%, transparent);
+    color: var(--accent-strong, #7F5AF0);
+    border-color: var(--accent, #7F5AF0);
+    font-weight: 600;
+}
+
+.log-error-banner {
+    border-color: rgba(239, 68, 68, .4);
+    margin-bottom: 1.2rem;
+}
+
+.log-error-head {
+    display: flex;
+    align-items: center;
+    gap: .8rem;
+    margin-bottom: .7rem;
+}
+
+.log-error-head .qi-icon {
+    flex: none;
+}
+
+.log-error-head strong {
+    display: block;
+    color: var(--danger, #ef4444);
+}
+
+.log-error-head p {
+    margin: 0;
+    font-size: .78rem;
+    color: var(--text-muted, #999);
+}
+
+.log-error-head button {
+    margin-left: auto;
+    flex: none;
+}
+
+.log-row.clickable {
+    cursor: pointer;
+    grid-template-columns: 4.2rem minmax(6rem, 12rem) 1fr;
 }
 
 .logs-list {
@@ -841,4 +897,77 @@ textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent
     font-size: .72rem;
     color: var(--text-muted, #999);
     text-align: right;
+}
+
+/* ── Home page: three-step workflow ────────────────────────────── */
+.workflow-list {
+    display: flex;
+    flex-direction: column;
+    gap: .6rem;
+    margin-bottom: .9rem;
+}
+
+.workflow-step {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: .85rem 1rem;
+    border: 1px solid var(--border, rgba(128, 128, 128, .25));
+    border-radius: 12px;
+    text-decoration: none;
+    color: inherit;
+    transition: border-color .15s ease, background .15s ease;
+}
+
+.workflow-step:hover {
+    border-color: var(--accent, #7F5AF0);
+    background: color-mix(in srgb, var(--accent, #7F5AF0) 5%, transparent);
+}
+
+.workflow-step.done {
+    border-color: color-mix(in srgb, var(--success, #2CB67D) 45%, transparent);
+}
+
+.workflow-number {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border-radius: 9px;
+    background: color-mix(in srgb, var(--accent, #7F5AF0) 14%, transparent);
+    color: var(--accent-strong, #7F5AF0);
+    font-weight: 700;
+    flex: none;
+}
+
+.workflow-step.done .workflow-number {
+    background: color-mix(in srgb, var(--success, #2CB67D) 16%, transparent);
+    color: var(--success, #2CB67D);
+}
+
+.workflow-step strong {
+    display: block;
+    margin-bottom: .15rem;
+}
+
+.workflow-step p {
+    margin: 0;
+    font-size: .82rem;
+    color: var(--text-muted, #999);
+}
+
+.workflow-step small {
+    color: var(--accent-strong, #7F5AF0);
+    font-size: .72rem;
+}
+
+.workflow-step.done small {
+    color: var(--success, #2CB67D);
+}
+
+.workflow-arrow {
+    margin-left: auto;
+    color: var(--text-muted, #999);
+    flex: none;
 }
