@@ -30,7 +30,7 @@ public class YtDlpDownloader : IDownloader
         return Task.FromResult(YtDlpProcess.BinaryPath is not null);
     }
 
-    public async Task<DownloaderSearchHit?> SearchAsync(string artist, string title, CancellationToken ct = default)
+    public async Task<DownloaderSearchHit?> SearchAsync(string artist, string title, int minimumKbps, CancellationToken ct = default)
     {
         if (YtDlpProcess.BinaryPath is null) return null;
 

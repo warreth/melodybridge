@@ -13,7 +13,7 @@
     <div>
         <span class="eyebrow">Developer</span>
         <h1>Dev panel</h1>
-        <p>Interactive tools — search, download, queue, and inspect live logs.</p>
+        <p>Interactive tools: search, download, queue, and inspect live logs.</p>
     </div>
     <div class="flex-actions" style="gap:0.5rem">
         <button class="btn-modern ghost" @onclick="ClearQueue" title="Clear completed downloads">
@@ -37,7 +37,7 @@
             <div class="search-row">
                 <input class="search-input" @bind="Dev.SearchQuery"
                        @bind:event="oninput"
-                       placeholder="artist — song title, or paste a URL…"
+                       placeholder="artist: song title, or paste a URL…"
                        @onkeydown="HandleSearchKeyDown" />
                 <select class="search-provider-select" @bind="Dev.SearchProviderId">
                     <option value="">All providers</option>
@@ -62,7 +62,7 @@
                 <span class="pill neutral">@Dev.SearchResults.Count results</span>
                 @if (_hasMoreProviders)
                 {
-                    <span class="hint">— not all providers may have responded yet</span>
+                    <span class="hint">: not all providers may have responded yet</span>
                 }
             </div>
             <div class="search-results-list">
@@ -356,7 +356,7 @@
                         continue;
                     }
 
-                    var hit = await plugin.SearchAsync(artist, title);
+                    var hit = await plugin.SearchAsync(artist, title, minimumKbps: 128);
                     if (hit is null || hit.SourceUrl is null)
                     {
                         Dev.LogInfo("Search", $"{plugin.Name}: no hit");
@@ -372,7 +372,7 @@
                 }
                 catch (Exception ex)
                 {
-                    Dev.LogWarn("Search", $"{plugin.Name}: error — {ex.Message}");
+                    Dev.LogWarn("Search", $"{plugin.Name}: error: {ex.Message}");
                 }
             }
 
@@ -405,14 +405,14 @@
         var taskId = Dev.NextDownloadTaskId();
         var task = new DevDownloadTask(
             taskId,
-            $"{result.Artist} — {result.Title}",
+            $"{result.Artist}: {result.Title}",
             result.Url,
             result.ProviderName,
             "Pending",
             null, null
         );
         Dev.DownloadQueue.Add(task);
-        Dev.LogInfo("Queue", $"Queued: {result.Artist} — {result.Title} from {result.ProviderName}");
+        Dev.LogInfo("Queue", $"Queued: {result.Artist}: {result.Title} from {result.ProviderName}");
 
         _ = DownloadTaskAsync(task, result);
         RefreshState();
@@ -447,14 +447,14 @@
             {
                 task.Status = "Failed";
                 task.ErrorMessage = "no plugin could download this URL";
-                Dev.LogError("Queue", $"Failed: {task.TrackInfo} — {task.ErrorMessage}");
+                Dev.LogError("Queue", $"Failed: {task.TrackInfo}: {task.ErrorMessage}");
             }
         }
         catch (Exception ex)
         {
             task.Status = "Failed";
             task.ErrorMessage = ex.Message;
-            Dev.LogError("Queue", $"Exception: {task.TrackInfo} — {ex.Message}", ex.ToString());
+            Dev.LogError("Queue", $"Exception: {task.TrackInfo}: {ex.Message}", ex.ToString());
         }
         RefreshState();
     }

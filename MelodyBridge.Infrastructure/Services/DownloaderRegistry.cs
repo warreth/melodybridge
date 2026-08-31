@@ -89,6 +89,36 @@ public class DownloaderRegistry : IDownloaderRegistry
         _logger.LogInformation("Downloader {Id} priority set to {Priority}", id, priority);
     }
 
+    public async Task SetOrderAsync(IReadOnlyList<string> orderedIds, CancellationToken ct = default)
+    {
+        if (orderedIds.Count == 0) return;
+
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var rows = await db.ProviderStates.ToListAsync(ct);
+        var byId = rows.ToDictionary(r => r.ProviderId, StringComparer.OrdinalIgnoreCase);
+
+        for (var i = 0; i < orderedIds.Count; i++)
+        {
+            var id = orderedIds[i];
+            if (!byId.TryGetValue(id, out var row))
+            {
+                row = new ProviderStateRow { ProviderId = id, IsEnabled = true };
+                db.ProviderStates.Add(row);
+                byId[id] = row;
+            }
+            row.Priority = i;
+            _priority[id] = i;
+        }
+
+        // Plugins missing from the list keep their relative order, appended after.
+        var maxSeen = orderedIds.Count - 1;
+        foreach (var row in byId.Values.Where(r => !orderedIds.Contains(r.ProviderId, StringComparer.OrdinalIgnoreCase)))
+            row.Priority = ++maxSeen;
+
+        await db.SaveChangesAsync(ct);
+        _logger.LogInformation("Downloader waterfall order set: {Order}", string.Join(" → ", orderedIds));
+    }
+
     private async Task EnsureCacheLoaded(CancellationToken ct = default)
     {
         if (_cacheLoaded) return;
@@ -98,20 +128,22 @@ public class DownloaderRegistry : IDownloaderRegistry
             await using var db = await _dbFactory.CreateDbContextAsync(ct);
             var rows = await db.ProviderStates.AsNoTracking().ToListAsync(ct);
 
+            var nextPriority = rows.Count;
             foreach (var downloader in _downloaders)
             {
                 var row = rows.FirstOrDefault(r => r.ProviderId.Equals(downloader.Id, StringComparison.OrdinalIgnoreCase));
-                // New plugin: register enabled with default priority.
+                // New plugin: register enabled with the next free priority.
                 if (row is null)
                 {
                     db.ProviderStates.Add(new ProviderStateRow
                     {
                         ProviderId = downloader.Id,
                         IsEnabled = true,
-                        Priority = rows.Count,
+                        Priority = nextPriority,
                     });
                     _enabled[downloader.Id] = true;
-                    _priority[downloader.Id] = rows.Count;
+                    _priority[downloader.Id] = nextPriority;
+                    nextPriority++;
                 }
                 else
                 {

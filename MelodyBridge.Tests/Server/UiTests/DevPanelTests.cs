@@ -624,7 +624,7 @@ public class TestDownloader : IDownloader
 
     public Task<bool> IsAvailableAsync(CancellationToken ct = default) => Task.FromResult(true);
 
-    public Task<DownloaderSearchHit?> SearchAsync(string artist, string title, CancellationToken ct = default)
+    public Task<DownloaderSearchHit?> SearchAsync(string artist, string title, int minimumKbps, CancellationToken ct = default)
         => Task.FromResult<DownloaderSearchHit?>(null);
 
     public Task<DownloaderDownloadResult> DownloadAsync(
@@ -641,4 +641,5 @@ public sealed class EmptyTestRegistry : IDownloaderRegistry
     public bool IsEnabled(string id) => false;
     public Task<int> GetPriorityAsync(string id, CancellationToken ct = default) => Task.FromResult(0);
     public Task SetPriorityAsync(string id, int priority, CancellationToken ct = default) => Task.CompletedTask;
+        public Task SetOrderAsync(IReadOnlyList<string> orderedIds, CancellationToken ct = default) => Task.CompletedTask;
 }

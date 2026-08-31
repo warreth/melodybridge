@@ -81,6 +81,15 @@ else
                     Download folder
                     <input @bind="editTargetDirectory" placeholder="/music/downloads" />
                 </label>
+                <label>
+                    Minimum quality
+                    <select @bind="editPreferredFormat">
+                        @foreach (var fmt in MelodyBridge.Infrastructure.Services.PlaylistStore.ValidFormats)
+                        {
+                            <option value="@fmt">@(fmt switch { "best" => "Best available (256 kbps+ or lossless)", _ => $"{fmt} kbps MP3" })</option>
+                        }
+                    </select>
+                </label>
                 <label class="toggle-row">
                     <input type="checkbox" @bind="editAutoSync" />
                     <span>Auto-sync this playlist</span>
@@ -95,8 +104,8 @@ else
                 <label>
                     Sync mode
                     <select @bind="editSyncMode">
-                        <option value="@PlaylistSyncMode.Additive">Additive — keep removed tracks as history</option>
-                        <option value="@PlaylistSyncMode.Mirror">Mirror — remove tracks deleted from source</option>
+                        <option value="@PlaylistSyncMode.Additive">Additive: keep removed tracks as history</option>
+                        <option value="@PlaylistSyncMode.Mirror">Mirror: remove tracks deleted from source</option>
                     </select>
                 </label>
                 <a href="@playlist.SourceUrl" target="_blank" rel="noopener" class="hint-box">
@@ -206,6 +215,7 @@ else
 
     private string editName = string.Empty;
     private string editTargetDirectory = string.Empty;
+    private string editPreferredFormat = "320";
     private bool editAutoSync;
     private int editInterval = 60;
     private PlaylistSyncMode editSyncMode = PlaylistSyncMode.Additive;
@@ -232,6 +242,7 @@ else
         {
             editName = playlist.Name;
             editTargetDirectory = playlist.TargetDirectory ?? string.Empty;
+            editPreferredFormat = playlist.PreferredFormat ?? "320";
             editAutoSync = playlist.AutoSyncEnabled;
             editInterval = playlist.AutoSyncIntervalMinutes ?? 60;
             editSyncMode = Enum.TryParse<PlaylistSyncMode>(playlist.SyncMode, out var mode)
@@ -258,7 +269,7 @@ else
     private async Task SaveSettings()
     {
         var target = string.IsNullOrWhiteSpace(editTargetDirectory) ? null : editTargetDirectory;
-        await Store.UpdateSettingsAsync(PlaylistId, editName, editAutoSync, editInterval, target, editSyncMode);
+        await Store.UpdateSettingsAsync(PlaylistId, editName, editAutoSync, editInterval, target, editSyncMode, editPreferredFormat);
         message = "Settings saved.";
         await Load();
     }
@@ -276,7 +287,7 @@ else
         {
             var result = await Store.DownloadMissingAsync(PlaylistId);
             lastDownloadSummary = result.downloaded == 0 && result.failed == 0
-                ? "Nothing to download — all tracks already have files."
+                ? "Nothing to download: all tracks already have files."
                 : $"Downloaded {result.downloaded}, failed {result.failed}.";
             await Load();
         }
@@ -337,7 +348,7 @@ else
     private static string FormatDuration(long? ms)
         => ms is > 0
             ? TimeSpan.FromMilliseconds(ms.Value).ToString(@"mm\:ss")
-            : "—";
+            : "-";
 
     private static string DownloadStatusClass(string? status) => status switch
     {

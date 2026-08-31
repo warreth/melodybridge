@@ -45,7 +45,7 @@ public class ArchiveOrgDownloaderLiveTests
     public async Task Search_WellKnownRecording_FindsDirectMp3Url()
     {
         // A famous 78rpm digitization that is definitely in the archive.
-        var hit = await _downloader.SearchAsync("Johanne Stockmarr", "Für Elise");
+        var hit = await _downloader.SearchAsync("Johanne Stockmarr", "Für Elise", 128);
 
         Assert.That(hit, Is.Not.Null, "archive.org must find this public-domain recording");
         Assert.That(hit!.SourceUrl, Does.Contain("archive.org/download/"),
@@ -56,14 +56,14 @@ public class ArchiveOrgDownloaderLiveTests
     [Test]
     public async Task Search_NonsenseQuery_ReturnsNull()
     {
-        var hit = await _downloader.SearchAsync("zzzxqj", "qqqwwwzzz nonexistent track 999");
+        var hit = await _downloader.SearchAsync("zzzxqj", "qqqwwwzzz nonexistent track 999", 128);
         Assert.That(hit, Is.Null, "no result must come back as null, not an exception");
     }
 
     [Test]
     public async Task Download_DirectUrl_ProducesTaggedMp3()
     {
-        var hit = await _downloader.SearchAsync("Johanne Stockmarr", "Für Elise");
+        var hit = await _downloader.SearchAsync("Johanne Stockmarr", "Für Elise", 128);
         Assert.That(hit, Is.Not.Null, "precondition: search finds the recording");
 
         var result = await _downloader.DownloadAsync(hit!.SourceUrl!, _outDir, "mb-ia-test-1");

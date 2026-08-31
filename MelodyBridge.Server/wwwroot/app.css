@@ -544,7 +544,7 @@ textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent
 .blazor-error-boundary { background: #7f1d1d; padding: 1rem; color: white; border-radius: 8px; }
 .blazor-error-boundary::after { content: "An error has occurred."; }
 
-/* ── Playlists ─────────────────────────────────────────── */
+/* -- Playlists ------------------------------------------- */
 .playlist-card { display: flex; flex-direction: column; gap: .6rem; }
 .playlist-cover {
     aspect-ratio: 16 / 8;
@@ -564,7 +564,7 @@ textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent
 .toggle-row { display: flex; align-items: center; gap: .6rem; }
 .toggle-row input[type=checkbox] { width: 18px; height: 18px; accent-color: var(--accent-strong); }
 
-/* ── Modern table ──────────────────────────────────────── */
+/* -- Modern table ---------------------------------------- */
 .table-wrap { overflow-x: auto; }
 .modern-table { width: 100%; border-collapse: collapse; font-size: .92rem; }
 .modern-table th {
@@ -586,18 +586,18 @@ textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent
 .modern-table td strong { font-weight: 600; }
 .text-muted { color: var(--muted-2); }
 
-/* ── Result box ────────────────────────────────────────── */
+/* -- Result box ------------------------------------------ */
 .result-box { padding: .75rem 1rem; border-radius: 8px; margin-bottom: 1rem; font-size: .92rem; }
 .result-box.ok { background: var(--accent-soft); color: var(--accent-strong); border: 1px solid var(--accent); }
 .result-box.error { background: rgba(239, 68, 68, .1); color: var(--danger); border: 1px solid var(--danger); }
 
-/* ── Pills ─────────────────────────────────────────────── */
+/* -- Pills ----------------------------------------------- */
 .pill.ok { background: var(--accent-soft); color: var(--accent-strong); }
 .pill.err { background: rgba(239, 68, 68, .12); color: var(--danger); }
 .pill.warn { background: rgba(245, 158, 11, .12); color: var(--warning); }
 .pill.neutral { background: var(--surface-2); color: var(--muted); }
 
-/* ── Dev panel ─────────────────────────────────────────── */
+/* -- Dev panel ------------------------------------------- */
 .dev-layout { display: grid; gap: 1.25rem; }
 .flex-actions { display: flex; gap: .5rem; align-items: center; }
 .search-controls { display: flex; flex-direction: column; gap: .6rem; }
@@ -697,16 +697,23 @@ textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent
     .provider-row { grid-template-columns: 32px 1fr auto; }
     .provider-qualities { display: none; }
 }
-/* ── Downloads page: plugin availability badges ───────────────── */
-.provider-badges {
-    display: flex;
+/* -- Downloads page: waterfall rank numbers --------------------- */
+.provider-rank {
+    display: inline-flex;
     align-items: center;
-    gap: .4rem;
-    margin-left: auto;
-    margin-right: .75rem;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--accent, #7F5AF0) 14%, transparent);
+    color: var(--accent-strong, #7F5AF0);
+    font-size: .78rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    flex: none;
 }
 
-/* ── PlaylistDetails: live download progress ───────────────────── */
+/* -- PlaylistDetails: live download progress --------------------- */
 .download-live {
     margin-top: .9rem;
     padding: .9rem 1rem;
@@ -750,4 +757,88 @@ textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+}
+
+/* ── Logs page ─────────────────────────────────────────────────── */
+.logs-actions {
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    flex-wrap: wrap;
+}
+
+.logs-actions .search-input {
+    width: 11rem;
+}
+
+.logs-list {
+    display: flex;
+    flex-direction: column;
+    max-height: 62vh;
+    overflow-y: auto;
+    border: 1px solid var(--border, rgba(128, 128, 128, .25));
+    border-radius: 10px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: .74rem;
+}
+
+.log-row {
+    display: grid;
+    grid-template-columns: 4.2rem 4.2rem minmax(8rem, 16rem) 1fr;
+    gap: .6rem;
+    padding: .32rem .7rem;
+    border-bottom: 1px solid color-mix(in srgb, var(--border, #888) 30%, transparent);
+    align-items: baseline;
+}
+
+.log-row:last-child {
+    border-bottom: none;
+}
+
+.log-row.err {
+    background: rgba(239, 68, 68, .08);
+}
+
+.log-row.warn {
+    background: rgba(245, 158, 11, .07);
+}
+
+.log-time {
+    color: var(--text-muted, #999);
+    font-variant-numeric: tabular-nums;
+}
+
+.log-level {
+    font-weight: 700;
+}
+
+.log-row.err .log-level {
+    color: var(--danger, #ef4444);
+}
+
+.log-row.warn .log-level {
+    color: var(--warning, #f59e0b);
+}
+
+.log-row.info .log-level {
+    color: var(--accent-strong, #7F5AF0);
+}
+
+.log-category {
+    color: var(--text-muted, #999);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.log-message {
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.logs-count {
+    margin-top: .5rem;
+    font-size: .72rem;
+    color: var(--text-muted, #999);
+    text-align: right;
 }

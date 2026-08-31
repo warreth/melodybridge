@@ -26,4 +26,12 @@ public interface IDownloaderRegistry
 
     /// <summary>Set the priority for a downloader. Persisted.</summary>
     Task SetPriorityAsync(string id, int priority, CancellationToken ct = default);
+
+    /// <summary>
+    /// Persist the full waterfall order in one call. The list is the exact
+    /// desired order (index = priority, 0 first). Normalizes all priorities
+    /// so they stay dense and comparable, which the swap-based setter cannot
+    /// guarantee once values drift apart.
+    /// </summary>
+    Task SetOrderAsync(IReadOnlyList<string> orderedIds, CancellationToken ct = default);
 }

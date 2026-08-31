@@ -123,8 +123,8 @@ else
                     <label>
                         Sync mode
                         <select @bind="newSyncMode">
-                            <option value="@PlaylistSyncMode.Additive">Additive — keep removed tracks as history</option>
-                            <option value="@PlaylistSyncMode.Mirror">Mirror — remove tracks deleted from source</option>
+                            <option value="@PlaylistSyncMode.Additive">Additive: keep removed tracks as history</option>
+                            <option value="@PlaylistSyncMode.Mirror">Mirror: remove tracks deleted from source</option>
                         </select>
                     </label>
                 </div>
@@ -133,7 +133,7 @@ else
                     <div class="result-box error">@addError</div>
                 }
                 <div class="hint-box">
-                    Public Spotify playlists work out of the box — no account needed.
+                    Public Spotify playlists work out of the box: no account needed.
                     The playlist is fetched live and every track is stored with its platform ID.
                 </div>
             </div>

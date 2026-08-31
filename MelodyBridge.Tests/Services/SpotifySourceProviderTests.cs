@@ -200,6 +200,34 @@ public class SpotifySourceProviderTests
         });
     }
 
+    /// <summary>
+    /// The reference Techno playlist has 101 tracks. The old embed scrape
+    /// capped at 100; the API path must return every track.
+    /// </summary>
+    [Test]
+    [Category("External")]
+    public async Task GetPlaylistAsync_PlaylistOver100Tracks_ReturnsAll()
+    {
+        var provider = new SpotifySourceProvider(NullLogger<SpotifySourceProvider>.Instance);
+
+        var playlist = await provider.GetPlaylistAsync("https://open.spotify.com/playlist/55V41RYWVdALRiiN1onkUr");
+
+        if (playlist.Tracks.Count == 100)
+        {
+            // The API path is quota-limited per IP per day. When the quota is
+            // spent, the provider honestly falls back to the embed scrape and
+            // that is capped at 100. Only the API path can exceed it.
+            Assert.Inconclusive(
+                "API quota exhausted from this IP (Spotify QUOTA_EXCEEDED, ~24h). " +
+                "Rerun on a fresh IP to validate the >100 path.");
+        }
+
+        Assert.That(playlist.TrackCount, Is.EqualTo(101), "the source playlist has 101 tracks");
+        Assert.That(playlist.Tracks, Has.Count.EqualTo(101),
+            "all 101 tracks must come back, not the embed page 100 cap");
+        Assert.That(playlist.Name, Is.EqualTo("Techno"));
+    }
+
     private static string CreateNextDataHtml() => """
         <!DOCTYPE html><html><body>
         <script id="__NEXT_DATA__" type="application/json">{

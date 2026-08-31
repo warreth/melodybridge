@@ -57,14 +57,6 @@
         <p class="panel-description">Enable or disable download provider plugins. Disabled providers won't be used for
             searches or downloads.</p>
             <div class="provider-list">
-                <div class="provider-row builtin">
-                    <span class="provider-icon">🎬</span>
-                    <div class="provider-info">
-                        <strong>yt-dlp</strong>
-                        <small>YouTube and generic URL media downloads (built-in)</small>
-                    </div>
-                    <span class="pill ok">Built-in</span>
-                </div>
                 @foreach (var provider in DownloaderRegistry.GetAll())
                 {
                     var enabled = DownloaderRegistry.IsEnabled(provider.Id);
@@ -72,7 +64,7 @@
                         <span class="provider-icon">🔌</span>
                         <div class="provider-info">
                             <strong>@provider.Name</strong>
-                            <small>@provider.Id — enable, disable and reorder on the Downloads page</small>
+                            <small>@(string.IsNullOrEmpty(provider.Description) ? $"{provider.Id}: enable, disable and reorder on the Downloads page" : provider.Description)</small>
                         </div>
                         <label class="toggle-switch">
                             <input type="checkbox" checked="@enabled"

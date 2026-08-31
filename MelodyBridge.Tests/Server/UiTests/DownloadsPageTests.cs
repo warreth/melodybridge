@@ -82,7 +82,7 @@ public class DownloadsPageTests
     public void Downloads_ShowsAvailabilityBadgePerPlugin()
     {
         var cut = _ctx.Render<Downloads>();
-        var badges = cut.FindAll(".provider-badges .pill");
+        var badges = cut.FindAll(".provider-row .pill");
         Assert.That(badges.Count, Is.EqualTo(2), "one badge per plugin");
         Assert.That(cut.Markup, Does.Contain("ready"),
             "stub plugins are available, so their badge must read ready");
@@ -112,7 +112,7 @@ public class DownloadsPageTests
         public TestDownloader(string id, string name) { Id = id; Name = name; }
 
         public Task<bool> IsAvailableAsync(CancellationToken ct = default) => Task.FromResult(true);
-        public Task<DownloaderSearchHit?> SearchAsync(string artist, string title, CancellationToken ct = default)
+        public Task<DownloaderSearchHit?> SearchAsync(string artist, string title, int minimumKbps, CancellationToken ct = default)
             => Task.FromResult<DownloaderSearchHit?>(null);
         public Task<DownloaderDownloadResult> DownloadAsync(string sourceUrl, string outputDirectory, string? melodyId, CancellationToken ct = default)
             => Task.FromResult(new DownloaderDownloadResult(false, null, "mock"));
@@ -134,5 +134,6 @@ public class DownloadsPageTests
         public bool IsEnabled(string id) => false;
         public Task<int> GetPriorityAsync(string id, CancellationToken ct = default) => Task.FromResult(0);
         public Task SetPriorityAsync(string id, int priority, CancellationToken ct = default) => Task.CompletedTask;
+        public Task SetOrderAsync(IReadOnlyList<string> orderedIds, CancellationToken ct = default) => Task.CompletedTask;
     }
 }

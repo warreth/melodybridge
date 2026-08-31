@@ -32,7 +32,7 @@ public class ArchiveOrgDownloader : IDownloader
     public Task<bool> IsAvailableAsync(CancellationToken ct = default)
         => Task.FromResult(true); // public API, always up unless the network is down
 
-    public async Task<DownloaderSearchHit?> SearchAsync(string artist, string title, CancellationToken ct = default)
+    public async Task<DownloaderSearchHit?> SearchAsync(string artist, string title, int minimumKbps, CancellationToken ct = default)
     {
         var query = $"{artist} {title}".Trim();
         if (query.Length == 0) return null;
@@ -59,7 +59,9 @@ public class ArchiveOrgDownloader : IDownloader
 
                 // Look up the first MP3 file inside the item.
                 var hit = await TryFindMp3InItem(identifier!, artist, title, ct);
-                if (hit is not null) return hit;
+                // Real per-file bitrate is known before downloading; honor the floor.
+                if (hit is not null && (hit.BitrateKbps is null || hit.BitrateKbps >= minimumKbps))
+                    return hit;
             }
         }
         catch (Exception ex)
@@ -150,7 +152,8 @@ public class ArchiveOrgDownloader : IDownloader
                 var title = GetString(f, "title") ?? GetMetadataTitle(doc.RootElement) ?? fallbackTitle;
                 var duration = GetDurationSeconds(GetString(f, "length"));
 
-                return new DownloaderSearchHit(title, artist, url, duration);
+                return new DownloaderSearchHit(title, artist, url, duration,
+                    BitrateKbps: TryGetInt(f, "bitrate"));
             }
         }
         catch (Exception ex)
@@ -194,6 +197,16 @@ public class ArchiveOrgDownloader : IDownloader
             : t.ValueKind == JsonValueKind.Array && t.GetArrayLength() > 0 && t[0].ValueKind == JsonValueKind.String
                 ? t[0].GetString()
                 : null;
+    }
+
+    private static int? TryGetInt(JsonElement element, string property)
+    {
+        if (element.ValueKind == JsonValueKind.Object
+            && element.TryGetProperty(property, out var v)
+            && v.ValueKind == JsonValueKind.Number
+            && v.TryGetInt32(out var i))
+            return i;
+        return null;
     }
 
     private static string? GetString(JsonElement element, string property)

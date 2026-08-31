@@ -236,6 +236,58 @@ public class PlaylistStoreSyncModeTests
         finally { TryDelete(dbPath); }
     }
 
+
+
+[Test]
+public async Task UpdateSettingsAsync_PersistsPreferredFormat()
+{
+    var dbPath = NewDbPath();
+    try
+    {
+        var factory = await NewDbFactory(dbPath);
+        var provider = new StubSourceProvider(("t1", "Song One", "Artist A"));
+        var store = NewStore(factory, provider);
+        var added = await store.AddOrRefreshAsync("stub:playlist");
+
+        // Default quality.
+        await using (var db = await factory.CreateDbContextAsync())
+        {
+            var fresh = await db.Playlists.AsNoTracking().SingleAsync(p => p.Id == added.Id);
+            Assert.That(fresh.PreferredFormat, Is.EqualTo("320"));
+        }
+
+        // Valid value round-trips.
+        await store.UpdateSettingsAsync(added.Id, null, false, null, null, null, "best");
+        await using (var db = await factory.CreateDbContextAsync())
+        {
+            var fresh = await db.Playlists.AsNoTracking().SingleAsync(p => p.Id == added.Id);
+            Assert.That(fresh.PreferredFormat, Is.EqualTo("best"));
+        }
+
+        // Invalid values fall back to 320 instead of storing garbage.
+        await store.UpdateSettingsAsync(added.Id, null, false, null, null, null, "flac-with-vibes");
+        await using (var db = await factory.CreateDbContextAsync())
+        {
+            var fresh = await db.Playlists.AsNoTracking().SingleAsync(p => p.Id == added.Id);
+            Assert.That(fresh.PreferredFormat, Is.EqualTo("320"));
+        }
+    }
+    finally
+    {
+        TryDelete(dbPath);
+    }
+}
+
+[Test]
+public void MinimumKbps_MapsAllUiFormats()
+{
+    Assert.That(PlaylistStore.MinimumKbps("best"), Is.EqualTo(256));
+    Assert.That(PlaylistStore.MinimumKbps("320"), Is.EqualTo(320));
+    Assert.That(PlaylistStore.MinimumKbps("192"), Is.EqualTo(192));
+    Assert.That(PlaylistStore.MinimumKbps("128"), Is.EqualTo(128));
+    Assert.That(PlaylistStore.MinimumKbps(null), Is.EqualTo(128), "unknown value falls back to 128");
+}
+
     private static void TryDelete(string dbPath)
     {
         foreach (var suffix in new[] { "", "-wal", "-shm" })
@@ -253,5 +305,6 @@ public class PlaylistStoreSyncModeTests
         public bool IsEnabled(string id) => false;
         public Task<int> GetPriorityAsync(string id, CancellationToken ct = default) => Task.FromResult(0);
         public Task SetPriorityAsync(string id, int priority, CancellationToken ct = default) => Task.CompletedTask;
+        public Task SetOrderAsync(IReadOnlyList<string> orderedIds, CancellationToken ct = default) => Task.CompletedTask;
     }
 }

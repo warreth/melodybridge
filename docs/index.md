@@ -17,10 +17,10 @@ Optional manual build steps for the Photino desktop wrapper around the Blazor UI
 
 ## Quick Links
 
-- [README](../README.md) — Project overview and quick start
-- [Dockerfile](../Dockerfile) — Multi-stage server image
-- [docker-compose.yml](../docker-compose.yml) — Compose with dev defaults
-- [MelodyBridge.Tests](../MelodyBridge.Tests/) — NUnit test suite
+- [README](../README.md): Project overview and quick start
+- [Dockerfile](../Dockerfile): Multi-stage server image
+- [docker-compose.yml](../docker-compose.yml): Compose with dev defaults
+- [MelodyBridge.Tests](../MelodyBridge.Tests/): NUnit test suite
 
 ## Preview Docs Locally
 

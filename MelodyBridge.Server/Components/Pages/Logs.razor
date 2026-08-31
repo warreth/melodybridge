@@ -1,0 +1,164 @@
+@page "/logs"
+@using MelodyBridge.Core.Logging
+@using MelodyBridge.Server.Services
+@implements IDisposable
+@inject ILogCollector LogCollector
+@inject LogExporter Exporter
+@inject IJSRuntime JS
+
+<PageTitle>Logs - MelodyBridge</PageTitle>
+
+<section class="page-title">
+    <div>
+        <span class="eyebrow">System</span>
+        <h1>Logs</h1>
+        <p>Recent application events: playlist syncs, downloads, scans, and errors.</p>
+    </div>
+</section>
+
+<section class="panel-card">
+    <div class="panel-header">
+        <div>
+            <span class="eyebrow">Filter</span>
+            <h2>Event stream</h2>
+        </div>
+        <div class="logs-actions">
+            <select class="search-input" @bind="selectedLevel">
+                <option value="">All levels</option>
+                <option value="@LogLevel.Info">Info</option>
+                <option value="@LogLevel.Warn">Warnings</option>
+                <option value="@LogLevel.Error">Errors</option>
+            </select>
+            <input class="search-input" placeholder="Search text..."
+                   value="@searchText" @oninput="OnSearchChanged" />
+            <button class="btn-modern ghost small" @onclick="CopyToClipboardAsync"
+                    title="Copy the filtered log text to the clipboard">Copy</button>
+            <button class="btn-modern ghost small" @onclick="DownloadFileAsync"
+                    title="Download the filtered log as a text file">Export</button>
+            <button class="btn-modern ghost small" @onclick="ClearLogs">Clear</button>
+        </div>
+    </div>
+
+    @if (filtered.Count == 0)
+    {
+        <div class="empty-state">No log entries match the current filter.</div>
+    }
+    else
+    {
+        <div class="logs-list" id="logsList">
+            @foreach (var entry in Filtered())
+            {
+                <div class="log-row @LevelClass(entry.Level)">
+                    <span class="log-time">@entry.Timestamp.ToLocalTime().ToString("HH:mm:ss")</span>
+                    <span class="log-level">@entry.Level.ToString().ToUpperInvariant()</span>
+                    <span class="log-category">@entry.Category</span>
+                    <span class="log-message">@entry.Message</span>
+                </div>
+            }
+        </div>
+        <div class="logs-count">@filtered.Count of @totalEntries entries</div>
+    }
+</section>
+
+@if (!string.IsNullOrWhiteSpace(statusMessage))
+{
+    <div class="result-box ok">@statusMessage</div>
+}
+
+@code {
+    private List<LogEntry> filtered = new();
+    private int totalEntries;
+    private string selectedLevel = string.Empty;
+    private string searchText = string.Empty;
+    private string? statusMessage;
+    private Timer? _timer;
+
+    protected override void OnInitialized()
+    {
+        Refresh();
+        _timer = new Timer(_ => InvokeAsync(() =>
+        {
+            Refresh();
+            StateHasChanged();
+        }), null, 2000, 2000);
+    }
+
+    private void Refresh()
+    {
+        var entries = LogCollector.GetEntries();
+        totalEntries = entries.Count;
+        filtered = entries.Where(Matches).ToList();
+    }
+
+    private bool Matches(LogEntry e)
+    {
+        if (!string.IsNullOrEmpty(selectedLevel) &&
+            !Enum.TryParse<LogLevel>(selectedLevel, out var lvl))
+            return true;
+
+        if (!string.IsNullOrEmpty(selectedLevel) &&
+            (int)e.Level < (int)Enum.Parse<LogLevel>(selectedLevel))
+            return false;
+
+        if (string.IsNullOrWhiteSpace(searchText))
+            return true;
+
+        return e.Message?.Contains(searchText, StringComparison.OrdinalIgnoreCase) == true
+            || e.Category?.Contains(searchText, StringComparison.OrdinalIgnoreCase) == true;
+    }
+
+    private IEnumerable<LogEntry> Filtered() => filtered;
+
+    private static string LevelClass(LogLevel level) => level switch
+    {
+        LogLevel.Error or LogLevel.Critical => "err",
+        LogLevel.Warn => "warn",
+        _ => "info",
+    };
+
+    private void OnSearchChanged(ChangeEventArgs e)
+    {
+        searchText = e.Value?.ToString() ?? string.Empty;
+        Refresh();
+    }
+
+    private async Task CopyToClipboardAsync()
+    {
+        var text = BuildText();
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", text);
+        statusMessage = $"Copied {filtered.Count} entries to clipboard";
+    }
+
+    private async Task DownloadFileAsync()
+    {
+        var bytes = System.Text.Encoding.UTF8.GetBytes(BuildText());
+        var name = $"melodybridge-logs-{DateTime.Now:yyyyMMdd-HHmmss}.txt";
+        await JS.InvokeVoidAsync("melodybridge.downloadFile", name, Convert.ToBase64String(bytes));
+        statusMessage = $"Exported {filtered.Count} entries to {name}";
+    }
+
+    private void ClearLogs()
+    {
+        LogCollector.Clear();
+        Refresh();
+        statusMessage = "Log buffer cleared";
+    }
+
+    /// <summary>Plain text, oldest first, honoring the active filter.</summary>
+    private string BuildText()
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"MelodyBridge logs ({filtered.Count} entries, generated {DateTime.Now:yyyy-MM-dd HH:mm:ss})");
+        foreach (var e in Enumerable.Reverse(filtered))
+        {
+            sb.Append('[').Append(e.Timestamp.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"))
+              .Append("] ").Append(e.Level.ToString().ToUpperInvariant())
+              .Append(" [").Append(e.Category).Append("] ").AppendLine(e.Message);
+            if (!string.IsNullOrEmpty(e.Detail))
+                sb.AppendLine($"    {e.Detail.Replace("\n", "\n    ")}");
+        }
+        return sb.ToString();
+    }
+
+    public void Dispose() => _timer?.Dispose();
+}

@@ -9,17 +9,17 @@ This document explains the architecture, plugin interfaces, DI setup, and testin
 The solution follows a clean layered architecture:
 
 ```
-MelodyBridge.Core               — Interfaces, contracts, enums, models (no dependencies)
+MelodyBridge.Core              : Interfaces, contracts, enums, models (no dependencies)
        ↕
-MelodyBridge.Infrastructure     — Implementations: downloaders, scanners, taggers, media servers
+MelodyBridge.Infrastructure    : Implementations: downloaders, scanners, taggers, media servers
        ↕
-MelodyBridge.Application        — Orchestration: SyncEngine, DownloadManager, DI extension methods
+MelodyBridge.Application       : Orchestration: SyncEngine, DownloadManager, DI extension methods
        ↕
-MelodyBridge.Server             — ASP.NET Blazor web UI + REST API controllers
-MelodyBridge.Desktop            — Optional Photino desktop wrapper
-MelodyBridge.UI.Components      — Shared Blazor components
+MelodyBridge.Server            : ASP.NET Blazor web UI + REST API controllers
+MelodyBridge.Desktop           : Optional Photino desktop wrapper
+MelodyBridge.UI.Components     : Shared Blazor components
        ↕
-MelodyBridge.Tests              — NUnit test suite targeting all layers
+MelodyBridge.Tests             : NUnit test suite targeting all layers
 ```
 
 ### Project Dependencies
@@ -49,7 +49,7 @@ Spotify playlist URL
 
 ## Core Interfaces
 
-### `IDownloader` — download plugins
+### `IDownloader`: download plugins
 
 ```csharp
 public interface IDownloader
@@ -75,7 +75,7 @@ Default waterfall order: SoundCloud → Archive → YouTube. Place new implement
 
 `IDownloaderRegistry` manages the plugin waterfall: enable/disable and priority are persisted per plugin in the `ProviderStates` table.
 
-### `ISourceProvider` — playlist sources
+### `ISourceProvider`: playlist sources
 
 ```csharp
 public interface ISourceProvider
@@ -90,7 +90,7 @@ public interface ISourceProvider
 
 Implement this to support a new playlist platform. `PlaylistStore` picks the provider whose `CanHandle` accepts the URL.
 
-### `IMediaServerSync` — media server targets
+### `IMediaServerSync`: media server targets
 
 ```csharp
 public interface IMediaServerSync
@@ -102,7 +102,7 @@ public interface IMediaServerSync
 
 Implement this to sync playlists to a media server (e.g. Jellyfin). Place implementations in `MelodyBridge.Infrastructure/MediaServers/`.
 
-### `IDownloadManager` — the waterfall
+### `IDownloadManager`: the waterfall
 
 ```csharp
 public interface IDownloadManager
@@ -117,11 +117,11 @@ public interface IDownloadManager
 
 ### Other Key Types
 
-- **`Playlist`**, **`Track`**, **`TrackQuality`**, **`MediaType`** — Core models in `MelodyBridge.Core/Classes.cs`
-- **`PlaylistOutputOptions`** — Output path, relative path toggle, path remap dictionary
-- **`TrackEntity`**, **`PlaylistEntity`**, **`ProviderStateRow`** — EF Core entities for persistence
-- **`ScanLocationEntity`**, **`SyncJobEntity`**, **`SyncJobRunEntity`** — Library paths and sync job tracking
-- **`PlaylistSyncMode`** — `Additive` (removed tracks stay as flagged history) / `Mirror` (local copy matches the source exactly)
+- **`Playlist`**, **`Track`**, **`TrackQuality`**, **`MediaType`**: Core models in `MelodyBridge.Core/Classes.cs`
+- **`PlaylistOutputOptions`**: Output path, relative path toggle, path remap dictionary
+- **`TrackEntity`**, **`PlaylistEntity`**, **`ProviderStateRow`**: EF Core entities for persistence
+- **`ScanLocationEntity`**, **`SyncJobEntity`**, **`SyncJobRunEntity`**: Library paths and sync job tracking
+- **`PlaylistSyncMode`**: `Additive` (removed tracks stay as flagged history) / `Mirror` (local copy matches the source exactly)
 
 ---
 
@@ -132,12 +132,12 @@ The `MelodyBridge.Application` project provides extension methods for registerin
 ### `AddMelodyBridge()`
 
 Registers core services: `DownloadManager`, `SyncEngine`, library scanner, M3U generator, and all infrastructure services including:
-- `PlaylistStore` — playlist snapshots, sync modes, `DownloadMissingAsync`, auto-sync due logic
-- `DownloaderRegistry` — plugin enable/priority state (DB-persisted)
-- `SyncJobRunner` — orchestrates sync jobs (resolve downloaded tracks → M3U / media server)
-- `AutoSyncBackgroundService` — syncs playlists whose per-playlist interval has elapsed
-- `ScanSchedulingBackgroundService` — scheduled library path scans
-- `SpotifySourceProvider`, `YouTubeSourceProvider` — playlist sources
+- `PlaylistStore`: playlist snapshots, sync modes, `DownloadMissingAsync`, auto-sync due logic
+- `DownloaderRegistry`: plugin enable/priority state (DB-persisted)
+- `SyncJobRunner`: orchestrates sync jobs (resolve downloaded tracks → M3U / media server)
+- `AutoSyncBackgroundService`: syncs playlists whose per-playlist interval has elapsed
+- `ScanSchedulingBackgroundService`: scheduled library path scans
+- `SpotifySourceProvider`, `YouTubeSourceProvider`: playlist sources
 
 ### `AddJellyfinSync()`
 
@@ -158,10 +158,10 @@ The suite is **NUnit 4** with **Moq** for UI-level DI mocks only.
 
 ### Honest-test rules
 
-1. **No InMemory provider for persistence logic** — playlist/store tests use real SQLite files (`UseSqlite("Data Source=...")`), deleted in teardown
-2. **Live tests hit the real network** — real open.spotify.com fetches, real yt-dlp downloads (`[Category("Live")]`, CI runs them in a separate job)
-3. **Assertions read back from disk or a fresh DbContext** — nothing is asserted from in-memory cached objects
-4. **Downloaded files are validated deeply** — the MELODY_ID tag is read from the actual bytes, durations ffprobe-validated
+1. **No InMemory provider for persistence logic**: playlist/store tests use real SQLite files (`UseSqlite("Data Source=...")`), deleted in teardown
+2. **Live tests hit the real network**: real open.spotify.com fetches, real yt-dlp downloads (`[Category("Live")]`, CI runs them in a separate job)
+3. **Assertions read back from disk or a fresh DbContext**: nothing is asserted from in-memory cached objects
+4. **Downloaded files are validated deeply**: the MELODY_ID tag is read from the actual bytes, durations ffprobe-validated
 
 ### Running Tests
 
@@ -177,25 +177,25 @@ dotnet test MelodyBridge.sln --filter "Category=PlaylistStore|Category=Live"
 
 ```
 MelodyBridge.Tests/
-├── Core/                  # Model and enum tests
-├── Infrastructure/        # Scanner, tagger, M3U, DB context tests
-│   ├── LibraryScannerTests.cs       # Real tagged MP3s: register + move/update identity
-│   ├── M3uGeneratorTests.cs         # Read-back of produced .m3u files
-│   ├── JellyfinSyncTests.cs         # Jellyfin client behavior
-│   ├── TaglibHelperTests.cs         # Tag reading/writing
-│   └── DbContextTests.cs
-├── Services/
-│   ├── PlaylistStoreLiveTests.cs    # Live Spotify fetch → real SQLite
-│   ├── PlaylistStoreSyncModeTests.cs# Additive/Mirror with real SQLite
-│   ├── SpotifySourceProviderTests.cs
-│   └── SyncEngineTests.cs
-├── Integration/
-│   ├── YtDlpDownloaderLiveTests.cs  # Live search/download/tag/ffprobe
-│   ├── DownloadMissingAsyncTests.cs # Real plugin writing real tagged files
-│   └── SyncJobRunnerTests.cs         # Real .m3u on disk + run history
-└── Server/
-    ├── UiTests/           # bUnit component tests
-    └── SyncControllerTests.cs
+├-- Core/                  # Model and enum tests
+├-- Infrastructure/        # Scanner, tagger, M3U, DB context tests
+│   ├-- LibraryScannerTests.cs       # Real tagged MP3s: register + move/update identity
+│   ├-- M3uGeneratorTests.cs         # Read-back of produced .m3u files
+│   ├-- JellyfinSyncTests.cs         # Jellyfin client behavior
+│   ├-- TaglibHelperTests.cs         # Tag reading/writing
+│   └-- DbContextTests.cs
+├-- Services/
+│   ├-- PlaylistStoreLiveTests.cs    # Live Spotify fetch → real SQLite
+│   ├-- PlaylistStoreSyncModeTests.cs# Additive/Mirror with real SQLite
+│   ├-- SpotifySourceProviderTests.cs
+│   └-- SyncEngineTests.cs
+├-- Integration/
+│   ├-- YtDlpDownloaderLiveTests.cs  # Live search/download/tag/ffprobe
+│   ├-- DownloadMissingAsyncTests.cs # Real plugin writing real tagged files
+│   └-- SyncJobRunnerTests.cs         # Real .m3u on disk + run history
+└-- Server/
+    ├-- UiTests/           # bUnit component tests
+    └-- SyncControllerTests.cs
 ```
 
 ### Adding New Tests

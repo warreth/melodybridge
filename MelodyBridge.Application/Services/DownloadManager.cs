@@ -57,7 +57,8 @@ public class DownloadManager : IDownloadManager
     /// plugin waterfall and download the first hit.
     /// </summary>
     public async Task<string?> DownloadTrackAsync(
-        string artist, string title, string outputDirectory, string melodyId, CancellationToken ct = default)
+        string artist, string title, string outputDirectory, string melodyId,
+        int minimumKbps = 128, CancellationToken ct = default)
     {
         _progress[melodyId] = new DownloadProgress(melodyId, title, "searching", null, null);
         try
@@ -70,10 +71,19 @@ public class DownloadManager : IDownloadManager
                     continue;
                 }
 
-                var hit = await downloader.SearchAsync(artist, title, ct);
+                var hit = await downloader.SearchAsync(artist, title, minimumKbps, ct);
                 if (hit is null || hit.SourceUrl is null)
                 {
                     _logger.LogDebug("{Name}: no search hit for '{Artist} - {Title}'", downloader.Name, artist, title);
+                    continue;
+                }
+
+                // Quality floor: reject reported bitrates below what the caller wants.
+                if (hit.BitrateKbps is > 0 && hit.BitrateKbps < minimumKbps)
+                {
+                    _logger.LogInformation(
+                        "{Name} hit for '{Title}' is {Hit} kbps, below the {Min} kbps floor; skipping",
+                        downloader.Name, title, hit.BitrateKbps, minimumKbps);
                     continue;
                 }
 

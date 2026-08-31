@@ -23,6 +23,10 @@ public partial class SpotifySourceProvider : ISourceProvider
     private readonly HttpClient _httpClient;
     private readonly string? _spotifyCookie;
 
+    // The embed page ships a public API token valid ~1h; cache it so a
+    // playlist sync does not refetch the embed page every time.
+    private static (string Token, DateTime Fetched)? _cachedToken;
+
     private const string OpenSpotifyBase = "https://open.spotify.com";
 
     public string Name => "Spotify";
@@ -68,18 +72,26 @@ public partial class SpotifySourceProvider : ISourceProvider
         var playlistId = ExtractPlaylistId(sourceIdentifier);
         var canonicalUrl = $"{OpenSpotifyBase}/playlist/{playlistId}";
 
-        _logger.LogInformation("Scraping public Spotify playlist: {PlaylistId}", playlistId);
+        _logger.LogInformation("Fetching public Spotify playlist: {PlaylistId}", playlistId);
 
-        var embedUrl = $"{OpenSpotifyBase}/embed/playlist/{playlistId}?utm_source=generator";
-        var embedHtml = await GetStringAsync(embedUrl);
-        var playlist = ParseEmbedPlaylistHtml(embedHtml, playlistId, canonicalUrl);
+        // Primary path: the embed page ships a public access token; with it the
+        // official API paginates past the embed page's 100-track cap.
+        var playlist = await TryFetchViaApiAsync(playlistId, canonicalUrl);
 
-        if (playlist is null || playlist.Tracks is null || playlist.Tracks.Count == 0)
+        // Fallback: scrape the embed page (and then the public page) directly.
+        if (playlist is null)
         {
-            _logger.LogWarning("Spotify embed page did not include tracks for {PlaylistId}; trying public playlist page", playlistId);
-            var publicHtml = await GetStringAsync($"{canonicalUrl}?nd=1");
-            playlist = ParseEmbedPlaylistHtml(publicHtml, playlistId, canonicalUrl)
-                       ?? ParseVisiblePlaylistHtml(publicHtml, playlistId, canonicalUrl);
+            var embedUrl = $"{OpenSpotifyBase}/embed/playlist/{playlistId}?utm_source=generator";
+            var embedHtml = await GetStringAsync(embedUrl);
+            playlist = ParseEmbedPlaylistHtml(embedHtml, playlistId, canonicalUrl);
+
+            if (playlist is null || playlist.Tracks is null || playlist.Tracks.Count == 0)
+            {
+                _logger.LogWarning("Spotify embed page did not include tracks for {PlaylistId}; trying public playlist page", playlistId);
+                var publicHtml = await GetStringAsync($"{canonicalUrl}?nd=1");
+                playlist = ParseEmbedPlaylistHtml(publicHtml, playlistId, canonicalUrl)
+                           ?? ParseVisiblePlaylistHtml(publicHtml, playlistId, canonicalUrl);
+            }
         }
 
         if (playlist is null || playlist.Tracks is null || playlist.Tracks.Count == 0)
@@ -184,6 +196,186 @@ public partial class SpotifySourceProvider : ISourceProvider
         }
 
         return urls.ToArray();
+    }
+
+    /// <summary>
+    /// Fetches all tracks via api.spotify.com using the public access token
+    /// embedded in the embed page. Handles pagination, so playlists over 100
+    /// tracks come back complete. Returns null on any failure (caller falls
+    /// back to embed-page scraping).
+    /// </summary>
+    private async Task<Playlist?> TryFetchViaApiAsync(string playlistId, string canonicalUrl)
+    {
+        try
+        {
+            string token;
+            if (_cachedToken is { } cached && DateTime.UtcNow - cached.Fetched < TimeSpan.FromMinutes(55))
+            {
+                token = cached.Token;
+            }
+            else
+            {
+                var embedHtml = await GetStringAsync($"{OpenSpotifyBase}/embed/playlist/{playlistId}");
+                var match = Regex.Match(embedHtml, "\"accessToken\":\"([^\"]+)\"");
+                if (!match.Success)
+                {
+                    _logger.LogDebug("No access token in embed page for {PlaylistId}", playlistId);
+                    return null;
+                }
+                token = match.Groups[1].Value;
+                _cachedToken = (token, DateTime.UtcNow);
+            }
+
+            using var request = new HttpRequestMessage(HttpMethod.Get,
+                $"https://api.spotify.com/v1/playlists/{playlistId}/tracks?offset=0&limit=100&additional_types=track");
+            request.Headers.Add("Authorization", $"Bearer {token}");
+            var response = await _httpClient.SendAsync(request);
+            if ((int)response.StatusCode == 429)
+            {
+                // Spotify rate-limits anonymous tokens aggressively; honor the
+                // Retry-After hint once, then give up to the fallback.
+                var retryAfter = response.Headers.RetryAfter?.Delta ?? TimeSpan.FromSeconds(5);
+                _logger.LogInformation("Spotify API rate limited; waiting {Seconds}s once", retryAfter.TotalSeconds);
+                await Task.Delay(retryAfter < TimeSpan.FromSeconds(30) ? retryAfter : TimeSpan.FromSeconds(30));
+                response.Dispose();
+                response = await _httpClient.SendAsync(request);
+            }
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogDebug("Spotify API playlist fetch failed: {Status} for {PlaylistId}",
+                    (int)response.StatusCode, playlistId);
+                response.Dispose();
+                return null;
+            }
+
+            using var doc = await JsonDocument.ParseAsync(
+                await response.Content.ReadAsStreamAsync());
+
+            var total = doc.RootElement.TryGetProperty("total", out var totalProp)
+                ? totalProp.GetInt32()
+                : 0;
+            var items = doc.RootElement.TryGetProperty("items", out var itemsProp)
+                && itemsProp.ValueKind == JsonValueKind.Array
+                    ? itemsProp.EnumerateArray().ToList()
+                    : new List<JsonElement>();
+
+            var tracks = items
+                .Select(ParseApiTrack)
+                .Where(t => t is not null)
+                .Cast<Track>()
+                .ToList();
+
+            // Page through the rest.
+            const int pageSize = 100;
+            for (var offset = pageSize; offset < total; offset += pageSize)
+            {
+                using var pageRequest = new HttpRequestMessage(HttpMethod.Get,
+                    $"https://api.spotify.com/v1/playlists/{playlistId}/tracks?offset={offset}&limit={pageSize}&additional_types=track");
+                pageRequest.Headers.Add("Authorization", $"Bearer {token}");
+                using var pageResponse = await _httpClient.SendAsync(pageRequest);
+                if (!pageResponse.IsSuccessStatusCode)
+                {
+                    _logger.LogWarning("Spotify API page at offset {Offset} failed: {Status}",
+                        offset, (int)pageResponse.StatusCode);
+                    break;
+                }
+                using var pageDoc = await JsonDocument.ParseAsync(
+                    await pageResponse.Content.ReadAsStreamAsync());
+                if (!pageDoc.RootElement.TryGetProperty("items", out var pageItems) ||
+                    pageItems.ValueKind != JsonValueKind.Array)
+                    break;
+                tracks.AddRange(pageItems.EnumerateArray()
+                    .Select(ParseApiTrack)
+                    .Where(t => t is not null)
+                    .Cast<Track>());
+            }
+
+            if (tracks.Count == 0)
+                return null;
+
+            // Metadata (name, owner, cover) from the same API.
+            string? name = null, owner = null, cover = null;
+            try
+            {
+                using var metaRequest = new HttpRequestMessage(HttpMethod.Get,
+                    $"https://api.spotify.com/v1/playlists/{playlistId}?fields=name,owner(display_name),images(url)");
+                metaRequest.Headers.Add("Authorization", $"Bearer {token}");
+                using var metaResponse = await _httpClient.SendAsync(metaRequest);
+                if (metaResponse.IsSuccessStatusCode)
+                {
+                    using var metaDoc = await JsonDocument.ParseAsync(
+                        await metaResponse.Content.ReadAsStreamAsync());
+                    var root = metaDoc.RootElement;
+                    if (root.TryGetProperty("name", out var n) && n.ValueKind == JsonValueKind.String)
+                        name = n.GetString();
+                    if (root.TryGetProperty("owner", out var o) &&
+                        o.TryGetProperty("display_name", out var dn) && dn.ValueKind == JsonValueKind.String)
+                        owner = dn.GetString();
+                    if (root.TryGetProperty("images", out var imgs) && imgs.ValueKind == JsonValueKind.Array &&
+                        imgs.GetArrayLength() > 0 &&
+                        imgs[0].TryGetProperty("url", out var iu) && iu.ValueKind == JsonValueKind.String)
+                        cover = iu.GetString();
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Spotify API metadata fetch failed for {PlaylistId}", playlistId);
+            }
+
+            _logger.LogInformation(
+                "Spotify API returned {Fetched} of {Total} tracks for {PlaylistId}",
+                tracks.Count, total, playlistId);
+
+            return new Playlist
+            {
+                Id = playlistId,
+                Name = name,
+                Owner = owner,
+                CoverImageUrl = cover,
+                SourceUrl = canonicalUrl,
+                Tracks = tracks,
+                TrackCount = total,
+                Duration = SumDurations(tracks),
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Spotify API path failed for {PlaylistId}; falling back to scraping", playlistId);
+            return null;
+        }
+    }
+
+    /// <summary>Maps one api.spotify.com playlist-track item into a domain Track.</summary>
+    private static Track? ParseApiTrack(JsonElement item)
+    {
+        // Local files and removed tracks have null "track"; skip them.
+        if (!item.TryGetProperty("track", out var track) || track.ValueKind != JsonValueKind.Object)
+            return null;
+        if (!track.TryGetProperty("id", out var idProp) || idProp.ValueKind != JsonValueKind.String)
+            return null;
+
+        var id = idProp.GetString();
+        if (string.IsNullOrEmpty(id)) return null;
+
+        long? durationMs = track.TryGetProperty("duration_ms", out var dur) && dur.ValueKind == JsonValueKind.Number
+            ? dur.GetInt64()
+            : null;
+
+        var artists = track.TryGetProperty("artists", out var artistArray) && artistArray.ValueKind == JsonValueKind.Array
+            ? string.Join(", ", artistArray.EnumerateArray()
+                .Where(a => a.TryGetProperty("name", out var n) && n.ValueKind == JsonValueKind.String)
+                .Select(a => a.GetProperty("name").GetString()))
+            : null;
+
+        return new Track
+        {
+            Title = track.TryGetProperty("name", out var name) ? name.GetString() : null,
+            Artist = artists,
+            Duration = durationMs is > 0 ? TimeSpan.FromMilliseconds(durationMs.Value) : null,
+            SongID = new SongID(Platform.Spotify, id),
+            PlatformSongID = new SongID(Platform.Spotify, id),
+            SourcePlatform = Platform.Spotify,
+        };
     }
 
     public static Playlist? ParseEmbedPlaylistHtml(string html, string playlistId, string sourceUrl)

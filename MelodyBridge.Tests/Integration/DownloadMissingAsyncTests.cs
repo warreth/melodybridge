@@ -46,7 +46,7 @@ public class DownloadMissingAsyncTests
 
         public Task<bool> IsAvailableAsync(CancellationToken ct = default) => Task.FromResult(true);
 
-        public Task<DownloaderSearchHit?> SearchAsync(string artist, string title, CancellationToken ct = default)
+        public Task<DownloaderSearchHit?> SearchAsync(string artist, string title, int minimumKbps, CancellationToken ct = default)
         {
             SearchQueries.Add((artist, title));
             if (title.StartsWith("FAIL", StringComparison.Ordinal)) return Task.FromResult<DownloaderSearchHit?>(null);
@@ -122,6 +122,7 @@ public class DownloadMissingAsyncTests
         public bool IsEnabled(string id) => true;
         public Task<int> GetPriorityAsync(string id, CancellationToken ct = default) => Task.FromResult(0);
         public Task SetPriorityAsync(string id, int priority, CancellationToken ct = default) => Task.CompletedTask;
+        public Task SetOrderAsync(IReadOnlyList<string> orderedIds, CancellationToken ct = default) => Task.CompletedTask;
     }
 
     private static async Task<PlaylistEntity> SeedPlaylistAsync(

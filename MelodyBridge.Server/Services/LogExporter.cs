@@ -22,11 +22,11 @@ public class LogExporter
     {
         var entries = _collector.GetEntries();
         var sb = new StringBuilder();
-        sb.AppendLine("═══════════════════════════════════════════════════════════════");
+        sb.AppendLine("───────────────────────────────────────────────────────────────");
         sb.AppendLine("  MelodyBridge — Log Export");
         sb.AppendLine($"  Generated: {DateTime.Now:yyyy-MM-dd HH:mm:ss UTC}");
         sb.AppendLine($"  Entries:   {entries.Count}");
-        sb.AppendLine("═══════════════════════════════════════════════════════════════");
+        sb.AppendLine("───────────────────────────────────────────────────────────────");
         sb.AppendLine();
 
         foreach (var entry in entries.Reverse()) // oldest first for chronological reading
@@ -43,9 +43,9 @@ public class LogExporter
         }
 
         sb.AppendLine();
-        sb.AppendLine("═══════════════════════════════════════════════════════════════");
+        sb.AppendLine("───────────────────────────────────────────────────────────────");
         sb.AppendLine("  End of export");
-        sb.AppendLine("═══════════════════════════════════════════════════════════════");
+        sb.AppendLine("───────────────────────────────────────────────────────────────");
 
         return sb.ToString();
     }

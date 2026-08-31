@@ -7,7 +7,8 @@ public record DownloaderSearchHit(
     string Title,
     string? Artist,
     string? SourceUrl,
-    TimeSpan? Duration
+    TimeSpan? Duration,
+    int? BitrateKbps = null
 );
 
 /// <summary>
@@ -48,8 +49,11 @@ public interface IDownloader
     /// <summary>True when the plugin is operational (binary reachable, service up).</summary>
     Task<bool> IsAvailableAsync(CancellationToken ct = default);
 
-    /// <summary>Find a downloadable source URL for the track metadata.</summary>
-    Task<DownloaderSearchHit?> SearchAsync(string artist, string title, CancellationToken ct = default);
+    /// <summary>
+    /// Find a downloadable source URL for the track metadata. minimumKbps is
+    /// the caller's quality floor: hits below it should be rejected.
+    /// </summary>
+    Task<DownloaderSearchHit?> SearchAsync(string artist, string title, int minimumKbps, CancellationToken ct = default);
 
     /// <summary>Download the track at sourceUrl into outputDirectory.</summary>
     Task<DownloaderDownloadResult> DownloadAsync(

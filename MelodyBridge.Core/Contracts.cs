@@ -38,7 +38,7 @@ public interface IDownloadManager
     /// Search for the track by metadata through the plugin waterfall,
     /// download it into outputDirectory, tag the MELODY_ID, return the path.
     /// </summary>
-    Task<string?> DownloadTrackAsync(string artist, string title, string outputDirectory, string melodyId, CancellationToken ct = default);
+    Task<string?> DownloadTrackAsync(string artist, string title, string outputDirectory, string melodyId, int minimumKbps = 128, CancellationToken ct = default);
     /// <summary>Current in-flight download states (for UI polling).</summary>
     IReadOnlyList<DownloadProgress> SnapshotProgress();
 }

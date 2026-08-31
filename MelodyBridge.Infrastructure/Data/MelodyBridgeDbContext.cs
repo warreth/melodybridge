@@ -152,6 +152,12 @@ public class PlaylistEntity
     public SyncStatus LastSyncStatus { get; set; }
     /// <summary>Directory where downloaded files for this playlist are placed.</summary>
     public string? TargetDirectory { get; set; }
+    /// <summary>
+    /// Minimum audio quality for this playlist's downloads:
+    /// "best" (lossless or highest bitrate), "320" (320 kbps MP3),
+    /// "192" (192 kbps MP3). Plugins skip sources below it.
+    /// </summary>
+    public string PreferredFormat { get; set; } = "320";
     public List<TrackEntity> Tracks { get; set; } = new();
 }
 

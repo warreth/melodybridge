@@ -75,7 +75,8 @@ public class PlaylistStore
             try
             {
                 var path = await _downloadManager.DownloadTrackAsync(
-                    track.Artist!, track.Title!, dir, track.MelodyId!, ct);
+                    track.Artist!, track.Title!, dir, track.MelodyId!,
+                    MinimumKbps(entity.PreferredFormat), ct);
 
                 if (path is null)
                 {
@@ -101,11 +102,21 @@ public class PlaylistStore
             await db.SaveChangesAsync(ct);
         }
 
-        _logger.LogInformation("Download run for '{Playlist}': {Downloaded} downloaded, {Failed} failed",
-            entity.Name, downloaded, failed);
+        _logger.LogInformation("Download run for '{Playlist}' (min {Min} kbps): {Downloaded} downloaded, {Failed} failed",
+            entity.Name, MinimumKbps(entity.PreferredFormat), downloaded, failed);
 
         return (downloaded, failed);
     }
+
+    /// <summary>Maps a playlist's PreferredFormat to the waterfall's kbps floor.</summary>
+    internal static int MinimumKbps(string? preferredFormat) => preferredFormat switch
+    {
+        "best" => 256, // lossless is best-effort; still refuse murk
+        "320" => 320,
+        "192" => 192,
+        "128" => 128,
+        _ => 128,
+    };
 
     /// <summary>All persisted playlists (without tracks), newest sync first.</summary>
     public async Task<List<PlaylistEntity>> GetAllAsync(CancellationToken ct = default)
@@ -284,9 +295,9 @@ public class PlaylistStore
     }
 
     public async Task UpdateSettingsAsync(string playlistId, string? name, bool autoSync, int? intervalMinutes, string? targetDirectory, CancellationToken ct = default)
-        => await UpdateSettingsAsync(playlistId, name, autoSync, intervalMinutes, targetDirectory, null, ct);
+        => await UpdateSettingsAsync(playlistId, name, autoSync, intervalMinutes, targetDirectory, null, null, ct);
 
-    public async Task UpdateSettingsAsync(string playlistId, string? name, bool autoSync, int? intervalMinutes, string? targetDirectory, PlaylistSyncMode? syncMode, CancellationToken ct = default)
+    public async Task UpdateSettingsAsync(string playlistId, string? name, bool autoSync, int? intervalMinutes, string? targetDirectory, PlaylistSyncMode? syncMode, string? preferredFormat = null, CancellationToken ct = default)
     {
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var entity = await db.Playlists.FindAsync(new object[] { playlistId }, ct)
@@ -296,8 +307,13 @@ public class PlaylistStore
         entity.AutoSyncIntervalMinutes = autoSync ? intervalMinutes : null;
         if (targetDirectory is { Length: > 0 } dir) entity.TargetDirectory = dir;
         if (syncMode is not null) entity.SyncMode = syncMode.Value.ToString();
+        if (preferredFormat is { Length: > 0 } fmt)
+            entity.PreferredFormat = PlaylistStore.ValidFormats.Contains(fmt) ? fmt : "320";
         await db.SaveChangesAsync(ct);
     }
+
+    /// <summary>Allowed PreferredFormat values shown in the UI dropdown.</summary>
+    public static readonly string[] ValidFormats = { "best", "320", "192", "128" };
 
     /// <summary>
     /// All playlists whose auto-sync interval has elapsed.
