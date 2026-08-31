@@ -1,16 +1,14 @@
-using System.Diagnostics;
 using System.Text.Json;
-using System.Web;
 using MelodyBridge.Core;
-using MelodyBridge.Infrastructure.Data;
-using Microsoft.EntityFrameworkCore;
+using MelodyBridge.Infrastructure.Downloaders;
 using Microsoft.Extensions.Logging;
 
 namespace MelodyBridge.Infrastructure.Services;
 
 /// <summary>
-/// ISourceProvider implementation for YouTube.
-/// Uses yt-dlp to fetch playlist metadata and track listings.
+/// ISourceProvider implementation for YouTube and YouTube Music.
+/// Uses yt-dlp (via the shared YtDlpProcess helper) to fetch full playlist
+/// track listings, including playlists longer than 100 tracks.
 /// </summary>
 public class YouTubeSourceProvider : ISourceProvider
 {
@@ -35,81 +33,90 @@ public class YouTubeSourceProvider : ISourceProvider
 
     public async Task<Playlist> GetPlaylistAsync(string sourceIdentifier)
     {
-        // sourceIdentifier is a YouTube playlist URL
-        var url = sourceIdentifier;
-        if (!url.StartsWith("http"))
-            url = $"https://www.youtube.com/playlist?list={sourceIdentifier}";
+        var url = sourceIdentifier.StartsWith("http", StringComparison.OrdinalIgnoreCase)
+            ? sourceIdentifier
+            : $"https://www.youtube.com/playlist?list={sourceIdentifier}";
 
-        _logger.LogInformation("Fetching YouTube playlist: {url}", url);
+        _logger.LogInformation("Fetching YouTube playlist: {Url}", url);
 
-        var (exitCode, stdout, stderr) = await RunYtDlpAsync(
-            $"--flat-playlist --dump-single-json --no-warnings --skip-download \"{url}\"");
+        var (exitCode, stdout, stderr) = await YtDlpProcess.RunAsync(new[]
+        {
+            "--flat-playlist",
+            "--dump-single-json",
+            "--no-warnings",
+            "--skip-download",
+            url,
+        }, TimeSpan.FromMinutes(3), CancellationToken.None);
 
         if (exitCode != 0 || string.IsNullOrWhiteSpace(stdout))
         {
-            _logger.LogError("yt-dlp failed (exit {code}): {err}", exitCode, stderr);
+            _logger.LogError("yt-dlp failed (exit {Code}): {Error}", exitCode, stderr);
             throw new InvalidOperationException($"Failed to fetch playlist: {stderr}");
         }
 
         using var doc = JsonDocument.Parse(stdout);
         var root = doc.RootElement;
 
-        var title = root.TryGetProperty("title", out var t) ? t.GetString() ?? "Unknown" : "Unknown";
-        var entries = root.TryGetProperty("entries", out var e) ? e : default;
+        var title = GetString(root, "title") ?? "Unknown playlist";
+        var channel = GetString(root, "channel") ?? GetString(root, "uploader");
+        var description = GetString(root, "description");
 
         var tracks = new List<Track>();
-
-        if (entries.ValueKind == JsonValueKind.Array)
+        if (root.TryGetProperty("entries", out var entries) && entries.ValueKind == JsonValueKind.Array)
         {
             foreach (var entry in entries.EnumerateArray())
             {
-                var trackUrl = entry.TryGetProperty("url", out var u)
-                    ? $"https://www.youtube.com/watch?v={u.GetString()}"
+                var id = GetString(entry, "id");
+                if (string.IsNullOrEmpty(id)) continue;
+
+                TimeSpan? duration = entry.TryGetProperty("duration", out var d) && d.ValueKind == JsonValueKind.Number
+                    ? TimeSpan.FromSeconds(d.GetDouble())
                     : null;
-
-                var entryTitle = entry.TryGetProperty("title", out var et)
-                    ? et.GetString() ?? "Unknown"
-                    : "Unknown";
-
-                var uploader = entry.TryGetProperty("uploader", out var up)
-                    ? up.GetString()
-                    : entry.TryGetProperty("channel", out var ch)
-                        ? ch.GetString()
-                        : null;
-
-                var trackId = entry.TryGetProperty("id", out var vId)
-                    ? vId.GetString()
-                    : null;
-
-                if (trackUrl == null || trackId == null) continue;
 
                 tracks.Add(new Track
                 {
-                    Title = entryTitle,
-                    Artist = uploader ?? "Unknown",
-                    SongID = new SongID(Platform.YouTubeMusic, trackId),
-                    PlatformSongID = new SongID(Platform.YouTubeMusic, trackId),
+                    Title = GetString(entry, "title") ?? "Unknown",
+                    Artist = GetString(entry, "uploader")
+                        ?? GetString(entry, "channel")
+                        ?? "Unknown",
+                    Duration = duration,
+                    SongID = new SongID(Platform.YouTubeMusic, id),
+                    PlatformSongID = new SongID(Platform.YouTubeMusic, id),
                     SourcePlatform = Platform.YouTubeMusic,
                     SyncStatus = SyncStatus.Pending,
                     MediaType = MediaType.MP3,
-                    CurrentTrackLocation = trackUrl != null ? new FileLocation(trackUrl) : null,
+                    CurrentTrackLocation = new FileLocation($"https://www.youtube.com/watch?v={id}"),
                 });
             }
         }
 
-        _logger.LogInformation("Fetched playlist '{name}' with {count} tracks", title, tracks.Count);
-        return new Playlist { Name = title, Tracks = tracks };
+        _logger.LogInformation("Fetched YouTube playlist '{Title}' with {Count} tracks", title, tracks.Count);
+
+        return new Playlist
+        {
+            Id = GetPlaylistId(url),
+            Name = title,
+            Owner = channel,
+            Description = description,
+            SourceUrl = url,
+            Tracks = tracks,
+            TrackCount = tracks.Count,
+        };
     }
 
     public async Task<string?> ResolveTrackUrlAsync(string query)
     {
-        // If already a URL, return as-is
-        if (query.StartsWith("http"))
+        if (query.StartsWith("http", StringComparison.OrdinalIgnoreCase))
             return query;
 
-        // Search YouTube for the query and return first result URL
-        var (exitCode, stdout, stderr) = await RunYtDlpAsync(
-            $"--flat-playlist --dump-single-json --no-warnings --skip-download \"ytsearch1:{query}\"");
+        var (exitCode, stdout, _) = await YtDlpProcess.RunAsync(new[]
+        {
+            "--flat-playlist",
+            "--dump-single-json",
+            "--no-warnings",
+            "--skip-download",
+            $"ytsearch1:{query}",
+        }, TimeSpan.FromSeconds(45), CancellationToken.None);
 
         if (exitCode != 0 || string.IsNullOrWhiteSpace(stdout))
             return null;
@@ -121,37 +128,31 @@ public class YouTubeSourceProvider : ISourceProvider
             var entries = root.TryGetProperty("entries", out var e) ? e : root;
             if (entries.ValueKind == JsonValueKind.Array && entries.GetArrayLength() > 0)
             {
-                var first = entries[0];
-                var id = first.TryGetProperty("id", out var vid) ? vid.GetString() : null;
-                if (id != null)
+                var id = GetString(entries[0], "id");
+                if (id is not null)
                     return $"https://www.youtube.com/watch?v={id}";
             }
         }
-        catch { }
+        catch { /* malformed search result: no hit */ }
 
         return null;
     }
 
-    private async Task<(int exitCode, string stdout, string stderr)> RunYtDlpAsync(string arguments)
+    /// <summary>Extracts the list= parameter as the stable playlist ID.</summary>
+    internal static string GetPlaylistId(string url)
     {
-        var psi = new ProcessStartInfo
-        {
-            FileName = "yt-dlp",
-            Arguments = arguments,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-        };
-
-        var proc = new Process { StartInfo = psi };
-        proc.Start();
-
-        var stdoutTask = proc.StandardOutput.ReadToEndAsync();
-        var stderrTask = proc.StandardError.ReadToEndAsync();
-
-        await proc.WaitForExitAsync();
-
-        return (proc.ExitCode, await stdoutTask, await stderrTask);
+        var marker = "list=";
+        var idx = url.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+        if (idx < 0) return url;
+        var rest = url[(idx + marker.Length)..];
+        var amp = rest.IndexOf('&');
+        return amp >= 0 ? rest[..amp] : rest;
     }
+
+    private static string? GetString(JsonElement element, string property)
+        => element.ValueKind == JsonValueKind.Object
+           && element.TryGetProperty(property, out var v)
+           && v.ValueKind == JsonValueKind.String
+            ? v.GetString()
+            : null;
 }
