@@ -48,7 +48,7 @@ public class LibraryPageTests
     public void Library_Renders_Title()
     {
         var cut = _ctx.Render<Library>();
-        Assert.That(cut.Markup, Does.Contain("Library scanner"));
+        Assert.That(cut.Markup, Does.Contain("Library"));
     }
 
     [Test]

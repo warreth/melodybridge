@@ -67,10 +67,10 @@ public class PlaylistsLiveUITests
         // Open the add dialog.
         var addButton = cut.FindAll("button").Single(b => b.TextContent.Trim() == "Add playlist");
         addButton.Click();
-        Assert.That(cut.Markup, Does.Contain("Playlist URL or ID"));
+        Assert.That(cut.Markup, Does.Contain("Playlist link"));
 
         // Type a real public playlist URL and submit.
-        var urlInput = cut.Find("input[placeholder^='https://open.spotify.com']");
+        var urlInput = cut.Find("input[placeholder^='Paste a']");
         urlInput.Change("https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M");
 
         var submit = cut.FindAll("button").Single(b => b.TextContent.Trim() == "Fetch & save");

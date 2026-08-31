@@ -10,7 +10,7 @@
     <div>
         <span class="eyebrow">Automation</span>
         <h1>Sync jobs</h1>
-        <p>Create playlist sync jobs that resolve tracks and publish to Jellyfin or M3U files.</p>
+        <p>A sync job turns a saved playlist into an M3U file for your music player, or pushes it to Jellyfin.</p>
     </div>
     <div class="topbar-actions">
         <button class="btn-modern primary" @onclick="StartNewJob">New sync job</button>
@@ -61,8 +61,7 @@
                         </label>
                     </div>
                     <div class="hint-box">
-                        Directories where the scanner will look for files matching MELODY_ID tags.
-                        Leave empty to search all known scan locations.
+                        Folders to search for the playlist's files. Leave empty to use every folder from the Library page.
                     </div>
                 }
                 else if (currentStep == 2)
@@ -129,8 +128,8 @@
                         </label>
                     </div>
                     <div class="hint-box">
-                        Use path remapping when your media server sees files under a different path than MelodyBridge.
-                        Extension remapping is useful for pointing to transcoded versions (e.g., FLAC to OPUS).
+                        Only needed when your music player sees files under a different path than MelodyBridge,
+                        for example inside a Docker container. Leave both empty to skip.
                     </div>
                 }
                 else if (currentStep == 4)
@@ -285,11 +284,11 @@
 
     private string GetStepTitle() => currentStep switch
     {
-        0 => "Select playlist source",
-        1 => "Choose search locations",
-        2 => "Configure output target",
-        3 => "Advanced path remapping (optional)",
-        4 => "Review and confirm",
+        0 => "Pick your playlist",
+        1 => "Where your music lives",
+        2 => "Choose the output",
+        3 => "Optional: fix file paths",
+        4 => "Check and create",
         _ => ""
     };
 

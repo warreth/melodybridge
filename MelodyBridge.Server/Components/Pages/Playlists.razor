@@ -11,7 +11,7 @@
     <div>
         <span class="eyebrow">Sources</span>
         <h1>Playlists</h1>
-        <p>Fetch public playlists from Spotify or YouTube and keep a local snapshot of every track.</p>
+        <p>Save a public Spotify or YouTube playlist here. Its tracks are stored so you can download them later.</p>
     </div>
     <div class="topbar-actions">
         <button class="btn-modern ghost" @onclick="ExportAll" disabled="@busy">Export</button>
@@ -36,7 +36,7 @@ else if (playlists.Count == 0)
 {
     <div class="empty-state">
         <strong>No playlists yet.</strong><br />
-        Paste a public Spotify or YouTube playlist URL to save its tracks locally.
+        Paste a public Spotify or YouTube playlist link to save its tracks locally.
     </div>
 }
 else
@@ -94,7 +94,7 @@ else
         <div class="wizard-modal">
             <div class="wizard-header">
                 <div>
-                    <span class="eyebrow">New source</span>
+                    <span class="eyebrow">Your music</span>
                     <h2>Add playlist</h2>
                 </div>
                 <button class="icon-button" @onclick="HideAddForm">&times;</button>
@@ -102,8 +102,8 @@ else
             <div class="wizard-body">
                 <div class="form-grid single">
                     <label>
-                        Playlist URL or ID
-                        <input @bind="newUrl" placeholder="https://open.spotify.com/playlist/… or YouTube playlist URL" />
+                        Playlist link
+                        <input @bind="newUrl" placeholder="Paste a Spotify or YouTube playlist link" />
                     </label>
                     <label>
                         Download folder (optional)
@@ -133,8 +133,9 @@ else
                     <div class="result-box error">@addError</div>
                 }
                 <div class="hint-box">
-                    Public Spotify playlists work out of the box: no account needed.
-                    The playlist is fetched live and every track is stored with its platform ID.
+                    Works with public playlists, no account needed:
+                    <code>open.spotify.com/playlist/…</code> (also <code>music.youtube.com/playlist?list=…</code>).
+                    Large playlists are fetched completely.
                 </div>
             </div>
             <div class="wizard-footer">

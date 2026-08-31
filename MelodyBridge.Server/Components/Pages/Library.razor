@@ -6,9 +6,9 @@
 
 <section class="page-title">
     <div>
-        <span class="eyebrow">Detective</span>
-        <h1>Library scanner</h1>
-        <p>Scan local music folders, read MELODY_ID tags and prepare tracks for playlist matching.</p>
+        <span class="eyebrow">Your music</span>
+        <h1>Library</h1>
+        <p>Add the folders that hold your music files. MelodyBridge scans them so downloaded tracks are matched to your playlists.</p>
     </div>
     <div class="topbar-actions">
         <button class="btn-modern primary" @onclick="RunScan" disabled="@scanning">
@@ -22,8 +22,8 @@
     <div class="panel-card">
         <div class="panel-header">
             <div>
-                <span class="eyebrow">Scan locations</span>
-                <h2>@locations.Count folder(s)</h2>
+                <span class="eyebrow">Folders</span>
+                <h2>Music folders (@locations.Count)</h2>
             </div>
         </div>
         @if (locations.Count == 0)
@@ -44,8 +44,8 @@
     </div>
     <div class="panel-card">
         <div class="panel-header">
-            <div><span class="eyebrow">Metadata</span>
-                <h2>Tag strategy</h2>
+            <div><span class="eyebrow">How matching works</span>
+                <h2>Track identity</h2>
             </div>
         </div>
         <div class="health-list">
