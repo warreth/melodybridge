@@ -25,7 +25,7 @@ public class DownloadManagerQualityTests
         public string Name { get; }
         public string Description => string.Empty;
         public Task<bool> IsAvailableAsync(CancellationToken ct = default) => Task.FromResult(true);
-        public Task<DownloaderSearchHit?> SearchAsync(string artist, string title, int minimumKbps, CancellationToken ct = default)
+        public Task<DownloaderSearchHit?> SearchAsync(string artist, string title, DownloadQuality quality, CancellationToken ct = default)
             => Task.FromResult(_hit);
         public Task<DownloaderDownloadResult> DownloadAsync(string sourceUrl, string outputDirectory, string? melodyId, CancellationToken ct = default)
             => Task.FromResult(new DownloaderDownloadResult(true, $"/tmp/{Id}.mp3", null));
@@ -57,7 +57,7 @@ public class DownloadManagerQualityTests
                 new FixedHitDownloader("good", "Good Plugin", goodQuality)),
             NullLogger<DownloadManager>.Instance);
 
-        var path = await manager.DownloadTrackAsync("Artist", "Song", "/tmp", "mel-1", minimumKbps: 320);
+        var path = await manager.DownloadTrackAsync("Artist", "Song", "/tmp", "mel-1", quality: new DownloadQuality(AudioFormat.Mp3, 320));
 
         Assert.That(path, Is.EqualTo("/tmp/good.mp3"),
             "the 128 kbps hit must be skipped and the 320 kbps plugin must win");
@@ -72,7 +72,7 @@ public class DownloadManagerQualityTests
             new ListRegistry(new FixedHitDownloader("u", "Unknown Plugin", unknown)),
             NullLogger<DownloadManager>.Instance);
 
-        var path = await manager.DownloadTrackAsync("Artist", "Song", "/tmp", "mel-2", minimumKbps: 320);
+        var path = await manager.DownloadTrackAsync("Artist", "Song", "/tmp", "mel-2", quality: new DownloadQuality(AudioFormat.Mp3, 320));
 
         Assert.That(path, Is.EqualTo("/tmp/u.mp3"),
             "unknown bitrate must not be rejected: the download-time gate covers it");
@@ -86,7 +86,7 @@ public class DownloadManagerQualityTests
             new ListRegistry(new FixedHitDownloader("low", "Low Plugin", lowQuality)),
             NullLogger<DownloadManager>.Instance);
 
-        var path = await manager.DownloadTrackAsync("Artist", "Song", "/tmp", "mel-3", minimumKbps: 320);
+        var path = await manager.DownloadTrackAsync("Artist", "Song", "/tmp", "mel-3", quality: new DownloadQuality(AudioFormat.Mp3, 320));
 
         Assert.That(path, Is.Null, "when every plugin is below the floor, no file must be produced");
     }

@@ -30,7 +30,7 @@ public class YtDlpDownloader : IDownloader
         return Task.FromResult(YtDlpProcess.BinaryPath is not null);
     }
 
-    public async Task<DownloaderSearchHit?> SearchAsync(string artist, string title, int minimumKbps, CancellationToken ct = default)
+    public async Task<DownloaderSearchHit?> SearchAsync(string artist, string title, DownloadQuality quality, CancellationToken ct = default)
     {
         if (YtDlpProcess.BinaryPath is null) return null;
 
@@ -138,13 +138,16 @@ public class YtDlpDownloader : IDownloader
         var sourceUrl = url ?? (string.IsNullOrEmpty(id) ? null : urlFromId(id!));
         if (string.IsNullOrEmpty(sourceUrl)) return null;
 
+        var hitTitle = entry.TryGetProperty("title", out var t) ? t.GetString() : fallbackTitle;
         return new DownloaderSearchHit(
-            Title: entry.TryGetProperty("title", out var t) ? t.GetString() : fallbackTitle,
+            Title: hitTitle,
             Artist: artist,
             SourceUrl: sourceUrl,
             Duration: entry.TryGetProperty("duration", out var d) && d.TryGetDouble(out var secs)
                 ? TimeSpan.FromSeconds(secs)
-                : null);
+                : null,
+            MatchConfidence: Services.FuzzyMatcher.Confidence(
+                artist, fallbackTitle, hitArtist: hitTitle, hitTitle));
     }
 
     /// <summary>

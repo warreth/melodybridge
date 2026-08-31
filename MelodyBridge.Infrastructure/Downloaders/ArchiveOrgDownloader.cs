@@ -32,7 +32,7 @@ public class ArchiveOrgDownloader : IDownloader
     public Task<bool> IsAvailableAsync(CancellationToken ct = default)
         => Task.FromResult(true); // public API, always up unless the network is down
 
-    public async Task<DownloaderSearchHit?> SearchAsync(string artist, string title, int minimumKbps, CancellationToken ct = default)
+    public async Task<DownloaderSearchHit?> SearchAsync(string artist, string title, DownloadQuality quality, CancellationToken ct = default)
     {
         var query = $"{artist} {title}".Trim();
         if (query.Length == 0) return null;
@@ -59,8 +59,8 @@ public class ArchiveOrgDownloader : IDownloader
 
                 // Look up the first MP3 file inside the item.
                 var hit = await TryFindMp3InItem(identifier!, artist, title, ct);
-                // Real per-file bitrate is known before downloading; honor the floor.
-                if (hit is not null && (hit.BitrateKbps is null || hit.BitrateKbps >= minimumKbps))
+                // Real per-file bitrate is known before downloading; honor the range.
+                if (hit is not null && quality.IsBitrateInRange(hit.BitrateKbps))
                     return hit;
             }
         }

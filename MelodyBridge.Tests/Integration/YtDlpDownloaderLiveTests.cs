@@ -41,7 +41,7 @@ public class YtDlpDownloaderLiveTests
     [Test]
     public async Task Search_ClassicalTrack_FindsYouTubeUrl()
     {
-        var hit = await _downloader.SearchAsync("Ludwig van Beethoven", "Für Elise", 128);
+        var hit = await _downloader.SearchAsync("Ludwig van Beethoven", "Für Elise", MelodyBridge.Core.DownloadQuality.Any);
         Assert.That(hit, Is.Not.Null, "ytsearch must find this well-known track");
         Assert.That(hit!.SourceUrl, Does.StartWith("https://www.youtube.com/watch?v="));
         Assert.That(hit.Title, Is.Not.Null.And.Not.Empty);
@@ -63,7 +63,7 @@ public class YtDlpDownloaderLiveTests
     public async Task Download_KnownTrack_ProducesValidTaggedAudioFile()
     {
         // Search first, then download the hit.
-        var hit = await _downloader.SearchAsync("Ludwig van Beethoven", "Für Elise", 128);
+        var hit = await _downloader.SearchAsync("Ludwig van Beethoven", "Für Elise", MelodyBridge.Core.DownloadQuality.Any);
         Assert.That(hit, Is.Not.Null, "precondition: search finds the track");
 
         var result = await _downloader.DownloadAsync(

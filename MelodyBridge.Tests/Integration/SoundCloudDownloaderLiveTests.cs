@@ -34,7 +34,7 @@ public class SoundCloudDownloaderLiveTests
     [Test]
     public async Task Search_FindsSoundCloudUrl()
     {
-        var hit = await _downloader.SearchAsync("Forss", "Flickermood", 128);
+        var hit = await _downloader.SearchAsync("Forss", "Flickermood", MelodyBridge.Core.DownloadQuality.Any);
         Assert.That(hit, Is.Not.Null, "scsearch must find this well-known SoundCloud track");
         Assert.That(hit!.SourceUrl, Does.Contain("soundcloud.com"));
         Assert.That(hit.Title, Is.Not.Null.And.Not.Empty);
@@ -43,7 +43,7 @@ public class SoundCloudDownloaderLiveTests
     [Test]
     public async Task Download_ProducesHighBitrateTaggedMp3()
     {
-        var hit = await _downloader.SearchAsync("Forss", "Flickermood", 128);
+        var hit = await _downloader.SearchAsync("Forss", "Flickermood", MelodyBridge.Core.DownloadQuality.Any);
         Assert.That(hit, Is.Not.Null, "precondition: search finds the track");
 
         var result = await _downloader.DownloadAsync(

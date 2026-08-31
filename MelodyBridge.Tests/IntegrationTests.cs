@@ -217,7 +217,7 @@ public class IntegrationTests
         public Task<bool> IsAvailableAsync(CancellationToken ct = default)
             => Task.FromResult(available);
 
-        public Task<DownloaderSearchHit?> SearchAsync(string artist, string title, int minimumKbps, CancellationToken ct = default)
+        public Task<DownloaderSearchHit?> SearchAsync(string artist, string title, DownloadQuality quality, CancellationToken ct = default)
             => Task.FromResult(searchHit);
 
         public Task<DownloaderDownloadResult> DownloadAsync(

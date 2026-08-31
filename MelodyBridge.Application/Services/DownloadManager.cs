@@ -58,8 +58,9 @@ public class DownloadManager : IDownloadManager
     /// </summary>
     public async Task<string?> DownloadTrackAsync(
         string artist, string title, string outputDirectory, string melodyId,
-        int minimumKbps = 128, CancellationToken ct = default)
+        DownloadQuality? quality = null, CancellationToken ct = default)
     {
+        quality ??= DownloadQuality.Any;
         _progress[melodyId] = new DownloadProgress(melodyId, title, "searching", null, null);
         try
         {
@@ -71,27 +72,30 @@ public class DownloadManager : IDownloadManager
                     continue;
                 }
 
-                var hit = await downloader.SearchAsync(artist, title, minimumKbps, ct);
+                var hit = await downloader.SearchAsync(artist, title, quality, ct);
                 if (hit is null || hit.SourceUrl is null)
                 {
                     _logger.LogDebug("{Name}: no search hit for '{Artist} - {Title}'", downloader.Name, artist, title);
                     continue;
                 }
 
-                // Quality floor: reject reported bitrates below what the caller wants.
-                if (hit.BitrateKbps is > 0 && hit.BitrateKbps < minimumKbps)
+                // Quality gate: reject reported bitrates outside the requested range.
+                if (!quality.IsBitrateInRange(hit.BitrateKbps))
                 {
                     _logger.LogInformation(
-                        "{Name} hit for '{Title}' is {Hit} kbps, below the {Min} kbps floor; skipping",
-                        downloader.Name, title, hit.BitrateKbps, minimumKbps);
+                        "{Name} hit for '{Title}' is {Hit} kbps, outside the requested {Min}-{Max} kbps range; skipping",
+                        downloader.Name, title, hit.BitrateKbps, quality.MinKbps,
+                        quality.MaxKbps?.ToString() ?? "any");
                     continue;
                 }
 
-                _progress[melodyId] = new DownloadProgress(melodyId, title, "downloading", downloader.Name, null);
+                _progress[melodyId] = new DownloadProgress(
+                    melodyId, title, "downloading", downloader.Name, null, hit.MatchConfidence);
                 var result = await downloader.DownloadAsync(hit.SourceUrl, outputDirectory, melodyId, ct);
                 if (result.Success && result.FilePath is not null)
                 {
-                    _progress[melodyId] = new DownloadProgress(melodyId, title, "done", downloader.Name, result.FilePath);
+                    _progress[melodyId] = new DownloadProgress(
+                        melodyId, title, "done", downloader.Name, result.FilePath, hit.MatchConfidence);
                     return result.FilePath;
                 }
 

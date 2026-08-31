@@ -8,8 +8,19 @@ public record DownloaderSearchHit(
     string? Artist,
     string? SourceUrl,
     TimeSpan? Duration,
-    int? BitrateKbps = null
-);
+    int? BitrateKbps = null,
+    MatchConfidence MatchConfidence = MatchConfidence.Low);
+
+/// <summary>
+/// How sure a plugin is that its search result is the requested track.
+/// Low confidence is downloaded anyway but shown as a warning next to the
+/// track, so the user can re-check instead of silently getting a wrong song.
+/// </summary>
+public enum MatchConfidence
+{
+    High,
+    Low,
+}
 
 /// <summary>
 /// Result of a download attempt.
@@ -28,7 +39,9 @@ public record DownloadProgress(
     string Title,
     string Status, // searching | downloading | done | failed
     string? Plugin,
-    string? FilePath);
+    string? FilePath,
+    MatchConfidence MatchConfidence = MatchConfidence.High,
+    string? Warning = null);
 
 /// <summary>
 /// One download plugin. Implementations search for a track by metadata
@@ -50,10 +63,10 @@ public interface IDownloader
     Task<bool> IsAvailableAsync(CancellationToken ct = default);
 
     /// <summary>
-    /// Find a downloadable source URL for the track metadata. minimumKbps is
-    /// the caller's quality floor: hits below it should be rejected.
+    /// Find a downloadable source URL for the track metadata, honoring the
+    /// requested quality where the source exposes it.
     /// </summary>
-    Task<DownloaderSearchHit?> SearchAsync(string artist, string title, int minimumKbps, CancellationToken ct = default);
+    Task<DownloaderSearchHit?> SearchAsync(string artist, string title, DownloadQuality quality, CancellationToken ct = default);
 
     /// <summary>Download the track at sourceUrl into outputDirectory.</summary>
     Task<DownloaderDownloadResult> DownloadAsync(

@@ -46,7 +46,7 @@ public class DownloadMissingAsyncTests
 
         public Task<bool> IsAvailableAsync(CancellationToken ct = default) => Task.FromResult(true);
 
-        public Task<DownloaderSearchHit?> SearchAsync(string artist, string title, int minimumKbps, CancellationToken ct = default)
+        public Task<DownloaderSearchHit?> SearchAsync(string artist, string title, DownloadQuality quality, CancellationToken ct = default)
         {
             SearchQueries.Add((artist, title));
             if (title.StartsWith("FAIL", StringComparison.Ordinal)) return Task.FromResult<DownloaderSearchHit?>(null);
