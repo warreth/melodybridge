@@ -1,6 +1,17 @@
 version: "3.8"
 
 services:
+  # Solves Cloudflare challenges for the Lucida plugin (optional).
+  # Remove this block when you do not use Lucida.
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    container_name: melodybridge_flaresolverr
+    environment:
+      - LOG_LEVEL=info
+      - TZ=Europe/Amsterdam
+    restart: unless-stopped
+    # Expose only to the docker network; melodybridge reaches it by name.
+
   melodybridge:
     build: .
     image: melodybridge:local
@@ -24,6 +35,8 @@ services:
       - Jellyfin__ApiKey=
       # Dev panel — set to true to enable the /dev testing dashboard
       - DevPanel__Enabled=true
+      # Cloudflare solver for the Lucida plugin (uses the flaresolverr service above)
+      - FlareSolverr__Url=http://flaresolverr:8191
     volumes:
       - ./data/music:/music
       - ./data/playlists:/app/playlists

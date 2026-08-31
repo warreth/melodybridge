@@ -1,6 +1,8 @@
 using MelodyBridge.Application.Services;
 using MelodyBridge.Core;
+using MelodyBridge.Infrastructure.Cloudflare;
 using MelodyBridge.Infrastructure.Downloaders;
+using MelodyBridge.Infrastructure.Lucida;
 using MelodyBridge.Infrastructure.MediaServers;
 using MelodyBridge.Infrastructure.Playlists;
 using MelodyBridge.Infrastructure.Scanning;
@@ -30,6 +32,22 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IDownloader>(sp =>
             new YtDlpDownloader(sp.GetRequiredService<ILogger<YtDlpDownloader>>()));
         services.AddHttpClient("archiveorg", c => c.Timeout = TimeSpan.FromMinutes(5));
+
+        // Cloudflare solver shared by challenge-gated plugins (Lucida).
+        services.AddHttpClient("flaresolverr", c => c.Timeout = TimeSpan.FromMinutes(2));
+        services.AddOptions<FlareSolverrOptions>();
+        services.AddSingleton<IChallengeSolver>(sp =>
+            new FlareSolverrSolver(
+                sp.GetRequiredService<IHttpClientFactory>().CreateClient("flaresolverr"),
+                sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<FlareSolverrOptions>>(),
+                sp.GetRequiredService<ILogger<FlareSolverrSolver>>()));
+        services.AddHttpClient("lucida", c => c.Timeout = TimeSpan.FromMinutes(30));
+        services.AddSingleton<IDownloader>(sp =>
+            new LucidaDownloader(
+                sp.GetRequiredService<IHttpClientFactory>().CreateClient("lucida"),
+                sp.GetRequiredService<IChallengeSolver>(),
+                sp.GetRequiredService<ILogger<LucidaDownloader>>()));
+
         services.AddSingleton<IDownloaderRegistry, DownloaderRegistry>();
 
         // Source providers (playlists)

@@ -1,6 +1,8 @@
 using MelodyBridge.Application;
 using MelodyBridge.Core.Logging;
 using MelodyBridge.Infrastructure.Data;
+using MelodyBridge.Infrastructure.Cloudflare;
+using MelodyBridge.Infrastructure.Services;
 using MelodyBridge.Server.Logging;
 using MelodyBridge.Server.Services;
 using Microsoft.AspNetCore.DataProtection;
@@ -48,6 +50,24 @@ builder.Services.AddDataProtection()
     .SetApplicationName("MelodyBridge");
 
 var app = builder.Build();
+
+// App settings the stores read at runtime. The database overrides
+// appsettings so the Settings page wins.
+using (var db = app.Services.GetRequiredService<IDbContextFactory<MelodyBridgeDbContext>>()
+           .CreateDbContext())
+{
+    var savedSpectrum = db.DownloaderSettings.FirstOrDefault(s => s.Key == "spectrum_mode")?.Value
+                        ?? app.Configuration["SpectrumAnalysis:Mode"] ?? "Fast";
+    PlaylistStore.SpectrumVerification = () => savedSpectrum.ToLowerInvariant() switch
+    {
+        "off" => MelodyBridge.Infrastructure.Audio.SpectrumMode.Off,
+        "thorough" => MelodyBridge.Infrastructure.Audio.SpectrumMode.Thorough,
+        _ => MelodyBridge.Infrastructure.Audio.SpectrumMode.Fast,
+    };
+
+    FlareSolverrSolver.Url = db.DownloaderSettings.FirstOrDefault(s => s.Key == "flaresolverr_url")?.Value
+                             ?? app.Configuration["FlareSolverr:Url"] ?? "off";
+}
 
 // Ensure database is created with all entities
 using (var scope = app.Services.CreateScope())
