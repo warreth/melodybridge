@@ -1,216 +1,121 @@
-﻿@using System.Text.Json
 @page "/"
 @inject IDbContextFactory<MelodyBridgeDbContext> DbFactory
-@inject PlaylistStore PlaylistStore
-@inject ISyncJobRunner JobRunner
 @inject IDownloaderRegistry DownloaderRegistry
 
 <PageTitle>MelodyBridge Dashboard</PageTitle>
 
 <section class="hero-panel">
     <div>
-        <span class="eyebrow">Music sync cockpit</span>
-        <h1>Bridge your playlists, downloads and media server.</h1>
-        <p>Connect sources, scan your library, resolve tracks and publish clean playlists to Jellyfin or M3U outputs.
-        </p>
+        <span class="eyebrow">Welcome</span>
+        <h1>Get your playlists onto your own machine.</h1>
+        <p>MelodyBridge saves the tracks of a Spotify or YouTube playlist locally, downloads the
+            music, and turns the result into a playlist your media server understands.</p>
         <div class="hero-actions">
-            <a class="btn-modern primary" href="sync-jobs">Create sync job</a>
-            <a class="btn-modern secondary" href="playlists">Add playlist</a>
+            <a class="btn-modern primary" href="playlists">Start with a playlist</a>
+            <a class="btn-modern secondary" href="logs">View logs</a>
         </div>
     </div>
     <div class="hero-card">
         <span class="status-dot online"></span>
-        <strong>MelodyBridge ready</strong>
-        <p><code>@tracksCount</code> tracks · <code>@playlistsCount</code> playlists · <code>@syncJobsCount</code> sync
-            jobs</p>
-        </div>
-    </section>
+        <strong>MelodyBridge is running</strong>
+        <p><code>@playlistsCount</code> playlists · <code>@downloadedCount</code> downloaded tracks ·
+            <code>@libraryCount</code> files in library</p>
+    </div>
+</section>
 
-    <section class="stat-grid">
-        <div class="stat-card">
-            <span class="stat-icon">🎧</span>
-            <label>Tracks in library</label>
-            <strong>@tracksCount</strong>
-            <small>Scanned from scan locations</small>
+<section class="panel-card">
+    <div class="panel-header">
+        <div>
+            <span class="eyebrow">How it works</span>
+            <h2>Three steps, in order</h2>
         </div>
-        <div class="stat-card">
-            <span class="stat-icon">♫</span>
-            <label>Saved Playlists</label>
-            <strong>@playlistsCount</strong>
-            <small>Managed playlists</small>
-        </div>
-        <div class="stat-card">
-            <span class="stat-icon">📡</span>
-            <label>Music sources</label>
-            <strong>@sourcesCount</strong>
-            <small>Connected playlist providers</small>
-        </div>
-        <div class="stat-card">
-            <span class="stat-icon">📀</span>
-            <label>Downloaders</label>
-            <strong>@downloadersCount</strong>
-            <small>@activeProviders active plugin(s)</small>
-        </div>
-        <div class="stat-card">
-            <span class="stat-icon">↻</span>
-            <label>Sync jobs</label>
-            <strong>@syncJobsCount</strong>
-            <small>@pendingJobs pending · @completedJobs completed</small>
-        </div>
-    </section>
-
-    <section class="content-grid two">
-        <div class="panel-card">
-            <div class="panel-header">
-                <div>
-                    <span class="eyebrow">Pipeline</span>
-                    <h2>Recommended setup flow</h2>
-                </div>
-            </div>
-            <div class="timeline-list">
-                <div class="timeline-item done"><span>1</span>
-                    <div><strong>Add accounts</strong>
-                        <p>Connect playlist sources and download providers.</p>
-                    </div>
-                </div>
-                <div class="timeline-item done"><span>2</span>
-                    <div><strong>Configure library paths</strong>
-                        <p>Map host music paths to container/Jellyfin paths.</p>
-                    </div>
-                </div>
-                <div class="timeline-item active"><span>3</span>
-                    <div><strong>Create a sync job</strong>
-                        <p>Resolve tracks, generate reports and publish playlists.</p>
-                    </div>
-                </div>
-                <div class="timeline-item"><span>4</span>
-                    <div><strong>Review missing tracks</strong>
-                        <p>Use unresolved path reports to improve mappings.</p>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <div class="panel-card">
-            <div class="panel-header">
-                <div>
-                    <span class="eyebrow">Actions</span>
-                    <h2>Quick tasks</h2>
-                </div>
-            </div>
-            <div class="topbar-actions" style="flex-wrap:wrap; gap:.65rem;">
-                <button class="btn-modern primary" @onclick="RunAllSync" disabled="@busy">@(busy ? "Running..." : "Run all sync jobs")</button>
-                <button class="btn-modern secondary" @onclick="AutoSyncAll" disabled="@busy">Sync due playlists</button>
-                <button class="btn-modern ghost" @onclick="RefreshStats">Refresh stats</button>
-            </div>
-        </div>
-    </section>
-
-    <section class="panel-card">
-        <div class="panel-header">
+        <button class="btn-modern ghost small" @onclick="RefreshStats">Refresh</button>
+    </div>
+    <div class="workflow-list">
+        <a class="workflow-step @(step1Done ? "done" : "todo")" href="playlists">
+            <span class="workflow-number">@(step1Done ? "✓" : "1")</span>
             <div>
-                <span class="eyebrow">Environment</span>
-                <h2>Health</h2>
+                <strong>Add a playlist</strong>
+                <p>Paste a public Spotify or YouTube playlist link. Every track is saved to your list.</p>
+                <small>@(step1Done ? $"{playlistsCount} playlist(s) saved" : "Not done yet")</small>
             </div>
-        </div>
-        <div class="health-list">
-            <div><span class="status-dot online"></span><strong>Server</strong><small>Listening @appBaseUrl</small></div>
-            <div><span class="status-dot warning"></span><strong>Jellyfin</strong><small>Configure host/API key in
-                Settings</small></div>
-                <div><span class="status-dot online"></span><strong>Database</strong><small>SQLite: @tracksCount tracks,
-                    @sourcesCount sources</small></div>
-                    <div><span class="status-dot online"></span><strong>Docker volumes</strong><small>music, playlists, keys</small>
-                    </div>
-                </div>
-            </section>
+            <span class="workflow-arrow">→</span>
+        </a>
+        <a class="workflow-step @(step2Done ? "done" : "todo")" href="downloads">
+            <span class="workflow-number">@(step2Done ? "✓" : "2")</span>
+            <div>
+                <strong>Download the music</strong>
+                <p>Open your playlist and click Download missing. The plugin waterfall fetches each track.</p>
+                <small>@(step2Done ? $"{downloadedCount} track(s) downloaded" : "Nothing downloaded yet")</small>
+            </div>
+            <span class="workflow-arrow">→</span>
+        </a>
+        <a class="workflow-step @(step3Done ? "done" : "todo")" href="sync-jobs">
+            <span class="workflow-number">@(step3Done ? "✓" : "3")</span>
+            <div>
+                <strong>Publish it</strong>
+                <p>Create a sync job to write an M3U file or push the playlist to Jellyfin.</p>
+                <small>@(step3Done ? $"{jobsCount} job(s) configured" : "No sync job yet")</small>
+            </div>
+        </a>
+    </div>
+    <div class="hint-box">
+        Every step shows its own status here. When something fails, the
+        <a href="logs">Logs page</a> shows exactly what went wrong.
+    </div>
+</section>
+
+<section class="stat-grid">
+    <div class="stat-card">
+        <span class="stat-icon">♫</span>
+        <label>Playlists</label>
+        <strong>@playlistsCount</strong>
+        <small>Saved from Spotify or YouTube</small>
+    </div>
+    <div class="stat-card">
+        <span class="stat-icon">↓</span>
+        <label>Downloaded tracks</label>
+        <strong>@downloadedCount</strong>
+        <small>Files on your disk</small>
+    </div>
+    <div class="stat-card">
+        <span class="stat-icon">≡</span>
+        <label>Library</label>
+        <strong>@libraryCount</strong>
+        <small>Files found by the scanner</small>
+    </div>
+    <div class="stat-card">
+        <span class="stat-icon">🔌</span>
+        <label>Download plugins</label>
+        <strong>@enabledPlugins / @totalPlugins</strong>
+        <small>Enabled in the waterfall</small>
+    </div>
+</section>
 
 @code {
-    private int tracksCount;
     private int playlistsCount;
-    private int sourcesCount;
-    private int syncJobsCount;
-    private int pendingJobs;
-    private int completedJobs;
-    private int downloadersCount;
-    private int activeProviders;
-    private string appBaseUrl = "http://localhost:3333";
-    private bool busy;
+    private int downloadedCount;
+    private int libraryCount;
+    private int jobsCount;
+    private int enabledPlugins;
+    private int totalPlugins;
 
-    protected override async Task OnInitializedAsync()
-    {
-        await RefreshStats();
-    }
+    private bool step1Done => playlistsCount > 0;
+    private bool step2Done => downloadedCount > 0;
+    private bool step3Done => jobsCount > 0;
+
+    protected override async Task OnInitializedAsync() => await RefreshStats();
 
     private async Task RefreshStats()
     {
         await using var db = await DbFactory.CreateDbContextAsync();
-        tracksCount = await db.Tracks.CountAsync();
         playlistsCount = await db.Playlists.CountAsync();
-        sourcesCount = await db.Sources.CountAsync();
-        syncJobsCount = await db.SyncJobs.CountAsync();
-        pendingJobs = await db.SyncJobs.CountAsync(j => j.LastRunStatus == "Pending");
-        completedJobs = await db.SyncJobs.CountAsync(j => j.LastRunStatus == "Completed");
-        var allPlugins = DownloaderRegistry.GetAll();
-        downloadersCount = allPlugins.Count;
-        activeProviders = allPlugins.Count(p => DownloaderRegistry.IsEnabled(p.Id));
-    }
+        downloadedCount = await db.Tracks.CountAsync(t => t.DownloadStatus == "downloaded");
+        libraryCount = await db.Tracks.CountAsync(t => t.CurrentPath != null && t.PlaylistSnapshotId == null);
+        jobsCount = await db.SyncJobs.CountAsync();
 
-    private async Task RunAllSync()
-    {
-        busy = true;
-        try
-        {
-            await using var db = await DbFactory.CreateDbContextAsync();
-            var jobs = await db.SyncJobs.ToListAsync();
-            foreach (var entity in jobs)
-            {
-                var job = MapToDomain(entity);
-                await JobRunner.RunJobAsync(job);
-            }
-            await RefreshStats();
-        }
-        finally { busy = false; }
-    }
-
-    private async Task AutoSyncAll()
-    {
-        var due = await PlaylistStore.GetDueForAutoSyncAsync();
-        foreach (var playlist in due)
-        {
-            try { await PlaylistStore.AddOrRefreshAsync(playlist.SourceUrl, playlist.TargetDirectory); }
-            catch (Exception ex) { Console.Error.WriteLine($"Auto-sync failed for {playlist.Name}: {ex.Message}"); }
-        }
-        await RefreshStats();
-    }
-
-    private static SyncJob MapToDomain(SyncJobEntity entity)
-    {
-        var searchPaths = new List<string>();
-        try { searchPaths = JsonSerializer.Deserialize<List<string>>(entity.SearchLocationPaths ?? "[]") ?? new(); } catch { }
-        var remapRules = new Dictionary<string, string>();
-        try { remapRules = JsonSerializer.Deserialize<Dictionary<string, string>>(entity.PathRemapRules ?? "{}") ?? new(); }
-        catch { }
-        var extRules = new Dictionary<string, string>();
-        try { extRules = JsonSerializer.Deserialize<Dictionary<string, string>>(entity.ExtensionRemapRules ?? "{}") ?? new(); }
-        catch { }
-
-        return new SyncJob
-        {
-            Id = entity.Id,
-            Name = entity.Name ?? "",
-            SourceId = entity.SourceId,
-            SearchLocationPaths = searchPaths,
-            OutputTarget = Enum.TryParse<OutputTargetType>(entity.OutputTarget, true, out var ot) ? ot : OutputTargetType.M3uFile,
-            M3uOutputPath = entity.M3uOutputPath,
-            JellyfinServerUrl = entity.JellyfinServerUrl,
-            JellyfinApiKey = entity.JellyfinApiKey,
-            JellyfinUserId = entity.JellyfinUserId,
-            PathRemapRules = remapRules,
-            ExtensionRemapRules = extRules,
-            Schedule = Enum.TryParse<SyncJobSchedule>(entity.Schedule, true, out var s) ? s : SyncJobSchedule.Manual,
-            CronExpression = entity.CronExpression,
-            LastRunAt = entity.LastRunAt,
-            LastRunSummary = entity.LastRunSummary,
-        };
+        var plugins = DownloaderRegistry.GetAll();
+        totalPlugins = plugins.Count;
+        enabledPlugins = plugins.Count(p => DownloaderRegistry.IsEnabled(p.Id));
     }
 }

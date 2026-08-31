@@ -9,19 +9,21 @@ using Moq;
 
 namespace MelodyBridge.Tests.Server.UiTests;
 
+/// <summary>
+/// Dashboard UI with a real in-memory database: the three-step workflow
+/// reflects live database state, and step links point to the right pages.
+/// </summary>
 [TestFixture]
 [Category("UI")]
 public class HomePageTests
 {
     private TestContext _ctx = null!;
-    private Mock<ISyncJobRunner> _jobRunner = null!;
     private Mock<IDownloaderRegistry> _providerRegistry = null!;
 
     [SetUp]
     public void Setup()
     {
         _ctx = new TestContext();
-        _jobRunner = new Mock<ISyncJobRunner>();
         _providerRegistry = new Mock<IDownloaderRegistry>();
 
         var options = new DbContextOptionsBuilder<MelodyBridgeDbContext>()
@@ -31,18 +33,15 @@ public class HomePageTests
 
         using (var db = dbFactory.CreateDbContext())
         {
-            db.Sources.Add(new SourceEntity { Id = "s1", Name = "Test Source", Platform = "YouTubeMusic" });
-            db.Tracks.Add(new TrackEntity { Id = 1, Title = "Test Track" });
-            db.SyncJobs.Add(new SyncJobEntity { Id = "j1", Name = "Test Job", LastRunStatus = "Pending" });
-            db.SyncJobs.Add(new SyncJobEntity { Id = "j2", Name = "Done Job", LastRunStatus = "Completed" });
+            db.Playlists.Add(new PlaylistEntity { Id = "p1", Name = "Techno", SourceUrl = "s:1", TrackCount = 101 });
+            db.Tracks.Add(new TrackEntity { Id = 1, Title = "Downloaded", DownloadStatus = "downloaded", CurrentPath = "/x/1.mp3" });
+            db.SyncJobs.Add(new SyncJobEntity { Id = "j1", Name = "Test Job", LastRunStatus = "Completed" });
             db.SaveChanges();
         }
 
-        // Setup provider registry defaults
         _providerRegistry.Setup(r => r.GetAll()).Returns(new List<IDownloader>());
         _providerRegistry.Setup(r => r.IsEnabled(It.IsAny<string>())).Returns(true);
 
-        _ctx.Services.AddSingleton<ISyncJobRunner>(_jobRunner.Object);
         _ctx.Services.AddSingleton<IDownloaderRegistry>(_providerRegistry.Object);
         _ctx.Services.AddSingleton<IDbContextFactory<MelodyBridgeDbContext>>(dbFactory);
 
@@ -60,63 +59,56 @@ public class HomePageTests
     public void TearDown() => _ctx.Dispose();
 
     [Test]
-    public void Dashboard_Renders_WithTitle()
+    public void Dashboard_ShowsThreeStepWorkflow()
     {
         var cut = _ctx.Render<Home>();
-        Assert.That(cut.Markup, Does.Contain("Bridge your playlists, downloads and media server."));
+
+        Assert.That(cut.Markup, Does.Contain("Three steps, in order"));
+        Assert.That(cut.Markup, Does.Contain("Add a playlist"));
+        Assert.That(cut.Markup, Does.Contain("Download the music"));
+        Assert.That(cut.Markup, Does.Contain("Publish it"));
     }
 
     [Test]
-    public void Dashboard_HasQuickActionButtons()
+    public void Dashboard_StepsLinkToTheirPages()
     {
         var cut = _ctx.Render<Home>();
-        var buttons = cut.FindAll("button");
-        Assert.That(buttons.Count, Is.GreaterThanOrEqualTo(3));
-        var texts = buttons.Select(b => b.TextContent.Trim()).ToList();
-        Assert.That(texts, Has.Some.Contains("Run all sync jobs"));
-        Assert.That(texts, Has.Some.Contains("Sync due playlists"));
-        Assert.That(texts, Has.Some.Contains("Refresh stats"));
+
+        var steps = cut.FindAll(".workflow-step");
+        Assert.That(steps, Has.Count.EqualTo(3));
+        Assert.That(steps[0].GetAttribute("href"), Is.EqualTo("playlists"));
+        Assert.That(steps[1].GetAttribute("href"), Is.EqualTo("downloads"));
+        Assert.That(steps[2].GetAttribute("href"), Is.EqualTo("sync-jobs"));
     }
 
     [Test]
-    public void Dashboard_ShowsHealthSection()
+    public void Dashboard_StepsDone_WhenDatabaseHasData()
     {
         var cut = _ctx.Render<Home>();
-        Assert.That(cut.Markup, Does.Contain("Server"));
-        Assert.That(cut.Markup, Does.Contain("Database"));
-        Assert.That(cut.Markup, Does.Contain("Health"));
+        cut.WaitForState(() => cut.Markup.Contains("101 playlist(s) saved")
+            || cut.FindAll(".workflow-step.done").Count == 3, TimeSpan.FromSeconds(3));
+
+        var done = cut.FindAll(".workflow-step.done");
+        Assert.That(done, Has.Count.EqualTo(3),
+            "with playlists, downloads and jobs in the DB, all steps must show as done");
     }
 
     [Test]
-    public void Dashboard_DisplaysTrackAndSourceCounts()
+    public void Dashboard_StepsTodo_WhenDatabaseIsEmpty()
     {
-        var cut = _ctx.Render<Home>();
-        cut.WaitForState(() => cut.Markup.Contains("1 tracks"), TimeSpan.FromSeconds(3));
-        Assert.That(cut.Markup, Does.Contain("1 tracks"));
-    }
-
-    [Test]
-    public void RunAllSync_Click_CallsJobRunner()
-    {
-        _jobRunner.Setup(j => j.RunJobAsync(It.IsAny<SyncJob>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new SyncJobRunLog(DateTime.UtcNow, SyncStatus.Completed, "ok", 1, 1));
+        // Wipe everything the Setup inserted.
+        var dbFactory = _ctx.Services.GetRequiredService<IDbContextFactory<MelodyBridgeDbContext>>();
+        using var db = dbFactory.CreateDbContext();
+        db.Playlists.RemoveRange(db.Playlists);
+        db.Tracks.RemoveRange(db.Tracks);
+        db.SyncJobs.RemoveRange(db.SyncJobs);
+        db.SaveChanges();
 
         var cut = _ctx.Render<Home>();
-        var btn = cut.Find("button.btn-modern.primary");
-        btn.Click();
+        cut.WaitForState(() => cut.FindAll(".workflow-step.done").Count == 0, TimeSpan.FromSeconds(3));
 
-        _jobRunner.Verify(j => j.RunJobAsync(It.IsAny<SyncJob>(), It.IsAny<CancellationToken>()), Times.AtLeastOnce);
-    }
-
-    [Test]
-    public void SyncDuePlaylists_Click_RendersWithoutError()
-    {
-        var cut = _ctx.Render<Home>();
-        var buttons = cut.FindAll("button");
-        var syncBtn = buttons.First(b => b.TextContent.Trim().Contains("Sync due playlists"));
-        syncBtn.Click();
-        // No exception thrown through bUnit's unhandled-exception assertion.
-        Assert.That(cut.Markup, Does.Contain("Sync due playlists"));
+        Assert.That(cut.FindAll(".workflow-step.done"), Is.Empty,
+            "an empty database must show all steps as not done");
     }
 
     private class InMemFactory : IDbContextFactory<MelodyBridgeDbContext>
