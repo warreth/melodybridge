@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Text.Json;
 using MelodyBridge.Core;
 using Microsoft.Extensions.Logging;
@@ -15,33 +14,25 @@ namespace MelodyBridge.Infrastructure.Downloaders;
 public class YtDlpDownloader : IDownloader
 {
     private readonly ILogger<YtDlpDownloader> _logger;
-    private readonly string _ytDlpPath;
 
     public string Id => "ytdlp";
     public string Name => "yt-dlp (YouTube)";
+    public string Description => "YouTube / YouTube Music — best audio as MP3";
 
     public YtDlpDownloader(ILogger<YtDlpDownloader> logger)
     {
         _logger = logger;
-        _ytDlpPath = ResolveBinary();
-    }
-
-    /// <summary>Internal constructor for tests to pin a specific binary path.</summary>
-    internal YtDlpDownloader(ILogger<YtDlpDownloader> logger, string ytDlpPath)
-        : this(logger)
-    {
-        _ytDlpPath = ytDlpPath;
     }
 
     public Task<bool> IsAvailableAsync(CancellationToken ct = default)
     {
         // A missing binary fails fast here so the waterfall can skip us.
-        return Task.FromResult(_ytDlpPath is not null);
+        return Task.FromResult(YtDlpProcess.BinaryPath is not null);
     }
 
     public async Task<DownloaderSearchHit?> SearchAsync(string artist, string title, CancellationToken ct = default)
     {
-        if (_ytDlpPath is null) return null;
+        if (YtDlpProcess.BinaryPath is null) return null;
 
         var query = $"{artist} {title}".Trim();
         if (query.Length == 0) return null;
@@ -51,7 +42,7 @@ public class YtDlpDownloader : IDownloader
         {
             try
             {
-                var (exit, stdout, _) = await RunAsync(new[]
+                var (exit, stdout, _) = await YtDlpProcess.RunAsync(new[]
                 {
                     $"{extractor}:{query}",
                     "--flat-playlist",
@@ -59,29 +50,9 @@ public class YtDlpDownloader : IDownloader
                     "--no-warnings",
                 }, TimeSpan.FromSeconds(45), ct);
 
-                if (exit != 0 || string.IsNullOrWhiteSpace(stdout)) continue;
-
-                using var doc = JsonDocument.Parse(stdout);
-                var entry = doc.RootElement.TryGetProperty("entries", out var entries)
-                    && entries.ValueKind == JsonValueKind.Array
-                    && entries.GetArrayLength() > 0
-                    ? entries[0]
-                    : doc.RootElement.TryGetProperty("url", out _)
-                        ? doc.RootElement
-                        : default;
-
-                if (entry.ValueKind == JsonValueKind.Undefined) continue;
-
-                var id = entry.TryGetProperty("id", out var idProp) ? idProp.GetString() : null;
-                if (string.IsNullOrEmpty(id)) continue;
-
-                return new DownloaderSearchHit(
-                    Title: entry.TryGetProperty("title", out var t) ? t.GetString() : title,
-                    Artist: artist,
-                    SourceUrl: $"https://www.youtube.com/watch?v={id}",
-                    Duration: entry.TryGetProperty("duration", out var d) && d.TryGetDouble(out var secs)
-                        ? TimeSpan.FromSeconds(secs)
-                        : null);
+                var hit = ParseFlatPlaylistHit(stdout, artist, title,
+                    id => $"https://www.youtube.com/watch?v={id}");
+                if (hit is not null) return hit;
             }
             catch (Exception ex)
             {
@@ -98,7 +69,7 @@ public class YtDlpDownloader : IDownloader
         string? melodyId,
         CancellationToken ct = default)
     {
-        if (_ytDlpPath is null)
+        if (YtDlpProcess.BinaryPath is null)
             return new DownloaderDownloadResult(false, null, "yt-dlp binary not found");
 
         try
@@ -108,7 +79,7 @@ public class YtDlpDownloader : IDownloader
             // Deterministic filename so re-downloads replace instead of duplicate.
             var template = Path.Combine(outputDirectory, "%(id)s.%(ext)s");
 
-            var (exit, stdout, stderr) = await RunAsync(new[]
+            var (exit, stdout, stderr) = await YtDlpProcess.RunAsync(new[]
             {
                 "-x",
                 "--audio-format", "mp3",
@@ -128,21 +99,7 @@ public class YtDlpDownloader : IDownloader
             if (file is null)
                 return new DownloaderDownloadResult(false, null, "yt-dlp reported success but no output file found");
 
-            if (melodyId is not null)
-                Tagging.TaglibHelper.WriteMelodyId(file, melodyId);
-            // --embed-metadata carries the YouTube title; strip common "Artist - Title"
-            // prefixes so media servers show a clean label.
-            try
-            {
-                var embedded = System.IO.Path.GetFileNameWithoutExtension(file);
-                var sep = embedded.IndexOf(" - ", StringComparison.Ordinal);
-                if (sep > 0 && sep < embedded.Length - 3)
-                    Tagging.TaglibHelper.WriteTags(file,
-                        title: embedded[(sep + 3)..].Trim(),
-                        artist: embedded[..sep].Trim());
-            }
-            catch { /* tagging must never fail a download */ }
-
+            TagDownloadedFile(file, melodyId, expectedTitle: null);
             return new DownloaderDownloadResult(true, file, null);
         }
         catch (Exception ex)
@@ -151,7 +108,70 @@ public class YtDlpDownloader : IDownloader
         }
     }
 
-    private static string? FindProducedFile(string jsonOutput, string outputDirectory)
+    /// <summary>
+    /// Parses yt-dlp --dump-single-json output (flat playlist) into a search hit.
+    /// Shared by all yt-dlp-backed plugins.
+    /// </summary>
+    internal static DownloaderSearchHit? ParseFlatPlaylistHit(
+        string stdout, string artist, string fallbackTitle, Func<string, string> urlFromId)
+    {
+        if (string.IsNullOrWhiteSpace(stdout)) return null;
+        using var doc = JsonDocument.Parse(stdout);
+        var entry = doc.RootElement.TryGetProperty("entries", out var entries)
+            && entries.ValueKind == JsonValueKind.Array
+            && entries.GetArrayLength() > 0
+            ? entries[0]
+            : doc.RootElement.TryGetProperty("url", out _)
+                ? doc.RootElement
+                : default;
+
+        if (entry.ValueKind == JsonValueKind.Undefined) return null;
+
+        // Flat-playlist entries expose either a full URL (SoundCloud, …) or just an
+        // ID (YouTube); prefer the full URL when present.
+        var url = entry.TryGetProperty("webpage_url", out var wp) && wp.ValueKind == JsonValueKind.String
+            ? wp.GetString()
+            : entry.TryGetProperty("url", out var u) && u.ValueKind == JsonValueKind.String
+                ? u.GetString()
+                : null;
+        var id = entry.TryGetProperty("id", out var idProp) ? idProp.GetString() : null;
+        var sourceUrl = url ?? (string.IsNullOrEmpty(id) ? null : urlFromId(id!));
+        if (string.IsNullOrEmpty(sourceUrl)) return null;
+
+        return new DownloaderSearchHit(
+            Title: entry.TryGetProperty("title", out var t) ? t.GetString() : fallbackTitle,
+            Artist: artist,
+            SourceUrl: sourceUrl,
+            Duration: entry.TryGetProperty("duration", out var d) && d.TryGetDouble(out var secs)
+                ? TimeSpan.FromSeconds(secs)
+                : null);
+    }
+
+    /// <summary>
+    /// Writes MELODY_ID and, when the filename or metadata contains an
+    /// "Artist - Title" pattern, splits it into proper tags.
+    /// Shared by all yt-dlp-backed plugins.
+    /// </summary>
+    internal static void TagDownloadedFile(string file, string? melodyId, string? expectedTitle)
+    {
+        if (melodyId is not null)
+            Tagging.TaglibHelper.WriteMelodyId(file, melodyId);
+
+        try
+        {
+            var embedded = Path.GetFileNameWithoutExtension(file);
+            var sep = embedded.IndexOf(" - ", StringComparison.Ordinal);
+            if (sep > 0 && sep < embedded.Length - 3)
+                Tagging.TaglibHelper.WriteTags(file,
+                    title: embedded[(sep + 3)..].Trim(),
+                    artist: embedded[..sep].Trim());
+            else if (!string.IsNullOrWhiteSpace(expectedTitle))
+                Tagging.TaglibHelper.WriteTags(file, title: expectedTitle);
+        }
+        catch { /* tagging must never fail a download */ }
+    }
+
+    internal static string? FindProducedFile(string jsonOutput, string outputDirectory)
     {
         // --print-json's "filename" points at the pre-extraction file (e.g. .webm);
         // the real output is {template}_{id}.mp3. Match by video ID + audio ext.
@@ -185,71 +205,6 @@ public class YtDlpDownloader : IDownloader
 
     private static bool IsAudioExtension(string? ext)
         => ext is not null && ext.ToLowerInvariant() is ".mp3" or ".m4a" or ".opus" or ".ogg" or ".flac" or ".wav" or ".webm";
-
-    private async Task<(int exit, string stdout, string stderr)> RunAsync(
-        IReadOnlyList<string> arguments, TimeSpan timeout, CancellationToken ct)
-    {
-        var psi = new ProcessStartInfo
-        {
-            FileName = _ytDlpPath,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-        };
-        foreach (var arg in arguments)
-            psi.ArgumentList.Add(arg);
-
-        using var proc = Process.Start(psi)
-            ?? throw new InvalidOperationException("Failed to start yt-dlp");
-
-        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        timeoutCts.CancelAfter(timeout);
-
-        try
-        {
-            var stdoutTask = proc.StandardOutput.ReadToEndAsync(timeoutCts.Token);
-            var stderrTask = proc.StandardError.ReadToEndAsync(timeoutCts.Token);
-            await proc.WaitForExitAsync(timeoutCts.Token);
-            return (proc.ExitCode, await stdoutTask, await stderrTask);
-        }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
-        {
-            // Our timeout, not the caller's cancellation.
-            try { proc.Kill(entireProcessTree: true); } catch { /* already gone */ }
-            throw new TimeoutException($"yt-dlp did not finish within {timeout.TotalSeconds}s");
-        }
-    }
-
-    private static string? ResolveBinary()
-    {
-        foreach (var name in new[] { "yt-dlp", "yt-dlp_linux", "youtube-dl" })
-        {
-            var found = FindOnPath(name);
-            if (found is not null) return found;
-        }
-        return null;
-    }
-
-    private static string? FindOnPath(string name)
-    {
-        // Windows appends .exe implicitly; on Linux the plain name resolves.
-        var pathEnv = Environment.GetEnvironmentVariable("PATH") ?? "";
-        var separators = OperatingSystem.IsWindows() ? new[] { ';' } : new[] { ':', ';' };
-        foreach (var dir in pathEnv.Split(separators, StringSplitOptions.RemoveEmptyEntries))
-        {
-            try
-            {
-                var candidate = Path.Combine(dir.Trim(), name);
-                var fullPath = OperatingSystem.IsWindows() ? candidate + ".exe" : candidate;
-                if (File.Exists(fullPath)) return fullPath;
-                if (!OperatingSystem.IsWindows() && File.Exists(candidate)) return candidate;
-            }
-            catch { /* unreadable PATH entry */ }
-        }
-        return null;
-    }
-
 
     private static string Truncate(string? s, int max)
         => string.IsNullOrWhiteSpace(s) ? "" : (s.Length <= max ? s : s[..max] + "…");

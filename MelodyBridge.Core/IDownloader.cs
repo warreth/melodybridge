@@ -42,6 +42,9 @@ public interface IDownloader
     /// <summary>Human-readable name shown in the UI.</summary>
     string Name { get; }
 
+    /// <summary>Short description of what/where this plugin downloads from.</summary>
+    string Description => string.Empty;
+
     /// <summary>True when the plugin is operational (binary reachable, service up).</summary>
     Task<bool> IsAvailableAsync(CancellationToken ct = default);
 

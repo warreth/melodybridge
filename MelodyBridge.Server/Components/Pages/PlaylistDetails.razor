@@ -3,6 +3,8 @@
 @using MelodyBridge.Infrastructure.Data
 @inject PlaylistStore Store
 @inject NavigationManager Navigation
+@inject IDbContextFactory<MelodyBridgeDbContext> DbFactory
+@inject IDownloadManager DownloadMgr
 
 <PageTitle>@(playlist?.Name ?? "Playlist") - MelodyBridge</PageTitle>
 
@@ -124,8 +126,18 @@ else
             </div>
             @if (downloading)
             {
-                <div class="hint-box">
-                    Downloading… @downloadProgress.done done, @downloadProgress.failed failed of @downloadProgress.total.
+                <div class="download-live">
+                    <div class="download-live-head">
+                        <strong>Downloading…</strong>
+                        <span>@doneCount + @failedCount of @downloadProgress.total</span>
+                    </div>
+                    <div class="progress-track">
+                        <div class="progress-fill" style="width:@ProgressPercent%"></div>
+                    </div>
+                    @if (currentActivity is not null)
+                    {
+                        <div class="qi-meta">@currentActivity</div>
+                    }
                 </div>
             }
             else if (lastDownloadSummary is not null)
@@ -201,6 +213,14 @@ else
     private bool downloading;
     private (int total, int done, int failed) downloadProgress;
     private string? lastDownloadSummary;
+    private Timer? progressTimer;
+    private int doneCount;
+    private int failedCount;
+    private string? currentActivity;
+
+    private int ProgressPercent => downloadProgress.total == 0
+        ? 0
+        : Math.Min(100, (doneCount + failedCount) * 100 / downloadProgress.total);
 
     protected override async Task OnInitializedAsync() => await Load();
 
@@ -246,7 +266,12 @@ else
     private async Task DownloadMissing()
     {
         downloading = true;
+        doneCount = 0;
+        failedCount = 0;
+        currentActivity = null;
         downloadProgress = (playlist?.Tracks.Count ?? 0, 0, 0);
+
+        progressTimer = new Timer(_ => InvokeAsync(async () => await PollProgressAsync()), null, 800, 800);
         try
         {
             var result = await Store.DownloadMissingAsync(PlaylistId);
@@ -261,8 +286,41 @@ else
         }
         finally
         {
+            progressTimer?.Dispose();
+            progressTimer = null;
             downloading = false;
         }
+    }
+
+    /// <summary>Pulls live counts from the download manager + the DB while a run is active.</summary>
+    private async Task PollProgressAsync()
+    {
+        if (!downloading) return;
+        try
+        {
+            var inFlight = DownloadMgr.SnapshotProgress().ToList();
+            var activity = inFlight.LastOrDefault(p => p.Status is "searching" or "downloading");
+            currentActivity = activity is null
+                ? null
+                : activity.Plugin is null
+                    ? $"{activity.Status} · {activity.Title}"
+                    : $"{activity.Status} · {activity.Title} · {activity.Plugin}";
+
+            // Live counts straight from the database (fresh context every poll).
+            await using var db = await DbFactory.CreateDbContextAsync();
+
+            var pl = await db.Playlists.Include(p => p.Tracks)
+                .AsNoTracking()
+                .FirstOrDefaultAsync(p => p.Id == PlaylistId);
+            if (pl is not null)
+            {
+                doneCount = pl.Tracks.Count(t => t.DownloadStatus == "downloaded");
+                failedCount = pl.Tracks.Count(t => t.DownloadStatus == "failed");
+                downloadProgress = (pl.Tracks.Count, 0, 0);
+            }
+            StateHasChanged();
+        }
+        catch { /* polling must never break the run */ }
     }
 
     private void OnFilterChanged(ChangeEventArgs e) => trackFilter = e.Value?.ToString() ?? string.Empty;

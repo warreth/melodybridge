@@ -30,7 +30,7 @@ pip3 install --user --break-system-packages yt-dlp
 ## What it does
 
 - **Fetch** — public Spotify playlists, no API key or account needed (embed page scraping), stored in SQLite with per-track platform IDs
-- **Download** — tracks via the yt-dlp plugin: YouTube Music search → YouTube fallback, MP3 extraction with embedded metadata
+- **Download** — a three-plugin waterfall: SoundCloud original uploads (320 kbps-capable), Internet Archive recordings, then YouTube via yt-dlp; every plugin quality-gates its files (no low-bitrate rips)
 - **Tag** — every file gets a unique `MELODY_ID` written into its ID3v2 TXXX frame so the library scanner can find it even after moves or renames
 - **Sync modes** — per playlist: *Additive* keeps removed tracks as flagged history, *Mirror* makes the local copy exactly match the source; per-playlist auto-sync intervals
 - **Publish** — sync jobs resolve downloaded tracks into standard M3U files (with `#EXTINF` metadata) or push playlists to Jellyfin

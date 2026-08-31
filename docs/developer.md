@@ -63,7 +63,15 @@ public interface IDownloader
 }
 ```
 
-Implement this to add a download source (the built-in `YtDlpDownloader` searches YouTube Music first, then YouTube). Place implementations in `MelodyBridge.Infrastructure/Downloaders/` and register via `services.AddSingleton<IDownloader, YourPlugin>()`.
+Implement this to add a download source. Built-in plugins:
+
+| Plugin | Id | Source | Notes |
+|---|---|---|---|
+| `SoundCloudDownloader` | `soundcloud` | SoundCloud (via yt-dlp `scsearch`) | Original uploads, often 320 kbps; rejects files under 128 kbps |
+| `ArchiveOrgDownloader` | `archiveorg` | Internet Archive (public JSON APIs) | Public-domain and community recordings; rejects files under 128 kbps |
+| `YtDlpDownloader` | `ytdlp` | YouTube Music → YouTube (via yt-dlp) | Widest fallback, best audio as MP3 |
+
+Default waterfall order: SoundCloud → Archive → YouTube. Place new implementations in `MelodyBridge.Infrastructure/Downloaders/` and register via `services.AddSingleton<IDownloader, YourPlugin>()`. Quality-gate downloads (reject low-bitrate files) so bad rips never enter the library.
 
 `IDownloaderRegistry` manages the plugin waterfall: enable/disable and priority are persisted per plugin in the `ProviderStates` table.
 

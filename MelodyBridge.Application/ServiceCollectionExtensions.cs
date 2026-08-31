@@ -6,6 +6,7 @@ using MelodyBridge.Infrastructure.Playlists;
 using MelodyBridge.Infrastructure.Scanning;
 using MelodyBridge.Infrastructure.Services;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace MelodyBridge.Application;
 
@@ -18,7 +19,17 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ILibraryScanner, LibraryScanner>();
 
         // ── Downloader plugins (the waterfall) ──
-        services.AddSingleton<IDownloader, YtDlpDownloader>();
+        // SoundCloud first (original uploads, often 320 kbps), then the Internet
+        // Archive (public MP3s), YouTube last as the widest fallback.
+        services.AddSingleton<IDownloader>(sp =>
+            new SoundCloudDownloader(sp.GetRequiredService<ILogger<SoundCloudDownloader>>()));
+        services.AddSingleton<IDownloader>(sp =>
+            new ArchiveOrgDownloader(
+                sp.GetRequiredService<IHttpClientFactory>().CreateClient("archiveorg"),
+                sp.GetRequiredService<ILogger<ArchiveOrgDownloader>>()));
+        services.AddSingleton<IDownloader>(sp =>
+            new YtDlpDownloader(sp.GetRequiredService<ILogger<YtDlpDownloader>>()));
+        services.AddHttpClient("archiveorg", c => c.Timeout = TimeSpan.FromMinutes(5));
         services.AddSingleton<IDownloaderRegistry, DownloaderRegistry>();
 
         // Source providers (playlists)

@@ -697,3 +697,57 @@ textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent
     .provider-row { grid-template-columns: 32px 1fr auto; }
     .provider-qualities { display: none; }
 }
+/* ── Downloads page: plugin availability badges ───────────────── */
+.provider-badges {
+    display: flex;
+    align-items: center;
+    gap: .4rem;
+    margin-left: auto;
+    margin-right: .75rem;
+}
+
+/* ── PlaylistDetails: live download progress ───────────────────── */
+.download-live {
+    margin-top: .9rem;
+    padding: .9rem 1rem;
+    border: 1px solid var(--border, rgba(128, 128, 128, .25));
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--accent, #7F5AF0) 6%, transparent);
+}
+
+.download-live-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: .75rem;
+    margin-bottom: .55rem;
+    font-size: .85rem;
+}
+
+.download-live-head span {
+    color: var(--text-muted, #999);
+    font-variant-numeric: tabular-nums;
+}
+
+.progress-track {
+    height: 6px;
+    border-radius: 99px;
+    background: color-mix(in srgb, var(--border, #888) 25%, transparent);
+    overflow: hidden;
+}
+
+.progress-fill {
+    height: 100%;
+    border-radius: 99px;
+    background: linear-gradient(90deg, var(--accent, #7F5AF0), var(--success, #2CB67D));
+    transition: width .5s ease;
+}
+
+.download-live .qi-meta {
+    margin-top: .5rem;
+    font-size: .75rem;
+    color: var(--text-muted, #999);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}

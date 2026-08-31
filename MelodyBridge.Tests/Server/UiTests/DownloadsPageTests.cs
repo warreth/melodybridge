@@ -79,6 +79,24 @@ public class DownloadsPageTests
     }
 
     [Test]
+    public void Downloads_ShowsAvailabilityBadgePerPlugin()
+    {
+        var cut = _ctx.Render<Downloads>();
+        var badges = cut.FindAll(".provider-badges .pill");
+        Assert.That(badges.Count, Is.EqualTo(2), "one badge per plugin");
+        Assert.That(cut.Markup, Does.Contain("ready"),
+            "stub plugins are available, so their badge must read ready");
+    }
+
+    [Test]
+    public void Downloads_ShowsPluginDescriptions()
+    {
+        var cut = _ctx.Render<Downloads>();
+        Assert.That(cut.Markup, Does.Contain("Downloads from yt-dlp (YouTube)"));
+        Assert.That(cut.Markup, Does.Contain("Downloads from Second Plugin"));
+    }
+
+    [Test]
     public void TogglePlugin_RendersCheckboxPerPlugin()
     {
         var cut = _ctx.Render<Downloads>();
@@ -90,6 +108,7 @@ public class DownloadsPageTests
     {
         public string Id { get; }
         public string Name { get; }
+        public string Description => $"Downloads from {Name}";
         public TestDownloader(string id, string name) { Id = id; Name = name; }
 
         public Task<bool> IsAvailableAsync(CancellationToken ct = default) => Task.FromResult(true);

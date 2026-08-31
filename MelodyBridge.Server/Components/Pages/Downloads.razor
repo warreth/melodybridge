@@ -27,11 +27,17 @@
         {
             var plugin = orderedPlugins[i];
             var enabled = Registry.IsEnabled(plugin.Id);
+            var available = availability.TryGetValue(plugin.Id, out var av) && av;
             <div class="provider-row @(enabled ? "enabled" : "disabled")">
-                <span class="provider-icon">@(plugin.Id == "ytdlp" ? "▶" : "🔌")</span>
+                <span class="provider-icon">@(plugin.Id switch { "soundcloud" => "☁", "archiveorg" => "🏛", _ => "▶" })</span>
                 <div class="provider-info">
                     <strong>@plugin.Name</strong>
-                    <small>@plugin.Id</small>
+                    <small>@(string.IsNullOrEmpty(plugin.Description) ? plugin.Id : plugin.Description)</small>
+                </div>
+                <div class="provider-badges">
+                    <span class="pill @(available ? "ok" : "warn")" title="@(available ? "Plugin is operational" : "Plugin currently unavailable (binary missing or service down) — it is skipped in the waterfall")">
+                        @(available ? "ready" : "unavailable")
+                    </span>
                 </div>
                 <div class="provider-actions">
                     <button class="btn-modern small ghost" title="Move up"
@@ -100,6 +106,7 @@
 @code {
     private List<DownloadProgress> progressItems = new();
     private List<IDownloader> orderedPlugins = new();
+    private Dictionary<string, bool> availability = new();
     private Timer? _timer;
     private string? savedMessage;
 
@@ -107,12 +114,24 @@
     {
         _ = Registry.GetEnabled(); // force cache load
         ReorderPlugins();
+        await RefreshAvailability();
         _timer = new Timer(_ => InvokeAsync(async () =>
         {
             progressItems = DownloadMgr.SnapshotProgress().ToList();
             StateHasChanged();
             await Task.CompletedTask;
         }), null, 1000, 1000);
+    }
+
+    private async Task RefreshAvailability()
+    {
+        var results = new Dictionary<string, bool>();
+        foreach (var plugin in orderedPlugins)
+        {
+            try { results[plugin.Id] = await plugin.IsAvailableAsync(); }
+            catch { results[plugin.Id] = false; }
+        }
+        availability = results;
     }
 
     private void ReorderPlugins()
