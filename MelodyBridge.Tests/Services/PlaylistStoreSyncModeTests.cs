@@ -253,23 +253,23 @@ public async Task UpdateSettingsAsync_PersistsPreferredFormat()
         await using (var db = await factory.CreateDbContextAsync())
         {
             var fresh = await db.Playlists.AsNoTracking().SingleAsync(p => p.Id == added.Id);
-            Assert.That(fresh.PreferredFormat, Is.EqualTo("320"));
+            Assert.That(fresh.PreferredFormat, Is.EqualTo("auto"));
         }
 
         // Valid value round-trips.
-        await store.UpdateSettingsAsync(added.Id, null, false, null, null, null, "best");
+        await store.UpdateSettingsAsync(added.Id, null, false, null, null, null, "mp3:192-320");
         await using (var db = await factory.CreateDbContextAsync())
         {
             var fresh = await db.Playlists.AsNoTracking().SingleAsync(p => p.Id == added.Id);
-            Assert.That(fresh.PreferredFormat, Is.EqualTo("best"));
+            Assert.That(fresh.PreferredFormat, Is.EqualTo("mp3:192-320"));
         }
 
-        // Invalid values fall back to 320 instead of storing garbage.
+        // Invalid values fall back to the safe default instead of storing garbage.
         await store.UpdateSettingsAsync(added.Id, null, false, null, null, null, "flac-with-vibes");
         await using (var db = await factory.CreateDbContextAsync())
         {
             var fresh = await db.Playlists.AsNoTracking().SingleAsync(p => p.Id == added.Id);
-            Assert.That(fresh.PreferredFormat, Is.EqualTo("320"));
+            Assert.That(fresh.PreferredFormat, Is.EqualTo("auto"));
         }
     }
     finally
@@ -279,13 +279,40 @@ public async Task UpdateSettingsAsync_PersistsPreferredFormat()
 }
 
 [Test]
-public void MinimumKbps_MapsAllUiFormats()
+public void ParseQuality_MapsFormatAndRange()
 {
-    Assert.That(PlaylistStore.MinimumKbps("best"), Is.EqualTo(256));
-    Assert.That(PlaylistStore.MinimumKbps("320"), Is.EqualTo(320));
-    Assert.That(PlaylistStore.MinimumKbps("192"), Is.EqualTo(192));
-    Assert.That(PlaylistStore.MinimumKbps("128"), Is.EqualTo(128));
-    Assert.That(PlaylistStore.MinimumKbps(null), Is.EqualTo(128), "unknown value falls back to 128");
+    var any = PlaylistStore.ParseQuality(null);
+    Assert.That(any.Format, Is.EqualTo(AudioFormat.Auto));
+    Assert.That(any.MinKbps, Is.EqualTo(0), "auto accepts any bitrate");
+
+    var mp3 = PlaylistStore.ParseQuality("mp3");
+    Assert.That(mp3.Format, Is.EqualTo(AudioFormat.Mp3));
+    Assert.That(mp3.MinKbps, Is.EqualTo(128), "a plain format gets the default floor");
+
+    var ranged = PlaylistStore.ParseQuality("mp3:192-320");
+    Assert.That(ranged.Format, Is.EqualTo(AudioFormat.Mp3));
+    Assert.That(ranged.MinKbps, Is.EqualTo(192));
+    Assert.That(ranged.MaxKbps, Is.EqualTo(320));
+
+    var ceilingOnly = PlaylistStore.ParseQuality("mp3:-320");
+    Assert.That(ceilingOnly.MinKbps, Is.EqualTo(0));
+    Assert.That(ceilingOnly.MaxKbps, Is.EqualTo(320));
+
+    var floorOnly = PlaylistStore.ParseQuality("flac:900-");
+    Assert.That(floorOnly.Format, Is.EqualTo(AudioFormat.Flac));
+    Assert.That(floorOnly.MinKbps, Is.EqualTo(900));
+    Assert.That(floorOnly.MaxKbps, Is.Null);
+}
+
+[Test]
+public void IsValidFormat_RejectsGarbage()
+{
+    Assert.That(PlaylistStore.IsValidFormat("auto"), Is.True);
+    Assert.That(PlaylistStore.IsValidFormat("mp3:192-320"), Is.True);
+    Assert.That(PlaylistStore.IsValidFormat("opus"), Is.True);
+    Assert.That(PlaylistStore.IsValidFormat("flac-with-vibes"), Is.False);
+    Assert.That(PlaylistStore.IsValidFormat("mp3:abc"), Is.False);
+    Assert.That(PlaylistStore.IsValidFormat("wav:1-2-3"), Is.False);
 }
 
     private static void TryDelete(string dbPath)

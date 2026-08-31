@@ -1,5 +1,8 @@
 @page "/settings"
 @using MelodyBridge.Core
+@using MelodyBridge.Infrastructure.Audio
+@using MelodyBridge.Infrastructure.Cloudflare
+@using MelodyBridge.Infrastructure.Services
 @using MelodyBridge.Server.Services
 @inject IDownloaderRegistry DownloaderRegistry
 @inject IDbContextFactory<MelodyBridgeDbContext> DbFactory
@@ -103,6 +106,35 @@
             </div>
         </section>
 
+        @* ── Download quality ── *@
+        <section class="panel-card">
+            <div class="panel-header">
+                <div>
+                    <span class="eyebrow">Verification</span>
+                    <h2>Real quality check</h2>
+                </div>
+            </div>
+            <div class="hint-box">
+                Some sites hand out files that pretend to be 320 kbps but hold
+                far less. The spectrum check measures what a file really
+                contains and warns you next to the track when it looks inflated.
+            </div>
+            <div class="form-grid two">
+                <label>
+                    Spectrum check
+                    <select @bind="spectrumMode">
+                        <option value="Off">Off: trust the file</option>
+                        <option value="Fast">Fast: check the first minute (recommended)</option>
+                        <option value="Thorough">Thorough: check the whole file</option>
+                    </select>
+                </label>
+                <label>
+                    Cloudflare solver (Lucida)
+                    <input @bind="flaresolverrUrl" placeholder="http://flaresolverr:8191 or off" />
+                </label>
+            </div>
+        </section>
+
         @if (!string.IsNullOrWhiteSpace(savedMessage))
         {
             <div class="toast-preview">@savedMessage</div>
@@ -148,6 +180,7 @@
         </section>
 
 @code {
+    // (SpectrumMode lives in MelodyBridge.Infrastructure.Audio)
     private string jellyfinUrl = "http://host.docker.internal:8096";
     private string jellyfinApiKey = "";
     private string jellyfinUserId = "";
@@ -155,7 +188,18 @@
     private string playlistPath = "/app/playlists";
     private int autoScanIntervalSec = 60;
     private int syncCheckIntervalSec = 300;
+    private string spectrumMode = "Fast";
+    private string flaresolverrUrl = "off";
     private string? savedMessage;
+
+    [Inject] private IConfiguration Config { get; set; } = null!;
+
+    private static SpectrumMode SpectrumModeValue(string mode) => mode switch
+    {
+        "Off" => SpectrumMode.Off,
+        "Thorough" => SpectrumMode.Thorough,
+        _ => SpectrumMode.Fast,
+    };
 
     protected override async Task OnInitializedAsync()
     {
@@ -168,6 +212,8 @@
         playlistPath = FindSetting(settings, "playlist_path", "/app/playlists");
         autoScanIntervalSec = int.Parse(FindSetting(settings, "auto_scan_interval", "60"));
         syncCheckIntervalSec = int.Parse(FindSetting(settings, "sync_check_interval", "300"));
+        spectrumMode = FindSetting(settings, "spectrum_mode", Config?["SpectrumAnalysis:Mode"] ?? "Fast");
+        flaresolverrUrl = FindSetting(settings, "flaresolverr_url", Config?["FlareSolverr:Url"] ?? "off");
     }
 
     private static string FindSetting(List<DownloaderSettingEntity> settings, string key, string fallback)
@@ -189,7 +235,11 @@
         await Upsert(db, "playlist_path", playlistPath);
         await Upsert(db, "auto_scan_interval", autoScanIntervalSec.ToString());
         await Upsert(db, "sync_check_interval", syncCheckIntervalSec.ToString());
+        await Upsert(db, "spectrum_mode", spectrumMode);
+        await Upsert(db, "flaresolverr_url", flaresolverrUrl);
         await db.SaveChangesAsync();
+        PlaylistStore.SpectrumVerification = () => SpectrumModeValue(spectrumMode);
+        FlareSolverrSolver.Url = flaresolverrUrl;
         savedMessage = "Settings saved.";
     }
 

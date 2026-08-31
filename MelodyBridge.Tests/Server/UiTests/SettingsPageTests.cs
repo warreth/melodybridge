@@ -52,6 +52,8 @@ public class SettingsPageTests
         var logCollector = new LogCollector();
         _ctx.Services.AddSingleton<ILogCollector>(logCollector);
         _ctx.Services.AddSingleton(new LogExporter(logCollector));
+        _ctx.Services.AddSingleton<Microsoft.Extensions.Configuration.IConfiguration>(
+            new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build());
     }
 
     [TearDown]
@@ -79,6 +81,20 @@ public class SettingsPageTests
         var cut = _ctx.Render<Settings>();
         Assert.That(cut.Markup, Does.Contain("Music path"));
         Assert.That(cut.Markup, Does.Contain("Playlist output folder"));
+    }
+
+    [Test]
+    public void Settings_ShowsQualityVerificationPanel()
+    {
+        var cut = _ctx.Render<Settings>();
+        Assert.That(cut.Markup, Does.Contain("Real quality check"),
+            "the spectral verification panel must be on the page");
+        Assert.That(cut.Markup, Does.Contain("Spectrum check"));
+        Assert.That(cut.Markup, Does.Contain("Cloudflare solver (Lucida)"),
+            "the FlareSolverr URL field must be on the page");
+        Assert.That(cut.FindAll("select option").Count(o =>
+            o.TextContent.Contains("Thorough")), Is.GreaterThanOrEqualTo(1),
+            "the thorough mode must be selectable");
     }
 
     [Test]
@@ -111,7 +127,7 @@ public class SettingsPageTests
         public TestDownloader(string id, string name) { Id = id; Name = name; }
 
         public Task<bool> IsAvailableAsync(CancellationToken ct = default) => Task.FromResult(true);
-        public Task<DownloaderSearchHit?> SearchAsync(string artist, string title, int minimumKbps, CancellationToken ct = default)
+        public Task<DownloaderSearchHit?> SearchAsync(string artist, string title, DownloadQuality quality, CancellationToken ct = default)
             => Task.FromResult<DownloaderSearchHit?>(null);
         public Task<DownloaderDownloadResult> DownloadAsync(string sourceUrl, string outputDirectory, string? melodyId, CancellationToken ct = default)
             => Task.FromResult(new DownloaderDownloadResult(false, null, "mock"));

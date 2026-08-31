@@ -624,7 +624,7 @@ public class TestDownloader : IDownloader
 
     public Task<bool> IsAvailableAsync(CancellationToken ct = default) => Task.FromResult(true);
 
-    public Task<DownloaderSearchHit?> SearchAsync(string artist, string title, int minimumKbps, CancellationToken ct = default)
+    public Task<DownloaderSearchHit?> SearchAsync(string artist, string title, DownloadQuality quality, CancellationToken ct = default)
         => Task.FromResult<DownloaderSearchHit?>(null);
 
     public Task<DownloaderDownloadResult> DownloadAsync(
