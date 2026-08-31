@@ -286,8 +286,10 @@ code { color: var(--accent-strong); background: var(--accent-soft); border-radiu
     background: var(--surface-2);
     color: var(--muted);
 }
+.qi-warn { color: var(--warning); font-weight: 600; margin-left: .5rem; }
+
 .pill.ok { color: var(--success); background: color-mix(in srgb, var(--success) 12%, transparent); }
-.pill.warn { color: var(--warning); background: color-mix(in srgb, var(--warning) 12%, transparent); }
+.pill.warn, .pill.warning { color: var(--warning); background: color-mix(in srgb, var(--warning) 12%, transparent); }
 .pill.neutral { color: var(--accent-strong); background: var(--accent-soft); }
 
 .status-dot { width: 9px; height: 9px; border-radius: 999px; display: inline-block; }
@@ -592,6 +594,8 @@ textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent
 .result-box.error { background: rgba(239, 68, 68, .1); color: var(--danger); border: 1px solid var(--danger); }
 
 /* -- Pills ----------------------------------------------- */
+.qi-warn { color: var(--warning); font-weight: 600; margin-left: .5rem; }
+
 .pill.ok { background: var(--accent-soft); color: var(--accent-strong); }
 .pill.err { background: rgba(239, 68, 68, .12); color: var(--danger); }
 .pill.warn { background: rgba(245, 158, 11, .12); color: var(--warning); }

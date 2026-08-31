@@ -81,15 +81,29 @@ else
                     Download folder
                     <input @bind="editTargetDirectory" placeholder="/music/downloads" />
                 </label>
-                <label>
-                    Minimum quality
-                    <select @bind="editPreferredFormat">
-                        @foreach (var fmt in MelodyBridge.Infrastructure.Services.PlaylistStore.ValidFormats)
-                        {
-                            <option value="@fmt">@(fmt switch { "best" => "Best available (256 kbps+ or lossless)", _ => $"{fmt} kbps MP3" })</option>
-                        }
-                    </select>
-                </label>
+                <div class="form-grid two">
+                    <label>
+                        File format
+                        <select @bind="editFormat">
+                            @foreach (var fmt in MelodyBridge.Infrastructure.Services.PlaylistStore.FormatOptions)
+                            {
+                                <option value="@fmt">@(fmt switch
+                                {
+                                    "auto" => "Same as source (no conversion)",
+                                    "mp3" => "MP3 (plays everywhere)",
+                                    "flac" => "FLAC (lossless)",
+                                    "opus" => "Opus (small and modern)",
+                                    "aac" => "AAC (Apple-friendly)",
+                                    _ => fmt
+                                })</option>
+                            }
+                        </select>
+                    </label>
+                    <label>
+                        Bitrate range (kbps, optional)
+                        <input @bind="editBitrateRange" placeholder="e.g. 192-320" />
+                    </label>
+                </div>
                 <label class="toggle-row">
                     <input type="checkbox" @bind="editAutoSync" />
                     <span>Auto-sync this playlist</span>
@@ -194,6 +208,10 @@ else
                                     <span class="pill @(DownloadStatusClass(track.DownloadStatus))">
                                         @(track.DownloadStatus ?? "pending")
                                     </span>
+                                    @if (!string.IsNullOrWhiteSpace(track.Warning))
+                                    {
+                                        <span class="pill warning" title="@track.Warning">⚠ check</span>
+                                    }
                                 </td>
                             </tr>
                         }
@@ -215,7 +233,13 @@ else
 
     private string editName = string.Empty;
     private string editTargetDirectory = string.Empty;
-    private string editPreferredFormat = "320";
+    private string editFormat = "auto";
+    private string editBitrateRange = string.Empty;
+
+    /// <summary>Combines format and range into the stored PreferredFormat ("mp3:192-320").</summary>
+    private string editPreferredFormat => string.IsNullOrWhiteSpace(editBitrateRange)
+        ? editFormat
+        : $"{editFormat}:{editBitrateRange}";
     private bool editAutoSync;
     private int editInterval = 60;
     private PlaylistSyncMode editSyncMode = PlaylistSyncMode.Additive;
@@ -242,7 +266,9 @@ else
         {
             editName = playlist.Name;
             editTargetDirectory = playlist.TargetDirectory ?? string.Empty;
-            editPreferredFormat = playlist.PreferredFormat ?? "320";
+            var parts = (playlist.PreferredFormat ?? "auto").Split(':', 2);
+            editFormat = parts[0];
+            editBitrateRange = parts.Length == 2 ? parts[1] : string.Empty;
             editAutoSync = playlist.AutoSyncEnabled;
             editInterval = playlist.AutoSyncIntervalMinutes ?? 60;
             editSyncMode = Enum.TryParse<PlaylistSyncMode>(playlist.SyncMode, out var mode)

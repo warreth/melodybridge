@@ -83,7 +83,17 @@
                     </span>
                     <div style="flex:1; min-width:0;">
                         <strong>@item.Title</strong>
-                        <div class="qi-meta">@item.Status@(item.Plugin is null ? "" : $" · {item.Plugin}")</div>
+                        <div class="qi-meta">
+                            @item.Status@(item.Plugin is null ? "" : $" · {item.Plugin}")
+                            @if (item.MatchConfidence == MatchConfidence.Low)
+                            {
+                                <span class="qi-warn" title="This track was not matched with certainty: please double-check it.">⚠ unsure match</span>
+                            }
+                            @if (item.Warning is not null)
+                            {
+                                <span class="qi-warn" title="@item.Warning">⚠ @item.Warning</span>
+                            }
+                        </div>
                         @if (item.FilePath is not null)
                         {
                             <div class="qi-path">@item.FilePath</div>

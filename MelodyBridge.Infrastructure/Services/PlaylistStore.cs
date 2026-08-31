@@ -1,5 +1,6 @@
 using System.Text.Json;
 using MelodyBridge.Core;
+using MelodyBridge.Infrastructure.Audio;
 using MelodyBridge.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -18,6 +19,13 @@ public class PlaylistStore
     private readonly IEnumerable<ISourceProvider> _providers;
     private readonly IDownloadManager _downloadManager;
     private readonly ILogger<PlaylistStore> _logger;
+
+    /// <summary>
+    /// Post-download spectral verification strictness. Static: one app-wide
+    /// setting that the Server sets at startup and the Settings page can
+    /// flip without touching DI lifetimes.
+    /// </summary>
+    public static Func<SpectrumMode> SpectrumVerification { get; set; } = () => SpectrumMode.Fast;
 
     public PlaylistStore(
         IDbContextFactory<MelodyBridgeDbContext> dbFactory,
@@ -57,6 +65,7 @@ public class PlaylistStore
 
         var downloaded = 0;
         var failed = 0;
+        var spectrumMode = SpectrumVerification();
 
         foreach (var track in pending)
         {
@@ -76,7 +85,7 @@ public class PlaylistStore
             {
                 var path = await _downloadManager.DownloadTrackAsync(
                     track.Artist!, track.Title!, dir, track.MelodyId!,
-                    MinimumKbps(entity.PreferredFormat), ct);
+                    ParseQuality(entity.PreferredFormat), ct);
 
                 if (path is null)
                 {
@@ -86,9 +95,19 @@ public class PlaylistStore
                 }
                 else
                 {
+                    // Write-through: the file always ends up with full tags,
+                    // whatever the plugin could or could not read from the source.
+                    Tagging.TaglibHelper.WriteTags(
+                        path,
+                        title: track.Title,
+                        artist: track.Artist,
+                        album: track.Album,
+                        track: (uint?)track.Position);
+
                     track.DownloadStatus = "downloaded";
                     track.CurrentPath = path;
                     track.LastSeenAt = DateTime.UtcNow;
+                    track.Warning = BuildWarning(track, path, spectrumMode);
                     downloaded++;
                 }
             }
@@ -102,21 +121,58 @@ public class PlaylistStore
             await db.SaveChangesAsync(ct);
         }
 
-        _logger.LogInformation("Download run for '{Playlist}' (min {Min} kbps): {Downloaded} downloaded, {Failed} failed",
-            entity.Name, MinimumKbps(entity.PreferredFormat), downloaded, failed);
+        _logger.LogInformation("Download run for '{Playlist}' ({Quality}): {Downloaded} downloaded, {Failed} failed",
+            entity.Name, entity.PreferredFormat, downloaded, failed);
 
         return (downloaded, failed);
     }
 
-    /// <summary>Maps a playlist's PreferredFormat to the waterfall's kbps floor.</summary>
-    internal static int MinimumKbps(string? preferredFormat) => preferredFormat switch
+    /// <summary>
+    /// Builds the warning shown next to a downloaded track: low search
+    /// confidence and spectral doubts from the post-download verification.
+    /// </summary>
+    private static string? BuildWarning(TrackEntity track, string path, SpectrumMode spectrumMode)
     {
-        "best" => 256, // lossless is best-effort; still refuse murk
-        "320" => 320,
-        "192" => 192,
-        "128" => 128,
-        _ => 128,
-    };
+        var warnings = new List<string>();
+
+        if (SpectrumAnalyzer.Verify(path, spectrumMode) is { } spectrum)
+        {
+            if (spectrum.LooksInflated)
+                warnings.Add($"bitrate looks inflated: {spectrum.Note}");
+            else if (spectrum.EffectiveKbpsClass is > 0 and < 320)
+                warnings.Add($"quality hint: {spectrum.Note}");
+        }
+
+        return warnings.Count == 0 ? null : string.Join("; ", warnings);
+    }
+
+    /// <summary>
+    /// Maps a playlist's PreferredFormat to the waterfall quality.
+    /// Format: "auto" | "mp3" | "flac" | "opus" | "aac", optionally
+    /// suffixed with a bitrate range: "mp3:192-320", "mp3:-320", "mp3:320-".
+    /// </summary>
+    internal static DownloadQuality ParseQuality(string? preferredFormat)
+    {
+        preferredFormat ??= "auto";
+        var parts = preferredFormat.Split(':', 2);
+        var format = parts[0].ToLowerInvariant() switch
+        {
+            "mp3" => AudioFormat.Mp3,
+            "flac" => AudioFormat.Flac,
+            "opus" => AudioFormat.Opus,
+            "aac" => AudioFormat.Aac,
+            _ => AudioFormat.Auto,
+        };
+
+        if (parts.Length < 2)
+            return new DownloadQuality(format, format == AudioFormat.Auto ? 0 : 128);
+
+        // "min-max", "-max" (no floor), "min-" (no ceiling).
+        var range = parts[1].Split('-', 2);
+        var min = int.TryParse(range[0], out var lo) && lo > 0 ? lo : 0;
+        var max = range.Length == 2 && int.TryParse(range[1], out var hi) && hi > 0 ? hi : (int?)null;
+        return new DownloadQuality(format, min, max);
+    }
 
     /// <summary>All persisted playlists (without tracks), newest sync first.</summary>
     public async Task<List<PlaylistEntity>> GetAllAsync(CancellationToken ct = default)
@@ -308,12 +364,27 @@ public class PlaylistStore
         if (targetDirectory is { Length: > 0 } dir) entity.TargetDirectory = dir;
         if (syncMode is not null) entity.SyncMode = syncMode.Value.ToString();
         if (preferredFormat is { Length: > 0 } fmt)
-            entity.PreferredFormat = PlaylistStore.ValidFormats.Contains(fmt) ? fmt : "320";
+            entity.PreferredFormat = PlaylistStore.IsValidFormat(fmt) ? fmt : "auto";
         await db.SaveChangesAsync(ct);
     }
 
-    /// <summary>Allowed PreferredFormat values shown in the UI dropdown.</summary>
-    public static readonly string[] ValidFormats = { "best", "320", "192", "128" };
+    /// <summary>Base format values shown in the UI dropdown.</summary>
+    public static readonly string[] FormatOptions = { "auto", "mp3", "flac", "opus", "aac" };
+
+    /// <summary>Validates a PreferredFormat string ("mp3", "mp3:192-320", ...).</summary>
+    public static bool IsValidFormat(string value)
+    {
+        var parts = value.Split(':', 2);
+        if (!FormatOptions.Contains(parts[0].ToLowerInvariant())) return false;
+        if (parts.Length == 1) return true;
+
+        var range = parts[1].Split('-', 2);
+        if (range.Length > 2) return false;
+        foreach (var side in range)
+            if (side.Length > 0 && (!int.TryParse(side, out var n) || n <= 0))
+                return false;
+        return true;
+    }
 
     /// <summary>
     /// All playlists whose auto-sync interval has elapsed.

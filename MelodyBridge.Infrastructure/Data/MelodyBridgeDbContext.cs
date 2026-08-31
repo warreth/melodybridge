@@ -124,6 +124,11 @@ public class TrackEntity
     /// <summary>Status of the local file for this track (downloaded / pending / failed).</summary>
     public string? DownloadStatus { get; set; }
     public string? DownloadError { get; set; }
+    /// <summary>
+    /// Warning shown next to the track in the UI: low match confidence,
+    /// spectral quality doubts. Null when everything is fine.
+    /// </summary>
+    public string? Warning { get; set; }
     public DateTime? LastSeenAt { get; set; }
     public int? PlaylistSnapshotId { get; set; }
 }
@@ -153,11 +158,11 @@ public class PlaylistEntity
     /// <summary>Directory where downloaded files for this playlist are placed.</summary>
     public string? TargetDirectory { get; set; }
     /// <summary>
-    /// Minimum audio quality for this playlist's downloads:
-    /// "best" (lossless or highest bitrate), "320" (320 kbps MP3),
-    /// "192" (192 kbps MP3). Plugins skip sources below it.
+    /// Audio format this playlist downloads as:
+    /// "auto" | "mp3" | "flac" | "opus" | "aac",
+    /// optionally with a bitrate range suffix, e.g. "mp3:192-320".
     /// </summary>
-    public string PreferredFormat { get; set; } = "320";
+    public string PreferredFormat { get; set; } = "auto";
     public List<TrackEntity> Tracks { get; set; } = new();
 }
 

@@ -36,10 +36,13 @@ public static class TaglibHelper
     }
 
     /// <summary>
-    /// Writes standard title/artist/album tags. Missing values are left untouched.
+    /// Writes standard tags. Missing values are left untouched.
     /// Non-fatal: failures are swallowed (tagging must never break a download).
     /// </summary>
-    public static void WriteTags(string filePath, string? title = null, string? artist = null, string? album = null)
+    public static void WriteTags(
+        string filePath, string? title = null, string? artist = null,
+        string? album = null, string? albumArtist = null, uint? track = null,
+        uint? year = null, byte[]? coverArt = null)
     {
         try
         {
@@ -47,11 +50,33 @@ public static class TaglibHelper
             if (!string.IsNullOrWhiteSpace(title)) file.Tag.Title = title;
             if (!string.IsNullOrWhiteSpace(artist)) file.Tag.Performers = new[] { artist };
             if (!string.IsNullOrWhiteSpace(album)) file.Tag.Album = album;
+            if (!string.IsNullOrWhiteSpace(albumArtist)) file.Tag.AlbumArtists = new[] { albumArtist };
+            if (track is > 0) file.Tag.Track = track.Value;
+            if (year is > 0) file.Tag.Year = year.Value;
+            if (coverArt is { Length: > 0 })
+                file.Tag.Pictures = new[] { new TagLib.Picture(coverArt) };
             file.Save();
         }
         catch
         {
             // Non-fatal: tagging failure
+        }
+    }
+
+    /// <summary>
+    /// True when the file already carries a real title tag (not a filename
+    /// stub), so the caller can decide whether to overwrite it.
+    /// </summary>
+    public static bool HasTitleTag(string filePath)
+    {
+        try
+        {
+            var file = TagLib.File.Create(filePath);
+            return !string.IsNullOrWhiteSpace(file.Tag.Title);
+        }
+        catch
+        {
+            return false;
         }
     }
 
