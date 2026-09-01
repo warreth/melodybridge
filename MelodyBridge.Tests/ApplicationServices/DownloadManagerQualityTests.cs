@@ -52,6 +52,8 @@ public class DownloadManagerQualityTests
         public Task<int> GetPriorityAsync(string id, CancellationToken ct = default) => Task.FromResult(0);
         public Task SetPriorityAsync(string id, int priority, CancellationToken ct = default) => Task.CompletedTask;
         public Task SetOrderAsync(IReadOnlyList<string> orderedIds, CancellationToken ct = default) => Task.CompletedTask;
+    public Task<string> GetConfigAsync(string id, string key, CancellationToken ct = default) => Task.FromResult("");
+    public Task SetConfigAsync(string id, string key, string? value, CancellationToken ct = default) => Task.CompletedTask;
     }
 
     private string _dir = null!;
@@ -101,7 +103,7 @@ public class DownloadManagerQualityTests
                 new FileDownloader("fit", "Fit Plugin", fitHit, file: fitFile)),
             NullLogger<DownloadManager>.Instance);
 
-        var path = await manager.DownloadTrackAsync("Artist", "Song", _dir, "mel-1", quality: new DownloadQuality(AudioFormat.Mp3, 256));
+        var path = await manager.DownloadTrackAsync("Artist", "Song", _dir, "mel-1", quality: new DownloadQuality(AudioFormat.Mp3, MinKbps: null, MaxKbps: 256));
 
         Assert.That(path, Does.StartWith(Path.Combine(_dir, "fit")),
             "the 320 kbps hit is above the 256 cap: the 192 kbps plugin must win");
@@ -116,7 +118,7 @@ public class DownloadManagerQualityTests
             new ListRegistry(new FileDownloader("u", "Unknown Plugin", unknown)),
             NullLogger<DownloadManager>.Instance);
 
-        var path = await manager.DownloadTrackAsync("Artist", "Song", _dir, "mel-2", quality: new DownloadQuality(AudioFormat.Mp3, 128));
+        var path = await manager.DownloadTrackAsync("Artist", "Song", _dir, "mel-2", quality: new DownloadQuality(AudioFormat.Mp3, MinKbps: null, MaxKbps: 128));
 
         Assert.That(path, Is.Null, "no file was produced by the stub, so no path is returned");
     }
@@ -132,7 +134,7 @@ public class DownloadManagerQualityTests
             new ListRegistry(new FileDownloader("d", "D Plugin", hit, file: fat)),
             NullLogger<DownloadManager>.Instance);
 
-        var path = await manager.DownloadTrackAsync("Artist", "Song", _dir, "mel-3", quality: new DownloadQuality(AudioFormat.Mp3, 128));
+        var path = await manager.DownloadTrackAsync("Artist", "Song", _dir, "mel-3", quality: new DownloadQuality(AudioFormat.Mp3, MinKbps: null, MaxKbps: 128));
 
         Assert.That(path, Is.Null, "a measured 320 kbps file must not survive a 128 kbps cap");
         var copies = Directory.EnumerateFiles(_dir, "d-*.mp3").ToList();
@@ -149,7 +151,7 @@ public class DownloadManagerQualityTests
             new ListRegistry(new FileDownloader("d", "D Plugin", hit, file: fit)),
             NullLogger<DownloadManager>.Instance);
 
-        var path = await manager.DownloadTrackAsync("Artist", "Song", _dir, "mel-4", quality: new DownloadQuality(AudioFormat.Mp3, 320));
+        var path = await manager.DownloadTrackAsync("Artist", "Song", _dir, "mel-4", quality: new DownloadQuality(AudioFormat.Mp3, MinKbps: null, MaxKbps: 320));
 
         Assert.That(path, Is.Not.Null, "a measured 128 kbps file is within a 320 kbps cap");
         Assert.That(path, Does.StartWith(Path.Combine(_dir, "d-")));
@@ -157,10 +159,65 @@ public class DownloadManagerQualityTests
     }
 
     [Test]
+    public async Task HitBelowMin_IsSkipped_NextPluginWins()
+    {
+        var thinHit = new DownloaderSearchHit("Thin Rip", "Artist", "https://thin.example/1", TimeSpan.FromSeconds(200), BitrateKbps: 96);
+        var fatHit = new DownloaderSearchHit("Fit Rip", "Artist", "https://fit.example/1", TimeSpan.FromSeconds(200), BitrateKbps: 320);
+        var fatFile = MakeRealMp3(320);
+
+        var manager = new DownloadManager(
+            new ListRegistry(
+                new FileDownloader("thin", "Thin Plugin", thinHit),
+                new FileDownloader("fat", "Fat Plugin", fatHit, file: fatFile)),
+            NullLogger<DownloadManager>.Instance);
+
+        var path = await manager.DownloadTrackAsync("Artist", "Song", _dir, "mel-5",
+            quality: new DownloadQuality(AudioFormat.Mp3, MinKbps: 192, MaxKbps: 320));
+
+        Assert.That(path, Does.StartWith(Path.Combine(_dir, "fat")),
+            "the 96 kbps hit is below the 192 kbps floor: the 320 kbps plugin must win");
+    }
+
+    [Test]
+    public async Task DownloadedFileBelowMin_IsRejectedAndDeleted()
+    {
+        // Real 96 kbps file, requested band 192-320: the post-download
+        // measurement must reject and delete it — min is as hard as the cap.
+        var thin = MakeRealMp3(96);
+        var hit = new DownloaderSearchHit("Thin", "Artist", "https://thin.example/1", null);
+        var manager = new DownloadManager(
+            new ListRegistry(new FileDownloader("d", "D Plugin", hit, file: thin)),
+            NullLogger<DownloadManager>.Instance);
+
+        var path = await manager.DownloadTrackAsync("Artist", "Song", _dir, "mel-6",
+            quality: new DownloadQuality(AudioFormat.Mp3, MinKbps: 192, MaxKbps: 320));
+
+        Assert.That(path, Is.Null, "a measured 96 kbps file must not survive a 192 kbps floor");
+        var copies = Directory.EnumerateFiles(_dir, "d-*.mp3").ToList();
+        Assert.That(copies, Is.Empty, "the rejected file must be deleted");
+    }
+
+    [Test]
+    public async Task DownloadedFileWithinBand_IsKept()
+    {
+        var fit = MakeRealMp3(256);
+        var hit = new DownloaderSearchHit("Fit", "Artist", "https://fit.example/1", null);
+        var manager = new DownloadManager(
+            new ListRegistry(new FileDownloader("d", "D Plugin", hit, file: fit)),
+            NullLogger<DownloadManager>.Instance);
+
+        var path = await manager.DownloadTrackAsync("Artist", "Song", _dir, "mel-7",
+            quality: new DownloadQuality(AudioFormat.Mp3, MinKbps: 192, MaxKbps: 320));
+
+        Assert.That(path, Is.Not.Null, "a measured 256 kbps file is within the 192-320 band");
+        Assert.That(File.Exists(path), Is.True);
+    }
+
+    [Test]
     public void Quality_PassesCapToPlugins()
     {
         var downloader = new FileDownloader("q", "Q", null);
-        var _ = new DownloadQuality(AudioFormat.Mp3, 192);
+        var _ = new DownloadQuality(AudioFormat.Mp3, MinKbps: null, MaxKbps: 192);
         Assert.That(_.YtDlpAudioQuality, Is.EqualTo("192K"));
         Assert.That(new DownloadQuality(AudioFormat.Mp3).YtDlpAudioQuality, Is.EqualTo("0"), "no cap = best VBR");
         Assert.That(new DownloadQuality(AudioFormat.Auto).NeedsTranscode, Is.False, "auto keeps the source codec");

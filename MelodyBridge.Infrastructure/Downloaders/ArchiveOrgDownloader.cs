@@ -59,8 +59,8 @@ public class ArchiveOrgDownloader : IDownloader
 
                 // Look up the first MP3 file inside the item.
                 var hit = await TryFindMp3InItem(identifier!, artist, title, ct);
-                // Real per-file bitrate is known before downloading; honor the range.
-                if (hit is not null && quality.IsWithinCap(hit.BitrateKbps))
+                // Real per-file bitrate is known before downloading; honor the band.
+                if (hit is not null && quality.IsWithinBand(hit.BitrateKbps))
                     return hit;
             }
         }

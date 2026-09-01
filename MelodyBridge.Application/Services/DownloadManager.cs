@@ -80,12 +80,13 @@ public class DownloadManager : IDownloadManager
                     continue;
                 }
 
-                // Quality gate: reject reported bitrates outside the requested range.
-                if (!quality.IsWithinCap(hit.BitrateKbps))
+                // Quality gate: reject reported bitrates outside the requested band.
+                if (!quality.IsWithinBand(hit.BitrateKbps))
                 {
                     _logger.LogInformation(
-                        "{Name} hit for '{Title}' is {Hit} kbps, above the requested {Max} kbps cap; skipping",
-                        downloader.Name, title, hit.BitrateKbps, quality.MaxKbps?.ToString() ?? "any");
+                        "{Name} hit for '{Title}' is {Hit} kbps, outside the requested {Min}–{Max} kbps band; skipping",
+                        downloader.Name, title, hit.BitrateKbps,
+                        quality.MinKbps?.ToString() ?? "any", quality.MaxKbps?.ToString() ?? "any");
                     continue;
                 }
 
@@ -94,14 +95,15 @@ public class DownloadManager : IDownloadManager
                 var result = await downloader.DownloadAsync(hit.SourceUrl, outputDirectory, melodyId, quality, ct);
                 if (result.Success && result.FilePath is not null)
                 {
-                    // Enforce the cap on the real file: plugins can over-promise,
+                    // Enforce the band on the real file: plugins can over-promise,
                     // the measurement never lies.
                     var measured = BitrateProbe.MeasureKbps(result.FilePath);
-                    if (!quality.IsWithinCap(measured))
+                    if (!quality.IsWithinBand(measured))
                     {
                         _logger.LogInformation(
-                            "{Name} produced {Measured} kbps for '{Title}', above the requested {Max} kbps cap; rejecting",
-                            downloader.Name, measured, quality.MaxKbps);
+                            "{Name} produced {Measured} kbps for '{Title}', outside the requested {Min}–{Max} kbps band; rejecting",
+                            downloader.Name, measured,
+                            quality.MinKbps?.ToString() ?? "any", quality.MaxKbps?.ToString() ?? "any");
                         try { System.IO.File.Delete(result.FilePath); } catch { /* best effort */ }
                         continue;
                     }

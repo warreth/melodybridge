@@ -12,24 +12,29 @@ public enum AudioFormat
 }
 
 /// <summary>
-/// The quality a playlist asks the download waterfall for.
+/// The quality a playlist asks the download waterfall for: a bitrate
+/// band between MinKbps and MaxKbps.
 ///
-/// MaxKbps is a hard ceiling: plugins must not produce files above it
-/// and the post-download check rejects any that slip through. Flac/other
-/// lossless formats ignore it (a cap makes no sense there).
+/// Both bounds are hard: the waterfall skips search hits outside the
+/// band and the post-download check rejects files that measure outside
+/// it (below-min as well as above-cap). Flac/other lossless formats
+/// ignore the band (bitrate bounds make no sense there). Unknown
+/// bitrates pass the pre-check and leave the verdict to the measurement.
 /// </summary>
 public record DownloadQuality(
     AudioFormat Format = AudioFormat.Auto,
+    int? MinKbps = null,
     int? MaxKbps = null)
 {
-    /// <summary>Everything allowed: any format, no ceiling.</summary>
-    public static DownloadQuality Any { get; } = new(AudioFormat.Auto, null);
+    /// <summary>Everything allowed: any format, no band.</summary>
+    public static DownloadQuality Any { get; } = new(AudioFormat.Auto, null, null);
 
-    /// <summary>True when the given measured bitrate satisfies the cap.</summary>
-    public bool IsWithinCap(int? kbps)
-        => MaxKbps is null || kbps is null || kbps <= 0
-            ? true // no cap, or unknown: post-download measurement decides
-            : kbps <= MaxKbps;
+    /// <summary>True when the given measured bitrate satisfies the band.</summary>
+    public bool IsWithinBand(int? kbps)
+        => kbps is null || kbps <= 0
+            ? true // unknown: post-download measurement decides
+            : (MinKbps is null || kbps >= MinKbps)
+              && (MaxKbps is null || kbps <= MaxKbps);
 
     /// <summary>The yt-dlp --audio-quality argument for this cap (VBR target).</summary>
     public string YtDlpAudioQuality => MaxKbps is > 0 ? $"{MaxKbps}K" : "0";

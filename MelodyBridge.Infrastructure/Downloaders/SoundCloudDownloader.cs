@@ -97,11 +97,13 @@ public class SoundCloudDownloader : IDownloader
             if (file is null)
                 return new DownloaderDownloadResult(false, null, "no output file found");
 
-            // Quality gate: reject low-bitrate rips so bad files never land in the library.
+            // Quality gate: reject low-bitrate rips so bad files never land
+            // in the library. A requested band floor above 128 tightens it.
             var bitrate = ReadAudioBitrateKbps(stdout);
-            if (bitrate is < MinimumAudioBitrateKbps)
+            var floor = Math.Max(MinimumAudioBitrateKbps, quality?.MinKbps ?? 0);
+            if (bitrate < floor)
                 return new DownloaderDownloadResult(false, null,
-                    $"rejected: audio bitrate {bitrate ?? 0} kbps is below {MinimumAudioBitrateKbps} kbps");
+                    $"rejected: audio bitrate {bitrate ?? 0} kbps is below {floor} kbps");
 
             var trackTitle = ReadJsonString(stdout, "track") ?? ReadJsonString(stdout, "title");
             YtDlpDownloader.TagDownloadedFile(file, melodyId, expectedTitle: trackTitle);
