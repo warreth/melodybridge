@@ -1,6 +1,7 @@
 @page "/library"
 @inject IDbContextFactory<MelodyBridgeDbContext> DbFactory
 @inject ILibraryScanner Scanner
+@inject SettingsStore Settings
 
 <PageTitle>Library</PageTitle>
 
@@ -8,7 +9,9 @@
     <div>
         <span class="eyebrow">Your music</span>
         <h1>Library</h1>
-        <p>Add the folders that hold your music files. MelodyBridge scans them so downloaded tracks are matched to your playlists.</p>
+        <p>Every file MelodyBridge knows about: downloaded tracks, matched library files
+            and where each one belongs. Folders below are scanned so local files
+            automatically match the playlists they came from.</p>
     </div>
     <div class="topbar-actions">
         <button class="btn-modern primary" @onclick="RunScan" disabled="@scanning">
@@ -16,6 +19,86 @@
         </button>
         <button class="btn-modern secondary" @onclick="ShowAddLocation">Add location</button>
     </div>
+</section>
+
+@if (scanResult != null)
+{
+    <section class="panel-card">
+        <div class="panel-header">
+            <div>
+                <span class="eyebrow">Last scan</span>
+                <h2>Result</h2>
+            </div>
+            <span class="pill @(scanResultOk ? "ok" : "warn")">@(scanResultOk ? "Success" : "Issues")</span>
+        </div>
+        <pre class="result-box">@scanResult</pre>
+    </section>
+}
+
+<section class="panel-card">
+    <div class="panel-header">
+        <div>
+            <span class="eyebrow">Files</span>
+            <h2>Tracks (@shownTracks.Count()@(filter.Length > 0 ? $" of {tracks.Count}" : ""))</h2>
+        </div>
+        <input class="search-input" placeholder="Search title, artist or playlist…"
+               value="@filter" @oninput="OnFilterChanged" />
+    </div>
+    @if (tracks.Count == 0)
+    {
+        <div class="empty-state">
+            No files yet. Download a playlist or scan a folder with your existing music.
+        </div>
+    }
+    else
+    {
+        <div class="table-wrap">
+            <table class="modern-table">
+                <thead>
+                    <tr>
+                        <th>Title</th>
+                        <th>Artist</th>
+                        <th>Quality</th>
+                        <th>Size</th>
+                        <th>Playlist</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var t in shownTracks.Take(300))
+                    {
+                        <tr>
+                            <td>
+                                <strong>@(t.Title ?? "Unknown")</strong>
+                                @if (showFilenameColumn)
+                                {
+                                    <span class="text-muted file-path" title="@t.CurrentPath">
+                                        @(t.CurrentPath is null ? "" : Path.GetFileName(t.CurrentPath))
+                                    </span>
+                                }
+                            </td>
+                            <td>@(t.Artist ?? "Unknown artist")</td>
+                            <td class="text-muted">@TrackDisplay.Quality(t.Bitrate, t.SampleRateHz, t.MediaType)</td>
+                            <td class="text-muted" title="@(t.FileSizeBytes?.ToString("N0") + " bytes")">@TrackDisplay.Size(t.FileSizeBytes)</td>
+                            <td>
+                                @if (t.PlaylistName is { } name)
+                                {
+                                    <span class="pill neutral">@name</span>
+                                }
+                                else
+                                {
+                                    <span class="text-muted">-</span>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+        @if (tracks.Count > 300)
+        {
+            <div class="hint-box">Showing the first 300 tracks. Narrow the search to see the rest.</div>
+        }
+    }
 </section>
 
 <section class="content-grid two">
@@ -52,62 +135,56 @@
             <div><span class="status-dot online"></span><strong>MELODY_ID</strong><small>ID3v2 TXXX frame</small></div>
             <div><span class="status-dot online"></span><strong>Fallback</strong><small>Comment-based marker</small>
             </div>
-            <div><span class="status-dot online"></span><strong>Database</strong><small>@tracksCount tracks in
+            <div><span class="status-dot online"></span><strong>Database</strong><small>@tracksCount files in
                 library</small></div>
+        </div>
+    </div>
+</section>
+
+@if (showForm)
+{
+    <div class="wizard-overlay">
+        <div class="wizard-modal" style="max-width:480px;">
+            <div class="wizard-header">
+                <span class="eyebrow">New location</span>
+                <h2>Add scan location</h2>
+                <button class="icon-button" @onclick="() => showForm = false">&times;</button>
+            </div>
+            <div class="wizard-body">
+                <div class="form-grid single">
+                    <label>
+                        Directory path
+                        <input @bind="newPath" placeholder="/music" />
+                    </label>
+                    <label>
+                        Scan interval (minutes, 0 = manual)
+                        <input @bind="newInterval" type="number" min="0" step="5" />
+                    </label>
+                    <label class="toggle-switch" style="display:flex; gap:.75rem; align-items:center; width:auto;">
+                        <input type="checkbox" @bind="liveMonitoring" />
+                        <span class="toggle-slider"></span>
+                        Live monitoring
+                    </label>
+                </div>
+            </div>
+            <div class="wizard-footer">
+                <button class="btn-modern" @onclick="() => showForm = false">Cancel</button>
+                <button class="btn-modern primary" @onclick="SaveLocation">Add location</button>
             </div>
         </div>
-    </section>
-
-    @if (scanResult != null)
-    {
-        <section class="panel-card">
-            <div class="panel-header">
-                <div>
-                    <span class="eyebrow">Last scan</span>
-                    <h2>Result</h2>
-                </div>
-                <span class="pill @(scanResultOk ? "ok" : "warn")">@(scanResultOk ? "Success" : "Issues")</span>
-            </div>
-            <pre class="result-box">@scanResult</pre>
-        </section>
-    }
-
-    @if (showForm)
-    {
-        <div class="wizard-overlay">
-            <div class="wizard-modal" style="max-width:480px;">
-                <div class="wizard-header">
-                    <span class="eyebrow">New location</span>
-                    <h2>Add scan location</h2>
-                    <button class="icon-button" @onclick="() => showForm = false">&times;</button>
-                </div>
-                <div class="wizard-body">
-                    <div class="form-grid single">
-                        <label>
-                            Directory path
-                            <input @bind="newPath" placeholder="/music" />
-                        </label>
-                        <label>
-                            Scan interval (minutes, 0 = manual)
-                            <input @bind="newInterval" type="number" min="0" step="5" />
-                        </label>
-                        <label class="toggle-switch" style="display:flex; gap:.75rem; align-items:center; width:auto;">
-                            <input type="checkbox" @bind="liveMonitoring" />
-                            <span class="toggle-slider"></span>
-                            Live monitoring
-                        </label>
-                    </div>
-                </div>
-                <div class="wizard-footer">
-                    <button class="btn-modern" @onclick="() => showForm = false">Cancel</button>
-                    <button class="btn-modern primary" @onclick="SaveLocation">Add location</button>
-                </div>
-            </div>
-        </div>
-    }
+    </div>
+}
 
 @code {
+    private sealed record LibraryRow(
+        string? Title, string? Artist, string? CurrentPath,
+        int? Bitrate, int? SampleRateHz, string? MediaType, long? FileSizeBytes,
+        string? PlaylistName);
+
     private List<ScanLocationEntity> locations = new();
+    private List<LibraryRow> tracks = new();
+    private string filter = string.Empty;
+    private bool showFilenameColumn;
     private int tracksCount;
     private bool scanning;
     private string? scanResult;
@@ -117,16 +194,38 @@
     private int newInterval = 0;
     private bool liveMonitoring = true;
 
-    protected override async Task OnInitializedAsync()
-    {
-        await LoadDataAsync();
-    }
+    private IEnumerable<LibraryRow> shownTracks => string.IsNullOrWhiteSpace(filter)
+        ? tracks
+        : tracks.Where(t =>
+            (t.Title ?? "").Contains(filter, StringComparison.OrdinalIgnoreCase) ||
+            (t.Artist ?? "").Contains(filter, StringComparison.OrdinalIgnoreCase) ||
+            (t.PlaylistName ?? "").Contains(filter, StringComparison.OrdinalIgnoreCase));
+
+    protected override async Task OnInitializedAsync() => await LoadDataAsync();
 
     private async Task LoadDataAsync()
     {
         await using var db = await DbFactory.CreateDbContextAsync();
         locations = await db.ScanLocations.ToListAsync();
-        tracksCount = await db.Tracks.CountAsync();
+        showFilenameColumn = await Settings.GetBoolAsync("show_filename", fallback: false);
+
+        tracks = await db.Tracks
+            .Where(t => t.CurrentPath != null)
+            .OrderByDescending(t => t.Id)
+            .Select(t => new LibraryRow(
+                t.Title, t.Artist, t.CurrentPath, t.Bitrate, t.SampleRateHz,
+                t.MediaType, t.FileSizeBytes,
+                db.Playlists
+                    .Where(p => p.Tracks.Any(pt => pt.MelodyId == t.MelodyId))
+                    .Select(p => p.Name)
+                    .FirstOrDefault()))
+            .ToListAsync();
+        tracksCount = tracks.Count;
+    }
+
+    private void OnFilterChanged(ChangeEventArgs e)
+    {
+        filter = e.Value?.ToString() ?? string.Empty;
     }
 
     private async Task RunScan()
@@ -159,21 +258,25 @@
 
     private void ShowAddLocation()
     {
+        showForm = true;
         newPath = "/music";
         newInterval = 0;
         liveMonitoring = true;
-        showForm = true;
     }
 
     private async Task SaveLocation()
     {
+        var path = newPath.Trim();
+        if (path.Length == 0) return;
+
         await using var db = await DbFactory.CreateDbContextAsync();
         db.ScanLocations.Add(new ScanLocationEntity
         {
-            Path = newPath,
+            Path = path,
             ScanIntervalHours = newInterval > 0 ? newInterval : null,
         });
         await db.SaveChangesAsync();
+
         showForm = false;
         await LoadDataAsync();
     }
@@ -181,12 +284,12 @@
     private async Task DeleteLocation(int id)
     {
         await using var db = await DbFactory.CreateDbContextAsync();
-        var entity = await db.ScanLocations.FindAsync(id);
-        if (entity != null)
+        var loc = await db.ScanLocations.FindAsync(id);
+        if (loc != null)
         {
-            db.ScanLocations.Remove(entity);
+            db.ScanLocations.Remove(loc);
             await db.SaveChangesAsync();
-            await LoadDataAsync();
         }
+        await LoadDataAsync();
     }
 }

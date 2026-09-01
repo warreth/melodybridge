@@ -11,21 +11,28 @@ public static class TrackDisplay
 {
     /// <summary>Bitrate + container, e.g. "320 kbps · flac", empty when nothing is known.</summary>
     public static string Quality(TrackEntity t)
+        => Quality(t.Bitrate, t.SampleRateHz, t.MediaType);
+
+    /// <summary>Scalar variant for projections that do not carry the whole entity.</summary>
+    public static string Quality(int? bitrate, int? sampleRateHz, string? mediaType)
     {
         var parts = new List<string>();
-        if (t.Bitrate is > 0) parts.Add($"{t.Bitrate} kbps");
-        if (t.SampleRateHz is > 0) parts.Add($"{t.SampleRateHz / 1000.0:0.#} kHz");
-        if (!string.IsNullOrWhiteSpace(t.MediaType)) parts.Add(t.MediaType);
+        if (bitrate is > 0) parts.Add($"{bitrate} kbps");
+        if (sampleRateHz is > 0) parts.Add($"{sampleRateHz / 1000.0:0.#} kHz");
+        if (!string.IsNullOrWhiteSpace(mediaType)) parts.Add(mediaType);
         return string.Join(" · ", parts);
     }
 
     /// <summary>Human file size ("3.4 MB"), empty when unknown.</summary>
-    public static string Size(TrackEntity t)
+    public static string Size(TrackEntity t) => Size(t.FileSizeBytes);
+
+    /// <summary>Scalar variant for projections that do not carry the whole entity.</summary>
+    public static string Size(long? bytes)
     {
-        if (t.FileSizeBytes is not > 0) return string.Empty;
-        return t.FileSizeBytes >= 1024 * 1024
-            ? $"{t.FileSizeBytes / (1024.0 * 1024.0):0.#} MB"
-            : $"{t.FileSizeBytes / 1024.0:0.#} KB";
+        if (bytes is not > 0) return string.Empty;
+        return bytes >= 1024 * 1024
+            ? $"{bytes / (1024.0 * 1024.0):0.#} MB"
+            : $"{bytes / 1024.0:0.#} KB";
     }
 
     public static string Duration(long? ms)

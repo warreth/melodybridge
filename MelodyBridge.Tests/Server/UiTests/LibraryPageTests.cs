@@ -39,6 +39,7 @@ public class LibraryPageTests
 
         _ctx.Services.AddSingleton<ILibraryScanner>(_scanner.Object);
         _ctx.Services.AddSingleton<IDbContextFactory<MelodyBridgeDbContext>>(dbFactory);
+        _ctx.Services.AddDownloadPages(dbFactory);
     }
 
     [TearDown]
@@ -87,9 +88,51 @@ public class LibraryPageTests
 
         emptyCtx.Services.AddSingleton<ILibraryScanner>(_scanner.Object);
         emptyCtx.Services.AddSingleton<IDbContextFactory<MelodyBridgeDbContext>>(emptyFactory);
+        emptyCtx.Services.AddDownloadPages(emptyFactory);
 
         var cut = emptyCtx.Render<Library>();
         Assert.That(cut.Markup, Does.Contain("No scan locations"));
+    }
+
+    [Test]
+    public void Library_ShowsTracksWithQualitySizeAndPlaylist()
+    {
+        using var dataCtx = new TestContext();
+        var options = new DbContextOptionsBuilder<MelodyBridgeDbContext>()
+            .UseInMemoryDatabase($"LibraryData_{Guid.NewGuid()}")
+            .Options;
+        var dataFactory = new InMemFactory(options);
+
+        using (var db = dataFactory.CreateDbContext())
+        {
+            db.Playlists.Add(new PlaylistEntity
+            {
+                Id = "pl-a", Name = "Road Trip",
+                Tracks = new List<TrackEntity>
+                {
+                    new()
+                    {
+                        MelodyId = "mel-lib-1", Title = "Summer Song", Artist = "The Band",
+                        CurrentPath = "/music/summer.flac", DownloadStatus = "downloaded",
+                        Bitrate = 900, SampleRateHz = 44100, MediaType = "flac",
+                        FileSizeBytes = 31_457_280,
+                    },
+                },
+            });
+            db.SaveChanges();
+        }
+
+        dataCtx.Services.AddSingleton<ILibraryScanner>(_scanner.Object);
+        dataCtx.Services.AddSingleton<IDbContextFactory<MelodyBridgeDbContext>>(dataFactory);
+        dataCtx.Services.AddDownloadPages(dataFactory);
+
+        var cut = dataCtx.Render<Library>();
+
+        Assert.That(cut.Markup, Does.Contain("Summer Song"), "the file must appear in the table");
+        Assert.That(cut.Markup, Does.Contain("900 kbps"), "the real bitrate must show");
+        Assert.That(cut.Markup, Does.Contain("44.1 kHz"), "the real sample rate must show");
+        Assert.That(cut.Markup, Does.Contain("30 MB"), "the real file size must show");
+        Assert.That(cut.Markup, Does.Contain("Road Trip"), "the owning playlist must show");
     }
 
     private class InMemFactory : IDbContextFactory<MelodyBridgeDbContext>
