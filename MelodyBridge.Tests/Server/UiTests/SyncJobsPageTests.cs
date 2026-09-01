@@ -15,6 +15,7 @@ public class SyncJobsPageTests
 {
     private TestContext _ctx = null!;
     private Mock<ISyncJobRunner> _jobRunner = null!;
+    private InMemFactory _dbFactory = null!;
 
     [SetUp]
     public void Setup()
@@ -26,6 +27,7 @@ public class SyncJobsPageTests
             .UseInMemoryDatabase($"SyncJobsTest_{Guid.NewGuid()}")
             .Options;
         var dbFactory = new InMemFactory(options);
+        _dbFactory = dbFactory;
 
         using (var db = dbFactory.CreateDbContext())
         {
@@ -35,6 +37,7 @@ public class SyncJobsPageTests
                 Name = "Weekly Sync",
                 Schedule = "Daily",
                 OutputTarget = "M3uFile",
+                M3uOutputPath = "/app/playlists/weekly.m3u",
                 LastRunAt = DateTime.UtcNow.AddDays(-1),
                 LastRunStatus = "Completed",
             });
@@ -110,6 +113,39 @@ public class SyncJobsPageTests
             runBtns[0].Click();
             _jobRunner.Verify(j => j.RunJobAsync(It.IsAny<SyncJob>(), It.IsAny<CancellationToken>()), Times.AtLeastOnce);
         }
+    }
+
+    [Test]
+    public void EditButton_OpensWizard_HydratedWithJobValues()
+    {
+        var cut = _ctx.Render<SyncJobs>();
+        var editBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Edit");
+        editBtn.Click();
+
+        Assert.That(cut.Markup, Does.Contain("Edit sync job"));
+        var nameInput = cut.Find("input[placeholder='e.g. My Summer Hits']");
+        Assert.That(nameInput.GetAttribute("value"), Is.EqualTo("Weekly Sync"));
+    }
+
+    [Test]
+    public void EditJob_SaveUpdates_ExistingEntity_InDb()
+    {
+        var cut = _ctx.Render<SyncJobs>();
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Edit").Click();
+
+        // walk to the review step and save
+        for (int i = 0; i < 4; i++)
+            cut.FindAll("button").First(b => b.TextContent.Trim() == "Next").Click();
+
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Save changes").Click();
+
+        using var db = _dbFactory.CreateDbContext();
+        var all = db.SyncJobs.IgnoreQueryFilters().ToList();
+        Assert.That(all.Count, Is.EqualTo(2), "edit must update, not duplicate");
+        var updated = all.First(j => j.Id == "j1");
+        Assert.That(updated.Name, Is.EqualTo("Weekly Sync"));
+        Assert.That(updated.M3uOutputPath, Is.EqualTo("/app/playlists/weekly.m3u"));
+        Assert.That(updated.LastRunStatus, Is.EqualTo("Completed"), "edit must not reset run status");
     }
 
     private class InMemFactory : IDbContextFactory<MelodyBridgeDbContext>

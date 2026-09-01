@@ -23,7 +23,7 @@
         <div class="wizard-modal">
             <div class="wizard-header">
                 <span class="eyebrow">Step @(currentStep + 1) of 5</span>
-                <h2>@GetStepTitle()</h2>
+                <h2>@(isEditing ? "Edit sync job" : GetStepTitle())</h2>
                 <button class="icon-button" @onclick="CancelWizard">&times;</button>
             </div>
             <div class="wizard-body">
@@ -162,7 +162,7 @@
                 else
                 {
                     <button class="btn-modern primary" @onclick="SaveJob" disabled="@saving">
-                        @(saving ? "Saving..." : "Create sync job")
+                        @(saving ? "Saving..." : (isEditing ? "Save changes" : "Create sync job"))
                     </button>
                 }
             </div>
@@ -193,6 +193,7 @@
                     @(runningJobs.Contains(job.Id) ? "Running..." : "Run now")
                 </button>
                 <button class="btn-modern secondary" @onclick="() => ViewJobLog(job)">Log</button>
+                <button class="btn-modern ghost" @onclick="() => StartEditJob(job)">Edit</button>
                 <button class="btn-modern ghost" @onclick="() => DeleteJob(job.Id)">Delete</button>
             </div>
         </div>
@@ -246,6 +247,7 @@
     private string logJobName = "";
     private List<SyncJobRunEntity> logEntries = new();
     private HashSet<string> runningJobs = new();
+    private bool isEditing;
 
     private SyncJob draft = new();
     private string selectedSourceId = "";
@@ -270,12 +272,30 @@
     private void StartNewJob()
     {
         draft = new SyncJob();
+        isEditing = false;
         selectedSourceId = "";
         searchLocationsText = "";
         remapFrom = "";
         remapTo = "";
         extFrom = "";
         extTo = "";
+        currentStep = 0;
+        showWizard = true;
+    }
+
+    private void StartEditJob(SyncJobEntity job)
+    {
+        // hydrate the wizard from the stored entity so saving updates it in place
+        draft = MapToDomain(job);
+        isEditing = true;
+        selectedSourceId = job.SourceId ?? "";
+        searchLocationsText = string.Join("\n", draft.SearchLocationPaths);
+        var pathRemap = draft.PathRemapRules.FirstOrDefault();
+        var extRemap = draft.ExtensionRemapRules.FirstOrDefault();
+        remapFrom = pathRemap.Key;
+        remapTo = pathRemap.Value;
+        extFrom = extRemap.Key;
+        extTo = extRemap.Value;
         currentStep = 0;
         showWizard = true;
     }
@@ -315,22 +335,24 @@
             if (!string.IsNullOrWhiteSpace(extFrom) && !string.IsNullOrWhiteSpace(extTo))
                 extRules[extFrom] = extTo;
 
-            db.SyncJobs.Add(new SyncJobEntity
+            var entity = await db.SyncJobs.FindAsync(draft.Id);
+            if (entity == null)
             {
-                Id = Guid.NewGuid().ToString(),
-                Name = draft.Name,
-                SourceId = string.IsNullOrWhiteSpace(selectedSourceId) ? null : selectedSourceId,
-                SearchLocationPaths = JsonSerializer.Serialize(pathsList),
-                OutputTarget = draft.OutputTarget.ToString(),
-                M3uOutputPath = draft.M3uOutputPath,
-                JellyfinServerUrl = draft.JellyfinServerUrl,
-                JellyfinApiKey = draft.JellyfinApiKey,
-                JellyfinUserId = draft.JellyfinUserId,
-                PathRemapRules = JsonSerializer.Serialize(remapRules),
-                ExtensionRemapRules = JsonSerializer.Serialize(extRules),
-                Schedule = draft.Schedule.ToString(),
-                LastRunStatus = "Pending",
-            });
+                entity = new SyncJobEntity { Id = draft.Id };
+                db.SyncJobs.Add(entity);
+            }
+            entity.Name = draft.Name;
+            entity.SourceId = string.IsNullOrWhiteSpace(selectedSourceId) ? null : selectedSourceId;
+            entity.SearchLocationPaths = JsonSerializer.Serialize(pathsList);
+            entity.OutputTarget = draft.OutputTarget.ToString();
+            entity.M3uOutputPath = draft.M3uOutputPath;
+            entity.JellyfinServerUrl = draft.JellyfinServerUrl;
+            entity.JellyfinApiKey = draft.JellyfinApiKey;
+            entity.JellyfinUserId = draft.JellyfinUserId;
+            entity.PathRemapRules = JsonSerializer.Serialize(remapRules);
+            entity.ExtensionRemapRules = JsonSerializer.Serialize(extRules);
+            entity.Schedule = draft.Schedule.ToString();
+            entity.LastRunStatus = string.IsNullOrWhiteSpace(entity.LastRunStatus) ? "Pending" : entity.LastRunStatus;
             await db.SaveChangesAsync();
             showWizard = false;
             await LoadDataAsync();
