@@ -50,8 +50,8 @@ else
         {
             var (downloaded, failed, total) = downloadCounts.GetValueOrDefault(playlist.Id, (0, 0, 0));
             var run = Coordinator.RunFor(playlist.Id);
-            <a class="panel-card playlist-card" href="playlists/@playlist.Id">
-                <div class="playlist-cover">
+            <div class="panel-card playlist-card">
+                <a class="playlist-cover" href="/playlists/@playlist.Id" title="Open @playlist.Name">
                     @if (!string.IsNullOrEmpty(playlist.CoverImageUrl))
                     {
                         <img src="@playlist.CoverImageUrl" alt="@playlist.Name" loading="lazy" />
@@ -76,11 +76,11 @@ else
                     {
                         <span class="cover-badge partial" title="@downloaded of @total downloaded">@downloaded/@total</span>
                     }
-                </div>
+                </a>
                 <div class="panel-header">
                     <div>
                         <span class="eyebrow">@playlist.SourcePlatform</span>
-                        <h2>@playlist.Name</h2>
+                        <h2><a href="/playlists/@playlist.Id">@playlist.Name</a></h2>
                     </div>
                 </div>
                 <p class="panel-description">
@@ -97,8 +97,7 @@ else
                 <small class="job-meta">
                     Last synced: @(playlist.LastSyncAt?.ToLocalTime().ToString("g") ?? "never")
                 </small>
-                <button class="btn-modern ghost" @onclick="() => ExportCsv(playlist)" @onclick:stopPropagation="true" @onclick:preventDefault="true">CSV</button>
-            </a>
+            </div>
         }
     </section>
 }
@@ -124,14 +123,9 @@ else
                         Download folder (optional — leave empty for the default music path)
                         <input @bind="newTargetDirectory" placeholder="/music/downloads" />
                     </label>
-                    <label>
+                    <label class="quality-field">
                         Audio quality
-                        <select @bind="newQuality">
-                            @foreach (var preset in QualityPresets)
-                            {
-                                <option value="@preset.Value">@preset.Label</option>
-                            }
-                        </select>
+                        <QualityPicker @bind-Value="newQuality" />
                     </label>
                     <label class="toggle-row">
                         <input type="checkbox" @bind="newAutoSync" />
@@ -273,26 +267,13 @@ else
     private Timer? refreshTimer;
 
     /// <summary>Quality presets shared with the settings page: one list, one truth.</summary>
-    public static readonly (string Value, string Label)[] QualityPresets =
-    {
-        ("auto", "Auto — keep the source format, no re-encode"),
-        ("mp3", "MP3 — plays everywhere"),
-        ("mp3:320", "MP3 · up to 320 kbps"),
-        ("mp3:256", "MP3 · up to 256 kbps"),
-        ("mp3:192", "MP3 · up to 192 kbps"),
-        ("mp3:128", "MP3 · up to 128 kbps"),
-        ("flac", "FLAC — lossless"),
-        ("opus", "Opus — small and modern"),
-        ("aac", "AAC — Apple-friendly"),
-    };
-
     private static string QualityLabel(string preferredFormat)
         => preferredFormat.Contains(':')
             ? preferredFormat.Replace(":", " · ")
             : preferredFormat;
 
     private string DefaultQualityLabel()
-        => QualityPresets.FirstOrDefault(p => p.Value == newQuality).Label;
+        => QualityLabel(newQuality);
 
     protected override async Task OnInitializedAsync()
     {
@@ -466,25 +447,6 @@ else
             var json = await Store.ExportAsync();
             var bytes = System.Text.Encoding.UTF8.GetBytes(json);
             await JS.InvokeVoidAsync("melody.downloadFile", $"melodybridge-playlists-{DateTime.Now:yyyyMMdd}.json", "application/json", bytes);
-        }
-        finally { busy = false; }
-    }
-
-    private async Task ExportCsv(PlaylistEntity playlist)
-    {
-        busy = true;
-        try
-        {
-            var bytes = await Store.ExportCsvAsync(playlist.Id);
-            var safeName = string.Concat(playlist.Name.Select(c => Path.GetInvalidFileNameChars().Contains(c) ? '_' : c));
-            await JS.InvokeVoidAsync("melody.downloadFile", $"{safeName}.csv", "text/csv", bytes);
-            message = $"Exported '{playlist.Name}' as CSV.";
-            messageIsError = false;
-        }
-        catch (Exception ex)
-        {
-            message = $"Export failed: {ex.Message}";
-            messageIsError = true;
         }
         finally { busy = false; }
     }
