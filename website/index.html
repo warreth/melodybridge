@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MelodyBridge</title>
+  <meta name="description" content="Self-hosted music toolbox. Save playlists from Spotify or YouTube, download the tracks, publish M3U or Jellyfin playlists.">
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header">
+    <nav class="nav container" aria-label="Main">
+      <a class="brand" href="/">
+        <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+          <rect width="32" height="32" rx="7" fill="currentColor"/>
+          <path d="M12 23V10l9-2v11.5" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+          <circle cx="10.5" cy="23" r="2.6" fill="#fff"/>
+          <circle cx="19.5" cy="19.5" r="2.6" fill="#fff"/>
+        </svg>
+        <span>MelodyBridge</span>
+      </a>
+      <button class="nav-toggle" aria-expanded="false" aria-controls="nav-links" aria-label="Open menu">
+        <span></span><span></span>
+      </button>
+      <div class="nav-links" id="nav-links">
+        <a href="#how-it-works">How it works</a>
+        <a href="#features">Features</a>
+        <a href="https://docs.melodybridge.app/">Docs</a>
+        <a class="github" href="https://github.com/warreth/melodybridge" rel="noopener">
+          <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+          GitHub
+        </a>
+      </div>
+    </nav>
+  </header>
+
+  <main id="main">
+    <section class="hero">
+      <div class="container">
+        <h1>Your playlists, on your own machine.</h1>
+        <p>MelodyBridge saves the tracks of a Spotify or YouTube playlist,
+          downloads the music through a waterfall of plugins, and turns the
+          result into a playlist your media server understands.</p>
+        <div class="hero-actions">
+          <a class="btn primary" href="https://docs.melodybridge.app/quickstart.html">Get started</a>
+          <a class="btn secondary" href="https://github.com/warreth/melodybridge" rel="noopener">View on GitHub</a>
+        </div>
+        <p class="hero-note">Self-hosted. Your files stay on your machine.</p>
+      </div>
+    </section>
+
+    <section class="section" id="how-it-works">
+      <div class="container">
+        <h2>How it works</h2>
+        <ol class="steps">
+          <li class="step">
+            <span class="step-number" aria-hidden="true">1</span>
+            <h3>Add a playlist</h3>
+            <p>Paste a public Spotify or YouTube playlist link. Every track is
+              saved locally.</p>
+          </li>
+          <li class="step">
+            <span class="step-number" aria-hidden="true">2</span>
+            <h3>Download the music</h3>
+            <p>The plugin waterfall fetches each track, tags it and checks
+              that the quality is real.</p>
+          </li>
+          <li class="step">
+            <span class="step-number" aria-hidden="true">3</span>
+            <h3>Publish it</h3>
+            <p>Write an M3U file or push the playlist straight to Jellyfin.</p>
+          </li>
+        </ol>
+      </div>
+    </section>
+
+    <section class="section alt" id="features">
+      <div class="container">
+        <h2>Features</h2>
+        <div class="feature-grid">
+          <article class="feature">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M4 12h12M4 7h9M4 17h15m-3-11 3-3 3 3"/></svg>
+            <h3>Fetch playlists</h3>
+            <p>Public Spotify and YouTube playlists, no API key needed.
+              With an account login, private playlists and liked songs too.</p>
+          </article>
+          <article class="feature">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M4 7h11v10H4zM15 10h3l2 3v4h-5M7.5 17a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Zm10 0a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Z"/></svg>
+            <h3>Waterfall download</h3>
+            <p>Plugins are tried in order: Lucida, SoundCloud, Internet
+              Archive, then YouTube. The first that finds a good file wins.</p>
+          </article>
+          <article class="feature">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M3 18V9m5 9V5m5 13v-6m5 6V8m4 10v-4"/></svg>
+            <h3>Real quality checks</h3>
+            <p>A spectrum check measures what a file really contains and
+              flags tracks that pretend to be 320 kbps.</p>
+          </article>
+          <article class="feature">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M7 3h7l5 5v13H7zM14 3v5h5m-8 6h6m-6 3h4"/></svg>
+            <h3>Consistent tags</h3>
+            <p>Every file gets a unique MELODY_ID plus full title, artist,
+              album and track tags from the playlist data.</p>
+          </article>
+          <article class="feature">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M20 11A8 8 0 0 0 5.6 4.6L4 4m0 9a8 8 0 0 0 14.4 6.4L20 20M4 8v4H0m4 0v4m16-4v4h4m-4 0v-4"/></svg>
+            <h3>Sync modes</h3>
+            <p>Additive keeps removed tracks as history, Mirror matches the
+              source exactly. Per-playlist auto-sync intervals.</p>
+          </article>
+          <article class="feature">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg>
+            <h3>Publish</h3>
+            <p>Standard M3U files with metadata, or playlists pushed
+              straight to Jellyfin, favorites included.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="container narrow">
+        <h2>Plays well with your setup</h2>
+        <p>MelodyBridge runs in Docker with one command and keeps its state
+          in a single data directory. Point Jellyfin at your music folder,
+          create a sync job, and your playlists stay current on their own.
+          Every page of the web UI is documented in the
+          <a href="https://docs.melodybridge.app/user-guide.html">user guide</a>.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-row">
+      <p>MelodyBridge is open source under AGPL v3.</p>
+      <nav aria-label="Footer">
+        <a href="https://docs.melodybridge.app/">Docs</a>
+        <a href="https://github.com/warreth/melodybridge" rel="noopener">GitHub</a>
+      </nav>
+    </div>
+  </footer>
+
+  <script>
+    document.querySelector('.nav-toggle').addEventListener('click', function () {
+      var links = document.getElementById('nav-links');
+      var open = links.classList.toggle('open');
+      this.setAttribute('aria-expanded', open);
+      this.setAttribute('aria-label', open ? 'Close menu' : 'Open menu');
+    });
+  </script>
+</body>
+</html>
