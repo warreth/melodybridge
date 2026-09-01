@@ -2,17 +2,24 @@
 
 This guide walks through every page of the MelodyBridge web UI.
 
-The dashboard follows one idea: three steps, in order. Add a playlist,
-download the music, publish the result. Every step shows its own status
-on the home page.
+The home page has two faces. A fresh install gets the intro: a live
+checklist with the three steps in order (add a playlist, download the
+music, publish it). Each step links to the page where the work happens
+and checks off by itself once the database shows the result. **Skip
+intro** trades the checklist for the dashboard; finishing all three
+steps does the same automatically. The intro never comes back once
+dismissed.
 
-## Home
+## Dashboard
 
-The home page shows whether MelodyBridge is running, how many playlists
-are saved, how many tracks are downloaded and how many files the library
-holds. The three step cards link to the pages where the work happens:
-Playlists, Plugins and Sync jobs. When something fails, the Logs page
-shows exactly what went wrong.
+The dashboard is the overview after setup. The four stat cards show the
+playlists, downloaded tracks, library files and enabled plugins. Below
+them: **Connections** lists Spotify, YouTube, Jellyfin and FlareSolverr
+with their current state, **Recent errors** shows the latest failures
+with a link to the Logs page, **Recent sync runs** lists the last jobs
+with their result, and the playlist cards show each playlist with its
+download progress (5/10, complete). Everything refreshes every few
+seconds; the Refresh button forces it immediately.
 
 ## Playlists
 
@@ -44,8 +51,10 @@ playlist:
 
 The right panel shows the track status (total and downloaded) and live
 progress while a download runs. Under **Tracks** you find the full track
-list with a filter box; each track shows its state and, when the quality
-check flagged it, a warning next to the entry.
+list with a filter box; each track shows its state, the real quality of
+its file (bitrate, sample rate, container) and, when the quality check
+flagged it, a warning next to the entry. **Export CSV** at the top
+downloads the track list as a spreadsheet-friendly CSV file.
 
 At the top:
 
@@ -53,6 +62,9 @@ At the top:
   sync mode
 - **Download missing** lets the waterfall fetch every track that is not
   present yet
+
+The **CSV** button on each playlist card on the Playlists page exports
+the same list without opening the details page.
 
 ## Plugins and downloads
 
@@ -90,12 +102,22 @@ playlist. The New sync job wizard has five steps:
 5. Review and create
 
 Each job card shows the last run status and summary, the schedule, and
-buttons to run it now, view its log or delete it.
+buttons to run it now, view its log, edit it or delete it. **Edit**
+reopens the same wizard with the job's current values; saving updates
+the job instead of creating a new one.
+
+The run summary counts the whole playlist: "Synced 20/50 tracks, 30
+without a local file" means 50 tracks are in the playlist and 20 of
+them had a file to publish.
 
 ## Library
 
-The Library page manages your scan locations.
+The Library page shows every file MelodyBridge knows about and manages
+the scan locations.
 
+- The **Tracks** table lists every local file with its title, artist,
+  real quality (bitrate, sample rate, container), size and the playlist
+  it belongs to; the search box filters all columns
 - **Add location**: point MelodyBridge at a folder with music files
 - Each location can scan on a fixed interval in hours or manual only
 - **Run scan** starts a scan of all locations immediately
@@ -122,6 +144,8 @@ The Settings page collects everything that is not per-playlist.
 - **Real quality check**: spectrum mode Off, Fast (recommended) or
   Thorough, plus the Cloudflare solver URL for Lucida (`off` disables
   Lucida)
+- **Interface**: toggle the file column on the playlist details page,
+  which shows the exact filename behind each track
 - **Logs**: export up to 1000 recent log entries as a plain text file
 
 Settings are stored in the database and apply immediately after Save
@@ -135,8 +159,9 @@ downloads, scans and errors.
 - When errors exist, a banner at the top lists them; **Show only
   problems** filters the stream down to the errors
 - The event stream below shows every entry with its time, level,
-  category and message; filter by area with the chips or search with
-  the text box
+  category and message; filter by area or level with the chips (Error
+  includes critical) or search with the text box, which also matches
+  the friendly area names
 - **Copy** puts the filtered entries on the clipboard, **Export**
   downloads them as a file, **Clear** empties the log
 
