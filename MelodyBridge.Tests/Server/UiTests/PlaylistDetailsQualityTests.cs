@@ -45,6 +45,11 @@ public class PlaylistDetailsQualityTests
                         Artist = "Artist",
                         Position = 0,
                         DownloadStatus = "downloaded",
+                        Bitrate = 320,
+                        SampleRateHz = 44100,
+                        FileSizeBytes = 9_000_000,
+                        MediaType = "mp3",
+                        CurrentPath = "/tmp/fine-track.mp3",
                     },
                     new()
                     {
@@ -60,6 +65,7 @@ public class PlaylistDetailsQualityTests
             db.SaveChanges();
         }
         _ctx.Services.AddSingleton<IDbContextFactory<MelodyBridgeDbContext>>(factory);
+        _ctx.Services.AddSingleton(new SettingsStore(factory));
         var downloadManager = new Application.Services.DownloadManager(
             new EmptyRegistry(),
             NullLogger<Application.Services.DownloadManager>.Instance);
@@ -118,6 +124,59 @@ public class PlaylistDetailsQualityTests
             "exactly the flagged track shows the check pill");
         Assert.That(warned[0].GetAttribute("title"), Does.Contain("inflated"),
             "hovering the pill explains the doubt");
+    }
+
+    [Test]
+    public void TrackTable_ShowsRealQuality_ForDownloadedTrack()
+    {
+        var cut = _ctx.Render<PlaylistDetails>(p => p.Add(p => p.PlaylistId, "pl-1"));
+
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("Fine track")), TimeSpan.FromSeconds(3));
+
+        Assert.That(cut.Markup, Does.Contain("320 kbps"),
+            "the measured bitrate must appear next to the track");
+        Assert.That(cut.Markup, Does.Contain("44.1 kHz"),
+            "the sample rate must appear next to the track");
+        Assert.That(cut.Markup, Does.Contain("mp3"),
+            "the container must appear next to the track");
+        Assert.That(cut.Markup, Does.Contain("8.6 MB"),
+            "the file size must appear as the title of the quality cell");
+    }
+
+    [Test]
+    public void TrackTable_HidesFilenameColumn_ByDefault()
+    {
+        var cut = _ctx.Render<PlaylistDetails>(p => p.Add(p => p.PlaylistId, "pl-1"));
+
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("Fine track")), TimeSpan.FromSeconds(3));
+
+        Assert.That(cut.Markup, Does.Not.Contain("<th>File</th>"),
+            "without the advanced setting the file column stays hidden");
+        Assert.That(cut.Markup, Does.Not.Contain("fine-track.mp3"),
+            "no filename may leak into the page");
+    }
+
+    [Test]
+    public async Task TrackTable_ShowsFilenameColumn_WhenEnabledInSettings()
+    {
+        // Flip the advanced toggle the Settings page writes.
+        var factory = _ctx.Services.GetRequiredService<IDbContextFactory<MelodyBridgeDbContext>>();
+        await using (var db = factory.CreateDbContext())
+        {
+            db.DownloaderSettings.Add(new DownloaderSettingEntity
+                { Key = "show_filename", Value = "true", ProviderId = "ui" });
+            await db.SaveChangesAsync();
+        }
+
+        var cut = _ctx.Render<PlaylistDetails>(p => p.Add(p => p.PlaylistId, "pl-1"));
+
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("fine-track.mp3")), TimeSpan.FromSeconds(3));
+
+        Assert.That(cut.Markup, Does.Contain("<th>File</th>"),
+            "the file column header must appear once the toggle is on");
     }
 
 

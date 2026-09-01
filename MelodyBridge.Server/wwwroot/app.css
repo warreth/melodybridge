@@ -592,6 +592,15 @@ textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent
 .modern-table tbody tr:hover { background: var(--surface-2); }
 .modern-table td strong { font-weight: 600; }
 .text-muted { color: var(--muted-2); }
+/* File paths in table cells: clip, never blow up the layout. */
+td.file-path {
+    max-width: 16rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: var(--mono, monospace);
+    font-size: .78rem;
+}
 
 /* -- Result box ------------------------------------------ */
 .result-box { padding: .75rem 1rem; border-radius: 8px; margin-bottom: 1rem; font-size: .92rem; }

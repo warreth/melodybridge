@@ -199,6 +199,25 @@
             </div>
         </section>
 
+        @* ── Interface ── *@
+        <section class="panel-card">
+            <div class="panel-header">
+                <div>
+                    <span class="eyebrow">Interface</span>
+                    <h2>Advanced display</h2>
+                </div>
+            </div>
+            <div class="hint-box">
+                Extra columns for power users. The filename column shows the
+                exact file behind each track in a playlist.
+            </div>
+            <label class="toggle-switch" style="display:flex; gap:.75rem; align-items:center; width:auto;">
+                <input type="checkbox" @bind="showFilename" />
+                <span class="toggle-slider"></span>
+                Show the file column on playlist tracks
+            </label>
+        </section>
+
         @if (!string.IsNullOrWhiteSpace(savedMessage))
         {
             <div class="toast-preview">@savedMessage</div>
@@ -254,6 +273,7 @@
     private int syncCheckIntervalSec = 300;
     private string spectrumMode = "Fast";
     private string flaresolverrUrl = "off";
+    private bool showFilename;
     private string? savedMessage;
 
     [Inject] private IConfiguration Config { get; set; } = null!;
@@ -278,6 +298,7 @@
         syncCheckIntervalSec = int.Parse(FindSetting(settings, "sync_check_interval", "300"));
         spectrumMode = FindSetting(settings, "spectrum_mode", Config?["SpectrumAnalysis:Mode"] ?? "Fast");
         flaresolverrUrl = FindSetting(settings, "flaresolverr_url", Config?["FlareSolverr:Url"] ?? "off");
+        showFilename = FindSetting(settings, "show_filename", "false") is "true" or "1";
 
         _spotifyConnected = await SpotifyAccount.IsConnectedAsync();
         _youtubeConnected = await YouTubeAccount.IsConnectedAsync();
@@ -361,6 +382,7 @@
         await Upsert(db, "sync_check_interval", syncCheckIntervalSec.ToString());
         await Upsert(db, "spectrum_mode", spectrumMode);
         await Upsert(db, "flaresolverr_url", flaresolverrUrl);
+        await Upsert(db, "show_filename", showFilename ? "true" : "false");
         await db.SaveChangesAsync();
         PlaylistStore.SpectrumVerification = () => SpectrumModeValue(spectrumMode);
         FlareSolverrSolver.Url = flaresolverrUrl;

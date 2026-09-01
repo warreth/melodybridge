@@ -5,6 +5,7 @@
 @inject NavigationManager Navigation
 @inject IDbContextFactory<MelodyBridgeDbContext> DbFactory
 @inject IDownloadManager DownloadMgr
+@inject SettingsStore Settings
 
 <PageTitle>@(playlist?.Name ?? "Playlist") - MelodyBridge</PageTitle>
 
@@ -193,6 +194,11 @@ else
                             <th>Title</th>
                             <th>Artist</th>
                             <th>Duration</th>
+                            <th>Quality</th>
+                            @if (showFilenameColumn)
+                            {
+                                <th>File</th>
+                            }
                             <th>Status</th>
                         </tr>
                     </thead>
@@ -203,7 +209,16 @@ else
                                 <td class="text-muted">@(track.Position + 1)</td>
                                 <td><strong>@(track.Title ?? "Unknown")</strong></td>
                                 <td>@(track.Artist ?? "Unknown artist")</td>
-                                <td class="text-muted">@FormatDuration(track.DurationMs)</td>
+                                <td class="text-muted">@TrackDisplay.Duration(track.DurationMs)</td>
+                                <td class="text-muted" title="@TrackDisplay.Size(track)">
+                                    @(track.DownloadStatus == "downloaded" ? TrackDisplay.Quality(track) : "-")
+                                </td>
+                                @if (showFilenameColumn)
+                                {
+                                    <td class="text-muted file-path" title="@track.CurrentPath">
+                                        @(track.CurrentPath is null ? "-" : Path.GetFileName(track.CurrentPath))
+                                    </td>
+                                }
                                 <td>
                                     <span class="pill @(DownloadStatusClass(track.DownloadStatus))">
                                         @(track.DownloadStatus ?? "pending")
@@ -218,6 +233,10 @@ else
                     </tbody>
                 </table>
             </div>
+            @if (!showFilenameColumn)
+            {
+                <div class="hint-box">Enable the file column in Settings under Interface.</div>
+            }
         }
     </section>
 }
@@ -251,6 +270,7 @@ else
     private int doneCount;
     private int failedCount;
     private string? currentActivity;
+    private bool showFilenameColumn;
 
     private int ProgressPercent => downloadProgress.total == 0
         ? 0
@@ -261,6 +281,7 @@ else
     private async Task Load()
     {
         loading = true;
+        showFilenameColumn = await Settings.GetBoolAsync("show_filename", fallback: false);
         playlist = await Store.GetByIdAsync(PlaylistId);
         if (playlist is not null)
         {
@@ -370,11 +391,6 @@ else
             (t.Title ?? "").Contains(trackFilter, StringComparison.OrdinalIgnoreCase) ||
             (t.Artist ?? "").Contains(trackFilter, StringComparison.OrdinalIgnoreCase));
     }
-
-    private static string FormatDuration(long? ms)
-        => ms is > 0
-            ? TimeSpan.FromMilliseconds(ms.Value).ToString(@"mm\:ss")
-            : "-";
 
     private static string DownloadStatusClass(string? status) => status switch
     {
