@@ -1,110 +1,334 @@
 @page "/"
 @inject IDbContextFactory<MelodyBridgeDbContext> DbFactory
 @inject IDownloaderRegistry DownloaderRegistry
+@inject SettingsStore Settings
+@inject ILogCollector LogCollector
+@inject SpotifyAccountProvider SpotifyAccount
+@inject YouTubeAccountProvider YouTubeAccount
+@inject IJellyfinSettings JellyfinSettings
+@implements IDisposable
 
-<PageTitle>MelodyBridge Dashboard</PageTitle>
+<PageTitle>@(showIntro ? "Welcome" : "MelodyBridge Dashboard")</PageTitle>
 
-<section class="hero-panel">
-    <div>
-        <span class="eyebrow">Welcome</span>
-        <h1>Get your playlists onto your own machine.</h1>
-        <p>MelodyBridge saves the tracks of a Spotify or YouTube playlist locally, downloads the
-            music, and turns the result into a playlist your media server understands.</p>
-        <div class="hero-actions">
-            <a class="btn-modern primary" href="playlists">Start with a playlist</a>
-            <a class="btn-modern secondary" href="logs">View logs</a>
-        </div>
-    </div>
-    <div class="hero-card">
-        <span class="status-dot online"></span>
-        <strong>MelodyBridge is running</strong>
-        <p><code>@playlistsCount</code> playlists · <code>@downloadedCount</code> downloaded tracks ·
-            <code>@libraryCount</code> files in library</p>
-    </div>
-</section>
-
-<section class="panel-card">
-    <div class="panel-header">
+@if (showIntro)
+{
+    <section class="hero-panel">
         <div>
-            <span class="eyebrow">How it works</span>
-            <h2>Three steps, in order</h2>
+            <span class="eyebrow">Welcome to MelodyBridge</span>
+            <h1>Three steps, from playlist link to your own music library.</h1>
+            <p>MelodyBridge saves the tracks of a Spotify or YouTube playlist locally, downloads the
+                music through a plugin waterfall, and publishes the result to Jellyfin or an M3U file.
+                Work through the checklist below. It disappears once everything is set up.</p>
+            <div class="hero-actions">
+                <a class="btn-modern primary" href="playlists">Start with a playlist</a>
+                <button class="btn-modern ghost" @onclick="SkipIntro">Skip intro</button>
+            </div>
         </div>
-        <button class="btn-modern ghost small" @onclick="RefreshStats">Refresh</button>
-    </div>
-    <div class="workflow-list">
-        <a class="workflow-step @(step1Done ? "done" : "todo")" href="playlists">
-            <span class="workflow-number">@(step1Done ? "✓" : "1")</span>
-            <div>
-                <strong>Add a playlist</strong>
-                <p>Paste a public Spotify or YouTube playlist link. Every track is saved to your list.</p>
-                <small>@(step1Done ? $"{playlistsCount} playlist(s) saved" : "Not done yet")</small>
-            </div>
-            <span class="workflow-arrow">→</span>
-        </a>
-        <a class="workflow-step @(step2Done ? "done" : "todo")" href="downloads">
-            <span class="workflow-number">@(step2Done ? "✓" : "2")</span>
-            <div>
-                <strong>Download the music</strong>
-                <p>Open your playlist and click Download missing. The plugin waterfall fetches each track.</p>
-                <small>@(step2Done ? $"{downloadedCount} track(s) downloaded" : "Nothing downloaded yet")</small>
-            </div>
-            <span class="workflow-arrow">→</span>
-        </a>
-        <a class="workflow-step @(step3Done ? "done" : "todo")" href="sync-jobs">
-            <span class="workflow-number">@(step3Done ? "✓" : "3")</span>
-            <div>
-                <strong>Publish it</strong>
-                <p>Create a sync job to write an M3U file or push the playlist to Jellyfin.</p>
-                <small>@(step3Done ? $"{jobsCount} job(s) configured" : "No sync job yet")</small>
-            </div>
-        </a>
-    </div>
-    <div class="hint-box">
-        Every step shows its own status here. When something fails, the
-        <a href="logs">Logs page</a> shows exactly what went wrong.
-    </div>
-</section>
+        <div class="hero-card">
+            <span class="status-dot online"></span>
+            <strong>MelodyBridge is running</strong>
+            <p>Nothing is lost by skipping. The dashboard shows the same status.</p>
+        </div>
+    </section>
 
-<section class="stat-grid">
-    <div class="stat-card">
-        <span class="stat-icon">♫</span>
-        <label>Playlists</label>
-        <strong>@playlistsCount</strong>
-        <small>Saved from Spotify or YouTube</small>
-    </div>
-    <div class="stat-card">
-        <span class="stat-icon">↓</span>
-        <label>Downloaded tracks</label>
-        <strong>@downloadedCount</strong>
-        <small>Files on your disk</small>
-    </div>
-    <div class="stat-card">
-        <span class="stat-icon">≡</span>
-        <label>Library</label>
-        <strong>@libraryCount</strong>
-        <small>Files found by the scanner</small>
-    </div>
-    <div class="stat-card">
-        <span class="stat-icon">🔌</span>
-        <label>Download plugins</label>
-        <strong>@enabledPlugins / @totalPlugins</strong>
-        <small>Enabled in the waterfall</small>
-    </div>
-</section>
+    <section class="panel-card">
+        <div class="panel-header">
+            <div>
+                <span class="eyebrow">Setup</span>
+                <h2>Get everything running (@doneSteps of 3)</h2>
+            </div>
+            <button class="btn-modern ghost small" @onclick="RefreshStats">Refresh</button>
+        </div>
+        <div class="workflow-list">
+            <a class="workflow-step @(step1Done ? "done" : "todo")" href="playlists">
+                <span class="workflow-number">@(step1Done ? "✓" : "1")</span>
+                <div>
+                    <strong>Add a playlist</strong>
+                    <p>Paste a public Spotify or YouTube playlist link on the Playlists page.
+                        MelodyBridge saves every track. With an account login you can also import
+                        private playlists and liked songs.</p>
+                    <small>@(step1Done ? $"{playlistsCount} playlist(s) saved" : "Not done yet")</small>
+                </div>
+                <span class="workflow-arrow">→</span>
+            </a>
+            <a class="workflow-step @(step2Done ? "done" : "todo")" href="/playlists">
+                <span class="workflow-number">@(step2Done ? "✓" : "2")</span>
+                <div>
+                    <strong>Download the music</strong>
+                    <p>Open the playlist and click Download missing. Each track is fetched by the
+                        plugin waterfall and quality-checked before it lands on your disk.</p>
+                    <small>@(step2Done ? $"{downloadedCount} track(s) downloaded" : "Nothing downloaded yet")</small>
+                </div>
+                <span class="workflow-arrow">→</span>
+            </a>
+            <a class="workflow-step @(step3Done ? "done" : "todo")" href="sync-jobs">
+                <span class="workflow-number">@(step3Done ? "✓" : "3")</span>
+                <div>
+                    <strong>Publish it</strong>
+                    <p>Create a sync job that writes an M3U file or pushes the playlist to your
+                        Jellyfin server. Jobs can run automatically on a schedule.</p>
+                    <small>@(step3Done ? $"{jobsCount} job(s) configured, last run @lastRunText" : "No sync job yet")</small>
+                </div>
+            </a>
+        </div>
+        @if (doneSteps == 3)
+        {
+            <div class="result-box ok">
+                Everything is set up. The dashboard replaces this page from now on.
+            </div>
+        }
+    </section>
+}
+else
+{
+    <section class="page-title">
+        <div>
+            <span class="eyebrow">Overview</span>
+            <h1>Dashboard</h1>
+            <p>Playlists, downloads, connections and errors at a glance.</p>
+        </div>
+        <div class="topbar-actions">
+            <button class="btn-modern ghost" @onclick="RefreshStats">Refresh</button>
+        </div>
+    </section>
+
+    <section class="stat-grid">
+        <div class="stat-card">
+            <span class="stat-icon">♫</span>
+            <label>Playlists</label>
+            <strong>@playlistsCount</strong>
+            <small>Saved from Spotify or YouTube</small>
+        </div>
+        <div class="stat-card">
+            <span class="stat-icon">↓</span>
+            <label>Downloaded tracks</label>
+            <strong>@downloadedCount</strong>
+            <small>Files on your disk</small>
+        </div>
+        <div class="stat-card">
+            <span class="stat-icon">≡</span>
+            <label>Library</label>
+            <strong>@libraryCount</strong>
+            <small>Files found by the scanner</small>
+        </div>
+        <div class="stat-card">
+            <span class="stat-icon">🔌</span>
+            <label>Plugins</label>
+            <strong>@enabledPlugins / @totalPlugins</strong>
+            <small>Enabled in the waterfall</small>
+        </div>
+    </section>
+
+    <section class="content-grid two">
+        <div class="panel-card">
+            <div class="panel-header">
+                <div>
+                    <span class="eyebrow">Media servers and accounts</span>
+                    <h2>Connections</h2>
+                </div>
+            </div>
+            <div class="provider-list">
+                <div class="provider-row @(spotifyConnected ? "enabled" : "")">
+                    <div><strong>Spotify</strong><small>@(spotifyConnected ? "account connected" : "public playlists only")</small></div>
+                    <span class="pill @(spotifyConnected ? "ok" : "neutral")">@(spotifyConnected ? "connected" : "guest")</span>
+                </div>
+                <div class="provider-row @(youtubeConnected ? "enabled" : "")">
+                    <div><strong>YouTube</strong><small>@(youtubeConnected ? "account connected" : "public playlists only")</small></div>
+                    <span class="pill @(youtubeConnected ? "ok" : "neutral")">@(youtubeConnected ? "connected" : "guest")</span>
+                </div>
+                <div class="provider-row @(jellyfinConfigured ? "enabled" : "")">
+                    <div><strong>Jellyfin</strong><small>@(jellyfinConfigured ? jellyfinUrl : "not configured")</small></div>
+                    <span class="pill @(jellyfinConfigured ? "ok" : "neutral")">@(jellyfinConfigured ? "ready" : "off")</span>
+                </div>
+                <div class="provider-row @(flareSolverrOn ? "enabled" : "")">
+                    <div><strong>FlareSolverr</strong><small>@(flareSolverrOn ? flareSolverrUrl : "Cloudflare bypass off")</small></div>
+                    <span class="pill @(flareSolverrOn ? "ok" : "neutral")">@(flareSolverrOn ? "on" : "off")</span>
+                </div>
+            </div>
+        </div>
+        <div class="panel-card">
+            <div class="panel-header">
+                <div>
+                    <span class="eyebrow">Attention</span>
+                    <h2>Recent errors (@errorCount)</h2>
+                </div>
+                <a class="btn-modern ghost small" href="logs">Logs</a>
+            </div>
+            @if (recentErrors.Count == 0)
+            {
+                <div class="empty-state">No errors. Everything ran clean.</div>
+            }
+            else
+            {
+                <div class="logs-list">
+                    @foreach (var entry in recentErrors)
+                    {
+                        <a class="log-row err clickable" href="logs">
+                            <span class="log-time">@entry.Timestamp.ToLocalTime().ToString("HH:mm:ss")</span>
+                            <span class="log-category">@LogAreas.FromCategory(entry.Category)</span>
+                            <span class="log-message">@entry.Message</span>
+                        </a>
+                    }
+                </div>
+            }
+        </div>
+    </section>
+
+    <section class="panel-card">
+        <div class="panel-header">
+            <div>
+                <span class="eyebrow">Sync activity</span>
+                <h2>Recent sync runs (@recentRuns.Count)</h2>
+            </div>
+            <a class="btn-modern ghost small" href="sync-jobs">Sync jobs</a>
+        </div>
+        @if (recentRuns.Count == 0)
+        {
+            <div class="empty-state">No sync job has run yet.</div>
+        }
+        else
+        {
+            <div class="table-wrap">
+                <table class="modern-table">
+                    <thead>
+                        <tr>
+                            <th>Job</th>
+                            <th>When</th>
+                            <th>Result</th>
+                            <th>Summary</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var run in recentRuns)
+                        {
+                            <tr>
+                                <td><strong>@run.JobName</strong></td>
+                                <td class="text-muted">@run.Timestamp.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</td>
+                                <td>
+                                    <span class="pill @(run.Status == "Completed" ? "ok" : "err")">@run.Status</span>
+                                </td>
+                                <td class="text-muted">@run.Message</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </section>
+
+    <section class="panel-card">
+        <div class="panel-header">
+            <div>
+                <span class="eyebrow">Your music</span>
+                <h2>Playlists (@playlists.Count)</h2>
+            </div>
+            <a class="btn-modern ghost small" href="playlists">All playlists</a>
+        </div>
+        @if (playlists.Count == 0)
+        {
+            <div class="empty-state">No playlists yet. Add one on the Playlists page.</div>
+        }
+        else
+        {
+            <div class="playlist-grid">
+                @foreach (var playlist in playlists)
+                {
+                    var (downloaded, total) = playlistCounts.GetValueOrDefault(playlist.Id, (0, 0));
+                    <a class="panel-card playlist-card" href="playlists/@playlist.Id">
+                        <div class="playlist-cover">
+                            @if (!string.IsNullOrEmpty(playlist.CoverImageUrl))
+                            {
+                                <img src="@playlist.CoverImageUrl" alt="@playlist.Name" loading="lazy" />
+                            }
+                            else
+                            {
+                                <span class="playlist-cover-placeholder">♫</span>
+                            }
+                            @if (downloaded == total && total > 0)
+                            {
+                                <span class="cover-badge complete" title="All tracks downloaded">✓ complete</span>
+                            }
+                            else if (downloaded > 0)
+                            {
+                                <span class="cover-badge partial" title="@downloaded of @total downloaded">@downloaded/@total</span>
+                            }
+                        </div>
+                        <div class="panel-header">
+                            <div>
+                                <span class="eyebrow">@playlist.SourcePlatform</span>
+                                <h2>@playlist.Name</h2>
+                            </div>
+                        </div>
+                        <p class="panel-description">
+                            @total tracks · @downloaded downloaded
+                        </p>
+                    </a>
+                }
+            </div>
+        }
+    </section>
+}
 
 @code {
+    private bool showIntro;
+    private bool introLoaded;
     private int playlistsCount;
     private int downloadedCount;
     private int libraryCount;
     private int jobsCount;
     private int enabledPlugins;
     private int totalPlugins;
+    private int errorCount;
+    private bool spotifyConnected;
+    private bool youtubeConnected;
+    private string jellyfinUrl = string.Empty;
+    private string flareSolverrUrl = string.Empty;
+    private List<PlaylistEntity> playlists = new();
+    private Dictionary<string, (int downloaded, int total)> playlistCounts = new();
+    private List<LogEntry> recentErrors = new();
+    private List<(string JobName, DateTime Timestamp, string Status, string Message)> recentRuns = new();
+    private DateTime? lastRunAt;
+    private Timer? _timer;
 
     private bool step1Done => playlistsCount > 0;
     private bool step2Done => downloadedCount > 0;
     private bool step3Done => jobsCount > 0;
+    private int doneSteps => (step1Done ? 1 : 0) + (step2Done ? 1 : 0) + (step3Done ? 1 : 0);
+    private string lastRunText => lastRunAt.HasValue
+        ? lastRunAt.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm")
+        : "never";
+    private bool jellyfinConfigured => !string.IsNullOrWhiteSpace(jellyfinUrl);
+    private bool flareSolverrOn => !string.IsNullOrWhiteSpace(flareSolverrUrl)
+        && !flareSolverrUrl.Equals("off", StringComparison.OrdinalIgnoreCase);
 
-    protected override async Task OnInitializedAsync() => await RefreshStats();
+    protected override async Task OnInitializedAsync()
+    {
+        showIntro = !await Settings.GetBoolAsync("intro_dismissed", fallback: false);
+        introLoaded = true;
+        await RefreshStats();
+
+        // Keep the dashboard current without a manual refresh.
+        if (!showIntro)
+        {
+            _timer = new Timer(_ => InvokeAsync(async () =>
+            {
+                await RefreshStats();
+                StateHasChanged();
+            }), null, 5000, 5000);
+        }
+    }
+
+    private async Task SkipIntro()
+    {
+        await Settings.SetAsync("intro_dismissed", "true");
+        showIntro = false;
+        await RefreshStats();
+        _timer = new Timer(_ => InvokeAsync(async () =>
+        {
+            await RefreshStats();
+            StateHasChanged();
+        }), null, 5000, 5000);
+    }
 
     private async Task RefreshStats()
     {
@@ -114,8 +338,56 @@
         libraryCount = await db.Tracks.CountAsync(t => t.CurrentPath != null && t.PlaylistSnapshotId == null);
         jobsCount = await db.SyncJobs.CountAsync();
 
+        // The intro hands over to the dashboard the moment setup is complete.
+        if (showIntro && doneSteps == 3)
+        {
+            await Settings.SetAsync("intro_dismissed", "true");
+            showIntro = false;
+        }
+
         var plugins = DownloaderRegistry.GetAll();
         totalPlugins = plugins.Count;
         enabledPlugins = plugins.Count(p => DownloaderRegistry.IsEnabled(p.Id));
+
+        // Dashboard-only facts: keep the intro queries light.
+        if (!showIntro)
+        {
+            spotifyConnected = await SpotifyAccount.IsConnectedAsync();
+            youtubeConnected = await YouTubeAccount.IsConnectedAsync();
+            jellyfinUrl = await JellyfinSettings.GetBaseUrlAsync();
+            flareSolverrUrl = FlareSolverrSolver.Url ?? string.Empty;
+
+            var errors = LogCollector.GetEntries()
+                .Where(e => e.Level is LogLevel.Error or LogLevel.Critical)
+                .Take(5)
+                .ToList();
+            recentErrors = errors;
+            errorCount = LogCollector.GetEntries()
+                .Count(e => e.Level is LogLevel.Error or LogLevel.Critical);
+
+            playlists = await db.Playlists
+                .OrderByDescending(p => p.LastSyncAt ?? DateTime.MinValue)
+                .Take(6)
+                .ToListAsync();
+            playlistCounts = await db.Tracks
+                .GroupBy(t => t.PlaylistEntityId)
+                .Select(g => new { Id = g.Key, Total = g.Count(), Done = g.Count(t => t.DownloadStatus == "downloaded") })
+                .ToDictionaryAsync(x => x.Id ?? "", x => (x.Done, x.Total));
+
+            recentRuns = (await db.SyncJobRuns
+                .OrderByDescending(r => r.Timestamp)
+                .Take(5)
+                .Join(db.SyncJobs,
+                    r => r.SyncJobId,
+                    j => j.Id,
+                    (r, j) => new { r.Timestamp, r.Status, r.Message, JobName = j.Name })
+                .ToListAsync())
+                .Select(x => (x.JobName, x.Timestamp, x.Status, x.Message ?? ""))
+                .ToList();
+
+            lastRunAt = recentRuns.Count > 0 ? recentRuns[0].Timestamp : (DateTime?)null;
+        }
     }
+
+    public void Dispose() => _timer?.Dispose();
 }
