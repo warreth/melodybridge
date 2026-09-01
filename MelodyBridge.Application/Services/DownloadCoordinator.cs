@@ -3,6 +3,7 @@ using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.Data;
 using MelodyBridge.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace MelodyBridge.Application.Services;
@@ -40,8 +41,7 @@ public record DownloadRun(
 /// </summary>
 public class DownloadCoordinator
 {
-    private readonly PlaylistStore _store;
-    private readonly IDbContextFactory<MelodyBridgeDbContext> _dbFactory;
+    private readonly IServiceProvider _services;
     private readonly ILogger<DownloadCoordinator> _logger;
 
     private sealed class RunHandle
@@ -55,14 +55,24 @@ public class DownloadCoordinator
     private readonly ConcurrentDictionary<string, RunHandle> _runs = new();
 
     public DownloadCoordinator(
-        PlaylistStore store,
-        IDbContextFactory<MelodyBridgeDbContext> dbFactory,
+        IServiceProvider services,
         ILogger<DownloadCoordinator> logger)
     {
-        _store = store;
-        _dbFactory = dbFactory;
+        _services = services;
         _logger = logger;
     }
+
+    /// <summary>
+    /// Scoped services cannot be captured by this singleton, so each run
+    /// creates its own scope and resolves a fresh PlaylistStore from it.
+    /// The caller disposes the scope when the run ends.
+    /// </summary>
+    private static PlaylistStore StoreFrom(IServiceScope scope)
+        => scope.ServiceProvider.GetRequiredService<PlaylistStore>();
+
+    private async Task<MelodyBridgeDbContext> NewDbAsync(CancellationToken ct = default)
+        => await _services.GetRequiredService<IDbContextFactory<MelodyBridgeDbContext>>()
+            .CreateDbContextAsync(ct);
 
     /// <summary>All live runs, newest first. Finished runs stay visible
     /// until the next run starts or the app restarts.</summary>
@@ -135,6 +145,8 @@ public class DownloadCoordinator
     private async Task RunAsync(string playlistId, RunHandle handle)
     {
         var ct = handle.Cts.Token;
+        using var runScope = _services.CreateScope();
+        var store = StoreFrom(runScope);
         try
         {
             var name = await LoadNameAsync(playlistId) ?? playlistId;
@@ -161,7 +173,7 @@ public class DownloadCoordinator
                     State = DownloadRunState.Running,
                 };
 
-                await _store.DownloadMissingAsync(playlistId, limit: 1, ct: ct);
+                await store.DownloadMissingAsync(playlistId, limit: 1, ct: ct);
 
                 counts = await CountAsync(playlistId);
                 handle.Snapshot = handle.Snapshot with
@@ -193,7 +205,7 @@ public class DownloadCoordinator
 
     private async Task<string?> LoadNameAsync(string playlistId)
     {
-        await using var db = await _dbFactory.CreateDbContextAsync();
+        await using var db = await NewDbAsync();
         return await db.Playlists.AsNoTracking()
             .Where(p => p.Id == playlistId)
             .Select(p => p.Name)
@@ -203,7 +215,7 @@ public class DownloadCoordinator
     /// <summary>Live (total, done, failed) counts for the playlist.</summary>
     private async Task<(int total, int done, int failed)> CountAsync(string playlistId)
     {
-        await using var db = await _dbFactory.CreateDbContextAsync();
+        await using var db = await NewDbAsync();
         var tracks = await db.Tracks.AsNoTracking()
             .Where(t => t.PlaylistEntityId == playlistId)
             .Select(t => t.DownloadStatus)
@@ -215,7 +227,7 @@ public class DownloadCoordinator
 
     private async Task<string?> NextPendingTitleAsync(string playlistId, CancellationToken ct)
     {
-        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        await using var db = await NewDbAsync(ct);
         return await db.Tracks.AsNoTracking()
             .Where(t => t.PlaylistEntityId == playlistId
                 && (t.DownloadStatus == null || t.DownloadStatus == "pending" || t.DownloadStatus == "failed"))

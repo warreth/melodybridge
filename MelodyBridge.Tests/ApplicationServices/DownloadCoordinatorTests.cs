@@ -3,6 +3,7 @@ using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.Data;
 using MelodyBridge.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace MelodyBridge.Tests.ApplicationServices;
@@ -99,22 +100,29 @@ public class DownloadCoordinatorTests
         return playlist.Id;
     }
 
-    private PlaylistStore MakeStore(SlowDownloader downloader)
-        => new(_factory,
+    private ServiceProvider MakeServices(SlowDownloader downloader)
+    {
+        var store = new PlaylistStore(_factory,
             Array.Empty<ISourceProvider>(),
             new DownloadManager(new ListRegistry(downloader),
                 NullLogger<DownloadManager>.Instance),
             NullLogger<PlaylistStore>.Instance);
+        var services = new ServiceCollection();
+        services.AddSingleton<IDbContextFactory<MelodyBridgeDbContext>>(_factory);
+        services.AddSingleton(store);
+        return services.BuildServiceProvider();
+    }
 
-    private static DownloadCoordinator MakeCoordinator(PlaylistStore store, TestSqliteFactory factory)
-        => new(store, factory, NullLogger<DownloadCoordinator>.Instance);
+    private static DownloadCoordinator MakeCoordinator(ServiceProvider services)
+        => new(services, NullLogger<DownloadCoordinator>.Instance);
 
     [Test]
     public async Task Run_DownloadsEverything_AndFinishes()
     {
         var id = await SeedPlaylistAsync(3);
         var downloader = new SlowDownloader();
-        var coordinator = MakeCoordinator(MakeStore(downloader), _factory);
+        var services = MakeServices(downloader);
+        var coordinator = MakeCoordinator(services);
 
         coordinator.Start(id);
 
@@ -134,7 +142,8 @@ public class DownloadCoordinatorTests
     {
         var id = await SeedPlaylistAsync(4);
         var downloader = new SlowDownloader();
-        var coordinator = MakeCoordinator(MakeStore(downloader), _factory);
+        var services = MakeServices(downloader);
+        var coordinator = MakeCoordinator(services);
 
         coordinator.Start(id);
         await WaitForAsync(() => (coordinator.RunFor(id)?.Done ?? 0) >= 1, TimeSpan.FromSeconds(20));
@@ -159,7 +168,8 @@ public class DownloadCoordinatorTests
     {
         var id = await SeedPlaylistAsync(10);
         var downloader = new SlowDownloader();
-        var coordinator = MakeCoordinator(MakeStore(downloader), _factory);
+        var services = MakeServices(downloader);
+        var coordinator = MakeCoordinator(services);
 
         coordinator.Start(id);
         await WaitForAsync(() => (coordinator.RunFor(id)?.Done ?? 0) >= 1, TimeSpan.FromSeconds(20));
@@ -177,7 +187,8 @@ public class DownloadCoordinatorTests
     {
         var id = await SeedPlaylistAsync(2);
         var downloader = new SlowDownloader();
-        var coordinator = MakeCoordinator(MakeStore(downloader), _factory);
+        var services = MakeServices(downloader);
+        var coordinator = MakeCoordinator(services);
 
         coordinator.Start(id);
         await WaitForAsync(() => coordinator.RunFor(id)?.State == DownloadRunState.Finished, TimeSpan.FromSeconds(20));

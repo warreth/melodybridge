@@ -51,9 +51,9 @@ public class PluginsPageTests
             Microsoft.Extensions.Logging.Abstractions.NullLogger<MelodyBridge.Infrastructure.Services.PlaylistStore>.Instance);
         _ctx.Services.AddSingleton<IDownloadManager>(manager);
         _ctx.Services.AddSingleton(store);
-        _ctx.Services.AddSingleton(new Application.Services.DownloadCoordinator(
-            store, dbFactory,
-            Microsoft.Extensions.Logging.Abstractions.NullLogger<Application.Services.DownloadCoordinator>.Instance));
+        // The coordinator resolves the store and db factory from the
+        // provider per run, like the real app does.
+        _ctx.Services.AddSingleton<Application.Services.DownloadCoordinator>();
         _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Services.SettingsStore(dbFactory));
     }
 

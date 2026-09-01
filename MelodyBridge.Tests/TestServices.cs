@@ -28,9 +28,11 @@ public static class TestServices
             Array.Empty<ISourceProvider>(), manager,
             NullLogger<PlaylistStore>.Instance);
         services.AddSingleton<IDownloadManager>(manager);
+        services.AddSingleton<IDbContextFactory<MelodyBridgeDbContext>>(dbFactory);
         services.AddSingleton(store);
-        services.AddSingleton(new DownloadCoordinator(store, dbFactory,
-            NullLogger<DownloadCoordinator>.Instance));
+        // The coordinator resolves the scoped store per run from the
+        // provider the TestContext builds, like the real app does.
+        services.AddSingleton<DownloadCoordinator>();
         services.AddSingleton(new SettingsStore(dbFactory));
     }
 
