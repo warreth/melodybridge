@@ -30,6 +30,9 @@ public class HomePageTests
     public void Setup()
     {
         _ctx = new TestContext();
+        // The dashboard's guided tour calls melody.spotlight; loose mode
+        // lets JS interop run without scripted handlers.
+        _ctx.JSInterop.Mode = JSRuntimeMode.Loose;
         _providerRegistry = new Mock<IDownloaderRegistry>();
         _collector = new LogCollector(maxEntries: 500);
 

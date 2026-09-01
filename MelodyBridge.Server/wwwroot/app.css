@@ -364,6 +364,19 @@ select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-s
 .provider-row.disabled { opacity: .55; }
 .provider-row.builtin { border-left: 3px solid var(--border); }
 .provider-icon { font-size: 1.3rem; line-height: 1; }
+/* Connection rows (dashboard): name + status pill, no icon column. */
+.connection-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: .65rem;
+    align-items: center;
+    padding: .75rem;
+    border-radius: 8px;
+    background: var(--surface-2);
+}
+.connection-row small { font-size: .78rem; color: var(--muted); margin: 0; }
+.connection-row .pill { justify-self: end; }
+.connection-row.enabled { border-left: 3px solid var(--accent-soft); }
 .provider-info { display: flex; flex-direction: column; gap: .15rem; min-width: 0; }
 .provider-info small { font-size: .78rem; color: var(--muted); white-space: normal; }
 .provider-tags,
@@ -552,7 +565,20 @@ textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent
 .blazor-error-boundary::after { content: "An error has occurred."; }
 
 /* -- Playlists ------------------------------------------- */
+/* Cards are divs, not links: only the cover and the title navigate,
+   so the metadata lines stay plain text. */
 .playlist-card { display: flex; flex-direction: column; gap: .6rem; }
+.playlist-card h2 { font-size: 1.05rem; margin: 0; }
+.playlist-card h2 a { color: var(--text); text-decoration: none; }
+.playlist-card h2 a:hover { color: var(--accent-strong); text-decoration: underline; }
+.playlist-card .eyebrow { font-size: .66rem; }
+.playlist-grid {
+    display: grid;
+    gap: 1rem;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+}
+.playlist-grid .playlist-card { flex-direction: row; align-items: center; }
+.playlist-grid .playlist-cover { aspect-ratio: 1; width: 88px; flex-shrink: 0; }
 .playlist-cover {
     aspect-ratio: 16 / 8;
     border-radius: var(--radius);
@@ -1064,5 +1090,123 @@ td.file-path {
 .track-actions { white-space: nowrap; text-align: right; }
 .track-actions .btn-modern { margin-left: .3rem; }
 
+/* ── Quality picker (two selects side by side) ───────────────────── */
+.quality-picker { display: flex; gap: 1rem; flex-wrap: wrap; }
+.quality-picker label { flex: 1 1 180px; }
+
 /* ── Wide toggle rows (Advanced page) ────────────────────────────── */
-.toggle-switch.wide { display: flex; gap: .75rem; align-items: center; }
+/* The base .toggle-switch is a 40px inline-block built for bare
+   switches; the wide variant keeps that track but lays the label text
+   out beside it instead of inside the 40px box. */
+.toggle-switch.wide {
+    display: flex;
+    align-items: center;
+    gap: .75rem;
+    width: auto;
+    cursor: pointer;
+}
+.toggle-switch.wide input { position: absolute; opacity: 0; width: 0; height: 0; }
+.toggle-switch.wide .toggle-slider { position: relative; flex-shrink: 0; }
+
+/* ── Guided tour ────────────────────────────────────────────────── */
+.tour-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 200;
+    pointer-events: none;
+}
+.tour-spotlight {
+    position: absolute;
+    display: none;
+    border: 2px solid var(--accent-strong);
+    border-radius: var(--radius);
+    box-shadow: 0 0 0 4000px color-mix(in srgb, #000 62%, transparent);
+    transition: all .3s ease;
+    pointer-events: none;
+}
+.tour-card {
+    position: absolute;
+    left: 50%;
+    bottom: 2rem;
+    transform: translateX(-50%);
+    max-width: 30rem;
+    padding: 1.1rem 1.25rem;
+    border-radius: var(--radius);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow-lg, 0 10px 30px rgba(0,0,0,.4));
+    pointer-events: auto;
+}
+.tour-card h3 { margin: .2rem 0 .4rem; }
+.tour-card p { margin: 0 0 .8rem; color: var(--muted); font-size: .92rem; }
+
+/* ── Toasts ──────────────────────────────────────────────────────── */
+.toast-stack {
+    position: fixed;
+    right: 1rem;
+    bottom: 1rem;
+    z-index: 300;
+    display: grid;
+    gap: .5rem;
+    width: min(22rem, calc(100vw - 2rem));
+}
+.toast-item {
+    display: flex;
+    align-items: flex-start;
+    gap: .6rem;
+    padding: .7rem .9rem;
+    border-radius: var(--radius);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    box-shadow: 0 6px 18px rgba(0,0,0,.35);
+    font-size: .88rem;
+    animation: toast-in .25s ease;
+}
+.toast-item.success { border-left: 3px solid var(--success, #2CB67D); }
+.toast-item.warn { border-left: 3px solid #f59e0b; }
+.toast-item.error { border-left: 3px solid #ef4444; }
+.toast-item.info { border-left: 3px solid var(--accent-strong); }
+.toast-item .toast-close {
+    margin-left: auto;
+    border: 0;
+    background: none;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 1rem;
+    line-height: 1;
+}
+@keyframes toast-in {
+    from { opacity: 0; transform: translateY(.5rem); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+
+/* ── Connections profiles ─────────────────────────────────────── */
+.profile-list { display: grid; gap: .6rem; margin-top: .75rem; }
+.profile-row {
+    display: flex;
+    align-items: center;
+    gap: .75rem;
+    padding: .7rem .9rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+}
+
+/* InputFile renders a plain file input; let it sit next to buttons. */
+input[type="file"].btn-modern {
+    display: inline-flex;
+    align-items: center;
+    font-size: .85rem;
+    color: var(--muted);
+}
+input[type="file"].btn-modern::file-selector-button {
+    border: 1px solid var(--border);
+    border-radius: 99px;
+    background: var(--surface-2);
+    color: var(--text);
+    padding: .45rem .95rem;
+    margin-right: .6rem;
+    cursor: pointer;
+    font: inherit;
+}

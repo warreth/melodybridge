@@ -1,0 +1,84 @@
+@using Microsoft.JSInterop
+@inject IJSRuntime JS
+@inject MelodyBridge.Infrastructure.Services.SettingsStore Settings
+
+@if (Active)
+{
+    <div class="tour-overlay">
+        <div id="tour-spotlight" class="tour-spotlight"></div>
+        <div class="tour-card">
+            <span class="eyebrow">Tour @(_index + 1) of @Steps.Count</span>
+            <h3>@Current.Title</h3>
+            <p>@Current.Body</p>
+            <div class="flex-actions">
+                <button class="btn-modern ghost small" @onclick="Skip">Skip tour</button>
+                <button class="btn-modern secondary small" disabled="(_index == 0)" @onclick="Back">Back</button>
+                <button class="btn-modern primary small" @onclick="Next">
+                    @(_index == Steps.Count - 1 ? "Done" : "Next")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    /// <summary>One tour stop: copy plus a CSS selector to spotlight.</summary>
+    public sealed record TourStep(string Title, string Body, string? SpotlightSelector = null);
+
+    [Parameter] public string PersistenceKey { get; set; } = "tour_dismissed";
+    [Parameter] public bool StartOpen { get; set; } = true;
+    [Parameter, EditorRequired] public IReadOnlyList<TourStep> Steps { get; set; } = [];
+
+    public bool Active { get; private set; }
+    [Parameter] public EventCallback OnFinished { get; set; }
+
+    private int _index;
+
+    protected override async Task OnInitializedAsync()
+        => Active = StartOpen && !await Settings.GetBoolAsync(PersistenceKey);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!Active) return;
+        await SpotlightCurrentAsync();
+    }
+
+    private async Task Next()
+    {
+        if (_index >= Steps.Count - 1) await CloseAsync();
+        else
+        {
+            _index++;
+            StateHasChanged();
+        }
+    }
+
+    private Task Back()
+    {
+        if (_index > 0) _index--;
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+
+    private async Task CloseAsync()
+    {
+        Active = false;
+        await Settings.SetAsync(PersistenceKey, "true");
+        await JS.InvokeVoidAsync("melody.hideSpotlight");
+        await OnFinished.InvokeAsync();
+        StateHasChanged();
+    }
+
+    private Task Skip() => CloseAsync();
+
+    private TourStep Current => Steps[Math.Clamp(_index, 0, Steps.Count - 1)];
+
+    private async Task SpotlightCurrentAsync()
+    {
+        var selector = Current.SpotlightSelector;
+        // Missing element (page differs from the tour's home): fall back to
+        // a plain centered card by hiding the spotlight box.
+        var found = selector is null || await JS.InvokeAsync<bool>("melody.spotlight", selector);
+        if (!found) await JS.InvokeVoidAsync("melody.hideSpotlight");
+    }
+}

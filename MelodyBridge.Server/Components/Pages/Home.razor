@@ -10,6 +10,11 @@
 
 <PageTitle>@(showIntro ? "Welcome" : "MelodyBridge Dashboard")</PageTitle>
 
+@if (!showIntro)
+{
+    <GuidedTour Steps="DashboardTour" PersistenceKey="tour_dismissed" />
+}
+
 @if (showIntro)
 {
     <section class="hero-panel">
@@ -20,7 +25,7 @@
                 music through a plugin waterfall, and publishes the result to Jellyfin or an M3U file.
                 Work through the checklist below. It disappears once everything is set up.</p>
             <div class="hero-actions">
-                <a class="btn-modern primary" href="playlists">Start with a playlist</a>
+                <a class="btn-modern primary" href="/playlists">Start with a playlist</a>
                 <button class="btn-modern ghost" @onclick="SkipIntro">Skip intro</button>
             </div>
         </div>
@@ -40,7 +45,7 @@
             <button class="btn-modern ghost small" @onclick="RefreshStats">Refresh</button>
         </div>
         <div class="workflow-list">
-            <a class="workflow-step @(step1Done ? "done" : "todo")" href="playlists">
+            <a class="workflow-step @(step1Done ? "done" : "todo")" href="/playlists">
                 <span class="workflow-number">@(step1Done ? "✓" : "1")</span>
                 <div>
                     <strong>Add a playlist</strong>
@@ -61,7 +66,7 @@
                 </div>
                 <span class="workflow-arrow">→</span>
             </a>
-            <a class="workflow-step @(step3Done ? "done" : "todo")" href="sync-jobs">
+            <a class="workflow-step @(step3Done ? "done" : "todo")" href="/sync-jobs">
                 <span class="workflow-number">@(step3Done ? "✓" : "3")</span>
                 <div>
                     <strong>Publish it</strong>
@@ -128,19 +133,19 @@ else
                 </div>
             </div>
             <div class="provider-list">
-                <div class="provider-row @(spotifyConnected ? "enabled" : "")">
+                <div class="connection-row @(spotifyConnected ? "enabled" : "")">
                     <div><strong>Spotify</strong><small>@(spotifyConnected ? "account connected" : "public playlists only")</small></div>
                     <span class="pill @(spotifyConnected ? "ok" : "neutral")">@(spotifyConnected ? "connected" : "guest")</span>
                 </div>
-                <div class="provider-row @(youtubeConnected ? "enabled" : "")">
+                <div class="connection-row @(youtubeConnected ? "enabled" : "")">
                     <div><strong>YouTube</strong><small>@(youtubeConnected ? "account connected" : "public playlists only")</small></div>
                     <span class="pill @(youtubeConnected ? "ok" : "neutral")">@(youtubeConnected ? "connected" : "guest")</span>
                 </div>
-                <div class="provider-row @(jellyfinConfigured ? "enabled" : "")">
+                <div class="connection-row @(jellyfinConfigured ? "enabled" : "")">
                     <div><strong>Jellyfin</strong><small>@(jellyfinConfigured ? jellyfinUrl : "not configured")</small></div>
                     <span class="pill @(jellyfinConfigured ? "ok" : "neutral")">@(jellyfinConfigured ? "ready" : "off")</span>
                 </div>
-                <div class="provider-row @(flareSolverrOn ? "enabled" : "")">
+                <div class="connection-row @(flareSolverrOn ? "enabled" : "")">
                     <div><strong>FlareSolverr</strong><small>@(flareSolverrOn ? flareSolverrUrl : "Cloudflare bypass off")</small></div>
                     <span class="pill @(flareSolverrOn ? "ok" : "neutral")">@(flareSolverrOn ? "on" : "off")</span>
                 </div>
@@ -152,7 +157,7 @@ else
                     <span class="eyebrow">Attention</span>
                     <h2>Recent errors (@errorCount)</h2>
                 </div>
-                <a class="btn-modern ghost small" href="logs">Logs</a>
+                <a class="btn-modern ghost small" href="/logs">Logs</a>
             </div>
             @if (recentErrors.Count == 0)
             {
@@ -163,7 +168,7 @@ else
                 <div class="logs-list">
                     @foreach (var entry in recentErrors)
                     {
-                        <a class="log-row err clickable" href="logs">
+                        <a class="log-row err clickable" href="/logs">
                             <span class="log-time">@entry.Timestamp.ToLocalTime().ToString("HH:mm:ss")</span>
                             <span class="log-category">@LogAreas.FromCategory(entry.Category)</span>
                             <span class="log-message">@entry.Message</span>
@@ -180,7 +185,7 @@ else
                 <span class="eyebrow">Sync activity</span>
                 <h2>Recent sync runs (@recentRuns.Count)</h2>
             </div>
-            <a class="btn-modern ghost small" href="sync-jobs">Sync jobs</a>
+            <a class="btn-modern ghost small" href="/sync-jobs">Sync jobs</a>
         </div>
         @if (recentRuns.Count == 0)
         {
@@ -222,7 +227,7 @@ else
                 <span class="eyebrow">Your music</span>
                 <h2>Playlists (@playlists.Count)</h2>
             </div>
-            <a class="btn-modern ghost small" href="playlists">All playlists</a>
+            <a class="btn-modern ghost small" href="/playlists">All playlists</a>
         </div>
         @if (playlists.Count == 0)
         {
@@ -234,8 +239,8 @@ else
                 @foreach (var playlist in playlists)
                 {
                     var (downloaded, total) = playlistCounts.GetValueOrDefault(playlist.Id, (0, 0));
-                    <a class="panel-card playlist-card" href="playlists/@playlist.Id">
-                        <div class="playlist-cover">
+                    <div class="panel-card playlist-card">
+                        <a class="playlist-cover" href="/playlists/@playlist.Id" title="Open @playlist.Name">
                             @if (!string.IsNullOrEmpty(playlist.CoverImageUrl))
                             {
                                 <img src="@playlist.CoverImageUrl" alt="@playlist.Name" loading="lazy" />
@@ -252,17 +257,15 @@ else
                             {
                                 <span class="cover-badge partial" title="@downloaded of @total downloaded">@downloaded/@total</span>
                             }
+                        </a>
+                        <div>
+                            <span class="eyebrow">@playlist.SourcePlatform</span>
+                            <h2><a href="/playlists/@playlist.Id">@playlist.Name</a></h2>
+                            <p class="panel-description">
+                                @total tracks · @downloaded downloaded
+                            </p>
                         </div>
-                        <div class="panel-header">
-                            <div>
-                                <span class="eyebrow">@playlist.SourcePlatform</span>
-                                <h2>@playlist.Name</h2>
-                            </div>
-                        </div>
-                        <p class="panel-description">
-                            @total tracks · @downloaded downloaded
-                        </p>
-                    </a>
+                    </div>
                 }
             </div>
         }
@@ -329,6 +332,26 @@ else
             StateHasChanged();
         }), null, 5000, 5000);
     }
+
+    /// <summary>
+    /// The post-setup tour: four short stops over the dashboard's own
+    /// tiles, so it works on a fresh install without any data.
+    /// </summary>
+    private static readonly Shared.GuidedTour.TourStep[] DashboardTour =
+    [
+        new("This is your dashboard",
+            "Every tile refreshes itself: playlists saved, tracks downloaded, library files and sync jobs all at a glance.",
+            ".stat-grid"),
+        new("Plugins decide the download order",
+            "yt-dlp, SoundCloud, Archive.org and Lucida try in order. The first one that delivers within your quality settings wins.",
+            null),
+        new("Settings holds accounts and quality",
+            "Spotify or YouTube logins, default download quality and the Cloudflare solver for Lucida live here.",
+            null),
+        new("Publish when the music is in",
+            "A sync job turns a playlist into a Jellyfin playlist or an M3U file. Checklists and tours can be restarted from Settings - About.",
+            null),
+    ];
 
     private async Task RefreshStats()
     {

@@ -1,5 +1,9 @@
 @inherits LayoutComponentBase
+@using MelodyBridge.Core
+@using MelodyBridge.Server.Services
 @inject DevPanelService DevPanel
+@inject NotificationService Notifications
+@implements IDisposable
 
 <div class="app-shell">
     <aside class="app-sidebar">
@@ -12,7 +16,7 @@
             <button class="theme-toggle" @onclick="ToggleTheme" title="Toggle theme">
                 <span class="theme-icon">@(_isDark ? "☾" : "☀")</span>
             </button>
-            <small>v@Version</small>
+            <small>v@AppInfo.Version</small>
         </div>
     </aside>
     <div class="app-main">
@@ -28,12 +32,22 @@
     </div>
 </div>
 
+@if (_toasts.Count > 0)
+{
+    <div class="toast-stack">
+        @foreach (var toast in _toasts)
+        {
+            <div class="toast-item @toast.Level">
+                <span>@toast.Message</span>
+                <button class="toast-close" @onclick="() => DismissToast(toast)">×</button>
+            </div>
+        }
+    </div>
+}
+
 @code {
     private bool _isDark = true;
-    private static readonly System.Reflection.Assembly Assembly =
-        typeof(MelodyBridge.Server.Components.App).Assembly;
-    private static readonly string Version =
-        Assembly.GetName().Version?.ToString(3) ?? "0.1.0";
+    private List<AppNotification> _toasts = [];
 
     private string PageTitleText
     {
@@ -49,6 +63,18 @@
     }
 
     [Inject] private NavigationManager Nav { get; set; } = default!;
+    [Inject] private IJSRuntime JS { get; set; } = default!;
+
+    protected override void OnInitialized()
+        => Notifications.Changed += RefreshToasts;
+
+    private void RefreshToasts()
+    {
+        _toasts = Notifications.Snapshot().Take(4).ToList();
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private void DismissToast(AppNotification toast) => Notifications.Dismiss(toast);
 
     private void ToggleTheme()
     {
@@ -56,5 +82,5 @@
         _ = JS.InvokeVoidAsync("melody.setTheme", _isDark ? "dark" : "light");
     }
 
-    [Inject] private IJSRuntime JS { get; set; } = default!;
+    public void Dispose() => Notifications.Changed -= RefreshToasts;
 }

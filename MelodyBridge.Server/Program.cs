@@ -39,6 +39,20 @@ builder.Logging.AddProvider(new DevPanelLoggerProvider(logCollector));
 builder.Services.AddMelodyBridge();
 builder.Services.AddJellyfinSync();
 
+// Update check: dedicated client because GitHub requires a User-Agent
+// header and we never want to share the app's own BaseAddress client.
+builder.Services.AddHttpClient("github", c =>
+{
+    c.Timeout = TimeSpan.FromSeconds(15);
+});
+builder.Services.AddScoped(sp =>
+    new UpdateCheckService(
+        sp.GetRequiredService<IHttpClientFactory>().CreateClient("github")));
+
+// Toasts: singleton so events raised anywhere reach the one layout.
+builder.Services.AddSingleton(new MelodyBridge.Server.Services.NotificationService());
+builder.Services.AddHostedService<MelodyBridge.Server.Services.ToastObserverService>();
+
 // Dev panel (singleton, off by default — enable via DevPanel__Enabled=true env var)
 var devPanel = new DevPanelService(logCollector);
 devPanel.Enabled = builder.Configuration.GetValue<bool>("DevPanel:Enabled");

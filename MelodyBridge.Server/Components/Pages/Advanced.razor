@@ -36,10 +36,16 @@
                 Sync check interval (seconds)
                 <input @bind="syncCheckIntervalSec" type="number" min="60" step="30" />
             </label>
+            <label>
+                Max simultaneous track downloads
+                <input @bind="maxConcurrentDownloads" type="number" min="1" max="8" step="1" />
+            </label>
         </div>
         <div class="hint-box">
             How often background jobs wake up to rescan folders and check
             auto-sync playlists. Higher is calmer; the minimums protect the CPU.
+            More simultaneous downloads finish large playlists faster but hit
+            every source harder; the next run picks up the new value.
         </div>
     </div>
 
@@ -60,26 +66,59 @@
             playlist — useful when hunting inflated downloads.
         </div>
     </div>
+
+    <div class="panel-card">
+        <div class="panel-header">
+            <div>
+                <span class="eyebrow">Notifications</span>
+                <h2>Toast behaviour</h2>
+            </div>
+        </div>
+        <label class="toggle-switch wide">
+            <input type="checkbox" @bind="notifyDownloads" />
+            <span class="toggle-slider"></span>
+            <span>Toast when a playlist download finishes</span>
+        </label>
+        <label class="toggle-switch wide">
+            <input type="checkbox" @bind="notifyFailures" />
+            <span class="toggle-slider"></span>
+            <span>Toast when a track or sync job fails</span>
+        </label>
+        <div class="hint-box">
+            Failures are always written to the log regardless of this
+            setting. Toasts only decide what pops up in the corner.
+        </div>
+    </div>
 </section>
 
 @code {
     private int autoScanIntervalSec = 60;
     private int syncCheckIntervalSec = 300;
+    private int maxConcurrentDownloads = 2;
     private bool showFilename;
+    private bool notifyDownloads = true;
+    private bool notifyFailures = true;
     private string? savedMessage;
 
     protected override async Task OnInitializedAsync()
     {
         autoScanIntervalSec = int.Parse(await Settings.GetAsync("auto_scan_interval", "60"));
         syncCheckIntervalSec = int.Parse(await Settings.GetAsync("sync_check_interval", "300"));
+        if (int.TryParse(await Settings.GetAsync("download_max_concurrent", "2"), out var maxConcurrent))
+            maxConcurrentDownloads = Math.Clamp(maxConcurrent, 1, 8);
         showFilename = await Settings.GetBoolAsync("show_filename", false);
+        notifyDownloads = await Settings.GetBoolAsync("notify_downloads", true);
+        notifyFailures = await Settings.GetBoolAsync("notify_failures", true);
     }
 
     private async Task SaveAll()
     {
         await Settings.SetAsync("auto_scan_interval", autoScanIntervalSec.ToString());
         await Settings.SetAsync("sync_check_interval", syncCheckIntervalSec.ToString());
+        await Settings.SetAsync("download_max_concurrent", Math.Clamp(maxConcurrentDownloads, 1, 8).ToString());
         await Settings.SetAsync("show_filename", showFilename ? "true" : "false");
+        await Settings.SetAsync("notify_downloads", notifyDownloads ? "true" : "false");
+        await Settings.SetAsync("notify_failures", notifyFailures ? "true" : "false");
         savedMessage = "Saved.";
     }
 }
