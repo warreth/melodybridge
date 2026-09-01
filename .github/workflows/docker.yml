@@ -1,9 +1,13 @@
 name: Release Docker Image
 
+# Release images come from published GitHub releases and v* tags only;
+# a plain push to main is not a release and must not touch :latest.
 on:
+  release:
+    types: [published]
   push:
-    branches: [main]
     tags: ["v*"]
+  # Manual runs exist for testing the build; they only ever tag :dev.
   workflow_dispatch:
 
 env:
@@ -32,17 +36,20 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # One metadata step picks the tag list by event type so there is no
+      # code path where a manual run can overwrite :latest or a version tag.
       - name: Extract metadata (tags, labels)
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            # v1.2.3 -> 1.2.3, latest
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}
-            # branch push -> edge
-            type=ref,event=branch
+            # Manual dispatch: dev build, tag ONLY :dev.
+            type=raw,value=dev,enable=${{ github.event_name == 'workflow_dispatch' }}
+            # Release / v* tag: :X.Y.Z, :major and :latest.
+            type=semver,pattern={{version}},enable=${{ github.event_name != 'workflow_dispatch' }}
+            type=semver,pattern={{major}},enable=${{ github.event_name != 'workflow_dispatch' }}
+            type=raw,value=latest,enable=${{ github.event_name != 'workflow_dispatch' }}
 
       - name: Build and push
         uses: docker/build-push-action@v6
