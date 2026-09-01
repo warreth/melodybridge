@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.Accounts;
@@ -189,6 +190,55 @@ public class PlaylistStore
             .AsNoTracking()
             .OrderByDescending(p => p.LastSyncAt ?? DateTime.MinValue)
             .ToListAsync(ct);
+    }
+
+    /// <summary>Download counters per playlist id, for the playlist cards.</summary>
+    public async Task<Dictionary<string, (int downloaded, int failed, int total)>> GetDownloadCountsAsync(CancellationToken ct = default)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var rows = await db.Tracks.AsNoTracking()
+            .GroupBy(t => t.PlaylistEntityId)
+            .Select(g => new
+            {
+                Id = g.Key,
+                Downloaded = g.Count(t => t.DownloadStatus == "downloaded"),
+                Failed = g.Count(t => t.DownloadStatus == "failed"),
+                Total = g.Count(),
+            })
+            .ToListAsync(ct);
+
+        return rows
+            .Where(r => r.Id is not null)
+            .ToDictionary(r => r.Id!, r => (r.Downloaded, r.Failed, r.Total));
+    }
+
+    /// <summary>Removes one track from a playlist snapshot and deletes its file.</summary>
+    public async Task<bool> RemoveTrackAsync(string playlistId, int trackId, bool deleteFile, CancellationToken ct = default)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var track = await db.Tracks
+            .FirstOrDefaultAsync(t => t.Id == trackId && t.PlaylistEntityId == playlistId, ct);
+        if (track is null) return false;
+
+        if (deleteFile && track.CurrentPath is not null)
+        {
+            try { System.IO.File.Delete(track.CurrentPath); } catch { /* best effort */ }
+        }
+        db.Tracks.Remove(track);
+        await db.SaveChangesAsync(ct);
+        return true;
+    }
+
+    /// <summary>Resets a track so the next download run picks it up again.</summary>
+    public async Task RetryTrackAsync(int trackId, CancellationToken ct = default)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var track = await db.Tracks.FindAsync(new object[] { trackId }, ct);
+        if (track is null) return;
+        track.DownloadStatus = "pending";
+        track.DownloadError = null;
+        track.CurrentPath = null;
+        await db.SaveChangesAsync(ct);
     }
 
     /// <summary>One persisted playlist including its current track snapshot.</summary>
@@ -498,6 +548,33 @@ public class PlaylistStore
         return JsonSerializer.Serialize(playlists, new JsonSerializerOptions { WriteIndented = true });
     }
 
+    /// <summary>one playlist's track snapshot as utf-8 csv bytes, bom prepended so excel behaves.</summary>
+    public async Task<byte[]> ExportCsvAsync(string playlistId, CancellationToken ct = default)
+    {
+        var entity = await GetByIdAsync(playlistId, ct)
+            ?? throw new InvalidOperationException($"Playlist '{playlistId}' not found");
+
+        var sb = new StringBuilder();
+        sb.AppendLine("Position,Title,Artist,Album,DurationMs,Status,BitrateKbps,SampleRateHz,MediaType,FileSizeBytes,Filename");
+        foreach (var t in entity.Tracks)
+        {
+            sb.Append(t.Position + 1).Append(',')
+                .Append(Csv.Escape(t.Title)).Append(',')
+                .Append(Csv.Escape(t.Artist)).Append(',')
+                .Append(Csv.Escape(t.Album)).Append(',')
+                .Append(t.DurationMs).Append(',')
+                .Append(Csv.Escape(t.DownloadStatus)).Append(',')
+                .Append(t.Bitrate).Append(',')
+                .Append(t.SampleRateHz).Append(',')
+                .Append(Csv.Escape(t.MediaType)).Append(',')
+                .Append(t.FileSizeBytes).Append(',')
+                .AppendLine(Csv.Escape(t.CurrentPath is null ? string.Empty : Path.GetFileName(t.CurrentPath)));
+        }
+
+        // bom first: without it excel guesses a legacy codepage and mangles titles
+        return [.. Encoding.UTF8.GetPreamble(), .. Encoding.UTF8.GetBytes(sb.ToString())];
+    }
+
     /// <summary>Import playlists from a previous export; existing ones are refreshed instead.</summary>
     public async Task<int> ImportAsync(string json, CancellationToken ct = default)
     {
@@ -540,6 +617,23 @@ public class PlaylistStore
             CurrentPath = null,
         };
     }
+}
+
+// csv export helpers: cell quoting and download filename sanitizing
+public static class Csv
+{
+    /// <summary>wraps a cell in quotes when it holds a comma, quote or newline; doubles embedded quotes.</summary>
+    public static string Escape(string? value)
+    {
+        value ??= string.Empty;
+        return value.IndexOfAny([',', '"', '\n', '\r']) < 0
+            ? value
+            : $"\"{value.Replace("\"", "\"\"")}\"";
+    }
+
+    /// <summary>playlist name with characters illegal in filenames replaced by '_'.</summary>
+    public static string SafeFileName(string name)
+        => string.Concat(name.Select(c => Path.GetInvalidFileNameChars().Contains(c) ? '_' : c));
 }
 
 internal static class StringTruncateExtensions

@@ -52,7 +52,12 @@ public class PlaylistsLiveUITests
             _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Accounts.YouTubeAccountProvider(
                 tokenStore, Microsoft.Extensions.Logging.Abstractions.NullLogger<
                     MelodyBridge.Infrastructure.Accounts.YouTubeAccountProvider>.Instance));
-            _ctx.Services.AddSingleton(new PlaylistStore(factory, providers, downloadManager, NullLogger<PlaylistStore>.Instance));
+            var store = new PlaylistStore(factory, providers, downloadManager, NullLogger<PlaylistStore>.Instance);
+        _ctx.Services.AddSingleton(store);
+        _ctx.Services.AddSingleton(new Application.Services.DownloadCoordinator(
+            store, factory,
+            NullLogger<Application.Services.DownloadCoordinator>.Instance));
+        _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Services.SettingsStore(factory));
     }
 
     [TearDown]
@@ -78,7 +83,7 @@ public class PlaylistsLiveUITests
         Assert.That(cut.Markup, Does.Contain("Playlist link"));
 
         // Type a real public playlist URL and submit.
-        var urlInput = cut.Find("input[placeholder^='Paste a']");
+        var urlInput = cut.Find("input[placeholder^='https://open.spotify.com']");
         urlInput.Change("https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M");
 
         var submit = cut.FindAll("button").Single(b => b.TextContent.Trim() == "Fetch & save");

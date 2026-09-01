@@ -27,22 +27,15 @@ public class PlaylistsPageTests
             db.Database.EnsureCreated();
         }
         _ctx.Services.AddSingleton<IDbContextFactory<MelodyBridgeDbContext>>(factory);
-        var downloadManager = new Application.Services.DownloadManager(
-            new EmptyRegistry(),
-            NullLogger<Application.Services.DownloadManager>.Instance);
+        _ctx.Services.AddDownloadPages(factory);
         var tokenStore = new MelodyBridge.Infrastructure.Accounts.AccountTokenStore(factory, Microsoft.Extensions.Logging.Abstractions.NullLogger<MelodyBridge.Infrastructure.Accounts.AccountTokenStore>.Instance);
-            _ctx.Services.AddSingleton(tokenStore);
-            _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Accounts.SpotifyAccountProvider(
-                tokenStore, Microsoft.Extensions.Logging.Abstractions.NullLogger<
-                    MelodyBridge.Infrastructure.Accounts.SpotifyAccountProvider>.Instance));
-            _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Accounts.YouTubeAccountProvider(
-                tokenStore, Microsoft.Extensions.Logging.Abstractions.NullLogger<
-                    MelodyBridge.Infrastructure.Accounts.YouTubeAccountProvider>.Instance));
-            _ctx.Services.AddSingleton(new PlaylistStore(
-            factory,
-            Array.Empty<ISourceProvider>(),
-            downloadManager,
-            NullLogger<PlaylistStore>.Instance));
+        _ctx.Services.AddSingleton(tokenStore);
+        _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Accounts.SpotifyAccountProvider(
+            tokenStore, Microsoft.Extensions.Logging.Abstractions.NullLogger<
+                MelodyBridge.Infrastructure.Accounts.SpotifyAccountProvider>.Instance));
+        _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Accounts.YouTubeAccountProvider(
+            tokenStore, Microsoft.Extensions.Logging.Abstractions.NullLogger<
+                MelodyBridge.Infrastructure.Accounts.YouTubeAccountProvider>.Instance));
     }
 
     [TearDown]
@@ -81,7 +74,7 @@ public class PlaylistsPageTests
     }
 
     [Test]
-    public void Playlists_WithSavedPlaylist_ShowsRefreshButtonPerCard()
+    public void Playlists_WithSavedPlaylist_CardLinksToDetails()
     {
         SeedOnePlaylist("Another Mix", 3, Platform.Spotify);
 
@@ -89,8 +82,9 @@ public class PlaylistsPageTests
 
         cut.WaitForAssertion(() =>
             Assert.That(cut.Markup, Does.Contain("Another Mix")), TimeSpan.FromSeconds(3));
-        var refreshButtons = cut.FindAll("button").Where(b => b.TextContent.Trim() == "Refresh");
-        Assert.That(refreshButtons.Count(), Is.EqualTo(1), "one refresh action per playlist card");
+        var card = cut.Find("a.playlist-card");
+        Assert.That(card.GetAttribute("href"), Does.Contain("playlists/"),
+            "the whole card is the link to the playlist page");
     }
 
     private void SeedOnePlaylist(string name, int trackCount, Platform platform)

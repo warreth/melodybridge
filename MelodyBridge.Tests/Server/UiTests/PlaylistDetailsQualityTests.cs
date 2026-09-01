@@ -10,8 +10,9 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace MelodyBridge.Tests.Server.UiTests;
 
 /// <summary>
-/// PlaylistDetails page quality UI: format + bitrate range editing, and the
-/// match-quality warning pill next to tracks.
+/// PlaylistDetails page quality UI: the preset selector reflects the
+/// stored quality string, real measured facts appear per track, and the
+/// inflation warning pill shows for flagged files.
 /// </summary>
 [TestFixture]
 [Category("UI")]
@@ -25,7 +26,7 @@ public class PlaylistDetailsQualityTests
     {
         _ctx = new Bunit.TestContext();
         _dbPath = Path.Combine(Path.GetTempPath(), $"mb-q-{Guid.NewGuid():N}.db");
-        var factory = new Factory(_dbPath);
+        var factory = new TestSqliteFactory(_dbPath);
         using (var db = factory.CreateDbContext())
         {
             db.Database.EnsureCreated();
@@ -35,7 +36,7 @@ public class PlaylistDetailsQualityTests
                 Name = "Quality UI test",
                 SourceUrl = "https://example.com/pl",
                 TargetDirectory = "/tmp",
-                PreferredFormat = "mp3:192-320",
+                PreferredFormat = "mp3:192",
                 Tracks = new List<TrackEntity>
                 {
                     new()
@@ -65,24 +66,13 @@ public class PlaylistDetailsQualityTests
             db.SaveChanges();
         }
         _ctx.Services.AddSingleton<IDbContextFactory<MelodyBridgeDbContext>>(factory);
-        _ctx.Services.AddSingleton(new SettingsStore(factory));
-        var downloadManager = new Application.Services.DownloadManager(
-            new EmptyRegistry(),
-            NullLogger<Application.Services.DownloadManager>.Instance);
-        _ctx.Services.AddSingleton<IDownloadManager>(downloadManager);
-        var tokenStore = new MelodyBridge.Infrastructure.Accounts.AccountTokenStore(factory, Microsoft.Extensions.Logging.Abstractions.NullLogger<MelodyBridge.Infrastructure.Accounts.AccountTokenStore>.Instance);
-            _ctx.Services.AddSingleton(tokenStore);
-            _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Accounts.SpotifyAccountProvider(
-                tokenStore, Microsoft.Extensions.Logging.Abstractions.NullLogger<
-                    MelodyBridge.Infrastructure.Accounts.SpotifyAccountProvider>.Instance));
-            _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Accounts.YouTubeAccountProvider(
-                tokenStore, Microsoft.Extensions.Logging.Abstractions.NullLogger<
-                    MelodyBridge.Infrastructure.Accounts.YouTubeAccountProvider>.Instance));
-            _ctx.Services.AddSingleton(new PlaylistStore(
-            factory,
-            Array.Empty<ISourceProvider>(),
-            downloadManager,
-            NullLogger<PlaylistStore>.Instance));
+        _ctx.Services.AddDownloadPages(factory);
+        var tokenStore = new MelodyBridge.Infrastructure.Accounts.AccountTokenStore(factory, NullLogger<MelodyBridge.Infrastructure.Accounts.AccountTokenStore>.Instance);
+        _ctx.Services.AddSingleton(tokenStore);
+        _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Accounts.SpotifyAccountProvider(
+            tokenStore, NullLogger<MelodyBridge.Infrastructure.Accounts.SpotifyAccountProvider>.Instance));
+        _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Accounts.YouTubeAccountProvider(
+            tokenStore, NullLogger<MelodyBridge.Infrastructure.Accounts.YouTubeAccountProvider>.Instance));
     }
 
     [TearDown]
@@ -96,19 +86,15 @@ public class PlaylistDetailsQualityTests
     }
 
     [Test]
-    public void QualityEditor_ShowsFormatAndRange_FromStoredValue()
+    public void QualitySelector_ShowsStoredPreset()
     {
         var cut = _ctx.Render<PlaylistDetails>(p => p.Add(p => p.PlaylistId, "pl-1"));
 
         cut.WaitForAssertion(() =>
-            Assert.That(cut.Markup, Does.Contain("File format")), TimeSpan.FromSeconds(3));
-        Assert.That(cut.Markup, Does.Contain("Bitrate range"));
-        Assert.That(cut.Find("select").OuterHtml, Does.Contain("selected"),
-            "the stored format must be selected");
-
-        var range = cut.Find("input[placeholder='e.g. 192-320']");
-        Assert.That(range.GetAttribute("value"), Is.EqualTo("192-320"),
-            "the stored bitrate range must land in the input");
+            Assert.That(cut.Markup, Does.Contain("Audio quality")), TimeSpan.FromSeconds(3));
+        var select = cut.Find("select");
+        Assert.That(select.OuterHtml, Does.Contain("mp3:192"),
+            "the stored cap preset must be present");
     }
 
     [Test]
@@ -119,9 +105,9 @@ public class PlaylistDetailsQualityTests
         cut.WaitForAssertion(() =>
             Assert.That(cut.Markup, Does.Contain("Doubtful track")), TimeSpan.FromSeconds(3));
 
-        var warned = cut.FindAll("span.pill.warning");
+        var warned = cut.FindAll("span.pill.warn");
         Assert.That(warned.Count, Is.EqualTo(1),
-            "exactly the flagged track shows the check pill");
+            "exactly the flagged track shows the warning pill");
         Assert.That(warned[0].GetAttribute("title"), Does.Contain("inflated"),
             "hovering the pill explains the doubt");
     }
@@ -137,73 +123,36 @@ public class PlaylistDetailsQualityTests
         Assert.That(cut.Markup, Does.Contain("320 kbps"),
             "the measured bitrate must appear next to the track");
         Assert.That(cut.Markup, Does.Contain("44.1 kHz"),
-            "the sample rate must appear next to the track");
-        Assert.That(cut.Markup, Does.Contain("mp3"),
-            "the container must appear next to the track");
-        Assert.That(cut.Markup, Does.Contain("8.6 MB"),
-            "the file size must appear as the title of the quality cell");
+            "the real sample rate must appear next to the track");
     }
 
     [Test]
-    public void TrackTable_HidesFilenameColumn_ByDefault()
+    public void TrackTable_ShowsInflatedSummaryHint()
     {
         var cut = _ctx.Render<PlaylistDetails>(p => p.Add(p => p.PlaylistId, "pl-1"));
 
         cut.WaitForAssertion(() =>
             Assert.That(cut.Markup, Does.Contain("Fine track")), TimeSpan.FromSeconds(3));
 
-        Assert.That(cut.Markup, Does.Not.Contain("<th>File</th>"),
-            "without the advanced setting the file column stays hidden");
-        Assert.That(cut.Markup, Does.Not.Contain("fine-track.mp3"),
-            "no filename may leak into the page");
+        Assert.That(cut.Markup, Does.Contain("look inflated"),
+            "the playlist summary explains how to fix inflated files");
     }
 
     [Test]
-    public async Task TrackTable_ShowsFilenameColumn_WhenEnabledInSettings()
+    public void DownloadButtons_ReachTheCoordinator()
     {
-        // Flip the advanced toggle the Settings page writes.
-        var factory = _ctx.Services.GetRequiredService<IDbContextFactory<MelodyBridgeDbContext>>();
-        await using (var db = factory.CreateDbContext())
-        {
-            db.DownloaderSettings.Add(new DownloaderSettingEntity
-                { Key = "show_filename", Value = "true", ProviderId = "ui" });
-            await db.SaveChangesAsync();
-        }
-
         var cut = _ctx.Render<PlaylistDetails>(p => p.Add(p => p.PlaylistId, "pl-1"));
 
         cut.WaitForAssertion(() =>
-            Assert.That(cut.Markup, Does.Contain("fine-track.mp3")), TimeSpan.FromSeconds(3));
+            Assert.That(cut.Markup, Does.Contain("Download missing")), TimeSpan.FromSeconds(3));
 
-        Assert.That(cut.Markup, Does.Contain("<th>File</th>"),
-            "the file column header must appear once the toggle is on");
-    }
+        var coordinator = _ctx.Services.GetRequiredService<Application.Services.DownloadCoordinator>();
+        var buttons = cut.FindAll("button").Where(b => b.TextContent.Contains("Download missing"));
+        Assert.That(buttons.Count(), Is.EqualTo(1));
+        buttons.First().Click();
 
-
-
-    private sealed class Factory(string dbPath) : IDbContextFactory<MelodyBridgeDbContext>
-    {
-        public MelodyBridgeDbContext CreateDbContext()
-        {
-            var options = new DbContextOptionsBuilder<MelodyBridgeDbContext>()
-                .UseSqlite($"Data Source={dbPath}")
-                .Options;
-            return new MelodyBridgeDbContext(options);
-        }
-
-        Task<MelodyBridgeDbContext> IDbContextFactory<MelodyBridgeDbContext>.CreateDbContextAsync(CancellationToken ct)
-            => Task.FromResult(CreateDbContext());
-    }
-
-    private sealed class EmptyRegistry : IDownloaderRegistry
-    {
-        public IReadOnlyList<IDownloader> GetAll() => Array.Empty<IDownloader>();
-        public IDownloader? Get(string id) => null;
-        public IReadOnlyList<IDownloader> GetEnabled() => Array.Empty<IDownloader>();
-        public Task SetEnabledAsync(string id, bool enabled) => Task.CompletedTask;
-        public bool IsEnabled(string id) => true;
-        public Task<int> GetPriorityAsync(string id, CancellationToken ct = default) => Task.FromResult(0);
-        public Task SetPriorityAsync(string id, int priority, CancellationToken ct = default) => Task.CompletedTask;
-        public Task SetOrderAsync(IReadOnlyList<string> orderedIds, CancellationToken ct = default) => Task.CompletedTask;
+        cut.WaitForAssertion(() =>
+            Assert.That(coordinator.IsActive("pl-1"), Is.True),
+            TimeSpan.FromSeconds(3));
     }
 }

@@ -3,26 +3,25 @@
 @using MelodyBridge.Infrastructure.Accounts
 @using MelodyBridge.Core
 @using MelodyBridge.Infrastructure.Data
+@using MelodyBridge.Infrastructure.Services
 @inject PlaylistStore Store
+@inject SettingsStore Settings
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
 @inject SpotifyAccountProvider SpotifyAccount
 @inject YouTubeAccountProvider YouTubeAccount
+@inject Application.Services.DownloadCoordinator Coordinator
+@implements IDisposable
 
 <PageTitle>Playlists - MelodyBridge</PageTitle>
 
 <section class="page-title">
     <div>
-        <span class="eyebrow">Sources</span>
+        <span class="eyebrow">Your music</span>
         <h1>Playlists</h1>
         <p>Save a public Spotify or YouTube playlist here, or import everything from your connected account.</p>
     </div>
     <div class="topbar-actions">
-        <button class="btn-modern ghost" @onclick="ExportAll" disabled="@busy">Export</button>
-        <label class="btn-modern ghost" style="margin:0;">
-            Import file
-            <InputFile OnChange="ImportFile" accept=".json" style="display:none;" />
-        </label>
         <button class="btn-modern ghost" @onclick="ShowAccountPanel">From my account</button>
         <button class="btn-modern primary" @onclick="ShowAddForm">Add playlist</button>
     </div>
@@ -49,7 +48,9 @@ else
     <section class="content-grid three">
         @foreach (var playlist in playlists)
         {
-            <div class="panel-card playlist-card">
+            var (downloaded, failed, total) = downloadCounts.GetValueOrDefault(playlist.Id, (0, 0, 0));
+            var run = Coordinator.RunFor(playlist.Id);
+            <a class="panel-card playlist-card" href="playlists/@playlist.Id">
                 <div class="playlist-cover">
                     @if (!string.IsNullOrEmpty(playlist.CoverImageUrl))
                     {
@@ -59,13 +60,28 @@ else
                     {
                         <span class="playlist-cover-placeholder">♫</span>
                     }
+                    @if (run is { State: Application.Services.DownloadRunState.Running })
+                    {
+                        <span class="cover-badge downloading" title="Downloading: @run.Done of @run.Total done">⬇ @run.Percent%</span>
+                    }
+                    else if (run is { State: Application.Services.DownloadRunState.Paused })
+                    {
+                        <span class="cover-badge paused" title="Download paused">⏸ paused</span>
+                    }
+                    else if (downloaded == total && total > 0)
+                    {
+                        <span class="cover-badge complete" title="All tracks downloaded">✓ complete</span>
+                    }
+                    else if (downloaded > 0)
+                    {
+                        <span class="cover-badge partial" title="@downloaded of @total downloaded">@downloaded/@total</span>
+                    }
                 </div>
                 <div class="panel-header">
                     <div>
                         <span class="eyebrow">@playlist.SourcePlatform</span>
                         <h2>@playlist.Name</h2>
                     </div>
-                    <span class="pill @(StatusClass(playlist.LastSyncStatus))">@playlist.LastSyncStatus</span>
                 </div>
                 <p class="panel-description">
                     @playlist.TrackCount tracks
@@ -73,33 +89,27 @@ else
                     {
                         <span> · by @playlist.Owner</span>
                     }
-                    @if (playlist.AutoSyncEnabled)
+                    @if (!string.IsNullOrWhiteSpace(playlist.PreferredFormat) && playlist.PreferredFormat != "auto")
                     {
-                        <span> · auto-sync every @(playlist.AutoSyncIntervalMinutes ?? 60) min</span>
+                        <span> · @QualityLabel(playlist.PreferredFormat)</span>
                     }
                 </p>
                 <small class="job-meta">
                     Last synced: @(playlist.LastSyncAt?.ToLocalTime().ToString("g") ?? "never")
                 </small>
-                <div class="topbar-actions" style="margin-top:.75rem;">
-                    <button class="btn-modern primary small" @onclick="() => Refresh(playlist)" disabled="@(busy || refreshingId == playlist.Id)">
-                        @(refreshingId == playlist.Id ? "Fetching…" : "Refresh")
-                    </button>
-                    <button class="btn-modern secondary small" @onclick="() => Open(playlist)">Open</button>
-                    <button class="btn-modern ghost small" @onclick="() => Delete(playlist)">Delete</button>
-                </div>
-            </div>
+                <button class="btn-modern ghost" @onclick="() => ExportCsv(playlist)" @onclick:stopPropagation="true" @onclick:preventDefault="true">CSV</button>
+            </a>
         }
     </section>
 }
 
 @if (showAddForm)
 {
-    <div class="wizard-overlay">
-        <div class="wizard-modal">
+    <div class="wizard-overlay" @onclick="CloseAddForm">
+        <div class="wizard-modal" @onclick:stopPropagation="true">
             <div class="wizard-header">
                 <div>
-                    <span class="eyebrow">Your music</span>
+                    <span class="eyebrow">New source</span>
                     <h2>Add playlist</h2>
                 </div>
                 <button class="icon-button" @onclick="HideAddForm">&times;</button>
@@ -108,11 +118,20 @@ else
                 <div class="form-grid single">
                     <label>
                         Playlist link
-                        <input @bind="newUrl" placeholder="Paste a Spotify or YouTube playlist link" />
+                        <input @bind="newUrl" placeholder="https://open.spotify.com/playlist/… or youtube.com/playlist?list=…" />
                     </label>
                     <label>
-                        Download folder (optional)
+                        Download folder (optional — leave empty for the default music path)
                         <input @bind="newTargetDirectory" placeholder="/music/downloads" />
+                    </label>
+                    <label>
+                        Audio quality
+                        <select @bind="newQuality">
+                            @foreach (var preset in QualityPresets)
+                            {
+                                <option value="@preset.Value">@preset.Label</option>
+                            }
+                        </select>
                     </label>
                     <label class="toggle-row">
                         <input type="checkbox" @bind="newAutoSync" />
@@ -139,6 +158,7 @@ else
                 }
                 <div class="hint-box">
                     Public Spotify and YouTube playlists, no account needed.
+                    Quality defaults to <strong>@DefaultQualityLabel()</strong> — change the default in Settings.
                 </div>
             </div>
             <div class="wizard-footer">
@@ -148,20 +168,20 @@ else
             </div>
         </div>
     </div>
+}
 
-    @* ── Import from account (private playlists + liked songs) ── *@
-    @if (showAccountPanel)
-    {
-        <div class="wizard-overlay">
-            <div class="wizard-modal">
-                <div class="panel-header">
-                    <div>
-                        <span class="eyebrow">Accounts</span>
-                        <h2>Import from your account</h2>
-                    </div>
-                    <button class="btn-modern subtle" @onclick="HideAccountPanel">Close</button>
+@if (showAccountPanel)
+{
+    <div class="wizard-overlay" @onclick="CloseAccountPanel">
+        <div class="wizard-modal" @onclick:stopPropagation="true">
+            <div class="wizard-header">
+                <div>
+                    <span class="eyebrow">Accounts</span>
+                    <h2>Import from your account</h2>
                 </div>
-
+                <button class="icon-button" @onclick="HideAccountPanel">&times;</button>
+            </div>
+            <div class="wizard-body">
                 <div class="account-grid">
                     @foreach (var entry in accountPanels)
                     {
@@ -180,7 +200,7 @@ else
                             else
                             {
                                 <span class="pill neutral">not connected</span>
-                                <span class="text-muted">Connect it on the Settings page.</span>
+                                <span class="text-muted">Connect it in Settings → Accounts.</span>
                             }
                         </div>
                     }
@@ -189,7 +209,7 @@ else
                 @if (accountPlaylists is not null)
                 {
                     <div class="table-wrap">
-                        <table>
+                        <table class="modern-table">
                             <thead>
                                 <tr>
                                     <th>Playlist</th>
@@ -222,18 +242,20 @@ else
                 }
             </div>
         </div>
-    }
+    </div>
 }
 
 @code {
     private List<PlaylistEntity> playlists = new();
+    private Dictionary<string, (int downloaded, int failed, int total)> downloadCounts = new();
     private bool loading = true;
     private bool busy;
     private bool showAddForm;
-    private string? refreshingId;
+    private bool showAccountPanel;
 
     private string newUrl = string.Empty;
     private string newTargetDirectory = string.Empty;
+    private string newQuality = "auto";
     private bool newAutoSync;
     private int newIntervalMinutes = 60;
     private PlaylistSyncMode newSyncMode = PlaylistSyncMode.Additive;
@@ -242,12 +264,77 @@ else
     private bool messageIsError;
     private string addError = string.Empty;
 
-    private bool showAccountPanel;
     private List<UserPlaylist>? accountPlaylists;
     private string accountListProvider = string.Empty;
     private string? importingId;
     private string? accountError;
     private List<(string Name, bool Connected)> accountPanels = new();
+
+    private Timer? refreshTimer;
+
+    /// <summary>Quality presets shared with the settings page: one list, one truth.</summary>
+    public static readonly (string Value, string Label)[] QualityPresets =
+    {
+        ("auto", "Auto — keep the source format, no re-encode"),
+        ("mp3", "MP3 — plays everywhere"),
+        ("mp3:320", "MP3 · up to 320 kbps"),
+        ("mp3:256", "MP3 · up to 256 kbps"),
+        ("mp3:192", "MP3 · up to 192 kbps"),
+        ("mp3:128", "MP3 · up to 128 kbps"),
+        ("flac", "FLAC — lossless"),
+        ("opus", "Opus — small and modern"),
+        ("aac", "AAC — Apple-friendly"),
+    };
+
+    private static string QualityLabel(string preferredFormat)
+        => preferredFormat.Contains(':')
+            ? preferredFormat.Replace(":", " · ")
+            : preferredFormat;
+
+    private string DefaultQualityLabel()
+        => QualityPresets.FirstOrDefault(p => p.Value == newQuality).Label;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Load();
+        await LoadDefaultQualityAsync();
+        // Live badge refresh while any run is active.
+        refreshTimer = new Timer(_ => InvokeAsync(async () =>
+        {
+            downloadCounts = await Store.GetDownloadCountsAsync();
+            StateHasChanged();
+        }), null, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2));
+    }
+
+    private async Task LoadDefaultQualityAsync()
+    {
+        var raw = await Settings.GetAsync("default_quality", "auto");
+        if (PlaylistStore.IsValidFormat(raw))
+            newQuality = raw;
+    }
+
+    private async Task Load()
+    {
+        loading = true;
+        playlists = await Store.GetAllAsync();
+        downloadCounts = await Store.GetDownloadCountsAsync();
+        loading = false;
+    }
+
+    private void ShowAddForm()
+    {
+        newUrl = string.Empty;
+        newTargetDirectory = string.Empty;
+        newAutoSync = false;
+        newIntervalMinutes = 60;
+        newSyncMode = PlaylistSyncMode.Additive;
+        addError = string.Empty;
+        showAddForm = true;
+    }
+
+    private void HideAddForm() => showAddForm = false;
+
+    private void CloseAddForm(EventArgs e) => showAddForm = false;
 
     private void ShowAccountPanel()
     {
@@ -258,6 +345,8 @@ else
     }
 
     private void HideAccountPanel() => showAccountPanel = false;
+
+    private void CloseAccountPanel(EventArgs e) => showAccountPanel = false;
 
     private async Task LoadAccountStatusAsync()
     {
@@ -297,8 +386,8 @@ else
         accountError = null;
         try
         {
-            var added = await Store.AddOrRefreshLikedAsync(providerName, newTargetDirectory);
-            Navigation.NavigateTo($"/playlist/{added.Id}");
+            var added = await Store.AddOrRefreshLikedAsync(providerName, TargetOrNull());
+            Navigation.NavigateTo($"/playlists/{added.Id}");
         }
         catch (Exception ex)
         {
@@ -324,8 +413,8 @@ else
             var url = accountListProvider == SpotifyAccountProvider.ProviderName
                 ? $"https://open.spotify.com/playlist/{playlist.Id}"
                 : $"https://www.youtube.com/playlist?list={playlist.Id}";
-            var added = await Store.AddOrRefreshAsync(url, newTargetDirectory);
-            Navigation.NavigateTo($"/playlist/{added.Id}");
+            var added = await Store.AddOrRefreshAsync(url, TargetOrNull());
+            Navigation.NavigateTo($"/playlists/{added.Id}");
         }
         catch (Exception ex)
         {
@@ -338,27 +427,8 @@ else
         }
     }
 
-    protected override async Task OnInitializedAsync() => await Load();
-
-    private async Task Load()
-    {
-        loading = true;
-        playlists = await Store.GetAllAsync();
-        loading = false;
-    }
-
-    private void ShowAddForm()
-    {
-        newUrl = string.Empty;
-        newTargetDirectory = string.Empty;
-        newAutoSync = false;
-        newIntervalMinutes = 60;
-        newSyncMode = PlaylistSyncMode.Additive;
-        addError = string.Empty;
-        showAddForm = true;
-    }
-
-    private void HideAddForm() => showAddForm = false;
+    private string? TargetOrNull()
+        => string.IsNullOrWhiteSpace(newTargetDirectory) ? null : newTargetDirectory;
 
     private async Task Add()
     {
@@ -371,9 +441,9 @@ else
         addError = string.Empty;
         try
         {
-            var target = string.IsNullOrWhiteSpace(newTargetDirectory) ? null : newTargetDirectory;
+            var target = TargetOrNull();
             var playlist = await Store.AddOrRefreshAsync(newUrl.Trim(), target);
-            await Store.UpdateSettingsAsync(playlist.Id, null, newAutoSync, newIntervalMinutes, target, newSyncMode);
+            await Store.UpdateSettingsAsync(playlist.Id, null, newAutoSync, newIntervalMinutes, target, newSyncMode, newQuality);
             showAddForm = false;
             message = $"Saved '{playlist.Name}' with {playlist.TrackCount} tracks.";
             messageIsError = false;
@@ -386,37 +456,7 @@ else
         finally { busy = false; }
     }
 
-    private async Task Refresh(PlaylistEntity playlist)
-    {
-        refreshingId = playlist.Id;
-        message = string.Empty;
-        try
-        {
-            var refreshed = await Store.RefreshAsync(playlist.Id);
-            message = $"Refreshed '{refreshed.Name}': {refreshed.TrackCount} tracks.";
-            messageIsError = false;
-            await Load();
-        }
-        catch (Exception ex)
-        {
-            message = $"Refresh failed: {ex.Message}";
-            messageIsError = true;
-            await Load();
-        }
-        finally { refreshingId = null; }
-    }
-
     private void Open(PlaylistEntity playlist) => Navigation.NavigateTo($"/playlists/{playlist.Id}");
-
-    private async Task Delete(PlaylistEntity playlist)
-    {
-        if (await Store.DeleteAsync(playlist.Id))
-        {
-            message = $"Deleted '{playlist.Name}'.";
-            messageIsError = false;
-            await Load();
-        }
-    }
 
     private async Task ExportAll()
     {
@@ -426,6 +466,25 @@ else
             var json = await Store.ExportAsync();
             var bytes = System.Text.Encoding.UTF8.GetBytes(json);
             await JS.InvokeVoidAsync("melody.downloadFile", $"melodybridge-playlists-{DateTime.Now:yyyyMMdd}.json", "application/json", bytes);
+        }
+        finally { busy = false; }
+    }
+
+    private async Task ExportCsv(PlaylistEntity playlist)
+    {
+        busy = true;
+        try
+        {
+            var bytes = await Store.ExportCsvAsync(playlist.Id);
+            var safeName = string.Concat(playlist.Name.Select(c => Path.GetInvalidFileNameChars().Contains(c) ? '_' : c));
+            await JS.InvokeVoidAsync("melody.downloadFile", $"{safeName}.csv", "text/csv", bytes);
+            message = $"Exported '{playlist.Name}' as CSV.";
+            messageIsError = false;
+        }
+        catch (Exception ex)
+        {
+            message = $"Export failed: {ex.Message}";
+            messageIsError = true;
         }
         finally { busy = false; }
     }
@@ -450,11 +509,5 @@ else
         }
     }
 
-    private static string StatusClass(SyncStatus status) => status switch
-    {
-        SyncStatus.Completed => "ok",
-        SyncStatus.Failed => "err",
-        SyncStatus.InProgress => "warn",
-        _ => "neutral"
-    };
+    public void Dispose() => refreshTimer?.Dispose();
 }
