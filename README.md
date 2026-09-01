@@ -11,10 +11,11 @@ You need Docker (or Podman with `podman-compose`) and nothing else.
 ```bash
 git clone https://github.com/warreth/melodybridge
 cd melodybridge
-docker compose up -d --build
+docker compose up -d
 ```
 
-That starts two containers on one internal network:
+That pulls the published image from GHCR and starts two containers on one
+internal network:
 
 - **melodybridge** on http://localhost:3333 (bound to 127.0.0.1, so not
   reachable from other machines without an explicit reverse proxy)
@@ -51,12 +52,19 @@ pip3 install --user --break-system-packages yt-dlp
 
 ## Development
 
-The dev compose (`docker-compose.yml`) runs the same stack with verbose
-logging and the dev panel (`/dev`) enabled:
+The dev compose (`docker-compose.yml`) builds the image from your
+checkout on every `up`, runs the same stack with verbose logging and the
+dev panel (`/dev`) enabled:
 
 ```bash
 docker compose -f docker-compose.yml up -d --build
 ```
+
+Changed code? Just rerun the command; compose rebuilds what changed.
+Run the test suite with `dotnet test MelodyBridge.sln`. Live tests need
+yt-dlp and ffmpeg on PATH.
+
+Without Docker: `dotnet run --project MelodyBridge.Server`.
 
 ---
 

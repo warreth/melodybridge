@@ -1,5 +1,5 @@
-# Production compose for end users: MelodyBridge + FlareSolverr on one
-# internal network. Start with:  docker compose up -d
+# Production compose for end users: MelodyBridge from GHCR plus
+# FlareSolverr on one internal network. Start with:  docker compose up -d
 # Then open http://localhost:3333 and configure Jellyfin in Settings.
 
 services:
@@ -22,8 +22,7 @@ services:
       - no-new-privileges:true
 
   melodybridge:
-    build: .
-    image: melodybridge:local
+    image: ghcr.io/warreth/melodybridge:latest
     container_name: melodybridge
     depends_on:
       flaresolverr:

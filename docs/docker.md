@@ -9,28 +9,49 @@ Run MelodyBridge as a self-hosted service using Docker or Podman.
 ```bash
 git clone https://github.com/warreth/melodybridge.git
 cd melodybridge
-docker compose up -d --build
+docker compose up -d
 ```
 
 Open [http://localhost:3333](http://localhost:3333).
 
 This uses [compose.yml](../compose.yml), the hardened user-facing setup:
-two containers (melodybridge + flaresolverr) on one internal network,
-the app bound to `127.0.0.1` only, and a `./data/` directory for
+it pulls the published image from `ghcr.io/warreth/melodybridge` and
+starts two containers (melodybridge + flaresolverr) on one internal
+network, the app bound to `127.0.0.1` only, and a `./data/` directory for
 everything that should survive rebuilds.
 
 Podman works identically:
 
 ```bash
-podman compose up -d --build   # or: podman-compose up -d --build
+podman compose up -d   # or: podman-compose up -d
 ```
 
-For development (verbose logging, dev panel on `/dev`), use the dev
-compose instead:
+---
+
+## Development
+
+Contributors build from source instead of pulling the image. The dev
+compose (`docker-compose.yml`) always builds the image from your
+checkout and runs it with verbose logging and the dev panel (`/dev`):
 
 ```bash
+git clone https://github.com/warreth/melodybridge.git
+cd melodybridge
 docker compose -f docker-compose.yml up -d --build
 ```
+
+Rerun the same command after code changes: compose rebuilds what
+changed and restarts. App state lives in `./data/`, so your test library
+survives rebuilds.
+
+Without Docker, run from source:
+
+```bash
+dotnet run --project MelodyBridge.Server
+```
+
+The test suite: `dotnet test MelodyBridge.sln`. Live tests need yt-dlp
+and ffmpeg on PATH.
 
 ---
 
