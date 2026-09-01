@@ -129,7 +129,8 @@ locations shows what each run found, added and updated.
 
 ## Settings
 
-The Settings page collects everything that is not per-playlist.
+The Settings page collects everything that is not per-playlist, in five
+tabs.
 
 - **Accounts**: connect Spotify and YouTube. Both only ask for read
   access, see [Accounts and OAuth](accounts.md)
@@ -137,19 +138,27 @@ The Settings page collects everything that is not per-playlist.
   configured, the first non-system user is used
 - **Paths**: music path and playlist output folder, as the server sees
   them (inside Docker: `/music` and `/app/playlists`)
-- **Music providers**: enable or disable download plugins; the order
-  lives on the Plugins page
-- **Sync and scanning**: the auto-scan interval (seconds) and the sync
-  check interval (seconds) for background services
-- **Real quality check**: spectrum mode Off, Fast (recommended) or
-  Thorough, plus the Cloudflare solver URL for Lucida (`off` disables
-  Lucida)
-- **Interface**: toggle the file column on the playlist details page,
-  which shows the exact filename behind each track
-- **Logs**: export up to 1000 recent log entries as a plain text file
+- **Quality**: the default audio quality preset for new playlists (each
+  playlist can override it on its own page) and the spectrum check mode:
+  Off, Fast (recommended) or Thorough
+- **Network**: the FlareSolverr URL for the Lucida plugin with a Test
+  connection button, `off` disables Lucida; plus a log export that
+  downloads the most recent 1000 entries as a plain text file
 
 Settings are stored in the database and apply immediately after Save
-all settings, no restart needed.
+settings, no restart needed.
+
+## Advanced
+
+The Advanced page holds the knobs most people never need.
+
+- **Sync and scanning**: the auto-scan interval and the sync check
+  interval in seconds. These set how often background jobs wake up to
+  rescan folders and check auto-sync playlists; the minimums protect
+  the CPU
+- **Display**: show the file column on playlist tracks, which reveals
+  the exact filename behind each track. Useful when hunting inflated
+  downloads
 
 ## Logs
 
@@ -168,9 +177,3 @@ downloads, scans and errors.
 When a download fails, the entry holds the plugin, the track and the
 reason: rate limited, not found, or rejected by the quality gate. That
 is the first place to look when a track did not arrive.
-
-## Dev panel
-
-With `DevPanel__Enabled=true` (the dev compose sets this) a `/dev`
-page is available with diagnostics for plugin availability and account
-state. Keep it off in production.
