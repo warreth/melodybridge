@@ -1,63 +1,53 @@
-name: Deploy VitePress Docs
+name: Docs site
 
 on:
   push:
     branches: [main]
     paths:
-      - "**/*.md"
       - "docs/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/deploy.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
 
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pages: write
-      id-token: write
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: "20"
-          cache: "npm"
+          node-version: "22"
+          cache: npm
 
-      - name: Cache node_modules
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.npm
-            node_modules
-          key: ${{ runner.os }}-node-modules-${{ hashFiles('**/package-lock.json','**/package.json') }}
-          restore-keys: |
-            ${{ runner.os }}-node-modules-
+      - run: npm ci --no-audit --no-fund
 
-      - name: Install dependencies (if present)
-        run: |
-          if [ -f package-lock.json ] || [ -f package.json ]; then
-            npm ci --no-audit --prefer-offline;
-          else
-            echo "No package.json found, skipping npm install";
-          fi
+      - run: npm run docs:build
 
-      - name: Build docs
-        run: |
-          if [ -f package.json ]; then
-            npm run docs:build || npm run build || echo "No build script found";
-          else
-            # Try vitepress default: build from docs folder using npx
-            npx vitepress build docs || true
-          fi
+      # Custom domain for the Pages site: docs.melodybridge.app
+      - name: Add CNAME
+        run: echo "docs.melodybridge.app" > docs/.vitepress/dist/CNAME
 
-      - name: Configure GitHub Pages
-        uses: actions/configure-pages@v4
-
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v3
         with:
           path: docs/.vitepress/dist
 
-      - name: Deploy to Pages
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
         uses: actions/deploy-pages@v4
