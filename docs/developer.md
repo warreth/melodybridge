@@ -71,13 +71,19 @@ Implement this to add a download source. Built-in plugins:
 | Plugin | Id | Source | Notes |
 |---|---|---|---|
 | `LucidaDownloader` | `lucida` | lucida.to (Tidal, Qobuz, Amazon Music) | High quality rips; needs a Cloudflare solver, otherwise skipped |
+| `MonochromeDownloader` | `monochrome` | monochrome.tf mirrors (community TIDAL API) | FLAC/AAC rips; tries each instance in order until one answers |
+| `DoubleDoubleDownloader` | `doubledouble` | us./eu.doubledouble.top | Submit-and-poll rips of direct track URLs (Tidal, Qobuz, Deezer, Amazon); `SearchAsync` returns null by design, the site search is captcha-gated |
 | `SoundCloudDownloader` | `soundcloud` | SoundCloud (via yt-dlp `scsearch`) | Original uploads, often 320 kbps; rejects files under 128 kbps |
 | `ArchiveOrgDownloader` | `archiveorg` | Internet Archive (public JSON APIs) | Public-domain and community recordings; rejects files under 128 kbps |
-| `YtDlpDownloader` | `ytdlp` | YouTube Music, then YouTube (via yt-dlp) | Widest fallback, best audio as MP3 |
+| `YtDlpDownloader` | `ytdlp` | YouTube Music, then YouTube (via yt-dlp) | Widest fallback, best audio as MP3; `ytmsearch1` tried before `ytsearch1` everywhere |
 
-Default waterfall order: Lucida, SoundCloud, Archive, YouTube. Place new implementations in `MelodyBridge.Infrastructure/Downloaders/` and register via `services.AddSingleton<IDownloader, YourPlugin>()`. Quality-gate downloads (reject low-bitrate files) so bad rips never enter the library.
+Place new implementations in `MelodyBridge.Infrastructure/Downloaders/` and register via `services.AddSingleton<IDownloader, YourPlugin>()`. Quality-gate downloads against the requested `DownloadQuality` band so bad rips never enter the library.
 
-`IDownloaderRegistry` manages the plugin waterfall: enable/disable and priority are persisted per plugin in the `ProviderStates` table.
+`DownloadQuality` carries a bitrate band: `MinKbps` and `MaxKbps`, both optional, both hard. Search hits whose measured bitrate falls outside the band are skipped, and downloaded files are probed with `BitrateProbe.MeasureKbps` and rejected+deleted when outside it. Unknown bitrates pass the search gate and leave the verdict to the post-download measurement.
+
+`IDownloaderRegistry` manages the plugin waterfall: enable/disable and priority are persisted per plugin in the `ProviderStates` table. Plugin config values, declared via `IDownloader.ConfigFields` (Key, Label, Placeholder, Description) and read/written through `GetConfigAsync`/`SetConfigAsync`, persist in the `DownloaderSettings` table under `plugin:{id}:{key}` keys and are edited on the Plugins page in an expandable per-plugin panel.
+
+`DownloadCoordinator` runs each playlist with up to `download_max_concurrent` parallel workers (setting, default 2, clamp 1-8, Advanced page). Workers are safe together because `PlaylistStore.DownloadMissingAsync` claims each track with an atomic conditional UPDATE (pending to in_progress) before downloading, so two callers never race on the same track.
 
 ### `ISourceProvider`: playlist sources
 

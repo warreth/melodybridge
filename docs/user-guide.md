@@ -75,15 +75,23 @@ the plugin waterfall and shows live progress.
   sources in order, and the first plugin that returns a file within
   your quality settings wins
 - Move plugins up or down with the arrows, toggle them with the switch
+- Plugins with settings show an expandable **Settings** panel with a
+  Save button; the values are remembered per plugin
 - A plugin marked unavailable (missing binary or service down) is
   skipped automatically; the pill next to it shows the current state
 - **Live downloads** at the top shows each running playlist download
   with its progress, the track it is on, and buttons to pause, resume
-  or cancel it
+  or cancel it. Several tracks of the same playlist download in
+  parallel; the number of simultaneous downloads is set on the
+  Advanced page (1 to 8, default 2)
 
 The Lucida plugin needs a Cloudflare solver; see
 [Lucida and FlareSolverr](lucida.md). Without a solver Lucida stays out
-of the waterfall and the other plugins take over.
+of the waterfall and the other plugins take over. Monochrome and
+DoubleDouble are community rip mirrors: Monochrome searches TIDAL and
+falls back between its instances automatically, DoubleDouble handles
+direct track URLs only (its search is captcha-gated, so it never finds
+tracks by name).
 
 ## Sync jobs
 

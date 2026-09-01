@@ -16,17 +16,25 @@ and your liked songs.
 
 Every track is fetched by a waterfall of plugins, tried in order. The
 first plugin that finds and quality-gates a track wins. You can reorder
-the waterfall and toggle plugins on the Downloads page.
+the waterfall, toggle plugins and edit their settings on the Plugins page.
 
 | Plugin | What it fetches |
 |---|---|
 | Lucida | High quality rips from lucida.to (Tidal, Qobuz, Amazon Music and more), optional |
+| Monochrome | Community TIDAL rips (FLAC/AAC) via public Hi-Fi API mirrors with automatic fallback |
+| DoubleDouble | Multi-service rips (Tidal, Qobuz, Deezer, Amazon) from direct track URLs; captcha-gated, no metadata search |
 | SoundCloud | Original uploads by the artist, 128 kbps or better |
 | Internet Archive | Public recordings and digitizations, MP3 |
-| yt-dlp | YouTube and YouTube Music, best audio as MP3 |
+| yt-dlp | YouTube Music first, plain YouTube fallback; best audio as MP3 |
 
-Every plugin quality-gates its files: low bitrate rips are rejected so a
- playlist does not fill with inflated 128 kbps files labelled as 320.
+Every plugin quality-gates its files against the requested bitrate band
+(minimum and maximum): rips outside it are rejected, so a playlist does
+not fill with inflated 128 kbps files labelled as 320 — or thin ones
+below the floor you set.
+
+Plugins that expose settings get an expandable panel on the Plugins
+page; values persist per plugin. Playlist downloads run several tracks
+in parallel (1 to 8 workers, Advanced page).
 
 ## Real quality checks
 
