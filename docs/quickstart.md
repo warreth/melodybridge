@@ -1,0 +1,61 @@
+# Quick start
+
+You need Docker (or Podman) and nothing else.
+
+```bash
+git clone https://github.com/warreth/melodybridge
+cd melodybridge
+docker compose up -d
+```
+
+That pulls the published image from GHCR and starts two containers on one
+internal network:
+
+- melodybridge on http://localhost:3333, bound to 127.0.0.1 so it is not
+  reachable from other machines unless you put a reverse proxy in front
+- flaresolverr, the Cloudflare solver used by the Lucida plugin, internal
+  only, no published port
+
+The first start creates `./data/` with `music/`, `playlists/` and `app/`
+(the SQLite database) so your files survive rebuilds. Point Jellyfin at
+`./data/music`.
+
+Podman works the same way:
+
+```bash
+podman compose up -d
+```
+
+## First steps in the UI
+
+1. Open http://localhost:3333 and go to **Playlists**. Paste a public
+   Spotify or YouTube playlist link and save it.
+2. Open the playlist and press **Download missing**. The plugin waterfall
+   fetches each track and tags it.
+3. Go to **Sync jobs** and create a job that writes an M3U file or pushes
+   the playlist to Jellyfin.
+
+If Jellyfin runs on your host, use `http://host.docker.internal:8096` as
+the base URL in Settings.
+
+## Running from source
+
+```bash
+dotnet run --project MelodyBridge.Server
+```
+
+yt-dlp must be on PATH:
+
+```bash
+pip3 install --user --break-system-packages yt-dlp
+```
+
+The test suite runs with `dotnet test MelodyBridge.sln`. Live tests need
+yt-dlp and ffmpeg on PATH.
+
+## Where to go next
+
+- [Docker guide](docker.md) for the full configuration reference
+- [User guide](user-guide.md) for a tour of every page
+- [Accounts and OAuth](accounts.md) if you want your private playlists and
+  liked songs
