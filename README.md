@@ -44,6 +44,55 @@ protocol (https://github.com/FlareSolverr/FlareSolverr):
 The challenge cookies expire, so the plugin re-solves automatically when
 Lucida answers with a 403.
 
+## Accounts: private playlists and liked songs (optional)
+
+MelodyBridge can log into your Spotify and YouTube accounts through the
+platforms' own OAuth flows and import what only you can see: private
+playlists, collaborative playlists and your liked songs. Design rules:
+
+- **Read-only scopes only.** Spotify gets `playlist-read-private`,
+  `playlist-read-collaborative` and `user-library-read`; YouTube gets
+  `youtube.readonly`. Nothing that could ever modify your account is
+  requested, so the account cannot be banned for behaviour it dislikes.
+- **Official libraries.** Spotify uses SpotifyAPI-NET's PKCE flow, YouTube
+  uses Google's own auth libraries. No logged-in browser cookies are ever
+  scraped.
+- **The public fetcher stays independent.** Account and public fetching
+  live in separate providers. When no account is connected, or the
+  account call fails for any reason, the public path (Spotify embed
+  scraping, yt-dlp for YouTube) runs exactly as before.
+
+### Spotify
+
+1. Create an app at developer.spotify.com (no secret needed).
+2. Under Redirect URIs, add the exact URL the page shows:
+   `http://localhost:5085/auth/callback` in dev, or your deployment's
+   `.../auth/callback`.
+3. In Settings, paste the Client ID and press Connect Spotify.
+
+Spotify PKCE keeps the refresh token; MelodyBridge stores it in its
+database and refreshes access tokens automatically. Reconnecting does not
+break the old login: Spotify keeps it valid.
+
+### YouTube
+
+1. In Google Cloud Console, enable the YouTube Data API v3 and create
+   OAuth credentials of type Web application.
+2. Add the same `.../auth/callback` redirect URI as an authorized redirect
+   URI. For testing outside Google's verification you must add yourself
+   as a test user on the OAuth consent screen.
+3. In Settings, paste the client id and secret and press Connect YouTube.
+
+Liked songs arrive through the channel's `likes` playlist (`LL`); private
+playlists through the normal Data API. Rate limits are generous (quota
+counts per playlist page).
+
+### Jellyfin favorites
+
+Tracks imported from your liked songs are flagged, and the Jellyfin sync
+marks them as favorites for the configured user (Settings, Jellyfin
+panel). With no user configured, the first non-system user is used.
+
 ## What it does
 
 - **Fetch**: public Spotify playlists, no API key or account needed (embed page scraping), stored in SQLite with per-track platform IDs
@@ -80,6 +129,7 @@ The test suite is deliberately hard to cheat:
 
 - **Fast suite** (CI, every push): unit + bUnit UI tests, real SQLite files for anything storage-related, no InMemory providers for persistence logic
 - **Live suite** (CI, separate job): real network to open.spotify.com, real yt-dlp downloads, assertions read back the actual produced files, their `MELODY_ID` tags, and ffprobe-validated durations
+- **Account live tests** skip with instructions (export `MB_SPOTIFY_*` from a real login) instead of faking OAuth
 - Every persistence assertion goes through a **fresh DbContext**: nothing is asserted from cached objects
 
 ```bash
