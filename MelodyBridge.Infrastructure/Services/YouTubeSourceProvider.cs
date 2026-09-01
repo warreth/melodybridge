@@ -109,16 +109,27 @@ public class YouTubeSourceProvider : ISourceProvider
         if (query.StartsWith("http", StringComparison.OrdinalIgnoreCase))
             return query;
 
-        var (exitCode, stdout, _) = await YtDlpProcess.RunAsync(new[]
+        // YouTube Music first (official audio uploads), plain YouTube as fallback.
+        string? stdout = null;
+        foreach (var extractor in new[] { "ytmsearch1", "ytsearch1" })
         {
-            "--flat-playlist",
-            "--dump-single-json",
-            "--no-warnings",
-            "--skip-download",
-            $"ytsearch1:{query}",
-        }, TimeSpan.FromSeconds(45), CancellationToken.None);
+            var (code, output, _) = await YtDlpProcess.RunAsync(new[]
+            {
+                "--flat-playlist",
+                "--dump-single-json",
+                "--no-warnings",
+                "--skip-download",
+                $"{extractor}:{query}",
+            }, TimeSpan.FromSeconds(45), CancellationToken.None);
 
-        if (exitCode != 0 || string.IsNullOrWhiteSpace(stdout))
+            if (code == 0 && !string.IsNullOrWhiteSpace(output))
+            {
+                stdout = output;
+                break;
+            }
+        }
+
+        if (stdout is null)
             return null;
 
         try
