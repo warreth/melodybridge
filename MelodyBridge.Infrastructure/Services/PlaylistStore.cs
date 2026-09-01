@@ -1,5 +1,6 @@
 using System.Text.Json;
 using MelodyBridge.Core;
+using MelodyBridge.Infrastructure.Accounts;
 using MelodyBridge.Infrastructure.Audio;
 using MelodyBridge.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
@@ -16,7 +17,8 @@ namespace MelodyBridge.Infrastructure.Services;
 public class PlaylistStore
 {
     private readonly IDbContextFactory<MelodyBridgeDbContext> _dbFactory;
-    private readonly IEnumerable<ISourceProvider> _providers;
+    private readonly ISourceProvider[] _providers;
+    private readonly IAccountSourceProvider[] _accountProviders;
     private readonly IDownloadManager _downloadManager;
     private readonly ILogger<PlaylistStore> _logger;
 
@@ -31,10 +33,12 @@ public class PlaylistStore
         IDbContextFactory<MelodyBridgeDbContext> dbFactory,
         IEnumerable<ISourceProvider> providers,
         IDownloadManager downloadManager,
-        ILogger<PlaylistStore> logger)
+        ILogger<PlaylistStore> logger,
+        IEnumerable<IAccountSourceProvider>? accountProviders = null)
     {
         _dbFactory = dbFactory;
-        _providers = providers;
+        _providers = providers.ToArray();
+        _accountProviders = accountProviders?.ToArray() ?? Array.Empty<IAccountSourceProvider>();
         _downloadManager = downloadManager;
         _logger = logger;
     }
@@ -195,6 +199,48 @@ public class PlaylistStore
     }
 
     /// <summary>
+    /// Fetches a playlist: the account path first (private playlists, fresh
+    /// metadata), the public path as the independent fallback. The public
+    /// fetcher needs no account and keeps working when the auth flow or the
+    /// account breaks.
+    /// </summary>
+    private async Task<Playlist> FetchWithAccountFallbackAsync(
+        ISourceProvider provider, string sourceIdentifier, CancellationToken ct)
+    {
+        var account = _accountProviders.FirstOrDefault(
+            a => a.Name.Equals(provider.Name, StringComparison.OrdinalIgnoreCase));
+
+        if (account is not null && await account.IsConnectedAsync(ct))
+        {
+            try
+            {
+                var viaAccount = provider.Platform switch
+                {
+                    Platform.Spotify when account is SpotifyAccountProvider spotify =>
+                        await spotify.TryGetPlaylistViaAccountAsync(
+                            SpotifySourceProvider.ExtractPlaylistId(sourceIdentifier), ct),
+                    Platform.YouTubeMusic when account is YouTubeAccountProvider youtube =>
+                        await youtube.TryGetPlaylistViaAccountAsync(
+                            YouTubeSourceProvider.GetPlaylistId(sourceIdentifier), ct),
+                    _ => null,
+                };
+                if (viaAccount is not null) return viaAccount;
+                _logger.LogInformation(
+                    "Account fetch for '{Source}' returned nothing; falling back to the public path",
+                    sourceIdentifier);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogInformation(
+                    "Account fetch for '{Source}' failed ({Message}); falling back to the public path",
+                    sourceIdentifier, ex.Message);
+            }
+        }
+
+        return await provider.GetPlaylistAsync(sourceIdentifier);
+    }
+
+    /// <summary>
     /// Fetch a playlist live from its source platform and persist it.
     /// Reuses the existing row when the playlist was saved before (match on
     /// platform + external ID), so re-syncing updates instead of duplicating.
@@ -205,13 +251,44 @@ public class PlaylistStore
             ?? throw new InvalidOperationException(
                 $"No source provider can handle '{sourceUrl}'. Supported: {string.Join(", ", _providers.Select(p => p.Name))}");
 
-        var playlist = await provider.GetPlaylistAsync(sourceUrl);
+        var playlist = await FetchWithAccountFallbackAsync(provider, sourceUrl, ct);
+        return await SaveSnapshotAsync(
+            provider.Platform, playlist, sourceUrl, targetDirectory, ct);
+    }
 
+    /// <summary>
+    /// The logged-in user's liked songs, imported through their account.
+    /// </summary>
+    public async Task<PlaylistEntity> AddOrRefreshLikedAsync(
+        string providerName, string? targetDirectory = null, CancellationToken ct = default)
+    {
+        var account = _accountProviders.FirstOrDefault(
+            a => a.Name.Equals(providerName, StringComparison.OrdinalIgnoreCase))
+            ?? throw new InvalidOperationException($"No account provider '{providerName}'.");
+
+        var playlist = await account.GetLikedPlaylistAsync(ct);
+        return await SaveSnapshotAsync(
+            playlist: playlist,
+            providerPlatform: account.Name switch
+            {
+                SpotifyAccountProvider.ProviderName => Platform.Spotify,
+                YouTubeAccountProvider.ProviderName => Platform.YouTubeMusic,
+                _ => throw new InvalidOperationException($"Unknown account '{providerName}'."),
+            },
+            sourceUrl: playlist.SourceUrl,
+            targetDirectory: targetDirectory,
+            ct: ct);
+    }
+
+    private async Task<PlaylistEntity> SaveSnapshotAsync(
+        Platform providerPlatform, Playlist playlist, string sourceUrl,
+        string? targetDirectory = null, CancellationToken ct = default)
+    {
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
 
         var entity = await db.Playlists
             .Include(p => p.Tracks)
-            .FirstOrDefaultAsync(p => p.SourcePlatform == provider.Platform &&
+            .FirstOrDefaultAsync(p => p.SourcePlatform == providerPlatform &&
                                      p.ExternalId == playlist.Id, ct);
 
         var isNew = entity is null;
@@ -219,7 +296,7 @@ public class PlaylistStore
         {
             Id = Guid.NewGuid().ToString(),
             SourceUrl = sourceUrl,
-            SourcePlatform = provider.Platform,
+            SourcePlatform = providerPlatform,
         };
 
         entity.Name = playlist.Name ?? entity.Name;
@@ -277,7 +354,8 @@ public class PlaylistStore
             {
                 var externalId = t.PlatformSongID?.ID ?? t.SongID?.ID;
                 var prior = externalId is not null ? existingByExternalId.GetValueOrDefault(externalId) : null;
-                var mapped = MapTrack(t, provider.Platform, entity.Id, i);
+                var mapped = MapTrack(t, providerPlatform, entity.Id, i);
+                mapped.IsLiked = t.IsLiked;
                 if (prior is not null)
                 {
                     mapped.MelodyId = prior.MelodyId;
@@ -293,7 +371,7 @@ public class PlaylistStore
         await db.SaveChangesAsync(ct);
 
         _logger.LogInformation("{Action} playlist '{Name}' ({Platform}) with {Count} tracks",
-            isNew ? "Added" : "Refreshed", entity.Name, provider.Platform, entity.Tracks.Count);
+            isNew ? "Added" : "Refreshed", entity.Name, providerPlatform, entity.Tracks.Count);
 
         return entity;
     }

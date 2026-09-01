@@ -1,5 +1,6 @@
 using MelodyBridge.Application.Services;
 using MelodyBridge.Core;
+using MelodyBridge.Infrastructure.Accounts;
 using MelodyBridge.Infrastructure.Cloudflare;
 using MelodyBridge.Infrastructure.Downloaders;
 using MelodyBridge.Infrastructure.Lucida;
@@ -58,6 +59,10 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IDownloadManager, DownloadManager>();
         services.AddScoped<SyncEngine>();
         services.AddScoped<ISyncJobRunner, SyncJobRunner>();
+        // Account connections (Spotify/YouTube private + liked imports).
+        services.AddSingleton<AccountTokenStore>();
+        services.AddSingleton<IAccountSourceProvider, SpotifyAccountProvider>();
+        services.AddSingleton<IAccountSourceProvider, YouTubeAccountProvider>();
         services.AddScoped<PlaylistStore>();
 
         // Background services
@@ -81,6 +86,18 @@ public static class ServiceCollectionExtensions
             var apiKey = config["Jellyfin:ApiKey"];
             if (!string.IsNullOrEmpty(apiKey))
                 client.DefaultRequestHeaders.Add("X-Emby-Token", apiKey);
+        });
+        services.AddSingleton(sp =>
+        {
+            var config = sp.GetRequiredService<Microsoft.Extensions.Configuration.IConfiguration>();
+            return new JellyfinSyncOptions { UserId = config["Jellyfin:UserId"] };
+        });
+        services.AddSingleton(sp =>
+        {
+            var http = sp.GetRequiredService<IHttpClientFactory>().CreateClient(nameof(JellyfinSync));
+            var logger = sp.GetRequiredService<ILogger<JellyfinSync>>();
+            var options = sp.GetRequiredService<JellyfinSyncOptions>();
+            return new JellyfinSync(http, logger) { UserId = options.UserId };
         });
         services.AddSingleton<IMediaServerSync>(sp =>
             sp.GetRequiredService<JellyfinSync>());
