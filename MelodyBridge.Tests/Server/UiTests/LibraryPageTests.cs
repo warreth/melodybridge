@@ -105,19 +105,14 @@ public class LibraryPageTests
 
         using (var db = dataFactory.CreateDbContext())
         {
-            db.Playlists.Add(new PlaylistEntity
+            // A standalone scanned file, not tied to any playlist:
+            // the library list shows scan-folder files only.
+            db.Tracks.Add(new TrackEntity
             {
-                Id = "pl-a", Name = "Road Trip",
-                Tracks = new List<TrackEntity>
-                {
-                    new()
-                    {
-                        MelodyId = "mel-lib-1", Title = "Summer Song", Artist = "The Band",
-                        CurrentPath = "/music/summer.flac", DownloadStatus = "downloaded",
-                        Bitrate = 900, SampleRateHz = 44100, MediaType = "flac",
-                        FileSizeBytes = 31_457_280,
-                    },
-                },
+                MelodyId = "mel-lib-1", Title = "Summer Song", Artist = "The Band",
+                CurrentPath = "/music/summer.flac", DownloadStatus = "downloaded",
+                Bitrate = 900, SampleRateHz = 44100, MediaType = "flac",
+                FileSizeBytes = 31_457_280,
             });
             db.SaveChanges();
         }
@@ -132,7 +127,6 @@ public class LibraryPageTests
         Assert.That(cut.Markup, Does.Contain("900 kbps"), "the real bitrate must show");
         Assert.That(cut.Markup, Does.Contain("44.1 kHz"), "the real sample rate must show");
         Assert.That(cut.Markup, Does.Contain("30 MB"), "the real file size must show");
-        Assert.That(cut.Markup, Does.Contain("Road Trip"), "the owning playlist must show");
     }
 
     private class InMemFactory : IDbContextFactory<MelodyBridgeDbContext>

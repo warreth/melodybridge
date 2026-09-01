@@ -9,9 +9,10 @@
     <div>
         <span class="eyebrow">Your music</span>
         <h1>Library</h1>
-        <p>Every file MelodyBridge knows about: downloaded tracks, matched library files
-            and where each one belongs. Folders below are scanned so local files
-            automatically match the playlists they came from.</p>
+        <p>The files MelodyBridge found in your scan folders. Downloads live on
+            their playlist pages; this list is your own music collection. Add a
+            folder below and MelodyBridge matches files to your playlists by
+            their embedded ID tag.</p>
     </div>
     <div class="topbar-actions">
         <button class="btn-modern primary" @onclick="RunScan" disabled="@scanning">
@@ -41,7 +42,7 @@
             <span class="eyebrow">Files</span>
             <h2>Tracks (@shownTracks.Count()@(filter.Length > 0 ? $" of {tracks.Count}" : ""))</h2>
         </div>
-        <input class="search-input" placeholder="Search title, artist or playlist…"
+        <input class="search-input" placeholder="Search title or artist…"
                value="@filter" @oninput="OnFilterChanged" />
     </div>
     @if (tracks.Count == 0)
@@ -60,7 +61,7 @@
                         <th>Artist</th>
                         <th>Quality</th>
                         <th>Size</th>
-                        <th>Playlist</th>
+                        <th>Folder</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -80,9 +81,11 @@
                             <td class="text-muted">@TrackDisplay.Quality(t.Bitrate, t.SampleRateHz, t.MediaType)</td>
                             <td class="text-muted" title="@(t.FileSizeBytes?.ToString("N0") + " bytes")">@TrackDisplay.Size(t.FileSizeBytes)</td>
                             <td>
-                                @if (t.PlaylistName is { } name)
+                                @if (t.CurrentPath is { } path)
                                 {
-                                    <span class="pill neutral">@name</span>
+                                    <span class="text-muted file-path" title="@path">
+                                        @(Path.GetDirectoryName(path) is { } dir ? Path.GetFileName(dir) : path)
+                                    </span>
                                 }
                                 else
                                 {
@@ -160,7 +163,7 @@
                         Scan interval (minutes, 0 = manual)
                         <input @bind="newInterval" type="number" min="0" step="5" />
                     </label>
-                    <label class="toggle-switch" style="display:flex; gap:.75rem; align-items:center; width:auto;">
+                    <label class="toggle-switch wide">
                         <input type="checkbox" @bind="liveMonitoring" />
                         <span class="toggle-slider"></span>
                         Live monitoring
@@ -178,8 +181,7 @@
 @code {
     private sealed record LibraryRow(
         string? Title, string? Artist, string? CurrentPath,
-        int? Bitrate, int? SampleRateHz, string? MediaType, long? FileSizeBytes,
-        string? PlaylistName);
+        int? Bitrate, int? SampleRateHz, string? MediaType, long? FileSizeBytes);
 
     private List<ScanLocationEntity> locations = new();
     private List<LibraryRow> tracks = new();
@@ -198,8 +200,7 @@
         ? tracks
         : tracks.Where(t =>
             (t.Title ?? "").Contains(filter, StringComparison.OrdinalIgnoreCase) ||
-            (t.Artist ?? "").Contains(filter, StringComparison.OrdinalIgnoreCase) ||
-            (t.PlaylistName ?? "").Contains(filter, StringComparison.OrdinalIgnoreCase));
+            (t.Artist ?? "").Contains(filter, StringComparison.OrdinalIgnoreCase));
 
     protected override async Task OnInitializedAsync() => await LoadDataAsync();
 
@@ -209,16 +210,16 @@
         locations = await db.ScanLocations.ToListAsync();
         showFilenameColumn = await Settings.GetBoolAsync("show_filename", fallback: false);
 
+        // Library shows only the files found in the scan folders.
+        // Playlist downloads have their own home on the playlist page;
+        // merging them here made the list look like random playlist songs.
         tracks = await db.Tracks
-            .Where(t => t.CurrentPath != null)
+            .Where(t => t.CurrentPath != null
+                && !db.Playlists.Any(p => p.Tracks.Any(pt => pt.MelodyId == t.MelodyId)))
             .OrderByDescending(t => t.Id)
             .Select(t => new LibraryRow(
                 t.Title, t.Artist, t.CurrentPath, t.Bitrate, t.SampleRateHz,
-                t.MediaType, t.FileSizeBytes,
-                db.Playlists
-                    .Where(p => p.Tracks.Any(pt => pt.MelodyId == t.MelodyId))
-                    .Select(p => p.Name)
-                    .FirstOrDefault()))
+                t.MediaType, t.FileSizeBytes))
             .ToListAsync();
         tracksCount = tracks.Count;
     }
