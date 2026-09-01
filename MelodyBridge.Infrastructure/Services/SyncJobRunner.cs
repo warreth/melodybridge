@@ -97,6 +97,7 @@ public class SyncJobRunner : ISyncJobRunner
                     CurrentTrackLocation = !string.IsNullOrEmpty(t.CurrentPath)
                         ? new FileLocation(t.CurrentPath)
                         : null,
+                    IsLiked = t.IsLiked,
                 }).ToList()
             };
 

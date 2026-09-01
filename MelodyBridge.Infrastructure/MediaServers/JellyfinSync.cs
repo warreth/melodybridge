@@ -11,6 +11,12 @@ public class JellyfinSync : IMediaServerSync
     private readonly ILogger<JellyfinSync> _logger;
     public string Name => "Jellyfin";
 
+    /// <summary>
+    /// Jellyfin user whose favorites get the liked songs. Set at startup
+    /// from the Jellyfin:UserId setting (empty = favorites are skipped).
+    /// </summary>
+    public string? UserId { get; set; }
+
     private MediaServerSyncReport? _lastReport;
 
     public JellyfinSync(HttpClient http, ILogger<JellyfinSync> logger)
@@ -24,6 +30,7 @@ public class JellyfinSync : IMediaServerSync
         if (playlist?.Name == null) throw new ArgumentException("Playlist needs a name");
 
         var itemIds = new List<string>();
+        var likedItemIds = new List<string>();
         var unresolved = new List<string>();
 
         if (playlist.Tracks != null)
@@ -63,7 +70,7 @@ public class JellyfinSync : IMediaServerSync
                             var item = await resp.Content.ReadFromJsonAsync<JellyfinItem>(cancellationToken: ct);
                             if (item != null && !string.IsNullOrEmpty(item.Id))
                             {
-                                itemIds.Add(item.Id);
+                                Remember(item.Id, track.IsLiked, itemIds, likedItemIds);
                                 continue;
                             }
                         }
@@ -83,7 +90,7 @@ public class JellyfinSync : IMediaServerSync
                             var list = await resp2.Content.ReadFromJsonAsync<JellyfinItemsResult>(cancellationToken: ct);
                             if (list?.Items != null && list.Items.Length > 0)
                             {
-                                itemIds.Add(list.Items[0].Id);
+                                Remember(list.Items[0].Id, track.IsLiked, itemIds, likedItemIds);
                                 continue;
                             }
                         }
@@ -106,7 +113,7 @@ public class JellyfinSync : IMediaServerSync
                                 var list2 = await resp3.Content.ReadFromJsonAsync<JellyfinItemsResult>(cancellationToken: ct);
                                 if (list2?.Items != null && list2.Items.Length > 0)
                                 {
-                                    itemIds.Add(list2.Items[0].Id);
+                                    Remember(list2.Items[0].Id, track.IsLiked, itemIds, likedItemIds);
                                     continue;
                                 }
                             }
@@ -133,7 +140,7 @@ public class JellyfinSync : IMediaServerSync
                                 var list3 = await resp4.Content.ReadFromJsonAsync<JellyfinItemsResult>(cancellationToken: ct);
                                 if (list3?.Items != null && list3.Items.Length > 0)
                                 {
-                                    itemIds.Add(list3.Items[0].Id);
+                                    Remember(list3.Items[0].Id, track.IsLiked, itemIds, likedItemIds);
                                     continue;
                                 }
                             }
@@ -219,6 +226,9 @@ public class JellyfinSync : IMediaServerSync
             _lastReport = new MediaServerSyncReport(itemIds.Count, unresolved.ToArray(), null, $"Error: {ex.Message}");
         }
 
+        // Liked songs become Jellyfin favorites for the configured user.
+        await MarkFavoritesAsync(likedItemIds, ct);
+
         // If we reach here without setting _lastReport, set a default one
         if (_lastReport == null)
         {
@@ -226,9 +236,82 @@ public class JellyfinSync : IMediaServerSync
         }
     }
 
+    private static void Remember(string itemId, bool isLiked,
+        List<string> itemIds, List<string> likedItemIds)
+    {
+        itemIds.Add(itemId);
+        if (isLiked) likedItemIds.Add(itemId);
+    }
+
+    /// <summary>
+    /// Marks the given items as favorites for the configured Jellyfin user
+    /// (POST /Users/{userId}/FavoriteItems/{itemId}, with the older
+    /// /Users/{userId}/Items/{itemId}/Favorite route as fallback).
+    /// </summary>
+    private async Task MarkFavoritesAsync(List<string> likedItemIds, CancellationToken ct)
+    {
+        if (likedItemIds.Count == 0) return;
+
+        var userId = _http.BaseAddress is null ? null
+            : await FindUserIdAsync(ct);
+        if (userId is null)
+        {
+            _logger.LogInformation(
+                "Skipping {Count} favorites: no Jellyfin user configured", likedItemIds.Count);
+            return;
+        }
+
+        var marked = 0;
+        foreach (var itemId in likedItemIds)
+        {
+            try
+            {
+                using var modern = await _http.PostAsync(
+                    $"/Users/{userId}/FavoriteItems/{itemId}", content: null, ct);
+                if (modern.IsSuccessStatusCode) { marked++; continue; }
+
+                // Older Jellyfin: /Users/{userId}/Items/{itemId}/Favorite
+                using var legacy = await _http.PostAsync(
+                    $"/Users/{userId}/Items/{itemId}/Favorite", content: null, ct);
+                if (legacy.IsSuccessStatusCode) marked++;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Favorite mark failed for {ItemId}", itemId);
+            }
+        }
+        _logger.LogInformation("Marked {Marked}/{Total} liked songs as Jellyfin favorites",
+            marked, likedItemIds.Count);
+    }
+
+    /// <summary>
+    /// The configured user id; when empty, the first non-system Jellyfin
+    /// user is used (single-user servers).
+    /// </summary>
+    private async Task<string?> FindUserIdAsync(CancellationToken ct)
+    {
+        if (!string.IsNullOrWhiteSpace(UserId)) return UserId;
+
+        try
+        {
+            using var response = await _http.GetAsync("/Users", ct);
+            if (!response.IsSuccessStatusCode) return null;
+            var users = await response.Content
+                .ReadFromJsonAsync<JellyfinUser[]>(cancellationToken: ct);
+            return users?.FirstOrDefault(u =>
+                       !string.Equals(u.Name, "system", StringComparison.OrdinalIgnoreCase))?.Id;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "User lookup failed");
+            return null;
+        }
+    }
+
     public MediaServerSyncReport? GetLastReport() => _lastReport;
 
     private class JellyfinItem { public string? Id { get; set; } }
+    private class JellyfinUser { public string? Id { get; set; } public string? Name { get; set; } }
     private class JellyfinItemsResult { public JellyfinItem[]? Items { get; set; } }
     private class JellyfinPlaylist { public string? Id { get; set; } public string? Name { get; set; } }
     private class JellyfinPlaylistsResult { public JellyfinPlaylist[]? Items { get; set; } }
