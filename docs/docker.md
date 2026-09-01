@@ -65,8 +65,6 @@ docker run -d \
   -v ./data/app:/app \
   -p 127.0.0.1:3333:80 \
   -e ASPNETCORE_ENVIRONMENT=Production \
-  -e Jellyfin__BaseUrl=http://your-jellyfin:8096 \
-  -e Jellyfin__ApiKey=your-api-key \
   --name melodybridge melodybridge:latest
 ```
 

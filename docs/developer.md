@@ -56,10 +56,13 @@ public interface IDownloader
 {
     string Id { get; }
     string Name { get; }
+    string Description => string.Empty;
     Task<bool> IsAvailableAsync(CancellationToken ct = default);
-    Task<DownloaderSearchHit?> SearchAsync(string artist, string title, CancellationToken ct = default);
+    Task<DownloaderSearchHit?> SearchAsync(
+        string artist, string title, DownloadQuality quality, CancellationToken ct = default);
     Task<DownloaderDownloadResult> DownloadAsync(
-        string sourceUrl, string outputDirectory, string? melodyId, CancellationToken ct = default);
+        string sourceUrl, string outputDirectory, string? melodyId,
+        DownloadQuality? quality = null, CancellationToken ct = default);
 }
 ```
 
@@ -67,11 +70,12 @@ Implement this to add a download source. Built-in plugins:
 
 | Plugin | Id | Source | Notes |
 |---|---|---|---|
+| `LucidaDownloader` | `lucida` | lucida.to (Tidal, Qobuz, Amazon Music) | High quality rips; needs a Cloudflare solver, otherwise skipped |
 | `SoundCloudDownloader` | `soundcloud` | SoundCloud (via yt-dlp `scsearch`) | Original uploads, often 320 kbps; rejects files under 128 kbps |
 | `ArchiveOrgDownloader` | `archiveorg` | Internet Archive (public JSON APIs) | Public-domain and community recordings; rejects files under 128 kbps |
-| `YtDlpDownloader` | `ytdlp` | YouTube Music → YouTube (via yt-dlp) | Widest fallback, best audio as MP3 |
+| `YtDlpDownloader` | `ytdlp` | YouTube Music, then YouTube (via yt-dlp) | Widest fallback, best audio as MP3 |
 
-Default waterfall order: SoundCloud → Archive → YouTube. Place new implementations in `MelodyBridge.Infrastructure/Downloaders/` and register via `services.AddSingleton<IDownloader, YourPlugin>()`. Quality-gate downloads (reject low-bitrate files) so bad rips never enter the library.
+Default waterfall order: Lucida, SoundCloud, Archive, YouTube. Place new implementations in `MelodyBridge.Infrastructure/Downloaders/` and register via `services.AddSingleton<IDownloader, YourPlugin>()`. Quality-gate downloads (reject low-bitrate files) so bad rips never enter the library.
 
 `IDownloaderRegistry` manages the plugin waterfall: enable/disable and priority are persisted per plugin in the `ProviderStates` table.
 
@@ -107,8 +111,8 @@ Implement this to sync playlists to a media server (e.g. Jellyfin). Place implem
 ```csharp
 public interface IDownloadManager
 {
-    Task<string?> DownloadAsync(string url, string outputDirectory, string melodyId, CancellationToken ct = default);
-    Task<string?> DownloadTrackAsync(string artist, string title, string outputDirectory, string melodyId, CancellationToken ct = default);
+    Task<string?> DownloadAsync(string sourceUrl, string outputDirectory, string melodyId, CancellationToken ct = default);
+    Task<string?> DownloadTrackAsync(string artist, string title, string outputDirectory, string melodyId, DownloadQuality? quality = null, CancellationToken ct = default);
     IReadOnlyList<DownloadProgress> SnapshotProgress();
 }
 ```
@@ -177,25 +181,25 @@ dotnet test MelodyBridge.sln --filter "Category=PlaylistStore|Category=Live"
 
 ```
 MelodyBridge.Tests/
-├-- Core/                  # Model and enum tests
-├-- Infrastructure/        # Scanner, tagger, M3U, DB context tests
-│   ├-- LibraryScannerTests.cs       # Real tagged MP3s: register + move/update identity
-│   ├-- M3uGeneratorTests.cs         # Read-back of produced .m3u files
-│   ├-- JellyfinSyncTests.cs         # Jellyfin client behavior
-│   ├-- TaglibHelperTests.cs         # Tag reading/writing
-│   └-- DbContextTests.cs
-├-- Services/
-│   ├-- PlaylistStoreLiveTests.cs    # Live Spotify fetch → real SQLite
-│   ├-- PlaylistStoreSyncModeTests.cs# Additive/Mirror with real SQLite
-│   ├-- SpotifySourceProviderTests.cs
-│   └-- SyncEngineTests.cs
-├-- Integration/
-│   ├-- YtDlpDownloaderLiveTests.cs  # Live search/download/tag/ffprobe
-│   ├-- DownloadMissingAsyncTests.cs # Real plugin writing real tagged files
-│   └-- SyncJobRunnerTests.cs         # Real .m3u on disk + run history
-└-- Server/
-    ├-- UiTests/           # bUnit component tests
-    └-- SyncControllerTests.cs
+├── Core/                   # Model and enum tests
+├── Infrastructure/        # Scanner, tagger, M3U, DB context tests
+│   ├── LibraryScannerTests.cs       # Real tagged MP3s: register + move/update identity
+│   ├── M3uGeneratorTests.cs         # Read-back of produced .m3u files
+│   ├── JellyfinSyncTests.cs         # Jellyfin client behavior
+│   ├── TaglibHelperTests.cs         # Tag reading/writing
+│   └── DbContextTests.cs
+├── Services/
+│   ├── PlaylistStoreLiveTests.cs    # Live Spotify fetch, real SQLite
+│   ├── PlaylistStoreSyncModeTests.cs # Additive/Mirror with real SQLite
+│   ├── SpotifySourceProviderTests.cs
+│   └── SyncEngineTests.cs
+├── Integration/
+│   ├── YtDlpDownloaderLiveTests.cs  # Live search/download/tag/ffprobe
+│   ├── DownloadMissingAsyncTests.cs # Real plugin writing real tagged files
+│   └── SyncJobRunnerTests.cs        # Real .m3u on disk + run history
+└── Server/
+    ├── UiTests/            # bUnit component tests
+    └── SyncControllerTests.cs
 ```
 
 ### Adding New Tests
