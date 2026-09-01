@@ -111,6 +111,8 @@ public class PlaylistStore
                     track.DownloadStatus = "downloaded";
                     track.CurrentPath = path;
                     track.LastSeenAt = DateTime.UtcNow;
+                    track.Bitrate = Audio.BitrateProbe.MeasureKbps(path);
+                    AudioProbe.Fill(track, path);
                     track.Warning = BuildWarning(track, path, spectrumMode);
                     downloaded++;
                 }
@@ -450,7 +452,7 @@ public class PlaylistStore
     /// <summary>Base format values shown in the UI dropdown.</summary>
     public static readonly string[] FormatOptions = { "auto", "mp3", "flac", "opus", "aac" };
 
-    /// <summary>Validates a PreferredFormat string ("mp3", "mp3:192-320", ...).</summary>
+    /// <summary>Validates a PreferredFormat string ("mp3", "mp3:192", legacy "mp3:192-320").</summary>
     public static bool IsValidFormat(string value)
     {
         var parts = value.Split(':', 2);
@@ -458,7 +460,6 @@ public class PlaylistStore
         if (parts.Length == 1) return true;
 
         var range = parts[1].Split('-', 2);
-        if (range.Length > 2) return false;
         foreach (var side in range)
             if (side.Length > 0 && (!int.TryParse(side, out var n) || n <= 0))
                 return false;

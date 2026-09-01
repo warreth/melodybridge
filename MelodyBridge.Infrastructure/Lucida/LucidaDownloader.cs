@@ -76,7 +76,8 @@ public class LucidaDownloader : IDownloader
     }
 
     public async Task<DownloaderDownloadResult> DownloadAsync(
-        string sourceUrl, string outputDirectory, string? melodyId, CancellationToken ct = default)
+        string sourceUrl, string outputDirectory, string? melodyId,
+        DownloadQuality? quality = null, CancellationToken ct = default)
     {
         try
         {

@@ -67,6 +67,7 @@ public class YtDlpDownloader : IDownloader
         string sourceUrl,
         string outputDirectory,
         string? melodyId,
+        DownloadQuality? quality = null,
         CancellationToken ct = default)
     {
         if (YtDlpProcess.BinaryPath is null)
@@ -78,18 +79,24 @@ public class YtDlpDownloader : IDownloader
 
             // Deterministic filename so re-downloads replace instead of duplicate.
             var template = Path.Combine(outputDirectory, "%(id)s.%(ext)s");
+            quality ??= DownloadQuality.Any;
 
-            var (exit, stdout, stderr) = await YtDlpProcess.RunAsync(new[]
+            // Auto = keep the source codec (no transcode, no quality loss, no
+            // fake-bitrate files). Any explicit format transcodes with the
+            // requested bitrate cap as the VBR target.
+            var args = new List<string> { "-o", template, sourceUrl, "--print-json", "--no-simulate" };
+            if (quality.NeedsTranscode)
             {
-                "-x",
-                "--audio-format", "mp3",
-                "--audio-quality", "0",
-                "--embed-metadata",
-                "-o", template,
-                sourceUrl,
-                "--print-json",
-                "--no-simulate",
-            }, TimeSpan.FromMinutes(5), ct);
+                args.InsertRange(0, new[]
+                {
+                    "-x",
+                    "--audio-format", quality!.Format.ToString().ToLowerInvariant(),
+                    "--audio-quality", quality.YtDlpAudioQuality,
+                    "--embed-metadata",
+                });
+            }
+
+            var (exit, stdout, stderr) = await YtDlpProcess.RunAsync(args.ToArray(), TimeSpan.FromMinutes(5), ct);
 
             if (exit != 0)
                 return new DownloaderDownloadResult(false, null, $"yt-dlp exited {exit}: {Truncate(stderr, 400)}");

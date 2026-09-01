@@ -115,6 +115,10 @@ public class TrackEntity
     public string? Album { get; set; }
     public string? MediaType { get; set; }
     public int? Bitrate { get; set; }
+    /// <summary>Real sample rate of the local file in Hz (44100, 48000, ...).</summary>
+    public int? SampleRateHz { get; set; }
+    /// <summary>Size of the local file on disk in bytes.</summary>
+    public long? FileSizeBytes { get; set; }
     public long? DurationMs { get; set; }
     /// <summary>Position of the track inside its playlist snapshot (ordering).</summary>
     public int? Position { get; set; }

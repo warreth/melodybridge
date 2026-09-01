@@ -68,10 +68,14 @@ public interface IDownloader
     /// </summary>
     Task<DownloaderSearchHit?> SearchAsync(string artist, string title, DownloadQuality quality, CancellationToken ct = default);
 
-    /// <summary>Download the track at sourceUrl into outputDirectory.</summary>
+    /// <summary>
+    /// Download the track at sourceUrl into outputDirectory, honoring the
+    /// requested quality (format/bitrate cap) where the source allows it.
+    /// </summary>
     Task<DownloaderDownloadResult> DownloadAsync(
         string sourceUrl,
         string outputDirectory,
         string? melodyId,
+        DownloadQuality? quality = null,
         CancellationToken ct = default);
 }

@@ -12,21 +12,28 @@ public enum AudioFormat
 }
 
 /// <summary>
-/// The quality a playlist asks the download waterfall for. Plugins that
-/// cannot produce the exact format fall back to their best and say so
-/// in the result; the bitrate range is a hard gate (files outside it are
-/// rejected or at least flagged).
+/// The quality a playlist asks the download waterfall for.
+///
+/// MaxKbps is a hard ceiling: plugins must not produce files above it
+/// and the post-download check rejects any that slip through. Flac/other
+/// lossless formats ignore it (a cap makes no sense there).
 /// </summary>
 public record DownloadQuality(
     AudioFormat Format = AudioFormat.Auto,
-    int MinKbps = 128,
     int? MaxKbps = null)
 {
     /// <summary>Everything allowed: any format, no ceiling.</summary>
-    public static DownloadQuality Any { get; } = new(AudioFormat.Auto, 0, null);
+    public static DownloadQuality Any { get; } = new(AudioFormat.Auto, null);
 
-    public bool IsBitrateInRange(int? kbps)
-        => kbps is null || kbps <= 0
-            ? true // unknown: cannot gate, let the post-download check decide
-            : kbps >= MinKbps && (MaxKbps is null || kbps <= MaxKbps);
+    /// <summary>True when the given measured bitrate satisfies the cap.</summary>
+    public bool IsWithinCap(int? kbps)
+        => MaxKbps is null || kbps is null || kbps <= 0
+            ? true // no cap, or unknown: post-download measurement decides
+            : kbps <= MaxKbps;
+
+    /// <summary>The yt-dlp --audio-quality argument for this cap (VBR target).</summary>
+    public string YtDlpAudioQuality => MaxKbps is > 0 ? $"{MaxKbps}K" : "0";
+
+    /// <summary>Whether the format forces a transcode (Auto means "keep the source codec").</summary>
+    public bool NeedsTranscode => Format != AudioFormat.Auto;
 }

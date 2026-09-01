@@ -62,6 +62,7 @@ public class SoundCloudDownloader : IDownloader
         string sourceUrl,
         string outputDirectory,
         string? melodyId,
+        DownloadQuality? quality = null,
         CancellationToken ct = default)
     {
         if (YtDlpProcess.BinaryPath is null)
@@ -71,18 +72,23 @@ public class SoundCloudDownloader : IDownloader
         {
             Directory.CreateDirectory(outputDirectory);
             var template = Path.Combine(outputDirectory, "sc_%(id)s.%(ext)s");
+            quality ??= DownloadQuality.Any;
 
-            var (exit, stdout, stderr) = await YtDlpProcess.RunAsync(new[]
+            // Same policy as yt-dlp: Auto keeps the source codec (SoundCloud
+            // originals, often opus/m4a); explicit formats transcode to the cap.
+            var args = new List<string> { "-o", template, sourceUrl, "--print-json", "--no-simulate" };
+            if (quality.NeedsTranscode)
             {
-                "-x",
-                "--audio-format", "mp3",
-                "--audio-quality", "0",
-                "--embed-metadata",
-                "-o", template,
-                sourceUrl,
-                "--print-json",
-                "--no-simulate",
-            }, TimeSpan.FromMinutes(5), ct);
+                args.InsertRange(0, new[]
+                {
+                    "-x",
+                    "--audio-format", quality!.Format.ToString().ToLowerInvariant(),
+                    "--audio-quality", quality.YtDlpAudioQuality,
+                    "--embed-metadata",
+                });
+            }
+
+            var (exit, stdout, stderr) = await YtDlpProcess.RunAsync(args.ToArray(), TimeSpan.FromMinutes(5), ct);
 
             if (exit != 0)
                 return new DownloaderDownloadResult(false, null, $"yt-dlp exited {exit}: {Truncate(stderr, 400)}");

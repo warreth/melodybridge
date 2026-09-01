@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using MelodyBridge.Core;
+using MelodyBridge.Infrastructure.Audio;
 using Microsoft.Extensions.Logging;
 
 namespace MelodyBridge.Application.Services;
@@ -39,7 +40,7 @@ public class DownloadManager : IDownloadManager
 
             try
             {
-                var result = await downloader.DownloadAsync(sourceUrl, outputDirectory, melodyId, ct);
+                var result = await downloader.DownloadAsync(sourceUrl, outputDirectory, melodyId, null, ct);
                 if (result.Success && result.FilePath is not null)
                     return result.FilePath;
                 _logger.LogWarning("{Name} failed for {Url}: {Error}", downloader.Name, sourceUrl, result.ErrorMessage);
@@ -80,22 +81,34 @@ public class DownloadManager : IDownloadManager
                 }
 
                 // Quality gate: reject reported bitrates outside the requested range.
-                if (!quality.IsBitrateInRange(hit.BitrateKbps))
+                if (!quality.IsWithinCap(hit.BitrateKbps))
                 {
                     _logger.LogInformation(
-                        "{Name} hit for '{Title}' is {Hit} kbps, outside the requested {Min}-{Max} kbps range; skipping",
-                        downloader.Name, title, hit.BitrateKbps, quality.MinKbps,
-                        quality.MaxKbps?.ToString() ?? "any");
+                        "{Name} hit for '{Title}' is {Hit} kbps, above the requested {Max} kbps cap; skipping",
+                        downloader.Name, title, hit.BitrateKbps, quality.MaxKbps?.ToString() ?? "any");
                     continue;
                 }
 
                 _progress[melodyId] = new DownloadProgress(
                     melodyId, title, "downloading", downloader.Name, null, hit.MatchConfidence);
-                var result = await downloader.DownloadAsync(hit.SourceUrl, outputDirectory, melodyId, ct);
+                var result = await downloader.DownloadAsync(hit.SourceUrl, outputDirectory, melodyId, quality, ct);
                 if (result.Success && result.FilePath is not null)
                 {
+                    // Enforce the cap on the real file: plugins can over-promise,
+                    // the measurement never lies.
+                    var measured = BitrateProbe.MeasureKbps(result.FilePath);
+                    if (!quality.IsWithinCap(measured))
+                    {
+                        _logger.LogInformation(
+                            "{Name} produced {Measured} kbps for '{Title}', above the requested {Max} kbps cap; rejecting",
+                            downloader.Name, measured, quality.MaxKbps);
+                        try { System.IO.File.Delete(result.FilePath); } catch { /* best effort */ }
+                        continue;
+                    }
+
                     _progress[melodyId] = new DownloadProgress(
-                        melodyId, title, "done", downloader.Name, result.FilePath, hit.MatchConfidence);
+                        melodyId, title, "done", downloader.Name, result.FilePath, hit.MatchConfidence,
+                        Warning: measured is null ? "bitrate could not be verified" : null);
                     return result.FilePath;
                 }
 

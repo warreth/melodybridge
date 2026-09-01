@@ -140,6 +140,11 @@ public static class SpectrumAnalyzer
         return new Result(inflated, medianHz, effectiveKbps, note);
     }
 
+    /// <summary>Proposes what to do with an inflated file (re-download path).</summary>
+    public static string? SuggestFix(Result result) => result.LooksInflated
+        ? "Re-download this track: pick a lower cap or the 'auto' preset so it keeps the source codec instead of an inflated re-encode."
+        : null;
+
     private static int ClassOf(int kbps) => kbps switch
     {
         < 130 => 128,
@@ -148,7 +153,7 @@ public static class SpectrumAnalyzer
         _ => 320,
     };
 
-    private static string? FindBinary(string name)
+    internal static string? FindBinary(string name)
     {
         var pathEnv = Environment.GetEnvironmentVariable("PATH") ?? "";
         foreach (var dir in pathEnv.Split(OperatingSystem.IsWindows() ? ';' : ':',
@@ -157,10 +162,16 @@ public static class SpectrumAnalyzer
             try
             {
                 var candidate = System.IO.Path.Combine(dir.Trim(), name);
-                if (System.IO.File.Exists(candidate)) return candidate;
+                if (System.IO.Path.Exists(candidate))
+                    return OperatingSystem.IsWindows() && !name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
+                        ? candidate + ".exe"
+                        : candidate;
             }
             catch { /* unreadable PATH entry */ }
         }
         return null;
     }
+
+    /// <summary>ffprobe path, shared with <see cref="BitrateProbe"/>.</summary>
+    public static string? FindFfprobe() => FindBinary("ffprobe");
 }
