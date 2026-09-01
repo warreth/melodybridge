@@ -119,6 +119,32 @@ public class DownloaderRegistry : IDownloaderRegistry
         _logger.LogInformation("Downloader waterfall order set: {Order}", string.Join(" → ", orderedIds));
     }
 
+    // Plugin config lives in the same DownloaderSettings table as app
+    // settings, namespaced per plugin: "plugin:{id}:{key}".
+    private static string ConfigKey(string id, string key) => $"plugin:{id}:{key}";
+
+    public async Task<string> GetConfigAsync(string id, string key, CancellationToken ct = default)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var value = await db.DownloaderSettings.AsNoTracking()
+            .Where(s => s.Key == ConfigKey(id, key))
+            .Select(s => s.Value)
+            .FirstOrDefaultAsync(ct);
+        return value ?? "";
+    }
+
+    public async Task SetConfigAsync(string id, string key, string? value, CancellationToken ct = default)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var storageKey = ConfigKey(id, key);
+        var row = await db.DownloaderSettings.FirstOrDefaultAsync(s => s.Key == storageKey, ct);
+        if (row is null)
+            db.DownloaderSettings.Add(new DownloaderSettingEntity { Key = storageKey, Value = value ?? "" });
+        else
+            row.Value = value ?? "";
+        await db.SaveChangesAsync(ct);
+    }
+
     private async Task EnsureCacheLoaded(CancellationToken ct = default)
     {
         if (_cacheLoaded) return;

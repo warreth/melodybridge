@@ -335,5 +335,7 @@ public void IsValidFormat_RejectsGarbage()
         public Task<int> GetPriorityAsync(string id, CancellationToken ct = default) => Task.FromResult(0);
         public Task SetPriorityAsync(string id, int priority, CancellationToken ct = default) => Task.CompletedTask;
         public Task SetOrderAsync(IReadOnlyList<string> orderedIds, CancellationToken ct = default) => Task.CompletedTask;
+    public Task<string> GetConfigAsync(string id, string key, CancellationToken ct = default) => Task.FromResult("");
+    public Task SetConfigAsync(string id, string key, string? value, CancellationToken ct = default) => Task.CompletedTask;
     }
 }

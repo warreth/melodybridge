@@ -95,4 +95,30 @@ public class PluginsPageTests
 
         Assert.That(cut.Markup, Does.Not.Contain("Live downloads"), "no run, no panel");
     }
+
+    [Test]
+    public void Plugins_ConfigFields_Render_InPanel()
+    {
+        // Rebuild the registry with a plugin that has config fields.
+        var configured = new TestDownloader("ytdlp", "yt-dlp (YouTube)",
+            new[] { new PluginConfigField("extractor", "Search preference", "ytmsearch1") });
+        _registry.Setup(r => r.GetAll()).Returns(new List<IDownloader> { configured });
+        _registry.Setup(r => r.GetEnabled()).Returns(new List<IDownloader> { configured });
+        _registry.Setup(r => r.GetConfigAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync("ytmsearch1");
+
+        var cut = _ctx.Render<Plugins>();
+
+        Assert.That(cut.Markup, Does.Contain("Settings"), "plugins with fields get an expandable panel");
+        Assert.That(cut.Markup, Does.Contain("Search preference"), "field label renders");
+        Assert.That(cut.Markup, Does.Contain("Save settings"), "panel has a save button");
+    }
+
+    [Test]
+    public void Plugins_WithoutConfigFields_HaveNoPanel()
+    {
+        var cut = _ctx.Render<Plugins>();
+        var panels = cut.FindAll("details.plugin-config");
+        Assert.That(panels.Count, Is.EqualTo(0), "no fields declared, no panel rendered");
+    }
 }

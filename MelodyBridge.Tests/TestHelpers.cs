@@ -23,13 +23,19 @@ public sealed class EmptyRegistry : IDownloaderRegistry
     public Task<int> GetPriorityAsync(string id, CancellationToken ct = default) => Task.FromResult(0);
     public Task SetPriorityAsync(string id, int priority, CancellationToken ct = default) => Task.CompletedTask;
     public Task SetOrderAsync(IReadOnlyList<string> orderedIds, CancellationToken ct = default) => Task.CompletedTask;
+    public Task<string> GetConfigAsync(string id, string key, CancellationToken ct = default) => Task.FromResult("");
+    public Task SetConfigAsync(string id, string key, string? value, CancellationToken ct = default) => Task.CompletedTask;
 }
 
-public sealed class TestDownloader(string id, string name) : IDownloader
+public sealed class TestDownloader : IDownloader
 {
-    public string Id => id;
-    public string Name => name;
+    public TestDownloader(string id, string name) { Id = id; Name = name; }
+    public TestDownloader(string id, string name, PluginConfigField[] config) { Id = id; Name = name; ConfigFields = config; }
+
+    public string Id { get; }
+    public string Name { get; }
     public string Description => "test downloader";
+    public IReadOnlyList<PluginConfigField> ConfigFields { get; } = Array.Empty<PluginConfigField>();
     public Task<bool> IsAvailableAsync(CancellationToken ct = default) => Task.FromResult(true);
 
     public Task<DownloaderSearchHit?> SearchAsync(string artist, string title, DownloadQuality quality, CancellationToken ct = default)

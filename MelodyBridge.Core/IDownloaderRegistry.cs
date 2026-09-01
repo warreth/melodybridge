@@ -34,4 +34,10 @@ public interface IDownloaderRegistry
     /// guarantee once values drift apart.
     /// </summary>
     Task SetOrderAsync(IReadOnlyList<string> orderedIds, CancellationToken ct = default);
+
+    /// <summary>One plugin config value ("" when unset), by plugin id and field key.</summary>
+    Task<string> GetConfigAsync(string id, string key, CancellationToken ct = default);
+
+    /// <summary>Save one plugin config value (persisted like every other setting).</summary>
+    Task SetConfigAsync(string id, string key, string? value, CancellationToken ct = default);
 }

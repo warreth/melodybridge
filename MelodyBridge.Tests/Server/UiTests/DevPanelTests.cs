@@ -621,6 +621,9 @@ public class TestDownloader : IDownloader
     public string Name { get; }
 
     public TestDownloader(string id, string name) { Id = id; Name = name; }
+    public TestDownloader(string id, string name, PluginConfigField[] config) { Id = id; Name = name; ConfigFields = config; }
+
+    public IReadOnlyList<PluginConfigField> ConfigFields { get; } = Array.Empty<PluginConfigField>();
 
     public Task<bool> IsAvailableAsync(CancellationToken ct = default) => Task.FromResult(true);
 
@@ -642,4 +645,6 @@ public sealed class EmptyTestRegistry : IDownloaderRegistry
     public Task<int> GetPriorityAsync(string id, CancellationToken ct = default) => Task.FromResult(0);
     public Task SetPriorityAsync(string id, int priority, CancellationToken ct = default) => Task.CompletedTask;
         public Task SetOrderAsync(IReadOnlyList<string> orderedIds, CancellationToken ct = default) => Task.CompletedTask;
+    public Task<string> GetConfigAsync(string id, string key, CancellationToken ct = default) => Task.FromResult("");
+    public Task SetConfigAsync(string id, string key, string? value, CancellationToken ct = default) => Task.CompletedTask;
 }

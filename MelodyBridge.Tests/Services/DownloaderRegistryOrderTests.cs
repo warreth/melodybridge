@@ -100,6 +100,29 @@ public class DownloaderRegistryOrderTests
             "unknown ids must not appear in the waterfall");
     }
 
+    [Test]
+    public async Task ConfigValues_PersistAndReload()
+    {
+        await _registry.SetConfigAsync("ytdlp", "region", "eu");
+        Assert.That(await _registry.GetConfigAsync("ytdlp", "region"), Is.EqualTo("eu"));
+
+        // Unset keys come back empty, not null: the UI binds them to inputs.
+        Assert.That(await _registry.GetConfigAsync("soundcloud", "region"), Is.EqualTo(""));
+
+        // A fresh registry over the same DB reads the same value: persisted.
+        var fresh = new DownloaderRegistry(
+            new IDownloader[] { new StubDownloader("soundcloud", "SoundCloud") },
+            _dbFactory,
+            NullLogger<DownloaderRegistry>.Instance);
+        Assert.That(await fresh.GetConfigAsync("ytdlp", "region"), Is.EqualTo("eu"),
+            "plugin config must survive a restart");
+
+        // Overwrite works and does not leak into other plugins.
+        await _registry.SetConfigAsync("ytdlp", "region", "us");
+        Assert.That(await _registry.GetConfigAsync("ytdlp", "region"), Is.EqualTo("us"));
+        Assert.That(await _registry.GetConfigAsync("soundcloud", "region"), Is.EqualTo(""));
+    }
+
     private sealed class InlineFactory : IDbContextFactory<MelodyBridgeDbContext>
     {
         private readonly DbContextOptions<MelodyBridgeDbContext> _options;

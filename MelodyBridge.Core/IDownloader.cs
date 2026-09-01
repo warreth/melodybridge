@@ -44,6 +44,16 @@ public record DownloadProgress(
     string? Warning = null);
 
 /// <summary>
+/// One editable setting a plugin wants on its config panel (Plugins page).
+/// Key is the storage key; Value is loaded/saved through the registry.
+/// </summary>
+public record PluginConfigField(
+    string Key,
+    string Label,
+    string? Placeholder = null,
+    string? Description = null);
+
+/// <summary>
 /// One download plugin. Implementations search for a track by metadata
 /// (artist/title), download it to a directory, and return the local path.
 /// The DownloadManager runs plugins in priority order (the waterfall).
@@ -58,6 +68,12 @@ public interface IDownloader
 
     /// <summary>Short description of what/where this plugin downloads from.</summary>
     string Description => string.Empty;
+
+    /// <summary>
+    /// Settings this plugin exposes on its config panel. Empty by default:
+    /// plugins without knobs render no panel.
+    /// </summary>
+    IReadOnlyList<PluginConfigField> ConfigFields => Array.Empty<PluginConfigField>();
 
     /// <summary>True when the plugin is operational (binary reachable, service up).</summary>
     Task<bool> IsAvailableAsync(CancellationToken ct = default);

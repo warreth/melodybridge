@@ -15,6 +15,11 @@
     </div>
 </section>
 
+@if (!string.IsNullOrWhiteSpace(configMessage))
+{
+    <div class="toast-preview">@configMessage</div>
+}
+
 @if (runs.Count > 0)
 {
     <section class="panel-card">
@@ -86,6 +91,32 @@
                     <span class="quality-badge">@badge</span>
                 }
             </div>
+            @if (plugin.ConfigFields.Count > 0)
+            {
+                <details class="plugin-config">
+                    <summary>Settings</summary>
+                    <div class="form-grid single">
+                        @foreach (var field in plugin.ConfigFields)
+                        {
+                            var configKey = $"{plugin.Id}:{field.Key}";
+                            var value = configValues.GetValueOrDefault(configKey, "");
+                            <label>
+                                @field.Label
+                                <input value="@value"
+                                       placeholder="@field.Placeholder"
+                                       @onchange="e => ConfigChanged(configKey, e)" />
+                            </label>
+                            @if (!string.IsNullOrEmpty(field.Description))
+                            {
+                                <span class="text-muted">@field.Description</span>
+                            }
+                        }
+                    </div>
+                    <div class="flex-actions">
+                        <button class="btn-modern small primary" @onclick="() => SaveConfigAsync(plugin.Id)">Save settings</button>
+                    </div>
+                </details>
+            }
             <div class="plugin-actions">
                 <button class="icon-button" title="Move up" disabled="@(firstEnabledId == plugin.Id)"
                         @onclick="() => MoveUp(plugin.Id)">↑</button>
@@ -99,22 +130,48 @@
 @code {
     private List<IDownloader> orderedPlugins = new();
     private Dictionary<string, bool> availability = new();
+    private Dictionary<string, string> configValues = new();
     private List<Application.Services.DownloadRun> runs = new();
     private Timer? _timer;
     private string? firstEnabledId;
     private string? lastEnabledId;
+    private string? configMessage;
 
     protected override async Task OnInitializedAsync()
     {
         _ = Registry.GetEnabled(); // force cache load
         await ReorderPluginsAsync();
         await RefreshAvailability();
+        await LoadConfigValuesAsync();
         _timer = new Timer(_ => InvokeAsync(async () =>
         {
             runs = Coordinator.Snapshot().Where(r => r.State != Application.Services.DownloadRunState.Finished).ToList();
             await ReorderPluginsAsync();
             StateHasChanged();
         }), null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
+    }
+
+    /// <summary>Loads every plugin's config fields from the registry store.</summary>
+    private async Task LoadConfigValuesAsync()
+    {
+        var values = new Dictionary<string, string>();
+        foreach (var plugin in orderedPlugins)
+            foreach (var field in plugin.ConfigFields)
+                values[$"{plugin.Id}:{field.Key}"] = await Registry.GetConfigAsync(plugin.Id, field.Key);
+        configValues = values;
+    }
+
+    private void ConfigChanged(string key, ChangeEventArgs e)
+        => configValues[key] = e.Value?.ToString() ?? "";
+
+    private async Task SaveConfigAsync(string pluginId)
+    {
+        var plugin = orderedPlugins.FirstOrDefault(p => p.Id == pluginId);
+        if (plugin is null) return;
+        foreach (var field in plugin.ConfigFields)
+            await Registry.SetConfigAsync(pluginId, field.Key, configValues.GetValueOrDefault($"{pluginId}:{field.Key}"));
+        configMessage = $"{plugin.Name} settings saved.";
+        StateHasChanged();
     }
 
     private Task ReorderPluginsAsync()
@@ -175,6 +232,8 @@
         "soundcloud" => "☁",
         "archiveorg" => "🏛",
         "lucida" => "◈",
+        "monochrome" => "◐",
+        "doubledouble" => "⇄",
         _ => "♪",
     };
 
@@ -185,6 +244,8 @@
         "soundcloud" => new[] { "originals 64–320 kbps", "keeps source format on auto" },
         "archiveorg" => new[] { "public MP3s", "bitrate shown before download" },
         "lucida" => new[] { "Tidal/Qobuz rips", "lossless-capable", "needs FlareSolverr" },
+        "monochrome" => new[] { "TIDAL rips", "lossless FLAC", "mirror fallback" },
+        "doubledouble" => new[] { "multi-service rips", "direct URLs only", "captcha-gated" },
         _ => Array.Empty<string>(),
     };
 
