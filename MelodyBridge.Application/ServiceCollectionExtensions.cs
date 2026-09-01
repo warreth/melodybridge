@@ -20,6 +20,7 @@ public static class ServiceCollectionExtensions
         // Infrastructure services
         services.AddScoped<M3uGenerator>();
         services.AddScoped<ILibraryScanner, LibraryScanner>();
+        services.AddSingleton<MelodyBridge.Infrastructure.Scanning.LibraryReconciler>();
 
         // ── Downloader plugins (the waterfall) ──
         // SoundCloud first (original uploads, often 320 kbps), then the Internet

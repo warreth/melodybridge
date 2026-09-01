@@ -61,6 +61,13 @@ using (var scope = app.Services.CreateScope())
     await SchemaPatcher.PatchAsync(db);
 }
 
+// Reconcile playlist tracks with files on disk: relink what still
+// exists, queue re-downloads for what vanished while the app was down.
+{
+    var reconciler = app.Services.GetRequiredService<MelodyBridge.Infrastructure.Scanning.LibraryReconciler>();
+    await reconciler.ReconcileAllAsync();
+}
+
 // App settings the stores read at runtime. The database overrides
 // appsettings so the Settings page wins.
 using (var db = app.Services.GetRequiredService<IDbContextFactory<MelodyBridgeDbContext>>()
