@@ -106,6 +106,12 @@ public class YtDlpDownloader : IDownloader
             if (file is null)
                 return new DownloaderDownloadResult(false, null, "yt-dlp reported success but no output file found");
 
+            // YouTube hands out its best audio as opus inside a .webm
+            // container, which no tag library can write. Remux losslessly
+            // (-c copy) to .opus so MELODY_ID tagging and reconciliation
+            // keep working. Without ffmpeg the webm stays (still playable).
+            file = RemuxWebmToOpus(file) ?? file;
+
             TagDownloadedFile(file, melodyId, expectedTitle: null);
             return new DownloaderDownloadResult(true, file, null);
         }
@@ -216,6 +222,36 @@ public class YtDlpDownloader : IDownloader
 
     private static bool IsAudioExtension(string? ext)
         => ext is not null && ext.ToLowerInvariant() is ".mp3" or ".m4a" or ".opus" or ".ogg" or ".flac" or ".wav" or ".webm";
+
+    /// <summary>
+    /// Losslessly re-containers a .webm download as .opus so it becomes
+    /// taggable (YouTube's best audio is opus inside .webm, which no tag
+    /// library can write). Returns the new path, or null when impossible.
+    /// </summary>
+    internal static string? RemuxWebmToOpus(string file)
+    {
+        if (!file.EndsWith(".webm", StringComparison.OrdinalIgnoreCase))
+            return null;
+
+        var ffmpeg = Audio.SpectrumAnalyzer.FindBinary("ffmpeg");
+        if (ffmpeg is null) return null;
+
+        var target = Path.ChangeExtension(file, ".opus");
+        using var process = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+        {
+            FileName = ffmpeg,
+            Arguments = $"-y -v error -i {file} -c copy {target}",
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        });
+        if (process is null) return null;
+        process.StandardError.ReadToEnd();
+        if (!process.WaitForExit(TimeSpan.FromSeconds(30)) || process.ExitCode != 0 || !File.Exists(target))
+            return null;
+
+        try { File.Delete(file); } catch { /* keep both, harmless */ }
+        return target;
+    }
 
     private static string Truncate(string? s, int max)
         => string.IsNullOrWhiteSpace(s) ? "" : (s.Length <= max ? s : s[..max] + "…");
