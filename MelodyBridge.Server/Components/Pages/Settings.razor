@@ -5,7 +5,6 @@
 @using MelodyBridge.Infrastructure.Cloudflare
 @using MelodyBridge.Infrastructure.Services
 @using MelodyBridge.Server.Services
-@inject IDownloaderRegistry DownloaderRegistry
 @inject IDbContextFactory<MelodyBridgeDbContext> DbFactory
 @inject LogExporter Exporter
 @inject NavigationManager Nav
@@ -19,13 +18,27 @@
     <div>
         <span class="eyebrow">Configuration</span>
         <h1>Settings</h1>
-        <p>Manage Jellyfin, paths, output behaviour and download providers.</p>
+        <p>Accounts, paths and download behaviour. Power knobs live on the Advanced page.</p>
     </div>
-    <button class="btn-modern primary" @onclick="SaveAll">Save all settings</button>
+    <button class="btn-modern primary" @onclick="SaveAll">Save settings</button>
 </section>
 
-<section class="content-grid two">
-    <div class="panel-card" id="accounts">
+<nav class="tab-nav">
+    @foreach (var tab in new[] { ("accounts", "Accounts"), ("jellyfin", "Jellyfin"), ("paths", "Paths"), ("quality", "Quality"), ("network", "Network") })
+    {
+        <button class="tab-link @(activeTab == tab.Item1 ? "active" : "")"
+                @onclick="() => activeTab = tab.Item1">@tab.Item2</button>
+    }
+</nav>
+
+@if (!string.IsNullOrWhiteSpace(savedMessage))
+{
+    <div class="toast-preview">@savedMessage</div>
+}
+
+@if (activeTab == "accounts")
+{
+    <section class="panel-card">
         <div class="panel-header">
             <div><span class="eyebrow">Accounts</span>
                 <h2>Spotify &amp; YouTube</h2>
@@ -34,7 +47,8 @@
         <div class="hint-box">
             Connect your accounts to import private playlists and your liked
             songs. MelodyBridge only asks for read access: it never changes
-            anything on your account.
+            anything on your account. The redirect URI to register is
+            <code>@RedirectUrl</code>.
         </div>
 
         <div class="account-grid">
@@ -53,6 +67,8 @@
                         Client ID (from developer.spotify.com)
                         <input @bind="spotifyClientId" placeholder="Spotify app Client ID" />
                     </label>
+                    <span class="text-muted">Create a free app at developer.spotify.com,
+                        add @RedirectUrl as redirect URI, paste the Client ID here.</span>
                     <button class="btn-modern primary" @onclick="ConnectSpotify">Connect Spotify</button>
                 }
             </div>
@@ -84,9 +100,11 @@
         {
             <div class="toast-preview">@accountMessage</div>
         }
-    </div>
-
-    <div class="panel-card">
+    </section>
+}
+else if (activeTab == "jellyfin")
+{
+    <section class="panel-card">
         <div class="panel-header">
             <div><span class="eyebrow">Media server</span>
                 <h2>Jellyfin</h2>
@@ -99,184 +117,133 @@
         </div>
         <div class="hint-box">Docker default uses <code>http://host.docker.internal:8096</code>. Make sure Jellyfin is
             reachable.</div>
+    </section>
+}
+else if (activeTab == "paths")
+{
+    <section class="panel-card">
+        <div class="panel-header">
+            <div><span class="eyebrow">Library</span>
+                <h2>Paths</h2>
+            </div>
         </div>
-
-        <div class="panel-card">
-            <div class="panel-header">
-                <div><span class="eyebrow">Library</span>
-                    <h2>Paths</h2>
-                </div>
-            </div>
-            <div class="form-grid single">
-                <label>Music path <input @bind="musicPath" /></label>
-                <label>Playlist output folder <input @bind="playlistPath" /></label>
-            </div>
+        <div class="form-grid single">
+            <label>Music path <input @bind="musicPath" /></label>
+            <label>Playlist output folder <input @bind="playlistPath" /></label>
         </div>
     </section>
-
+}
+else if (activeTab == "quality")
+{
     <section class="panel-card">
         <div class="panel-header">
             <div>
-                <span class="eyebrow">Plugins</span>
-                <h2>Music providers</h2>
+                <span class="eyebrow">Quality</span>
+                <h2>Default audio quality</h2>
             </div>
         </div>
-        <p class="panel-description">Enable or disable download provider plugins. Disabled providers won't be used for
-            searches or downloads.</p>
-            <div class="provider-list">
-                @foreach (var provider in DownloaderRegistry.GetAll())
-                {
-                    var enabled = DownloaderRegistry.IsEnabled(provider.Id);
-                    <div class="provider-row @(enabled ? "enabled" : "disabled")">
-                        <span class="provider-icon">🔌</span>
-                        <div class="provider-info">
-                            <strong>@provider.Name</strong>
-                            <small>@(string.IsNullOrEmpty(provider.Description) ? $"{provider.Id}: enable, disable and reorder on the Downloads page" : provider.Description)</small>
-                        </div>
-                        <label class="toggle-switch">
-                            <input type="checkbox" checked="@enabled"
-                                   @onchange="e => ToggleProvider(provider.Id, (bool)(e.Value ?? false))" />
-                            <span class="toggle-slider"></span>
-                        </label>
-                    </div>
-                }
-                <div class="provider-row builtin">
-                    <span class="provider-icon">📂</span>
-                    <div class="provider-info">
-                        <strong>Manual import</strong>
-                        <small>Use existing files from scan locations</small>
-                    </div>
-                    <span class="pill ok">Built-in</span>
-                </div>
-            </div>
-        </section>
-
-        <section class="panel-card">
-            <div class="panel-header">
-                <div>
-                    <span class="eyebrow">Behaviour</span>
-                    <h2>Sync & scanning</h2>
-                </div>
-            </div>
-            <div class="form-grid">
-                <label>
-                    Auto-scan interval (seconds)
-                    <input @bind="autoScanIntervalSec" type="number" min="30" step="10" />
-                </label>
-                <label>
-                    Sync check interval (seconds)
-                    <input @bind="syncCheckIntervalSec" type="number" min="60" step="30" />
-                </label>
-            </div>
-        </section>
-
-        @* ── Download quality ── *@
-        <section class="panel-card">
-            <div class="panel-header">
-                <div>
-                    <span class="eyebrow">Verification</span>
-                    <h2>Real quality check</h2>
-                </div>
-            </div>
-            <div class="hint-box">
-                Some sites hand out files that pretend to be 320 kbps but hold
-                far less. The spectrum check measures what a file really
-                contains and warns you next to the track when it looks inflated.
-            </div>
-            <div class="form-grid two">
-                <label>
-                    Spectrum check
-                    <select @bind="spectrumMode">
-                        <option value="Off">Off: trust the file</option>
-                        <option value="Fast">Fast: check the first minute (recommended)</option>
-                        <option value="Thorough">Thorough: check the whole file</option>
-                    </select>
-                </label>
-                <label>
-                    Cloudflare solver (Lucida)
-                    <input @bind="flaresolverrUrl" placeholder="http://flaresolverr:8191 or off" />
-                </label>
-            </div>
-        </section>
-
-        @* ── Interface ── *@
-        <section class="panel-card">
-            <div class="panel-header">
-                <div>
-                    <span class="eyebrow">Interface</span>
-                    <h2>Advanced display</h2>
-                </div>
-            </div>
-            <div class="hint-box">
-                Extra columns for power users. The filename column shows the
-                exact file behind each track in a playlist.
-            </div>
-            <label class="toggle-switch" style="display:flex; gap:.75rem; align-items:center; width:auto;">
-                <input type="checkbox" @bind="showFilename" />
-                <span class="toggle-slider"></span>
-                Show the file column on playlist tracks
+        <div class="hint-box">
+            New playlists start with this setting. Every playlist can override
+            it on its own page.
+        </div>
+        <div class="form-grid single">
+            <label>
+                Preset
+                <select @bind="defaultQuality">
+                    @foreach (var preset in Playlists.QualityPresets)
+                    {
+                        <option value="@preset.Value">@preset.Label</option>
+                    }
+                </select>
             </label>
-        </section>
-
-        @if (!string.IsNullOrWhiteSpace(savedMessage))
-        {
-            <div class="toast-preview">@savedMessage</div>
-        }
-
-        @* ── Logs ── *@
-        <section class="panel-card">
-            <div class="panel-header">
-                <div>
-                    <span class="eyebrow">Diagnostics</span>
-                    <h2>Logs</h2>
-                </div>
+        </div>
+        <div class="panel-header">
+            <div>
+                <span class="eyebrow">Verification</span>
+                <h2>Real quality check</h2>
             </div>
-            <p class="panel-description">
-                Export the most recent application logs (up to 1000 entries)
-                as a plain-text file for debugging or sharing.
-            </p>
-            <button class="btn-modern primary-outline" @onclick="ExportLogs">
-                <span class="btn-icon">📥</span> Export logs
+        </div>
+        <div class="hint-box">
+            Some sites hand out files that pretend to be 320 kbps but hold
+            far less. The spectrum check measures what a file really
+            contains and warns you next to the track when it looks inflated.
+        </div>
+        <div class="form-grid single">
+            <label>
+                Spectrum check
+                <select @bind="spectrumMode">
+                    <option value="Off">Off: trust the file</option>
+                    <option value="Fast">Fast: check the first minute (recommended)</option>
+                    <option value="Thorough">Thorough: check the whole file</option>
+                </select>
+            </label>
+        </div>
+    </section>
+}
+else if (activeTab == "network")
+{
+    <section class="panel-card">
+        <div class="panel-header">
+            <div>
+                <span class="eyebrow">Network</span>
+                <h2>FlareSolverr (Cloudflare)</h2>
+            </div>
+            <span class="pill @(flareStatus is "ok" ? "ok" : flareStatus is null ? "neutral" : "err")">
+                @(flareStatus is null ? "not tested" : flareStatus is "ok" ? "reachable" : "unreachable")
+            </span>
+        </div>
+        <div class="hint-box">
+            Lucida sits behind a Cloudflare challenge. FlareSolverr is a small
+            companion container that solves it — the compose file ships one.
+            Point this at it and test the connection; leave "off" to disable.
+        </div>
+        <div class="form-grid single">
+            <label>
+                FlareSolverr URL
+                <input @bind="flaresolverrUrl" placeholder="http://flaresolverr:8191 or off" />
+            </label>
+        </div>
+        <div class="flex-actions">
+            <button class="btn-modern secondary" @onclick="TestFlareSolverr" disabled="@testingFlare">
+                @(testingFlare ? "Testing…" : "Test connection")
             </button>
-        </section>
+            <span class="text-muted">@flareMessage</span>
+        </div>
+    </section>
 
-        @* ── About / Support ── *@
-        <section class="panel-card about-card">
-            <div class="panel-header">
-                <div>
-                    <span class="eyebrow">About</span>
-                    <h2>Support the project</h2>
-                </div>
+    <section class="panel-card about-card">
+        <div class="panel-header">
+            <div>
+                <span class="eyebrow">Diagnostics</span>
+                <h2>Logs</h2>
             </div>
-            <p>
-                MelodyBridge is an open-source project.
-                Found it useful? Consider supporting the developer on GitHub.
-            </p>
-            <a href="https://github.com/warreth" target="_blank" rel="noopener noreferrer"
-               class="btn-modern primary-outline github-link">
-                <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
-                    <path
-                    d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z" />
-                </svg>
-                github.com/warreth
-            </a>
-        </section>
+        </div>
+        <p class="panel-description">
+            Export the most recent application logs (up to 1000 entries)
+            as a plain-text file for debugging or sharing.
+        </p>
+        <button class="btn-modern primary-outline" @onclick="ExportLogs">
+            <span class="btn-icon">📥</span> Export logs
+        </button>
+    </section>
+}
 
 @code {
-    // (SpectrumMode lives in MelodyBridge.Infrastructure.Audio)
+    private string activeTab = "accounts";
     private string jellyfinUrl = "http://host.docker.internal:8096";
     private string jellyfinApiKey = "";
     private string jellyfinUserId = "";
     private string musicPath = "/music";
     private string playlistPath = "/app/playlists";
-    private int autoScanIntervalSec = 60;
-    private int syncCheckIntervalSec = 300;
+    private string defaultQuality = "auto";
     private string spectrumMode = "Fast";
     private string flaresolverrUrl = "off";
-    private bool showFilename;
+    private string? flareStatus;
+    private string flareMessage = string.Empty;
+    private bool testingFlare;
     private string? savedMessage;
 
-    [Inject] private IConfiguration Config { get; set; } = null!;
+    [Inject] private IConfiguration Config { get; set; } = default!;
 
     private static SpectrumMode SpectrumModeValue(string mode) => mode switch
     {
@@ -294,11 +261,10 @@
         jellyfinUserId = FindSetting(settings, "jellyfin_user", "");
         musicPath = FindSetting(settings, "music_path", "/music");
         playlistPath = FindSetting(settings, "playlist_path", "/app/playlists");
-        autoScanIntervalSec = int.Parse(FindSetting(settings, "auto_scan_interval", "60"));
-        syncCheckIntervalSec = int.Parse(FindSetting(settings, "sync_check_interval", "300"));
+        defaultQuality = FindSetting(settings, "default_quality", "auto");
+        if (!PlaylistStore.IsValidFormat(defaultQuality)) defaultQuality = "auto";
         spectrumMode = FindSetting(settings, "spectrum_mode", Config?["SpectrumAnalysis:Mode"] ?? "Fast");
         flaresolverrUrl = FindSetting(settings, "flaresolverr_url", Config?["FlareSolverr:Url"] ?? "off");
-        showFilename = FindSetting(settings, "show_filename", "false") is "true" or "1";
 
         _spotifyConnected = await SpotifyAccount.IsConnectedAsync();
         _youtubeConnected = await YouTubeAccount.IsConnectedAsync();
@@ -364,10 +330,37 @@
     private static string FindSetting(List<DownloaderSettingEntity> settings, string key, string fallback)
         => settings.FirstOrDefault(s => s.Key == key)?.Value ?? fallback;
 
-    private async Task ToggleProvider(string id, bool enabled)
+    private async Task TestFlareSolverr()
     {
-        await DownloaderRegistry.SetEnabledAsync(id, enabled);
-        savedMessage = $"{id} {(enabled ? "enabled" : "disabled")}";
+        testingFlare = true;
+        flareMessage = string.Empty;
+        try
+        {
+            var url = flaresolverrUrl.Trim();
+            if (url.Length == 0 || url.Equals("off", StringComparison.OrdinalIgnoreCase))
+            {
+                flareStatus = "off";
+                flareMessage = "Solver is off: Lucida stays unavailable.";
+                return;
+            }
+            using var http = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(8) };
+            var response = await http.PostAsJsonAsync($"{url.TrimEnd('/')}/v1",
+                new { cmd = "sessions.list" });
+            flareStatus = response.IsSuccessStatusCode ? "ok" : $"http {(int)response.StatusCode}";
+            flareMessage = response.IsSuccessStatusCode
+                ? "FlareSolverr answered: Lucida can use it."
+                : "It responded but not with OK. Check the URL and container logs.";
+        }
+        catch (Exception ex)
+        {
+            flareStatus = "err";
+            flareMessage = $"Could not reach it: {ex.Message}";
+        }
+        finally
+        {
+            testingFlare = false;
+            StateHasChanged();
+        }
     }
 
     private async Task SaveAll()
@@ -378,11 +371,9 @@
         await Upsert(db, "jellyfin_user", jellyfinUserId);
         await Upsert(db, "music_path", musicPath);
         await Upsert(db, "playlist_path", playlistPath);
-        await Upsert(db, "auto_scan_interval", autoScanIntervalSec.ToString());
-        await Upsert(db, "sync_check_interval", syncCheckIntervalSec.ToString());
+        await Upsert(db, "default_quality", defaultQuality);
         await Upsert(db, "spectrum_mode", spectrumMode);
         await Upsert(db, "flaresolverr_url", flaresolverrUrl);
-        await Upsert(db, "show_filename", showFilename ? "true" : "false");
         await db.SaveChangesAsync();
         PlaylistStore.SpectrumVerification = () => SpectrumModeValue(spectrumMode);
         FlareSolverrSolver.Url = flaresolverrUrl;

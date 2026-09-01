@@ -1,0 +1,85 @@
+@page "/advanced"
+@using MelodyBridge.Infrastructure.Services
+@inject IDbContextFactory<MelodyBridgeDbContext> DbFactory
+@inject SettingsStore Settings
+
+<PageTitle>Advanced - MelodyBridge</PageTitle>
+
+<section class="page-title">
+    <div>
+        <span class="eyebrow">System</span>
+        <h1>Advanced</h1>
+        <p>Intervals and interface details most people never need to touch.</p>
+    </div>
+    <button class="btn-modern primary" @onclick="SaveAll">Save</button>
+</section>
+
+@if (!string.IsNullOrWhiteSpace(savedMessage))
+{
+    <div class="toast-preview">@savedMessage</div>
+}
+
+<section class="content-grid two">
+    <div class="panel-card">
+        <div class="panel-header">
+            <div>
+                <span class="eyebrow">Behaviour</span>
+                <h2>Sync &amp; scanning</h2>
+            </div>
+        </div>
+        <div class="form-grid single">
+            <label>
+                Auto-scan interval (seconds)
+                <input @bind="autoScanIntervalSec" type="number" min="30" step="10" />
+            </label>
+            <label>
+                Sync check interval (seconds)
+                <input @bind="syncCheckIntervalSec" type="number" min="60" step="30" />
+            </label>
+        </div>
+        <div class="hint-box">
+            How often background jobs wake up to rescan folders and check
+            auto-sync playlists. Higher is calmer; the minimums protect the CPU.
+        </div>
+    </div>
+
+    <div class="panel-card">
+        <div class="panel-header">
+            <div>
+                <span class="eyebrow">Interface</span>
+                <h2>Display</h2>
+            </div>
+        </div>
+        <label class="toggle-switch wide">
+            <input type="checkbox" @bind="showFilename" />
+            <span class="toggle-slider"></span>
+            <span>Show the file column on playlist tracks</span>
+        </label>
+        <div class="hint-box">
+            The filename column shows the exact file behind each track in a
+            playlist — useful when hunting inflated downloads.
+        </div>
+    </div>
+</section>
+
+@code {
+    private int autoScanIntervalSec = 60;
+    private int syncCheckIntervalSec = 300;
+    private bool showFilename;
+    private string? savedMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        autoScanIntervalSec = int.Parse(await Settings.GetAsync("auto_scan_interval", "60"));
+        syncCheckIntervalSec = int.Parse(await Settings.GetAsync("sync_check_interval", "300"));
+        showFilename = await Settings.GetBoolAsync("show_filename", false);
+    }
+
+    private async Task SaveAll()
+    {
+        await Settings.SetAsync("auto_scan_interval", autoScanIntervalSec.ToString());
+        await Settings.SetAsync("sync_check_interval", syncCheckIntervalSec.ToString());
+        await Settings.SetAsync("show_filename", showFilename ? "true" : "false");
+        savedMessage = "Saved.";
+    }
+}

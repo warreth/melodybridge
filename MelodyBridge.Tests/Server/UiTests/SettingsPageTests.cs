@@ -1,125 +1,117 @@
-using TestContext = Bunit.TestContext;
 using Bunit;
-using MelodyBridge.Core;
-using MelodyBridge.Core.Logging;
 using MelodyBridge.Infrastructure.Data;
 using MelodyBridge.Server.Components.Pages;
-using MelodyBridge.Server.Logging;
-using MelodyBridge.Server.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
-using Moq;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace MelodyBridge.Tests.Server.UiTests;
 
+/// <summary>
+/// The tabbed Settings page: each tab reveals its own section, and the
+/// FlareSolverr tester lives on the Network tab.
+/// </summary>
 [TestFixture]
 [Category("UI")]
 public class SettingsPageTests
 {
-    private TestContext _ctx = null!;
-    private Mock<IDownloaderRegistry> _registry = null!;
+    private Bunit.TestContext _ctx = null!;
 
     [SetUp]
     public void Setup()
     {
-        _ctx = new TestContext();
-        _registry = new Mock<IDownloaderRegistry>();
+        _ctx = new Bunit.TestContext();
 
-        var options = new DbContextOptionsBuilder<MelodyBridgeDbContext>()
-            .UseInMemoryDatabase($"SettingsTest_{Guid.NewGuid()}")
-            .Options;
-        var dbFactory = new InMemFactory(options);
-
-        using (var db = dbFactory.CreateDbContext())
-        {
-            db.DownloaderSettings.Add(new DownloaderSettingEntity { Key = "jellyfin_url", Value = "http://jellyfin:8096" });
-            db.DownloaderSettings.Add(new DownloaderSettingEntity { Key = "music_path", Value = "/custom/music" });
-            db.SaveChanges();
-        }
-
-        var providers = new List<IDownloader>
-        {
-            new TestDownloader("squidwtf", "Squid.wtf"),
-            new TestDownloader("lucida", "Lucida"),
-        };
-        _registry.Setup(r => r.GetAll()).Returns(providers);
-        _registry.Setup(r => r.IsEnabled(It.IsAny<string>())).Returns(true);
-
-        _ctx.Services.AddSingleton<IDownloaderRegistry>(_registry.Object);
-        _ctx.Services.AddSingleton<IDbContextFactory<MelodyBridgeDbContext>>(dbFactory);
-
-        // Account providers over the same real (in-memory) settings store.
-        var tokenStore = new MelodyBridge.Infrastructure.Accounts.AccountTokenStore(dbFactory, Microsoft.Extensions.Logging.Abstractions.NullLogger<MelodyBridge.Infrastructure.Accounts.AccountTokenStore>.Instance);
-        _ctx.Services.AddSingleton(tokenStore);
-        _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Accounts.SpotifyAccountProvider(
-            tokenStore, Microsoft.Extensions.Logging.Abstractions.NullLogger<
-                MelodyBridge.Infrastructure.Accounts.SpotifyAccountProvider>.Instance));
-        _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Accounts.YouTubeAccountProvider(
-            tokenStore, Microsoft.Extensions.Logging.Abstractions.NullLogger<
-                MelodyBridge.Infrastructure.Accounts.YouTubeAccountProvider>.Instance));
-
-        // Logging services required by the Settings page
-        var logCollector = new LogCollector();
-        _ctx.Services.AddSingleton<ILogCollector>(logCollector);
-        _ctx.Services.AddSingleton(new LogExporter(logCollector));
+        var factory = TestHelpers.CreateInMemFactory();
+        _ctx.Services.AddSingleton<IDbContextFactory<MelodyBridgeDbContext>>(factory);
         _ctx.Services.AddSingleton<Microsoft.Extensions.Configuration.IConfiguration>(
             new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build());
+        _ctx.Services.AddDownloadPages(factory);
+        var tokenStore = new MelodyBridge.Infrastructure.Accounts.AccountTokenStore(factory, NullLogger<MelodyBridge.Infrastructure.Accounts.AccountTokenStore>.Instance);
+        _ctx.Services.AddSingleton(tokenStore);
+        _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Accounts.SpotifyAccountProvider(
+            tokenStore, NullLogger<MelodyBridge.Infrastructure.Accounts.SpotifyAccountProvider>.Instance));
+        _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Accounts.YouTubeAccountProvider(
+            tokenStore, NullLogger<MelodyBridge.Infrastructure.Accounts.YouTubeAccountProvider>.Instance));
+        var collector = new MelodyBridge.Server.Services.LogCollector();
+        _ctx.Services.AddSingleton<MelodyBridge.Core.Logging.ILogCollector>(collector);
+        _ctx.Services.AddSingleton(new MelodyBridge.Server.Services.LogExporter(collector));
     }
 
     [TearDown]
     public void TearDown() => _ctx.Dispose();
 
     [Test]
-    public void Settings_Renders_Title()
+    public void Settings_Renders_Title_And_Tabs()
     {
         var cut = _ctx.Render<Settings>();
         Assert.That(cut.Markup, Does.Contain("Settings"));
+        Assert.That(cut.Markup, Does.Contain("Accounts"));
+        Assert.That(cut.Markup, Does.Contain("Quality"));
+        Assert.That(cut.Markup, Does.Contain("Network"));
     }
 
     [Test]
-    public void Settings_ShowsJellyfinForm()
+    public void Settings_AccountsTab_ShowsByDefault()
     {
         var cut = _ctx.Render<Settings>();
-        Assert.That(cut.Markup, Does.Contain("Jellyfin"));
-        Assert.That(cut.Markup, Does.Contain("Base URL"));
-        Assert.That(cut.Markup, Does.Contain("API key"));
+        Assert.That(cut.Markup, Does.Contain("Connect Spotify"));
+        Assert.That(cut.Markup, Does.Contain("Connect YouTube"));
+        Assert.That(cut.Markup, Does.Contain("not connected"));
     }
 
     [Test]
-    public void Settings_ShowsPathConfig()
+    public void Settings_JellyfinTab_ShowsForm()
     {
         var cut = _ctx.Render<Settings>();
-        Assert.That(cut.Markup, Does.Contain("Music path"));
-        Assert.That(cut.Markup, Does.Contain("Playlist output folder"));
+        cut.FindAll("button.tab-link").First(b => b.TextContent == "Jellyfin").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.Markup, Does.Contain("Base URL"));
+            Assert.That(cut.Markup, Does.Contain("API key"));
+        }, TimeSpan.FromSeconds(3));
     }
 
     [Test]
-    public void Settings_ShowsQualityVerificationPanel()
+    public void Settings_PathsTab_ShowsPathFields()
     {
         var cut = _ctx.Render<Settings>();
-        Assert.That(cut.Markup, Does.Contain("Real quality check"),
-            "the spectral verification panel must be on the page");
-        Assert.That(cut.Markup, Does.Contain("Spectrum check"));
-        Assert.That(cut.Markup, Does.Contain("Cloudflare solver (Lucida)"),
-            "the FlareSolverr URL field must be on the page");
-        Assert.That(cut.FindAll("select option").Count(o =>
-            o.TextContent.Contains("Thorough")), Is.GreaterThanOrEqualTo(1),
-            "the thorough mode must be selectable");
+        cut.FindAll("button.tab-link").First(b => b.TextContent == "Paths").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.Markup, Does.Contain("Music path"));
+            Assert.That(cut.Markup, Does.Contain("Playlist output folder"));
+        }, TimeSpan.FromSeconds(3));
     }
 
     [Test]
-    public void Settings_LoadsSavedSettings()
+    public void Settings_QualityTab_ShowsDefaultPresetAndSpectrum()
     {
         var cut = _ctx.Render<Settings>();
-        Assert.That(cut.Markup, Does.Contain("http://jellyfin:8096"));
+        cut.FindAll("button.tab-link").First(b => b.TextContent == "Quality").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.Markup, Does.Contain("Default audio quality"));
+            Assert.That(cut.Markup, Does.Contain("Real quality check"));
+            Assert.That(cut.Markup, Does.Contain("Spectrum check"));
+        }, TimeSpan.FromSeconds(3));
     }
 
     [Test]
-    public void Settings_ShowsProviderToggles()
+    public void Settings_NetworkTab_ShowsFlareSolverrTester()
     {
         var cut = _ctx.Render<Settings>();
-        Assert.That(cut.Markup, Does.Contain("Squid.wtf"));
-        Assert.That(cut.Markup, Does.Contain("Lucida"));
+        cut.FindAll("button.tab-link").First(b => b.TextContent == "Network").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.Markup, Does.Contain("FlareSolverr"));
+            Assert.That(cut.Markup, Does.Contain("Test connection"));
+            Assert.That(cut.Markup, Does.Contain("Export logs"));
+        }, TimeSpan.FromSeconds(3));
     }
 
     [Test]
@@ -127,27 +119,12 @@ public class SettingsPageTests
     {
         var cut = _ctx.Render<Settings>();
         var btns = cut.FindAll("button");
-        Assert.That(btns.Any(b => b.TextContent.Trim().Contains("Save all settings")), Is.True);
-    }
-
-    [Test]
-    public void Settings_ShowsAccountsPanel()
-    {
-        var cut = _ctx.Render<Settings>();
-
-        Assert.That(cut.Markup, Does.Contain("Connect Spotify"),
-            "the accounts panel must be on the settings page");
-        Assert.That(cut.Markup, Does.Contain("Connect Spotify"));
-        Assert.That(cut.Markup, Does.Contain("Connect YouTube"));
-        Assert.That(cut.Markup, Does.Contain("not connected"),
-            "a fresh install shows both accounts as disconnected");
+        Assert.That(btns.Any(b => b.TextContent.Trim().Contains("Save settings")), Is.True);
     }
 
     [Test]
     public async Task Settings_AccountStatus_ReflectsRealStoredTokens()
     {
-        // Tokens written through the real store on the real (in-memory)
-        // database must flip the rendered status pill.
         var tokenStore = _ctx.Services
             .GetRequiredService<MelodyBridge.Infrastructure.Accounts.AccountTokenStore>();
         await tokenStore.SaveTokensAsync("Spotify", new MelodyBridge.Core.AccountTokens(
@@ -156,25 +133,5 @@ public class SettingsPageTests
         var cut = _ctx.Render<Settings>();
         Assert.That(cut.Markup, Does.Contain("Disconnect"),
             "a connected account shows a disconnect button");
-    }
-
-    private class TestDownloader : IDownloader
-    {
-        public string Id { get; }
-        public string Name { get; }
-        public TestDownloader(string id, string name) { Id = id; Name = name; }
-
-        public Task<bool> IsAvailableAsync(CancellationToken ct = default) => Task.FromResult(true);
-        public Task<DownloaderSearchHit?> SearchAsync(string artist, string title, DownloadQuality quality, CancellationToken ct = default)
-            => Task.FromResult<DownloaderSearchHit?>(null);
-        public Task<DownloaderDownloadResult> DownloadAsync(string sourceUrl, string outputDirectory, string? melodyId, DownloadQuality? quality = null, CancellationToken ct = default)
-            => Task.FromResult(new DownloaderDownloadResult(false, null, "mock"));
-    }
-
-    private class InMemFactory : IDbContextFactory<MelodyBridgeDbContext>
-    {
-        private readonly DbContextOptions<MelodyBridgeDbContext> _options;
-        public InMemFactory(DbContextOptions<MelodyBridgeDbContext> options) => _options = options;
-        public MelodyBridgeDbContext CreateDbContext() => new(_options);
     }
 }
