@@ -138,6 +138,8 @@ public class TrackEntity
     public bool IsLiked { get; set; }
     public DateTime? LastSeenAt { get; set; }
     public int? PlaylistSnapshotId { get; set; }
+    /// <summary>Owning playlist of this snapshot track (the nav collection's FK).</summary>
+    public string? PlaylistEntityId { get; set; }
 }
 
 public class PlaylistEntity

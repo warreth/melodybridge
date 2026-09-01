@@ -155,7 +155,8 @@ public class PlaylistStore
     /// <summary>
     /// Maps a playlist's PreferredFormat to the waterfall quality.
     /// Format: "auto" | "mp3" | "flac" | "opus" | "aac", optionally
-    /// suffixed with a bitrate range: "mp3:192-320", "mp3:-320", "mp3:320-".
+    /// suffixed with a bitrate cap: "mp3:192". Legacy range strings
+    /// ("mp3:192-320") keep working: the cap side wins.
     /// </summary>
     internal static DownloadQuality ParseQuality(string? preferredFormat)
     {
@@ -171,13 +172,13 @@ public class PlaylistStore
         };
 
         if (parts.Length < 2)
-            return new DownloadQuality(format, format == AudioFormat.Auto ? 0 : 128);
+            return new DownloadQuality(format);
 
-        // "min-max", "-max" (no floor), "min-" (no ceiling).
+        // "192" or legacy "min-max"/"min-": the ceiling is what we enforce.
         var range = parts[1].Split('-', 2);
-        var min = int.TryParse(range[0], out var lo) && lo > 0 ? lo : 0;
-        var max = range.Length == 2 && int.TryParse(range[1], out var hi) && hi > 0 ? hi : (int?)null;
-        return new DownloadQuality(format, min, max);
+        var capSide = range.Length == 2 ? range[1] : range[0];
+        var cap = int.TryParse(capSide, out var hi) && hi > 0 ? hi : (int?)null;
+        return new DownloadQuality(format, cap);
     }
 
     /// <summary>All persisted playlists (without tracks), newest sync first.</summary>
@@ -452,7 +453,7 @@ public class PlaylistStore
     /// <summary>Base format values shown in the UI dropdown.</summary>
     public static readonly string[] FormatOptions = { "auto", "mp3", "flac", "opus", "aac" };
 
-    /// <summary>Validates a PreferredFormat string ("mp3", "mp3:192-320", ...).</summary>
+    /// <summary>Validates a PreferredFormat string ("mp3", "mp3:192", legacy "mp3:192-320").</summary>
     public static bool IsValidFormat(string value)
     {
         var parts = value.Split(':', 2);
@@ -460,7 +461,6 @@ public class PlaylistStore
         if (parts.Length == 1) return true;
 
         var range = parts[1].Split('-', 2);
-        if (range.Length > 2) return false;
         foreach (var side in range)
             if (side.Length > 0 && (!int.TryParse(side, out var n) || n <= 0))
                 return false;
