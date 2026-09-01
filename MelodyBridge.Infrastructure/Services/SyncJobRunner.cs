@@ -31,6 +31,7 @@ public class SyncJobRunner : ISyncJobRunner
     {
         var totalTracks = 0;
         var resolvedTracks = 0;
+        var skippedTracks = 0;
         var errors = new List<string>();
 
         try
@@ -40,8 +41,10 @@ public class SyncJobRunner : ISyncJobRunner
             var searchPaths = job.SearchLocationPaths.Select(p => new ScanLocation(p));
 
             // SourceId refers to a PlaylistEntity (the wizard binds playlist IDs).
-            // Only tracks with a local file are usable in an M3U / media-server playlist.
-            List<TrackEntity> matchedTracks;
+            // The whole playlist counts as the total: only tracks with a local
+            // file are usable in an M3U / media-server playlist, so the run
+            // says 20/50 when 30 tracks are not downloaded yet.
+            List<TrackEntity> allTracks;
             if (!string.IsNullOrEmpty(job.SourceId))
             {
                 var sourcePlaylist = await db.Playlists
@@ -52,20 +55,21 @@ public class SyncJobRunner : ISyncJobRunner
                     return new SyncJobRunLog(DateTime.UtcNow, SyncStatus.Failed,
                         $"Playlist '{job.SourceId}' not found", 0, 0);
                 }
-                matchedTracks = sourcePlaylist.Tracks
-                    .Where(t => t.DownloadStatus == "downloaded" && !string.IsNullOrEmpty(t.CurrentPath))
-                    .OrderBy(t => t.Position)
-                    .ToList();
+                allTracks = sourcePlaylist.Tracks.OrderBy(t => t.Position).ToList();
             }
             else
             {
-                matchedTracks = await db.Tracks
-                    .Where(t => t.DownloadStatus == "downloaded" && !string.IsNullOrEmpty(t.CurrentPath))
+                allTracks = await db.Tracks
+                    .Where(t => t.PlaylistSnapshotId == null)
                     .OrderBy(t => t.PlaylistSnapshotId).ThenBy(t => t.Position)
                     .ToListAsync(ct);
             }
 
-            totalTracks = matchedTracks.Count;
+            totalTracks = allTracks.Count;
+            var matchedTracks = allTracks
+                .Where(t => t.DownloadStatus == "downloaded" && !string.IsNullOrEmpty(t.CurrentPath))
+                .ToList();
+            skippedTracks = totalTracks - matchedTracks.Count;
 
             // Apply path remapping
             var remap = job.PathRemapRules;
@@ -134,12 +138,16 @@ public class SyncJobRunner : ISyncJobRunner
             // Record the run
             await using (var db2 = await _dbFactory.CreateDbContextAsync(ct))
             {
+                var summary = skippedTracks > 0
+                    ? $"Synced {resolvedTracks}/{totalTracks} tracks, {skippedTracks} without a local file"
+                    : $"Synced {resolvedTracks}/{totalTracks} tracks";
+
                 var runEntity = new SyncJobRunEntity
                 {
                     SyncJobId = job.Id,
                     Timestamp = DateTime.UtcNow,
                     Status = errors.Count == 0 ? "Completed" : "Failed",
-                    Message = errors.Count > 0 ? string.Join("; ", errors) : $"Synced {resolvedTracks}/{totalTracks} tracks",
+                    Message = errors.Count > 0 ? string.Join("; ", errors) : summary,
                     ResolvedTracks = resolvedTracks,
                     TotalTracks = totalTracks,
                 };

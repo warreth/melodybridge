@@ -98,8 +98,13 @@ public class SyncJobRunnerTests
             var log = await runner.RunJobAsync(job);
 
             Assert.That(log.Status, Is.EqualTo(SyncStatus.Completed));
-            Assert.That(log.TotalTracks, Is.EqualTo(2), "only downloaded tracks count");
+            Assert.That(log.TotalTracks, Is.EqualTo(3),
+                "the whole playlist counts, not just what has a file");
             Assert.That(log.ResolvedTracks, Is.EqualTo(2));
+            Assert.That(log.Message, Does.Contain("2/3"),
+                "the run summary must show resolved over total");
+            Assert.That(log.Message, Does.Contain("1 without a local file"),
+                "the pending track must be mentioned as missing");
 
             // Read the actual file back.
             var lines = await System.IO.File.ReadAllLinesAsync(m3uPath);
