@@ -121,14 +121,9 @@ else
                     Download folder
                     <input @bind="editTargetDirectory" placeholder="/music/downloads" />
                 </label>
-                <label>
+                <label class="quality-field">
                     Audio quality
-                    <select @bind="editQuality">
-                        @foreach (var preset in Playlists.QualityPresets)
-                        {
-                            <option value="@preset.Value">@preset.Label</option>
-                        }
-                    </select>
+                    <QualityPicker @bind-Value="editQuality" />
                 </label>
                 <label class="toggle-row">
                     <input type="checkbox" @bind="editAutoSync" />
@@ -210,6 +205,7 @@ else
                             <th>Title</th>
                             <th>Artist</th>
                             <th>Duration</th>
+                            <th>Size</th>
                             <th>Quality</th>
                             <th>Status</th>
                             <th></th>
@@ -220,10 +216,19 @@ else
                         {
                             <tr>
                                 <td class="text-muted">@(track.Position + 1)</td>
-                                <td><strong>@(track.Title ?? "Unknown")</strong></td>
+                                <td>
+                                    <strong>@(track.Title ?? "Unknown")</strong>
+                                    @if (showFilenameColumn && !string.IsNullOrWhiteSpace(track.CurrentPath))
+                                    {
+                                        <span class="text-muted file-path" title="@track.CurrentPath">
+                                            @Path.GetFileName(track.CurrentPath)
+                                        </span>
+                                    }
+                                </td>
                                 <td>@(track.Artist ?? "Unknown artist")</td>
                                 <td class="text-muted">@TrackDisplay.Duration(track.DurationMs)</td>
-                                <td class="text-muted" title="@TrackDisplay.Size(track)">
+                                <td class="text-muted">@TrackDisplay.Size(track)</td>
+                                <td class="text-muted">
                                     @(track.DownloadStatus == "downloaded" ? TrackDisplay.Quality(track) : "-")
                                 </td>
                                 <td>
@@ -268,6 +273,7 @@ else
     private bool busy;
     private string message = string.Empty;
     private string trackFilter = string.Empty;
+    private bool showFilenameColumn;
 
     private string editName = string.Empty;
     private string editTargetDirectory = string.Empty;
@@ -303,6 +309,7 @@ else
     private async Task Load()
     {
         loading = true;
+        showFilenameColumn = await Settings.GetBoolAsync("show_filename", fallback: false);
         playlist = await Store.GetByIdAsync(PlaylistId);
         if (playlist is not null)
         {

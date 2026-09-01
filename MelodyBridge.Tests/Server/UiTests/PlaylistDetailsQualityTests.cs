@@ -92,9 +92,43 @@ public class PlaylistDetailsQualityTests
 
         cut.WaitForAssertion(() =>
             Assert.That(cut.Markup, Does.Contain("Audio quality")), TimeSpan.FromSeconds(3));
-        var select = cut.Find("select");
-        Assert.That(select.OuterHtml, Does.Contain("mp3:192"),
-            "the stored cap preset must be present");
+        // Two selects now: container and bitrate cap. The stored "mp3:192"
+        // must land as MP3 + 192 kbps.
+        var selects = cut.FindAll("select");
+        Assert.That(selects.Count, Is.GreaterThanOrEqualTo(2));
+        Assert.That(cut.Markup, Does.Contain("<option value=\"mp3\""),
+            "the container select must carry the stored MP3 choice");
+        Assert.That(cut.Markup, Does.Contain("<option value=\"192\""),
+            "the bitrate select must offer the stored 192 kbps cap");
+    }
+
+    [Test]
+    public void TrackTable_ShowsFileSizeColumn()
+    {
+        var cut = _ctx.Render<PlaylistDetails>(p => p.Add(p => p.PlaylistId, "pl-1"));
+
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("Fine track")), TimeSpan.FromSeconds(3));
+
+        Assert.That(cut.Markup, Does.Contain("<th>Size</th>"),
+            "the track table has a size column");
+        Assert.That(cut.Markup, Does.Contain("8.6 MB"),
+            "the 9,000,000 byte file renders as 8.6 MB next to the track");
+    }
+
+    [Test]
+    public void TrackTable_ShowsFilenameColumn_WhenSettingOn()
+    {
+        using (var db = new TestSqliteFactory(_dbPath).CreateDbContext())
+        {
+            db.DownloaderSettings.Add(new DownloaderSettingEntity { Key = "show_filename", Value = "true" });
+            db.SaveChanges();
+        }
+
+        var cut = _ctx.Render<PlaylistDetails>(p => p.Add(p => p.PlaylistId, "pl-1"));
+
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("fine-track.mp3")), TimeSpan.FromSeconds(3));
     }
 
     [Test]
