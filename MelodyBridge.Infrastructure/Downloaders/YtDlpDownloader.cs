@@ -138,7 +138,8 @@ public class YtDlpDownloader : IDownloader
         var sourceUrl = url ?? (string.IsNullOrEmpty(id) ? null : urlFromId(id!));
         if (string.IsNullOrEmpty(sourceUrl)) return null;
 
-        var hitTitle = entry.TryGetProperty("title", out var t) ? t.GetString() : fallbackTitle;
+        var hitTitle = (entry.TryGetProperty("title", out var t) ? t.GetString() : null)
+                      ?? fallbackTitle;
         return new DownloaderSearchHit(
             Title: hitTitle,
             Artist: artist,

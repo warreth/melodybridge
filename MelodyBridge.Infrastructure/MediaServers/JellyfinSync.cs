@@ -236,9 +236,10 @@ public class JellyfinSync : IMediaServerSync
         }
     }
 
-    private static void Remember(string itemId, bool isLiked,
+    private static void Remember(string? itemId, bool isLiked,
         List<string> itemIds, List<string> likedItemIds)
     {
+        if (string.IsNullOrEmpty(itemId)) return;
         itemIds.Add(itemId);
         if (isLiked) likedItemIds.Add(itemId);
     }

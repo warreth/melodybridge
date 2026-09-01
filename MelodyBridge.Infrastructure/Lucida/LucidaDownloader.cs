@@ -76,7 +76,7 @@ public class LucidaDownloader : IDownloader
     }
 
     public async Task<DownloaderDownloadResult> DownloadAsync(
-        string sourceUrl, string outputDirectory, string melodyId, CancellationToken ct = default)
+        string sourceUrl, string outputDirectory, string? melodyId, CancellationToken ct = default)
     {
         try
         {
@@ -171,7 +171,7 @@ public class LucidaDownloader : IDownloader
                     $"download HTTP {(int)fileResponse.StatusCode}");
 
             var ext = GuessExtension(fileResponse.Content.Headers.ContentType?.MediaType);
-            var fileName = $"{Sanitize(melodyId)}{ext}";
+            var fileName = $"{Sanitize(melodyId ?? "lucida-download")}{ext}";
             var path = Path.Combine(outputDirectory, fileName);
             await using (var source = await fileResponse.Content.ReadAsStreamAsync(ct))
             await using (var target = File.Create(path))
@@ -179,7 +179,8 @@ public class LucidaDownloader : IDownloader
                 await source.CopyToAsync(target, ct);
             }
 
-            TaglibHelper.WriteMelodyId(path, melodyId);
+            if (melodyId is not null)
+                TaglibHelper.WriteMelodyId(path, melodyId);
             return new DownloaderDownloadResult(true, path, null);
         }
         catch (Exception ex)

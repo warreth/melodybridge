@@ -281,7 +281,7 @@ public class PlaylistStore
     }
 
     private async Task<PlaylistEntity> SaveSnapshotAsync(
-        Platform providerPlatform, Playlist playlist, string sourceUrl,
+        Platform providerPlatform, Playlist playlist, string? sourceUrl,
         string? targetDirectory = null, CancellationToken ct = default)
     {
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
@@ -295,7 +295,8 @@ public class PlaylistStore
         entity ??= new PlaylistEntity
         {
             Id = Guid.NewGuid().ToString(),
-            SourceUrl = sourceUrl,
+            SourceUrl = sourceUrl ?? playlist.Id ?? "unknown-source",
+
             SourcePlatform = providerPlatform,
         };
 

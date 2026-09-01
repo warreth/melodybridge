@@ -51,6 +51,14 @@ builder.Services.AddDataProtection()
 
 var app = builder.Build();
 
+// Ensure database is created with all entities before anything reads it
+using (var scope = app.Services.CreateScope())
+{
+    var dbFactory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<MelodyBridgeDbContext>>();
+    using var db = dbFactory.CreateDbContext();
+    db.Database.EnsureCreated();
+}
+
 // App settings the stores read at runtime. The database overrides
 // appsettings so the Settings page wins.
 using (var db = app.Services.GetRequiredService<IDbContextFactory<MelodyBridgeDbContext>>()
@@ -67,14 +75,6 @@ using (var db = app.Services.GetRequiredService<IDbContextFactory<MelodyBridgeDb
 
     FlareSolverrSolver.Url = db.DownloaderSettings.FirstOrDefault(s => s.Key == "flaresolverr_url")?.Value
                              ?? app.Configuration["FlareSolverr:Url"] ?? "off";
-}
-
-// Ensure database is created with all entities
-using (var scope = app.Services.CreateScope())
-{
-    var dbFactory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<MelodyBridgeDbContext>>();
-    using var db = dbFactory.CreateDbContext();
-    db.Database.EnsureCreated();
 }
 
 // Configure pipeline

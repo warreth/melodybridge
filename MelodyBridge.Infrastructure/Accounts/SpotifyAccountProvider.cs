@@ -107,7 +107,9 @@ public class SpotifyAccountProvider : IAccountSourceProvider
             throw new InvalidOperationException(
                 "Spotify login did not check out (state mismatch). Try again.");
 
-        var clientId = await ReadClientIdAsync(ct);
+        var clientId = await ReadClientIdAsync(ct)
+                       ?? throw new InvalidOperationException(
+                           "Spotify Client ID is missing. Paste it in the account settings.");
         var response = await new OAuthClient().RequestToken(
             new PKCETokenRequest(clientId, code, new Uri(redirectUrl), pending.Value.Verifier));
 
@@ -142,7 +144,9 @@ public class SpotifyAccountProvider : IAccountSourceProvider
                 "Spotify login expired. Reconnect the account in the settings.");
 
         _logger.LogInformation("Refreshing Spotify access token");
-        var clientId = await ReadClientIdAsync(ct);
+        var clientId = await ReadClientIdAsync(ct)
+                       ?? throw new InvalidOperationException(
+                           "Spotify Client ID is missing. Paste it in the account settings.");
         var refreshed = await new OAuthClient().RequestToken(
             new PKCETokenRefreshRequest(clientId, tokens.RefreshToken));
         var newTokens = ToTokens(refreshed, tokens.RefreshToken);
@@ -160,11 +164,12 @@ public class SpotifyAccountProvider : IAccountSourceProvider
         await foreach (var playlist in client.Paginate(
                            await client.Playlists.CurrentUsers()))
         {
+            if (playlist.Id is null || playlist.Name is null) continue;
             result.Add(new UserPlaylist(
                 playlist.Id,
                 playlist.Name,
                 playlist.Owner?.DisplayName ?? playlist.Owner?.Id,
-                playlist.Tracks?.Total ?? 0,
+                playlist.Items?.Total ?? 0,
                 IsLikedSongs: false,
                 playlist.Images?.FirstOrDefault()?.Url));
         }
@@ -238,7 +243,10 @@ public class SpotifyAccountProvider : IAccountSourceProvider
 
             var tracks = new List<Track>();
             // The first page comes with the playlist; Paginate walks the rest.
-            await foreach (var item in client.Paginate(response.Tracks!))
+            // FullPlaylist.Items is the renamed Tracks (same JSON field).
+            var firstPage = response.Items
+                ?? new Paging<PlaylistTrack<IPlayableItem>>();
+            await foreach (var item in client.Paginate(firstPage))
             {
                 if (item.Track is FullTrack track)
                 {
@@ -271,7 +279,7 @@ public class SpotifyAccountProvider : IAccountSourceProvider
                 SourceUrl = $"https://open.spotify.com/playlist/{playlistId}",
                 CoverImageUrl = response.Images?.FirstOrDefault()?.Url,
                 Tracks = tracks,
-                TrackCount = response.Tracks?.Total ?? tracks.Count,
+                TrackCount = response.Items?.Total ?? tracks.Count,
                 Duration = SumDurations(tracks),
             };
         }

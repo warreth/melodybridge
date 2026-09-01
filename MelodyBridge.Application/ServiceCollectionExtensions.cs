@@ -61,8 +61,11 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ISyncJobRunner, SyncJobRunner>();
         // Account connections (Spotify/YouTube private + liked imports).
         services.AddSingleton<AccountTokenStore>();
-        services.AddSingleton<IAccountSourceProvider, SpotifyAccountProvider>();
-        services.AddSingleton<IAccountSourceProvider, YouTubeAccountProvider>();
+        // Concrete type for the pages, interface for PlaylistStore.
+        services.AddSingleton<SpotifyAccountProvider>();
+        services.AddSingleton<YouTubeAccountProvider>();
+        services.AddSingleton<IAccountSourceProvider>(sp => sp.GetRequiredService<SpotifyAccountProvider>());
+        services.AddSingleton<IAccountSourceProvider>(sp => sp.GetRequiredService<YouTubeAccountProvider>());
         services.AddScoped<PlaylistStore>();
 
         // Background services
