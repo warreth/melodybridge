@@ -112,12 +112,13 @@ them had a file to publish.
 
 ## Library
 
-The Library page shows every file MelodyBridge knows about and manages
-the scan locations.
+The Library page covers your own music collection: the folders you told
+MelodyBridge to scan. Playlist downloads live on their playlist pages
+and never mix into this list.
 
-- The **Tracks** table lists every local file with its title, artist,
-  real quality (bitrate, sample rate, container), size and the playlist
-  it belongs to; the search box filters all columns
+- The **Tracks** table lists every scanned file with its title, artist,
+  real quality (bitrate, sample rate, container), size and the folder it
+  sits in; the search box filters title and artist
 - **Add location**: point MelodyBridge at a folder with music files
 - Each location can scan on a fixed interval in hours or manual only
 - **Run scan** starts a scan of all locations immediately
@@ -138,9 +139,17 @@ tabs.
   configured, the first non-system user is used
 - **Paths**: music path and playlist output folder, as the server sees
   them (inside Docker: `/music` and `/app/playlists`)
-- **Quality**: the default audio quality preset for new playlists (each
-  playlist can override it on its own page) and the spectrum check mode:
-  Off, Fast (recommended) or Thorough
+- **Quality**: the default audio quality for new playlists (each playlist
+  can override it on its own page) and the spectrum check mode: Off, Fast
+  (recommended) or Thorough. Quality is two dropdowns: a container and a
+  bitrate cap. Auto takes the best each source offers. MP3 plays on every
+  device: pick 320 kbps for a home collection, 192 kbps when disk space
+  is tight. Opus is the most efficient: 128 kbps sounds transparent to
+  most ears, 160 kbps is a safe ceiling. AAC (m4a) fits the Apple world:
+  256 kbps is a good pick for phones. FLAC is lossless with no bitrate
+  cap and the largest files, best for a media server with plenty of disk.
+  A line under the dropdowns explains the trade-off for whichever
+  container you pick
 - **Network**: the FlareSolverr URL for the Lucida plugin with a Test
   connection button, `off` disables Lucida; plus a log export that
   downloads the most recent 1000 entries as a plain text file

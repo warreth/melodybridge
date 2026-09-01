@@ -119,9 +119,17 @@
         <div class="path-list">
             @foreach (var loc in locations)
             {
-                <div>
+                <div class="location-card">
                     <strong>@loc.Path</strong>
-                    <small>@(loc.ScanIntervalHours.HasValue ? $"Every {loc.ScanIntervalHours}h" : "Manual only")</small>
+                    <small>
+                        @(FileCount(loc)) files with MELODY_ID ·
+                        @(LocationSchedule.Of(loc) is { Mode: ScanScheduleMode.Manual } ? "manual" : DescribeSchedule(LocationSchedule.Of(loc))) ·
+                        last scan @(loc.LastScannedAt is { } scanned ? scanned.ToLocalTime().ToString("yyyy-MM-dd HH:mm") : "never")
+                    </small>
+                    @if (loc.LiveMonitoring)
+                    {
+                        <span class="pill neutral">live</span>
+                    }
                     <button class="btn-modern ghost" @onclick="() => DeleteLocation(loc.Id)"
                             style="margin-left:auto;">Remove</button>
                 </div>
@@ -159,15 +167,20 @@
                         Directory path
                         <input @bind="newPath" placeholder="/music" />
                     </label>
-                    <label>
-                        Scan interval (minutes, 0 = manual)
-                        <input @bind="newInterval" type="number" min="0" step="5" />
-                    </label>
-                    <label class="toggle-switch wide">
-                        <input type="checkbox" @bind="liveMonitoring" />
-                        <span class="toggle-slider"></span>
-                        Live monitoring
-                    </label>
+                </div>
+                <div class="form-grid single">
+                    <SchedulePicker @bind-Value="newSchedule" />
+                </div>
+                <label class="toggle-switch wide">
+                    <input type="checkbox" @bind="liveMonitoring" />
+                    <span class="toggle-slider"></span>
+                    <span>Live monitoring — rescan this folder whenever files change</span>
+                </label>
+                <div class="hint-box">
+                    Enter the path as the server sees it. Inside Docker that is
+                    the container path (for example <code>/music</code>), not the
+                    path on your host — check what the volume is mounted as in
+                    your <code>compose.yml</code>.
                 </div>
             </div>
             <div class="wizard-footer">
@@ -185,6 +198,7 @@
 
     private List<ScanLocationEntity> locations = new();
     private List<LibraryRow> tracks = new();
+    private Dictionary<int, int> filesPerLocation = new();
     private string filter = string.Empty;
     private bool showFilenameColumn;
     private int tracksCount;
@@ -193,7 +207,7 @@
     private bool scanResultOk;
     private bool showForm;
     private string newPath = "/music";
-    private int newInterval = 0;
+    private ScanSchedule newSchedule = ScanSchedule.Manual;
     private bool liveMonitoring = true;
 
     private IEnumerable<LibraryRow> shownTracks => string.IsNullOrWhiteSpace(filter)
@@ -211,8 +225,18 @@
         showFilenameColumn = await Settings.GetBoolAsync("show_filename", fallback: false);
 
         // Library shows only the files found in the scan folders.
-        // Playlist downloads have their own home on the playlist page;
-        // merging them here made the list look like random playlist songs.
+        // Playlist downloads have their own home on the playlist page.
+        // Files with a MELODY_ID per location: a track belongs to the folder
+        // its current path lives under. Counted in memory — location paths are
+        // prefixes and SQL LIKE with a leading wildcard would not use an index.
+        var withIds = await db.Tracks
+            .Where(t => t.MelodyId != null && t.CurrentPath != null)
+            .Select(t => new { t.MelodyId, t.CurrentPath })
+            .ToListAsync();
+        filesPerLocation = locations.ToDictionary(
+            l => l.Id,
+            l => withIds.Count(t => LocationContains(l.Path, t.CurrentPath!)));
+
         tracks = await db.Tracks
             .Where(t => t.CurrentPath != null
                 && !db.Playlists.Any(p => p.Tracks.Any(pt => pt.MelodyId == t.MelodyId)))
@@ -228,6 +252,22 @@
     {
         filter = e.Value?.ToString() ?? string.Empty;
     }
+
+    private static bool LocationContains(string locationPath, string filePath)
+        => filePath.StartsWith(locationPath, StringComparison.OrdinalIgnoreCase)
+           && (filePath.Length == locationPath.Length
+               || filePath[locationPath.Length] == Path.DirectorySeparatorChar
+               || filePath[locationPath.Length] == Path.AltDirectorySeparatorChar);
+
+    private int FileCount(ScanLocationEntity loc)
+        => filesPerLocation.TryGetValue(loc.Id, out var n) ? n : 0;
+
+    private static string DescribeSchedule(ScanSchedule s) => s.Mode switch
+    {
+        ScanScheduleMode.Interval => $"every {s.IntervalMinutes} min",
+        ScanScheduleMode.Cron => $"cron {s.Cron}",
+        _ => "manual",
+    };
 
     private async Task RunScan()
     {
@@ -245,6 +285,14 @@
             }
 
             await Scanner.ScanAsync(scanLocations);
+
+            // Stamp every scanned location so the cards show a real last-scan time.
+            await using var db = await DbFactory.CreateDbContextAsync();
+            var scannedIds = locations.Select(l => l.Id).ToList();
+            foreach (var loc in db.ScanLocations.Where(l => scannedIds.Contains(l.Id)).ToList())
+                loc.LastScannedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync();
+
             scanResult = $"Scanned {scanLocations.Length} location(s) successfully.";
             scanResultOk = true;
             await LoadDataAsync();
@@ -261,7 +309,7 @@
     {
         showForm = true;
         newPath = "/music";
-        newInterval = 0;
+        newSchedule = ScanSchedule.Manual;
         liveMonitoring = true;
     }
 
@@ -274,7 +322,8 @@
         db.ScanLocations.Add(new ScanLocationEntity
         {
             Path = path,
-            ScanIntervalHours = newInterval > 0 ? newInterval : null,
+            ScheduleCron = newSchedule.ToString(),
+            LiveMonitoring = liveMonitoring,
         });
         await db.SaveChangesAsync();
 

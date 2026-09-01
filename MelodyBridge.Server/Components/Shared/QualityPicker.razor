@@ -1,0 +1,119 @@
+@* Two-step quality picker: container format, then bitrate cap.
+   Both selects write back through one combined value ("mp3:320", "opus",
+   ...) so callers keep the single PreferredFormat string the store
+   already validates and persists. *@
+@using MelodyBridge.Infrastructure.Services
+
+<div class="quality-picker">
+    <label>
+        Container
+        <select value="@Container" @onchange="OnContainerChanged">
+            @foreach (var f in Containers)
+            {
+                <option value="@f.Value">@f.Label</option>
+            }
+        </select>
+    </label>
+    <label>
+        Bitrate cap
+        <select value="@Bitrate" @onchange="OnBitrateChanged" disabled="@(Bitrates.Length == 1)">
+            @foreach (var b in Bitrates)
+            {
+                <option value="@b.Value">@b.Label</option>
+            }
+        </select>
+    </label>
+</div>
+<p class="panel-description">@Guidance</p>
+
+@code {
+    /// <summary>Combined quality value: "auto", "mp3", "mp3:320", ...</summary>
+    [Parameter] public string Value { get; set; } = "auto";
+    /// <summary>Raised with the new combined value after either select changes.</summary>
+    [Parameter] public EventCallback<string> ValueChanged { get; set; }
+
+    private static readonly (string Value, string Label)[] Containers =
+    {
+        ("auto", "Auto (best available)"),
+        ("mp3", "MP3"),
+        ("flac", "FLAC (lossless)"),
+        ("opus", "Opus"),
+        ("aac", "AAC (m4a)"),
+    };
+
+    /// <summary>Bitrate caps offered per container. FLAC is lossless, so its
+    /// only entry is a fixed "no cap" option. Auto has no cap either.</summary>
+    private static readonly Dictionary<string, (string Value, string Label)[]> BitrateTable = new()
+    {
+        ["auto"] = new[] { ("", "Not applicable") },
+        ["flac"] = new[] { ("", "Lossless, no cap") },
+        ["mp3"] = new[]
+        {
+            ("", "No cap (source quality)"),
+            ("160", "160 kbps"),
+            ("192", "192 kbps"),
+            ("256", "256 kbps"),
+            ("320", "320 kbps"),
+        },
+        ["opus"] = new[]
+        {
+            ("", "No cap (source quality)"),
+            ("96", "96 kbps"),
+            ("128", "128 kbps"),
+            ("160", "160 kbps"),
+            ("192", "192 kbps"),
+            ("256", "256 kbps"),
+        },
+        ["aac"] = new[]
+        {
+            ("", "No cap (source quality)"),
+            ("128", "128 kbps"),
+            ("160", "160 kbps"),
+            ("192", "192 kbps"),
+            ("256", "256 kbps"),
+            ("320", "320 kbps"),
+        },
+    };
+
+    private string Container { get; set; } = "auto";
+    private string Bitrate { get; set; } = "";
+
+    protected override void OnParametersSet()
+    {
+        var parts = (Value ?? "auto").Split(':', 2);
+        Container = parts[0].ToLowerInvariant();
+        if (!BitrateTable.ContainsKey(Container)) Container = "auto";
+        Bitrate = parts.Length == 2 && int.TryParse(parts[1], out var k) && k > 0
+            ? parts[1] : "";
+    }
+
+    private (string Value, string Label)[] Bitrates =>
+        BitrateTable.TryGetValue(Container, out var list) ? list : BitrateTable["auto"];
+
+    private Task OnContainerChanged(ChangeEventArgs e)
+    {
+        Container = e.Value?.ToString() ?? "auto";
+        Bitrate = ""; // each container has its own sensible caps
+        return Emit();
+    }
+
+    private Task OnBitrateChanged(ChangeEventArgs e)
+    {
+        Bitrate = e.Value?.ToString() ?? "";
+        return Emit();
+    }
+
+    private Task Emit() =>
+        ValueChanged.InvokeAsync(string.IsNullOrEmpty(Bitrate)
+            ? Container
+            : $"{Container}:{Bitrate}");
+
+    private string Guidance => Container switch
+    {
+        "flac" => "FLAC keeps the full original quality. Files are big, roughly 25 to 40 MB per song. Best for a home media server with plenty of disk space.",
+        "opus" => "Opus sounds best at low bitrates. 128 kbps is transparent for most ears, 160 kbps is a safe ceiling. Smallest files for a given quality.",
+        "aac" => "AAC (m4a) works everywhere Apple. 256 kbps is a good pick for phones, 192 kbps saves space with little audible loss.",
+        "mp3" => "MP3 plays on literally everything. 320 kbps for a large music collection, 192 kbps if disk space is tight.",
+        _ => "Auto picks the best format each source offers. Recommended when you do not want to think about it.",
+    };
+}

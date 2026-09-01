@@ -13,7 +13,6 @@ namespace MelodyBridge.Infrastructure.Services;
 public class FileSystemMonitor : IFileSystemMonitor, IDisposable
 {
     private readonly ILogger<FileSystemMonitor> _logger;
-    private readonly IServiceProvider _serviceProvider;
     private readonly ConcurrentDictionary<string, MonitorEntry> _monitors = new();
     private readonly ConcurrentDictionary<string, DateTime> _debounceCache = new();
     private readonly TimeSpan _debounceInterval = TimeSpan.FromSeconds(5);
@@ -21,12 +20,9 @@ public class FileSystemMonitor : IFileSystemMonitor, IDisposable
 
     public event EventHandler<FileSystemChangeEventArgs>? ChangeDetected;
 
-    public FileSystemMonitor(
-        ILogger<FileSystemMonitor> logger,
-        IServiceProvider serviceProvider)
+    public FileSystemMonitor(ILogger<FileSystemMonitor> logger)
     {
         _logger = logger;
-        _serviceProvider = serviceProvider;
     }
 
     public void StartMonitoring(string path, int scanLocationId)

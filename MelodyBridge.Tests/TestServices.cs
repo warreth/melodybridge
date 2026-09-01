@@ -28,12 +28,22 @@ public static class TestServices
             Array.Empty<ISourceProvider>(), manager,
             NullLogger<PlaylistStore>.Instance);
         services.AddSingleton<IDownloadManager>(manager);
+        services.AddSingleton(registry);
         services.AddSingleton<IDbContextFactory<MelodyBridgeDbContext>>(dbFactory);
         services.AddSingleton(store);
         // The coordinator resolves the scoped store per run from the
         // provider the TestContext builds, like the real app does.
         services.AddSingleton<DownloadCoordinator>();
-        services.AddSingleton(new SettingsStore(dbFactory));
+        var settingsStore = new SettingsStore(dbFactory);
+        services.AddSingleton(settingsStore);
+        services.AddSingleton(new MediaServerProfileStore(settingsStore));
+        services.AddSingleton(new DatabaseBackupService(dbFactory,
+            NullLogger<DatabaseBackupService>.Instance));
+        services.AddSingleton(new MelodyBridge.Server.Services.NotificationService());
+        // Update check: a plain HttpClient; tests that need GitHub
+        // behaviour stub the handler themselves.
+        services.AddSingleton(new UpdateCheckService(new HttpClient()));
+        services.AddHttpClient();
     }
 
     private sealed class ListRegistry(IDownloader[] downloaders) : IDownloaderRegistry
@@ -46,5 +56,7 @@ public static class TestServices
         public Task<int> GetPriorityAsync(string id, CancellationToken ct = default) => Task.FromResult(0);
         public Task SetPriorityAsync(string id, int priority, CancellationToken ct = default) => Task.CompletedTask;
         public Task SetOrderAsync(IReadOnlyList<string> orderedIds, CancellationToken ct = default) => Task.CompletedTask;
+    public Task<string> GetConfigAsync(string id, string key, CancellationToken ct = default) => Task.FromResult("");
+    public Task SetConfigAsync(string id, string key, string? value, CancellationToken ct = default) => Task.CompletedTask;
     }
 }

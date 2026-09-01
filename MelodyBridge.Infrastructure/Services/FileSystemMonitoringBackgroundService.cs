@@ -120,8 +120,33 @@ public class FileSystemMonitoringBackgroundService : BackgroundService
     {
         _logger.LogDebug("File system change detected: {ChangeType} - {Path}", e.ChangeType, e.Path);
 
-        // Queue a scan for this location
-        // The ScanSchedulingBackgroundService will handle the actual scan
-        // by checking if it's time for a rescan
+        // Rescan the location that changed; the monitor already debounced
+        // rapid-fire events per folder, so this fires at most every few seconds.
+        _ = Task.Run(() => RescanLocationAsync(e.ScanLocationId));
+    }
+
+    private async Task RescanLocationAsync(int scanLocationId)
+    {
+        try
+        {
+            using var scope = _serviceProvider.CreateAsyncScope();
+            var dbFactory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<MelodyBridgeDbContext>>();
+            var scanner = scope.ServiceProvider.GetRequiredService<ILibraryScanner>();
+
+            await using var db = await dbFactory.CreateDbContextAsync();
+            var loc = await db.ScanLocations.FindAsync(scanLocationId);
+            if (loc is null || !loc.LiveMonitoring)
+                return; // deleted or switched off between the event and now
+
+            _logger.LogInformation("Live monitoring rescan for: {path}", loc.Path);
+            await scanner.ScanAsync(new[] { new ScanLocation(loc.Path) });
+
+            loc.LastScannedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Live monitoring rescan failed for location {Id}", scanLocationId);
+        }
     }
 }

@@ -1,3 +1,4 @@
+using AngleSharp.Dom;
 using Bunit;
 using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.Data;
@@ -82,9 +83,14 @@ public class PlaylistsPageTests
 
         cut.WaitForAssertion(() =>
             Assert.That(cut.Markup, Does.Contain("Another Mix")), TimeSpan.FromSeconds(3));
-        var card = cut.Find("a.playlist-card");
-        Assert.That(card.GetAttribute("href"), Does.Contain("playlists/"),
-            "the whole card is the link to the playlist page");
+        var card = cut.Find(".playlist-card");
+        Assert.That(card.TagName, Is.EqualTo("DIV"),
+            "the card is a plain div now");
+        var links = card.QuerySelectorAll("a").Select(a => a.GetAttribute("href")).ToList();
+        Assert.That(links, Has.All.Contains("playlists/"),
+            "the cover and the title link to the playlist page");
+        Assert.That(links.Count, Is.EqualTo(2),
+            "only the cover and the title are clickable");
     }
 
     private void SeedOnePlaylist(string name, int trackCount, Platform platform)
@@ -139,5 +145,7 @@ public class PlaylistsPageTests
         public Task<int> GetPriorityAsync(string id, CancellationToken ct = default) => Task.FromResult(0);
         public Task SetPriorityAsync(string id, int priority, CancellationToken ct = default) => Task.CompletedTask;
         public Task SetOrderAsync(IReadOnlyList<string> orderedIds, CancellationToken ct = default) => Task.CompletedTask;
+    public Task<string> GetConfigAsync(string id, string key, CancellationToken ct = default) => Task.FromResult("");
+    public Task SetConfigAsync(string id, string key, string? value, CancellationToken ct = default) => Task.CompletedTask;
     }
 }
