@@ -182,11 +182,22 @@ dotnet test MelodyBridge.sln --filter "Category=PlaylistStore|Category=Live"   #
 
 ## Docs
 
-| Link | What you'll find |
+The documentation lives at https://docs.melodybridge.app and builds from the
+[docs](docs/) folder in this repo. Local preview: `npm run docs:dev`.
+
+| Page | What you'll find |
 |---|---|
+| [Quick start](docs/quickstart.md) | Five-minute setup with Docker |
+| [Features](docs/features.md) | What each feature does and how it works |
+| [User guide](docs/user-guide.md) | Walkthrough of every page in the web UI |
 | [Docker guide](docs/docker.md) | Compose reference, configuration, volumes, production tips |
+| [Accounts and OAuth](docs/accounts.md) | Private playlists and liked songs |
+| [Lucida and FlareSolverr](docs/lucida.md) | Optional high quality downloads |
 | [Developer guide](docs/developer.md) | Architecture, plugin interfaces, DI, testing |
 | [Photino desktop build](docs/photino.md) | Optional desktop wrapper |
+
+Domain setup for melodybridge.app and docs.melodybridge.app is documented in
+[DOMAIN-SETUP.md](DOMAIN-SETUP.md).
 
 ---
 
