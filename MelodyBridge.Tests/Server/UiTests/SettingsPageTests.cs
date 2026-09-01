@@ -48,6 +48,16 @@ public class SettingsPageTests
         _ctx.Services.AddSingleton<IDownloaderRegistry>(_registry.Object);
         _ctx.Services.AddSingleton<IDbContextFactory<MelodyBridgeDbContext>>(dbFactory);
 
+        // Account providers over the same real (in-memory) settings store.
+        var tokenStore = new MelodyBridge.Infrastructure.Accounts.AccountTokenStore(dbFactory, Microsoft.Extensions.Logging.Abstractions.NullLogger<MelodyBridge.Infrastructure.Accounts.AccountTokenStore>.Instance);
+        _ctx.Services.AddSingleton(tokenStore);
+        _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Accounts.SpotifyAccountProvider(
+            tokenStore, Microsoft.Extensions.Logging.Abstractions.NullLogger<
+                MelodyBridge.Infrastructure.Accounts.SpotifyAccountProvider>.Instance));
+        _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Accounts.YouTubeAccountProvider(
+            tokenStore, Microsoft.Extensions.Logging.Abstractions.NullLogger<
+                MelodyBridge.Infrastructure.Accounts.YouTubeAccountProvider>.Instance));
+
         // Logging services required by the Settings page
         var logCollector = new LogCollector();
         _ctx.Services.AddSingleton<ILogCollector>(logCollector);
@@ -118,6 +128,34 @@ public class SettingsPageTests
         var cut = _ctx.Render<Settings>();
         var btns = cut.FindAll("button");
         Assert.That(btns.Any(b => b.TextContent.Trim().Contains("Save all settings")), Is.True);
+    }
+
+    [Test]
+    public void Settings_ShowsAccountsPanel()
+    {
+        var cut = _ctx.Render<Settings>();
+
+        Assert.That(cut.Markup, Does.Contain("Connect Spotify"),
+            "the accounts panel must be on the settings page");
+        Assert.That(cut.Markup, Does.Contain("Connect Spotify"));
+        Assert.That(cut.Markup, Does.Contain("Connect YouTube"));
+        Assert.That(cut.Markup, Does.Contain("not connected"),
+            "a fresh install shows both accounts as disconnected");
+    }
+
+    [Test]
+    public async Task Settings_AccountStatus_ReflectsRealStoredTokens()
+    {
+        // Tokens written through the real store on the real (in-memory)
+        // database must flip the rendered status pill.
+        var tokenStore = _ctx.Services
+            .GetRequiredService<MelodyBridge.Infrastructure.Accounts.AccountTokenStore>();
+        await tokenStore.SaveTokensAsync("Spotify", new MelodyBridge.Core.AccountTokens(
+            "access", "refresh", DateTime.UtcNow.AddHours(1)));
+
+        var cut = _ctx.Render<Settings>();
+        Assert.That(cut.Markup, Does.Contain("Disconnect"),
+            "a connected account shows a disconnect button");
     }
 
     private class TestDownloader : IDownloader

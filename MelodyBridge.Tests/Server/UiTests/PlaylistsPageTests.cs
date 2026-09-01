@@ -30,7 +30,15 @@ public class PlaylistsPageTests
         var downloadManager = new Application.Services.DownloadManager(
             new EmptyRegistry(),
             NullLogger<Application.Services.DownloadManager>.Instance);
-        _ctx.Services.AddSingleton(new PlaylistStore(
+        var tokenStore = new MelodyBridge.Infrastructure.Accounts.AccountTokenStore(factory, Microsoft.Extensions.Logging.Abstractions.NullLogger<MelodyBridge.Infrastructure.Accounts.AccountTokenStore>.Instance);
+            _ctx.Services.AddSingleton(tokenStore);
+            _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Accounts.SpotifyAccountProvider(
+                tokenStore, Microsoft.Extensions.Logging.Abstractions.NullLogger<
+                    MelodyBridge.Infrastructure.Accounts.SpotifyAccountProvider>.Instance));
+            _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Accounts.YouTubeAccountProvider(
+                tokenStore, Microsoft.Extensions.Logging.Abstractions.NullLogger<
+                    MelodyBridge.Infrastructure.Accounts.YouTubeAccountProvider>.Instance));
+            _ctx.Services.AddSingleton(new PlaylistStore(
             factory,
             Array.Empty<ISourceProvider>(),
             downloadManager,

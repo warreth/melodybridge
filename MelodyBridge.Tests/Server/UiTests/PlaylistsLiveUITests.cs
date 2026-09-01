@@ -44,7 +44,15 @@ public class PlaylistsLiveUITests
             new EmptyDownloaderRegistry(),
             NullLogger<Application.Services.DownloadManager>.Instance);
 
-        _ctx.Services.AddSingleton(new PlaylistStore(factory, providers, downloadManager, NullLogger<PlaylistStore>.Instance));
+        var tokenStore = new MelodyBridge.Infrastructure.Accounts.AccountTokenStore(factory, Microsoft.Extensions.Logging.Abstractions.NullLogger<MelodyBridge.Infrastructure.Accounts.AccountTokenStore>.Instance);
+            _ctx.Services.AddSingleton(tokenStore);
+            _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Accounts.SpotifyAccountProvider(
+                tokenStore, Microsoft.Extensions.Logging.Abstractions.NullLogger<
+                    MelodyBridge.Infrastructure.Accounts.SpotifyAccountProvider>.Instance));
+            _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Accounts.YouTubeAccountProvider(
+                tokenStore, Microsoft.Extensions.Logging.Abstractions.NullLogger<
+                    MelodyBridge.Infrastructure.Accounts.YouTubeAccountProvider>.Instance));
+            _ctx.Services.AddSingleton(new PlaylistStore(factory, providers, downloadManager, NullLogger<PlaylistStore>.Instance));
     }
 
     [TearDown]
