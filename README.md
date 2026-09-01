@@ -6,12 +6,34 @@
 
 ## Quick start
 
+You need Docker (or Podman with `podman-compose`) and nothing else.
+
 ```bash
 git clone https://github.com/warreth/melodybridge
 cd melodybridge
-docker compose up -d
-# open http://localhost:3333
+docker compose up -d --build
 ```
+
+That starts two containers on one internal network:
+
+- **melodybridge** on http://localhost:3333 (bound to 127.0.0.1, so not
+  reachable from other machines without an explicit reverse proxy)
+- **flaresolverr**, the Cloudflare solver for the Lucida plugin, internal
+  only (no published port)
+
+It also creates `./data/` with `music/`, `playlists/` and `app/` (the
+SQLite database) so your files survive rebuilds. Point Jellyfin at
+`./data/music`.
+
+Podman works the same:
+
+```bash
+podman compose up -d --build   # or: podman-compose up -d --build
+```
+
+Open http://localhost:3333, go to Settings, and enter your Jellyfin base
+URL and API key (Jellyfin running on the host is reachable from the
+container as `http://host.docker.internal:8096`).
 
 The Docker image ships with yt-dlp and ffmpeg preinstalled.
 
@@ -24,6 +46,17 @@ pip3 install --user --break-system-packages yt-dlp
 ```
 
 [Configuration →](docs/docker.md)
+
+---
+
+## Development
+
+The dev compose (`docker-compose.yml`) runs the same stack with verbose
+logging and the dev panel (`/dev`) enabled:
+
+```bash
+docker compose -f docker-compose.yml up -d --build
+```
 
 ---
 

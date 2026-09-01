@@ -1,18 +1,36 @@
 # Docker Deployment Guide
 
-Run MelodyBridge as a self-hosted service using Docker.
+Run MelodyBridge as a self-hosted service using Docker or Podman.
 
 ---
 
 ## Quick Start
 
 ```bash
-git clone https://github.com/yourusername/melodybridge.git
+git clone https://github.com/warreth/melodybridge.git
 cd melodybridge
-docker compose up -d
+docker compose up -d --build
 ```
 
 Open [http://localhost:3333](http://localhost:3333).
+
+This uses [compose.yml](../compose.yml), the hardened user-facing setup:
+two containers (melodybridge + flaresolverr) on one internal network,
+the app bound to `127.0.0.1` only, and a `./data/` directory for
+everything that should survive rebuilds.
+
+Podman works identically:
+
+```bash
+podman compose up -d --build   # or: podman-compose up -d --build
+```
+
+For development (verbose logging, dev panel on `/dev`), use the dev
+compose instead:
+
+```bash
+docker compose -f docker-compose.yml up -d --build
+```
 
 ---
 
@@ -23,7 +41,8 @@ docker build -t melodybridge:latest .
 docker run -d \
   -v ./data/music:/music \
   -v ./data/playlists:/app/playlists \
-  -p 3333:80 \
+  -v ./data/app:/app \
+  -p 127.0.0.1:3333:80 \
   -e ASPNETCORE_ENVIRONMENT=Production \
   -e Jellyfin__BaseUrl=http://your-jellyfin:8096 \
   -e Jellyfin__ApiKey=your-api-key \
@@ -34,26 +53,31 @@ docker run -d \
 
 ## Configuration
 
-See [docker-compose.yml](../docker-compose.yml) for the full setup with dev defaults.
+See [compose.yml](../compose.yml) for the user setup and
+[docker-compose.yml](../docker-compose.yml) for the dev defaults.
 
 ### Environment Variables
 
 | Variable | Default | Description |
 |---|---|---|
-| `ASPNETCORE_ENVIRONMENT` | `Development` | Set to `Production` for deployment |
+| `ASPNETCORE_ENVIRONMENT` | `Production` | Set to `Development` for dev |
 | `ASPNETCORE_URLS` | `http://+:80` | Server binding address |
-| `ASPNETCORE_DETAILEDERRORS` | `true` | Detailed error pages (dev only) |
-| `Jellyfin__BaseUrl` | `http://host.docker.internal:8096` | Jellyfin server URL |
-| `Jellyfin__ApiKey` | *(empty)* | Jellyfin API key |
+| `JELLYFIN_URL` | `http://host.docker.internal:8096` | Jellyfin server URL |
+| `JELLYFIN_API_KEY` | *(empty)* | Jellyfin API key |
+| `JELLYFIN_USER_ID` | *(empty)* | Jellyfin user for liked-song favorites |
 | `DevPanel__Enabled` | `false` | Enable the /dev testing dashboard |
-| `Logging__LogLevel__Default` | `Information` | Default log level |
+| `FlareSolverr__Url` | `http://flaresolverr:8191` | Cloudflare solver endpoint (`off` disables Lucida) |
+
+The Settings page in the app overrides the Jellyfin values: whatever is
+saved in the database wins over these environment variables.
 
 ### Volumes
 
 | Host Path | Container Path | Purpose |
 |---|---|---|
-| `./data/music` | `/music` | Music file storage |
+| `./data/music` | `/music` | Music file storage (point Jellyfin here) |
 | `./data/playlists` | `/app/playlists` | Generated playlist output |
+| `./data/app` | `/app` | SQLite database and app state |
 
 ---
 
@@ -65,7 +89,7 @@ The Docker image includes `yt-dlp` and `ffmpeg` pre-installed for YouTube and ge
 
 ## Production Checklist
 
-1. Set `ASPNETCORE_ENVIRONMENT=Production`
+1. Keep the `127.0.0.1` port binding unless you expose the app through a reverse proxy
 2. Configure a reverse proxy (nginx, Caddy, Traefik) for TLS
-3. Set `Jellyfin__ApiKey` via environment or secrets
-4. Remove `ASPNETCORE_DETAILEDERRORS=true` in production
+3. Set `JELLYFIN_API_KEY` through a `.env` file or your platform's secrets, not a committed file
+4. Never publish the flaresolverr port to the host; the internal network is enough

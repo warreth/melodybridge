@@ -1,0 +1,51 @@
+# Production compose for end users: MelodyBridge + FlareSolverr on one
+# internal network. Start with:  docker compose up -d
+# Then open http://localhost:3333 and configure Jellyfin in Settings.
+
+services:
+  # Cloudflare solver for the Lucida plugin. Only reachable on the
+  # internal compose network, never published to the host.
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    container_name: flaresolverr
+    environment:
+      - LOG_LEVEL=info
+      - TZ=Europe/Amsterdam
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:8191/health >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    security_opt:
+      - no-new-privileges:true
+
+  melodybridge:
+    build: .
+    image: melodybridge:local
+    container_name: melodybridge
+    depends_on:
+      flaresolverr:
+        condition: service_healthy
+    # Reaches a Jellyfin running on the host through this alias.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "127.0.0.1:3333:80"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:80
+      - Logging__LogLevel__Default=Information
+      - Jellyfin__BaseUrl=${JELLYFIN_URL:-http://host.docker.internal:8096}
+      - Jellyfin__ApiKey=${JELLYFIN_API_KEY:-}
+      - Jellyfin__UserId=${JELLYFIN_USER_ID:-}
+      - DevPanel__Enabled=false
+      - FlareSolverr__Url=http://flaresolverr:8191
+    volumes:
+      - ./data/music:/music
+      - ./data/playlists:/app/playlists
+      - ./data/app:/app
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true

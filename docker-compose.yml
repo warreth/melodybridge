@@ -1,21 +1,22 @@
-version: "3.8"
+# Development compose: builds MelodyBridge from the repo, runs it with
+# verbose logging and the dev panel enabled, next to FlareSolverr.
+# Start with:  docker compose -f docker-compose.yml up -d --build
+# The app listens on http://localhost:3333 (dev panel /dev).
 
 services:
-  # Solves Cloudflare challenges for the Lucida plugin (optional).
-  # Remove this block when you do not use Lucida.
+  # Solves Cloudflare challenges for the Lucida plugin.
   flaresolverr:
     image: ghcr.io/flaresolverr/flaresolverr:latest
-    container_name: melodybridge_flaresolverr
+    container_name: melodybridge_dev_flaresolverr
     environment:
       - LOG_LEVEL=info
       - TZ=Europe/Amsterdam
     restart: unless-stopped
-    # Expose only to the docker network; melodybridge reaches it by name.
 
   melodybridge:
     build: .
-    image: melodybridge:local
-    container_name: melodybridge_local
+    image: melodybridge:dev
+    container_name: melodybridge_dev
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
@@ -27,17 +28,12 @@ services:
       - Logging__LogLevel__Default=Information
       - Logging__LogLevel__Microsoft=Debug
       - Logging__LogLevel__System=Debug
-      - Logging__LogLevel__Microsoft_AspNetCore_SignalR=Debug
-      - Logging__LogLevel__Microsoft_AspNetCore_Components=Debug
-      - Logging__LogLevel__Microsoft_AspNetCore_Components_Server_Circuits=Debug
-      # Default Jellyfin base URL (override in env or compose override)
       - Jellyfin__BaseUrl=http://host.docker.internal:8096
       - Jellyfin__ApiKey=
-      # Dev panel — set to true to enable the /dev testing dashboard
       - DevPanel__Enabled=true
-      # Cloudflare solver for the Lucida plugin (uses the flaresolverr service above)
       - FlareSolverr__Url=http://flaresolverr:8191
     volumes:
       - ./data/music:/music
       - ./data/playlists:/app/playlists
+      - ./data/app:/app
     restart: unless-stopped
