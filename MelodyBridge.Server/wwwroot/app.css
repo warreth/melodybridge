@@ -286,6 +286,11 @@ code { color: var(--accent-strong); background: var(--accent-soft); border-radiu
     background: var(--surface-2);
     color: var(--muted);
 }
+.account-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1rem; }
+.account-card { display: flex; flex-direction: column; gap: .6rem; padding: 1rem; border: 1px solid var(--border); border-radius: var(--radius); }
+.account-card .pill { align-self: flex-start; }
+.account-card label { margin: 0; }
+
 .qi-warn { color: var(--warning); font-weight: 600; margin-left: .5rem; }
 
 .pill.ok { color: var(--success); background: color-mix(in srgb, var(--success) 12%, transparent); }
@@ -594,6 +599,11 @@ textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent
 .result-box.error { background: rgba(239, 68, 68, .1); color: var(--danger); border: 1px solid var(--danger); }
 
 /* -- Pills ----------------------------------------------- */
+.account-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1rem; }
+.account-card { display: flex; flex-direction: column; gap: .6rem; padding: 1rem; border: 1px solid var(--border); border-radius: var(--radius); }
+.account-card .pill { align-self: flex-start; }
+.account-card label { margin: 0; }
+
 .qi-warn { color: var(--warning); font-weight: 600; margin-left: .5rem; }
 
 .pill.ok { background: var(--accent-soft); color: var(--accent-strong); }

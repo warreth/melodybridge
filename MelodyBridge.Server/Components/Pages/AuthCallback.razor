@@ -1,0 +1,87 @@
+@page "/auth/callback"
+@using MelodyBridge.Core
+@using MelodyBridge.Infrastructure.Accounts
+
+@inject SpotifyAccountProvider Spotify
+@inject YouTubeAccountProvider YouTube
+@inject NavigationManager Nav
+
+@* The OAuth landing page: Spotify and YouTube redirect here after login.
+   The provider exchanges the code; the user sees a clear success or error
+   and goes back to the accounts panel. *@
+
+<PageTitle>Connecting account</PageTitle>
+
+<section class="panel-card narrow">
+    <div class="panel-header">
+        <div>
+            <span class="eyebrow">Accounts</span>
+            <h2>Connecting your account</h2>
+        </div>
+    </div>
+
+    @if (done)
+    {
+        <div class="workflow-list">
+            <div class="workflow-step done">
+                <span class="step-icon">✓</span>
+                <span>@message</span>
+            </div>
+        </div>
+        <p class="text-muted">You can close this window, or <a href="/settings#accounts">go back to the accounts settings</a>.</p>
+    }
+    else if (error is not null)
+    {
+        <div class="log-error-banner">@error</div>
+        <p class="text-muted"><a href="/settings#accounts">Back to the accounts settings</a> and try connecting again.</p>
+    }
+    else
+    {
+        <div class="workflow-step todo">
+            <span class="step-icon">…</span>
+            <span>Finishing the login, one moment</span>
+        </div>
+    }
+</section>
+
+@code {
+    private bool done;
+    private string? error;
+    private string message = string.Empty;
+
+    [Parameter]
+    [SupplyParameterFromQuery]
+    public string? Provider { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        var query = new Uri(Nav.Uri).Query;
+        try
+        {
+            if (string.IsNullOrWhiteSpace(query))
+                throw new InvalidOperationException("This page is only reached from a login redirect.");
+
+            IAccountSourceProvider? provider = Provider?.ToLowerInvariant() switch
+            {
+                "spotify" => Spotify,
+                "youtube" => (IAccountSourceProvider)YouTube,
+                _ => null,
+            };
+            if (provider is null)
+                throw new InvalidOperationException($"Unknown provider '{Provider}'.");
+
+            // The redirect URL this page runs on, as registered in the
+            // platform's app settings.
+            var baseUri = Nav.ToBaseRelativePath(Nav.Uri);
+            var pagePath = baseUri.Contains('?') ? baseUri[..baseUri.IndexOf('?')] : baseUri;
+            var redirectUrl = Nav.Uri[..^pagePath.Length] + "auth/callback";
+
+            message = await provider.CompleteLoginAsync(query, redirectUrl);
+            done = true;
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+        }
+    }
+}

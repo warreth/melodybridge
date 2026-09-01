@@ -1,5 +1,6 @@
 @page "/settings"
 @using MelodyBridge.Core
+@using MelodyBridge.Infrastructure.Accounts
 @using MelodyBridge.Infrastructure.Audio
 @using MelodyBridge.Infrastructure.Cloudflare
 @using MelodyBridge.Infrastructure.Services
@@ -8,6 +9,8 @@
 @inject IDbContextFactory<MelodyBridgeDbContext> DbFactory
 @inject LogExporter Exporter
 @inject NavigationManager Nav
+@inject SpotifyAccountProvider SpotifyAccount
+@inject YouTubeAccountProvider YouTubeAccount
 @implements IDisposable
 
 <PageTitle>Settings</PageTitle>
@@ -22,6 +25,67 @@
 </section>
 
 <section class="content-grid two">
+    <div class="panel-card" id="accounts">
+        <div class="panel-header">
+            <div><span class="eyebrow">Accounts</span>
+                <h2>Spotify &amp; YouTube</h2>
+            </div>
+        </div>
+        <div class="hint-box">
+            Connect your accounts to import private playlists and your liked
+            songs. MelodyBridge only asks for read access: it never changes
+            anything on your account.
+        </div>
+
+        <div class="account-grid">
+            <div class="account-card">
+                <strong>Spotify</strong>
+                <span class="pill @(_spotifyConnected ? "ok" : "neutral")">
+                    @(_spotifyConnected ? "connected" : "not connected")
+                </span>
+                @if (_spotifyConnected)
+                {
+                    <button class="btn-modern subtle" @onclick="() => Logout(SpotifyAccount)">Disconnect</button>
+                }
+                else
+                {
+                    <label>
+                        Client ID (from developer.spotify.com)
+                        <input @bind="spotifyClientId" placeholder="Spotify app Client ID" />
+                    </label>
+                    <button class="btn-modern primary" @onclick="ConnectSpotify">Connect Spotify</button>
+                }
+            </div>
+
+            <div class="account-card">
+                <strong>YouTube</strong>
+                <span class="pill @(_youtubeConnected ? "ok" : "neutral")">
+                    @(_youtubeConnected ? "connected" : "not connected")
+                </span>
+                @if (_youtubeConnected)
+                {
+                    <button class="btn-modern subtle" @onclick="() => Logout(YouTubeAccount)">Disconnect</button>
+                }
+                else
+                {
+                    <label>
+                        Client ID (Google Cloud Console, OAuth Web application)
+                        <input @bind="youtubeClientId" placeholder="OAuth client ID" />
+                    </label>
+                    <label>
+                        Client secret
+                        <input @bind="youtubeClientSecret" type="password" placeholder="OAuth client secret" />
+                    </label>
+                    <button class="btn-modern primary" @onclick="ConnectYouTube">Connect YouTube</button>
+                }
+            </div>
+        </div>
+        @if (accountMessage is not null)
+        {
+            <div class="toast-preview">@accountMessage</div>
+        }
+    </div>
+
     <div class="panel-card">
         <div class="panel-header">
             <div><span class="eyebrow">Media server</span>
@@ -214,6 +278,66 @@
         syncCheckIntervalSec = int.Parse(FindSetting(settings, "sync_check_interval", "300"));
         spectrumMode = FindSetting(settings, "spectrum_mode", Config?["SpectrumAnalysis:Mode"] ?? "Fast");
         flaresolverrUrl = FindSetting(settings, "flaresolverr_url", Config?["FlareSolverr:Url"] ?? "off");
+
+        _spotifyConnected = await SpotifyAccount.IsConnectedAsync();
+        _youtubeConnected = await YouTubeAccount.IsConnectedAsync();
+        spotifyClientId = await SpotifyAccount.GetSettingAsync("client_id") ?? string.Empty;
+        youtubeClientId = await YouTubeAccount.GetSettingAsync("client_id") ?? string.Empty;
+        youtubeClientSecret = await YouTubeAccount.GetSettingAsync("client_secret") ?? string.Empty;
+    }
+
+    private bool _spotifyConnected;
+    private bool _youtubeConnected;
+    private string accountMessage;
+    private string spotifyClientId = string.Empty;
+    private string youtubeClientId = string.Empty;
+    private string youtubeClientSecret = string.Empty;
+
+    /// <summary>The page's own URL, as registered as the OAuth redirect.</summary>
+    private string RedirectUrl => Nav.ToAbsoluteUri("auth/callback").ToString();
+
+    private async Task Connect(IAccountSourceProvider provider, string? clientId = null)
+    {
+        try
+        {
+            accountMessage = null;
+            if (clientId is not null)
+            {
+                // The typed client id is saved first: BeginLogin needs it.
+                var value = clientId.Trim();
+                if (value.Length == 0)
+                    throw new InvalidOperationException("Paste the Client ID first.");
+                await provider.SaveSettingAsync("client_id", value);
+            }
+            var loginUrl = await provider.BeginLoginAsync(RedirectUrl);
+            Nav.NavigateTo(loginUrl, forceLoad: true);
+        }
+        catch (Exception ex)
+        {
+            accountMessage = ex.Message;
+        }
+    }
+
+    private Task ConnectSpotify() => Connect(SpotifyAccount, spotifyClientId);
+
+    private async Task ConnectYouTube()
+    {
+        if (youtubeClientId.Trim().Length == 0 || youtubeClientSecret.Trim().Length == 0)
+        {
+            accountMessage = "Paste both the YouTube client id and secret first.";
+            return;
+        }
+        await YouTubeAccount.SaveSettingAsync("client_id", youtubeClientId.Trim());
+        await YouTubeAccount.SaveSettingAsync("client_secret", youtubeClientSecret.Trim());
+        await Connect(YouTubeAccount);
+    }
+
+    private async Task Logout(IAccountSourceProvider provider)
+    {
+        await provider.LogoutAsync();
+        _spotifyConnected = await SpotifyAccount.IsConnectedAsync();
+        _youtubeConnected = await YouTubeAccount.IsConnectedAsync();
+        accountMessage = "Account disconnected";
     }
 
     private static string FindSetting(List<DownloaderSettingEntity> settings, string key, string fallback)

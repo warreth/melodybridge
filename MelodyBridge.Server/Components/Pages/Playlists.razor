@@ -1,9 +1,13 @@
 @page "/playlists"
+
+@using MelodyBridge.Infrastructure.Accounts
 @using MelodyBridge.Core
 @using MelodyBridge.Infrastructure.Data
 @inject PlaylistStore Store
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
+@inject SpotifyAccountProvider SpotifyAccount
+@inject YouTubeAccountProvider YouTubeAccount
 
 <PageTitle>Playlists - MelodyBridge</PageTitle>
 
@@ -11,14 +15,15 @@
     <div>
         <span class="eyebrow">Sources</span>
         <h1>Playlists</h1>
-        <p>Save a public Spotify or YouTube playlist here. Its tracks are stored so you can download them later.</p>
+        <p>Save a public Spotify or YouTube playlist here, or import everything from your connected account.</p>
     </div>
     <div class="topbar-actions">
         <button class="btn-modern ghost" @onclick="ExportAll" disabled="@busy">Export</button>
         <label class="btn-modern ghost" style="margin:0;">
-            Import
+            Import file
             <InputFile OnChange="ImportFile" accept=".json" style="display:none;" />
         </label>
+        <button class="btn-modern ghost" @onclick="ShowAccountPanel">From my account</button>
         <button class="btn-modern primary" @onclick="ShowAddForm">Add playlist</button>
     </div>
 </section>
@@ -143,6 +148,81 @@ else
             </div>
         </div>
     </div>
+
+    @* ── Import from account (private playlists + liked songs) ── *@
+    @if (showAccountPanel)
+    {
+        <div class="wizard-overlay">
+            <div class="wizard-modal">
+                <div class="panel-header">
+                    <div>
+                        <span class="eyebrow">Accounts</span>
+                        <h2>Import from your account</h2>
+                    </div>
+                    <button class="btn-modern subtle" @onclick="HideAccountPanel">Close</button>
+                </div>
+
+                <div class="account-grid">
+                    @foreach (var entry in accountPanels)
+                    {
+                        <div class="account-card">
+                            <strong>@entry.Name</strong>
+                            @if (entry.Connected)
+                            {
+                                <span class="pill ok">connected</span>
+                                <button class="btn-modern" @onclick="() => ImportLiked(entry.Name)" disabled="@busy">
+                                    Import liked songs
+                                </button>
+                                <button class="btn-modern" @onclick="() => LoadAccountPlaylists(entry.Name)" disabled="@busy">
+                                    Show my playlists
+                                </button>
+                            }
+                            else
+                            {
+                                <span class="pill neutral">not connected</span>
+                                <span class="text-muted">Connect it on the Settings page.</span>
+                            }
+                        </div>
+                    }
+                </div>
+
+                @if (accountPlaylists is not null)
+                {
+                    <div class="table-wrap">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Playlist</th>
+                                    <th>Owner</th>
+                                    <th>Tracks</th>
+                                    <th></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var pl in accountPlaylists)
+                                {
+                                    <tr>
+                                        <td><strong>@pl.Name</strong></td>
+                                        <td class="text-muted">@(pl.Owner ?? "-")</td>
+                                        <td class="text-muted">@pl.TrackCount</td>
+                                        <td>
+                                            <button class="btn-modern" @onclick="() => ImportAccountPlaylist(pl)" disabled="@busy">
+                                                @(busy && importingId == pl.Id ? "Importing…" : "Import")
+                                            </button>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+                @if (accountError is not null)
+                {
+                    <div class="result-box error">@accountError</div>
+                }
+            </div>
+        </div>
+    }
 }
 
 @code {
@@ -161,6 +241,102 @@ else
     private string message = string.Empty;
     private bool messageIsError;
     private string addError = string.Empty;
+
+    private bool showAccountPanel;
+    private List<UserPlaylist>? accountPlaylists;
+    private string accountListProvider = string.Empty;
+    private string? importingId;
+    private string? accountError;
+    private List<(string Name, bool Connected)> accountPanels = new();
+
+    private void ShowAccountPanel()
+    {
+        showAccountPanel = true;
+        accountError = null;
+        accountPlaylists = null;
+        _ = LoadAccountStatusAsync();
+    }
+
+    private void HideAccountPanel() => showAccountPanel = false;
+
+    private async Task LoadAccountStatusAsync()
+    {
+        accountPanels = new List<(string, bool)>
+        {
+            (SpotifyAccountProvider.ProviderName, await SpotifyAccount.IsConnectedAsync()),
+            (YouTubeAccountProvider.ProviderName, await YouTubeAccount.IsConnectedAsync()),
+        };
+        StateHasChanged();
+    }
+
+    private async Task LoadAccountPlaylists(string providerName)
+    {
+        busy = true;
+        accountError = null;
+        try
+        {
+            var account = providerName == SpotifyAccountProvider.ProviderName
+                ? SpotifyAccount : (IAccountSourceProvider)YouTubeAccount;
+            accountPlaylists = (await account.GetUserPlaylistsAsync()).ToList();
+            accountListProvider = providerName;
+        }
+        catch (Exception ex)
+        {
+            accountError = ex.Message;
+        }
+        finally
+        {
+            busy = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ImportLiked(string providerName)
+    {
+        busy = true;
+        accountError = null;
+        try
+        {
+            var added = await Store.AddOrRefreshLikedAsync(providerName, newTargetDirectory);
+            Navigation.NavigateTo($"/playlist/{added.Id}");
+        }
+        catch (Exception ex)
+        {
+            accountError = ex.Message;
+        }
+        finally
+        {
+            busy = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ImportAccountPlaylist(UserPlaylist playlist)
+    {
+        busy = true;
+        importingId = playlist.Id;
+        accountError = null;
+        try
+        {
+            // Both platforms can import through the plain add flow: the
+            // store prefers the account when one is connected, and private
+            // playlists then work too.
+            var url = accountListProvider == SpotifyAccountProvider.ProviderName
+                ? $"https://open.spotify.com/playlist/{playlist.Id}"
+                : $"https://www.youtube.com/playlist?list={playlist.Id}";
+            var added = await Store.AddOrRefreshAsync(url, newTargetDirectory);
+            Navigation.NavigateTo($"/playlist/{added.Id}");
+        }
+        catch (Exception ex)
+        {
+            accountError = ex.Message;
+        }
+        finally
+        {
+            busy = false;
+            StateHasChanged();
+        }
+    }
 
     protected override async Task OnInitializedAsync() => await Load();
 
