@@ -12,6 +12,9 @@ public class Track
     public SyncStatus SyncStatus { get; set; }
     public MediaType MediaType { get; set; }
     public FileLocation? CurrentTrackLocation { get; set; }
+
+    /// <summary>True when the track is one of the user's liked songs.</summary>
+    public bool IsLiked { get; set; }
 }
 
 public class Playlist

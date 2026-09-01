@@ -129,6 +129,9 @@ public class TrackEntity
     /// spectral quality doubts. Null when everything is fine.
     /// </summary>
     public string? Warning { get; set; }
+
+    /// <summary>True when this track is one of the user's liked songs.</summary>
+    public bool IsLiked { get; set; }
     public DateTime? LastSeenAt { get; set; }
     public int? PlaylistSnapshotId { get; set; }
 }
