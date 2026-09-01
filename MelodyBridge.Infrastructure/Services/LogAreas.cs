@@ -30,28 +30,53 @@ public static class LogAreas
         return "System";
     }
 
+    // One row per logger the app actually creates, ordered so the most
+    // specific keyword wins (substring matching walks top to bottom).
     private static readonly (string Keyword, string Area)[] Keywords =
     {
+        // Playlists: the store that fetches and downloads playlist tracks.
         ("PlaylistStore", "Playlists"),
+
+        // Sources: playlist import providers (public and account).
         ("SpotifySourceProvider", "Sources"),
         ("YouTubeSourceProvider", "Sources"),
+        ("SpotifyAccountProvider", "Sources"),
+        ("YouTubeAccountProvider", "Sources"),
+        ("AccountTokenStore", "Sources"),
         ("SourceProvider", "Sources"),
+
+        // Downloads: the manager, coordinator, registry and every plugin.
         ("DownloadManager", "Downloads"),
-        ("Downloader", "Downloads"),
+        ("DownloadCoordinator", "Downloads"),
+        ("DownloaderRegistry", "Downloads"),
+        ("Lucida", "Downloads"),
         ("SoundCloud", "Downloads"),
         ("ArchiveOrg", "Downloads"),
         ("YtDlp", "Downloads"),
+        ("Downloader", "Downloads"),
+        ("BitrateProbe", "Downloads"),
+        ("Spectrum", "Downloads"),
+
+        // Library: scanning the disk and watching folders.
         ("LibraryScanner", "Library"),
+        ("LibraryReconciler", "Library"),
         ("FileSystemMonitor", "Library"),
         ("FileSystemMonitoring", "Library"),
         ("ScanScheduling", "Library"),
+
+        // Sync: jobs, the engine, the background services, outputs.
         ("SyncJobRunner", "Sync"),
         ("SyncEngine", "Sync"),
+        ("SyncController", "Sync"),
         ("AutoSync", "Sync"),
+        ("JellyfinSync", "Sync"),
         ("Jellyfin", "Sync"),
+        ("M3uGenerator", "Sync"),
+
+        // Database: EF Core internals and our context.
+        ("MelodyBridgeDbContext", "Database"),
         ("DbContext", "Database"),
         ("Database", "Database"),
-        ("MelodyBridgeDbContext", "Database"),
         ("Command", "Database"),
     };
 }

@@ -70,6 +70,18 @@
             </button>
         }
     </div>
+    <div class="filter-chips">
+        <button class="filter-chip @(selectedLevel is null ? "active" : "")" @onclick="() => SelectLevel(null)">
+            All levels
+        </button>
+        @foreach (var levelFilter in LevelFilters)
+        {
+            <button class="filter-chip @(selectedLevel?.Label == levelFilter.Label ? "active" : "")"
+                    @onclick="() => SelectLevel(levelFilter)">
+                @levelFilter.Label
+            </button>
+        }
+    </div>
 
     @if (filtered.Count == 0)
     {
@@ -105,10 +117,21 @@
     private int totalEntries;
     private int errorCount;
     private string? selectedArea;
+    private LevelFilter? selectedLevel;
     private bool showingErrorsOnly;
     private string searchText = string.Empty;
     private string? statusMessage;
     private Timer? _timer;
+
+    private sealed record LevelFilter(string Label, LogLevel[] Levels);
+
+    /// <summary>Level chips: Error covers Error and Critical.</summary>
+    private static readonly LevelFilter[] LevelFilters =
+    {
+        new("Info", new[] { LogLevel.Info, LogLevel.Debug, LogLevel.Trace }),
+        new("Warning", new[] { LogLevel.Warn }),
+        new("Error", new[] { LogLevel.Error, LogLevel.Critical }),
+    };
 
     private bool FilteredEmpty => filtered.Count == 0;
 
@@ -132,19 +155,20 @@
     }
 
     private static bool IsError(LogEntry e)
-        => e.Level is LogLevel.Error or LogLevel.Critical;
-
-    private bool Matches(LogEntry e)
+        => e.Level is LogLevel.Error or LogLevel.Critical;    private bool Matches(LogEntry e)
     {
         if (showingErrorsOnly && !IsError(e))
             return false;
         if (selectedArea is not null && LogAreas.FromCategory(e.Category) != selectedArea)
             return false;
+        if (selectedLevel is not null && !selectedLevel.Levels.Contains(e.Level))
+            return false;
         if (string.IsNullOrWhiteSpace(searchText))
             return true;
         return e.Message?.Contains(searchText, StringComparison.OrdinalIgnoreCase) == true
-            || e.Category?.Contains(searchText, StringComparison.OrdinalIgnoreCase) == true;
-    }
+            || e.Category?.Contains(searchText, StringComparison.OrdinalIgnoreCase) == true
+            || LogAreas.FromCategory(e.Category).Contains(searchText, StringComparison.OrdinalIgnoreCase);
+}
 
     private static string LevelClass(LogLevel level) => level switch
     {
@@ -156,6 +180,12 @@
     private void SelectArea(string? area)
     {
         selectedArea = area;
+        Refresh();
+    }
+
+    private void SelectLevel(LevelFilter? level)
+    {
+        selectedLevel = level;
         Refresh();
     }
 

@@ -82,14 +82,55 @@ public class LogsPageTests
         var cut = _ctx.Render<Logs>();
 
         var chips = cut.FindAll(".filter-chip");
-        Assert.That(chips.Count, Is.EqualTo(LogAreas.All.Length + 1),
-            "one chip per area plus All areas");
+        Assert.That(chips.Count, Is.EqualTo(LogAreas.All.Length + 1 + 3 + 1),
+            "one chip per area plus All areas, plus Info/Warning/Error plus All levels");
 
         cut.FindAll(".filter-chip").Single(c => c.TextContent == "Downloads").Click();
 
         Assert.That(cut.Markup, Does.Contain("download finished"));
         Assert.That(cut.Markup, Does.Not.Contain("playlist synced"),
             "selecting an area must hide other areas' entries");
+    }
+
+    [Test]
+    public void Logs_LevelChipFiltersStream()
+    {
+        _collector.Log(LogLevel.Info, "MelodyBridge.Infrastructure.Services.PlaylistStore", "playlist synced");
+        _collector.Log(LogLevel.Warn, "MelodyBridge.Infrastructure.Services.PlaylistStore", "bitrate looks inflated");
+
+        var cut = _ctx.Render<Logs>();
+
+        // Warning only: the stream keeps the warning and hides the info row.
+        cut.FindAll(".filter-chip").Single(c => c.TextContent == "Warning").Click();
+        Assert.That(cut.Markup, Does.Contain("bitrate looks inflated"));
+        Assert.That(cut.FindAll(".logs-list .log-row").Count(), Is.EqualTo(1),
+            "Info must be hidden from the stream");
+        Assert.That(cut.FindAll(".logs-list .log-level").Single().TextContent,
+            Is.EqualTo("WARN"));
+
+        // Error chip must cover Critical too.
+        _collector.Log(LogLevel.Error, "MelodyBridge.Infrastructure.Services.PlaylistStore", "download failed hard");
+        _collector.Log(LogLevel.Critical, "MelodyBridge.Infrastructure.Services.PlaylistStore", "fatal crash");
+        cut.FindAll(".filter-chip").Single(c => c.TextContent == "Error").Click();
+
+        var levels = cut.FindAll(".logs-list .log-level").Select(l => l.TextContent).ToList();
+        Assert.That(levels, Is.EqualTo(new[] { "CRITICAL", "ERROR" }),
+            "Error and Critical both count as the Error level, newest first");
+    }
+
+    [Test]
+    public void Logs_SearchMatchesFriendlyAreaName()
+    {
+        _collector.Log(LogLevel.Info, "MelodyBridge.Infrastructure.Services.PlaylistStore", "added Techno");
+        _collector.Log(LogLevel.Info, "MelodyBridge.Application.Services.DownloadManager", "downloaded a file");
+
+        var cut = _ctx.Render<Logs>();
+
+        cut.Find("input[placeholder='Search text...']")
+            .Input(new ChangeEventArgs { Value = "playlists" });
+
+        Assert.That(cut.Markup, Does.Contain("added Techno"),
+            "searching the friendly area name must find its entries");
     }
 
     [Test]
