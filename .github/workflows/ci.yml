@@ -3,8 +3,6 @@ name: CI
 on:
   push:
     branches: [main]
-    paths-ignore:
-      - "docs/**"
   pull_request:
     branches: [main]
 
@@ -70,3 +68,22 @@ jobs:
       - name: Live tests (Spotify + yt-dlp + real SQLite)
         run: dotnet test MelodyBridge.sln -c Release --no-build
           --filter "Category=PlaylistStore|Category=Live"
+
+  # The docs build is also the link check: VitePress fails on dead links.
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - run: npm ci --no-audit --no-fund
+
+      # Relative-link check: catches stale refs between md/html files
+      - run: npm run docs:check
+
+      # Build doubles as the internal dead-link check (VitePress fails on dead links)
+      - run: npm run docs:build
