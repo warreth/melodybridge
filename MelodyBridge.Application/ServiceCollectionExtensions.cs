@@ -55,8 +55,11 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ISourceProvider, YouTubeSourceProvider>();
         services.AddSingleton<ISourceProvider, SpotifySourceProvider>();
 
-        // Application services
-        services.AddScoped<IDownloadManager, DownloadManager>();
+        // Application services. Singleton: the download progress map and
+        // the coordinator's run handles must survive page navigations
+        // (that is why the progress bar used to vanish between pages).
+        services.AddSingleton<IDownloadManager, DownloadManager>();
+        services.AddSingleton<DownloadCoordinator>();
         services.AddScoped<SyncEngine>();
         services.AddScoped<ISyncJobRunner, SyncJobRunner>();
         // Account connections (Spotify/YouTube private + liked imports).
@@ -75,6 +78,9 @@ public static class ServiceCollectionExtensions
 
         // File system monitor
         services.AddSingleton<IFileSystemMonitor, FileSystemMonitor>();
+
+        // App-level settings (Settings page, intro flag, advanced toggles)
+        services.AddSingleton<SettingsStore>();
 
         return services;
     }
