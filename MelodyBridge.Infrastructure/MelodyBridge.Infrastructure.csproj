@@ -5,17 +5,20 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
-    <InternalsVisibleTo Include="MelodyBridge.Tests"/>
+    <InternalsVisibleTo Include="MelodyBridge.Tests" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.2"/>
-    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.2"/>
-    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.0"/>
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="8.0.0"/>
-    <PackageReference Include="TagLibSharp" Version="2.2.0"/>
-    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="8.0.0"/>
+    <PackageReference Include="Google.Apis.YouTube.v3" Version="1.76.0.4249" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.2" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.2" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.0" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="8.0.0" />
+    <PackageReference Include="SpotifyAPI.Web" Version="7.4.2" />
+    <PackageReference Include="SpotifyAPI.Web.Auth" Version="7.4.2" />
+    <PackageReference Include="TagLibSharp" Version="2.2.0" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="8.0.0" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\MelodyBridge.Core\MelodyBridge.Core.csproj"/>
+    <ProjectReference Include="..\MelodyBridge.Core\MelodyBridge.Core.csproj" />
   </ItemGroup>
 </Project>
