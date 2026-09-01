@@ -57,6 +57,8 @@ public class DownloadCoordinatorTests
         public Task<int> GetPriorityAsync(string id, CancellationToken ct = default) => Task.FromResult(0);
         public Task SetPriorityAsync(string id, int priority, CancellationToken ct = default) => Task.CompletedTask;
         public Task SetOrderAsync(IReadOnlyList<string> orderedIds, CancellationToken ct = default) => Task.CompletedTask;
+    public Task<string> GetConfigAsync(string id, string key, CancellationToken ct = default) => Task.FromResult("");
+    public Task SetConfigAsync(string id, string key, string? value, CancellationToken ct = default) => Task.CompletedTask;
     }
 
     [SetUp]
@@ -100,7 +102,7 @@ public class DownloadCoordinatorTests
         return playlist.Id;
     }
 
-    private ServiceProvider MakeServices(SlowDownloader downloader)
+    private ServiceProvider MakeServices(IDownloader downloader)
     {
         var store = new PlaylistStore(_factory,
             Array.Empty<ISourceProvider>(),
@@ -110,6 +112,7 @@ public class DownloadCoordinatorTests
         var services = new ServiceCollection();
         services.AddSingleton<IDbContextFactory<MelodyBridgeDbContext>>(_factory);
         services.AddSingleton(store);
+        services.AddSingleton(new SettingsStore(_factory));
         return services.BuildServiceProvider();
     }
 
@@ -214,6 +217,90 @@ public class DownloadCoordinatorTests
         await WaitForAsync(() => coordinator.RunFor(id)?.Done == 3
             && coordinator.RunFor(id)?.State == DownloadRunState.Finished, TimeSpan.FromSeconds(20));
         Assert.That(downloader.Downloads, Is.EqualTo(3));
+    }
+
+    /// <summary>Downloader that tracks how many downloads run at once.</summary>
+    private sealed class InFlightDownloader : IDownloader
+    {
+        public int Downloads;
+        public int MaxInFlight;
+        private int _inFlight;
+
+        public string Id => "inflight";
+        public string Name => "In-Flight (test)";
+        public string Description => "";
+        public Task<bool> IsAvailableAsync(CancellationToken ct = default) => Task.FromResult(true);
+
+        public Task<DownloaderSearchHit?> SearchAsync(string artist, string title, DownloadQuality quality, CancellationToken ct = default)
+            => Task.FromResult<DownloaderSearchHit?>(new DownloaderSearchHit(title, artist, "https://inflight.example/1", TimeSpan.FromSeconds(1)));
+
+        public async Task<DownloaderDownloadResult> DownloadAsync(
+            string sourceUrl, string outputDirectory, string? melodyId,
+            DownloadQuality? quality = null, CancellationToken ct = default)
+        {
+            var now = Interlocked.Increment(ref _inFlight);
+            int current, observed;
+            do
+            {
+                current = Volatile.Read(ref MaxInFlight);
+                observed = Math.Max(current, now);
+            } while (observed > current
+                     && Interlocked.CompareExchange(ref MaxInFlight, observed, current) != current);
+
+            try
+            {
+                await Task.Delay(300, ct);
+                Interlocked.Increment(ref Downloads);
+                Directory.CreateDirectory(outputDirectory);
+                var path = Path.Combine(outputDirectory, melodyId + ".mp3");
+                await File.WriteAllTextAsync(path, "x", ct);
+                return new DownloaderDownloadResult(true, path, null);
+            }
+            finally
+            {
+                Interlocked.Decrement(ref _inFlight);
+            }
+        }
+    }
+
+    [Test]
+    public async Task MaxConcurrent_LimitsParallelDownloads()
+    {
+        // 6 tracks, workers capped at 2: the in-flight high-water mark
+        // must never exceed 2, and everything still downloads.
+        var id = await SeedPlaylistAsync(6);
+        var downloader = new InFlightDownloader();
+        var services = MakeServices(downloader);
+        var settings = new SettingsStore(_factory);
+        await settings.SetAsync("download_max_concurrent", "2");
+        var coordinator = MakeCoordinator(services);
+
+        coordinator.Start(id);
+        await WaitForAsync(() => coordinator.RunFor(id)?.State == DownloadRunState.Finished
+            && coordinator.RunFor(id)?.Done == 6, TimeSpan.FromSeconds(30));
+
+        Assert.That(downloader.Downloads, Is.EqualTo(6), "all tracks still download");
+        Assert.That(downloader.MaxInFlight, Is.LessThanOrEqualTo(2),
+            "the download_max_concurrent setting must cap parallel downloads");
+        Assert.That(downloader.MaxInFlight, Is.GreaterThanOrEqualTo(2),
+            "with 6 pending tracks and a 300ms downloader both workers should overlap");
+    }
+
+    [Test]
+    public async Task MaxConcurrent_OneWorker_StaysSequential()
+    {
+        var id = await SeedPlaylistAsync(3);
+        var downloader = new InFlightDownloader();
+        var services = MakeServices(downloader);
+        var settings = new SettingsStore(_factory);
+        await settings.SetAsync("download_max_concurrent", "1");
+        var coordinator = MakeCoordinator(services);
+
+        coordinator.Start(id);
+        await WaitForAsync(() => coordinator.RunFor(id)?.State == DownloadRunState.Finished
+            && coordinator.RunFor(id)?.Done == 3, TimeSpan.FromSeconds(30));
+
+        Assert.That(downloader.MaxInFlight, Is.EqualTo(1), "setting 1 restores sequential downloads");
     }
 
     private static async Task WaitForAsync(Func<bool> condition, TimeSpan timeout)

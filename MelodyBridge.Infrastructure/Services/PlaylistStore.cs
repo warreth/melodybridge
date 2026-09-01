@@ -48,49 +48,63 @@ public class PlaylistStore
     /// Download every track of a playlist that has no local file yet, into the
     /// playlist's TargetDirectory (or override). Updates DownloadStatus/
     /// CurrentPath per track as it goes. Returns (downloaded, failed).
+    ///
+    /// Tracks are claimed one at a time (atomically, status pending ->
+    /// in_progress) so several concurrent callers never race on the same
+    /// track — that is what makes the coordinator's max-concurrent
+    /// workers safe.
     /// </summary>
     public async Task<(int downloaded, int failed)> DownloadMissingAsync(
         string playlistId, string? outputDirectoryOverride = null, int limit = int.MaxValue, CancellationToken ct = default)
     {
-        await using var db = await _dbFactory.CreateDbContextAsync(ct);
-        var entity = await db.Playlists
-            .Include(p => p.Tracks)
-            .FirstOrDefaultAsync(p => p.Id == playlistId, ct)
-            ?? throw new InvalidOperationException($"Playlist '{playlistId}' not found");
+        // Prologue: read the run-wide settings (folder, format) once, then
+        // let go of the context. Each track below runs in its own fresh
+        // context so nothing stale survives between claims.
+        string dir, playlistName, preferredFormat;
+        await using (var db = await _dbFactory.CreateDbContextAsync(ct))
+        {
+            var entity = await db.Playlists.AsNoTracking()
+                .FirstOrDefaultAsync(p => p.Id == playlistId, ct)
+                ?? throw new InvalidOperationException($"Playlist '{playlistId}' not found");
 
-        var dir = outputDirectoryOverride ?? entity.TargetDirectory
-            ?? throw new InvalidOperationException(
-                "No download folder configured. Set one in the playlist settings.");
-
-        var pending = entity.Tracks
-            .Where(t => t.DownloadStatus is null or "pending" or "failed")
-            .OrderBy(t => t.Position)
-            .Take(limit)
-            .ToList();
+            dir = outputDirectoryOverride ?? entity.TargetDirectory
+                ?? throw new InvalidOperationException(
+                    "No download folder configured. Set one in the playlist settings.");
+            playlistName = entity.Name;
+            preferredFormat = entity.PreferredFormat;
+        }
 
         var downloaded = 0;
         var failed = 0;
         var spectrumMode = SpectrumVerification();
+        // Tracks already attempted in this call: failed tracks stay
+        // claimable (so later runs retry them), but never twice in one call.
+        var attempted = new HashSet<int>();
 
-        foreach (var track in pending)
+        for (var attempt = 0; attempt < limit; attempt++)
         {
             ct.ThrowIfCancellationRequested();
+            var trackId = await ClaimNextPendingAsync(playlistId, attempted, ct);
+            if (trackId is null) break; // nothing left to claim
+
+            await using var db = await _dbFactory.CreateDbContextAsync(ct);
+            var track = await db.Tracks.FindAsync(new object[] { trackId }, ct);
+            if (track is null) continue;
+
             if (string.IsNullOrWhiteSpace(track.Artist) || string.IsNullOrWhiteSpace(track.Title))
             {
                 track.DownloadStatus = "failed";
                 track.DownloadError = "missing artist/title metadata";
+                await db.SaveChangesAsync(ct);
                 failed++;
                 continue;
             }
-
-            track.DownloadStatus = "in_progress";
-            await db.SaveChangesAsync(ct);
 
             try
             {
                 var path = await _downloadManager.DownloadTrackAsync(
                     track.Artist!, track.Title!, dir, track.MelodyId!,
-                    ParseQuality(entity.PreferredFormat), ct);
+                    ParseQuality(preferredFormat), ct);
 
                 if (path is null)
                 {
@@ -129,9 +143,39 @@ public class PlaylistStore
         }
 
         _logger.LogInformation("Download run for '{Playlist}' ({Quality}): {Downloaded} downloaded, {Failed} failed",
-            entity.Name, entity.PreferredFormat, downloaded, failed);
+            playlistName, preferredFormat, downloaded, failed);
 
         return (downloaded, failed);
+    }
+
+    /// <summary>
+    /// Atomically claims the next pending track of a playlist (status
+    /// pending/failed/null -> in_progress) and returns its row id, or
+    /// null when nothing is left. The conditional UPDATE is what makes
+    /// concurrent claimers safe: two callers never get the same track.
+    /// Tracks in <paramref name="exclude"/> were already attempted by this
+    /// caller and are skipped, so failed tracks are not retried in-loop.
+    /// </summary>
+    private async Task<int?> ClaimNextPendingAsync(string playlistId, HashSet<int> exclude, CancellationToken ct)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var trackId = await db.Tracks
+            .Where(t => t.PlaylistEntityId == playlistId
+                && !exclude.Contains(t.Id)
+                && (t.DownloadStatus == null || t.DownloadStatus == "pending" || t.DownloadStatus == "failed"))
+            .OrderBy(t => t.Position)
+            .Select(t => t.Id)
+            .FirstOrDefaultAsync(ct);
+        if (trackId == 0) return null;
+
+        var claimed = await db.Tracks
+            .Where(t => t.Id == trackId
+                && (t.DownloadStatus == null || t.DownloadStatus == "pending" || t.DownloadStatus == "failed"))
+            .ExecuteUpdateAsync(s => s.SetProperty(t => t.DownloadStatus, "in_progress"), ct);
+        if (claimed != 1) return null; // lost the race: another caller won it
+
+        exclude.Add(trackId);
+        return trackId;
     }
 
     /// <summary>
@@ -156,8 +200,8 @@ public class PlaylistStore
     /// <summary>
     /// Maps a playlist's PreferredFormat to the waterfall quality.
     /// Format: "auto" | "mp3" | "flac" | "opus" | "aac", optionally
-    /// suffixed with a bitrate cap: "mp3:192". Legacy range strings
-    /// ("mp3:192-320") keep working: the cap side wins.
+    /// suffixed with a bitrate: "mp3:192" (a cap) or a band
+    /// "mp3:192-320" (min-max). Open bands ("-320", "192-") work too.
     /// </summary>
     internal static DownloadQuality ParseQuality(string? preferredFormat)
     {
@@ -175,11 +219,11 @@ public class PlaylistStore
         if (parts.Length < 2)
             return new DownloadQuality(format);
 
-        // "192" or legacy "min-max"/"min-": the ceiling is what we enforce.
+        // "192" is a cap; "min-max", "-max" and "min-" are bands.
         var range = parts[1].Split('-', 2);
-        var capSide = range.Length == 2 ? range[1] : range[0];
-        var cap = int.TryParse(capSide, out var hi) && hi > 0 ? hi : (int?)null;
-        return new DownloadQuality(format, cap);
+        var min = range.Length == 2 && int.TryParse(range[0], out var lo) && lo > 0 ? lo : (int?)null;
+        var max = int.TryParse(range.Length == 2 ? range[1] : range[0], out var hi) && hi > 0 ? hi : (int?)null;
+        return new DownloadQuality(format, min, max);
     }
 
     /// <summary>All persisted playlists (without tracks), newest sync first.</summary>

@@ -50,6 +50,8 @@ public class DownloadCoordinator
         public CancellationTokenSource Cts = new();
         public ManualResetEventSlim Gate = new(true);
         public DownloadRun Snapshot = null!;
+        /// <summary>Workers currently mid-track; keeps CurrentTrack in the snapshot honest with parallel workers.</summary>
+        public int InFlight;
     }
 
     private readonly ConcurrentDictionary<string, RunHandle> _runs = new();
@@ -142,6 +144,25 @@ public class DownloadCoordinator
         }
     }
 
+    /// <summary>
+    /// Max tracks downloaded in parallel per run. Read once per run from
+    /// the download_max_concurrent setting (default 2); 1 keeps the old
+    /// sequential behavior.
+    /// </summary>
+    private async Task<int> MaxConcurrentAsync(CancellationToken ct)
+    {
+        try
+        {
+            var settings = _services.GetRequiredService<SettingsStore>();
+            var raw = await settings.GetAsync("download_max_concurrent", "2", ct);
+            return Math.Clamp(int.TryParse(raw, out var n) ? n : 2, 1, 8);
+        }
+        catch
+        {
+            return 2; // settings unavailable (tests without the store): sane default
+        }
+    }
+
     private async Task RunAsync(string playlistId, RunHandle handle)
     {
         var ct = handle.Cts.Token;
@@ -159,30 +180,17 @@ public class DownloadCoordinator
                 Failed = counts.failed,
             };
 
-            while (!ct.IsCancellationRequested)
-            {
-                handle.Gate.Wait(ct); // cooperative pause between tracks
-                if (ct.IsCancellationRequested) break;
+            var workers = await MaxConcurrentAsync(ct);
+            _logger.LogInformation("Download run for {Playlist} starting with {Workers} workers",
+                playlistId, workers);
 
-                var next = await NextPendingTitleAsync(playlistId, ct);
-                if (next is null) break; // nothing left to download
-
-                handle.Snapshot = handle.Snapshot with
-                {
-                    CurrentTrack = next,
-                    State = DownloadRunState.Running,
-                };
-
-                await store.DownloadMissingAsync(playlistId, limit: 1, ct: ct);
-
-                counts = await CountAsync(playlistId);
-                handle.Snapshot = handle.Snapshot with
-                {
-                    Done = counts.done,
-                    Failed = counts.failed,
-                    CurrentTrack = null,
-                };
-            }
+            // Each worker claims one pending track at a time (the store's
+            // claim is atomic), so the workers never race on a track. The
+            // shared pause gate holds every worker between tracks.
+            var tasks = Enumerable.Range(0, workers)
+                .Select(_ => WorkerAsync(playlistId, handle, store, ct))
+                .ToArray();
+            await Task.WhenAll(tasks);
         }
         catch (OperationCanceledException)
         {
@@ -200,6 +208,45 @@ public class DownloadCoordinator
                 CurrentTrack = null,
                 CurrentPlugin = null,
             };
+        }
+    }
+
+    /// <summary>One download worker loop: claim a track, download it, repeat.</summary>
+    private async Task WorkerAsync(string playlistId, RunHandle handle, PlaylistStore store, CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
+        {
+            handle.Gate.Wait(ct); // cooperative pause between tracks
+            if (ct.IsCancellationRequested) break;
+
+            var next = await NextPendingTitleAsync(playlistId, ct);
+            if (next is null) break; // nothing left to download
+
+            var inFlight = Interlocked.Increment(ref handle.InFlight);
+            handle.Snapshot = handle.Snapshot with
+            {
+                CurrentTrack = next,
+                State = DownloadRunState.Running,
+            };
+
+            try
+            {
+                await store.DownloadMissingAsync(playlistId, limit: 1, ct: ct);
+            }
+            finally
+            {
+                Interlocked.Decrement(ref handle.InFlight);
+            }
+
+            var counts = await CountAsync(playlistId);
+            var snapshot = handle.Snapshot with
+            {
+                Done = counts.done,
+                Failed = counts.failed,
+            };
+            if (Volatile.Read(ref handle.InFlight) == 0)
+                snapshot = snapshot with { CurrentTrack = null };
+            handle.Snapshot = snapshot;
         }
     }
 
