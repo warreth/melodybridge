@@ -36,9 +36,6 @@ services:
       - ASPNETCORE_ENVIRONMENT=Production
       - ASPNETCORE_URLS=http://+:80
       - Logging__LogLevel__Default=Information
-      - Jellyfin__BaseUrl=${JELLYFIN_URL:-http://host.docker.internal:8096}
-      - Jellyfin__ApiKey=${JELLYFIN_API_KEY:-}
-      - Jellyfin__UserId=${JELLYFIN_USER_ID:-}
       - DevPanel__Enabled=false
       - FlareSolverr__Url=http://flaresolverr:8191
     volumes:

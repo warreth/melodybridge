@@ -44,6 +44,28 @@ public class JellyfinFavoritesTests
         IsLiked = liked,
     };
 
+    /// <summary>Fixed connection values, exactly what the settings
+    /// interface delivers in production.</summary>
+    private sealed class FixedSettings : IJellyfinSettings
+    {
+        public string BaseUrl { get; init; } = "http://jellyfin:8096";
+        public string ApiKey { get; init; } = "test-key";
+        public string? UserId { get; init; }
+
+        public Task<string> GetBaseUrlAsync(CancellationToken ct = default)
+            => Task.FromResult(BaseUrl);
+        public Task<string> GetApiKeyAsync(CancellationToken ct = default)
+            => Task.FromResult(ApiKey);
+        public Task<string?> GetUserIdAsync(CancellationToken ct = default)
+            => Task.FromResult(UserId);
+    }
+
+    private static JellyfinSync NewSync(RecordingHandler handler,
+        string? userId = null, string baseUrl = "http://jellyfin:8096")
+        => new(new HttpClient(handler) { BaseAddress = new Uri(baseUrl) },
+            NullLogger<JellyfinSync>.Instance,
+            new FixedSettings { UserId = userId, BaseUrl = baseUrl });
+
     [Test]
     public async Task LikedTracks_GetFavoriteItemsCalls_WithConfiguredUser()
     {
@@ -56,11 +78,7 @@ public class JellyfinFavoritesTests
                 $$"""{"Items": [{"Id": "item-1"}]}""");
             return new HttpResponseMessage(HttpStatusCode.OK);
         };
-        var client = new HttpClient(handler) { BaseAddress = new Uri("http://jellyfin:8096") };
-        var sync = new JellyfinSync(client, NullLogger<JellyfinSync>.Instance)
-        {
-            UserId = "user-42",
-        };
+        var sync = NewSync(handler, userId: "user-42");
 
         await sync.SyncPlaylistAsync(
             LikedPlaylist(Track("/music/a.mp3", liked: true)),
@@ -82,11 +100,7 @@ public class JellyfinFavoritesTests
                 """{"Items": [{"Id": "item-1"}]}""");
             return new HttpResponseMessage(HttpStatusCode.OK);
         };
-        var client = new HttpClient(handler) { BaseAddress = new Uri("http://jellyfin:8096") };
-        var sync = new JellyfinSync(client, NullLogger<JellyfinSync>.Instance)
-        {
-            UserId = "user-42",
-        };
+        var sync = NewSync(handler, userId: "user-42");
 
         await sync.SyncPlaylistAsync(
             LikedPlaylist(Track("/music/a.mp3", liked: false)),
@@ -109,11 +123,7 @@ public class JellyfinFavoritesTests
                 return new HttpResponseMessage(HttpStatusCode.NotFound);
             return new HttpResponseMessage(HttpStatusCode.OK);
         };
-        var client = new HttpClient(handler) { BaseAddress = new Uri("http://jellyfin:8096") };
-        var sync = new JellyfinSync(client, NullLogger<JellyfinSync>.Instance)
-        {
-            UserId = "user-42",
-        };
+        var sync = NewSync(handler, userId: "user-42");
 
         await sync.SyncPlaylistAsync(
             LikedPlaylist(Track("/music/a.mp3", liked: true)),
@@ -136,8 +146,7 @@ public class JellyfinFavoritesTests
                 """{"Items": [{"Id": "item-1"}]}""");
             return new HttpResponseMessage(HttpStatusCode.OK);
         };
-        var client = new HttpClient(handler) { BaseAddress = new Uri("http://jellyfin:8096") };
-        var sync = new JellyfinSync(client, NullLogger<JellyfinSync>.Instance);
+        var sync = NewSync(handler);
 
         await sync.SyncPlaylistAsync(
             LikedPlaylist(Track("/music/a.mp3", liked: true)),
@@ -153,11 +162,7 @@ public class JellyfinFavoritesTests
     {
         var handler = new RecordingHandler();
         handler.Respond = _ => new HttpResponseMessage(HttpStatusCode.InternalServerError);
-        var client = new HttpClient(handler) { BaseAddress = new Uri("http://jellyfin:8096") };
-        var sync = new JellyfinSync(client, NullLogger<JellyfinSync>.Instance)
-        {
-            UserId = "user-42",
-        };
+        var sync = NewSync(handler, userId: "user-42");
 
         // All routes fail: the sync still completes and reports.
         await sync.SyncPlaylistAsync(
@@ -166,6 +171,31 @@ public class JellyfinFavoritesTests
 
         Assert.That(sync.GetLastReport(), Is.Not.Null,
             "a favorites failure must not fail the playlist sync");
+    }
+
+    [Test]
+    public async Task ConnectionValues_AppliedPerCall_FromSettings()
+    {
+        var handler = new RecordingHandler();
+        handler.Respond = url =>
+        {
+            if (url == "/Users") return Json(
+                """[{"Id": "real-user", "Name": "me"}]""");
+            if (url.StartsWith("/Items?")) return Json(
+                """{"Items": [{"Id": "item-1"}]}""");
+            return new HttpResponseMessage(HttpStatusCode.OK);
+        };
+
+        // The settings interface points at a different server than the
+        // client was built with: the sync must re-point the client.
+        var sync = NewSync(handler, baseUrl: "http://configured:1234");
+
+        await sync.SyncPlaylistAsync(
+            LikedPlaylist(Track("/music/a.mp3", liked: true)),
+            new PlaylistOutputOptions("/tmp/out.m3u", false, null));
+
+        Assert.That(handler.Requests[0].Url, Does.StartWith("/"),
+            "the request went through the re-pointed client");
     }
 
     private static HttpResponseMessage Json(string body)

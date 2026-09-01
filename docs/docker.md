@@ -79,18 +79,19 @@ See [compose.yml](../compose.yml) for the user setup and
 
 ### Environment Variables
 
+Everything Jellyfin-related is configured in the web UI (Settings), not
+through the environment. The only variables you might touch:
+
 | Variable | Default | Description |
 |---|---|---|
 | `ASPNETCORE_ENVIRONMENT` | `Production` | Set to `Development` for dev |
 | `ASPNETCORE_URLS` | `http://+:80` | Server binding address |
-| `JELLYFIN_URL` | `http://host.docker.internal:8096` | Jellyfin server URL |
-| `JELLYFIN_API_KEY` | *(empty)* | Jellyfin API key |
-| `JELLYFIN_USER_ID` | *(empty)* | Jellyfin user for liked-song favorites |
 | `DevPanel__Enabled` | `false` | Enable the /dev testing dashboard |
 | `FlareSolverr__Url` | `http://flaresolverr:8191` | Cloudflare solver endpoint (`off` disables Lucida) |
 
-The Settings page in the app overrides the Jellyfin values: whatever is
-saved in the database wins over these environment variables.
+After `docker compose up -d`, open http://localhost:3333 and fill in your
+Jellyfin base URL, API key and user under Settings. Values are stored in
+the database volume and apply immediately, no restart needed.
 
 ### Volumes
 
@@ -112,5 +113,5 @@ The Docker image includes `yt-dlp` and `ffmpeg` pre-installed for YouTube and ge
 
 1. Keep the `127.0.0.1` port binding unless you expose the app through a reverse proxy
 2. Configure a reverse proxy (nginx, Caddy, Traefik) for TLS
-3. Set `JELLYFIN_API_KEY` through a `.env` file or your platform's secrets, not a committed file
+3. Put your Jellyfin API key in the web UI Settings, not in any committed file
 4. Never publish the flaresolverr port to the host; the internal network is enough

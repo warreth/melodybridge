@@ -81,26 +81,17 @@ public static class ServiceCollectionExtensions
 
     public static IServiceCollection AddJellyfinSync(this IServiceCollection services)
     {
-        services.AddHttpClient<JellyfinSync>((sp, client) =>
-        {
-            var config = sp.GetRequiredService<Microsoft.Extensions.Configuration.IConfiguration>();
-            client.BaseAddress = new Uri(
-                config["Jellyfin:BaseUrl"] ?? "http://localhost:8096");
-            var apiKey = config["Jellyfin:ApiKey"];
-            if (!string.IsNullOrEmpty(apiKey))
-                client.DefaultRequestHeaders.Add("X-Emby-Token", apiKey);
-        });
-        services.AddSingleton(sp =>
-        {
-            var config = sp.GetRequiredService<Microsoft.Extensions.Configuration.IConfiguration>();
-            return new JellyfinSyncOptions { UserId = config["Jellyfin:UserId"] };
-        });
+        // A plain named client: connection values are applied per sync
+        // call from IJellyfinSettings (database first, config fallback),
+        // so Settings-page changes apply without a restart.
+        services.AddHttpClient(nameof(JellyfinSync));
+        services.AddSingleton<ConfigJellyfinSettings>();
+        services.AddSingleton<IJellyfinSettings, DbJellyfinSettings>();
         services.AddSingleton(sp =>
         {
             var http = sp.GetRequiredService<IHttpClientFactory>().CreateClient(nameof(JellyfinSync));
             var logger = sp.GetRequiredService<ILogger<JellyfinSync>>();
-            var options = sp.GetRequiredService<JellyfinSyncOptions>();
-            return new JellyfinSync(http, logger) { UserId = options.UserId };
+            return new JellyfinSync(http, logger, sp.GetRequiredService<IJellyfinSettings>());
         });
         services.AddSingleton<IMediaServerSync>(sp =>
             sp.GetRequiredService<JellyfinSync>());

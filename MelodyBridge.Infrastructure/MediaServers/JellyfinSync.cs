@@ -9,25 +9,38 @@ public class JellyfinSync : IMediaServerSync
 {
     private readonly HttpClient _http;
     private readonly ILogger<JellyfinSync> _logger;
+    private readonly IJellyfinSettings _settings;
     public string Name => "Jellyfin";
-
-    /// <summary>
-    /// Jellyfin user whose favorites get the liked songs. Set at startup
-    /// from the Jellyfin:UserId setting (empty = favorites are skipped).
-    /// </summary>
-    public string? UserId { get; set; }
 
     private MediaServerSyncReport? _lastReport;
 
-    public JellyfinSync(HttpClient http, ILogger<JellyfinSync> logger)
+    public JellyfinSync(HttpClient http, ILogger<JellyfinSync> logger,
+        IJellyfinSettings settings)
     {
         _http = http;
         _logger = logger;
+        _settings = settings;
+    }
+
+    /// <summary>
+    /// Points the shared HttpClient at the currently configured server and
+    /// key. Called at the start of every sync, so Settings-page changes
+    /// apply without a restart.
+    /// </summary>
+    private async Task ApplyConnectionAsync(CancellationToken ct)
+    {
+        _http.BaseAddress = new Uri(await _settings.GetBaseUrlAsync(ct));
+        var apiKey = await _settings.GetApiKeyAsync(ct);
+        _http.DefaultRequestHeaders.Remove("X-Emby-Token");
+        if (!string.IsNullOrEmpty(apiKey))
+            _http.DefaultRequestHeaders.Add("X-Emby-Token", apiKey);
     }
 
     public async Task SyncPlaylistAsync(Playlist playlist, PlaylistOutputOptions options, CancellationToken ct = default)
     {
         if (playlist?.Name == null) throw new ArgumentException("Playlist needs a name");
+
+        await ApplyConnectionAsync(ct);
 
         var itemIds = new List<string>();
         var likedItemIds = new List<string>();
@@ -291,7 +304,8 @@ public class JellyfinSync : IMediaServerSync
     /// </summary>
     private async Task<string?> FindUserIdAsync(CancellationToken ct)
     {
-        if (!string.IsNullOrWhiteSpace(UserId)) return UserId;
+        var configured = await _settings.GetUserIdAsync(ct);
+        if (!string.IsNullOrWhiteSpace(configured)) return configured;
 
         try
         {

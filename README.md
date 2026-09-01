@@ -184,7 +184,7 @@ dotnet test MelodyBridge.sln --filter "Category=PlaylistStore|Category=Live"   #
 
 | Link | What you'll find |
 |---|---|
-| [Docker guide](docs/docker.md) | Compose reference, env vars, volumes, production tips |
+| [Docker guide](docs/docker.md) | Compose reference, configuration, volumes, production tips |
 | [Developer guide](docs/developer.md) | Architecture, plugin interfaces, DI, testing |
 | [Photino desktop build](docs/photino.md) | Optional desktop wrapper |
 
