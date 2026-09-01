@@ -51,12 +51,14 @@ builder.Services.AddDataProtection()
 
 var app = builder.Build();
 
-// Ensure database is created with all entities before anything reads it
+// Ensure database is created with all entities before anything reads it,
+// then upgrade pre-existing databases in place (added columns, ...).
 using (var scope = app.Services.CreateScope())
 {
     var dbFactory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<MelodyBridgeDbContext>>();
     using var db = dbFactory.CreateDbContext();
     db.Database.EnsureCreated();
+    await SchemaPatcher.PatchAsync(db);
 }
 
 // App settings the stores read at runtime. The database overrides

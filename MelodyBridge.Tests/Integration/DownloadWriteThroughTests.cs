@@ -76,7 +76,7 @@ public class DownloadWriteThroughTests
                     MatchConfidence: MatchConfidence.High));
 
         public Task<DownloaderDownloadResult> DownloadAsync(
-            string sourceUrl, string outputDirectory, string melodyId, CancellationToken ct = default)
+            string sourceUrl, string outputDirectory, string? melodyId, DownloadQuality? quality = null, CancellationToken ct = default)
         {
             LastSourceUrl = sourceUrl;
             Directory.CreateDirectory(outputDirectory);
@@ -207,6 +207,28 @@ public class DownloadWriteThroughTests
         Assert.That(
             MelodyBridge.Infrastructure.Tagging.TaglibHelper.ReadMelodyId(track.CurrentPath!),
             Is.EqualTo("mel-wt-1"));
+
+        Directory.Delete(dir, recursive: true);
+    }
+
+    [Test]
+    public async Task Download_FillsRealQualityColumns_FromTheFile()
+    {
+        if (!FfmpegAvailable()) Assert.Ignore("ffmpeg not installed");
+
+        var (store, factory, playlist, dir) = await SetupAsync(
+            nameof(Download_FillsRealQualityColumns_FromTheFile));
+
+        await store.DownloadMissingAsync(playlist.Id);
+
+        await using var db = await factory.CreateDbContextAsync();
+        var track = await db.Tracks.FirstAsync(t => t.MelodyId == "mel-wt-1");
+
+        Assert.That(track.FileSizeBytes, Is.GreaterThan(0),
+            "the file size must come from the real file");
+        Assert.That(track.SampleRateHz, Is.GreaterThan(0),
+            "the sample rate must come from the real file");
+        Assert.That(track.MediaType, Is.EqualTo("flac"), "container must come from the extension");
 
         Directory.Delete(dir, recursive: true);
     }

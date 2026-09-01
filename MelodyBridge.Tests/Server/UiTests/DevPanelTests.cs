@@ -628,7 +628,7 @@ public class TestDownloader : IDownloader
         => Task.FromResult<DownloaderSearchHit?>(null);
 
     public Task<DownloaderDownloadResult> DownloadAsync(
-        string sourceUrl, string outputDirectory, string? melodyId, CancellationToken ct = default)
+        string sourceUrl, string outputDirectory, string? melodyId, DownloadQuality? quality = null, CancellationToken ct = default)
         => Task.FromResult(new DownloaderDownloadResult(false, null, "mock"));
 }
 

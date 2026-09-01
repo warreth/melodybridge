@@ -279,28 +279,30 @@ public async Task UpdateSettingsAsync_PersistsPreferredFormat()
 }
 
 [Test]
-public void ParseQuality_MapsFormatAndRange()
+public void ParseQuality_MapsFormatAndCap()
 {
     var any = PlaylistStore.ParseQuality(null);
     Assert.That(any.Format, Is.EqualTo(AudioFormat.Auto));
-    Assert.That(any.MinKbps, Is.EqualTo(0), "auto accepts any bitrate");
+    Assert.That(any.MaxKbps, Is.Null, "auto has no cap");
 
     var mp3 = PlaylistStore.ParseQuality("mp3");
     Assert.That(mp3.Format, Is.EqualTo(AudioFormat.Mp3));
-    Assert.That(mp3.MinKbps, Is.EqualTo(128), "a plain format gets the default floor");
+    Assert.That(mp3.MaxKbps, Is.Null, "a plain format has no cap");
 
-    var ranged = PlaylistStore.ParseQuality("mp3:192-320");
-    Assert.That(ranged.Format, Is.EqualTo(AudioFormat.Mp3));
-    Assert.That(ranged.MinKbps, Is.EqualTo(192));
-    Assert.That(ranged.MaxKbps, Is.EqualTo(320));
+    var capped = PlaylistStore.ParseQuality("mp3:192");
+    Assert.That(capped.Format, Is.EqualTo(AudioFormat.Mp3));
+    Assert.That(capped.MaxKbps, Is.EqualTo(192));
+
+    // Legacy range strings: the ceiling wins.
+    var legacy = PlaylistStore.ParseQuality("mp3:192-320");
+    Assert.That(legacy.Format, Is.EqualTo(AudioFormat.Mp3));
+    Assert.That(legacy.MaxKbps, Is.EqualTo(320));
 
     var ceilingOnly = PlaylistStore.ParseQuality("mp3:-320");
-    Assert.That(ceilingOnly.MinKbps, Is.EqualTo(0));
     Assert.That(ceilingOnly.MaxKbps, Is.EqualTo(320));
 
     var floorOnly = PlaylistStore.ParseQuality("flac:900-");
     Assert.That(floorOnly.Format, Is.EqualTo(AudioFormat.Flac));
-    Assert.That(floorOnly.MinKbps, Is.EqualTo(900));
     Assert.That(floorOnly.MaxKbps, Is.Null);
 }
 

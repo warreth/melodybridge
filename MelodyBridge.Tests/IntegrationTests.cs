@@ -221,7 +221,7 @@ public class IntegrationTests
             => Task.FromResult(searchHit);
 
         public Task<DownloaderDownloadResult> DownloadAsync(
-            string sourceUrl, string outputDirectory, string? melodyId, CancellationToken ct = default)
+            string sourceUrl, string outputDirectory, string? melodyId, DownloadQuality? quality = null, CancellationToken ct = default)
             => Task.FromResult(downloadPath is null
                 ? new DownloaderDownloadResult(false, null, "stub failure")
                 : new DownloaderDownloadResult(true, downloadPath, null));

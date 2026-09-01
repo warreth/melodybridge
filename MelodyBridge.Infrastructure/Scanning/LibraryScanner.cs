@@ -64,6 +64,7 @@ public class LibraryScanner : ILibraryScanner
                             if (tf.Properties?.AudioBitrate > 0)
                                 existing.Bitrate = tf.Properties.AudioBitrate;
 
+                            Services.AudioProbe.Fill(existing, filePath);
                             _db.Tracks.Add(existing);
                         }
                         catch
@@ -76,6 +77,7 @@ public class LibraryScanner : ILibraryScanner
                                 MediaType = Path.GetExtension(filePath).TrimStart('.'),
                                 LastSeenAt = DateTime.UtcNow,
                             };
+                            Services.AudioProbe.Fill(existing, filePath);
                             _db.Tracks.Add(existing);
                         }
                     }
