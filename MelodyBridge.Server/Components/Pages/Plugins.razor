@@ -1,0 +1,192 @@
+@page "/plugins"
+@using MelodyBridge.Core
+@inject IDownloaderRegistry Registry
+@inject Application.Services.DownloadCoordinator Coordinator
+@implements IDisposable
+
+<PageTitle>Plugins - MelodyBridge</PageTitle>
+
+<section class="page-title">
+    <div>
+        <span class="eyebrow">Waterfall</span>
+        <h1>Download plugins</h1>
+        <p>Each track is searched through these sources in order. The first plugin that
+            returns a file within your quality settings wins. Drag the order to taste.</p>
+    </div>
+</section>
+
+@if (runs.Count > 0)
+{
+    <section class="panel-card">
+        <div class="panel-header">
+            <div>
+                <span class="eyebrow">Active</span>
+                <h2>Live downloads</h2>
+            </div>
+        </div>
+        <div class="qi-result">
+            @foreach (var run in runs)
+            {
+                <div class="qi-item">
+                    <div style="flex:1; min-width:0;">
+                        <strong>@run.PlaylistName</strong>
+                        <div class="qi-meta">
+                            @run.State · @run.Done/@run.Total done · @run.Failed failed
+                            @if (!string.IsNullOrEmpty(run.CurrentTrack))
+                            {
+                                <span> · now: @run.CurrentTrack</span>
+                            }
+                        </div>
+                        <div class="progress-track">
+                            <div class="progress-fill" style="width:@run.Percent%"></div>
+                        </div>
+                    </div>
+                    <div class="flex-actions">
+                        @if (run.State == Application.Services.DownloadRunState.Running)
+                        {
+                            <button class="btn-modern small ghost" @onclick="() => Coordinator.Pause(run.PlaylistId)">Pause</button>
+                        }
+                        else if (run.State == Application.Services.DownloadRunState.Paused)
+                        {
+                            <button class="btn-modern small primary" @onclick="() => Coordinator.Start(run.PlaylistId)">Resume</button>
+                        }
+                        @if (run.State is Application.Services.DownloadRunState.Running or Application.Services.DownloadRunState.Paused)
+                        {
+                            <button class="btn-modern small ghost" @onclick="() => Coordinator.Cancel(run.PlaylistId)">Cancel</button>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+    </section>
+}
+
+<section class="plugin-list">
+    @foreach (var plugin in orderedPlugins)
+    {
+        var enabled = Registry.IsEnabled(plugin.Id);
+        <div class="plugin-card @(enabled ? "" : "disabled")">
+            <div class="plugin-head">
+                <span class="provider-icon">@PluginIcon(plugin.Id)</span>
+                <div style="flex:1; min-width:0;">
+                    <strong>@plugin.Name</strong>
+                    <div class="plugin-description">@plugin.Description</div>
+                </div>
+                <span class="pill @(availability.GetValueOrDefault(plugin.Id) ? "ok" : "neutral")">
+                    @(availability.GetValueOrDefault(plugin.Id) ? "ready" : "unavailable")
+                </span>
+                <label class="toggle-switch">
+                    <input type="checkbox" checked="@enabled" @onchange="e => TogglePluginAsync(plugin.Id, (bool)e.Value)" />
+                    <span class="toggle-slider"></span>
+                </label>
+            </div>
+            <div class="plugin-quality">
+                @foreach (var badge in QualityBadges(plugin.Id))
+                {
+                    <span class="quality-badge">@badge</span>
+                }
+            </div>
+            <div class="plugin-actions">
+                <button class="icon-button" title="Move up" disabled="@(firstEnabledId == plugin.Id)"
+                        @onclick="() => MoveUp(plugin.Id)">↑</button>
+                <button class="icon-button" title="Move down" disabled="@(lastEnabledId == plugin.Id)"
+                        @onclick="() => MoveDown(plugin.Id)">↓</button>
+            </div>
+        </div>
+    }
+</section>
+
+@code {
+    private List<IDownloader> orderedPlugins = new();
+    private Dictionary<string, bool> availability = new();
+    private List<Application.Services.DownloadRun> runs = new();
+    private Timer? _timer;
+    private string? firstEnabledId;
+    private string? lastEnabledId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _ = Registry.GetEnabled(); // force cache load
+        await ReorderPluginsAsync();
+        await RefreshAvailability();
+        _timer = new Timer(_ => InvokeAsync(async () =>
+        {
+            runs = Coordinator.Snapshot().Where(r => r.State != Application.Services.DownloadRunState.Finished).ToList();
+            await ReorderPluginsAsync();
+            StateHasChanged();
+        }), null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
+    }
+
+    private Task ReorderPluginsAsync()
+    {
+        var enabled = (Registry.GetEnabled() ?? Array.Empty<IDownloader>()).ToList();
+        var disabled = (Registry.GetAll() ?? Array.Empty<IDownloader>())
+            .Where(p => !enabled.Contains(p))
+            .ToList();
+        orderedPlugins = enabled.Concat(disabled).ToList();
+        firstEnabledId = enabled.FirstOrDefault()?.Id;
+        lastEnabledId = enabled.LastOrDefault()?.Id;
+        return Task.CompletedTask;
+    }
+
+    private async Task RefreshAvailability()
+    {
+        var results = new Dictionary<string, bool>();
+        foreach (var plugin in orderedPlugins)
+        {
+            try { results[plugin.Id] = await plugin.IsAvailableAsync(); }
+            catch { results[plugin.Id] = false; }
+        }
+        availability = results;
+    }
+
+    private async Task TogglePluginAsync(string id, bool enabled)
+    {
+        await Registry.SetEnabledAsync(id, enabled);
+        await ReorderPluginsAsync();
+        StateHasChanged();
+    }
+
+    private async Task MoveUp(string id)
+    {
+        var order = orderedPlugins.Select(p => p.Id).ToList();
+        var index = order.IndexOf(id);
+        if (index <= 0) return;
+        (order[index - 1], order[index]) = (order[index], order[index - 1]);
+        await Registry.SetOrderAsync(order);
+        await ReorderPluginsAsync();
+        StateHasChanged();
+    }
+
+    private async Task MoveDown(string id)
+    {
+        var order = orderedPlugins.Select(p => p.Id).ToList();
+        var index = order.IndexOf(id);
+        if (index < 0 || index >= order.Count - 1) return;
+        (order[index + 1], order[index]) = (order[index], order[index + 1]);
+        await Registry.SetOrderAsync(order);
+        await ReorderPluginsAsync();
+        StateHasChanged();
+    }
+
+    private static string PluginIcon(string id) => id switch
+    {
+        "ytdlp" => "▶",
+        "soundcloud" => "☁",
+        "archiveorg" => "🏛",
+        "lucida" => "◈",
+        _ => "♪",
+    };
+
+    /// <summary>What this plugin can actually deliver, in plain words.</summary>
+    private static IEnumerable<string> QualityBadges(string id) => id switch
+    {
+        "ytdlp" => new[] { "up to 160 kbps (opus)", "re-encodes to any cap", "widest catalog" },
+        "soundcloud" => new[] { "originals 64–320 kbps", "keeps source format on auto" },
+        "archiveorg" => new[] { "public MP3s", "bitrate shown before download" },
+        "lucida" => new[] { "Tidal/Qobuz rips", "lossless-capable", "needs FlareSolverr" },
+        _ => Array.Empty<string>(),
+    };
+
+    public void Dispose() => _timer?.Dispose();
+}
