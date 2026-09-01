@@ -20,6 +20,8 @@ public static class ServiceCollectionExtensions
         // Infrastructure services
         services.AddScoped<M3uGenerator>();
         services.AddScoped<ILibraryScanner, LibraryScanner>();
+        services.AddScoped<MelodyBridge.Infrastructure.Services.DatabaseBackupService>();
+        services.AddScoped<MelodyBridge.Infrastructure.Services.MediaServerProfileStore>();
         services.AddSingleton<MelodyBridge.Infrastructure.Scanning.LibraryReconciler>();
 
         // ── Downloader plugins (the waterfall) ──
@@ -49,6 +51,20 @@ public static class ServiceCollectionExtensions
                 sp.GetRequiredService<IHttpClientFactory>().CreateClient("lucida"),
                 sp.GetRequiredService<IChallengeSolver>(),
                 sp.GetRequiredService<ILogger<LucidaDownloader>>()));
+
+        // Community Hi-Fi rips: Monochrome mirrors TIDAL (search + manifest),
+        // DoubleDouble rips many services by direct URL (submit + poll, no
+        // metadata search — the frontend search is captcha-gated).
+        services.AddHttpClient("monochrome", c => c.Timeout = TimeSpan.FromSeconds(30));
+        services.AddSingleton<IDownloader>(sp =>
+            new MonochromeDownloader(
+                sp.GetRequiredService<IHttpClientFactory>().CreateClient("monochrome"),
+                sp.GetRequiredService<ILogger<MonochromeDownloader>>()));
+        services.AddHttpClient("doubledouble", c => c.Timeout = TimeSpan.FromMinutes(3));
+        services.AddSingleton<IDownloader>(sp =>
+            new DoubleDoubleDownloader(
+                sp.GetRequiredService<IHttpClientFactory>().CreateClient("doubledouble"),
+                sp.GetRequiredService<ILogger<DoubleDoubleDownloader>>()));
 
         services.AddSingleton<IDownloaderRegistry, DownloaderRegistry>();
 

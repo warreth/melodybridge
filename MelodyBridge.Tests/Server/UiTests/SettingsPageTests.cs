@@ -110,7 +110,53 @@ public class SettingsPageTests
         {
             Assert.That(cut.Markup, Does.Contain("FlareSolverr"));
             Assert.That(cut.Markup, Does.Contain("Test connection"));
-            Assert.That(cut.Markup, Does.Contain("Export logs"));
+        }, TimeSpan.FromSeconds(3));
+    }
+
+    [Test]
+    public void Settings_ConnectionsTab_ManagesProfilesThroughRealStore()
+    {
+        var cut = _ctx.Render<Settings>();
+        cut.FindAll("button.tab-link").First(b => b.TextContent == "Connections").Click();
+
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("No profiles yet"),
+                "a fresh database shows the empty state"), TimeSpan.FromSeconds(3));
+
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Add profile").Click();
+
+        var name = cut.Find("input[placeholder='Living room Jellyfin']");
+        name.Change("Main server");
+        var url = cut.Find("input[placeholder='http://jellyfin:8096']");
+        url.Change("http://media:8096");
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Save profile").Click();
+
+        // The saved profile must exist through the real store, not just markup.
+        var profiles = _ctx.Services.GetRequiredService<MelodyBridge.Infrastructure.Services.MediaServerProfileStore>();
+        cut.WaitForAssertion(() =>
+        {
+            var all = profiles.GetAllAsync().GetAwaiter().GetResult();
+            Assert.That(all.Count, Is.EqualTo(1), "the profile was persisted");
+            Assert.That(all[0].Name, Is.EqualTo("Main server"));
+            Assert.That(all[0].BaseUrl, Is.EqualTo("http://media:8096"));
+        }, TimeSpan.FromSeconds(3));
+    }
+
+    [Test]
+    public void Settings_AboutTab_ShowsVersionUpdateCheckAndBackup()
+    {
+        var cut = _ctx.Render<Settings>();
+        cut.FindAll("button.tab-link").First(b => b.TextContent == "About").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.Markup, Does.Contain($"MelodyBridge {MelodyBridge.Core.AppInfo.Version}"),
+                "the About tab shows the running version");
+            Assert.That(cut.Markup, Does.Contain("Check for updates"));
+            Assert.That(cut.Markup, Does.Contain("Export zip"));
+            Assert.That(cut.Markup, Does.Contain("guided tour"));
+            Assert.That(cut.Markup, Does.Contain("Export logs"),
+                "logs export moved from Network to About");
         }, TimeSpan.FromSeconds(3));
     }
 

@@ -10,6 +10,12 @@
 @inject NavigationManager Nav
 @inject SpotifyAccountProvider SpotifyAccount
 @inject YouTubeAccountProvider YouTubeAccount
+@inject MediaServerProfileStore ServerProfiles
+@inject SettingsStore TourReset
+@inject DatabaseBackupService DbBackup
+@inject UpdateCheckService UpdateCheck
+@inject NotificationService Notifications
+@inject IJSRuntime JS
 @implements IDisposable
 
 <PageTitle>Settings</PageTitle>
@@ -24,7 +30,7 @@
 </section>
 
 <nav class="tab-nav">
-    @foreach (var tab in new[] { ("accounts", "Accounts"), ("jellyfin", "Jellyfin"), ("paths", "Paths"), ("quality", "Quality"), ("network", "Network") })
+    @foreach (var tab in new[] { ("accounts", "Accounts"), ("connections", "Connections"), ("jellyfin", "Jellyfin"), ("paths", "Paths"), ("quality", "Quality"), ("network", "Network"), ("about", "About") })
     {
         <button class="tab-link @(activeTab == tab.Item1 ? "active" : "")"
                 @onclick="() => activeTab = tab.Item1">@tab.Item2</button>
@@ -102,6 +108,73 @@
         }
     </section>
 }
+else if (activeTab == "connections")
+{
+    <section class="panel-card">
+        <div class="panel-header">
+            <div>
+                <span class="eyebrow">Connections</span>
+                <h2>Media server profiles</h2>
+            </div>
+            <button class="btn-modern secondary small" @onclick="StartNewProfile">Add profile</button>
+        </div>
+        <div class="hint-box">
+            Named server profiles several sync jobs can share. The
+            Jellyfin tab still holds the app-wide default used by the
+            liked-songs sync; profiles are for everything else.
+        </div>
+        @if (profiles.Count == 0)
+        {
+            <div class="empty-state">No profiles yet. Add one to reuse a server across sync jobs.</div>
+        }
+        else
+        {
+            <div class="profile-list">
+                @foreach (var profile in profiles)
+                {
+                    <div class="profile-row">
+                        <div style="flex:1; min-width:0;">
+                            <strong>@profile.Name</strong>
+                            <span class="pill neutral">@profile.Kind</span>
+                            <div class="text-muted" style="font-size:.85rem">@profile.BaseUrl</div>
+                        </div>
+                        <div class="flex-actions">
+                            <button class="btn-modern ghost small" @onclick="() => EditProfile(profile)">Edit</button>
+                            <button class="btn-modern ghost small" @onclick="() => DeleteProfile(profile)">Delete</button>
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+    </section>
+
+    @if (editingProfile is not null)
+    {
+        <section class="panel-card">
+            <div class="panel-header">
+                <div>
+                    <span class="eyebrow">Edit</span>
+                    <h2>@(editingIsNew ? "New profile" : editingProfile.Name)</h2>
+                </div>
+            </div>
+            <div class="form-grid single">
+                <label>Name <input @bind="editingProfile.Name" placeholder="Living room Jellyfin" /></label>
+                <label>Kind
+                    <select @bind="editingProfile.Kind">
+                        <option value="Jellyfin">Jellyfin</option>
+                        <option value="Plex">Plex (when supported)</option>
+                    </select>
+                </label>
+                <label>Base URL <input @bind="editingProfile.BaseUrl" placeholder="http://jellyfin:8096" /></label>
+                <label>API key <input @bind="editingProfile.ApiKey" type="password" placeholder="API key" /></label>
+            </div>
+            <div class="flex-actions">
+                <button class="btn-modern ghost" @onclick="CancelProfileEdit">Cancel</button>
+                <button class="btn-modern primary" @onclick="SaveProfile">Save profile</button>
+            </div>
+        </section>
+    }
+}
 else if (activeTab == "jellyfin")
 {
     <section class="panel-card">
@@ -146,17 +219,7 @@ else if (activeTab == "quality")
             New playlists start with this setting. Every playlist can override
             it on its own page.
         </div>
-        <div class="form-grid single">
-            <label>
-                Preset
-                <select @bind="defaultQuality">
-                    @foreach (var preset in Playlists.QualityPresets)
-                    {
-                        <option value="@preset.Value">@preset.Label</option>
-                    }
-                </select>
-            </label>
-        </div>
+        <QualityPicker @bind-Value="defaultQuality" />
         <div class="panel-header">
             <div>
                 <span class="eyebrow">Verification</span>
@@ -211,6 +274,47 @@ else if (activeTab == "network")
         </div>
     </section>
 
+}
+else if (activeTab == "about")
+{
+    <section class="panel-card about-card">
+        <div class="panel-header">
+            <div>
+                <span class="eyebrow">About</span>
+                <h2>MelodyBridge @AppInfo.Version</h2>
+            </div>
+        </div>
+        <div class="flex-actions">
+            <button class="btn-modern secondary" @onclick="CheckForUpdates" disabled="@checkingUpdate">
+                @(checkingUpdate ? "Checking…" : "Check for updates")
+            </button>
+            @if (updateResult is { } u)
+            {
+                @if (u.Succeeded && UpdateCheckService.IsNewer(u.LatestVersion!, AppInfo.Version))
+                {
+                    <span class="pill ok">Update available: v@(u.LatestVersion)</span>
+                    <a class="hint" href="@u.ReleaseUrl" target="_blank" rel="noopener">Release notes ↗</a>
+                }
+                else if (u.Succeeded)
+                {
+                    <span class="pill neutral">You are up to date</span>
+                }
+                else
+                {
+                    <span class="pill err" title="@u.Error">Check failed</span>
+                }
+            }
+        </div>
+        <div class="hint-box">
+            Self-hosted and open source. Docs live at
+            <a href="https://docs.melodybridge.app" target="_blank" rel="noopener">docs.melodybridge.app</a> —
+            quick start, accounts, Lucida and the Docker guide.
+        </div>
+        <div class="flex-actions">
+            <button class="btn-modern ghost" @onclick="RestartTour">Show the guided tour again</button>
+        </div>
+    </section>
+
     <section class="panel-card about-card">
         <div class="panel-header">
             <div>
@@ -225,6 +329,29 @@ else if (activeTab == "network")
         <button class="btn-modern primary-outline" @onclick="ExportLogs">
             <span class="btn-icon">📥</span> Export logs
         </button>
+    </section>
+
+    <section class="panel-card about-card">
+        <div class="panel-header">
+            <div>
+                <span class="eyebrow">Backup</span>
+                <h2>Database</h2>
+            </div>
+        </div>
+        <div class="hint-box">
+            The zip contains a consistent snapshot (playlists, tracks,
+            settings). Import replaces the current database and parks the
+            old one next to it as .preimport.bak — restart after
+            importing so the app lets go of the old file.
+        </div>
+        <div class="flex-actions">
+            <button class="btn-modern secondary" @onclick="ExportDatabase">Export zip</button>
+            <InputFile OnChange="ImportDatabase" accept=".zip" class="btn-modern ghost" />
+        </div>
+        @if (!string.IsNullOrWhiteSpace(dbMessage))
+        {
+            <div class="hint-box">@dbMessage</div>
+        }
     </section>
 }
 
@@ -243,6 +370,16 @@ else if (activeTab == "network")
     private bool testingFlare;
     private string? savedMessage;
 
+    // Connections tab
+    private List<MediaServerProfile> profiles = [];
+    private MediaServerProfile? editingProfile;
+    private bool editingIsNew;
+
+    // About tab
+    private UpdateCheckResult? updateResult;
+    private bool checkingUpdate;
+    private string? dbMessage;
+
     [Inject] private IConfiguration Config { get; set; } = default!;
 
     private static SpectrumMode SpectrumModeValue(string mode) => mode switch
@@ -254,6 +391,7 @@ else if (activeTab == "network")
 
     protected override async Task OnInitializedAsync()
     {
+        profiles = (await ServerProfiles.GetAllAsync()).ToList();
         await using var db = await DbFactory.CreateDbContextAsync();
         var settings = await db.DownloaderSettings.ToListAsync();
         jellyfinUrl = FindSetting(settings, "jellyfin_url", "http://host.docker.internal:8096");
@@ -388,6 +526,103 @@ else if (activeTab == "network")
     }
 
     private void ExportLogs() => Nav.NavigateTo("/api/logs/export", true);
+
+    // ── Connections tab ────────────────────────────────────────────
+
+    private void StartNewProfile()
+    {
+        editingProfile = new MediaServerProfile { Name = "", BaseUrl = "", Kind = "Jellyfin" };
+        editingIsNew = true;
+    }
+
+    private void EditProfile(MediaServerProfile profile)
+    {
+        editingProfile = profile.Clone();
+        editingIsNew = false;
+    }
+
+    private async Task SaveProfile()
+    {
+        if (editingProfile is null) return;
+        if (string.IsNullOrWhiteSpace(editingProfile.Name)
+            || string.IsNullOrWhiteSpace(editingProfile.BaseUrl))
+        {
+            Notifications.Warn("Profile needs at least a name and a base URL.");
+            return;
+        }
+        await ServerProfiles.SaveAsync(editingProfile);
+        profiles = (await ServerProfiles.GetAllAsync()).ToList();
+        editingProfile = null;
+        Notifications.Success("Profile saved.");
+    }
+
+    private void CancelProfileEdit() => editingProfile = null;
+
+    private async Task DeleteProfile(MediaServerProfile profile)
+    {
+        if (await ServerProfiles.DeleteAsync(profile.Id))
+        {
+            profiles = (await ServerProfiles.GetAllAsync()).ToList();
+            Notifications.Info($"Deleted profile '{profile.Name}'.");
+        }
+    }
+
+    // ── About tab ──────────────────────────────────────────────────
+
+    private async Task CheckForUpdates()
+    {
+        checkingUpdate = true;
+        try
+        {
+            updateResult = await UpdateCheck.CheckAsync();
+        }
+        finally
+        {
+            checkingUpdate = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task RestartTour()
+    {
+        await TourReset.SetAsync("tour_dismissed", "false");
+        Notifications.Success("The tour shows again on the dashboard.");
+    }
+
+    private async Task ExportDatabase()
+    {
+        try
+        {
+            var zip = await DbBackup.ExportZipAsync();
+            await JS.InvokeVoidAsync("melody.downloadFile",
+                $"melodybridge_{DateTime.UtcNow:yyyyMMdd_HHmmss}.zip",
+                "application/zip", zip);
+            Notifications.Success("Database exported.");
+        }
+        catch (Exception ex)
+        {
+            Notifications.Error($"Export failed: {ex.Message}");
+        }
+    }
+
+    private async Task ImportDatabase(InputFileChangeEventArgs e)
+    {
+        if (e.FileCount == 0) return;
+        dbMessage = "Importing…";
+        try
+        {
+            await using var stream = e.File.OpenReadStream(200_000_000);
+            await DbBackup.ImportZipAsync(stream);
+            dbMessage = "Database restored. Restart MelodyBridge to use it.";
+            Notifications.Warn("Database imported — restart to apply.");
+        }
+        catch (Exception ex)
+        {
+            dbMessage = $"Import failed: {ex.Message}";
+            Notifications.Error($"Import failed: {ex.Message}");
+        }
+        StateHasChanged();
+    }
 
     public void Dispose() { }
 }
