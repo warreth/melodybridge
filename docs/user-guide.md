@@ -84,6 +84,9 @@ the plugin waterfall and shows live progress.
   or cancel it. Several tracks of the same playlist download in
   parallel; the number of simultaneous downloads is set on the
   Advanced page (1 to 8, default 2)
+- Every completed file gets an integrity check: the duration must parse
+  and match the playlist metadata. A corrupt file is deleted, marked
+  failed with the reason, and retried on the next run
 
 The Lucida plugin needs a Cloudflare solver; see
 [Lucida and FlareSolverr](lucida.md). Without a solver Lucida stays out
@@ -132,6 +135,8 @@ and never mix into this list — the Library page shows your folders and
 how matching works, not a track list.
 
 - **Add location**: point MelodyBridge at a folder with music files
+- A new playlist registers its download folder as a scan location
+  automatically
 - Each location can scan on a fixed interval in hours or manual only
 - **Run scan** starts a scan of all locations immediately
 
@@ -142,24 +147,26 @@ locations shows what each run found, added and updated.
 
 ## Settings
 
-The Settings page collects everything that is not per-playlist, in five
+The Settings page collects everything that is not per-playlist, in six
 tabs.
 
 - **Accounts**: connect Spotify and YouTube. Both only ask for read
   access, see [Accounts and OAuth](accounts.md)
-- **Jellyfin**: base URL, API key and default user ID. With no user
-  configured, the first non-system user is used
+- **Media servers**: named server profiles several sync jobs can share.
+  Add and edit profiles in one place, each with a Test button and a Use
+  as app default switch
 - **Paths**: music path and playlist output folder, as the server sees
   them (inside Docker: `/music` and `/app/playlists`)
 - **Quality**: the default audio quality for new playlists (each playlist
   can override it on its own page) and the spectrum check mode: Off, Fast
-  (recommended) or Thorough. Quality is two dropdowns: a container and a
-  bitrate cap. Auto takes the best each source offers. MP3 plays on every
-  device: pick 320 kbps for a home collection, 192 kbps when disk space
-  is tight. Opus is the most efficient: 128 kbps sounds transparent to
-  most ears, 160 kbps is a safe ceiling. AAC (m4a) fits the Apple world:
-  256 kbps is a good pick for phones. FLAC is lossless with no bitrate
-  cap and the largest files, best for a media server with plenty of disk.
+  (recommended) or Thorough. Quality is three dropdowns: a container, a
+  bitrate floor and a bitrate ceiling. Auto takes the best each source
+  offers and locks the bitrate dropdowns. MP3 plays on every device: pick
+  320 kbps for a home collection, 192 kbps when disk space is tight.
+  Opus is the most efficient: 128 kbps sounds transparent to most ears,
+  160 kbps is a safe ceiling. AAC (m4a) fits the Apple world: 256 kbps is
+  a good pick for phones. FLAC is lossless, locks the bitrate dropdowns
+  and has the largest files, best for a media server with plenty of disk.
   A line under the dropdowns explains the trade-off for whichever
   container you pick
 - **Network**: the FlareSolverr URL for the Lucida plugin with a Test
@@ -180,6 +187,9 @@ The Advanced page holds the knobs most people never need.
 - **Display**: show the file column on playlist tracks, which reveals
   the exact filename behind each track. Useful when hunting inflated
   downloads
+- **Library maintenance**: the **Recompute audio facts** button refills
+  the bitrate, sample rate and size of older downloads that predate the
+  probing, and flags files missing on disk for a re-download
 
 ## Logs
 

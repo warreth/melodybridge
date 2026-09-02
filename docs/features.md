@@ -33,6 +33,10 @@ Every plugin quality-gates its files against the requested bitrate band
 not fill with inflated 128 kbps files labelled as 320 — or thin ones
 below the floor you set.
 
+A finished file is verified before it counts as downloaded: the duration
+must parse and match what the playlist metadata promised. A corrupt file
+is deleted, marked failed with the reason, and the next run retries it.
+
 Plugins that expose settings get an expandable panel on the Plugins
 page; values persist per plugin. Playlist downloads run several tracks
 in parallel (1 to 8 workers, Advanced page).
@@ -51,8 +55,9 @@ and the recommended setting.
 ## Per-playlist quality targets
 
 Each playlist can ask the waterfall for a specific container format
-(auto, MP3, FLAC, Opus or AAC) and an optional bitrate ceiling. Lossless
-formats ignore the ceiling because a cap makes no sense there.
+(auto, MP3, FLAC, Opus or AAC) and an optional bitrate band: a floor and
+a ceiling. Lossless formats ignore the band because limits make no
+sense there.
 
 ## Consistent tags
 
@@ -91,7 +96,9 @@ Add the folders that hold your music and MelodyBridge scans them, reads
 the tags (not the filenames) and keeps the database current. Scans can
 run on an interval per folder or manually. Downloaded tracks are matched
 against the library, so a track you already own is not downloaded again.
-The Library page lists your scan folders and how matching works; track
+A new playlist registers its download folder as a scan location
+automatically. The Library page lists your scan folders and how matching
+works; track
 lists live on the playlist pages, not here.
 
 ## Dashboard
@@ -103,5 +110,6 @@ sync jobs, the library and logs:
 - **Plugins**: waterfall order, toggles, live download runs with pause and cancel
 - **Sync jobs**: the five step wizard from source playlist to output
 - **Library**: scan locations and scan runs
-- **Settings**: Jellyfin, paths, intervals, quality checks, accounts
+- **Settings**: media server profiles, paths, intervals, quality
+  checks, accounts
 - **Logs**: what happened and what went wrong
