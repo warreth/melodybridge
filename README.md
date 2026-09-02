@@ -1,6 +1,10 @@
+<p align="center"><img src="logo.svg" width="128" alt="MelodyBridge logo" /></p>
+
 # MelodyBridge
 
 Self-hosted music toolbox: fetch playlists from Spotify or YouTube, download the tracks through a plugin waterfall, and publish clean M3U or Jellyfin playlists.
+
+![MelodyBridge dashboard](docs/public/screens/home.webp)
 
 ## Quick start
 
