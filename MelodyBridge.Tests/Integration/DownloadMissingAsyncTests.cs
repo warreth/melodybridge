@@ -216,7 +216,9 @@ public class DownloadMissingAsyncTests
             var factory = await NewDbFactory(dbPath);
             var store = NewStore(factory, new FileWritingDownloader());
 
-            // Seed WITHOUT a TargetDirectory.
+            // Seed WITHOUT a TargetDirectory and with the music_path
+            // default blanked out: every fallback is gone, the run must
+            // refuse to start rather than write into a random folder.
             await using (var db = await factory.CreateDbContextAsync())
             {
                 db.Playlists.Add(new PlaylistEntity
@@ -228,8 +230,12 @@ public class DownloadMissingAsyncTests
                 });
                 await db.SaveChangesAsync();
             }
+            await new SettingsStore(factory).SetAsync("music_path", "");
 
-            Assert.That(async () => await store.DownloadMissingAsync("pl-nodir"),
+            // An explicit empty-string override is the one combination with
+            // no fallback left: the run refuses to start. (A null folder now
+            // falls back to music_path — see DefaultDownloadPathTests.)
+            Assert.That(async () => await store.DownloadMissingAsync("pl-nodir", outputDirectoryOverride: " "),
                 Throws.InvalidOperationException.With.Message.Contains("download folder"));
         }
         finally { TryDelete(dbPath); }

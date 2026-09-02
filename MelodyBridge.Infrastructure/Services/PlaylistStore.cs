@@ -22,6 +22,7 @@ public class PlaylistStore
     private readonly IAccountSourceProvider[] _accountProviders;
     private readonly IDownloadManager _downloadManager;
     private readonly ILogger<PlaylistStore> _logger;
+    private readonly SettingsStore _settings;
 
     /// <summary>
     /// Post-download spectral verification strictness. Static: one app-wide
@@ -35,13 +36,17 @@ public class PlaylistStore
         IEnumerable<ISourceProvider> providers,
         IDownloadManager downloadManager,
         ILogger<PlaylistStore> logger,
-        IEnumerable<IAccountSourceProvider>? accountProviders = null)
+        IEnumerable<IAccountSourceProvider>? accountProviders = null,
+        SettingsStore? settings = null)
     {
         _dbFactory = dbFactory;
         _providers = providers.ToArray();
         _accountProviders = accountProviders?.ToArray() ?? Array.Empty<IAccountSourceProvider>();
         _downloadManager = downloadManager;
         _logger = logger;
+        // Settings live in the same database: the lazily built store reads
+        // the same rows the injected singleton would.
+        _settings = settings ?? new SettingsStore(dbFactory);
     }
 
     /// <summary>
@@ -67,8 +72,12 @@ public class PlaylistStore
                 .FirstOrDefaultAsync(p => p.Id == playlistId, ct)
                 ?? throw new InvalidOperationException($"Playlist '{playlistId}' not found");
 
+            // Folder precedence: an explicit override, the playlist's own
+            // folder, then the app-wide music_path default.
             dir = outputDirectoryOverride ?? entity.TargetDirectory
-                ?? throw new InvalidOperationException(
+                ?? await _settings.GetAsync("music_path", "/music", ct);
+            if (string.IsNullOrWhiteSpace(dir))
+                throw new InvalidOperationException(
                     "No download folder configured. Set one in the playlist settings.");
             playlistName = entity.Name;
             preferredFormat = entity.PreferredFormat;
@@ -407,6 +416,10 @@ public class PlaylistStore
         entity.LastSyncStatus = SyncStatus.Completed;
         if (targetDirectory is not null)
             entity.TargetDirectory = targetDirectory;
+        else if (isNew)
+            // Explicit default beats an implicit throw on the first
+            // download: a new playlist knows its folder from day one.
+            entity.TargetDirectory = await _settings.GetAsync("music_path", "/music", ct);
 
         // Reconcile the snapshot according to the playlist's SyncMode:
         //  Additive — removed-from-source tracks are kept but flagged.

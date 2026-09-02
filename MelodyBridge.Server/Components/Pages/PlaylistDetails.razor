@@ -97,6 +97,10 @@ else
             {
                 <div class="qi-meta">Now: @run.CurrentTrack</div>
             }
+            @if (run.EtaUtc is { } eta)
+            {
+                <div class="qi-meta text-muted">ETA @eta.ToLocalTime().ToString("t") · @run.QueueLength in queue</div>
+            }
         </section>
     }
 
@@ -119,7 +123,8 @@ else
                 </label>
                 <label>
                     Download folder
-                    <input @bind="editTargetDirectory" placeholder="/music/downloads" />
+                    <input @bind="editTargetDirectory" placeholder="@resolvedDefaultMusicPath" />
+                    <small class="text-muted">Empty uses the default music path (currently @resolvedDefaultMusicPath).</small>
                 </label>
                 <label class="quality-field">
                     Audio quality
@@ -232,9 +237,21 @@ else
                                     @(track.DownloadStatus == "downloaded" ? TrackDisplay.Quality(track) : "-")
                                 </td>
                                 <td>
-                                    <span class="pill @(DownloadStatusClass(track.DownloadStatus))">
-                                        @(track.DownloadStatus ?? "pending")
-                                    </span>
+                                    @{ var queueLabel = TrackQueueLabel(track); }
+                                    @if (queueLabel is not null)
+                                    {
+                                        <span class="pill @(queueLabel == "downloading" ? "warn" : DownloadStatusClass(track.DownloadStatus))"
+                                              title="@(queueLabel == "downloading" ? "Currently downloading" : null)">
+                                            @queueLabel
+                                        </span>
+                                    }
+                                    else
+                                    {
+                                        <span class="pill @(DownloadStatusClass(track.DownloadStatus))"
+                                              title="@(track.DownloadStatus == "failed" ? track.DownloadError : null)">
+                                            @(track.DownloadStatus ?? "pending")
+                                        </span>
+                                    }
                                     @if (!string.IsNullOrWhiteSpace(track.Warning))
                                     {
                                         <span class="pill warn" title="@track.Warning">⚠</span>
@@ -284,6 +301,7 @@ else
 
     private int downloadedCount;
     private int badQualityCount;
+    private string resolvedDefaultMusicPath = "/music";
     private Timer? refreshTimer;
     private Application.Services.DownloadRun? observedRun;
 
@@ -310,6 +328,7 @@ else
     {
         loading = true;
         showFilenameColumn = await Settings.GetBoolAsync("show_filename", fallback: false);
+        resolvedDefaultMusicPath = await Settings.GetAsync("music_path", "/music");
         playlist = await Store.GetByIdAsync(PlaylistId);
         if (playlist is not null)
         {
@@ -419,4 +438,27 @@ else
         "queued" or "in_progress" => "warn",
         _ => "neutral",
     };
+
+    /// <summary>
+    /// Live queue label for a track while this playlist has an active run:
+    /// "downloading" for the queue head while running, "in queue · #N"
+    /// (Position order) for the rest. Null means the plain status pill.
+    /// </summary>
+    private string? TrackQueueLabel(TrackEntity track)
+    {
+        if (run is null || run.State is not (Application.Services.DownloadRunState.Running
+            or Application.Services.DownloadRunState.Paused)) return null;
+        if (track.DownloadStatus is "downloaded" or "removed-from-source") return null;
+        var queue = Coordinator.QueueFor(PlaylistId);
+        var title = track.Title ?? "";
+        var index = -1;
+        for (var i = 0; i < queue.Count; i++)
+        {
+            if (queue[i] == title) { index = i; break; }
+        }
+        if (index < 0) return null;
+        return index == 0 && run.State == Application.Services.DownloadRunState.Running
+            ? "downloading"
+            : $"in queue · #{index + 1}";
+    }
 }
