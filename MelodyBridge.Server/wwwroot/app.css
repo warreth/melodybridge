@@ -482,6 +482,11 @@ select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-s
     background: var(--surface);
     box-shadow: 0 24px 48px rgba(0, 0, 0, .3);
 }
+/* Modals that carry a table (account playlists): room for the action
+   column instead of a squeezed scroll area. */
+.wizard-modal.wide {
+    width: min(880px, calc(100vw - 2rem));
+}
 .wizard-header {
     display: flex;
     align-items: start;
@@ -495,6 +500,15 @@ select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-s
     overflow-y: auto;
     flex: 1;
 }
+/* Section titles inside import/import wizards (Spotify / From a file…). */
+.wizard-body h3 {
+    font-size: .8rem;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: var(--muted);
+    margin: .25rem 0 .25rem;
+}
+.wizard-body h3:not(:first-child) { margin-top: 1.5rem; }
 .wizard-footer {
     display: flex;
     justify-content: space-between;

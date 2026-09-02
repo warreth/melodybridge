@@ -19,10 +19,10 @@
     <div>
         <span class="eyebrow">Your music</span>
         <h1>Playlists</h1>
-        <p>Save a public Spotify or YouTube playlist here, or import everything from your connected account.</p>
+        <p>Save a public Spotify or YouTube playlist here, or import from your account or an export file.</p>
     </div>
     <div class="topbar-actions">
-        <button class="btn-modern ghost" @onclick="ShowAccountPanel">From my account</button>
+        <button class="btn-modern ghost" @onclick="ShowAccountPanel">Import</button>
         <button class="btn-modern primary" @onclick="ShowAddForm">Add playlist</button>
     </div>
 </section>
@@ -48,7 +48,7 @@ else
     <section class="content-grid three">
         @foreach (var playlist in playlists)
         {
-            var (downloaded, failed, total) = downloadCounts.GetValueOrDefault(playlist.Id, (0, 0, 0));
+            var (downloaded, failed, total, sizeBytes) = downloadStats.GetValueOrDefault(playlist.Id, (0, 0, 0, 0));
             var run = Coordinator.RunFor(playlist.Id);
             <div class="panel-card playlist-card">
                 <a class="playlist-cover" href="/playlists/@playlist.Id" title="Open @playlist.Name">
@@ -93,9 +93,16 @@ else
                     {
                         <span> · @QualityLabel(playlist.PreferredFormat)</span>
                     }
+                    @if (sizeBytes > 0)
+                    {
+                        <span> · @TrackDisplay.Size(sizeBytes) on disk</span>
+                    }
                 </p>
                 <small class="job-meta">
                     Last synced: @(playlist.LastSyncAt?.ToLocalTime().ToString("g") ?? "never")
+                    @(playlist.AutoSyncEnabled
+                        ? $" · auto-sync every {playlist.AutoSyncIntervalMinutes ?? 60} min"
+                        : " · manual sync")
                 </small>
             </div>
         }
@@ -128,15 +135,17 @@ else
                         Audio quality
                         <QualityPicker @bind-Value="newQuality" />
                     </label>
-                    <label class="toggle-switch wide">
-                        <input type="checkbox" @bind="newAutoSync" />
-                        <span class="toggle-slider"></span>
-                        <span>Auto-sync this playlist</span>
+                    <label>
+                        Auto-sync schedule
+                        <select @bind="newAutoSync">
+                            <option value="@false">Manual only</option>
+                            <option value="@true">Every N minutes</option>
+                        </select>
                     </label>
                     @if (newAutoSync)
                     {
                         <label>
-                            Check interval (minutes)
+                            Minutes between checks
                             <input type="number" min="5" step="5" @bind="newIntervalMinutes" />
                         </label>
                     }
@@ -169,15 +178,16 @@ else
 @if (showAccountPanel)
 {
     <div class="wizard-overlay" @onclick="CloseAccountPanel">
-        <div class="wizard-modal" @onclick:stopPropagation="true">
+        <div class="wizard-modal wide" @onclick:stopPropagation="true">
             <div class="wizard-header">
                 <div>
-                    <span class="eyebrow">Accounts</span>
-                    <h2>Import from your account</h2>
+                    <span class="eyebrow">Import</span>
+                    <h2>Import your music</h2>
                 </div>
                 <button class="icon-button" @onclick="HideAccountPanel">&times;</button>
             </div>
             <div class="wizard-body">
+                <h3>Spotify</h3>
                 <div class="account-grid">
                     @foreach (var entry in accountPanels)
                     {
@@ -187,7 +197,7 @@ else
                             {
                                 <span class="pill ok">connected</span>
                                 <button class="btn-modern" @onclick="() => ImportLiked(entry.Name)" disabled="@busy">
-                                    Import liked songs
+                                    @(LikedAlreadySaved(entry.Name) ? "Update liked songs" : "Import liked songs")
                                 </button>
                                 <button class="btn-modern" @onclick="() => LoadAccountPlaylists(entry.Name)" disabled="@busy">
                                     Show my playlists
@@ -201,6 +211,43 @@ else
                         </div>
                     }
                 </div>
+                <p class="text-muted">
+                    The account method uses Spotify's official API and needs a
+                    <strong>Spotify Premium</strong> account — Spotify requires Premium from
+                    the owner of a developer app. No Premium? Use one of the file imports
+                    below instead: they work with a free account.
+                </p>
+
+                <h3>From a file — works with a free account</h3>
+                <div class="account-grid">
+                    <div class="account-card">
+                        <strong>Exportify CSV</strong>
+                        <span class="pill ok">recommended</span>
+                        <p class="text-muted">
+                            The easiest way to get your liked songs out of Spotify.
+                            Go to <a href="https://exportify.net" target="_blank" rel="noopener">exportify.net</a>,
+                            log in, click <em>Export Liked Songs</em> (or any playlist),
+                            and upload the downloaded CSV here.
+                        </p>
+                        <InputFile OnChange="ImportExportifyFile" accept=".csv,text/csv" class="btn-modern" disabled="@busy" />
+                    </div>
+                    <div class="account-card">
+                        <strong>Spotify data export</strong>
+                        <span class="pill neutral">manual, no API</span>
+                        <p class="text-muted">
+                            Always manual, never automatic: request <em>Download your data</em>
+                            at <a href="https://www.spotify.com/account/privacy" target="_blank" rel="noopener">spotify.com/account/privacy</a>,
+                            wait for Spotify's email (up to a few days), unzip it and upload
+                            <code>YourLibrary.json</code> (liked songs) or
+                            <code>Playlist1.json</code> (all playlists) here.
+                        </p>
+                        <InputFile OnChange="ImportTakeoutFile" accept=".json,application/json" class="btn-modern" disabled="@busy" />
+                    </div>
+                </div>
+                @if (fileImportError is not null)
+                {
+                    <div class="result-box error">@fileImportError</div>
+                }
 
                 @if (accountPlaylists is not null)
                 {
@@ -211,19 +258,33 @@ else
                                     <th>Playlist</th>
                                     <th>Owner</th>
                                     <th>Tracks</th>
+                                    <th>Status</th>
                                     <th></th>
                                 </tr>
                             </thead>
                             <tbody>
                                 @foreach (var pl in accountPlaylists)
                                 {
+                                    var saved = savedAccountIds.Contains(pl.Id);
                                     <tr>
                                         <td><strong>@pl.Name</strong></td>
                                         <td class="text-muted">@(pl.Owner ?? "-")</td>
                                         <td class="text-muted">@pl.TrackCount</td>
                                         <td>
+                                            @if (saved)
+                                            {
+                                                <span class="pill ok" title="Already saved locally; importing again updates it">saved</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="pill neutral">new</span>
+                                            }
+                                        </td>
+                                        <td>
                                             <button class="btn-modern" @onclick="() => ImportAccountPlaylist(pl)" disabled="@busy">
-                                                @(busy && importingId == pl.Id ? "Importing…" : "Import")
+                                                @(busy && importingId == pl.Id
+                                                    ? "Importing…"
+                                                    : saved ? "Update" : "Import")
                                             </button>
                                         </td>
                                     </tr>
@@ -243,7 +304,7 @@ else
 
 @code {
     private List<PlaylistEntity> playlists = new();
-    private Dictionary<string, (int downloaded, int failed, int total)> downloadCounts = new();
+    private Dictionary<string, (int downloaded, int failed, int total, long sizeBytes)> downloadStats = new();
     private bool loading = true;
     private bool busy;
     private bool showAddForm;
@@ -265,7 +326,11 @@ else
     private string accountListProvider = string.Empty;
     private string? importingId;
     private string? accountError;
+    private string? fileImportError;
     private List<(string Name, bool Connected)> accountPanels = new();
+    private HashSet<string> savedAccountIds = new();
+    private HashSet<string> savedSpotifyIds = new();
+    private HashSet<string> savedYouTubeIds = new();
 
     private Timer? refreshTimer;
 
@@ -286,7 +351,7 @@ else
         // Live badge refresh while any run is active.
         refreshTimer = new Timer(_ => InvokeAsync(async () =>
         {
-            downloadCounts = await Store.GetDownloadCountsAsync();
+            downloadStats = await Store.GetDownloadStatsAsync();
             StateHasChanged();
         }), null, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2));
     }
@@ -302,7 +367,7 @@ else
     {
         loading = true;
         playlists = await Store.GetAllAsync();
-        downloadCounts = await Store.GetDownloadCountsAsync();
+        downloadStats = await Store.GetDownloadStatsAsync();
         loading = false;
     }
 
@@ -340,6 +405,11 @@ else
             (SpotifyAccountProvider.ProviderName, await SpotifyAccount.IsConnectedAsync()),
             (YouTubeAccountProvider.ProviderName, await YouTubeAccount.IsConnectedAsync()),
         };
+        // One lookup per platform: liked songs are saved under their own
+        // external id ("spotify-liked", "LL"), so the import button can
+        // say Update instead of Import when they are already here.
+        savedSpotifyIds = await Store.GetSavedExternalIdsAsync(Platform.Spotify);
+        savedYouTubeIds = await Store.GetSavedExternalIdsAsync(Platform.YouTubeMusic);
         StateHasChanged();
     }
 
@@ -353,6 +423,12 @@ else
                 ? SpotifyAccount : (IAccountSourceProvider)YouTubeAccount;
             accountPlaylists = (await account.GetUserPlaylistsAsync()).ToList();
             accountListProvider = providerName;
+            // Already-saved playlists get their pill and an Update label;
+            // the same platform + external id pair a re-import updates.
+            savedAccountIds = await Store.GetSavedExternalIdsAsync(
+                providerName == SpotifyAccountProvider.ProviderName
+                    ? Platform.Spotify
+                    : Platform.YouTubeMusic);
         }
         catch (Exception ex)
         {
@@ -398,7 +474,10 @@ else
             var url = accountListProvider == SpotifyAccountProvider.ProviderName
                 ? $"https://open.spotify.com/playlist/{playlist.Id}"
                 : $"https://www.youtube.com/playlist?list={playlist.Id}";
-            var added = await Store.AddOrRefreshAsync(url, TargetOrNull());
+            var (added, newlySaved) = await Store.AddOrRefreshDetailedAsync(url, TargetOrNull());
+            message = newlySaved
+                ? $"Saved '{added.Name}' with {added.TrackCount} tracks."
+                : $"'{added.Name}' was already saved; updated it ({added.TrackCount} tracks).";
             Navigation.NavigateTo($"/playlists/{added.Id}");
         }
         catch (Exception ex)
@@ -415,6 +494,12 @@ else
     private string? TargetOrNull()
         => string.IsNullOrWhiteSpace(newTargetDirectory) ? null : newTargetDirectory;
 
+    /// <summary>Liked songs are saved under their own external id per platform.</summary>
+    private bool LikedAlreadySaved(string providerName)
+        => providerName == SpotifyAccountProvider.ProviderName
+            ? savedSpotifyIds.Contains("spotify-liked")
+            : savedYouTubeIds.Contains("LL");
+
     private async Task Add()
     {
         if (string.IsNullOrWhiteSpace(newUrl))
@@ -427,10 +512,12 @@ else
         try
         {
             var target = TargetOrNull();
-            var playlist = await Store.AddOrRefreshAsync(newUrl.Trim(), target);
+            var (playlist, newlySaved) = await Store.AddOrRefreshDetailedAsync(newUrl.Trim(), target);
             await Store.UpdateSettingsAsync(playlist.Id, null, newAutoSync, newIntervalMinutes, target, newSyncMode, newQuality);
             showAddForm = false;
-            message = $"Saved '{playlist.Name}' with {playlist.TrackCount} tracks.";
+            message = newlySaved
+                ? $"Saved '{playlist.Name}' with {playlist.TrackCount} tracks."
+                : $"'{playlist.Name}' was already saved; updated it ({playlist.TrackCount} tracks).";
             messageIsError = false;
             await Load();
         }
@@ -443,37 +530,47 @@ else
 
     private void Open(PlaylistEntity playlist) => Navigation.NavigateTo($"/playlists/{playlist.Id}");
 
-    private async Task ExportAll()
+    /// <summary>
+    /// Shared path for both file imports (Exportify CSV, Spotify data
+    /// export): read the upload, parse it, persist through the store.
+    /// The parser decides the flavor; the message names it.
+    /// </summary>
+    private async Task ImportUploadedFile(InputFileChangeEventArgs e)
     {
+        fileImportError = null;
         busy = true;
         try
         {
-            var json = await Store.ExportAsync();
-            var bytes = System.Text.Encoding.UTF8.GetBytes(json);
-            await JS.InvokeVoidAsync("melody.downloadFile", $"melodybridge-playlists-{DateTime.Now:yyyyMMdd}.json", "application/json", bytes);
-        }
-        finally { busy = false; }
-    }
+            string content;
+            using (var stream = e.File.OpenReadStream(maxAllowedSize: 20 * 1024 * 1024))
+            using (var reader = new System.IO.StreamReader(stream))
+                content = await reader.ReadToEndAsync();
 
-    private async Task ImportFile(InputFileChangeEventArgs e)
-    {
-        try
-        {
-            using var stream = e.File.OpenReadStream(maxAllowedSize: 20 * 1024 * 1024);
-            using var reader = new System.IO.StreamReader(stream);
-            var json = await reader.ReadToEndAsync();
+            var file = PlaylistFileImporter.Parse(e.File.Name, content)
+                ?? throw new InvalidOperationException(
+                    "Could not read that file. Expected an Exportify CSV or a Spotify data export (YourLibrary.json / Playlist1.json).");
 
-            var count = await Store.ImportAsync(json);
-            message = count > 0 ? $"Imported {count} playlist(s)." : "Nothing new to import.";
+            var (playlists, tracks) = await Store.ImportFileAsync(file, TargetOrNull());
+            message = playlists > 0
+                ? $"Imported {playlists} playlist(s), {tracks} tracks."
+                : "Nothing new to import.";
             messageIsError = false;
+            HideAccountPanel();
             await Load();
         }
         catch (Exception ex)
         {
-            message = $"Import failed: {ex.Message}";
-            messageIsError = true;
+            fileImportError = ex.Message;
+        }
+        finally
+        {
+            busy = false;
+            StateHasChanged();
         }
     }
+
+    private Task ImportExportifyFile(InputFileChangeEventArgs e) => ImportUploadedFile(e);
+    private Task ImportTakeoutFile(InputFileChangeEventArgs e) => ImportUploadedFile(e);
 
     public void Dispose() => refreshTimer?.Dispose();
 }

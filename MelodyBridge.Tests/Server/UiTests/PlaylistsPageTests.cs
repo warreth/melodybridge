@@ -93,6 +93,109 @@ public class PlaylistsPageTests
             "only the cover and the title are clickable");
     }
 
+    [Test]
+    public void Playlists_ImportModal_OpensWithAllThreeRoutes()
+    {
+        var cut = _ctx.Render<Playlists>();
+        cut.Find("div.topbar-actions button.ghost").Click();
+
+        Assert.That(cut.Markup, Does.Contain("Import your music"));
+        Assert.That(cut.Markup, Does.Contain("Exportify CSV"), "file route 1");
+        Assert.That(cut.Markup, Does.Contain("Spotify data export"), "file route 2");
+        // No account is connected in the test context, so the account
+        // route shows its connect hint instead of its import buttons.
+        Assert.That(cut.Markup, Does.Contain("Connect it in Settings"), "account route");
+    }
+
+    [Test]
+    public void Playlists_ImportModal_ExplainsPremiumRequirement()
+    {
+        var cut = _ctx.Render<Playlists>();
+        cut.Find("div.topbar-actions button.ghost").Click();
+
+        Assert.That(cut.Markup, Does.Contain("Spotify Premium"),
+            "the account route must say it needs Premium");
+        Assert.That(cut.Markup, Does.Contain("works with a free account"),
+            "the file routes must say they work without Premium");
+        Assert.That(cut.Markup, Does.Contain("exportify.net"),
+            "the recommended tool must be linked");
+    }
+
+    [Test]
+    public void Playlists_ImportModal_TakeoutCard_SaysAlwaysManual()
+    {
+        var cut = _ctx.Render<Playlists>();
+        cut.Find("div.topbar-actions button.ghost").Click();
+
+        Assert.That(cut.Markup, Does.Contain("Always manual, never automatic"),
+            "the Spotify data export must be labelled as manual");
+        Assert.That(cut.Markup, Does.Contain("YourLibrary.json"),
+            "must name the file the user should upload");
+    }
+
+    [Test]
+    public void Playlists_ImportModal_RecommendsExportifyForFreeUsers()
+    {
+        var cut = _ctx.Render<Playlists>();
+        cut.Find("div.topbar-actions button.ghost").Click();
+
+        var recommended = cut.FindAll("span.pill.ok")
+            .Any(p => p.TextContent.Trim() == "recommended");
+        Assert.That(recommended, Is.True,
+            "the Exportify card carries the recommended pill");
+    }
+
+    [Test]
+    public void Playlists_AddForm_ScheduleOptions_MatchTheSyncJobWordedSelect()
+    {
+        var cut = _ctx.Render<Playlists>();
+        cut.Find("div.topbar-actions button.primary").Click();
+
+        // Same wording the Library schedule picker and the sync job
+        // wizard use: a named select, not a bare checkbox.
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.Markup, Does.Contain("Auto-sync schedule"));
+            Assert.That(cut.Markup, Does.Contain("Manual only"));
+            Assert.That(cut.Markup, Does.Contain("Every N minutes"));
+        }, TimeSpan.FromSeconds(3));
+    }
+
+    [Test]
+    public void Playlists_Card_ShowsSizeOnDiskAndSyncSchedule()
+    {
+        SeedOnePlaylist("Sized Mix", 2, Platform.Spotify);
+
+        // Give the two tracks real disk facts: one finished file.
+        var factory = new SqliteFactory(_dbPath);
+        using (var db = factory.CreateDbContext())
+        {
+            var tracks = db.Tracks.ToList();
+            tracks[0].DownloadStatus = "downloaded";
+            tracks[0].FileSizeBytes = 5 * 1024 * 1024;
+            db.SaveChanges();
+        }
+
+        var cut = _ctx.Render<Playlists>();
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.Markup, Does.Contain("5 MB on disk"),
+                "the card adds up the finished files and shows the size");
+            Assert.That(cut.Markup, Does.Contain("manual sync"),
+                "the card states the sync schedule like the sync jobs do");
+        }, TimeSpan.FromSeconds(3));
+    }
+
+    [Test]
+    public void Playlists_ImportModal_IsWideEnoughForThePlaylistsTable()
+    {
+        var cut = _ctx.Render<Playlists>();
+        cut.Find("div.topbar-actions button.ghost").Click();
+
+        Assert.That(cut.Find(".wizard-modal").ClassList, Does.Contain("wide"),
+            "the import modal carries the table, so it gets the wide variant");
+    }
+
     private void SeedOnePlaylist(string name, int trackCount, Platform platform)
     {
         var factory = new SqliteFactory(_dbPath);
