@@ -51,6 +51,17 @@ public class YouTubeSourceProviderLiveTests
     }
 
     [Test]
+    public async Task GetPlaylistAsync_ReturnsCoverImageUrl()
+    {
+        var playlist = await _provider.GetPlaylistAsync(PlaylistUrl);
+
+        Assert.That(playlist.CoverImageUrl, Is.Not.Null.And.Not.Empty,
+            "yt-dlp exposes playlist thumbnails; the tallest one must map to CoverImageUrl");
+        Assert.That(playlist.CoverImageUrl, Does.StartWith("http"),
+            "the cover must be a usable image URL");
+    }
+
+    [Test]
     public void GetPlaylistId_ExtractsListParameter()
     {
         var id = YouTubeSourceProvider.GetPlaylistId(

@@ -1,3 +1,4 @@
+using AngleSharp.Dom;
 using Bunit;
 using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.Data;
@@ -11,8 +12,9 @@ namespace MelodyBridge.Tests.Server.UiTests;
 
 /// <summary>
 /// PlaylistDetails page quality UI: the preset selector reflects the
-/// stored quality string, real measured facts appear per track, and the
-/// inflation warning pill shows for flagged files.
+/// stored quality string, real measured facts appear per track in their
+/// own Bitrate/Rate/Format columns, the optional File column shows the
+/// filename, and the inflation warning pill shows for flagged files.
 /// </summary>
 [TestFixture]
 [Category("UI")]
@@ -85,6 +87,18 @@ public class PlaylistDetailsQualityTests
         }
     }
 
+    /// <summary>The first data row of the track table, parsed from the DOM.</summary>
+    private static IElement RowFor(IRenderedComponent<PlaylistDetails> cut, string title)
+        => cut.FindAll("table tbody tr")
+            .Single(tr => tr.QuerySelector("td strong")?.TextContent == title);
+
+    /// <summary>Maps header names to cell indexes so assertions read by column.</summary>
+    private static Dictionary<string, int> HeaderIndexes(IRenderedComponent<PlaylistDetails> cut)
+        => cut.FindAll("table thead th")
+            .Select((th, i) => (name: th.TextContent.Trim(), i))
+            .Where(t => t.name.Length > 0)
+            .ToDictionary(t => t.name, t => t.i);
+
     [Test]
     public void QualitySelector_ShowsStoredPreset()
     {
@@ -117,7 +131,50 @@ public class PlaylistDetailsQualityTests
     }
 
     [Test]
-    public void TrackTable_ShowsFilenameColumn_WhenSettingOn()
+    public void TrackTable_SplitsQualityIntoSeparateColumns()
+    {
+        var cut = _ctx.Render<PlaylistDetails>(p => p.Add(p => p.PlaylistId, "pl-1"));
+
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("Fine track")), TimeSpan.FromSeconds(3));
+
+        var headers = cut.FindAll("table thead th").Select(th => th.TextContent.Trim()).ToList();
+        Assert.That(headers, Does.Contain("Bitrate"), "bitrate is its own column");
+        Assert.That(headers, Does.Contain("Rate"), "sample rate is its own column");
+        Assert.That(headers, Does.Contain("Format"), "the container is its own column");
+        Assert.That(headers, Does.Not.Contains("Quality"),
+            "the old combined Quality column is gone");
+
+        // Parse the cells of the measured track by header index.
+        var index = HeaderIndexes(cut);
+        var cells = RowFor(cut, "Fine track").QuerySelectorAll("td");
+        Assert.That(cells[index["Bitrate"]].TextContent.Trim(), Is.EqualTo("320 kbps"),
+            "the measured bitrate sits in the Bitrate cell");
+        Assert.That(cells[index["Rate"]].TextContent.Trim(), Is.EqualTo("44.1 kHz"),
+            "the measured sample rate sits in the Rate cell");
+        Assert.That(cells[index["Format"]].TextContent.Trim(), Is.EqualTo("MP3"),
+            "the upper-cased container sits in the Format cell");
+    }
+
+    [Test]
+    public void TrackTable_UnmeasuredTrack_ShowsDashInQualityColumns()
+    {
+        var cut = _ctx.Render<PlaylistDetails>(p => p.Add(p => p.PlaylistId, "pl-1"));
+
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("Doubtful track")), TimeSpan.FromSeconds(3));
+
+        var index = HeaderIndexes(cut);
+        var cells = RowFor(cut, "Doubtful track").QuerySelectorAll("td");
+        // The track is marked downloaded but was never measured, so every
+        // fact column renders the dash.
+        Assert.That(cells[index["Bitrate"]].TextContent.Trim(), Is.EqualTo("-"));
+        Assert.That(cells[index["Rate"]].TextContent.Trim(), Is.EqualTo("-"));
+        Assert.That(cells[index["Format"]].TextContent.Trim(), Is.EqualTo("-"));
+    }
+
+    [Test]
+    public void TrackTable_ShowsFilenameInOwnCell_WhenSettingOn()
     {
         using (var db = new TestSqliteFactory(_dbPath).CreateDbContext())
         {
@@ -129,6 +186,33 @@ public class PlaylistDetailsQualityTests
 
         cut.WaitForAssertion(() =>
             Assert.That(cut.Markup, Does.Contain("fine-track.mp3")), TimeSpan.FromSeconds(3));
+
+        var headers = cut.FindAll("table thead th").Select(th => th.TextContent.Trim()).ToList();
+        Assert.That(headers, Does.Contain("File"),
+            "the filename toggle adds its own column");
+
+        var index = HeaderIndexes(cut);
+        var cell = RowFor(cut, "Fine track").QuerySelectorAll("td")[index["File"]];
+        Assert.That(cell.TextContent.Trim(), Is.EqualTo("fine-track.mp3"),
+            "the filename lives in the File cell, not under the title");
+        Assert.That(cell.QuerySelector("span")?.GetAttribute("title"),
+            Is.EqualTo("/tmp/fine-track.mp3"),
+            "hovering shows the full path");
+    }
+
+    [Test]
+    public void TrackTable_HasNoFileColumn_WhenSettingOff()
+    {
+        var cut = _ctx.Render<PlaylistDetails>(p => p.Add(p => p.PlaylistId, "pl-1"));
+
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("Fine track")), TimeSpan.FromSeconds(3));
+
+        var headers = cut.FindAll("table thead th").Select(th => th.TextContent.Trim()).ToList();
+        Assert.That(headers, Does.Not.Contains("File"),
+            "with show_filename off the column disappears entirely");
+        Assert.That(cut.Markup, Does.Not.Contain("fine-track.mp3"),
+            "the filename must not leak into the title cell either");
     }
 
     [Test]
@@ -144,20 +228,6 @@ public class PlaylistDetailsQualityTests
             "exactly the flagged track shows the warning pill");
         Assert.That(warned[0].GetAttribute("title"), Does.Contain("inflated"),
             "hovering the pill explains the doubt");
-    }
-
-    [Test]
-    public void TrackTable_ShowsRealQuality_ForDownloadedTrack()
-    {
-        var cut = _ctx.Render<PlaylistDetails>(p => p.Add(p => p.PlaylistId, "pl-1"));
-
-        cut.WaitForAssertion(() =>
-            Assert.That(cut.Markup, Does.Contain("Fine track")), TimeSpan.FromSeconds(3));
-
-        Assert.That(cut.Markup, Does.Contain("320 kbps"),
-            "the measured bitrate must appear next to the track");
-        Assert.That(cut.Markup, Does.Contain("44.1 kHz"),
-            "the real sample rate must appear next to the track");
     }
 
     [Test]

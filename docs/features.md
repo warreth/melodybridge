@@ -6,7 +6,8 @@ Paste a public Spotify or YouTube playlist link and MelodyBridge saves
 every track to a local SQLite database, including the platform ID of each
 track. No Spotify API key or account is needed: the Spotify source
 provider reads the playlist from the public embed page, YouTube
-playlists come through yt-dlp.
+playlists come through yt-dlp. YouTube playlists get their thumbnail as
+cover, like Spotify.
 
 With the account login ([Accounts and OAuth](accounts.md)) you can also
 import what only you can see: private playlists, collaborative playlists
@@ -90,6 +91,8 @@ Add the folders that hold your music and MelodyBridge scans them, reads
 the tags (not the filenames) and keeps the database current. Scans can
 run on an interval per folder or manually. Downloaded tracks are matched
 against the library, so a track you already own is not downloaded again.
+The Library page lists your scan folders and how matching works; track
+lists live on the playlist pages, not here.
 
 ## Dashboard
 

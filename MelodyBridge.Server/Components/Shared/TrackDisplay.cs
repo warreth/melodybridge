@@ -23,6 +23,18 @@ public static class TrackDisplay
         return string.Join(" · ", parts);
     }
 
+    /// <summary>Bitrate alone ("264 kbps"), "-" when unknown.</summary>
+    public static string BitrateLabel(int? bitrate)
+        => bitrate is > 0 ? $"{bitrate} kbps" : "-";
+
+    /// <summary>Sample rate alone ("44.1 kHz"), "-" when unknown.</summary>
+    public static string RateLabel(int? sampleRateHz)
+        => sampleRateHz is > 0 ? $"{sampleRateHz / 1000.0:0.#} kHz" : "-";
+
+    /// <summary>Upper-cased container ("MP3"), "-" when unknown.</summary>
+    public static string FormatLabel(string? mediaType)
+        => string.IsNullOrWhiteSpace(mediaType) ? "-" : mediaType.ToUpperInvariant();
+
     /// <summary>Human file size ("3.4 MB"), empty when unknown.</summary>
     public static string Size(TrackEntity t) => Size(t.FileSizeBytes);
 

@@ -189,32 +189,6 @@ public class LayoutFixUITests
         Assert.That(cut.Markup, Does.Contain("Container"));
     }
 
-    // ── Library page ───────────────────────────────────────────────
-
-    [Test]
-    public void Library_ShowsScannedFiles_NotPlaylistDownloads()
-    {
-        var cut = _ctx.Render<Library>();
-
-        cut.WaitForAssertion(() =>
-            Assert.That(cut.Markup, Does.Contain("Scanner song")), TimeSpan.FromSeconds(3));
-        Assert.That(cut.Markup, Does.Not.Contain("Playlist song"),
-            "playlist downloads belong on the playlist page, not the library list");
-        Assert.That(cut.Markup, Does.Contain("28.6 MB"),
-            "the scanned file shows its size");
-    }
-
-    [Test]
-    public void Library_ShowsBitrateNextToContainer()
-    {
-        var cut = _ctx.Render<Library>();
-
-        cut.WaitForAssertion(() =>
-            Assert.That(cut.Markup, Does.Contain("Scanner song")), TimeSpan.FromSeconds(3));
-        Assert.That(cut.Markup, Does.Contain("900 kbps · 44.1 kHz · flac"),
-            "bitrate, sample rate and container appear together");
-    }
-
     // ── Playlists page cards ───────────────────────────────────────
 
     [Test]

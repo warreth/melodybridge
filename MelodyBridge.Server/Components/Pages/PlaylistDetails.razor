@@ -203,7 +203,7 @@ else
         else
         {
             <div class="table-wrap">
-                <table class="modern-table">
+                <table class="modern-table" style="min-width:760px">
                     <thead>
                         <tr>
                             <th>#</th>
@@ -211,8 +211,14 @@ else
                             <th>Artist</th>
                             <th>Duration</th>
                             <th>Size</th>
-                            <th>Quality</th>
+                            <th>Bitrate</th>
+                            <th>Rate</th>
+                            <th>Format</th>
                             <th>Status</th>
+                            @if (showFilenameColumn)
+                            {
+                                <th>File</th>
+                            }
                             <th></th>
                         </tr>
                     </thead>
@@ -223,18 +229,18 @@ else
                                 <td class="text-muted">@(track.Position + 1)</td>
                                 <td>
                                     <strong>@(track.Title ?? "Unknown")</strong>
-                                    @if (showFilenameColumn && !string.IsNullOrWhiteSpace(track.CurrentPath))
-                                    {
-                                        <span class="text-muted file-path" title="@track.CurrentPath">
-                                            @Path.GetFileName(track.CurrentPath)
-                                        </span>
-                                    }
                                 </td>
                                 <td>@(track.Artist ?? "Unknown artist")</td>
                                 <td class="text-muted">@TrackDisplay.Duration(track.DurationMs)</td>
                                 <td class="text-muted">@TrackDisplay.Size(track)</td>
                                 <td class="text-muted">
-                                    @(track.DownloadStatus == "downloaded" ? TrackDisplay.Quality(track) : "-")
+                                    @(track.DownloadStatus == "downloaded" ? TrackDisplay.BitrateLabel(track.Bitrate) : "-")
+                                </td>
+                                <td class="text-muted">
+                                    @(track.DownloadStatus == "downloaded" ? TrackDisplay.RateLabel(track.SampleRateHz) : "-")
+                                </td>
+                                <td class="text-muted">
+                                    @(track.DownloadStatus == "downloaded" ? TrackDisplay.FormatLabel(track.MediaType) : "-")
                                 </td>
                                 <td>
                                     @{ var queueLabel = TrackQueueLabel(track); }
@@ -257,6 +263,19 @@ else
                                         <span class="pill warn" title="@track.Warning">⚠</span>
                                     }
                                 </td>
+                                @if (showFilenameColumn)
+                                {
+                                    <td class="text-muted">
+                                        @if (!string.IsNullOrWhiteSpace(track.CurrentPath))
+                                        {
+                                            <span title="@track.CurrentPath">@Path.GetFileName(track.CurrentPath)</span>
+                                        }
+                                        else
+                                        {
+                                            <span>-</span>
+                                        }
+                                    </td>
+                                }
                                 <td class="track-actions">
                                     @if (track.DownloadStatus is "failed" or null or "pending")
                                     {

@@ -60,6 +60,7 @@ public class YouTubeSourceProvider : ISourceProvider
         var title = GetString(root, "title") ?? "Unknown playlist";
         var channel = GetString(root, "channel") ?? GetString(root, "uploader");
         var description = GetString(root, "description");
+        var cover = PickThumbnail(root);
 
         var tracks = new List<Track>();
         if (root.TryGetProperty("entries", out var entries) && entries.ValueKind == JsonValueKind.Array)
@@ -98,6 +99,7 @@ public class YouTubeSourceProvider : ISourceProvider
             Name = title,
             Owner = channel,
             Description = description,
+            CoverImageUrl = cover,
             SourceUrl = url,
             Tracks = tracks,
             TrackCount = tracks.Count,
@@ -145,6 +147,51 @@ public class YouTubeSourceProvider : ISourceProvider
             }
         }
         catch { /* malformed search result: no hit */ }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Picks the best playlist cover from a yt-dlp --dump-single-json doc:
+    /// the tallest entry of the root "thumbnails" array, else the root
+    /// "thumbnail" string, else the first entry's thumbnail. Null when the
+    /// doc exposes no thumbnail at all.
+    /// </summary>
+    internal static string? PickThumbnail(JsonElement root)
+    {
+        if (root.ValueKind == JsonValueKind.Object
+            && root.TryGetProperty("thumbnails", out var thumbs)
+            && thumbs.ValueKind == JsonValueKind.Array)
+        {
+            string? best = null;
+            var bestHeight = -1;
+            foreach (var t in thumbs.EnumerateArray())
+            {
+                var url = GetString(t, "url");
+                if (string.IsNullOrWhiteSpace(url)) continue;
+                var height = t.TryGetProperty("height", out var h) && h.ValueKind == JsonValueKind.Number
+                    ? h.GetInt32()
+                    : 0;
+                if (height > bestHeight)
+                {
+                    bestHeight = height;
+                    best = url;
+                }
+            }
+            if (best is not null) return best;
+        }
+
+        var single = GetString(root, "thumbnail");
+        if (!string.IsNullOrWhiteSpace(single)) return single;
+
+        if (root.TryGetProperty("entries", out var entries) && entries.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var entry in entries.EnumerateArray())
+            {
+                var entryThumb = GetString(entry, "thumbnail");
+                if (!string.IsNullOrWhiteSpace(entryThumb)) return entryThumb;
+            }
+        }
 
         return null;
     }

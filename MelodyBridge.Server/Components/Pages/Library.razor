@@ -1,7 +1,6 @@
 @page "/library"
 @inject IDbContextFactory<MelodyBridgeDbContext> DbFactory
 @inject ILibraryScanner Scanner
-@inject SettingsStore Settings
 
 <PageTitle>Library</PageTitle>
 
@@ -9,10 +8,11 @@
     <div>
         <span class="eyebrow">Your music</span>
         <h1>Library</h1>
-        <p>The files MelodyBridge found in your scan folders. Downloads live on
-            their playlist pages; this list is your own music collection. Add a
-            folder below and MelodyBridge matches files to your playlists by
-            their embedded ID tag.</p>
+        <p>Scan folders with music you already own. MelodyBridge reads the
+            tags of every file, adds them to the library database, and
+            matches them to your playlist tracks by their embedded ID tag —
+            so a song you already have is never downloaded again. Folders
+            that hold your downloads are added here automatically.</p>
     </div>
     <div class="topbar-actions">
         <button class="btn-modern primary" @onclick="RunScan" disabled="@scanning">
@@ -35,74 +35,6 @@
         <pre class="result-box">@scanResult</pre>
     </section>
 }
-
-<section class="panel-card">
-    <div class="panel-header">
-        <div>
-            <span class="eyebrow">Files</span>
-            <h2>Tracks (@shownTracks.Count()@(filter.Length > 0 ? $" of {tracks.Count}" : ""))</h2>
-        </div>
-        <input class="search-input" placeholder="Search title or artist…"
-               value="@filter" @oninput="OnFilterChanged" />
-    </div>
-    @if (tracks.Count == 0)
-    {
-        <div class="empty-state">
-            No files yet. Download a playlist or scan a folder with your existing music.
-        </div>
-    }
-    else
-    {
-        <div class="table-wrap">
-            <table class="modern-table">
-                <thead>
-                    <tr>
-                        <th>Title</th>
-                        <th>Artist</th>
-                        <th>Quality</th>
-                        <th>Size</th>
-                        <th>Folder</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @foreach (var t in shownTracks.Take(300))
-                    {
-                        <tr>
-                            <td>
-                                <strong>@(t.Title ?? "Unknown")</strong>
-                                @if (showFilenameColumn)
-                                {
-                                    <span class="text-muted file-path" title="@t.CurrentPath">
-                                        @(t.CurrentPath is null ? "" : Path.GetFileName(t.CurrentPath))
-                                    </span>
-                                }
-                            </td>
-                            <td>@(t.Artist ?? "Unknown artist")</td>
-                            <td class="text-muted">@TrackDisplay.Quality(t.Bitrate, t.SampleRateHz, t.MediaType)</td>
-                            <td class="text-muted" title="@(t.FileSizeBytes?.ToString("N0") + " bytes")">@TrackDisplay.Size(t.FileSizeBytes)</td>
-                            <td>
-                                @if (t.CurrentPath is { } path)
-                                {
-                                    <span class="text-muted file-path" title="@path">
-                                        @(Path.GetDirectoryName(path) is { } dir ? Path.GetFileName(dir) : path)
-                                    </span>
-                                }
-                                else
-                                {
-                                    <span class="text-muted">-</span>
-                                }
-                            </td>
-                        </tr>
-                    }
-                </tbody>
-            </table>
-        </div>
-        @if (tracks.Count > 300)
-        {
-            <div class="hint-box">Showing the first 300 tracks. Narrow the search to see the rest.</div>
-        }
-    }
-</section>
 
 <section class="content-grid two">
     <div class="panel-card">
@@ -146,8 +78,8 @@
             <div><span class="status-dot online"></span><strong>MELODY_ID</strong><small>ID3v2 TXXX frame</small></div>
             <div><span class="status-dot online"></span><strong>Fallback</strong><small>Comment-based marker</small>
             </div>
-            <div><span class="status-dot online"></span><strong>Database</strong><small>@tracksCount files in
-                library</small></div>
+            <div><span class="status-dot online"></span><strong>Matched</strong><small>playlists link to
+                files by ID tag</small></div>
         </div>
     </div>
 </section>
@@ -192,16 +124,8 @@
 }
 
 @code {
-    private sealed record LibraryRow(
-        string? Title, string? Artist, string? CurrentPath,
-        int? Bitrate, int? SampleRateHz, string? MediaType, long? FileSizeBytes);
-
     private List<ScanLocationEntity> locations = new();
-    private List<LibraryRow> tracks = new();
     private Dictionary<int, int> filesPerLocation = new();
-    private string filter = string.Empty;
-    private bool showFilenameColumn;
-    private int tracksCount;
     private bool scanning;
     private string? scanResult;
     private bool scanResultOk;
@@ -210,22 +134,13 @@
     private ScanSchedule newSchedule = ScanSchedule.Manual;
     private bool liveMonitoring = true;
 
-    private IEnumerable<LibraryRow> shownTracks => string.IsNullOrWhiteSpace(filter)
-        ? tracks
-        : tracks.Where(t =>
-            (t.Title ?? "").Contains(filter, StringComparison.OrdinalIgnoreCase) ||
-            (t.Artist ?? "").Contains(filter, StringComparison.OrdinalIgnoreCase));
-
     protected override async Task OnInitializedAsync() => await LoadDataAsync();
 
     private async Task LoadDataAsync()
     {
         await using var db = await DbFactory.CreateDbContextAsync();
         locations = await db.ScanLocations.ToListAsync();
-        showFilenameColumn = await Settings.GetBoolAsync("show_filename", fallback: false);
 
-        // Library shows only the files found in the scan folders.
-        // Playlist downloads have their own home on the playlist page.
         // Files with a MELODY_ID per location: a track belongs to the folder
         // its current path lives under. Counted in memory — location paths are
         // prefixes and SQL LIKE with a leading wildcard would not use an index.
@@ -236,21 +151,6 @@
         filesPerLocation = locations.ToDictionary(
             l => l.Id,
             l => withIds.Count(t => LocationContains(l.Path, t.CurrentPath!)));
-
-        tracks = await db.Tracks
-            .Where(t => t.CurrentPath != null
-                && !db.Playlists.Any(p => p.Tracks.Any(pt => pt.MelodyId == t.MelodyId)))
-            .OrderByDescending(t => t.Id)
-            .Select(t => new LibraryRow(
-                t.Title, t.Artist, t.CurrentPath, t.Bitrate, t.SampleRateHz,
-                t.MediaType, t.FileSizeBytes))
-            .ToListAsync();
-        tracksCount = tracks.Count;
-    }
-
-    private void OnFilterChanged(ChangeEventArgs e)
-    {
-        filter = e.Value?.ToString() ?? string.Empty;
     }
 
     private static bool LocationContains(string locationPath, string filePath)

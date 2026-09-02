@@ -128,11 +128,9 @@ found on the Jellyfin server.
 
 The Library page covers your own music collection: the folders you told
 MelodyBridge to scan. Playlist downloads live on their playlist pages
-and never mix into this list.
+and never mix into this list — the Library page shows your folders and
+how matching works, not a track list.
 
-- The **Tracks** table lists every scanned file with its title, artist,
-  real quality (bitrate, sample rate, container), size and the folder it
-  sits in; the search box filters title and artist
 - **Add location**: point MelodyBridge at a folder with music files
 - Each location can scan on a fixed interval in hours or manual only
 - **Run scan** starts a scan of all locations immediately
