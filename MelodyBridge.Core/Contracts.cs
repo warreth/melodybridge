@@ -31,6 +31,18 @@ public interface ISyncJobRunner
     Task<SyncJobRunLog> RunJobAsync(SyncJob job, CancellationToken ct = default);
 }
 
+/// <summary>Reads the user list and reachability of an arbitrary Jellyfin server.</summary>
+public interface IJellyfinUserDirectory
+{
+    /// <summary>All users the given server reports (GET /Users).</summary>
+    Task<List<JellyfinUserOption>> GetUsersAsync(string baseUrl, string apiKey, CancellationToken ct = default);
+    /// <summary>True when GET {baseUrl}/System/Info responds successfully.</summary>
+    Task<bool> TestConnectionAsync(string baseUrl, string apiKey, CancellationToken ct = default);
+}
+
+/// <summary>One user row of a Jellyfin server, as the picker shows it.</summary>
+public record JellyfinUserOption(string Id, string? Name);
+
 public interface IDownloadManager
 {
     Task<string?> DownloadAsync(string sourceUrl, string outputDirectory, string melodyId, CancellationToken ct = default);
@@ -43,8 +55,15 @@ public interface IDownloadManager
     IReadOnlyList<DownloadProgress> SnapshotProgress();
 }
 
+/// <summary>
+/// Per-call Jellyfin connection override. When set, these values win over
+/// the global settings (the sync-job wizard stores them per job).
+/// </summary>
+public record JellyfinConnection(string BaseUrl, string ApiKey, string? UserId);
+
 public record PlaylistOutputOptions(
     string OutputPath,
     bool UseRelativePaths,
-    Dictionary<string, string>? PathRemap
+    Dictionary<string, string>? PathRemap,
+    JellyfinConnection? JellyfinConnection = null
 );

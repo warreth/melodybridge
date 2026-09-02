@@ -1,0 +1,83 @@
+@* Jellyfin user dropdown + Test connection button. Fetches the user
+   list from the server entered in the wizard (not the global settings),
+   so a job can target a different server than the Settings default. *@
+@inject IJellyfinUserDirectory UserDirectory
+
+<div class="jellyfin-user-picker">
+    <label>
+        Jellyfin user
+        <select @bind="UserId">
+            <option value="">(server default)</option>
+            @foreach (var u in users)
+            {
+                <option value="@u.Id">@u.Name</option>
+            }
+        </select>
+    </label>
+    <div class="flex-actions">
+        <button class="btn-modern secondary" type="button" @onclick="TestConnectionAsync" disabled="@testing">
+            @(testing ? "Testing..." : "Test connection")
+        </button>
+        @if (status == "ok")
+        {
+            <span class="pill ok">reachable</span>
+        }
+        else if (status == "err")
+        {
+            <span class="pill err">unreachable</span>
+        }
+        @if (!string.IsNullOrEmpty(statusMessage))
+        {
+            <span class="text-muted">@statusMessage</span>
+        }
+    </div>
+</div>
+
+@code {
+    /// <summary>Server URL to test against and list users from.</summary>
+    [Parameter] public string? ServerUrl { get; set; } = "";
+    /// <summary>API key for the server.</summary>
+    [Parameter] public string? ApiKey { get; set; } = "";
+    /// <summary>Selected user id; empty means "(server default)".</summary>
+    [Parameter] public string? UserId { get; set; } = "";
+    /// <summary>Raised when the selected user changes (null-safe).</summary>
+    [Parameter] public EventCallback<string?> UserIdChanged { get; set; }
+
+    private List<JellyfinUserOption> users = new();
+    private bool testing;
+    private string? status;
+    private string? statusMessage;
+
+    /// <summary>Tests the connection and loads the user list when reachable.</summary>
+    private async Task TestConnectionAsync()
+    {
+        testing = true;
+        status = null;
+        statusMessage = null;
+        try
+        {
+            var url = ServerUrl ?? "";
+            var key = ApiKey ?? "";
+            if (await UserDirectory.TestConnectionAsync(url, key))
+            {
+                users = await UserDirectory.GetUsersAsync(url, key);
+                status = "ok";
+                statusMessage = $"{users.Count} user(s) found";
+            }
+            else
+            {
+                status = "err";
+                statusMessage = "Server did not respond";
+            }
+        }
+        catch (Exception ex)
+        {
+            status = "err";
+            statusMessage = ex.Message;
+        }
+        finally
+        {
+            testing = false;
+        }
+    }
+}

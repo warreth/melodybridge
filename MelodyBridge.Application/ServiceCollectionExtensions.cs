@@ -118,6 +118,11 @@ public static class ServiceCollectionExtensions
         });
         services.AddSingleton<IMediaServerSync>(sp =>
             sp.GetRequiredService<JellyfinSync>());
+
+        // User picker for the wizard: per-request token, own short-timeout
+        // client inside the service, so the sync's BaseAddress mutations
+        // never leak into it.
+        services.AddSingleton<IJellyfinUserDirectory, JellyfinUserDirectory>();
         return services;
     }
 }

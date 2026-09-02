@@ -23,12 +23,21 @@ public class JellyfinSync : IMediaServerSync
     }
 
     /// <summary>
-    /// Points the shared HttpClient at the currently configured server and
-    /// key. Called at the start of every sync, so Settings-page changes
-    /// apply without a restart.
+    /// Points the shared HttpClient at the server and key to use. A per-call
+    /// override (sync-job wizard) wins; otherwise the global settings are
+    /// re-read so Settings-page changes apply without a restart.
     /// </summary>
-    private async Task ApplyConnectionAsync(CancellationToken ct)
+    private async Task ApplyConnectionAsync(PlaylistOutputOptions options, CancellationToken ct)
     {
+        var overrideConn = options.JellyfinConnection;
+        if (overrideConn != null)
+        {
+            _http.BaseAddress = new Uri(overrideConn.BaseUrl);
+            _http.DefaultRequestHeaders.Remove("X-Emby-Token");
+            if (!string.IsNullOrEmpty(overrideConn.ApiKey))
+                _http.DefaultRequestHeaders.Add("X-Emby-Token", overrideConn.ApiKey);
+            return;
+        }
         _http.BaseAddress = new Uri(await _settings.GetBaseUrlAsync(ct));
         var apiKey = await _settings.GetApiKeyAsync(ct);
         _http.DefaultRequestHeaders.Remove("X-Emby-Token");
@@ -40,7 +49,7 @@ public class JellyfinSync : IMediaServerSync
     {
         if (playlist?.Name == null) throw new ArgumentException("Playlist needs a name");
 
-        await ApplyConnectionAsync(ct);
+        await ApplyConnectionAsync(options, ct);
 
         var itemIds = new List<string>();
         var likedItemIds = new List<string>();
@@ -240,7 +249,7 @@ public class JellyfinSync : IMediaServerSync
         }
 
         // Liked songs become Jellyfin favorites for the configured user.
-        await MarkFavoritesAsync(likedItemIds, ct);
+        await MarkFavoritesAsync(likedItemIds, options.JellyfinConnection?.UserId, ct);
 
         // If we reach here without setting _lastReport, set a default one
         if (_lastReport == null)
@@ -262,11 +271,13 @@ public class JellyfinSync : IMediaServerSync
     /// (POST /Users/{userId}/FavoriteItems/{itemId}, with the older
     /// /Users/{userId}/Items/{itemId}/Favorite route as fallback).
     /// </summary>
-    private async Task MarkFavoritesAsync(List<string> likedItemIds, CancellationToken ct)
+    private async Task MarkFavoritesAsync(List<string> likedItemIds,
+        string? overrideUserId, CancellationToken ct)
     {
         if (likedItemIds.Count == 0) return;
 
-        var userId = _http.BaseAddress is null ? null
+        var userId = !string.IsNullOrWhiteSpace(overrideUserId) ? overrideUserId
+            : _http.BaseAddress is null ? null
             : await FindUserIdAsync(ct);
         if (userId is null)
         {
@@ -312,7 +323,7 @@ public class JellyfinSync : IMediaServerSync
             using var response = await _http.GetAsync("/Users", ct);
             if (!response.IsSuccessStatusCode) return null;
             var users = await response.Content
-                .ReadFromJsonAsync<JellyfinUser[]>(cancellationToken: ct);
+                .ReadFromJsonAsync<JellyfinUserDto[]>(cancellationToken: ct);
             return users?.FirstOrDefault(u =>
                        !string.Equals(u.Name, "system", StringComparison.OrdinalIgnoreCase))?.Id;
         }
@@ -326,7 +337,6 @@ public class JellyfinSync : IMediaServerSync
     public MediaServerSyncReport? GetLastReport() => _lastReport;
 
     private class JellyfinItem { public string? Id { get; set; } }
-    private class JellyfinUser { public string? Id { get; set; } public string? Name { get; set; } }
     private class JellyfinItemsResult { public JellyfinItem[]? Items { get; set; } }
     private class JellyfinPlaylist { public string? Id { get; set; } public string? Name { get; set; } }
     private class JellyfinPlaylistsResult { public JellyfinPlaylist[]? Items { get; set; } }
