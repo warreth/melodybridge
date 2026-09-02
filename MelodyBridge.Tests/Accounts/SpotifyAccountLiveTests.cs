@@ -81,10 +81,20 @@ public class SpotifyAccountLiveTests
             Assert.That(liked.Tracks.All(t => t.SourcePlatform == Platform.Spotify), Is.True);
 
             // A private playlist (if the account has one) comes back whole.
+            // The track assertions are the regression guard for Spotify's
+            // playlist item rename: the account used to return the playlist
+            // with every track missing while the count looked fine.
             var privateish = playlists.FirstOrDefault(p => p.TrackCount > 0)
                 ?? playlists.First();
             var viaAccount = await provider.TryGetPlaylistViaAccountAsync(privateish.Id);
             Assert.That(viaAccount, Is.Not.Null, "the account path returns its own playlists");
+            if (privateish.TrackCount > 0)
+            {
+                Assert.That(viaAccount!.Tracks, Is.Not.Null,
+                    "the playlist carries its tracks");
+                Assert.That(viaAccount.Tracks.Count, Is.EqualTo(privateish.TrackCount),
+                    "every track of the playlist arrives through the account path");
+            }
         }
         finally
         {
@@ -106,6 +116,16 @@ public class SpotifyAccountLiveTests
         try
         {
             var tokens = await NewStoreAsync(dbPath);
+            // The refresh call needs the app's client id, exactly like the
+            // real settings store carries it.
+            var clientId = Environment.GetEnvironmentVariable("MB_SPOTIFY_CLIENTID");
+            if (string.IsNullOrWhiteSpace(clientId))
+            {
+                Assert.Ignore(
+                    "No MB_SPOTIFY_CLIENTID in the environment; it is the Client ID of " +
+                    "the app the tokens came from (see the settings row account:spotify:client_id).");
+            }
+            await tokens.SaveSettingAsync("Spotify", "client_id", clientId);
             // Expired on purpose: the provider must use the refresh token.
             await tokens.SaveTokensAsync("Spotify", new AccountTokens(
                 "surely-expired-now", Environment.GetEnvironmentVariable("MB_SPOTIFY_REFRESH"),

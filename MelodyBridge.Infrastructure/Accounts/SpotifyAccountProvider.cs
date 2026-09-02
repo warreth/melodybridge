@@ -279,36 +279,21 @@ public class SpotifyAccountProvider : IAccountSourceProvider
         try
         {
             var client = await GetClientAsync(ct);
+
+            // Metadata through the library: name, owner and images come
+            // back fine. Only the embedded track page is unusable, see
+            // below.
             var response = await client.Playlists.Get(playlistId);
 
-            var tracks = new List<Track>();
-            // The first page comes with the playlist; Paginate walks the rest.
-            // FullPlaylist.Items is the renamed Tracks (same JSON field).
-            var firstPage = response.Items
-                ?? new Paging<PlaylistTrack<IPlayableItem>>();
-            await foreach (var item in client.Paginate(firstPage))
-            {
-                if (item.Track is FullTrack track)
-                {
-                    TimeSpan? duration = track.DurationMs > 0
-                        ? TimeSpan.FromMilliseconds(track.DurationMs)
-                        : null;
-                    tracks.Add(new Track
-                    {
-                        Title = track.Name,
-                        Artist = string.Join(", ",
-                            (track.Artists ?? []).Select(a => a.Name)),
-                        Duration = duration,
-                        SongID = new SongID(Platform.Spotify, track.Id),
-                        PlatformSongID = new SongID(Platform.Spotify, track.Id),
-                        SourcePlatform = Platform.Spotify,
-                        SyncStatus = SyncStatus.Pending,
-                        MediaType = MediaType.MP3,
-                        CurrentTrackLocation = new FileLocation(
-                            $"https://open.spotify.com/track/{track.Id}"),
-                    });
-                }
-            }
+            // Spotify renamed the track inside playlist items from
+            // "track" to "item" and the SDK release in use here does not
+            // map the new field, so every deserialized track comes back
+            // null and playlists imported as empty. The items endpoint
+            // returns raw JSON instead, which the shared parser reads
+            // from either field name.
+            var tokens = await _tokens.GetTokensAsync(ProviderName, ct);
+            var tracks = await FetchItemsAsync(
+                tokens!.AccessToken, playlistId, ct);
 
             return new Playlist
             {
@@ -319,7 +304,7 @@ public class SpotifyAccountProvider : IAccountSourceProvider
                 SourceUrl = $"https://open.spotify.com/playlist/{playlistId}",
                 CoverImageUrl = response.Images?.FirstOrDefault()?.Url,
                 Tracks = tracks,
-                TrackCount = response.Items?.Total ?? tracks.Count,
+                TrackCount = tracks.Count,
                 Duration = SumDurations(tracks),
             };
         }
@@ -332,6 +317,52 @@ public class SpotifyAccountProvider : IAccountSourceProvider
                 playlistId, ex.Message);
             return null;
         }
+    }
+
+    /// <summary>
+    /// Pages GET /playlists/{id}/items and parses every entry through the
+    /// shared Spotify parser. The endpoint answers with the new "item"
+    /// field; the library client above cannot read it, this can.
+    /// </summary>
+    private static async Task<List<Track>> FetchItemsAsync(
+        string accessToken, string playlistId, CancellationToken ct)
+    {
+        var tracks = new List<Track>();
+        using var http = new HttpClient();
+        http.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
+
+        string? next = $"https://api.spotify.com/v1/playlists/{playlistId}/items?limit=100";
+        while (!string.IsNullOrEmpty(next))
+        {
+            using var response = await http.GetAsync(next, ct);
+            response.EnsureSuccessStatusCode();
+            using var doc = await System.Text.Json.JsonDocument.ParseAsync(
+                await response.Content.ReadAsStreamAsync(), cancellationToken: ct);
+
+            if (doc.RootElement.TryGetProperty("items", out var items)
+                && items.ValueKind == System.Text.Json.JsonValueKind.Array)
+            {
+                foreach (var item in items.EnumerateArray())
+                {
+                    var parsed = Services.SpotifyPlaylistItems.Parse(item);
+                    if (parsed is null) continue;
+
+                    parsed.SyncStatus = SyncStatus.Pending;
+                    parsed.MediaType = MediaType.MP3;
+                    parsed.CurrentTrackLocation = new FileLocation(
+                        $"https://open.spotify.com/track/{parsed.SongID!.ID}");
+                    tracks.Add(parsed);
+                }
+            }
+
+            next = doc.RootElement.TryGetProperty("next", out var nextProp)
+                && nextProp.ValueKind == System.Text.Json.JsonValueKind.String
+                    ? nextProp.GetString()
+                    : null;
+        }
+
+        return tracks;
     }
 
     private Task<string?> ReadClientIdAsync(CancellationToken ct)

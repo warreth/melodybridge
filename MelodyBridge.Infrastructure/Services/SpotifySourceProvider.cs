@@ -227,7 +227,7 @@ public partial class SpotifySourceProvider : ISourceProvider
             }
 
             using var request = new HttpRequestMessage(HttpMethod.Get,
-                $"https://api.spotify.com/v1/playlists/{playlistId}/tracks?offset=0&limit=100&additional_types=track");
+                $"https://api.spotify.com/v1/playlists/{playlistId}/items?offset=0&limit=100&additional_types=track");
             request.Headers.Add("Authorization", $"Bearer {token}");
             var response = await _httpClient.SendAsync(request);
             if ((int)response.StatusCode == 429)
@@ -270,7 +270,7 @@ public partial class SpotifySourceProvider : ISourceProvider
             for (var offset = pageSize; offset < total; offset += pageSize)
             {
                 using var pageRequest = new HttpRequestMessage(HttpMethod.Get,
-                    $"https://api.spotify.com/v1/playlists/{playlistId}/tracks?offset={offset}&limit={pageSize}&additional_types=track");
+                    $"https://api.spotify.com/v1/playlists/{playlistId}/items?offset={offset}&limit={pageSize}&additional_types=track");
                 pageRequest.Headers.Add("Authorization", $"Bearer {token}");
                 using var pageResponse = await _httpClient.SendAsync(pageRequest);
                 if (!pageResponse.IsSuccessStatusCode)
@@ -345,38 +345,8 @@ public partial class SpotifySourceProvider : ISourceProvider
         }
     }
 
-    /// <summary>Maps one api.spotify.com playlist-track item into a domain Track.</summary>
-    private static Track? ParseApiTrack(JsonElement item)
-    {
-        // Local files and removed tracks have null "track"; skip them.
-        if (!item.TryGetProperty("track", out var track) || track.ValueKind != JsonValueKind.Object)
-            return null;
-        if (!track.TryGetProperty("id", out var idProp) || idProp.ValueKind != JsonValueKind.String)
-            return null;
-
-        var id = idProp.GetString();
-        if (string.IsNullOrEmpty(id)) return null;
-
-        long? durationMs = track.TryGetProperty("duration_ms", out var dur) && dur.ValueKind == JsonValueKind.Number
-            ? dur.GetInt64()
-            : null;
-
-        var artists = track.TryGetProperty("artists", out var artistArray) && artistArray.ValueKind == JsonValueKind.Array
-            ? string.Join(", ", artistArray.EnumerateArray()
-                .Where(a => a.TryGetProperty("name", out var n) && n.ValueKind == JsonValueKind.String)
-                .Select(a => a.GetProperty("name").GetString()))
-            : null;
-
-        return new Track
-        {
-            Title = track.TryGetProperty("name", out var name) ? name.GetString() : null,
-            Artist = artists,
-            Duration = durationMs is > 0 ? TimeSpan.FromMilliseconds(durationMs.Value) : null,
-            SongID = new SongID(Platform.Spotify, id),
-            PlatformSongID = new SongID(Platform.Spotify, id),
-            SourcePlatform = Platform.Spotify,
-        };
-    }
+    /// <summary>Maps one api.spotify.com playlist item into a domain Track.</summary>
+    private static Track? ParseApiTrack(JsonElement item) => SpotifyPlaylistItems.Parse(item);
 
     public static Playlist? ParseEmbedPlaylistHtml(string html, string playlistId, string sourceUrl)
     {
