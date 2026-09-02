@@ -100,12 +100,8 @@ code { color: var(--accent-strong); background: var(--accent-soft); border-radiu
 .brand-logo {
     width: 36px;
     height: 36px;
-    display: grid;
-    place-items: center;
     border-radius: 9px;
-    background: var(--accent);
-    color: white;
-    font-weight: 800;
+    display: block;
 }
 
 .brand-block strong { display: block; font-size: .95rem; }
