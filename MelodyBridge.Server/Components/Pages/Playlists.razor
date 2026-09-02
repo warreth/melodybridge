@@ -128,8 +128,9 @@ else
                         Audio quality
                         <QualityPicker @bind-Value="newQuality" />
                     </label>
-                    <label class="toggle-row">
+                    <label class="toggle-switch wide">
                         <input type="checkbox" @bind="newAutoSync" />
+                        <span class="toggle-slider"></span>
                         <span>Auto-sync this playlist</span>
                     </label>
                     @if (newAutoSync)

@@ -24,7 +24,11 @@
         <div class="wizard-modal">
             <div class="wizard-header">
                 <span class="eyebrow">Step @(currentStep + 1) of 5</span>
-                <h2>@(isEditing ? "Edit sync job" : GetStepTitle())</h2>
+                <h2>@GetStepTitle()</h2>
+                @if (isEditing)
+                {
+                    <span class="text-muted">Editing "@draft.Name"</span>
+                }
                 <button class="icon-button" @onclick="CancelWizard">&times;</button>
             </div>
             <div class="wizard-body">
@@ -99,16 +103,17 @@
                         <div class="form-grid single">
                             @foreach (var folder in scanFolders)
                             {
-                                <label class="toggle-row">
+                                <label class="toggle-switch wide">
                                     <input type="checkbox"
                                            checked="@selectedFolders.Contains(folder)"
                                            @onchange="e => ToggleFolder(folder, e)" />
+                                    <span class="toggle-slider"></span>
                                     <span>@folder</span>
                                 </label>
                             }
                         </div>
                         <div class="hint-box">
-                            Folders to search for the tracks. Leave all checked to use every folder from the Library page.
+                            Pick the folders to search. Leave empty to search every folder.
                         </div>
                     }
                     @if (!string.IsNullOrEmpty(stepError))
@@ -183,27 +188,28 @@
                 else if (currentStep == 3)
                 {
                     <RemapRulesEditor Title="Path"
-                                      EmptyText="No path rules yet. Only needed when your music player sees files under a different path than MelodyBridge."
+                                      EmptyText="No rules yet."
                                       AddLabel="Add path rule"
                                       FromPlaceholder="/mnt/BackupHDD/Music"
                                       ToPlaceholder="/media/music"
                                       Rules="@pathRules" />
                     <RemapRulesEditor Title="Extension"
-                                      EmptyText="No extension rules yet. Leave empty to keep file extensions as they are."
+                                      EmptyText="No rules yet."
                                       AddLabel="Add extension rule"
                                       FromPlaceholder=".flac"
                                       ToPlaceholder=".opus"
                                       Rules="@extRules" />
                     <div class="hint-box">
-                        Only needed when your music player sees files under a different path than MelodyBridge,
-                        for example inside a Docker container. Leave empty to skip.
+                        Rules are only needed when your music player sees files under a different path or
+                        extension than MelodyBridge does — for example inside a Docker container.
+                        Leave empty to keep paths and extensions as they are.
                     </div>
                 }
                 else if (currentStep == 4)
                 {
                     <div class="review-list">
                         <div><strong>Name:</strong> @draft.Name</div>
-                        <div><strong>Source:</strong> @(sourceType == "folder" ? selectedFolder : selectedSourceId)</div>
+                        <div><strong>Source:</strong> @(sourceType == "folder" ? selectedFolder : SourceDisplay)</div>
                         <div><strong>Search locations:</strong> @(SearchLocationSummary)</div>
                         <div><strong>Output target:</strong> @draft.OutputTarget</div>
                         @if (draft.OutputTarget == OutputTargetType.M3uFile)
@@ -384,7 +390,7 @@
         selectedSourceId = "";
         selectedFolder = "";
         sourceType = "playlist";
-        selectedFolders = scanFolders.ToHashSet();
+        selectedFolders = new HashSet<string>();
         pathRules = new List<RemapRule>();
         extRules = new List<RemapRule>();
         currentStep = 0;
@@ -401,10 +407,8 @@
             ? "folder" : "playlist";
         selectedSourceId = job.SourceId ?? "";
         selectedFolder = sourceType == "folder" ? draft.SearchLocationPaths.FirstOrDefault() ?? "" : "";
-        // checked = stored paths when present, otherwise everything (empty = all known)
-        selectedFolders = draft.SearchLocationPaths.Count > 0
-            ? draft.SearchLocationPaths.ToHashSet()
-            : scanFolders.ToHashSet();
+        // checked = stored paths only (an empty list means "every folder")
+        selectedFolders = draft.SearchLocationPaths.ToHashSet();
         pathRules = draft.PathRemapRules
             .Select(kv => new RemapRule(kv.Key, kv.Value)).ToList();
         extRules = draft.ExtensionRemapRules
@@ -426,9 +430,11 @@
         _ => ""
     };
 
+    /// <summary>Review summary of step 2. Empty selection means "no folder
+    /// filter" — the runner then searches every folder.</summary>
     private string SearchLocationSummary =>
-        selectedFolders.Count == 0 ? "All known"
-        : selectedFolders.Count == scanFolders.Count ? "All known"
+        selectedFolders.SetEquals(scanFolders) && scanFolders.Count > 0 ? "All known"
+        : selectedFolders.Count == 0 ? "Every folder"
         : string.Join(", ", selectedFolders);
 
     private void ToggleFolder(string folder, ChangeEventArgs e)
@@ -454,11 +460,11 @@
                 stepError = "Choose a folder or a playlist first.";
                 return;
             }
-        }
-        if (currentStep == 1 && selectedFolders.Count == 0 && scanFolders.Count > 0)
-        {
-            stepError = "Select at least one folder, or leave all checked to use every folder.";
-            return;
+            if (sourceType == "folder")
+            {
+                // the step-1 folder IS the job's source: pre-check it, nothing else
+                selectedFolders = new HashSet<string> { selectedFolder };
+            }
         }
         if (currentStep == 2)
         {
@@ -518,6 +524,25 @@
         }
         finally { saving = false; }
     }
+
+    /// <summary>Review label for a playlist source: "Name (Platform)".</summary>
+    private string SourceDisplay =>
+        sources.FirstOrDefault(s => s.Id == selectedSourceId) is { } p
+            ? $"{p.Name} ({PlatformName(p.SourcePlatform)})"
+            : selectedSourceId;
+
+    private static string PlatformName(Platform platform) => platform switch
+    {
+        Platform.Spotify => "Spotify",
+        Platform.YouTubeMusic => "YouTube Music",
+        Platform.AppleMusic => "Apple Music",
+        Platform.Tidal => "Tidal",
+        Platform.AmazonMusic => "Amazon Music",
+        Platform.Qobuz => "Qobuz",
+        Platform.Soundcloud => "SoundCloud",
+        Platform.Deezer => "Deezer",
+        _ => "Unknown",
+    };
 
     private static Dictionary<string, string> RulesToDictionary(List<RemapRule> rules) =>
         rules

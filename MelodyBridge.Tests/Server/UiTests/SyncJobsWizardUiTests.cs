@@ -110,7 +110,7 @@ public class SyncJobsWizardUiTests
     // ── C1: checkbox list of scanner folders ────────────────────────
 
     [Test]
-    public void Step2_ShowsCheckboxPerScanLocation_AllCheckedByDefault()
+    public void Step2_ShowsCheckboxPerScanLocation_NoneCheckedByDefault()
     {
         SeedScanLocations("/music/a", "/music/b", "/music/c");
         var cut = OpenWizardWithPlaylistSource();
@@ -119,8 +119,10 @@ public class SyncJobsWizardUiTests
         var checkboxes = cut.FindAll("input[type='checkbox']");
         Assert.That(checkboxes, Has.Count.EqualTo(3),
             "one checkbox per scan location");
-        Assert.That(checkboxes.All(c => c.HasAttribute("checked")), Is.True,
-            "all folders are checked by default");
+        Assert.That(checkboxes.All(c => !c.HasAttribute("checked")), Is.True,
+            "no folder is checked by default");
+        Assert.That(cut.FindAll("label.toggle-switch.wide"), Has.Count.EqualTo(3),
+            "folder rows use the wide toggle switch markup");
     }
 
     [Test]
@@ -139,10 +141,13 @@ public class SyncJobsWizardUiTests
         var cut = OpenWizardWithPlaylistSource();
         Next(cut);
 
-        // Uncheck /music/b via its row
-        cut.FindAll("label.toggle-row")
-            .Single(l => l.TextContent.Contains("/music/b"))
-            .QuerySelector("input[type='checkbox']").Change(false);
+        // Check every folder except /music/b
+        foreach (var folder in new[] { "/music/a", "/music/c" })
+        {
+            cut.FindAll("label.toggle-switch.wide")
+                .Single(l => l.TextContent.Contains(folder))
+                .QuerySelector("input[type='checkbox']").Change(true);
+        }
 
         Next(cut); // -> output step
         WalkToReview(cut);
@@ -157,26 +162,24 @@ public class SyncJobsWizardUiTests
     }
 
     [Test]
-    public void Step2_AllUnchecked_BlocksNext_WithMessage()
+    public void Step2_NoneChecked_EmptySelectionSavesAsNoFilter()
     {
-        var folders = new[] { "/music/a", "/music/b" };
-        SeedScanLocations(folders);
+        SeedScanLocations("/music/a", "/music/b");
         var cut = OpenWizardWithPlaylistSource();
-        Next(cut);
+        Next(cut); // locations step, nothing checked
+        Next(cut); // empty is valid: no folder filter
+        WalkToReview(cut);
 
-        // one pass, re-query after each change (each Change re-renders)
-        foreach (var folder in folders)
-        {
-            cut.FindAll("label.toggle-row")
-                .Single(l => l.TextContent.Contains(folder))
-                .QuerySelector("input[type='checkbox']").Change(false);
-        }
+        Assert.That(cut.Markup, Does.Contain("Every folder"),
+            "the review must state the empty selection means every folder");
 
-        Next(cut);
-        Assert.That(cut.Markup, Does.Contain("Step 2 of 5"),
-            "must stay on the locations step");
-        Assert.That(cut.Markup, Does.Contain("Select at least one folder"),
-            "a validation message must say what is missing");
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Create sync job").Click();
+
+        using var db = _dbFactory.CreateDbContext();
+        var job = db.SyncJobs.AsNoTracking().Single();
+        var paths = System.Text.Json.JsonSerializer.Deserialize<List<string>>(job.SearchLocationPaths);
+        Assert.That(paths, Is.Empty,
+            "empty selection persists as an empty list (runner: no filter)");
     }
 
     [Test]
@@ -202,7 +205,7 @@ public class SyncJobsWizardUiTests
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Edit").Click();
         Next(cut); // step 2
 
-        var labels = cut.FindAll("label.toggle-row");
+        var labels = cut.FindAll("label.toggle-switch.wide");
         Assert.That(labels.Count(l => l.QuerySelector("input[type='checkbox']")!.HasAttribute("checked")
              && l.TextContent.Contains("/a")), Is.EqualTo(1), "/a is checked");
         Assert.That(labels.Count(l => l.QuerySelector("input[type='checkbox']")!.HasAttribute("checked")
@@ -420,6 +423,24 @@ public class SyncJobsWizardUiTests
         cut.Find("select").Change("folder");
         Next(cut);
         Assert.That(cut.Markup, Does.Contain("Choose a folder or a playlist first"));
+    }
+
+    [Test]
+    public void Step1_LocalFolder_Step2PreChecksOnlyTheChosenFolder()
+    {
+        SeedScanLocations("/music/folder", "/music/other");
+        var cut = OpenWizard();
+        cut.Find("select").Change("folder");
+        cut.FindAll("select").Last().Change("/music/folder");
+        Next(cut); // -> locations step
+
+        var labels = cut.FindAll("label.toggle-switch.wide");
+        Assert.That(labels.Count(l => l.QuerySelector("input[type='checkbox']")!.HasAttribute("checked")
+             && l.TextContent.Contains("/music/folder")), Is.EqualTo(1),
+            "the chosen folder is pre-checked");
+        Assert.That(labels.Count(l => l.QuerySelector("input[type='checkbox']")!.HasAttribute("checked")
+             && l.TextContent.Contains("/music/other")), Is.EqualTo(0),
+            "no other folder is pre-checked");
     }
 
     // ── C6: run log with warnings breakdown ─────────────────────────

@@ -130,7 +130,8 @@ public class SyncJobsPageTests
         var editBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Edit");
         editBtn.Click();
 
-        Assert.That(cut.Markup, Does.Contain("Edit sync job"));
+        Assert.That(cut.Markup, Does.Contain("Pick your playlist"));
+        Assert.That(cut.Markup, Does.Contain("Editing \"Weekly Sync\""));
         var nameInput = cut.Find("input[placeholder='e.g. My Summer Hits']");
         Assert.That(nameInput.GetAttribute("value"), Is.EqualTo("Weekly Sync"));
     }
