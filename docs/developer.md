@@ -1,10 +1,9 @@
-# Developer Guide
+# Developer guide
 
-This document explains the architecture, plugin interfaces, DI setup, and testing practices for MelodyBridge.
+This document explains the architecture, plugin interfaces, DI setup, and
+testing practices for MelodyBridge.
 
----
-
-## Architecture Overview
+## Architecture overview
 
 The solution follows a clean layered architecture:
 
@@ -21,7 +20,7 @@ MelodyBridge.UI.Components     : Shared Blazor components
 MelodyBridge.Tests             : NUnit test suite targeting all layers
 ```
 
-### Project Dependencies
+### Project dependencies
 
 | Project | References |
 |---|---|
@@ -35,7 +34,7 @@ The optional Photino desktop wrapper lives in
 [warreth/melodybridge-desktop](https://github.com/warreth/melodybridge-desktop),
 outside this solution.
 
-### The Data Flow
+### The data flow
 
 ```
 Spotify playlist URL
@@ -47,9 +46,7 @@ Spotify playlist URL
    → SyncJobRunner → M3uGenerator (#EXTINF) or JellyfinSync
 ```
 
----
-
-## Core Interfaces
+## Core interfaces
 
 ### `IDownloader`: download plugins
 
@@ -127,7 +124,7 @@ public interface IDownloadManager
 
 `DownloadTrackAsync` iterates enabled plugins by priority: each searches by artist/title and the first successful download wins. `DownloadAsync` passes a direct URL to the plugins that can handle it.
 
-### Other Key Types
+### Other key types
 
 - **`Playlist`**, **`Track`**, **`TrackQuality`**, **`MediaType`**: Core models in `MelodyBridge.Core/Classes.cs`
 - **`PlaylistOutputOptions`**: Output path, relative path toggle, path remap dictionary
@@ -135,11 +132,9 @@ public interface IDownloadManager
 - **`ScanLocationEntity`**, **`SyncJobEntity`**, **`SyncJobRunEntity`**: Library paths and sync job tracking
 - **`PlaylistSyncMode`**: `Additive` (removed tracks stay as flagged history) / `Mirror` (local copy matches the source exactly)
 
----
+## Dependency injection
 
-## Dependency Injection
-
-The `MelodyBridge.Application` project provides extension methods for registering services:
+The `MelodyBridge.Application` project provides extension methods for registering services.
 
 ### `AddMelodyBridge()`
 
@@ -162,30 +157,39 @@ builder.Services.AddMelodyBridge();
 builder.Services.AddJellyfinSync();
 ```
 
----
-
 ## Testing
 
 The suite is **NUnit 4** with **Moq** for UI-level DI mocks only.
 
 ### Honest-test rules
 
+::: info Why these rules
+Each rule exists because a shortcut that looks harmless produces tests
+that pass while the feature is broken: in-memory providers hide SQL
+behavior, mocks hide what the code actually writes, and shallow
+assertions trust cached objects that were never saved.
+:::
+
 1. **No InMemory provider for persistence logic**: playlist/store tests use real SQLite files (`UseSqlite("Data Source=...")`), deleted in teardown
 2. **Live tests hit the real network**: real open.spotify.com fetches, real yt-dlp downloads (`[Category("Live")]`, CI runs them in a separate job)
 3. **Assertions read back from disk or a fresh DbContext**: nothing is asserted from in-memory cached objects
 4. **Downloaded files are validated deeply**: the MELODY_ID tag is read from the actual bytes, durations ffprobe-validated
 
-### Running Tests
+### Running tests
 
-```bash
-# Fast suite (CI default)
+::: code-group
+```bash [Fast suite]
+# CI default
 dotnet test MelodyBridge.sln --filter "FullyQualifiedName!~Tests.Integration"
-
-# Live suite (needs yt-dlp on PATH + ffprobe)
-dotnet test MelodyBridge.sln --filter "Category=PlaylistStore|Category=Live"
 ```
 
-### Test Organization
+```bash [Live suite]
+# needs yt-dlp on PATH + ffprobe
+dotnet test MelodyBridge.sln --filter "Category=PlaylistStore|Category=Live"
+```
+:::
+
+### Test organization
 
 ```
 MelodyBridge.Tests/
@@ -210,29 +214,27 @@ MelodyBridge.Tests/
     └── SyncControllerTests.cs
 ```
 
-### Adding New Tests
+### Adding new tests
 
 1. Create a new `.cs` file in the appropriate folder under `MelodyBridge.Tests/`
 2. Add `[TestFixture]` / `[Test]` attributes; tag live tests with `[Category("Live")]`
 3. Follow the honest-test rules above
 4. Run with `dotnet test` to verify
 
----
-
-## Adding a New Downloader Plugin
+## Adding a new downloader plugin
 
 1. Create a class implementing `IDownloader` in `MelodyBridge.Infrastructure/Downloaders/`.
 2. Register it: `services.AddSingleton<IDownloader, YourPlugin>();`
 3. It appears in the UI (Downloads page) automatically with enable/priority controls.
 4. Add tests in `MelodyBridge.Tests/Integration/`.
 
-## Adding a New Playlist Source
+## Adding a new playlist source
 
 1. Create a class implementing `ISourceProvider` in `MelodyBridge.Infrastructure/Services/`.
 2. Register it: `services.AddSingleton<ISourceProvider, YourProvider>();`
 3. `PlaylistStore.AddOrRefreshAsync(url)` will route by `CanHandle`.
 
-## Adding a New Media Server Plugin
+## Adding a new media server plugin
 
 1. Create a class implementing `IMediaServerSync` in `MelodyBridge.Infrastructure/MediaServers/`.
 2. Register it via `ServiceCollectionExtensions`.

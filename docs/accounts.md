@@ -4,8 +4,7 @@ MelodyBridge can log into your Spotify and YouTube accounts through the
 platforms' own OAuth flows and import what only you can see: private
 playlists, collaborative playlists and your liked songs.
 
-Two design rules keep this safe:
-
+::: tip Two design rules keep this safe
 - **Read-only scopes only.** Spotify gets `playlist-read-private`,
   `playlist-read-collaborative` and `user-library-read`; YouTube gets
   `youtube.readonly`. Nothing that could ever modify your account is
@@ -13,6 +12,7 @@ Two design rules keep this safe:
 - **Official libraries.** Spotify uses SpotifyAPI-NET's PKCE flow,
   YouTube uses Google's own auth libraries. No logged-in browser cookies
   are ever scraped.
+:::
 
 The public fetcher stays independent. Account and public fetching live
 in separate providers: when no account is connected, or the account call
@@ -24,10 +24,12 @@ Each provider has its own redirect URI, differing only in a
 Always copy the exact URL from the Settings page — the platforms match
 redirect URIs exactly, including the query string.
 
-> **Spotify note:** since April 2025 Spotify rejects `localhost`
-> redirect URIs. MelodyBridge automatically shows and uses
-> `http://127.0.0.1:PORT/...` when you browse via localhost; register
-> the URL the Settings page displays and both sides match.
+::: warning Spotify rejects localhost
+Since April 2025 Spotify rejects `localhost` redirect URIs.
+MelodyBridge automatically shows and uses `http://127.0.0.1:PORT/...`
+when you browse via localhost; register the URL the Settings page
+displays and both sides match.
+:::
 
 ## Spotify
 
@@ -67,10 +69,10 @@ panel). With no user configured, the first non-system user is used.
 
 Some apps advertise "just log in with your Spotify account, no Client
 ID". Under the hood they open accounts.spotify.com in an embedded
-WebView, scrape the `sp_dc` session cookies, exchange them for a
-web-player token through an undocumented endpoint guarded by a TOTP
-secret that a community GitHub gist must keep updated, and talk to
-Spotify's private `spclient` API with the result.
+WebView, scrape the `sp_dc` session cookies and exchange them for a
+web-player token through an undocumented endpoint that depends on a
+TOTP secret a community gist must keep updating, then talk to Spotify's
+private `spclient` API with the result.
 
 It works, but it is not compliant with Spotify's terms, it breaks every
 time Spotify rotates the secret or changes the endpoint, and a

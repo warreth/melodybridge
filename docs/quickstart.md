@@ -2,11 +2,19 @@
 
 You need Docker (or Podman) and nothing else.
 
-```bash
+::: code-group
+```bash [Docker]
 git clone https://github.com/warreth/melodybridge
 cd melodybridge
 docker compose up -d
 ```
+
+```bash [Podman]
+git clone https://github.com/warreth/melodybridge
+cd melodybridge
+podman compose up -d
+```
+:::
 
 That pulls the published image from GHCR and starts two containers on one
 internal network:
@@ -20,12 +28,6 @@ The first start creates `./data/` with `music/`, `playlists/` and `app/`
 (the SQLite database) so your files survive rebuilds. Point Jellyfin at
 `./data/music`.
 
-Podman works the same way:
-
-```bash
-podman compose up -d
-```
-
 ## First steps in the UI
 
 1. Open http://localhost:3333 and go to **Playlists**. Paste a public
@@ -35,8 +37,10 @@ podman compose up -d
 3. Go to **Sync jobs** and create a job that writes an M3U file or pushes
    the playlist to Jellyfin.
 
-If Jellyfin runs on your host, use `http://host.docker.internal:8096` as
-the base URL in Settings.
+::: tip Jellyfin on the host
+If Jellyfin runs on your host, use `http://host.docker.internal:8096`
+as the base URL in Settings.
+:::
 
 ## Running from source
 
@@ -53,9 +57,5 @@ pip3 install --user --break-system-packages yt-dlp
 The test suite runs with `dotnet test MelodyBridge.sln`. Live tests need
 yt-dlp and ffmpeg on PATH.
 
-## Where to go next
-
-- [Docker guide](docker.md) for the full configuration reference
-- [User guide](user-guide.md) for a tour of every page
-- [Accounts and OAuth](accounts.md) if you want your private playlists and
-  liked songs
+From here the sidebar covers everything: the [Docker guide](docker.md),
+the [User guide](user-guide.md) and [Accounts and OAuth](accounts.md).
