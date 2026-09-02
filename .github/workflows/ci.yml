@@ -6,9 +6,15 @@ on:
   pull_request:
     branches: [main]
 
+# New pushes to the same branch/PR replace the run in progress.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - name: Setup .NET
@@ -38,6 +44,7 @@ jobs:
   # If the public embed page changes shape, this job fails loudly.
   live-tests:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - name: Setup .NET
@@ -69,9 +76,21 @@ jobs:
         run: dotnet test MelodyBridge.sln -c Release --no-build
           --filter "Category=PlaylistStore|Category=Live"
 
+  # The docs tell users to wget https://melodybridge.app/compose.yml,
+  # so that published copy must never drift from this repo's compose.yml.
+  # Fails loudly with a diff when it does.
+  compose-drift:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compare against the published copy
+        run: ./scripts/check-compose-drift.sh
+
   # The docs build is also the link check: VitePress fails on dead links.
   docs:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 

@@ -4,7 +4,8 @@
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
     "docs:preview": "vitepress preview docs",
-    "docs:check": "node scripts/check-docs-links.mjs && node scripts/check-docs-structure.mjs && node scripts/docs-structure.test.mjs"
+    "docs:check": "node scripts/check-docs-links.mjs && node scripts/check-docs-structure.mjs && node scripts/docs-structure.test.mjs",
+    "compose:check": "bash scripts/check-compose-drift.sh"
   },
   "devDependencies": {
     "vitepress": "^1.6.0"
