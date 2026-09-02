@@ -1106,7 +1106,9 @@ td.file-path {
     cursor: pointer;
 }
 .toggle-switch.wide input { position: absolute; opacity: 0; width: 0; height: 0; }
-.toggle-switch.wide .toggle-slider { position: relative; flex-shrink: 0; }
+/* position:relative kills the base inset sizing, so the track needs its
+   40x22 box back or it collapses and the knob overlaps the label text. */
+.toggle-switch.wide .toggle-slider { position: relative; flex-shrink: 0; width: 40px; height: 22px; }
 
 /* ── Guided tour ────────────────────────────────────────────────── */
 .tour-overlay {
@@ -1210,3 +1212,57 @@ input[type="file"].btn-modern::file-selector-button {
     cursor: pointer;
     font: inherit;
 }
+/* ── Polish pass: toggles, labels, tables, action rows ────────────── */
+/* Wide toggles (Advanced, Library): text never overlaps the switch.
+   Label flexes, switch keeps its box, whole row is one click target. */
+.toggle-switch.wide {
+    display: flex;
+    align-items: center;
+    gap: .75rem;
+    width: auto;
+    min-height: 38px;
+    margin-bottom: .5rem;
+    cursor: pointer;
+    user-select: none;
+}
+.toggle-switch.wide > span:last-child { flex: 1; min-width: 0; }
+
+/* Plain checkbox rows (Playlists, SyncJobs): text sits beside the box,
+   never under it, and the row does not eat taps meant for other links. */
+.toggle-row {
+    display: flex;
+    align-items: center;
+    gap: .6rem;
+    min-height: 38px;
+    cursor: pointer;
+    user-select: none;
+}
+.toggle-row span { flex: 1; min-width: 0; }
+
+/* Two quality dropdowns side by side with breathing room; the guidance
+   line below keeps its own space. */
+.quality-picker { align-items: end; gap: 1.25rem; }
+.quality-picker label { flex: 1 1 200px; min-width: 0; }
+
+/* Form labels: stacked text over input with enough vertical rhythm. */
+.form-grid label { margin-bottom: .35rem; }
+
+/* Action rows: buttons plus adjacent description text (Settings test
+   results, PlaylistDetails source link) get honest spacing. */
+.flex-actions { gap: .75rem; flex-wrap: wrap; }
+.flex-actions .text-muted,
+.flex-actions .hint {
+    align-self: center;
+    margin-left: .35rem;
+    font-size: .85rem;
+}
+
+/* Panel header action area: a lone button never hugs the heading. */
+.panel-header > .flex-actions { margin-left: auto; }
+
+/* Wide data tables (PlaylistDetails tracks, Library, Playlists, Home):
+   a floor width keeps columns readable; .table-wrap scrolls the rest. */
+.table-wrap .modern-table { min-width: 640px; }
+
+/* Toast preview on Advanced keeps clear of the panel edge. */
+.toast-preview { z-index: 300; max-width: min(24rem, calc(100vw - 2rem)); }

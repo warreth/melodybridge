@@ -50,14 +50,17 @@
         {
             _index++;
             StateHasChanged();
+            // Re-run the JS so the spotlight follows the new step;
+            // OnAfterRenderAsync alone kept it glued to step 1's element.
+            await SpotlightCurrentAsync();
         }
     }
 
-    private Task Back()
+    private async Task Back()
     {
         if (_index > 0) _index--;
         StateHasChanged();
-        return Task.CompletedTask;
+        await SpotlightCurrentAsync();
     }
 
     private async Task CloseAsync()

@@ -344,13 +344,13 @@ else
             ".stat-grid"),
         new("Plugins decide the download order",
             "yt-dlp, SoundCloud, Archive.org and Lucida try in order. The first one that delivers within your quality settings wins.",
-            null),
+            ".stat-grid .stat-card:last-child"),
         new("Settings holds accounts and quality",
             "Spotify or YouTube logins, default download quality and the Cloudflare solver for Lucida live here.",
-            null),
+            ".provider-list"),
         new("Publish when the music is in",
             "A sync job turns a playlist into a Jellyfin playlist or an M3U file. Checklists and tours can be restarted from Settings - About.",
-            null),
+            "a[href='/sync-jobs']"),
     ];
 
     private async Task RefreshStats()

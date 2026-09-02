@@ -12,13 +12,21 @@ public sealed record AppNotification(
 /// </summary>
 public sealed class NotificationService
 {
+    private static readonly TimeSpan DefaultAutoDismiss = TimeSpan.FromSeconds(4);
+
     private readonly object _gate = new();
     private readonly List<AppNotification> _items = [];
     private readonly int _capacity;
+    private readonly TimeSpan _autoDismissAfter;
 
     public event Action? Changed;
 
-    public NotificationService(int capacity = 20) => _capacity = capacity;
+    /// <summary>Capacity caps the in-memory stack; autoDismissAfter is injectable so tests run fast.</summary>
+    public NotificationService(int capacity = 20, TimeSpan? autoDismissAfter = null)
+    {
+        _capacity = capacity;
+        _autoDismissAfter = autoDismissAfter ?? DefaultAutoDismiss;
+    }
 
     public void Info(string message) => Push(new AppNotification(message, "info", DateTime.UtcNow));
     public void Success(string message) => Push(new AppNotification(message, "success", DateTime.UtcNow));
@@ -55,5 +63,13 @@ public sealed class NotificationService
                 _items.RemoveRange(_capacity, _items.Count - _capacity);
         }
         Changed?.Invoke();
+
+        // Auto-dismiss in the background: survives layout re-renders.
+        // A manual Dismiss removes the item first, so this then no-ops.
+        _ = Task.Delay(_autoDismissAfter).ContinueWith(_ =>
+        {
+            lock (_gate) _items.Remove(item);
+            Changed?.Invoke();
+        }, TaskScheduler.Default);
     }
 }
