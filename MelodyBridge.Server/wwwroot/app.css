@@ -1228,7 +1228,10 @@ input[type="file"].btn-modern::file-selector-button {
 .toggle-switch.wide > span:last-child { flex: 1; min-width: 0; }
 
 /* Plain checkbox rows (Playlists, SyncJobs): text sits beside the box,
-   never under it, and the row does not eat taps meant for other links. */
+   never under it, and the row does not eat taps meant for other links.
+   .form-grid .toggle-row (0,2,0) must beat .form-grid label (0,1,1, display:grid),
+   which otherwise stacks the checkbox above the text. */
+.form-grid .toggle-row,
 .toggle-row {
     display: flex;
     align-items: center;
@@ -1266,3 +1269,15 @@ input[type="file"].btn-modern::file-selector-button {
 
 /* Toast preview on Advanced keeps clear of the panel edge. */
 .toast-preview { z-index: 300; max-width: min(24rem, calc(100vw - 2rem)); }
+
+/* ── Wizard & step lists ─────────────────────────────────────────── */
+/* Boxed wide toggles inside wizard bodies read as a list of choices
+   instead of floating switches; tokens follow the active theme. */
+.wizard-body .toggle-switch.wide {
+    padding: .55rem .8rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface-2);
+    margin-bottom: .5rem;
+}
+
