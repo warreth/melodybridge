@@ -32,8 +32,10 @@ public sealed class DevPanelLoggerProvider : ILoggerProvider
 
 /// <summary>
 /// The actual <see cref="ILogger"/> that writes to <see cref="ILogCollector"/>.
+/// Public for the logging filter tests: they drive real entries through
+/// the real logger, no stubs.
 /// </summary>
-internal sealed class DevPanelLogger : ILogger
+public sealed class DevPanelLogger : ILogger
 {
     private readonly ILogCollector _collector;
     private readonly string _categoryName;
@@ -63,6 +65,18 @@ internal sealed class DevPanelLogger : ILogger
         TState state, Exception? exception, Func<TState, Exception?, string> formatter)
     {
         if (!IsEnabled(logLevel))
+            return;
+
+        // EF Core command logs are debug noise by default: one or two
+        // lines per SQL query, drowning everything else on the Logs page.
+        // The Advanced page turns them on only when hunting a database
+        // problem. Warnings and errors from EF always pass: only the
+        // info-level chatter is gated.
+        if (!DatabaseLogSwitch.Enabled
+            && _categoryName.StartsWith(DatabaseLogSwitch.EfCommandPrefix, StringComparison.Ordinal)
+            && logLevel is Microsoft.Extensions.Logging.LogLevel.Trace
+                or Microsoft.Extensions.Logging.LogLevel.Debug
+                or Microsoft.Extensions.Logging.LogLevel.Information)
             return;
 
         var level = LevelMap.TryGetValue(logLevel, out var mapped) ? mapped : CoreLogLevel.Info;

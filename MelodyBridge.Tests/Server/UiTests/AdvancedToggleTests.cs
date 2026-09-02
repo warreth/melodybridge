@@ -54,8 +54,8 @@ public class AdvancedToggleTests
             Assert.That(cut.Markup, Does.Contain("Show the file column")), TimeSpan.FromSeconds(3));
 
         var labels = cut.FindAll("label.toggle-switch.wide");
-        Assert.That(labels.Count, Is.EqualTo(3),
-            "Display + two notification toggles use the wide switch");
+        Assert.That(labels.Count, Is.EqualTo(4),
+            "Display + database logs + two notification toggles use the wide switch");
 
         foreach (var label in labels)
         {
@@ -88,6 +88,38 @@ public class AdvancedToggleTests
         Assert.That(await db.DownloaderSettings.AsNoTracking()
             .AnyAsync(s => s.Key == "show_filename" && s.Value == "true"), Is.True,
             "the display toggle survives Save");
+    }
+
+    [Test]
+    public async Task Advanced_DatabaseLogToggle_OffByDefault_SavesAndFlipsTheSwitch()
+    {
+        // The default matters: SQL chatter must not crowd the Logs page
+        // unless someone turned it on for a debugging session.
+        MelodyBridge.Server.Services.DatabaseLogSwitch.Set(false);
+        var cut = _ctx.Render<Advanced>();
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("Show database activity in the logs")),
+            TimeSpan.FromSeconds(3));
+
+        var dbToggle = cut.FindAll("label.toggle-switch.wide")[1].QuerySelector("input");
+        Assert.That(dbToggle.HasAttribute("checked"), Is.False,
+            "database activity logging starts off for a fresh install");
+
+        dbToggle.Change(true);
+        await cut.InvokeAsync(() => cut.Find("section.page-title button.btn-modern").Click());
+
+        cut.WaitForAssertion(() =>
+            Assert.That(MelodyBridge.Server.Services.DatabaseLogSwitch.Enabled, Is.True,
+                "saving the toggle applies it immediately, no restart needed"),
+            TimeSpan.FromSeconds(3));
+
+        var factory = _ctx.Services.GetRequiredService<IDbContextFactory<MelodyBridgeDbContext>>();
+        await using var db = await factory.CreateDbContextAsync();
+        Assert.That(await db.DownloaderSettings.AsNoTracking()
+            .AnyAsync(s => s.Key == "log_database_activity" && s.Value == "true"), Is.True,
+            "the database logs toggle survives Save");
+
+        MelodyBridge.Server.Services.DatabaseLogSwitch.Set(false);
     }
 
     [Test]

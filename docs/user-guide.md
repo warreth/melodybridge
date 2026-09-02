@@ -200,6 +200,10 @@ The Advanced page holds the knobs most people never need.
 - **Display**: show the file column on playlist tracks, which reveals
   the exact filename behind each track. Useful when hunting inflated
   downloads
+- **Database activity**: show database activity in the logs. Off by
+  default, it hides the constant Executed DbCommand lines EF Core
+  writes to the Logs page; warnings and errors stay visible either
+  way. Turn it on only while debugging a database problem
 - **Library maintenance**: the **Recompute audio facts** button
   refills the bitrate, sample rate and size of older downloads that
   predate the probing, and flags files missing on disk for a

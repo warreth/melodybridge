@@ -1,5 +1,6 @@
 @page "/advanced"
 @using MelodyBridge.Infrastructure.Services
+@using MelodyBridge.Server.Services
 @inject IDbContextFactory<MelodyBridgeDbContext> DbFactory
 @inject SettingsStore Settings
 @inject PlaylistStore PlaylistStore
@@ -72,6 +73,25 @@
     <div class="panel-card">
         <div class="panel-header">
             <div>
+                <span class="eyebrow">Logging</span>
+                <h2>Database activity</h2>
+            </div>
+        </div>
+        <label class="toggle-switch wide">
+            <input type="checkbox" @bind="logDatabaseActivity" />
+            <span class="toggle-slider"></span>
+            <span>Show database activity in the logs</span>
+        </label>
+        <div class="hint-box">
+            Every SQL command the app runs lands in the log as an
+            Executed DbCommand line. Turn this on only while debugging a
+            database problem; off it hides that noise and keeps warnings.
+        </div>
+    </div>
+
+    <div class="panel-card">
+        <div class="panel-header">
+            <div>
                 <span class="eyebrow">Notifications</span>
                 <h2>Toast behaviour</h2>
             </div>
@@ -120,6 +140,7 @@
     private bool showFilename;
     private bool notifyDownloads = true;
     private bool notifyFailures = true;
+    private bool logDatabaseActivity;
     private bool recomputing;
     private string? savedMessage;
 
@@ -132,6 +153,7 @@
         showFilename = await Settings.GetBoolAsync("show_filename", false);
         notifyDownloads = await Settings.GetBoolAsync("notify_downloads", true);
         notifyFailures = await Settings.GetBoolAsync("notify_failures", true);
+        logDatabaseActivity = await Settings.GetBoolAsync(DatabaseLogSwitch.SettingKey, false);
     }
 
     private async Task SaveAll()
@@ -142,6 +164,10 @@
         await Settings.SetAsync("show_filename", showFilename ? "true" : "false");
         await Settings.SetAsync("notify_downloads", notifyDownloads ? "true" : "false");
         await Settings.SetAsync("notify_failures", notifyFailures ? "true" : "false");
+        await Settings.SetAsync(DatabaseLogSwitch.SettingKey, logDatabaseActivity ? "true" : "false");
+        // Applies immediately, no restart: the log pipeline reads the
+        // switch on every entry.
+        DatabaseLogSwitch.Set(logDatabaseActivity);
         savedMessage = "Saved.";
     }
 
