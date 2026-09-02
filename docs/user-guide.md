@@ -12,6 +12,9 @@ dismissed.
 
 ## Dashboard
 
+<img src="/screens/home.webp" alt="Dashboard with stat cards, connections and recent activity" width="800">
+
+
 The four stat cards show the playlists, downloaded tracks, library
 files and enabled plugins. Below them:
 
@@ -28,15 +31,28 @@ immediately.
 
 ## Playlists
 
+<img src="/screens/playlists.webp" alt="Playlists page with playlist cards" width="800">
+
+
 The Playlists page holds your saved playlists.
 
 - **Add playlist**: paste a public Spotify or YouTube playlist link.
   MelodyBridge fetches the track list and saves it locally.
-- **From my account**: import the playlists of a connected Spotify or
-  YouTube account, including private ones and liked songs.
-- **Import file**: bring back a previously exported JSON file.
-- **Export**: download all playlists as JSON, useful as a backup or to
-  move to another instance.
+- **Import**: opens the import panel with three routes.
+  - *From your account*: import the playlists of a connected Spotify
+    or YouTube account, including private ones and liked songs.
+    Needs Spotify Premium (Spotify requires it from developer-app
+    owners).
+  - *Exportify CSV*: export your liked songs (or any playlist) at
+    [exportify.net](https://exportify.net) and upload the CSV here.
+    **Recommended without Premium** — works with a free account.
+  - *Spotify data export*: request *Download your data* at
+    [spotify.com/account/privacy](https://www.spotify.com/account/privacy)
+    and upload `YourLibrary.json` (liked songs) or `Playlist1.json`
+    (all playlists). Always manual, never automatic: Spotify emails the
+    package after up to a few days.
+
+Re-uploading the same file refreshes instead of duplicating.
 
 Each playlist card shows the cover, the track count and when it last
 synced. Open a card to reach the playlist details page.
@@ -210,6 +226,9 @@ The Advanced page holds the knobs most people never need.
   re-download
 
 ## Logs
+
+<img src="/screens/logs.webp" alt="Logs page with the filterable event stream" width="800">
+
 
 The Logs page shows what the app did recently: playlist syncs,
 downloads, scans and errors.

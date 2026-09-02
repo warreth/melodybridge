@@ -19,6 +19,27 @@ in separate providers: when no account is connected, or the account call
 fails for any reason, the public path (Spotify embed page scraping,
 yt-dlp for YouTube) runs exactly as before.
 
+## Importing liked songs without Premium
+
+The API route above needs a Premium account (Spotify requires Premium
+from the owner of a developer app). Free accounts have two other ways
+into MelodyBridge, both from the Playlists page, Import button:
+
+- **Exportify (recommended).** Log in at
+  [exportify.net](https://exportify.net), click *Export Liked Songs*
+  (or any playlist) and upload the downloaded CSV. It uses its own
+  verified app, so free accounts work; the CSV carries track names,
+  artists, albums and Spotify IDs.
+- **Spotify data export (always manual, never automatic).** Request
+  *Download your data* at
+  [spotify.com/account/privacy](https://www.spotify.com/account/privacy),
+  wait for Spotify's email (up to a few days), unzip the account-data
+  package and upload `YourLibrary.json` (liked songs) or
+  `Playlist1.json` (all playlists).
+
+Re-uploading the same file refreshes the playlists instead of
+duplicating them.
+
 Each provider has its own redirect URI, differing only in a
 `?provider=` marker that tells the callback which account to finish.
 Always copy the exact URL from the Settings page — the platforms match
