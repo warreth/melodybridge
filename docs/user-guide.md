@@ -95,17 +95,21 @@ tracks by name).
 
 ## Sync jobs
 
-A sync job turns a saved playlist into an M3U file or a Jellyfin
-playlist. The New sync job wizard has five steps:
+A sync job turns a saved playlist or a local folder into an M3U file or
+a Jellyfin playlist. The New sync job wizard has five steps:
 
-1. Job name and source playlist
-2. Search locations: folders to search for the tracks, one per line.
-   Leave empty to use every folder from the Library page
-3. Output type: M3U File or Jellyfin API, with the output path or
-   Jellyfin URL, API key and user ID; plus the schedule: manual, hourly,
-   daily or weekly
-4. Path and extension remap: only needed when your music player sees
-   files under a different path than MelodyBridge, for example inside a
+1. Job name and source. The source is a saved playlist or, with Local
+   folder, a single scan folder from the Library page
+2. Search locations: a checkbox list of your scan folders, all checked
+   by default. Leave them all checked to use every folder
+3. Output type: M3U File or Jellyfin API. M3U needs the output path.
+   Jellyfin needs the server URL and API key, plus a Test connection
+   button that checks the server and lists its users for you to pick
+   one. The schedule is manual, hourly, daily, weekly, monthly or cron;
+   cron takes a five-field expression like `0 3 * * *` (03:00 nightly)
+4. Path and extension remap rules: add as many as you need, each with a
+   from and a to value. Only needed when your music player sees files
+   under a different path than MelodyBridge, for example inside a
    Docker container
 5. Review and create
 
@@ -116,7 +120,9 @@ the job instead of creating a new one.
 
 The run summary counts the whole playlist: "Synced 20/50 tracks, 30
 without a local file" means 50 tracks are in the playlist and 20 of
-them had a file to publish.
+them had a file to publish. The Log view breaks those 30 down per
+track, so you can see exactly which files are missing or were not
+found on the Jellyfin server.
 
 ## Library
 

@@ -1,0 +1,59 @@
+@* Editable list of from/to replace rules, used for both path and
+   extension remaps. Mutates the caller's List<RemapRule> in place; rows
+   with an empty from or to are simply skipped when the job is saved. *@
+<div class="remap-rules-editor">
+    @if (Rules.Count == 0)
+    {
+        <div class="hint-box">@EmptyText</div>
+    }
+    @for (var i = 0; i < Rules.Count; i++)
+    {
+        var index = i;
+        <div class="form-grid two">
+            <label>
+                @Title from
+                <input value="@Rules[index].From"
+                       @oninput="e => SetFrom(index, e)"
+                       placeholder="@FromPlaceholder" />
+            </label>
+            <label>
+                @Title to
+                <input value="@Rules[index].To"
+                       @oninput="e => SetTo(index, e)"
+                       placeholder="@ToPlaceholder" />
+            </label>
+            <div class="wide flex-actions">
+                <button class="btn-modern ghost" type="button"
+                        @onclick="() => RemoveRule(index)">Remove</button>
+            </div>
+        </div>
+    }
+    <div class="flex-actions" style="margin-top:.5rem;">
+        <button class="btn-modern secondary" type="button" @onclick="AddRule">@AddLabel</button>
+    </div>
+</div>
+
+@code {
+    /// <summary>Rule kind shown in row labels ("Path" or "Extension").</summary>
+    [Parameter] public string Title { get; set; } = "";
+    /// <summary>Text shown when there are no rules yet.</summary>
+    [Parameter] public string EmptyText { get; set; } = "No rules yet.";
+    /// <summary>Add button label.</summary>
+    [Parameter] public string AddLabel { get; set; } = "Add rule";
+    /// <summary>Placeholder of the from input.</summary>
+    [Parameter] public string FromPlaceholder { get; set; } = "from";
+    /// <summary>Placeholder of the to input.</summary>
+    [Parameter] public string ToPlaceholder { get; set; } = "to";
+    /// <summary>The rule list, owned by the caller and edited in place.</summary>
+    [Parameter] public List<RemapRule> Rules { get; set; } = new();
+
+    private void AddRule() => Rules.Add(new RemapRule("", ""));
+
+    private void RemoveRule(int index) => Rules.RemoveAt(index);
+
+    private void SetFrom(int index, ChangeEventArgs e)
+        => Rules[index] = Rules[index] with { From = e.Value?.ToString() ?? "" };
+
+    private void SetTo(int index, ChangeEventArgs e)
+        => Rules[index] = Rules[index] with { To = e.Value?.ToString() ?? "" };
+}

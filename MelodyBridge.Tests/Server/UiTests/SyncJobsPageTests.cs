@@ -31,10 +31,18 @@ public class SyncJobsPageTests
 
         using (var db = dbFactory.CreateDbContext())
         {
+            db.Playlists.Add(new PlaylistEntity
+            {
+                Id = "src-1",
+                Name = "Weekly Source",
+                SourceUrl = "stub:src-1",
+            });
             db.SyncJobs.Add(new SyncJobEntity
             {
                 Id = "j1",
                 Name = "Weekly Sync",
+                SourceId = "src-1",
+                SearchLocationPaths = "[]",
                 Schedule = "Daily",
                 OutputTarget = "M3uFile",
                 M3uOutputPath = "/app/playlists/weekly.m3u",
@@ -133,9 +141,14 @@ public class SyncJobsPageTests
         var cut = _ctx.Render<SyncJobs>();
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Edit").Click();
 
-        // walk to the review step and save
+        // walk to the review step and save (step 1 needs a source, and
+        // the M3U path must stay filled to pass the new validation)
         for (int i = 0; i < 4; i++)
-            cut.FindAll("button").First(b => b.TextContent.Trim() == "Next").Click();
+        {
+            var next = cut.FindAll("button")
+                .FirstOrDefault(b => b.TextContent.Trim() == "Next");
+            if (next != null) next.Click();
+        }
 
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Save changes").Click();
 

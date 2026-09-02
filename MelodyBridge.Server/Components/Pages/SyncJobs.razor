@@ -1,5 +1,6 @@
 @page "/sync-jobs"
 @using System.Text.Json
+@using MelodyBridge.Infrastructure.MediaServers
 @inject ISyncJobRunner JobRunner
 @inject IDbContextFactory<MelodyBridgeDbContext> DbFactory
 @implements IDisposable
@@ -35,34 +36,85 @@
                             <input @bind="draft.Name" placeholder="e.g. My Summer Hits" />
                         </label>
                         <label>
-                            Source playlist
-                            <select @bind="selectedSourceId">
-                                <option value="">Select a source...</option>
-                                @foreach (var src in sources)
-                                {
-                                    <option value="@src.Id">@src.Name (@src.SourcePlatform)</option>
-                                }
+                            Source type
+                            <select @bind="sourceType">
+                                <option value="playlist">Saved playlist</option>
+                                <option value="folder">Local folder</option>
                             </select>
                         </label>
+                        @if (sourceType == "playlist")
+                        {
+                            <label>
+                                Source playlist
+                                <select @bind="selectedSourceId">
+                                    <option value="">Select a source...</option>
+                                    @foreach (var src in sources)
+                                    {
+                                        <option value="@src.Id">@src.Name (@src.SourcePlatform)</option>
+                                    }
+                                </select>
+                            </label>
+                        }
+                        else
+                        {
+                            <label>
+                                Source folder
+                                <select @bind="selectedFolder">
+                                    <option value="">Choose a folder...</option>
+                                    @foreach (var f in scanFolders)
+                                    {
+                                        <option value="@f">@f</option>
+                                    }
+                                </select>
+                            </label>
+                        }
                     </div>
-                    @if (sources.Count == 0)
+                    @if (sourceType == "playlist" && sources.Count == 0)
                     {
                         <div class="hint-box" style="margin-top:0.75rem;">
                             No playlists saved yet. Go to <a href="/playlists">Playlists</a> to add one first.
                         </div>
                     }
+                    @if (sourceType == "folder" && scanFolders.Count == 0)
+                    {
+                        <div class="hint-box" style="margin-top:0.75rem;">
+                            No scan locations yet. Add folders on the <a href="/library">Library</a> page first.
+                        </div>
+                    }
+                    @if (!string.IsNullOrEmpty(stepError))
+                    {
+                        <div class="hint-box" style="margin-top:0.75rem; border-color: var(--danger);">@stepError</div>
+                    }
                 }
                 else if (currentStep == 1)
                 {
-                    <div class="form-grid single">
-                        <label>
-                            Search location paths (one per line)
-                            <textarea @bind="searchLocationsText" rows="4" placeholder="/music&#10;/mnt/ssd/music_opus" />
-                        </label>
-                    </div>
-                    <div class="hint-box">
-                        Folders to search for the playlist's files. Leave empty to use every folder from the Library page.
-                    </div>
+                    @if (scanFolders.Count == 0)
+                    {
+                        <div class="hint-box">
+                            No scan locations yet. Add folders on the <a href="/library">Library</a> page first.
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="form-grid single">
+                            @foreach (var folder in scanFolders)
+                            {
+                                <label class="toggle-row">
+                                    <input type="checkbox"
+                                           checked="@selectedFolders.Contains(folder)"
+                                           @onchange="e => ToggleFolder(folder, e)" />
+                                    <span>@folder</span>
+                                </label>
+                            }
+                        </div>
+                        <div class="hint-box">
+                            Folders to search for the tracks. Leave all checked to use every folder from the Library page.
+                        </div>
+                    }
+                    @if (!string.IsNullOrEmpty(stepError))
+                    {
+                        <div class="hint-box" style="margin-top:0.75rem; border-color: var(--danger);">@stepError</div>
+                    }
                 }
                 else if (currentStep == 2)
                 {
@@ -91,10 +143,6 @@
                                 Jellyfin API key
                                 <input @bind="draft.JellyfinApiKey" type="password" placeholder="API key" />
                             </label>
-                            <label>
-                                Jellyfin user ID (optional)
-                                <input @bind="draft.JellyfinUserId" placeholder="User ID" />
-                            </label>
                         }
                         <label>
                             Schedule
@@ -103,49 +151,94 @@
                                 <option value="@SyncJobSchedule.Hourly">Hourly</option>
                                 <option value="@SyncJobSchedule.Daily">Daily</option>
                                 <option value="@SyncJobSchedule.Weekly">Weekly</option>
+                                <option value="@SyncJobSchedule.Monthly">Monthly</option>
+                                <option value="@SyncJobSchedule.Cron">Cron</option>
                             </select>
                         </label>
+                        @if (draft.Schedule == SyncJobSchedule.Cron)
+                        {
+                            <label>
+                                Cron expression
+                                <input @bind="draft.CronExpression" placeholder="0 3 * * *" />
+                            </label>
+                        }
                     </div>
+                    @if (draft.OutputTarget == OutputTargetType.JellyfinApi)
+                    {
+                        <JellyfinUserPicker ServerUrl="@draft.JellyfinServerUrl"
+                                            ApiKey="@draft.JellyfinApiKey"
+                                            @bind-UserId="draft.JellyfinUserId" />
+                    }
+                    @if (draft.Schedule == SyncJobSchedule.Cron)
+                    {
+                        <div class="hint-box">
+                            Five-field cron with minute precision (minute hour day month weekday), for example <code>0 3 * * *</code> runs at 03:00 every night.
+                        </div>
+                    }
+                    @if (!string.IsNullOrEmpty(stepError))
+                    {
+                        <div class="hint-box" style="margin-top:0.75rem; border-color: var(--danger);">@stepError</div>
+                    }
                 }
                 else if (currentStep == 3)
                 {
-                    <div class="form-grid two">
-                        <label>
-                            Replace path prefix (from)
-                            <input @bind="remapFrom" placeholder="/mnt/BackupHDD/Music" />
-                        </label>
-                        <label>
-                            Replace with (to)
-                            <input @bind="remapTo" placeholder="/media/music" />
-                        </label>
-                        <label>
-                            Replace extension (from)
-                            <input @bind="extFrom" placeholder=".flac" />
-                        </label>
-                        <label>
-                            Replace with (to)
-                            <input @bind="extTo" placeholder=".opus" />
-                        </label>
-                    </div>
+                    <RemapRulesEditor Title="Path"
+                                      EmptyText="No path rules yet. Only needed when your music player sees files under a different path than MelodyBridge."
+                                      AddLabel="Add path rule"
+                                      FromPlaceholder="/mnt/BackupHDD/Music"
+                                      ToPlaceholder="/media/music"
+                                      Rules="@pathRules" />
+                    <RemapRulesEditor Title="Extension"
+                                      EmptyText="No extension rules yet. Leave empty to keep file extensions as they are."
+                                      AddLabel="Add extension rule"
+                                      FromPlaceholder=".flac"
+                                      ToPlaceholder=".opus"
+                                      Rules="@extRules" />
                     <div class="hint-box">
                         Only needed when your music player sees files under a different path than MelodyBridge,
-                        for example inside a Docker container. Leave both empty to skip.
+                        for example inside a Docker container. Leave empty to skip.
                     </div>
                 }
                 else if (currentStep == 4)
                 {
                     <div class="review-list">
                         <div><strong>Name:</strong> @draft.Name</div>
-                        <div><strong>Source:</strong> @selectedSourceId</div>
-                        <div><strong>Search locations:</strong> @(string.IsNullOrWhiteSpace(searchLocationsText) ? "All known" : searchLocationsText.Replace("\n", ", "))</div>
+                        <div><strong>Source:</strong> @(sourceType == "folder" ? selectedFolder : selectedSourceId)</div>
+                        <div><strong>Search locations:</strong> @(SearchLocationSummary)</div>
                         <div><strong>Output target:</strong> @draft.OutputTarget</div>
                         @if (draft.OutputTarget == OutputTargetType.M3uFile)
                         {
                             <div><strong>M3U path:</strong> @draft.M3uOutputPath</div>
                         }
+                        else
+                        {
+                            <div><strong>Jellyfin server:</strong> @draft.JellyfinServerUrl</div>
+                        }
                         <div><strong>Schedule:</strong> @draft.Schedule</div>
-                        @if (!string.IsNullOrWhiteSpace(remapFrom)) { <div><strong>Path remap:</strong> @remapFrom &rarr; @remapTo</div> }
-                        @if (!string.IsNullOrWhiteSpace(extFrom)) { <div><strong>Extension remap:</strong> @extFrom &rarr; @extTo</div> }
+                        @if (draft.Schedule == SyncJobSchedule.Cron && !string.IsNullOrWhiteSpace(draft.CronExpression))
+                        {
+                            <div><strong>Cron:</strong> @draft.CronExpression</div>
+                        }
+                        @if (pathRules.Count > 0)
+                        {
+                            <div>
+                                <strong>Path remap:</strong>
+                                @foreach (var r in pathRules)
+                                {
+                                    <span>@r.From &rarr; @r.To;</span>
+                                }
+                            </div>
+                        }
+                        @if (extRules.Count > 0)
+                        {
+                            <div>
+                                <strong>Extension remap:</strong>
+                                @foreach (var r in extRules)
+                                {
+                                    <span>@r.From &rarr; @r.To;</span>
+                                }
+                            </div>
+                        }
                     </div>
                 }
             </div>
@@ -229,6 +322,18 @@
                             <strong>@entry.Timestamp.ToString("g")</strong>
                             <p>@entry.Message</p>
                             <small>@entry.ResolvedTracks / @entry.TotalTracks tracks resolved</small>
+                            @if (ParseWarnings(entry.WarningDetails) is { Count: > 0 } warnings)
+                            {
+                                <details>
+                                    <summary>@warnings.Count warning(s)</summary>
+                                    <ul>
+                                        @foreach (var w in warnings)
+                                        {
+                                            <li>@w</li>
+                                        }
+                                    </ul>
+                                </details>
+                            }
                         </div>
                     </div>
                 }
@@ -240,6 +345,7 @@
 @code {
     private List<SyncJobEntity> jobs = new();
     private List<PlaylistEntity> sources = new();
+    private List<string> scanFolders = new();
     private bool showWizard;
     private bool saving;
     private int currentStep;
@@ -248,14 +354,15 @@
     private List<SyncJobRunEntity> logEntries = new();
     private HashSet<string> runningJobs = new();
     private bool isEditing;
+    private string? stepError;
 
     private SyncJob draft = new();
+    private string sourceType = "playlist";
     private string selectedSourceId = "";
-    private string searchLocationsText = "";
-    private string remapFrom = "";
-    private string remapTo = "";
-    private string extFrom = "";
-    private string extTo = "";
+    private string selectedFolder = "";
+    private HashSet<string> selectedFolders = new();
+    private List<RemapRule> pathRules = new();
+    private List<RemapRule> extRules = new();
 
     protected override async Task OnInitializedAsync()
     {
@@ -267,6 +374,7 @@
         await using var db = await DbFactory.CreateDbContextAsync();
         jobs = await db.SyncJobs.OrderByDescending(j => j.LastRunAt).ToListAsync();
         sources = await db.Playlists.ToListAsync();
+        scanFolders = await db.ScanLocations.Select(l => l.Path).ToListAsync();
     }
 
     private void StartNewJob()
@@ -274,12 +382,13 @@
         draft = new SyncJob();
         isEditing = false;
         selectedSourceId = "";
-        searchLocationsText = "";
-        remapFrom = "";
-        remapTo = "";
-        extFrom = "";
-        extTo = "";
+        selectedFolder = "";
+        sourceType = "playlist";
+        selectedFolders = scanFolders.ToHashSet();
+        pathRules = new List<RemapRule>();
+        extRules = new List<RemapRule>();
         currentStep = 0;
+        stepError = null;
         showWizard = true;
     }
 
@@ -288,15 +397,20 @@
         // hydrate the wizard from the stored entity so saving updates it in place
         draft = MapToDomain(job);
         isEditing = true;
+        sourceType = string.IsNullOrWhiteSpace(job.SourceId) && draft.SearchLocationPaths.Count > 0
+            ? "folder" : "playlist";
         selectedSourceId = job.SourceId ?? "";
-        searchLocationsText = string.Join("\n", draft.SearchLocationPaths);
-        var pathRemap = draft.PathRemapRules.FirstOrDefault();
-        var extRemap = draft.ExtensionRemapRules.FirstOrDefault();
-        remapFrom = pathRemap.Key;
-        remapTo = pathRemap.Value;
-        extFrom = extRemap.Key;
-        extTo = extRemap.Value;
+        selectedFolder = sourceType == "folder" ? draft.SearchLocationPaths.FirstOrDefault() ?? "" : "";
+        // checked = stored paths when present, otherwise everything (empty = all known)
+        selectedFolders = draft.SearchLocationPaths.Count > 0
+            ? draft.SearchLocationPaths.ToHashSet()
+            : scanFolders.ToHashSet();
+        pathRules = draft.PathRemapRules
+            .Select(kv => new RemapRule(kv.Key, kv.Value)).ToList();
+        extRules = draft.ExtensionRemapRules
+            .Select(kv => new RemapRule(kv.Key, kv.Value)).ToList();
         currentStep = 0;
+        stepError = null;
         showWizard = true;
     }
 
@@ -312,14 +426,57 @@
         _ => ""
     };
 
+    private string SearchLocationSummary =>
+        selectedFolders.Count == 0 ? "All known"
+        : selectedFolders.Count == scanFolders.Count ? "All known"
+        : string.Join(", ", selectedFolders);
+
+    private void ToggleFolder(string folder, ChangeEventArgs e)
+    {
+        if (e.Value is true && !selectedFolders.Contains(folder))
+            selectedFolders.Add(folder);
+        else if (e.Value is false)
+            selectedFolders.Remove(folder);
+    }
+
     private void NextStep()
     {
-        if (currentStep == 2 && draft.OutputTarget == OutputTargetType.M3uFile && string.IsNullOrWhiteSpace(draft.M3uOutputPath))
+        stepError = null;
+        if (currentStep == 0)
+        {
+            if (sourceType == "playlist" && string.IsNullOrWhiteSpace(selectedSourceId))
+            {
+                stepError = "Choose a folder or a playlist first.";
+                return;
+            }
+            if (sourceType == "folder" && string.IsNullOrWhiteSpace(selectedFolder))
+            {
+                stepError = "Choose a folder or a playlist first.";
+                return;
+            }
+        }
+        if (currentStep == 1 && selectedFolders.Count == 0 && scanFolders.Count > 0)
+        {
+            stepError = "Select at least one folder, or leave all checked to use every folder.";
             return;
+        }
+        if (currentStep == 2)
+        {
+            if (draft.OutputTarget == OutputTargetType.M3uFile && string.IsNullOrWhiteSpace(draft.M3uOutputPath))
+            {
+                stepError = "Enter the M3U output path first.";
+                return;
+            }
+            if (draft.Schedule == SyncJobSchedule.Cron && string.IsNullOrWhiteSpace(draft.CronExpression))
+            {
+                stepError = "Enter a cron expression (5 fields, e.g. 0 3 * * *) first.";
+                return;
+            }
+        }
         if (currentStep < 4) currentStep++;
     }
 
-    private void PrevStep() { if (currentStep > 0) currentStep--; }
+    private void PrevStep() { if (currentStep > 0) currentStep--; stepError = null; }
 
     private async Task SaveJob()
     {
@@ -327,13 +484,13 @@
         try
         {
             await using var db = await DbFactory.CreateDbContextAsync();
-            var pathsList = searchLocationsText.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
-            var remapRules = new Dictionary<string, string>();
-            if (!string.IsNullOrWhiteSpace(remapFrom) && !string.IsNullOrWhiteSpace(remapTo))
-                remapRules[remapFrom] = remapTo;
-            var extRules = new Dictionary<string, string>();
-            if (!string.IsNullOrWhiteSpace(extFrom) && !string.IsNullOrWhiteSpace(extTo))
-                extRules[extFrom] = extTo;
+            // folder source: the folder itself is the source; playlist source
+            // keeps the checkbox selection from step 2
+            var pathsList = sourceType == "folder"
+                ? new List<string> { selectedFolder }
+                : selectedFolders.Where(f => scanFolders.Contains(f)).ToList();
+            var remapRules = RulesToDictionary(pathRules);
+            var extRulesDict = RulesToDictionary(extRules);
 
             var entity = await db.SyncJobs.FindAsync(draft.Id);
             if (entity == null)
@@ -342,7 +499,8 @@
                 db.SyncJobs.Add(entity);
             }
             entity.Name = draft.Name;
-            entity.SourceId = string.IsNullOrWhiteSpace(selectedSourceId) ? null : selectedSourceId;
+            entity.SourceId = sourceType == "playlist" && !string.IsNullOrWhiteSpace(selectedSourceId)
+                ? selectedSourceId : null;
             entity.SearchLocationPaths = JsonSerializer.Serialize(pathsList);
             entity.OutputTarget = draft.OutputTarget.ToString();
             entity.M3uOutputPath = draft.M3uOutputPath;
@@ -350,14 +508,28 @@
             entity.JellyfinApiKey = draft.JellyfinApiKey;
             entity.JellyfinUserId = draft.JellyfinUserId;
             entity.PathRemapRules = JsonSerializer.Serialize(remapRules);
-            entity.ExtensionRemapRules = JsonSerializer.Serialize(extRules);
+            entity.ExtensionRemapRules = JsonSerializer.Serialize(extRulesDict);
             entity.Schedule = draft.Schedule.ToString();
+            entity.CronExpression = draft.CronExpression;
             entity.LastRunStatus = string.IsNullOrWhiteSpace(entity.LastRunStatus) ? "Pending" : entity.LastRunStatus;
             await db.SaveChangesAsync();
             showWizard = false;
             await LoadDataAsync();
         }
         finally { saving = false; }
+    }
+
+    private static Dictionary<string, string> RulesToDictionary(List<RemapRule> rules) =>
+        rules
+            .Where(r => !string.IsNullOrWhiteSpace(r.From) && !string.IsNullOrWhiteSpace(r.To))
+            .GroupBy(r => r.From.Trim())
+            .ToDictionary(g => g.Key, g => g.First().To.Trim());
+
+    private List<string>? ParseWarnings(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return null;
+        try { return JsonSerializer.Deserialize<List<string>>(json); }
+        catch { return null; }
     }
 
     private async Task RunJobNow(string jobId)
