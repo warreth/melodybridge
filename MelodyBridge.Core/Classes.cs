@@ -4,6 +4,8 @@ public class Track
 {
     public string? Title { get; set; }
     public string? Artist { get; set; }
+    /// <summary>Album name, when the source knows it (used for tags).</summary>
+    public string? Album { get; set; }
     public TimeSpan? Duration { get; set; }
     public SongID? SongID { get; set; }
     public SongID? PlatformSongID { get; set; }

@@ -261,8 +261,11 @@ public class PlaylistStore
             .ToListAsync(ct);
     }
 
-    /// <summary>Download counters per playlist id, for the playlist cards.</summary>
-    public async Task<Dictionary<string, (int downloaded, int failed, int total)>> GetDownloadCountsAsync(CancellationToken ct = default)
+    /// <summary>
+    /// Download counters and the bytes the finished files take on disk,
+    /// per playlist id, for the playlist cards.
+    /// </summary>
+    public async Task<Dictionary<string, (int downloaded, int failed, int total, long sizeBytes)>> GetDownloadStatsAsync(CancellationToken ct = default)
     {
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var rows = await db.Tracks.AsNoTracking()
@@ -273,12 +276,30 @@ public class PlaylistStore
                 Downloaded = g.Count(t => t.DownloadStatus == "downloaded"),
                 Failed = g.Count(t => t.DownloadStatus == "failed"),
                 Total = g.Count(),
+                SizeBytes = g.Where(t => t.DownloadStatus == "downloaded")
+                    .Sum(t => t.FileSizeBytes ?? 0),
             })
             .ToListAsync(ct);
 
         return rows
             .Where(r => r.Id is not null)
-            .ToDictionary(r => r.Id!, r => (r.Downloaded, r.Failed, r.Total));
+            .ToDictionary(r => r.Id!, r => (r.Downloaded, r.Failed, r.Total, r.SizeBytes));
+    }
+
+    /// <summary>
+    /// The ids of the playlists already saved locally, for marking
+    /// imports as duplicates. Matched on source platform + external id,
+    /// the same pair a re-import updates instead of duplicating.
+    /// </summary>
+    public async Task<HashSet<string>> GetSavedExternalIdsAsync(
+        Platform platform, CancellationToken ct = default)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var ids = await db.Playlists.AsNoTracking()
+            .Where(p => p.SourcePlatform == platform && p.ExternalId != null)
+            .Select(p => p.ExternalId!)
+            .ToListAsync(ct);
+        return ids.ToHashSet();
     }
 
     /// <summary>Removes one track from a playlist snapshot and deletes its file.</summary>
@@ -368,6 +389,14 @@ public class PlaylistStore
     /// platform + external ID), so re-syncing updates instead of duplicating.
     /// </summary>
     public async Task<PlaylistEntity> AddOrRefreshAsync(string sourceUrl, string? targetDirectory = null, CancellationToken ct = default)
+        => (await AddOrRefreshDetailedAsync(sourceUrl, targetDirectory, ct)).Playlist;
+
+    /// <summary>
+    /// Same fetch, plus whether the playlist was newly saved or updated an
+    /// existing row. The add form says "updated" instead of "saved" with it.
+    /// </summary>
+    public async Task<(PlaylistEntity Playlist, bool NewlySaved)> AddOrRefreshDetailedAsync(
+        string sourceUrl, string? targetDirectory = null, CancellationToken ct = default)
     {
         var provider = ResolveProvider(sourceUrl)
             ?? throw new InvalidOperationException(
@@ -389,7 +418,7 @@ public class PlaylistStore
             ?? throw new InvalidOperationException($"No account provider '{providerName}'.");
 
         var playlist = await account.GetLikedPlaylistAsync(ct);
-        return await SaveSnapshotAsync(
+        return (await SaveSnapshotAsync(
             playlist: playlist,
             providerPlatform: account.Name switch
             {
@@ -399,10 +428,61 @@ public class PlaylistStore
             },
             sourceUrl: playlist.SourceUrl,
             targetDirectory: targetDirectory,
-            ct: ct);
+            ct: ct)).Entity;
     }
 
-    private async Task<PlaylistEntity> SaveSnapshotAsync(
+    /// <summary>
+    /// Imports playlists parsed from a user-provided file (Exportify CSV
+    /// or a Spotify privacy export). Each one goes through the normal
+    /// snapshot pipeline, so re-imports update instead of duplicating.
+    /// Returns (importedPlaylists, totalTracks).
+    /// </summary>
+    public async Task<(int playlists, int tracks)> ImportFileAsync(
+        ImportedFile file, string? targetDirectory = null, CancellationToken ct = default)
+    {
+        var imported = 0;
+        var totalTracks = 0;
+
+        foreach (var incoming in file.Playlists)
+        {
+            if (incoming.Tracks.Count == 0) continue;
+
+            // Stable identity per imported playlist: re-uploading the
+            // same file refreshes (the YourLibrary liked-songs import
+            // always lands on spotify:import:liked, kept apart from the
+            // OAuth spotify:liked).
+            var slug = Slugify(incoming.Name);
+            await SaveSnapshotAsync(
+                providerPlatform: Platform.Spotify,
+                playlist: new Playlist
+                {
+                    Id = slug,
+                    Name = incoming.Name,
+                    Owner = incoming.Owner,
+                    Tracks = incoming.Tracks.ToList(),
+                },
+                sourceUrl: $"spotify:import:{slug}",
+                targetDirectory: targetDirectory,
+                ct: ct);
+            imported++;
+            totalTracks += incoming.Tracks.Count;
+        }
+
+        _logger.LogInformation("File import ({Kind}): {Playlists} playlists, {Tracks} tracks",
+            file.Kind, imported, totalTracks);
+        return (imported, totalTracks);
+    }
+
+    /// <summary>Filename-stable slug: lowercase letters/digits, rest to '-'.</summary>
+    private static string Slugify(string name)
+    {
+        var slug = new StringBuilder();
+        foreach (var ch in name.ToLowerInvariant())
+            slug.Append(char.IsAsciiLetterOrDigit(ch) ? ch : '-');
+        return slug.ToString().Trim('-') is { Length: > 0 } s ? s : "import";
+    }
+
+    private async Task<(PlaylistEntity Entity, bool NewlySaved)> SaveSnapshotAsync(
         Platform providerPlatform, Playlist playlist, string? sourceUrl,
         string? targetDirectory = null, CancellationToken ct = default)
     {
@@ -505,7 +585,7 @@ public class PlaylistStore
         _logger.LogInformation("{Action} playlist '{Name}' ({Platform}) with {Count} tracks",
             isNew ? "Added" : "Refreshed", entity.Name, providerPlatform, entity.Tracks.Count);
 
-        return entity;
+        return (entity, isNew);
     }
 
     /// <summary>Re-fetch an already persisted playlist from its source.</summary>
@@ -742,6 +822,7 @@ public class PlaylistStore
             ExternalPlatform = platform.ToString(),
             Title = track.Title,
             Artist = track.Artist,
+            Album = track.Album,
             DurationMs = (long?)track.Duration?.TotalMilliseconds,
             MediaType = track.MediaType.ToString(),
             SourceUrl = track.CurrentTrackLocation?.Path,
