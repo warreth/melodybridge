@@ -1,6 +1,7 @@
 @page "/library"
 @inject IDbContextFactory<MelodyBridgeDbContext> DbFactory
 @inject ILibraryScanner Scanner
+@inject NotificationService Notifications
 
 <PageTitle>Library</PageTitle>
 
@@ -62,8 +63,10 @@
                     {
                         <span class="pill neutral">live</span>
                     }
-                    <button class="btn-modern ghost" @onclick="() => DeleteLocation(loc.Id)"
-                            style="margin-left:auto;">Remove</button>
+                    <div class="flex-actions" style="margin-left:auto;">
+                        <button class="btn-modern ghost small" @onclick="() => ShowEditLocation(loc)">Edit</button>
+                        <button class="btn-modern ghost small" @onclick="() => DeleteLocation(loc.Id)">Remove</button>
+                    </div>
                 </div>
             }
         </div>
@@ -89,9 +92,9 @@
     <div class="wizard-overlay">
         <div class="wizard-modal" style="max-width:480px;">
             <div class="wizard-header">
-                <span class="eyebrow">New location</span>
-                <h2>Add scan location</h2>
-                <button class="icon-button" @onclick="() => showForm = false">&times;</button>
+                <span class="eyebrow">@(editingId is null ? "New location" : $"Editing: {newPath}")</span>
+                <h2>@(editingId is null ? "Add scan location" : "Edit scan location")</h2>
+                <button class="icon-button" @onclick="CloseForm">&times;</button>
             </div>
             <div class="wizard-body">
                 <div class="form-grid single">
@@ -108,6 +111,10 @@
                     <span class="toggle-slider"></span>
                     <span>Live monitoring — rescan this folder whenever files change</span>
                 </label>
+                @if (formError is { } error)
+                {
+                    <div class="hint-box" style="margin-top:0.75rem; border-color: var(--danger);">@error</div>
+                }
                 <div class="hint-box">
                     Enter the path as the server sees it. Inside Docker that is
                     the container path (for example <code>/music</code>), not the
@@ -116,8 +123,10 @@
                 </div>
             </div>
             <div class="wizard-footer">
-                <button class="btn-modern" @onclick="() => showForm = false">Cancel</button>
-                <button class="btn-modern primary" @onclick="SaveLocation">Add location</button>
+                <button class="btn-modern" @onclick="CloseForm">Cancel</button>
+                <button class="btn-modern primary" @onclick="SaveLocation">
+                    @(editingId is null ? "Add location" : "Save changes")
+                </button>
             </div>
         </div>
     </div>
@@ -130,9 +139,11 @@
     private string? scanResult;
     private bool scanResultOk;
     private bool showForm;
+    private int? editingId; // null = add, otherwise the row being edited
     private string newPath = "/music";
     private ScanSchedule newSchedule = ScanSchedule.Manual;
     private bool liveMonitoring = true;
+    private string? formError;
 
     protected override async Task OnInitializedAsync() => await LoadDataAsync();
 
@@ -207,25 +218,80 @@
 
     private void ShowAddLocation()
     {
+        editingId = null;
         showForm = true;
         newPath = "/music";
         newSchedule = ScanSchedule.Manual;
         liveMonitoring = true;
+        formError = null;
+    }
+
+    private void ShowEditLocation(ScanLocationEntity loc)
+    {
+        editingId = loc.Id;
+        showForm = true;
+        newPath = loc.Path;
+        newSchedule = LocationSchedule.Of(loc);
+        liveMonitoring = loc.LiveMonitoring;
+        formError = null;
+    }
+
+    private void CloseForm()
+    {
+        showForm = false;
+        formError = null;
     }
 
     private async Task SaveLocation()
     {
+        formError = null;
         var path = newPath.Trim();
-        if (path.Length == 0) return;
+        if (path.Length == 0)
+        {
+            formError = "Enter a directory path.";
+            return;
+        }
 
         await using var db = await DbFactory.CreateDbContextAsync();
-        db.ScanLocations.Add(new ScanLocationEntity
+
+        // Duplicate check in memory: the location list is tiny, and SQL
+        // string comparison is case-sensitive on some providers.
+        var others = await db.ScanLocations.Select(l => new { l.Id, l.Path }).ToListAsync();
+        if (others.Any(o => o.Id != editingId
+                            && string.Equals(o.Path, path, StringComparison.OrdinalIgnoreCase)))
         {
-            Path = path,
-            ScheduleCron = newSchedule.ToString(),
-            LiveMonitoring = liveMonitoring,
-        });
-        await db.SaveChangesAsync();
+            formError = "That path is already configured.";
+            return;
+        }
+
+        if (editingId is { } id)
+        {
+            var loc = await db.ScanLocations.FindAsync(id);
+            if (loc == null)
+            {
+                showForm = false;
+                return;
+            }
+            loc.Path = path;
+            loc.ScheduleCron = newSchedule.ToString();
+            // Clear the legacy column so a manual choice is not overridden
+            // by the ScanIntervalHours fallback in LocationSchedule.Of.
+            loc.ScanIntervalHours = null;
+            loc.LiveMonitoring = liveMonitoring;
+            await db.SaveChangesAsync();
+            Notifications.Success("Scan location updated.");
+        }
+        else
+        {
+            db.ScanLocations.Add(new ScanLocationEntity
+            {
+                Path = path,
+                ScheduleCron = newSchedule.ToString(),
+                LiveMonitoring = liveMonitoring,
+            });
+            await db.SaveChangesAsync();
+            Notifications.Success("Scan location added.");
+        }
 
         showForm = false;
         await LoadDataAsync();
