@@ -55,7 +55,7 @@ You need Docker (or Podman with `podman-compose`) and nothing else — no clone 
 
 ```bash
 mkdir melodybridge && cd melodybridge
-wget https://raw.githubusercontent.com/warreth/melodybridge/main/compose.yml
+wget https://melodybridge.app/compose.yml
 docker compose up -d
 ```
 

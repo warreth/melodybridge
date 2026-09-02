@@ -6,7 +6,7 @@ Run MelodyBridge as a self-hosted service using Docker or Podman.
 
 ```bash
 mkdir melodybridge && cd melodybridge
-wget https://raw.githubusercontent.com/warreth/melodybridge/main/compose.yml
+wget https://melodybridge.app/compose.yml
 ```
 
 ::: code-group
@@ -20,7 +20,7 @@ podman compose up -d   # or: podman-compose up -d
 
 Open http://localhost:3333.
 
-This pulls the published image from `ghcr.io/warreth/melodybridge` via [compose.yml](https://raw.githubusercontent.com/warreth/melodybridge/main/compose.yml): two containers (melodybridge + flaresolverr) on one internal network, the app bound to `127.0.0.1` only, and a `./data/` directory for everything that should survive rebuilds.
+This pulls the published image from `ghcr.io/warreth/melodybridge` via [compose.yml](https://melodybridge.app/compose.yml): two containers (melodybridge + flaresolverr) on one internal network, the app bound to `127.0.0.1` only, and a `./data/` directory for everything that should survive rebuilds.
 
 ## Development
 
@@ -59,7 +59,7 @@ docker run -d \
 
 ## Configuration
 
-See the [user compose file](https://raw.githubusercontent.com/warreth/melodybridge/main/compose.yml) for the published-image setup and the [dev compose file](https://raw.githubusercontent.com/warreth/melodybridge/main/docker-compose.yml) for the dev defaults.
+See the [user compose file](https://melodybridge.app/compose.yml) for the published-image setup and the dev compose file in the repo ([docker-compose.yml](https://github.com/warreth/melodybridge/blob/main/docker-compose.yml)) for the dev defaults.
 
 ### Environment variables
 

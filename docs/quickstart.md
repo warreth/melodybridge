@@ -5,13 +5,13 @@ You need Docker (or Podman) and nothing else.
 ::: code-group
 ```bash [Docker]
 mkdir melodybridge && cd melodybridge
-wget https://raw.githubusercontent.com/warreth/melodybridge/main/compose.yml
+wget https://melodybridge.app/compose.yml
 docker compose up -d
 ```
 
 ```bash [Podman]
 mkdir melodybridge && cd melodybridge
-wget https://raw.githubusercontent.com/warreth/melodybridge/main/compose.yml
+wget https://melodybridge.app/compose.yml
 podman compose up -d
 ```
 :::
