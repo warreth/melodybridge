@@ -51,11 +51,11 @@
 
 ## Quick start (Docker)
 
-You need Docker (or Podman with `podman-compose`) and nothing else.
+You need Docker (or Podman with `podman-compose`) and nothing else — no clone required:
 
 ```bash
-git clone https://github.com/warreth/melodybridge
-cd melodybridge
+mkdir melodybridge && cd melodybridge
+wget https://raw.githubusercontent.com/warreth/melodybridge/main/compose.yml
 docker compose up -d
 ```
 
@@ -69,7 +69,7 @@ It also creates `./data/` with `music/`, `playlists/` and `app/` (the SQLite dat
 Podman works the same:
 
 ```bash
-podman compose up -d --build   # or: podman-compose up -d --build
+podman compose up -d   # or: podman-compose up -d
 ```
 
 Open http://localhost:3333, go to Settings, and enter your Jellyfin base URL and API key (Jellyfin running on the host is reachable from the container as `http://host.docker.internal:8096`).

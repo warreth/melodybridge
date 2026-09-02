@@ -4,14 +4,14 @@ You need Docker (or Podman) and nothing else.
 
 ::: code-group
 ```bash [Docker]
-git clone https://github.com/warreth/melodybridge
-cd melodybridge
+mkdir melodybridge && cd melodybridge
+wget https://raw.githubusercontent.com/warreth/melodybridge/main/compose.yml
 docker compose up -d
 ```
 
 ```bash [Podman]
-git clone https://github.com/warreth/melodybridge
-cd melodybridge
+mkdir melodybridge && cd melodybridge
+wget https://raw.githubusercontent.com/warreth/melodybridge/main/compose.yml
 podman compose up -d
 ```
 :::

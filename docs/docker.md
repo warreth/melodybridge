@@ -5,8 +5,8 @@ Run MelodyBridge as a self-hosted service using Docker or Podman.
 ## Quick start
 
 ```bash
-git clone https://github.com/warreth/melodybridge.git
-cd melodybridge
+mkdir melodybridge && cd melodybridge
+wget https://raw.githubusercontent.com/warreth/melodybridge/main/compose.yml
 ```
 
 ::: code-group
@@ -20,19 +20,21 @@ podman compose up -d   # or: podman-compose up -d
 
 Open http://localhost:3333.
 
-This uses [compose.yml](../compose.yml): the published image from `ghcr.io/warreth/melodybridge`, two containers (melodybridge + flaresolverr) on one internal network, the app bound to `127.0.0.1` only, and a `./data/` directory for everything that should survive rebuilds.
+This pulls the published image from `ghcr.io/warreth/melodybridge` via [compose.yml](https://raw.githubusercontent.com/warreth/melodybridge/main/compose.yml): two containers (melodybridge + flaresolverr) on one internal network, the app bound to `127.0.0.1` only, and a `./data/` directory for everything that should survive rebuilds.
 
 ## Development
 
 ### Development compose
 
-Contributors build from source instead of pulling the image. The dev compose (`docker-compose.yml`) always builds the image from your checkout and runs it with verbose logging and the dev panel (`/dev`):
+Contributors build from source instead of pulling the image — that is the one flow that needs a clone:
 
 ```bash
+git clone https://github.com/warreth/melodybridge.git
+cd melodybridge
 docker compose -f docker-compose.yml up -d --build
 ```
 
-Rerun the same command after code changes: compose rebuilds what changed and restarts. App state lives in `./data/`, so your test library survives rebuilds.
+The dev compose (`docker-compose.yml`) always builds the image from your checkout and runs it with verbose logging and the dev panel (`/dev`). Rerun the same command after code changes: compose rebuilds what changed and restarts. App state lives in `./data/`, so your test library survives rebuilds.
 
 ### Running from source
 
@@ -57,7 +59,7 @@ docker run -d \
 
 ## Configuration
 
-See [compose.yml](../compose.yml) for the user setup and [docker-compose.yml](../docker-compose.yml) for the dev defaults.
+See the [user compose file](https://raw.githubusercontent.com/warreth/melodybridge/main/compose.yml) for the published-image setup and the [dev compose file](https://raw.githubusercontent.com/warreth/melodybridge/main/docker-compose.yml) for the dev defaults.
 
 ### Environment variables
 
