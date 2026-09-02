@@ -225,6 +225,8 @@ public class SyncJobRunEntity
     public string? Message { get; set; }
     public int ResolvedTracks { get; set; }
     public int TotalTracks { get; set; }
+    /// <summary>JSON string array of per-track warnings (missing files, ...); null when none.</summary>
+    public string? WarningDetails { get; set; }
 }
 
 public class ScanLocationEntity

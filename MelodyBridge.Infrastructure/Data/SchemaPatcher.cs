@@ -22,6 +22,7 @@ public static class SchemaPatcher
         ("Tracks", "SampleRateHz", "INTEGER NULL"),
         ("Tracks", "FileSizeBytes", "INTEGER NULL"),
         ("Tracks", "PlaylistEntityId", "TEXT NULL"),
+        ("SyncJobRuns", "WarningDetails", "TEXT NULL"),
     };
 
     public static async Task PatchAsync(MelodyBridgeDbContext db, CancellationToken ct = default)

@@ -1,4 +1,4 @@
-﻿namespace MelodyBridge.Core;
+namespace MelodyBridge.Core;
 
 public class Track
 {
@@ -70,4 +70,9 @@ public record TrackQuality(int Bitrate, MediaType Format);
 public record ScanLocation(string Path);
 public record DownloadLocation(string Path);
 public record FileLocation(string Path);
-public record SyncJobRunLog(DateTime Timestamp, SyncStatus Status, string Message, int ResolvedTracks, int TotalTracks);
+
+/// <summary>One from/to replace rule; serialized as JSON string pairs.</summary>
+public record RemapRule(string From, string To);
+
+/// <summary>Per-track warnings of one run, stored as a JSON string array.</summary>
+public record SyncJobRunLog(DateTime Timestamp, SyncStatus Status, string Message, int ResolvedTracks, int TotalTracks, List<string>? WarningDetails = null);

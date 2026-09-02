@@ -33,6 +33,7 @@ public class SyncJobRunner : ISyncJobRunner
         var resolvedTracks = 0;
         var skippedTracks = 0;
         var errors = new List<string>();
+        var warnings = new List<string>();
 
         try
         {
@@ -40,10 +41,12 @@ public class SyncJobRunner : ISyncJobRunner
 
             var searchPaths = job.SearchLocationPaths.Select(p => new ScanLocation(p));
 
-            // SourceId refers to a PlaylistEntity (the wizard binds playlist IDs).
-            // The whole playlist counts as the total: only tracks with a local
-            // file are usable in an M3U / media-server playlist, so the run
-            // says 20/50 when 30 tracks are not downloaded yet.
+            // SourceId refers to a PlaylistEntity (the wizard binds playlist
+            // IDs). The whole playlist counts as the total: only tracks with
+            // a local file are usable in an M3U / media-server playlist, so
+            // the run says 20/50 when 30 tracks are not downloaded yet.
+            // A null SourceId with search locations means "local folder":
+            // every track whose CurrentPath lives under one of them.
             List<TrackEntity> allTracks;
             if (!string.IsNullOrEmpty(job.SourceId))
             {
@@ -57,18 +60,37 @@ public class SyncJobRunner : ISyncJobRunner
                 }
                 allTracks = sourcePlaylist.Tracks.OrderBy(t => t.Position).ToList();
             }
+            else if (job.SearchLocationPaths.Count > 0)
+            {
+                allTracks = (await db.Tracks
+                        .Where(t => t.CurrentPath != null)
+                        .ToListAsync(ct))
+                    .Where(t => job.SearchLocationPaths.Any(p =>
+                        t.CurrentPath!.StartsWith(p, StringComparison.OrdinalIgnoreCase)))
+                    .OrderBy(t => t.Id)
+                    .ToList();
+            }
             else
             {
                 allTracks = await db.Tracks
                     .Where(t => t.PlaylistSnapshotId == null)
-                    .OrderBy(t => t.PlaylistSnapshotId).ThenBy(t => t.Position)
+                    .OrderBy(t => t.Position).ThenBy(t => t.Id)
                     .ToListAsync(ct);
             }
 
             totalTracks = allTracks.Count;
-            var matchedTracks = allTracks
-                .Where(t => t.DownloadStatus == "downloaded" && !string.IsNullOrEmpty(t.CurrentPath))
-                .ToList();
+            var matchedTracks = new List<TrackEntity>();
+            foreach (var t in allTracks)
+            {
+                if (t.DownloadStatus == "downloaded" && !string.IsNullOrEmpty(t.CurrentPath))
+                {
+                    matchedTracks.Add(t);
+                }
+                else
+                {
+                    warnings.Add($"{t.Title ?? t.CurrentPath ?? "track"} — no local file");
+                }
+            }
             skippedTracks = totalTracks - matchedTracks.Count;
 
             // Apply path remapping
@@ -123,10 +145,26 @@ public class SyncJobRunner : ISyncJobRunner
                         s.Name.Equals("Jellyfin", StringComparison.OrdinalIgnoreCase));
                     if (jellyfin != null)
                     {
+                        // Per-job connection wins when the wizard stored one;
+                        // otherwise the global settings apply (Settings page).
+                        JellyfinConnection? connection =
+                            !string.IsNullOrWhiteSpace(job.JellyfinServerUrl)
+                                ? new JellyfinConnection(
+                                    job.JellyfinServerUrl!,
+                                    job.JellyfinApiKey ?? "",
+                                    job.JellyfinUserId)
+                                : null;
                         var jfOptions = new PlaylistOutputOptions("/playlists/" + job.Name + ".m3u",
-                            false, remap.Count > 0 ? remap : null);
+                            false, remap.Count > 0 ? remap : null, connection);
                         await jellyfin.SyncPlaylistAsync(playlist, jfOptions, ct);
                         resolvedTracks = playlist.Tracks?.Count ?? 0;
+
+                        if (jellyfin is JellyfinSync concrete
+                            && concrete.GetLastReport()?.UnresolvedPaths is { Length: > 0 } unresolved)
+                        {
+                            warnings.AddRange(unresolved
+                                .Select(p => $"{p} — not found on server"));
+                        }
                     }
                     break;
 
@@ -150,6 +188,8 @@ public class SyncJobRunner : ISyncJobRunner
                     Message = errors.Count > 0 ? string.Join("; ", errors) : summary,
                     ResolvedTracks = resolvedTracks,
                     TotalTracks = totalTracks,
+                    WarningDetails = warnings.Count > 0
+                        ? JsonSerializer.Serialize(warnings) : null,
                 };
                 db2.SyncJobRuns.Add(runEntity);
 
@@ -164,11 +204,19 @@ public class SyncJobRunner : ISyncJobRunner
 
                 // Capture message before scope exits
                 var runMessage = runEntity.Message ?? "";
+                List<string>? runWarnings = null;
+                try
+                {
+                    runWarnings = runEntity.WarningDetails is null
+                        ? null
+                        : JsonSerializer.Deserialize<List<string>>(runEntity.WarningDetails);
+                }
+                catch { /* tolerate unreadable warnings JSON */ }
                 await db2.SaveChangesAsync(ct);
 
                 return new SyncJobRunLog(DateTime.UtcNow,
                     errors.Count == 0 ? SyncStatus.Completed : SyncStatus.Failed,
-                    runMessage, resolvedTracks, totalTracks);
+                    runMessage, resolvedTracks, totalTracks, runWarnings);
             }
         }
         catch (Exception ex)
