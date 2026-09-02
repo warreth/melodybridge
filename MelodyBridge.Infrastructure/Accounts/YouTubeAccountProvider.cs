@@ -104,13 +104,35 @@ public class YouTubeAccountProvider : IAccountSourceProvider
         var state = query["state"];
         var pending = await _tokens.GetPendingLoginAsync(ProviderName, ct);
 
-        if (string.IsNullOrWhiteSpace(code) || pending is null)
-            throw new InvalidOperationException("YouTube login expired or was cancelled. Try again.");
+        // Distinct messages for distinct causes, same wording scheme as
+        // the Spotify provider.
+        if (string.IsNullOrWhiteSpace(code) && pending is null)
+        {
+            _logger.LogWarning(
+                "YouTube callback without a code and without a pending login; query was {Query}", redirectQuery);
+            throw new InvalidOperationException(
+                "YouTube sent no login code and no login was in progress. Start the login again from the accounts settings.");
+        }
+        if (string.IsNullOrWhiteSpace(code))
+        {
+            _logger.LogWarning("YouTube callback without a code; query was {Query}", redirectQuery);
+            throw new InvalidOperationException(
+                "YouTube sent no login code back. Start the login again from the accounts settings.");
+        }
+        if (pending is null)
+        {
+            _logger.LogWarning(
+                "YouTube callback arrived with no pending login left (expired, completed or the app restarted before this login was saved)");
+            throw new InvalidOperationException(
+                "No YouTube login was in progress, or it expired (an hour at most). Start the login again from the accounts settings.");
+        }
         if (state != pending.State)
         {
-            await _tokens.ClearPendingLoginAsync(ProviderName, ct);
+            // Same reasoning as Spotify: the pending login survives a
+            // mismatched answer.
+            _logger.LogWarning("YouTube login state mismatch: got {Got}, expected {Expected}", state, pending.State);
             throw new InvalidOperationException(
-                "YouTube login did not check out (state mismatch). Try again.");
+                "This YouTube answer does not belong to the login that was started. Start the login again from the accounts settings.");
         }
 
         var clientId = await ReadClientIdAsync(ct);

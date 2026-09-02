@@ -77,6 +77,9 @@ public class SpotifyAccountProvider : IAccountSourceProvider
         {
             CodeChallengeMethod = "S256",
             CodeChallenge = challenge,
+            // Without State, Spotify never echoes one back and the
+            // callback cannot verify the answer belongs to this login.
+            State = state,
             Scope = Scopes,
         };
         return login.ToUri().ToString();
@@ -99,14 +102,36 @@ public class SpotifyAccountProvider : IAccountSourceProvider
         var state = query["state"];
         var pending = await _tokens.GetPendingLoginAsync(ProviderName, ct);
 
-        if (string.IsNullOrWhiteSpace(code) || pending is null)
+        // Distinct messages for distinct causes: "something went wrong,
+        // try again" hides which half of the handshake failed.
+        if (string.IsNullOrWhiteSpace(code) && pending is null)
+        {
+            _logger.LogWarning(
+                "Spotify callback without a code and without a pending login; query was {Query}", redirectQuery);
             throw new InvalidOperationException(
-                "Spotify login expired or was cancelled. Try again.");
+                "Spotify sent no login code and no login was in progress. Start the login again from the accounts settings.");
+        }
+        if (string.IsNullOrWhiteSpace(code))
+        {
+            _logger.LogWarning("Spotify callback without a code; query was {Query}", redirectQuery);
+            throw new InvalidOperationException(
+                "Spotify sent no login code back. Start the login again from the accounts settings.");
+        }
+        if (pending is null)
+        {
+            _logger.LogWarning(
+                "Spotify callback arrived with no pending login left (expired, completed or the app restarted before this login was saved)");
+            throw new InvalidOperationException(
+                "No Spotify login was in progress, or it expired (an hour at most). Start the login again from the accounts settings.");
+        }
         if (state != pending.State)
         {
-            await _tokens.ClearPendingLoginAsync(ProviderName, ct);
+            // The pending login stays: a stray or forged callback must not
+            // be able to cancel the real one. Only the holder of the
+            // correct state can finish it.
+            _logger.LogWarning("Spotify login state mismatch: got {Got}, expected {Expected}", state, pending.State);
             throw new InvalidOperationException(
-                "Spotify login did not check out (state mismatch). Try again.");
+                "This Spotify answer does not belong to the login that was started. Start the login again from the accounts settings.");
         }
 
         var clientId = await ReadClientIdAsync(ct)

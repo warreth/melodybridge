@@ -1,10 +1,12 @@
 @page "/auth/callback"
 @using MelodyBridge.Core
 @using MelodyBridge.Infrastructure.Accounts
+@using Microsoft.Extensions.Logging
 
 @inject SpotifyAccountProvider Spotify
 @inject YouTubeAccountProvider YouTube
 @inject NavigationManager Nav
+@inject ILogger<AuthCallback> Logger
 
 @* The OAuth landing page: Spotify and YouTube redirect here after login.
    The provider exchanges the code; the user sees a clear success or error
@@ -85,6 +87,9 @@
         }
         catch (Exception ex)
         {
+            // Same channel as the Logs page: the account categories map
+            // there, so a failed login is never silent again.
+            Logger.LogWarning(ex, "Account login callback failed for {Provider}", Provider ?? "unknown");
             error = ex.Message;
         }
     }

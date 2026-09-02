@@ -146,6 +146,15 @@ public class AccountTokenStoreTests
         Assert.That(query["code_challenge"], Is.Not.Null.And.Length.GreaterThan(40));
         Assert.That(url.Query, Does.Not.Contain("verifier"));
 
+        // Without state, Spotify echoes nothing back and the callback
+        // cannot tell a forged answer from a real one. The state must
+        // match the pending login that BeginLogin saved.
+        Assert.That(query["state"], Is.Not.Null.And.Length.GreaterThan(10),
+            "the authorize URL must carry the state that the callback verifies");
+        var pending = await _store.GetPendingLoginAsync("Spotify");
+        Assert.That(pending, Is.Not.Null);
+        Assert.That(query["state"], Is.EqualTo(pending!.State));
+
         // Read-only scopes only: nothing that can change the account.
         var scopes = (query["scope"] ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries);
         Assert.That(scopes, Is.EquivalentTo(new[]
@@ -161,10 +170,26 @@ public class AccountTokenStoreTests
             _store, NullLogger<SpotifyAccountProvider>.Instance);
         await _store.SaveSettingAsync("Spotify", "client_id", "test-client-id");
 
-        // No BeginLogin happened, so nothing is pending.
+        // No BeginLogin happened, so nothing is pending. The message
+        // must say so: "something went wrong" hides which half failed.
         var ex = Assert.ThrowsAsync<InvalidOperationException>(
             () => provider.CompleteLoginAsync("?code=x&state=forged", "http://localhost:5085/auth/callback"));
-        Assert.That(ex!.Message, Does.Contain("expired"));
+        Assert.That(ex!.Message, Does.Contain("No Spotify login was in progress"));
+    }
+
+    [Test]
+    public async Task CompleteLogin_MissingCode_SaysSoExplicitly()
+    {
+        var provider = new SpotifyAccountProvider(
+            _store, NullLogger<SpotifyAccountProvider>.Instance);
+        await _store.SaveSettingAsync("Spotify", "client_id", "test-client-id");
+        await provider.BeginLoginAsync("http://localhost:5085/auth/callback");
+
+        // A login is pending but Spotify answered with no code: that is
+        // a different problem than no login being in progress.
+        var ex = Assert.ThrowsAsync<InvalidOperationException>(
+            () => provider.CompleteLoginAsync("?state=whatever", "http://localhost:5085/auth/callback"));
+        Assert.That(ex!.Message, Does.Contain("no login code"));
     }
 
     [Test]
@@ -177,7 +202,11 @@ public class AccountTokenStoreTests
 
         var ex = Assert.ThrowsAsync<InvalidOperationException>(
             () => provider.CompleteLoginAsync("?code=x&state=forged", "http://localhost:5085/auth/callback"));
-        Assert.That(ex!.Message, Does.Contain("state mismatch"));
+        Assert.That(ex!.Message, Does.Contain("does not belong to the login that was started"));
+        // The forged attempt must not kill the real pending login:
+        // a mismatch is suspicious, but clearing on it would let any
+        // stray browser tab cancel the login.
+        Assert.That(await _store.GetPendingLoginAsync("Spotify"), Is.Not.Null);
     }
 
 
