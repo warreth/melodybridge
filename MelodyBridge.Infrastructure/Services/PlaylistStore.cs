@@ -132,6 +132,22 @@ public class PlaylistStore
                         album: track.Album,
                         track: (uint?)track.Position);
 
+                    // Fast integrity gate: a truncated or corrupt download
+                    // must not survive as "downloaded" — delete it and fail the
+                    // track so the next run retries it. DurationMs is what the
+                    // source platform advertised for the track.
+                    var integrity = Audio.FileIntegrity.Check(
+                        path, track.DurationMs is > 0 ? TimeSpan.FromMilliseconds(track.DurationMs.Value) : null);
+                    if (!integrity.Ok)
+                    {
+                        try { System.IO.File.Delete(path); } catch { /* best effort */ }
+                        track.DownloadStatus = "failed";
+                        track.DownloadError = $"corrupt download: {integrity.Reason}";
+                        failed++;
+                        await db.SaveChangesAsync(ct);
+                        continue;
+                    }
+
                     track.DownloadStatus = "downloaded";
                     track.CurrentPath = path;
                     track.LastSeenAt = DateTime.UtcNow;
@@ -421,6 +437,11 @@ public class PlaylistStore
             // download: a new playlist knows its folder from day one.
             entity.TargetDirectory = await _settings.GetAsync("music_path", "/music", ct);
 
+        // A playlist folder the Library can see: every NEW folder becomes a
+        // scan location so freshly downloaded files show up in the library.
+        if (isNew && !string.IsNullOrWhiteSpace(entity.TargetDirectory))
+            await EnsureScanLocationAsync(db, entity.TargetDirectory, ct);
+
         // Reconcile the snapshot according to the playlist's SyncMode:
         //  Additive — removed-from-source tracks are kept but flagged.
         //  Mirror    — removed-from-source tracks are deleted entirely.
@@ -588,6 +609,63 @@ public class PlaylistStore
                 && (p.LastSyncAt == null
                     || p.LastSyncAt <= now.AddMinutes(-(p.AutoSyncIntervalMinutes ?? 60))))
             .ToListAsync(ct);
+    }
+
+    /// <summary>
+    /// Inserts a ScanLocation for <paramref name="path"/> when none exists
+    /// (case-insensitive, no duplicates). Manual defaults: live monitoring
+    /// off (it spams rescans on big folders), no interval, no cron.
+    /// </summary>
+    private static async Task EnsureScanLocationAsync(MelodyBridgeDbContext db, string path, CancellationToken ct)
+    {
+        var exists = await db.ScanLocations
+            .AnyAsync(l => l.Path.ToLower() == path.ToLower(), ct);
+        if (!exists)
+            db.ScanLocations.Add(new ScanLocationEntity
+            {
+                Path = path,
+                LiveMonitoring = false,
+                ScheduleCron = null,
+                ScanIntervalHours = null,
+            });
+    }
+
+    /// <summary>
+    /// Backfills audio facts (bitrate, sample rate, file size) on downloaded
+    /// tracks from before those columns existed, and flags downloaded tracks
+    /// whose file vanished as pending so the next download run picks them up.
+    /// Returns (recomputed, missing).
+    /// </summary>
+    public async Task<(int recomputed, int missing)> RecomputeMissingFactsAsync(CancellationToken ct = default)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var stale = await db.Tracks
+            .Where(t => t.DownloadStatus == "downloaded"
+                && (t.Bitrate == null || t.SampleRateHz == null || t.FileSizeBytes == null)
+                && t.CurrentPath != null)
+            .ToListAsync(ct);
+
+        var recomputed = 0;
+        var missing = 0;
+        foreach (var track in stale)
+        {
+            if (!File.Exists(track.CurrentPath))
+            {
+                // Same wording LibraryReconciler uses: the UI explains it once.
+                track.DownloadStatus = "pending";
+                track.Warning = "file missing on disk, will re-download";
+                missing++;
+                continue;
+            }
+
+            track.Bitrate = Audio.BitrateProbe.MeasureKbps(track.CurrentPath!);
+            AudioProbe.Fill(track, track.CurrentPath!);
+            recomputed++;
+        }
+
+        if (recomputed > 0 || missing > 0)
+            await db.SaveChangesAsync(ct);
+        return (recomputed, missing);
     }
 
     private static PlaylistSyncMode ParseSyncMode(string? raw)

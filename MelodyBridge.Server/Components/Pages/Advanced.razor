@@ -2,6 +2,8 @@
 @using MelodyBridge.Infrastructure.Services
 @inject IDbContextFactory<MelodyBridgeDbContext> DbFactory
 @inject SettingsStore Settings
+@inject PlaylistStore PlaylistStore
+@inject NotificationService Notifications
 
 <PageTitle>Advanced - MelodyBridge</PageTitle>
 
@@ -89,6 +91,26 @@
             setting. Toasts only decide what pops up in the corner.
         </div>
     </div>
+
+    <div class="panel-card">
+        <div class="panel-header">
+            <div>
+                <span class="eyebrow">Maintenance</span>
+                <h2>Library maintenance</h2>
+            </div>
+        </div>
+        <p>
+            Older downloads can miss the bitrate, sample-rate and size
+            columns. Recompute reads those facts straight from the files on
+            disk; tracks whose file has vanished are queued for a
+            re-download.
+        </p>
+        <div class="flex-actions">
+            <button class="btn-modern primary" disabled="@recomputing" @onclick="RecomputeFacts">
+                @(recomputing ? "Recomputing…" : "Recompute audio facts")
+            </button>
+        </div>
+    </div>
 </section>
 
 @code {
@@ -98,6 +120,7 @@
     private bool showFilename;
     private bool notifyDownloads = true;
     private bool notifyFailures = true;
+    private bool recomputing;
     private string? savedMessage;
 
     protected override async Task OnInitializedAsync()
@@ -120,5 +143,23 @@
         await Settings.SetAsync("notify_downloads", notifyDownloads ? "true" : "false");
         await Settings.SetAsync("notify_failures", notifyFailures ? "true" : "false");
         savedMessage = "Saved.";
+    }
+
+    private async Task RecomputeFacts()
+    {
+        recomputing = true;
+        try
+        {
+            var (recomputed, missing) = await PlaylistStore.RecomputeMissingFactsAsync();
+            Notifications.Success($"Recomputed facts for {recomputed} track(s), {missing} file(s) missing");
+        }
+        catch (Exception ex)
+        {
+            Notifications.Error($"Recompute failed: {ex.Message}");
+        }
+        finally
+        {
+            recomputing = false;
+        }
     }
 }
