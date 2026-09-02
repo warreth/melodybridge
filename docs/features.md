@@ -9,15 +9,17 @@ provider reads the playlist from the public embed page, YouTube
 playlists come through yt-dlp. YouTube playlists get their thumbnail as
 cover, like Spotify.
 
+::: tip Account login
 With the account login ([Accounts and OAuth](accounts.md)) you can also
-import what only you can see: private playlists, collaborative playlists
-and your liked songs.
+import what only you can see: private playlists, collaborative
+playlists and your liked songs.
+:::
 
 ## Download through a plugin waterfall
 
 Every track is fetched by a waterfall of plugins, tried in order. The
-first plugin that finds and quality-gates a track wins. You can reorder
-the waterfall, toggle plugins and edit their settings on the Plugins page.
+first plugin that finds and quality-gates a track wins. Reorder the
+waterfall, toggle plugins and edit their settings on the Plugins page.
 
 | Plugin | What it fetches |
 |---|---|
@@ -33,9 +35,12 @@ Every plugin quality-gates its files against the requested bitrate band
 not fill with inflated 128 kbps files labelled as 320 — or thin ones
 below the floor you set.
 
-A finished file is verified before it counts as downloaded: the duration
-must parse and match what the playlist metadata promised. A corrupt file
-is deleted, marked failed with the reason, and the next run retries it.
+::: info Integrity check
+A finished file is verified before it counts as downloaded: the
+duration must parse and match what the playlist metadata promised. A
+corrupt file is deleted, marked failed with the reason, and the next
+run retries it.
+:::
 
 Plugins that expose settings get an expandable panel on the Plugins
 page; values persist per plugin. Playlist downloads run several tracks
@@ -43,16 +48,20 @@ in parallel (1 to 8 workers, Advanced page).
 
 ## Real quality checks
 
-Some sites hand out files that pretend to be 320 kbps but hold far less.
-The spectrum check measures what a file actually contains by looking at
-its frequency spectrum, not its file header, and flags tracks whose
+Some sites hand out files that pretend to be 320 kbps but hold far
+less. The spectrum check measures what a file actually contains — its
+frequency spectrum, not its file header — and flags tracks whose
 spectrum looks inflated for their claimed bitrate.
 
-You pick the mode in Settings: **Off** trusts the file, **Fast** checks
-the first minute, **Thorough** checks the whole file. Fast is the default
-and the recommended setting.
+Pick the mode in Settings:
 
-## Per-playlist quality targets
+| Mode | What it checks |
+|---|---|
+| **Off** | Trusts the file |
+| **Fast** | The first minute — default and recommended |
+| **Thorough** | The whole file |
+
+## Per-playlist quality targets <Badge type="tip" text="Optional" />
 
 Each playlist can ask the waterfall for a specific container format
 (auto, MP3, FLAC, Opus or AAC) and an optional bitrate band: a floor and
@@ -87,19 +96,20 @@ A sync job turns a saved playlist into output for your players:
 - **Jellyfin playlists**, pushed through the Jellyfin API with the
   configured user
 
-Tracks imported from your liked songs are flagged, and the Jellyfin sync
-marks them as favorites for the configured user.
+Tracks imported from your liked songs are flagged, and the Jellyfin
+sync marks them as favorites for the configured user.
 
 ## Library scan
 
 Add the folders that hold your music and MelodyBridge scans them, reads
-the tags (not the filenames) and keeps the database current. Scans can
-run on an interval per folder or manually. Downloaded tracks are matched
-against the library, so a track you already own is not downloaded again.
-A new playlist registers its download folder as a scan location
-automatically. The Library page lists your scan folders and how matching
-works; track
-lists live on the playlist pages, not here.
+the tags (not the filenames) and keeps the database current. Scans run
+on an interval per folder or manually. Downloaded tracks are matched
+against the library, so a track you already own is not downloaded
+again. A new playlist registers its download folder as a scan location
+automatically.
+
+The Library page lists your scan folders and how matching works;
+track lists live on the playlist pages, not here.
 
 ## Dashboard
 
@@ -110,6 +120,5 @@ sync jobs, the library and logs:
 - **Plugins**: waterfall order, toggles, live download runs with pause and cancel
 - **Sync jobs**: the five step wizard from source playlist to output
 - **Library**: scan locations and scan runs
-- **Settings**: media server profiles, paths, intervals, quality
-  checks, accounts
+- **Settings**: media server profiles, paths, intervals, quality checks, accounts
 - **Logs**: what happened and what went wrong

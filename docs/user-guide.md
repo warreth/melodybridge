@@ -1,6 +1,6 @@
 # User guide
 
-This guide walks through every page of the MelodyBridge web UI.
+Every page of the MelodyBridge web UI.
 
 The home page has two faces. A fresh install gets the intro: a live
 checklist with the three steps in order (add a playlist, download the
@@ -12,14 +12,19 @@ dismissed.
 
 ## Dashboard
 
-The dashboard is the overview after setup. The four stat cards show the
-playlists, downloaded tracks, library files and enabled plugins. Below
-them: **Connections** lists Spotify, YouTube, Jellyfin and FlareSolverr
-with their current state, **Recent errors** shows the latest failures
-with a link to the Logs page, **Recent sync runs** lists the last jobs
-with their result, and the playlist cards show each playlist with its
-download progress (5/10, complete). Everything refreshes every few
-seconds; the Refresh button forces it immediately.
+The four stat cards show the playlists, downloaded tracks, library
+files and enabled plugins. Below them:
+
+- **Connections** lists Spotify, YouTube, Jellyfin and FlareSolverr with
+  their current state
+- **Recent errors** shows the latest failures with a link to the Logs
+  page
+- **Recent sync runs** lists the last jobs with their result
+- The playlist cards show each playlist with its download progress
+  (5/10, complete)
+
+Everything refreshes every few seconds; the Refresh button forces it
+immediately.
 
 ## Playlists
 
@@ -88,44 +93,48 @@ the plugin waterfall and shows live progress.
   and match the playlist metadata. A corrupt file is deleted, marked
   failed with the reason, and retried on the next run
 
-The Lucida plugin needs a Cloudflare solver; see
-[Lucida and FlareSolverr](lucida.md). Without a solver Lucida stays out
-of the waterfall and the other plugins take over. Monochrome and
-DoubleDouble are community rip mirrors: Monochrome searches TIDAL and
-falls back between its instances automatically, DoubleDouble handles
-direct track URLs only (its search is captcha-gated, so it never finds
-tracks by name).
+::: info Lucida needs a Cloudflare solver
+See [Lucida and FlareSolverr](lucida.md). Without a solver Lucida stays
+out of the waterfall and the other plugins take over.
+:::
+
+Monochrome and DoubleDouble are community rip mirrors: Monochrome
+searches TIDAL and falls back between its instances automatically,
+DoubleDouble handles direct track URLs only (its search is
+captcha-gated, so it never finds tracks by name).
 
 ## Sync jobs
 
 A sync job turns a saved playlist or a local folder into an M3U file or
 a Jellyfin playlist. The New sync job wizard has five steps:
 
-1. Job name and source. The source is a saved playlist or, with Local
-   folder, a single scan folder from the Library page
-2. Search locations: a checkbox list of your scan folders, all checked
-   by default. Leave them all checked to use every folder
-3. Output type: M3U File or Jellyfin API. M3U needs the output path.
-   Jellyfin needs the server URL and API key, plus a Test connection
-   button that checks the server and lists its users for you to pick
-   one. The schedule is manual, hourly, daily, weekly, monthly or cron;
-   cron takes a five-field expression like `0 3 * * *` (03:00 nightly)
-4. Path and extension remap rules: add as many as you need, each with a
-   from and a to value. Only needed when your music player sees files
-   under a different path than MelodyBridge, for example inside a
-   Docker container
-5. Review and create
+1. **Job name and source.** The source is a saved playlist or, with
+   Local folder, a single scan folder from the Library page
+2. **Search locations:** a checkbox list of your scan folders, all
+   checked by default. Leave them all checked to use every folder
+3. **Output type:** M3U File or Jellyfin API. M3U needs the output
+   path. Jellyfin needs the server URL and API key, plus a Test
+   connection button that checks the server and lists its users for
+   you to pick one. The schedule is manual, hourly, daily, weekly,
+   monthly or cron; cron takes a five-field expression like
+   `0 3 * * *` (03:00 nightly)
+4. **Path and extension remap rules:** add as many as you need, each
+   with a from and a to value. Only needed when your music player
+   sees files under a different path than MelodyBridge, for example
+   inside a Docker container
+5. **Review and create**
 
 Each job card shows the last run status and summary, the schedule, and
 buttons to run it now, view its log, edit it or delete it. **Edit**
 reopens the same wizard with the job's current values; saving updates
 the job instead of creating a new one.
 
-The run summary counts the whole playlist: "Synced 20/50 tracks, 30
-without a local file" means 50 tracks are in the playlist and 20 of
-them had a file to publish. The Log view breaks those 30 down per
-track, so you can see exactly which files are missing or were not
-found on the Jellyfin server.
+::: tip Reading the run summary
+"Synced 20/50 tracks, 30 without a local file" counts the whole
+playlist: 50 tracks are in it and 20 of them had a file to publish.
+The Log view breaks those 30 down per track, so you can see exactly
+which files are missing or were not found on the Jellyfin server.
+:::
 
 ## Library
 
@@ -152,31 +161,35 @@ tabs.
 
 - **Accounts**: connect Spotify and YouTube. Both only ask for read
   access, see [Accounts and OAuth](accounts.md)
-- **Media servers**: named server profiles several sync jobs can share.
-  Add and edit profiles in one place, each with a Test button and a Use
-  as app default switch
+- **Media servers**: named server profiles several sync jobs can
+  share. Add and edit profiles in one place, each with a Test button
+  and a Use as app default switch
 - **Paths**: music path and playlist output folder, as the server sees
   them (inside Docker: `/music` and `/app/playlists`)
-- **Quality**: the default audio quality for new playlists (each playlist
-  can override it on its own page) and the spectrum check mode: Off, Fast
-  (recommended) or Thorough. Quality is three dropdowns: a container, a
-  bitrate floor and a bitrate ceiling. Auto takes the best each source
-  offers and locks the bitrate dropdowns. MP3 plays on every device: pick
-  320 kbps for a home collection, 192 kbps when disk space is tight.
-  Opus is the most efficient: 128 kbps sounds transparent to most ears,
-  160 kbps is a safe ceiling. AAC (m4a) fits the Apple world: 256 kbps is
-  a good pick for phones. FLAC is lossless, locks the bitrate dropdowns
-  and has the largest files, best for a media server with plenty of disk.
-  A line under the dropdowns explains the trade-off for whichever
-  container you pick
+- **Quality**: the default audio quality for new playlists (each
+  playlist can override it on its own page) and the spectrum check
+  mode. Quality is three dropdowns: a container, a bitrate floor and
+  a bitrate ceiling. Auto takes the best each source offers and locks
+  the bitrate dropdowns.
 - **Network**: the FlareSolverr URL for the Lucida plugin with a Test
   connection button, `off` disables Lucida; plus a log export that
   downloads the most recent 1000 entries as a plain text file
+- **About**: app version and update check
+
+::: tip Choosing a container
+MP3 plays on every device: pick 320 kbps for a home collection,
+192 kbps when disk space is tight. Opus is the most efficient: 128 kbps
+sounds transparent to most ears, 160 kbps is a safe ceiling. AAC
+(m4a) fits the Apple world: 256 kbps is a good pick for phones. FLAC
+is lossless, locks the bitrate dropdowns and has the largest files,
+best for a media server with plenty of disk. A line under the
+dropdowns explains the trade-off for whichever container you pick.
+:::
 
 Settings are stored in the database and apply immediately after Save
 settings, no restart needed.
 
-## Advanced
+## Advanced <Badge type="warning" text="Advanced" />
 
 The Advanced page holds the knobs most people never need.
 
@@ -187,9 +200,10 @@ The Advanced page holds the knobs most people never need.
 - **Display**: show the file column on playlist tracks, which reveals
   the exact filename behind each track. Useful when hunting inflated
   downloads
-- **Library maintenance**: the **Recompute audio facts** button refills
-  the bitrate, sample rate and size of older downloads that predate the
-  probing, and flags files missing on disk for a re-download
+- **Library maintenance**: the **Recompute audio facts** button
+  refills the bitrate, sample rate and size of older downloads that
+  predate the probing, and flags files missing on disk for a
+  re-download
 
 ## Logs
 
@@ -201,10 +215,12 @@ downloads, scans and errors.
 - The event stream below shows every entry with its time, level,
   category and message; filter by area or level with the chips (Error
   includes critical) or search with the text box, which also matches
-  the friendly area names
+  friendly area names
 - **Copy** puts the filtered entries on the clipboard, **Export**
   downloads them as a file, **Clear** empties the log
 
-When a download fails, the entry holds the plugin, the track and the
-reason: rate limited, not found, or rejected by the quality gate. That
-is the first place to look when a track did not arrive.
+::: tip When a download fails
+The entry holds the plugin, the track and the reason: rate limited,
+not found, or rejected by the quality gate. That is the first place
+to look when a track did not arrive.
+:::
