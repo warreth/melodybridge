@@ -16,7 +16,6 @@ MelodyBridge.Infrastructure    : Implementations: downloaders, scanners, taggers
 MelodyBridge.Application       : Orchestration: SyncEngine, DownloadManager, DI extension methods
        ↕
 MelodyBridge.Server            : ASP.NET Blazor web UI + REST API controllers
-MelodyBridge.Desktop           : Optional Photino desktop wrapper
 MelodyBridge.UI.Components     : Shared Blazor components
        ↕
 MelodyBridge.Tests             : NUnit test suite targeting all layers
@@ -30,8 +29,11 @@ MelodyBridge.Tests             : NUnit test suite targeting all layers
 | Infrastructure | Core |
 | Application | Core, Infrastructure |
 | Server | Core, Application, Infrastructure, UI.Components |
-| Desktop | Server |
 | Tests | Core, Infrastructure, Application, Server |
+
+The optional Photino desktop wrapper lives in
+[warreth/melodybridge-desktop](https://github.com/warreth/melodybridge-desktop),
+outside this solution.
 
 ### The Data Flow
 

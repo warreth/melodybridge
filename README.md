@@ -47,7 +47,7 @@
 | Scheduling | Per-playlist auto-sync intervals, and sync jobs scheduled manually, hourly, daily, weekly or by CRON expression. |
 | Export and import | Download the whole database as a zip backup, or import one back. Playlists export as JSON, track lists as CSV. |
 | Accounts | Spotify and YouTube OAuth with read-only scopes only (`playlist-read-private`, `playlist-read-collaborative`, `user-library-read`, `youtube.readonly`), via the platforms' own libraries. |
-| Self-hosted | One container plus an optional FlareSolverr sidecar; yt-dlp and ffmpeg are preinstalled. Photino desktop wrapper exists but is lightly supported - Docker is recommended. |
+| Self-hosted | One container plus an optional FlareSolverr sidecar; yt-dlp and ffmpeg are preinstalled. Docker is the recommended deployment. |
 
 ## Quick start (Docker)
 
@@ -99,9 +99,8 @@ The documentation lives at https://docs.melodybridge.app and builds from the [do
 | [Accounts and OAuth](docs/accounts.md) | Private playlists and liked songs |
 | [Lucida and FlareSolverr](docs/lucida.md) | Optional high quality downloads |
 | [Developer guide](docs/developer.md) | Architecture, plugin interfaces, DI, testing |
-| [Photino desktop build](docs/photino.md) | Optional desktop wrapper (Docker recommended) |
 
-Domain setup for melodybridge.app and docs.melodybridge.app is documented in [DOMAIN-SETUP.md](DOMAIN-SETUP.md).
+Domain setup for melodybridge.app and docs.melodybridge.app is documented in [DOMAIN-SETUP.md](DOMAIN-SETUP.md). The desktop wrapper lives in [warreth/melodybridge-desktop](https://github.com/warreth/melodybridge-desktop).
 
 ## Optional extras
 
@@ -141,9 +140,9 @@ Liked songs arrive through the channel's `likes` playlist (`LL`); private playli
 
 **Jellyfin favorites** - tracks imported from your liked songs are flagged, and the Jellyfin sync marks them as favorites for the configured user (Settings, Jellyfin panel). With no user configured, the first non-system user is used.
 
-### Photino desktop
+### Desktop wrapper
 
-A Photino desktop wrapper around the same Blazor UI exists: [`dotnet publish MelodyBridge.Desktop`](docs/photino.md). It is optional and not heavily supported - the Docker server is the recommended deployment and the one that is continuously tested. Photino builds are not published in CI by default.
+The optional desktop wrapper moved to its own repo: [warreth/melodybridge-desktop](https://github.com/warreth/melodybridge-desktop). Docker remains the recommended deployment and the one that is continuously tested.
 
 ## Architecture
 

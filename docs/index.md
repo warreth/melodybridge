@@ -23,7 +23,7 @@ and publishes the result as an M3U file or a Jellyfin playlist.
 ## Contribute
 
 - [Developer guide](developer.md): architecture, plugin interfaces, testing
-- [Photino desktop build](photino.md): optional desktop wrapper
+- [Desktop wrapper](https://github.com/warreth/melodybridge-desktop): optional, in its own repo
 
 ## About this site
 

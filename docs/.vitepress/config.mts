@@ -21,8 +21,7 @@ export default defineConfig({
       {
         text: 'Contribute',
         items: [
-          { text: 'Developer guide', link: '/developer' },
-          { text: 'Photino build', link: '/photino' }
+          { text: 'Developer guide', link: '/developer' }
         ]
       },
       {
@@ -54,8 +53,7 @@ export default defineConfig({
       {
         text: 'Contribute',
         items: [
-          { text: 'Developer guide', link: '/developer' },
-          { text: 'Photino desktop build', link: '/photino' }
+          { text: 'Developer guide', link: '/developer' }
         ]
       }
     ],
