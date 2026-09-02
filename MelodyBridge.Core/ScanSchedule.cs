@@ -11,6 +11,37 @@ public readonly record struct ScanSchedule
     /// <summary>Never scans on its own; the Run scan button is the only trigger.</summary>
     public static ScanSchedule Manual { get; } = new(ScanScheduleMode.Manual, cron: null, intervalMinutes: null);
 
+    /// <summary>
+    /// The named presets every scheduling UI offers, in the same wording
+    /// everywhere: manual, hourly, daily, weekly, monthly, or a custom cron
+    /// expression. All presets are cron under the hood, so one evaluator
+    /// decides what is due everywhere.
+    /// </summary>
+    public static readonly (string Label, string Cron)[] NamedPresets =
+    {
+        ("Hourly", "0 * * * *"),
+        ("Daily", "0 3 * * *"),
+        ("Weekly", "0 3 * * 1"),
+        ("Monthly", "0 3 1 * *"),
+    };
+
+    /// <summary>
+    /// The preset a stored schedule matches, or null for anything custom
+    /// (including the interval format older rows carry). The pickers seed
+    /// their select from this so an existing schedule round-trips.
+    /// </summary>
+    public string? NamedPreset
+    {
+        get
+        {
+            if (Mode != ScanScheduleMode.Cron) return null;
+            var cron = Cron;
+            foreach (var preset in NamedPresets)
+                if (preset.Cron == cron) return preset.Label;
+            return null;
+        }
+    }
+
     public ScanScheduleMode Mode { get; }
     /// <summary>Cron expression (5 fields: minute hour day-of-month month day-of-week) when Mode is Cron.</summary>
     public string? Cron { get; }
@@ -88,6 +119,17 @@ public readonly record struct ScanSchedule
         ScanScheduleMode.Interval => $"interval:{IntervalMinutes}",
         ScanScheduleMode.Cron => Cron!,
         _ => "",
+    };
+
+    /// <summary>
+    /// Short human text for cards and rows: the preset name, "every N
+    /// minutes", "cron {expression}", or "manual". One wording everywhere.
+    /// </summary>
+    public string Describe() => Mode switch
+    {
+        ScanScheduleMode.Manual => "manual",
+        ScanScheduleMode.Interval => $"every {IntervalMinutes} min",
+        _ => NamedPreset is { } preset ? preset.ToLowerInvariant() : $"cron {Cron}",
     };
 
     /// <summary>

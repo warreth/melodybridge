@@ -122,6 +122,31 @@ public class ScanScheduleTests
             "unknown shapes degrade to manual, never crash the background loop");
     }
 
+    [Test]
+    public void NamedPresets_ParseBackToThemselves()
+    {
+        // The pickers offer preset names; every preset must survive a store
+        // and read round-trip so a saved Hourly comes back as Hourly.
+        foreach (var (label, cron) in ScanSchedule.NamedPresets)
+        {
+            var parsed = ScanSchedule.Parse(cron);
+            Assert.That(parsed.NamedPreset, Is.EqualTo(label),
+                $"{cron} must recognise itself as the {label} preset");
+            Assert.That(parsed.ToString(), Is.EqualTo(cron),
+                $"{label} must round-trip through the stored string");
+        }
+    }
+
+    [TestCase("0 * * * *", "hourly")]
+    [TestCase("0 3 * * *", "daily")]
+    [TestCase("0 3 * * 1", "weekly")]
+    [TestCase("0 3 1 * *", "monthly")]
+    [TestCase("*/30 * * * *", "cron */30 * * * *")]
+    [TestCase("", "manual")]
+    [TestCase("interval:30", "every 30 min")]
+    public void Describe_MatchesThePickerWordings(string stored, string expected)
+        => Assert.That(ScanSchedule.Parse(stored).Describe(), Is.EqualTo(expected));
+
     [TestCase("")]
     [TestCase("   ")]
     [TestCase("0 4 * *")]           // 4 fields

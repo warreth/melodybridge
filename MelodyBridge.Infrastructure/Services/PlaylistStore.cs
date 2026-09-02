@@ -658,6 +658,33 @@ public class PlaylistStore
         await db.SaveChangesAsync(ct);
     }
 
+    /// <summary>
+    /// Schedule-based variant: the schedule string (empty or a cron
+    /// expression, as ScanSchedule stores it) is the single source of
+    /// truth; the legacy boolean and minutes columns are kept in sync so
+    /// nothing reading them sees a lie.
+    /// </summary>
+    public async Task UpdateScheduleAsync(
+        string playlistId, string? name, ScanSchedule schedule,
+        string? targetDirectory = null, PlaylistSyncMode? syncMode = null,
+        string? preferredFormat = null, CancellationToken ct = default)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var entity = await db.Playlists.FindAsync(new object[] { playlistId }, ct)
+            ?? throw new InvalidOperationException($"Playlist '{playlistId}' not found");
+        if (name is { Length: > 0 } n) entity.Name = n;
+        entity.ScheduleCron = schedule.ToString();
+        entity.AutoSyncEnabled = schedule.Mode != ScanScheduleMode.Manual;
+        entity.AutoSyncIntervalMinutes = schedule.Mode == ScanScheduleMode.Interval
+            ? schedule.IntervalMinutes
+            : null;
+        if (targetDirectory is { Length: > 0 } dir) entity.TargetDirectory = dir;
+        if (syncMode is not null) entity.SyncMode = syncMode.Value.ToString();
+        if (preferredFormat is { Length: > 0 } fmt)
+            entity.PreferredFormat = PlaylistStore.IsValidFormat(fmt) ? fmt : "auto";
+        await db.SaveChangesAsync(ct);
+    }
+
     /// <summary>Base format values shown in the UI dropdown.</summary>
     public static readonly string[] FormatOptions = { "auto", "mp3", "flac", "opus", "aac" };
 
@@ -676,19 +703,34 @@ public class PlaylistStore
     }
 
     /// <summary>
-    /// All playlists whose auto-sync interval has elapsed.
+    /// All playlists whose auto-sync schedule is due. The schedule is the
+    /// shared ScanSchedule string; the legacy boolean is still honoured for
+    /// rows that predate it (converted by the schema patcher, but a row
+    /// saved by an older build in between gets one more interval run).
     /// Used by the background scheduler.
     /// </summary>
     public async Task<List<PlaylistEntity>> GetDueForAutoSyncAsync(CancellationToken ct = default)
     {
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
-        var now = DateTime.UtcNow;
-        return await db.Playlists
+        var now = DateTimeOffset.UtcNow;
+        var candidates = await db.Playlists
             .AsNoTracking()
-            .Where(p => p.AutoSyncEnabled
-                && (p.LastSyncAt == null
-                    || p.LastSyncAt <= now.AddMinutes(-(p.AutoSyncIntervalMinutes ?? 60))))
+            .Where(p => p.ScheduleCron != null && p.ScheduleCron != ""
+                        || p.AutoSyncEnabled)
             .ToListAsync(ct);
+
+        return candidates
+            .Where(p =>
+            {
+                var schedule = p.ScheduleCron is { Length: > 0 }
+                    ? ScanSchedule.Parse(p.ScheduleCron)
+                    : ScanSchedule.FromInterval(p.AutoSyncIntervalMinutes ?? 60);
+                var last = p.LastSyncAt is { } at ? new DateTimeOffset(at, TimeSpan.Zero)
+                    // Never synced: due immediately so the first run happens.
+                    : DateTimeOffset.MinValue;
+                return schedule.IsDue(last, now);
+            })
+            .ToList();
     }
 
     /// <summary>

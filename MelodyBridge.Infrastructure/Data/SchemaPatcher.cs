@@ -23,6 +23,7 @@ public static class SchemaPatcher
         ("Tracks", "FileSizeBytes", "INTEGER NULL"),
         ("Tracks", "PlaylistEntityId", "TEXT NULL"),
         ("SyncJobRuns", "WarningDetails", "TEXT NULL"),
+        ("Playlists", "ScheduleCron", "TEXT NULL"),
     };
 
     public static async Task PatchAsync(MelodyBridgeDbContext db, CancellationToken ct = default)
@@ -33,6 +34,19 @@ public static class SchemaPatcher
             if (existing.Contains(column, StringComparer.OrdinalIgnoreCase))
                 continue;
             await db.Database.ExecuteSqlRawAsync($"ALTER TABLE {table} ADD COLUMN {column} {definition}", ct);
+        }
+
+        // One-time backfill: playlists used to store auto-sync as a boolean
+        // plus a minutes column; schedules are one cron string now. A row
+        // that already carries a schedule is left alone.
+        var legacy = await db.Playlists
+            .Where(p => p.ScheduleCron == null && p.AutoSyncEnabled)
+            .ToListAsync(ct);
+        if (legacy.Count > 0)
+        {
+            foreach (var playlist in legacy)
+                playlist.ScheduleCron = $"*/{playlist.AutoSyncIntervalMinutes ?? 60} * * * *";
+            await db.SaveChangesAsync(ct);
         }
     }
 

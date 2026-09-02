@@ -17,16 +17,13 @@ public class ScanSchedulingBackgroundService : BackgroundService
 {
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<ScanSchedulingBackgroundService> _logger;
-    private readonly SettingsStore _settings;
 
     public ScanSchedulingBackgroundService(
         IServiceProvider serviceProvider,
-        ILogger<ScanSchedulingBackgroundService> logger,
-        SettingsStore settings)
+        ILogger<ScanSchedulingBackgroundService> logger)
     {
         _serviceProvider = serviceProvider;
         _logger = logger;
-        _settings = settings;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -37,9 +34,9 @@ public class ScanSchedulingBackgroundService : BackgroundService
         {
             try
             {
-                var pollSeconds = Math.Max(30, int.TryParse(
-                    await _settings.GetAsync("auto_scan_interval", "60"), out var v) ? v : 60);
-                await Task.Delay(TimeSpan.FromSeconds(pollSeconds), stoppingToken);
+                // Fixed cadence: each location's own schedule decides what is
+                // due, so this poll does not need to be a user knob.
+                await Task.Delay(TimeSpan.FromSeconds(60), stoppingToken);
 
                 using var scope = _serviceProvider.CreateScope();
                 var dbFactory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<MelodyBridgeDbContext>>();

@@ -157,6 +157,12 @@ public class PlaylistEntity
     public bool AutoSyncEnabled { get; set; }
     public int? AutoSyncIntervalMinutes { get; set; }
     /// <summary>
+    /// Auto-sync schedule as the shared schedule string (empty = manual,
+    /// otherwise a cron expression). Replaces the boolean + minutes pair,
+    /// which the schema patcher backfills once.
+    /// </summary>
+    public string? ScheduleCron { get; set; }
+    /// <summary>
     /// How re-syncs reconcile local tracks with the source:
     /// Additive — new tracks are added, removed tracks stay.
     /// Mirror — the snapshot exactly matches the source (removed tracks deleted locally).

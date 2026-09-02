@@ -174,4 +174,171 @@ public class PlaylistStoreStatsTests
             File.Delete(dbPath);
         }
     }
+
+    [Test]
+    public async Task UpdateScheduleAsync_StoresTheCronAndDropsLegacyColumns()
+    {
+        var dbPath = NewDbPath();
+        try
+        {
+            var factory = await NewDbFactory(dbPath);
+            var store = NewStore(factory, new StubSourceProvider());
+            var (playlist, _) = await store.AddOrRefreshDetailedAsync("stub:playlist");
+
+            await store.UpdateScheduleAsync(playlist.Id, null, ScanSchedule.FromCron("0 * * * *"));
+
+            await using var db = factory.CreateDbContext();
+            var saved = await db.Playlists.FindAsync(playlist.Id);
+            Assert.That(saved!.ScheduleCron, Is.EqualTo("0 * * * *"),
+                "the schedule string is the single source of truth");
+            Assert.That(saved.AutoSyncEnabled, Is.True, "legacy readers still see the boolean");
+            Assert.That(saved.AutoSyncIntervalMinutes, Is.Null,
+                "a cron schedule carries no minutes column value");
+
+            await store.UpdateScheduleAsync(playlist.Id, null, ScanSchedule.Manual);
+            await using var db2 = factory.CreateDbContext();
+            var manual = await db2.Playlists.FindAsync(playlist.Id);
+            Assert.That(manual!.ScheduleCron, Is.EqualTo(""));
+            Assert.That(manual.AutoSyncEnabled, Is.False);
+        }
+        finally
+        {
+            File.Delete(dbPath);
+        }
+    }
+
+    [Test]
+    public async Task DueForAutoSync_FollowsTheCronSchedule()
+    {
+        var dbPath = NewDbPath();
+        try
+        {
+            var factory = await NewDbFactory(dbPath);
+            var store = NewStore(factory, new StubSourceProvider());
+            var (playlist, _) = await store.AddOrRefreshDetailedAsync("stub:playlist");
+
+            // Daily at 03:00, synced "now": not due within the next hours.
+            await store.UpdateScheduleAsync(playlist.Id, null, ScanSchedule.FromCron("0 3 * * *"));
+            await using (var db = factory.CreateDbContext())
+            {
+                var row = await db.Playlists.FindAsync(playlist.Id);
+                row!.LastSyncAt = DateTime.UtcNow;
+                await db.SaveChangesAsync();
+            }
+
+            var dueRightAfter = await store.GetDueForAutoSyncAsync();
+            Assert.That(dueRightAfter.Select(p => p.Id), Does.Not.Contain(playlist.Id),
+                "freshly synced on a daily schedule, so nothing is due yet");
+
+            // Push last sync past yesterday's 03:00: due again.
+            await using (var db = factory.CreateDbContext())
+            {
+                var row = await db.Playlists.FindAsync(playlist.Id);
+                row!.LastSyncAt = DateTime.UtcNow.AddHours(-25);
+                await db.SaveChangesAsync();
+            }
+
+            var dueNow = await store.GetDueForAutoSyncAsync();
+            Assert.That(dueNow.Select(p => p.Id), Does.Contain(playlist.Id),
+                "a daily schedule whose last sync was 25 hours ago is due");
+
+            // Manual is never due.
+            await store.UpdateScheduleAsync(playlist.Id, null, ScanSchedule.Manual);
+            var dueManual = await store.GetDueForAutoSyncAsync();
+            Assert.That(dueManual.Select(p => p.Id), Does.Not.Contain(playlist.Id));
+        }
+        finally
+        {
+            File.Delete(dbPath);
+        }
+    }
+
+    [Test]
+    public async Task Patcher_ConvertsLegacyAutoSyncRowsOnce()
+    {
+        var dbPath = NewDbPath();
+        try
+        {
+            var factory = await NewDbFactory(dbPath);
+            var store = NewStore(factory, new StubSourceProvider());
+            var (playlist, _) = await store.AddOrRefreshDetailedAsync("stub:playlist");
+
+            // An older build's row: boolean + minutes, no schedule string.
+            await using (var db = factory.CreateDbContext())
+            {
+                var row = await db.Playlists.FindAsync(playlist.Id);
+                row!.AutoSyncEnabled = true;
+                row.AutoSyncIntervalMinutes = 45;
+                await db.SaveChangesAsync();
+            }
+
+            await using (var db = factory.CreateDbContext())
+            {
+                await SchemaPatcher.PatchAsync(db);
+            }
+
+            await using var check = factory.CreateDbContext();
+            var converted = await check.Playlists.FindAsync(playlist.Id);
+            Assert.That(converted!.ScheduleCron, Is.EqualTo("*/45 * * * *"),
+                "the legacy minutes become the equivalent cron expression");
+
+            // Idempotent: a second pass leaves the schedule alone.
+            converted.Name = "renamed";
+            await check.SaveChangesAsync();
+            await using (var db = factory.CreateDbContext())
+            {
+                await SchemaPatcher.PatchAsync(db);
+            }
+            await using var again = factory.CreateDbContext();
+            var reread = await again.Playlists.FindAsync(playlist.Id);
+            Assert.That(reread!.ScheduleCron, Is.EqualTo("*/45 * * * *"));
+            Assert.That(reread.Name, Is.EqualTo("renamed"),
+                "the patcher never touches a row that already has a schedule");
+        }
+        finally
+        {
+            File.Delete(dbPath);
+        }
+    }
+
+    [Test]
+    public async Task LegacyIntervalRows_StayDueUntilThePatcherConvertsThem()
+    {
+        var dbPath = NewDbPath();
+        try
+        {
+            var factory = await NewDbFactory(dbPath);
+            var store = NewStore(factory, new StubSourceProvider());
+            var (playlist, _) = await store.AddOrRefreshDetailedAsync("stub:playlist");
+
+            // A row saved by an older build: boolean + minutes, no schedule string.
+            await using (var db = factory.CreateDbContext())
+            {
+                var row = await db.Playlists.FindAsync(playlist.Id);
+                row!.AutoSyncEnabled = true;
+                row.AutoSyncIntervalMinutes = 30;
+                row.LastSyncAt = DateTime.UtcNow;
+                await db.SaveChangesAsync();
+            }
+
+            var fresh = await store.GetDueForAutoSyncAsync();
+            Assert.That(fresh.Select(p => p.Id), Does.Not.Contain(playlist.Id),
+                "synced 0 of 30 minutes ago: not due");
+
+            await using (var db = factory.CreateDbContext())
+            {
+                var row = await db.Playlists.FindAsync(playlist.Id);
+                row!.LastSyncAt = DateTime.UtcNow.AddMinutes(-31);
+                await db.SaveChangesAsync();
+            }
+
+            var due = await store.GetDueForAutoSyncAsync();
+            Assert.That(due.Select(p => p.Id), Does.Contain(playlist.Id),
+                "legacy interval rows keep syncing on their old cadence");
+        }
+        finally
+        {
+            File.Delete(dbPath);
+        }
+    }
 }
