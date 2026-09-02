@@ -151,13 +151,14 @@ public class PlaylistsPageTests
         var cut = _ctx.Render<Playlists>();
         cut.Find("div.topbar-actions button.primary").Click();
 
-        // Same wording the Library schedule picker and the sync job
-        // wizard use: a named select, not a bare checkbox.
+        // Same six options the Library schedule picker and the sync job
+        // wizard offer: a named select, not a bare checkbox.
         cut.WaitForAssertion(() =>
         {
             Assert.That(cut.Markup, Does.Contain("Auto-sync schedule"));
-            Assert.That(cut.Markup, Does.Contain("Manual only"));
-            Assert.That(cut.Markup, Does.Contain("Every N minutes"));
+            foreach (var option in new[] { "Manual", "Hourly", "Daily", "Weekly", "Monthly", "Cron" })
+                Assert.That(cut.Markup, Does.Contain($">{option}</option>"),
+                    $"the schedule select offers {option}");
         }, TimeSpan.FromSeconds(3));
     }
 
@@ -181,7 +182,7 @@ public class PlaylistsPageTests
         {
             Assert.That(cut.Markup, Does.Contain("5 MB on disk"),
                 "the card adds up the finished files and shows the size");
-            Assert.That(cut.Markup, Does.Contain("manual sync"),
+            Assert.That(cut.Markup, Does.Contain("· manual"),
                 "the card states the sync schedule like the sync jobs do");
         }, TimeSpan.FromSeconds(3));
     }

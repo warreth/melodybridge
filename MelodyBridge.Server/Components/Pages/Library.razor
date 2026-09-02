@@ -173,12 +173,7 @@
     private int FileCount(ScanLocationEntity loc)
         => filesPerLocation.TryGetValue(loc.Id, out var n) ? n : 0;
 
-    private static string DescribeSchedule(ScanSchedule s) => s.Mode switch
-    {
-        ScanScheduleMode.Interval => $"every {s.IntervalMinutes} min",
-        ScanScheduleMode.Cron => $"cron {s.Cron}",
-        _ => "manual",
-    };
+    private static string DescribeSchedule(ScanSchedule s) => s.Describe();
 
     private async Task RunScan()
     {

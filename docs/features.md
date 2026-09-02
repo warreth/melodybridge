@@ -2,6 +2,9 @@
 
 ## Fetch playlists
 
+<img src="/screens/playlists.webp" alt="Playlists page with playlist cards, covers and download progress" width="800">
+
+
 Paste a public Spotify or YouTube playlist link and MelodyBridge saves
 every track to a local SQLite database, including the platform ID of each
 track. No Spotify API key or account is needed: the Spotify source
@@ -16,6 +19,9 @@ playlists and your liked songs.
 :::
 
 ## Download through a plugin waterfall
+
+<img src="/screens/playlist-details.webp" alt="Playlist details page with track list, quality info and live download progress" width="800">
+
 
 Every track is fetched by a waterfall of plugins, tried in order. The
 first plugin that finds and quality-gates a track wins. Reorder the
@@ -47,6 +53,9 @@ page; values persist per plugin. Playlist downloads run several tracks
 in parallel (1 to 8 workers, Advanced page).
 
 ## Real quality checks
+
+<img src="/screens/settings.webp" alt="Settings page with the quality check options" width="800">
+
 
 Some sites hand out files that pretend to be 320 kbps but hold far
 less. The spectrum check measures what a file actually contains — its
@@ -84,8 +93,10 @@ Each playlist picks one of two sync modes:
 - **Mirror** makes the local copy exactly match the source: tracks that
   vanished from the playlist are removed from the output.
 
-Playlists can also sync on their own interval, so a playlist that grows
-every week can refresh itself every week.
+Playlists can also sync themselves on a schedule: manual, hourly,
+daily, weekly, monthly or a custom cron expression, the same options
+everywhere. A playlist that grows every week can refresh itself every
+week.
 
 ## Publish playlists
 
@@ -101,11 +112,15 @@ sync marks them as favorites for the configured user.
 
 ## Library scan
 
+<img src="/screens/library.webp" alt="Library page listing scanned music folders" width="800">
+
+
 Add the folders that hold your music and MelodyBridge scans them, reads
-the tags (not the filenames) and keeps the database current. Scans run
-on an interval per folder or manually. Downloaded tracks are matched
-against the library, so a track you already own is not downloaded
-again. A new playlist registers its download folder as a scan location
+the tags (not the filenames) and keeps the database current. Each
+folder runs on its own schedule: manual, hourly, daily, weekly, monthly
+or a custom cron expression. Downloaded tracks are matched against the
+library, so a track you already own is not downloaded again. A new
+playlist registers its download folder as a scan location
 automatically.
 
 The Library page lists your scan folders and how matching works;
@@ -120,5 +135,5 @@ sync jobs, the library and logs:
 - **Plugins**: waterfall order, toggles, live download runs with pause and cancel
 - **Sync jobs**: the five step wizard from source playlist to output
 - **Library**: scan locations and scan runs
-- **Settings**: media server profiles, paths, intervals, quality checks, accounts
+- **Settings**: media server profiles, paths, quality checks, accounts
 - **Logs**: what happened and what went wrong

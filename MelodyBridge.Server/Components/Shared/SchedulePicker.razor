@@ -1,102 +1,50 @@
-@* One schedule editor shared by the Library locations and anywhere else a
-   scan needs scheduling. Emits a ScanSchedule; mode pickers and the raw cron
-   field write into the same object so no two code paths can drift. *@
+@* One schedule editor shared by the playlist auto-sync, the library
+   locations and anywhere else something runs on a schedule. Six named
+   options everywhere, the same wording the sync job wizard uses; the
+   custom option is a plain five-field cron expression. Emits a
+   ScanSchedule; nothing else computes when things run. *@
 <div class="form-grid">
     <label>
         Schedule
-        <select @bind="Mode">
-            <option value="@ScanScheduleMode.Manual">Manual only</option>
-            <option value="@ScanScheduleMode.Interval">Every N minutes</option>
-            <option value="@ScanScheduleMode.Cron">Cron / custom</option>
+        <select @bind="Kind">
+            <option value="@ScheduleKind.Manual">Manual</option>
+            <option value="@ScheduleKind.Hourly">Hourly</option>
+            <option value="@ScheduleKind.Daily">Daily</option>
+            <option value="@ScheduleKind.Weekly">Weekly</option>
+            <option value="@ScheduleKind.Monthly">Monthly</option>
+            <option value="@ScheduleKind.Cron">Cron</option>
         </select>
     </label>
-    @if (Mode == ScanScheduleMode.Interval)
+    @if (Kind == ScheduleKind.Cron)
     {
-        <label>
-            Minutes between scans
-            <input type="number" min="10" step="5" @bind="IntervalMinutes" />
-        </label>
-    }
-    else if (Mode == ScanScheduleMode.Cron)
-    {
-        <label>
-            Weekdays (cron day-of-week)
-            <select @bind="CronWeekday">
-                <option value="*">Every day</option>
-                <option value="1">Monday</option>
-                <option value="2">Tuesday</option>
-                <option value="3">Wednesday</option>
-                <option value="4">Thursday</option>
-                <option value="5">Friday</option>
-                <option value="6">Saturday</option>
-                <option value="0">Sunday</option>
-            </select>
-        </label>
-        <label>
-            Hour
-            <select @bind="CronHour">
-                @for (var h = 0; h < 24; h++)
-                {
-                    <option value="@h">@($"{h:00}:00")</option>
-                }
-            </select>
-        </label>
         <label class="wide">
             Cron expression (minute hour day-of-month month day-of-week)
             <input @bind="CronText" placeholder="30 4 * * *" />
         </label>
         <div class="hint-box wide">
-            The weekday and hour selects above pre-fill the expression; edit it
-            freely for anything else, like the first of the month
-            (<code>0 3 1 * *</code>).
+            Five-field cron with minute precision, for example
+            <code>0 3 * * *</code> runs at 03:00 every night,
+            <code>*/30 * * * *</code> every half hour. Invalid text keeps
+            the last valid schedule until it parses again.
         </div>
     }
 </div>
 
 @code {
-    private ScanScheduleMode _mode = ScanScheduleMode.Manual;
-    private int _intervalMinutes = 60;
-    private string _cronWeekday = "*";
-    private int _cronHour = 4;
+    private enum ScheduleKind { Manual, Hourly, Daily, Weekly, Monthly, Cron }
+
+    private ScheduleKind _kind = ScheduleKind.Manual;
     private string _cronText = "0 4 * * *";
 
-    /// <summary>Current editor state as a schedule; null while the input is invalid.</summary>
+    /// <summary>Current editor state as a schedule.</summary>
     [Parameter] public ScanSchedule Value { get; set; }
 
     [Parameter] public EventCallback<ScanSchedule> ValueChanged { get; set; }
 
-    private ScanScheduleMode Mode
+    private ScheduleKind Kind
     {
-        get => _mode;
-        set { _mode = value; _ = PushAsync(); }
-    }
-
-    private int IntervalMinutes
-    {
-        get => _intervalMinutes;
-        set { _intervalMinutes = value; _ = PushAsync(); }
-    }
-
-    private string CronWeekday
-    {
-        get => _cronWeekday;
-        set
-        {
-            _cronWeekday = value;
-            SyncCronFromPickers();
-            _ = PushAsync();
-        }
-    }
-
-    private int CronHour
-    {
-        get => _cronHour;
-        set
-        {
-            _cronHour = value;
-            SyncCronFromPickers();
-            _ = PushAsync();
-        }
+        get => _kind;
+        set { _kind = value; _ = PushAsync(); }
     }
 
     private string CronText
@@ -107,22 +55,27 @@
 
     protected override void OnParametersSet()
     {
-        // Seed the editor from the incoming value (first render and every
-        // parent-driven refresh). Fields the expression cannot express stay
-        // at their defaults.
+        // Seed the editor from the incoming value: a named preset selects
+        // itself, an interval row (older data) presents itself as the
+        // equivalent custom expression, everything else is custom text.
         var v = Value;
-        _mode = v.Mode;
-        if (v.IntervalMinutes is > 0 and >= 10) _intervalMinutes = v.IntervalMinutes.Value;
-        if (v.Cron is { } cron && TryPickFromCron(cron, out var weekday, out var hour))
+        if (v.Mode == ScanScheduleMode.Manual)
         {
-            _cronWeekday = weekday;
-            _cronHour = hour;
+            _kind = ScheduleKind.Manual;
         }
-        _cronText = v.Cron ?? _cronText;
+        else if (v.NamedPreset is { } preset
+                 && Enum.TryParse<ScheduleKind>(preset, out var named))
+        {
+            _kind = named;
+        }
+        else
+        {
+            _kind = ScheduleKind.Cron;
+            _cronText = v.Mode == ScanScheduleMode.Interval
+                ? $"*/{v.IntervalMinutes} * * * *"
+                : v.Cron ?? _cronText;
+        }
     }
-
-    private void SyncCronFromPickers()
-        => _cronText = $"0 {_cronHour:D2} * * {_cronWeekday}";
 
     private async Task PushAsync()
     {
@@ -134,25 +87,15 @@
         }
     }
 
-    private ScanSchedule? Build() => _mode switch
+    private ScanSchedule? Build() => _kind switch
     {
-        ScanScheduleMode.Manual => ScanSchedule.Manual,
-        ScanScheduleMode.Interval => _intervalMinutes >= 10 ? ScanSchedule.FromInterval(_intervalMinutes) : null,
-        ScanScheduleMode.Cron => ScanSchedule.TryParse(_cronText, out var s) && s.Mode == ScanScheduleMode.Cron ? s : null,
+        ScheduleKind.Manual => ScanSchedule.Manual,
+        ScheduleKind.Hourly => ScanSchedule.FromCron("0 * * * *"),
+        ScheduleKind.Daily => ScanSchedule.FromCron("0 3 * * *"),
+        ScheduleKind.Weekly => ScanSchedule.FromCron("0 3 * * 1"),
+        ScheduleKind.Monthly => ScanSchedule.FromCron("0 3 1 * *"),
+        ScheduleKind.Cron =>
+            ScanSchedule.TryParse(_cronText, out var s) && s.Mode == ScanScheduleMode.Cron ? s : null,
         _ => null,
     };
-
-    // "0 4 * * 1" style (the picker's own shape) seeds the selects; anything
-    // more exotic leaves them alone — the raw text field still carries it.
-    private static bool TryPickFromCron(string cron, out string weekday, out int hour)
-    {
-        weekday = "*";
-        hour = 4;
-        var f = cron.Split(' ', StringSplitOptions.TrimEntries);
-        if (f.Length != 5 || f[0] != "0" || f[2] != "*" || f[3] != "*") return false;
-        if (f[4] is not ("*" or "0" or "1" or "2" or "3" or "4" or "5" or "6")) return false;
-        if (!int.TryParse(f[1], out hour) || hour is < 0 or > 23) return false;
-        weekday = f[4];
-        return true;
-    }
 }

@@ -112,9 +112,10 @@ public class LibraryLocationsTests
         var cut = _ctx.Render<Library>();
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Add location").Click();
 
-        Assert.That(cut.Markup, Does.Contain("Manual only"));
-        Assert.That(cut.Markup, Does.Contain("Every N minutes"));
-        Assert.That(cut.Markup, Does.Contain("Cron / custom"));
+        // The same six named options everywhere, the sync job wording.
+        foreach (var option in new[] { "Manual", "Hourly", "Daily", "Weekly", "Monthly", "Cron" })
+            Assert.That(cut.Markup, Does.Contain($">{option}</option>"),
+                $"the schedule select offers {option}");
     }
 
     [Test]
@@ -126,17 +127,11 @@ public class LibraryLocationsTests
         // Fill the path.
         cut.Find("input[placeholder='/music']").Change("/music/new");
 
-        // Pick "Every N minutes" in the schedule select (the first select on
-        // the modal belongs to SchedulePicker's mode).
+        // Pick Hourly in the schedule select (the first select on the
+        // modal belongs to SchedulePicker).
         var selects = cut.FindAll("select");
-        selects[0].Change("Interval");
+        selects[0].Change("Hourly");
         cut.Render(); // let the picker push the new schedule up
-
-        // Set 30 minutes.
-        var numberInputs = cut.FindAll("input[type='number']");
-        Assert.That(numberInputs.Count, Is.GreaterThan(0), "interval mode shows a minutes input");
-        numberInputs[0].Change(30);
-        cut.Render();
 
         // Live monitoring is on by default; submit.
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Add location" && b.ClassList.Contains("primary")).Click();
@@ -144,12 +139,13 @@ public class LibraryLocationsTests
 
         using var db = _factory.CreateDbContext();
         var saved = db.ScanLocations.Single(l => l.Path == "/music/new");
-        Assert.That(saved.ScheduleCron, Is.EqualTo("interval:30"));
+        Assert.That(saved.ScheduleCron, Is.EqualTo("0 * * * *"),
+            "the Hourly preset lands as its cron equivalent");
         Assert.That(saved.LiveMonitoring, Is.True);
     }
 
     [Test]
-    public void SaveLocation_WeekdayHourPickers_ComposeCron()
+    public void SaveLocation_CustomCron_Persists()
     {
         var cut = _ctx.Render<Library>();
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Add location").Click();
@@ -159,12 +155,8 @@ public class LibraryLocationsTests
         selects[0].Change("Cron"); // mode
         cut.Render();
 
-        selects = cut.FindAll("select");
-        // In cron mode: mode, weekday, hour selects in DOM order.
-        selects[1].Change("5"); // Friday
-        cut.Render();
-        selects = cut.FindAll("select");
-        selects[2].Change("22"); // 22:00
+        // Custom mode shows the free-text cron input; type a real expression.
+        cut.Find("input[placeholder='30 4 * * *']").Change("0 22 * * 5");
         cut.Render();
 
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Add location" && b.ClassList.Contains("primary")).Click();
@@ -173,7 +165,7 @@ public class LibraryLocationsTests
         using var db = _factory.CreateDbContext();
         var saved = db.ScanLocations.Single(l => l.Path == "/music/cronpick");
         Assert.That(saved.ScheduleCron, Is.EqualTo("0 22 * * 5"),
-            "weekday + hour pickers compose the cron string that lands in the DB");
+            "the typed cron expression lands in the DB verbatim");
     }
 
     [Test]

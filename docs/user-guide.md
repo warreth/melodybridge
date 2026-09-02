@@ -65,7 +65,9 @@ playlist:
 - Name and download folder
 - File format (auto, MP3, FLAC, Opus or AAC) and an optional bitrate
   range in kbps, for example `192-320`
-- **Auto-sync** toggle with a check interval in minutes
+- Auto-sync schedule: **Manual**, **Hourly**, **Daily**, **Weekly**,
+  **Monthly** or a custom cron expression, the same options the sync
+  jobs and library folders use
 - Sync mode: **Additive** keeps removed tracks as history, **Mirror**
   removes tracks deleted from the source
 - **Save settings** stores the changes
@@ -209,10 +211,10 @@ settings, no restart needed.
 
 The Advanced page holds the knobs most people never need.
 
-- **Sync and scanning**: the auto-scan interval and the sync check
-  interval in seconds. These set how often background jobs wake up to
-  rescan folders and check auto-sync playlists; the minimums protect
-  the CPU
+- **Downloads**: the maximum number of simultaneous track downloads.
+  More finishes large playlists faster but hits every source harder.
+  When playlists and library folders refresh is not a knob here: each
+  playlist and folder carries its own schedule on its own page
 - **Display**: show the file column on playlist tracks, which reveals
   the exact filename behind each track. Useful when hunting inflated
   downloads

@@ -100,9 +100,7 @@ else
                 </p>
                 <small class="job-meta">
                     Last synced: @(playlist.LastSyncAt?.ToLocalTime().ToString("g") ?? "never")
-                    @(playlist.AutoSyncEnabled
-                        ? $" · auto-sync every {playlist.AutoSyncIntervalMinutes ?? 60} min"
-                        : " · manual sync")
+                    · @ScheduleOf(playlist).Describe()
                 </small>
             </div>
         }
@@ -135,20 +133,10 @@ else
                         Audio quality
                         <QualityPicker @bind-Value="newQuality" />
                     </label>
-                    <label>
+                    <label class="wide">
                         Auto-sync schedule
-                        <select @bind="newAutoSync">
-                            <option value="@false">Manual only</option>
-                            <option value="@true">Every N minutes</option>
-                        </select>
+                        <SchedulePicker @bind-Value="newSchedule" />
                     </label>
-                    @if (newAutoSync)
-                    {
-                        <label>
-                            Minutes between checks
-                            <input type="number" min="5" step="5" @bind="newIntervalMinutes" />
-                        </label>
-                    }
                     <label>
                         Sync mode
                         <select @bind="newSyncMode">
@@ -314,8 +302,7 @@ else
     private string newTargetDirectory = string.Empty;
     private string resolvedDefaultMusicPath = "/music";
     private string newQuality = "auto";
-    private bool newAutoSync;
-    private int newIntervalMinutes = 60;
+    private ScanSchedule newSchedule = ScanSchedule.Manual;
     private PlaylistSyncMode newSyncMode = PlaylistSyncMode.Additive;
 
     private string message = string.Empty;
@@ -375,8 +362,7 @@ else
     {
         newUrl = string.Empty;
         newTargetDirectory = string.Empty;
-        newAutoSync = false;
-        newIntervalMinutes = 60;
+        newSchedule = ScanSchedule.Manual;
         newSyncMode = PlaylistSyncMode.Additive;
         addError = string.Empty;
         showAddForm = true;
@@ -500,6 +486,14 @@ else
             ? savedSpotifyIds.Contains("spotify-liked")
             : savedYouTubeIds.Contains("LL");
 
+    /// <summary>The playlist's schedule, legacy rows included (interval kept working).</summary>
+    private static ScanSchedule ScheduleOf(PlaylistEntity playlist)
+        => playlist.ScheduleCron is { Length: > 0 }
+            ? ScanSchedule.Parse(playlist.ScheduleCron)
+            : playlist.AutoSyncEnabled
+                ? ScanSchedule.FromInterval(playlist.AutoSyncIntervalMinutes ?? 60)
+                : ScanSchedule.Manual;
+
     private async Task Add()
     {
         if (string.IsNullOrWhiteSpace(newUrl))
@@ -513,7 +507,7 @@ else
         {
             var target = TargetOrNull();
             var (playlist, newlySaved) = await Store.AddOrRefreshDetailedAsync(newUrl.Trim(), target);
-            await Store.UpdateSettingsAsync(playlist.Id, null, newAutoSync, newIntervalMinutes, target, newSyncMode, newQuality);
+            await Store.UpdateScheduleAsync(playlist.Id, null, newSchedule, target, newSyncMode, newQuality);
             showAddForm = false;
             message = newlySaved
                 ? $"Saved '{playlist.Name}' with {playlist.TrackCount} tracks."

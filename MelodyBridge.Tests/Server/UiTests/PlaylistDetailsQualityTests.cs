@@ -117,6 +117,33 @@ public class PlaylistDetailsQualityTests
     }
 
     [Test]
+    public void ScheduleSelect_SavesThePickedPreset()
+    {
+        var cut = _ctx.Render<PlaylistDetails>(p => p.Add(p => p.PlaylistId, "pl-1"));
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("Auto-sync schedule")), TimeSpan.FromSeconds(3));
+
+        // Same six options everywhere; pick Weekly and save.
+        var select = cut.FindAll("select").First(s => s.TextContent.Contains("Cron"));
+        Assert.That(select.TextContent, Does.Contain("Manual"));
+        Assert.That(select.TextContent, Does.Contain("Hourly"));
+        Assert.That(select.TextContent, Does.Contain("Daily"));
+        Assert.That(select.TextContent, Does.Contain("Monthly"));
+
+        select.Change("Weekly");
+        cut.Render();
+        cut.FindAll("button").Single(b => b.TextContent.Trim() == "Save settings").Click();
+        cut.Render();
+
+        using var db = new TestSqliteFactory(_dbPath).CreateDbContext();
+        var saved = db.Playlists.Find("pl-1")!;
+        Assert.That(saved.ScheduleCron, Is.EqualTo("0 3 * * 1"),
+            "the Weekly preset lands as its cron equivalent in the DB");
+        Assert.That(saved.AutoSyncEnabled, Is.True,
+            "the legacy boolean stays in sync for older readers");
+    }
+
+    [Test]
     public void TrackTable_ShowsFileSizeColumn()
     {
         var cut = _ctx.Render<PlaylistDetails>(p => p.Add(p => p.PlaylistId, "pl-1"));
