@@ -100,7 +100,7 @@ The documentation lives at https://docs.melodybridge.app and builds from the [do
 | [Lucida and FlareSolverr](docs/lucida.md) | Optional high quality downloads |
 | [Developer guide](docs/developer.md) | Architecture, plugin interfaces, DI, testing |
 
-Domain setup for melodybridge.app and docs.melodybridge.app is documented in [DOMAIN-SETUP.md](DOMAIN-SETUP.md). The desktop wrapper lives in [warreth/melodybridge-desktop](https://github.com/warreth/melodybridge-desktop).
+The desktop wrapper lives in [warreth/melodybridge-desktop](https://github.com/warreth/melodybridge-desktop).
 
 ## Optional extras
 
