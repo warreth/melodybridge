@@ -27,9 +27,21 @@ public record DownloadRun(
     string? CurrentTrack,
     string? CurrentPlugin,
     DownloadRunState State,
-    DateTime StartedAtUtc)
+    DateTime StartedAtUtc,
+    int QueueLength = 0,
+    DateTime? EtaUtc = null)
 {
     public int Percent => Total == 0 ? 0 : Math.Min(100, (Done + Failed) * 100 / Total);
+
+    /// <summary>Estimated finish from the average pace so far; null before
+    /// the first track completes (no measured pace yet).</summary>
+    public static DateTime? ComputeEta(DateTime startedAtUtc, int completed, int remaining)
+    {
+        if (completed <= 0 || remaining <= 0) return null;
+        var elapsed = DateTime.UtcNow - startedAtUtc;
+        var perTrack = elapsed / completed;
+        return DateTime.UtcNow + perTrack * remaining;
+    }
 }
 
 /// <summary>
@@ -52,6 +64,9 @@ public class DownloadCoordinator
         public DownloadRun Snapshot = null!;
         /// <summary>Workers currently mid-track; keeps CurrentTrack in the snapshot honest with parallel workers.</summary>
         public int InFlight;
+        /// <summary>Ordered pending/failed track titles for the live run (Position
+        /// order); recomputed after each completed track, read by the UI.</summary>
+        public List<string> QueueTitles = new();
     }
 
     private readonly ConcurrentDictionary<string, RunHandle> _runs = new();
@@ -85,6 +100,11 @@ public class DownloadCoordinator
 
     public DownloadRun? RunFor(string playlistId)
         => _runs.TryGetValue(playlistId, out var h) ? h.Snapshot : null;
+
+    /// <summary>Ordered titles of the pending/failed tracks (Position order)
+    /// of the live run for this playlist — the visible download queue.</summary>
+    public IReadOnlyList<string> QueueFor(string playlistId)
+        => _runs.TryGetValue(playlistId, out var h) ? h.QueueTitles : Array.Empty<string>();
 
     public bool IsActive(string playlistId)
         => _runs.TryGetValue(playlistId, out var h)
@@ -179,6 +199,7 @@ public class DownloadCoordinator
                 Done = counts.done,
                 Failed = counts.failed,
             };
+            await RefreshQueueAsync(playlistId, handle, ct);
 
             var workers = await MaxConcurrentAsync(ct);
             _logger.LogInformation("Download run for {Playlist} starting with {Workers} workers",
@@ -247,7 +268,36 @@ public class DownloadCoordinator
             if (Volatile.Read(ref handle.InFlight) == 0)
                 snapshot = snapshot with { CurrentTrack = null };
             handle.Snapshot = snapshot;
+
+            // The queue and the ETA move as tracks complete: one refresh per
+            // finished track keeps both honest without extra polling.
+            await RefreshQueueAsync(playlistId, handle, ct);
         }
+    }
+
+    /// <summary>
+    /// Recomputes the visible queue (pending/failed titles, Position order)
+    /// and folds it into the snapshot: queue length plus an ETA derived from
+    /// the average pace of the tracks completed so far.
+    /// </summary>
+    private async Task RefreshQueueAsync(string playlistId, RunHandle handle, CancellationToken ct)
+    {
+        await using var db = await NewDbAsync(ct);
+        var titles = await db.Tracks.AsNoTracking()
+            .Where(t => t.PlaylistEntityId == playlistId
+                && (t.DownloadStatus == null || t.DownloadStatus == "pending"
+                    || t.DownloadStatus == "failed" || t.DownloadStatus == "in_progress"))
+            .OrderBy(t => t.Position)
+            .Select(t => t.Title ?? "")
+            .ToListAsync(ct);
+        handle.QueueTitles = titles;
+
+        var s = handle.Snapshot;
+        handle.Snapshot = s with
+        {
+            QueueLength = titles.Count,
+            EtaUtc = DownloadRun.ComputeEta(s.StartedAtUtc, s.Done + s.Failed, titles.Count),
+        };
     }
 
     private async Task<string?> LoadNameAsync(string playlistId)
