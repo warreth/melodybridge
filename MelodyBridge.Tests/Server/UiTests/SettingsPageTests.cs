@@ -74,6 +74,28 @@ public class SettingsPageTests
     }
 
     [Test]
+    public void Settings_SpotifyHelp_AnswersTheApiPicker()
+    {
+        // Spotify's create-app dialog asks "which APIs are you planning to
+        // use" with five cards; the help text must name the right one.
+        var cut = _ctx.Render<Settings>();
+        Assert.That(cut.Markup, Does.Contain("Web API"),
+            "the Spotify steps must tell the user to pick Web API");
+        Assert.That(cut.Markup, Does.Contain("development mode"),
+            "dev mode (Premium owner, allowlist) must be explained");
+    }
+
+    [Test]
+    public void Settings_YouTubeHelp_MentionsTestUserAndConsentScreen()
+    {
+        var cut = _ctx.Render<Settings>();
+        Assert.That(cut.Markup, Does.Contain("Test user"),
+            "the YouTube steps must mention adding yourself as test user");
+        Assert.That(cut.Markup, Does.Contain("unverified app"),
+            "the unverified-app warning must be explained, not a surprise");
+    }
+
+    [Test]
     public void Settings_NoStandaloneJellyfinTab_MediaServersInstead()
     {
         var cut = _ctx.Render<Settings>();

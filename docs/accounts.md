@@ -33,11 +33,23 @@ displays and both sides match.
 
 ## Spotify
 
-1. Create an app at developer.spotify.com. No secret needed.
-2. Under Redirect URIs, add the exact URL the Settings page shows
-   (`http://127.0.0.1:PORT/auth/callback?provider=spotify` when you
+1. Create an app at developer.spotify.com. No secret needed. When the
+   dashboard asks *which APIs you are planning to use*, pick
+   **Web API** — the Ads API, Web Playback SDK, iOS and Android options
+   cannot read playlists, they are for ads and in-app players.
+2. In the app's Settings, add the exact redirect URI the Settings page
+   shows (`http://127.0.0.1:PORT/auth/callback?provider=spotify` when you
    browse via the loopback IP, or your deployment's equivalent).
-3. In Settings, paste the Client ID and press **Connect Spotify**.
+3. Copy the Client ID from the same Settings page, paste it in
+   MelodyBridge and press **Connect Spotify**.
+
+New apps run in **development mode**, which is fine for personal use:
+you are the app owner. Two things to know — the owning Spotify account
+must have Premium, and only you plus anyone you allowlist in the app's
+Settings → Users Management can log in (others get a 403). Extended
+quota mode needs a Spotify partner review that individuals cannot
+apply for; a personal MelodyBridge stays in development mode forever,
+and that is enough.
 
 Spotify PKCE keeps the refresh token; MelodyBridge stores it in its
 database and refreshes access tokens automatically. Reconnecting does
@@ -45,14 +57,18 @@ not break the old login: Spotify keeps it valid.
 
 ## YouTube
 
-1. In Google Cloud Console, enable the YouTube Data API v3 and create
-   OAuth credentials of type Web application.
+1. In Google Cloud Console, enable the YouTube Data API v3
+   (APIs & Services → Library) and create OAuth credentials of type
+   Web application (APIs & Services → Credentials).
 2. Add the YouTube redirect URI the Settings page shows
    (`http://127.0.0.1:PORT/auth/callback?provider=youtube` or your
-   deployment's equivalent) as an authorized redirect URI. For testing
-   outside Google's verification you must add yourself as a test user
-   on the OAuth consent screen.
-3. In Settings, paste the client id and secret and press
+   deployment's equivalent) as an authorized redirect URI.
+3. On the OAuth consent screen (APIs & Services → OAuth consent
+   screen) add your own Google account as a **Test user** — an
+   unverified app only works for its test users. The "unverified
+   app" warning at login is expected for a self-hosted personal
+   app; choose *Continue to project*.
+4. In Settings, paste the client id and secret and press
    **Connect YouTube**.
 
 Liked songs arrive through the channel's `likes` playlist (`LL`);

@@ -70,9 +70,15 @@
                 else
                 {
                     <ol>
-                        <li>Open <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener">developer.spotify.com/dashboard</a> and click <em>Create app</em>. Any name works.</li>
                         <li>
-                            In the app settings, add this exact redirect URI:
+                            Open <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener">developer.spotify.com/dashboard</a>
+                            and click <em>Create app</em>. Any name works. When Spotify asks
+                            <em>which APIs you are planning to use</em>, pick <strong>Web API</strong> —
+                            not Ads API, Web Playback SDK, iOS or Android. Web API is the one that
+                            can read your playlists and liked songs.
+                        </li>
+                        <li>
+                            In the app settings (top-right <em>Settings</em>), add this exact redirect URI:
                             <div class="hint-box">
                                 <code>@SpotifyRedirectUrl</code>
                                 <div class="flex-actions">
@@ -81,8 +87,15 @@
                                 </div>
                             </div>
                         </li>
-                        <li>Paste the app's Client ID here and click Connect.</li>
+                        <li>Copy the <em>Client ID</em> from the same settings page, paste it below and click Connect.</li>
                     </ol>
+                    <p class="text-muted">
+                        New Spotify apps start in <em>development mode</em>: that is fine for
+                        personal use — you are the owner. Your Spotify account must have
+                        Premium while the app stays in development mode, and the login only
+                        works for you and anyone you explicitly allowlist in the app's
+                        Settings → Users Management.
+                    </p>
                     <label>
                         Client ID (from developer.spotify.com)
                         <input @bind="spotifyClientId" placeholder="Spotify app Client ID" />
@@ -103,7 +116,12 @@
                 else
                 {
                     <ol>
-                        <li>Open <a href="https://console.cloud.google.com" target="_blank" rel="noopener">console.cloud.google.com</a>, create a project, enable the <em>YouTube Data API v3</em>, then create an OAuth client (type <em>Web application</em>).</li>
+                        <li>
+                            Open <a href="https://console.cloud.google.com" target="_blank" rel="noopener">console.cloud.google.com</a>,
+                            create a project, enable the <em>YouTube Data API v3</em>
+                            (APIs &amp; Services → Library), then create OAuth credentials of type
+                            <em>Web application</em> (APIs &amp; Services → Credentials).
+                        </li>
                         <li>
                             Add this exact redirect URI to the OAuth client:
                             <div class="hint-box">
@@ -116,6 +134,14 @@
                         </li>
                         <li>Paste the client ID and secret here and click Connect.</li>
                     </ol>
+                    <p class="text-muted">
+                        Before the first login, open the OAuth consent screen
+                        (APIs &amp; Services → OAuth consent screen) and add your own Google
+                        account as a <em>Test user</em> — unverified personal apps only work
+                        for their test users. You will see an "unverified app" warning: that
+                        is expected for a self-hosted personal app; choose
+                        <em>Continue to project</em>.
+                    </p>
                     <label>
                         Client ID (Google Cloud Console, OAuth Web application)
                         <input @bind="youtubeClientId" placeholder="OAuth client ID" />
