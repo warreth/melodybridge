@@ -130,15 +130,17 @@ else
                     Audio quality
                     <QualityPicker @bind-Value="editQuality" />
                 </label>
-                <label class="toggle-switch wide">
-                    <input type="checkbox" @bind="editAutoSync" />
-                    <span class="toggle-slider"></span>
-                    <span>Auto-sync this playlist</span>
+                <label>
+                    Auto-sync schedule
+                    <select @bind="editAutoSync">
+                        <option value="@false">Manual only</option>
+                        <option value="@true">Every N minutes</option>
+                    </select>
                 </label>
                 @if (editAutoSync)
                 {
                     <label>
-                        Check interval (minutes)
+                        Minutes between checks
                         <input type="number" min="5" step="5" @bind="editInterval" />
                     </label>
                 }

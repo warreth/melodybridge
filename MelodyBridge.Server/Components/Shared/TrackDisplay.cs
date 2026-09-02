@@ -42,9 +42,12 @@ public static class TrackDisplay
     public static string Size(long? bytes)
     {
         if (bytes is not > 0) return string.Empty;
-        return bytes >= 1024 * 1024
-            ? $"{bytes / (1024.0 * 1024.0):0.#} MB"
-            : $"{bytes / 1024.0:0.#} KB";
+        var mb = bytes / (1024.0 * 1024.0);
+        return mb >= 1024
+            ? $"{mb / 1024.0:0.#} GB"
+            : mb >= 1
+                ? $"{mb:0.#} MB"
+                : $"{bytes / 1024.0:0.#} KB";
     }
 
     public static string Duration(long? ms)
