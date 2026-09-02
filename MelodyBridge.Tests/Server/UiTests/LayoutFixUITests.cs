@@ -86,6 +86,8 @@ public class LayoutFixUITests
         var collector = new MelodyBridge.Server.Services.LogCollector();
         _ctx.Services.AddSingleton<MelodyBridge.Core.Logging.ILogCollector>(collector);
         _ctx.Services.AddSingleton(new MelodyBridge.Server.Services.LogExporter(collector));
+        // Settings injects the user directory; the default mock is enough.
+        _ctx.Services.AddSingleton(new Moq.Mock<MelodyBridge.Core.IJellyfinUserDirectory>().Object);
         // Loose mode: the dashboard calls JS helpers (tour, spotlight,
         // file download) that are irrelevant to these assertions.
         _ctx.JSInterop.Mode = JSRuntimeMode.Loose;
@@ -109,14 +111,14 @@ public class LayoutFixUITests
         var cut = _ctx.Render<QualityPicker>(p => p.Add(p => p.Value, "mp3:320"));
 
         var selects = cut.FindAll("select");
-        Assert.That(selects.Count, Is.EqualTo(2),
-            "container and bitrate are two separate dropdowns");
+        Assert.That(selects.Count, Is.EqualTo(3),
+            "container, floor and ceiling are separate dropdowns");
 
         var container = selects[0];
         Assert.That(container.QuerySelector("option:checked")!.GetAttribute("value"), Is.EqualTo("mp3"));
 
-        var bitrate = selects[1];
-        Assert.That(bitrate.QuerySelector("option:checked")!.GetAttribute("value"), Is.EqualTo("320"));
+        var ceiling = selects[2];
+        Assert.That(ceiling.QuerySelector("option:checked")!.GetAttribute("value"), Is.EqualTo("320"));
     }
 
     [Test]
@@ -158,11 +160,11 @@ public class LayoutFixUITests
 
         cut.FindAll("select")[0].Change("opus");
         Assert.That(emitted, Is.EqualTo("opus"),
-            "switching container resets the cap and emits the bare format");
+            "switching container resets the band and emits the bare format");
 
-        cut.FindAll("select")[1].Change("160");
+        cut.FindAll("select")[2].Change("160");
         Assert.That(emitted, Is.EqualTo("opus:160"),
-            "picking a bitrate emits the combined value the store persists");
+            "picking a ceiling emits the combined value the store persists");
     }
 
     [Test]
@@ -185,8 +187,9 @@ public class LayoutFixUITests
             .Single(b => b.TextContent.Trim() == "Quality").Click();
 
         cut.WaitForAssertion(() =>
-            Assert.That(cut.Markup, Does.Contain("Bitrate cap")), TimeSpan.FromSeconds(3));
+            Assert.That(cut.Markup, Does.Contain("Bitrate floor")), TimeSpan.FromSeconds(3));
         Assert.That(cut.Markup, Does.Contain("Container"));
+        Assert.That(cut.Markup, Does.Contain("Bitrate ceiling"));
     }
 
     // ── Playlists page cards ───────────────────────────────────────

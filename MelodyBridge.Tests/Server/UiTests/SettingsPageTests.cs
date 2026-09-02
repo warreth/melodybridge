@@ -4,6 +4,7 @@ using MelodyBridge.Server.Components.Pages;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
+using Moq;
 
 namespace MelodyBridge.Tests.Server.UiTests;
 
@@ -36,10 +37,22 @@ public class SettingsPageTests
         var collector = new MelodyBridge.Server.Services.LogCollector();
         _ctx.Services.AddSingleton<MelodyBridge.Core.Logging.ILogCollector>(collector);
         _ctx.Services.AddSingleton(new MelodyBridge.Server.Services.LogExporter(collector));
+        // Pages inject the directory; default mock does nothing until a test sets it up.
+        _ctx.Services.AddSingleton(new Moq.Mock<MelodyBridge.Core.IJellyfinUserDirectory>().Object);
+        _ctx.JSInterop.Mode = JSRuntimeMode.Loose;
     }
 
     [TearDown]
     public void TearDown() => _ctx.Dispose();
+
+    /// <summary>Swaps the setup's default directory mock for a test's own.</summary>
+    private void ReplaceService(Mock<MelodyBridge.Core.IJellyfinUserDirectory> directory)
+    {
+        var descriptor = _ctx.Services.FirstOrDefault(d =>
+            d.ServiceType == typeof(MelodyBridge.Core.IJellyfinUserDirectory));
+        if (descriptor is not null) _ctx.Services.Remove(descriptor);
+        _ctx.Services.AddSingleton<MelodyBridge.Core.IJellyfinUserDirectory>(directory.Object);
+    }
 
     [Test]
     public void Settings_Renders_Title_And_Tabs()
@@ -61,16 +74,15 @@ public class SettingsPageTests
     }
 
     [Test]
-    public void Settings_JellyfinTab_ShowsForm()
+    public void Settings_NoStandaloneJellyfinTab_MediaServersInstead()
     {
         var cut = _ctx.Render<Settings>();
-        cut.FindAll("button.tab-link").First(b => b.TextContent == "Jellyfin").Click();
 
-        cut.WaitForAssertion(() =>
-        {
-            Assert.That(cut.Markup, Does.Contain("Base URL"));
-            Assert.That(cut.Markup, Does.Contain("API key"));
-        }, TimeSpan.FromSeconds(3));
+        var labels = cut.FindAll("button.tab-link").Select(b => b.TextContent.Trim()).ToList();
+        Assert.That(labels, Does.Not.Contain("Jellyfin"),
+            "the standalone Jellyfin tab is gone; profiles own servers now");
+        Assert.That(labels, Does.Contain("Media servers"),
+            "the connections tab is labelled Media servers");
     }
 
     [Test]
@@ -117,7 +129,7 @@ public class SettingsPageTests
     public void Settings_ConnectionsTab_ManagesProfilesThroughRealStore()
     {
         var cut = _ctx.Render<Settings>();
-        cut.FindAll("button.tab-link").First(b => b.TextContent == "Connections").Click();
+        cut.FindAll("button.tab-link").First(b => b.TextContent == "Media servers").Click();
 
         cut.WaitForAssertion(() =>
             Assert.That(cut.Markup, Does.Contain("No profiles yet"),
@@ -140,6 +152,112 @@ public class SettingsPageTests
             Assert.That(all[0].Name, Is.EqualTo("Main server"));
             Assert.That(all[0].BaseUrl, Is.EqualTo("http://media:8096"));
         }, TimeSpan.FromSeconds(3));
+    }
+
+    [Test]
+    public void Settings_ConnectionsTab_TestButton_UsesJellyfinDirectory()
+    {
+        var directory = new Mock<MelodyBridge.Core.IJellyfinUserDirectory>();
+        directory.Setup(d => d.TestConnectionAsync("http://media:8096", "key1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+        ReplaceService(directory);
+
+        var profileStore = _ctx.Services.GetRequiredService<MelodyBridge.Infrastructure.Services.MediaServerProfileStore>();
+        profileStore.SaveAsync(new MelodyBridge.Infrastructure.Services.MediaServerProfile
+        {
+            Name = "Main server",
+            BaseUrl = "http://media:8096",
+            ApiKey = "key1",
+            Kind = "Jellyfin",
+        }).GetAwaiter().GetResult();
+
+        var cut = _ctx.Render<Settings>();
+        cut.FindAll("button.tab-link").First(b => b.TextContent == "Media servers").Click();
+
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("Main server")), TimeSpan.FromSeconds(3));
+
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Test").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            directory.Verify(d => d.TestConnectionAsync("http://media:8096", "key1", It.IsAny<CancellationToken>()), Times.Once);
+            Assert.That(cut.Markup, Does.Contain("reachable"),
+                "the ok pill shows next to the row after a passing test");
+        }, TimeSpan.FromSeconds(3));
+    }
+
+    [Test]
+    public void Settings_ConnectionsTab_MakeAppDefault_WritesGlobalJellyfinRows()
+    {
+        var profileStore = _ctx.Services.GetRequiredService<MelodyBridge.Infrastructure.Services.MediaServerProfileStore>();
+        profileStore.SaveAsync(new MelodyBridge.Infrastructure.Services.MediaServerProfile
+        {
+            Name = "Main server",
+            BaseUrl = "http://media:8096",
+            ApiKey = "key1",
+            Kind = "Jellyfin",
+        }).GetAwaiter().GetResult();
+
+        var cut = _ctx.Render<Settings>();
+        cut.FindAll("button.tab-link").First(b => b.TextContent == "Media servers").Click();
+
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("Main server")), TimeSpan.FromSeconds(3));
+
+        Assert.That(cut.Markup, Does.Not.Contain(">default<"),
+            "no default pill before the user picks one");
+
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Use as app default").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.Markup, Does.Contain(">default<"),
+                "the active profile carries the default pill");
+        }, TimeSpan.FromSeconds(3));
+
+        var factory = _ctx.Services.GetRequiredService<IDbContextFactory<MelodyBridgeDbContext>>();
+        using (var db = factory.CreateDbContext())
+        {
+            var settings = db.DownloaderSettings.ToList();
+            Assert.That(settings.First(s => s.Key == "jellyfin_url").Value,
+                Is.EqualTo("http://media:8096"), "jellyfin_url row written from the profile");
+            Assert.That(settings.First(s => s.Key == "jellyfin_key").Value,
+                Is.EqualTo("key1"), "jellyfin_key row written from the profile");
+        }
+    }
+
+    [Test]
+    public void Settings_ConnectionsTab_SeedsDefaultProfile_FromOldJellyfinSettings()
+    {
+        var factory = _ctx.Services.GetRequiredService<IDbContextFactory<MelodyBridgeDbContext>>();
+        using (var db = factory.CreateDbContext())
+        {
+            db.Database.EnsureCreated();
+            db.DownloaderSettings.Add(new DownloaderSettingEntity
+            { Key = "jellyfin_url", Value = "http://old-jellyfin:8096" });
+            db.DownloaderSettings.Add(new DownloaderSettingEntity
+            { Key = "jellyfin_key", Value = "old-key" });
+            db.SaveChanges();
+        }
+
+        var cut = _ctx.Render<Settings>();
+        cut.FindAll("button.tab-link").First(b => b.TextContent == "Media servers").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.Markup, Does.Contain("Default"),
+                "the old single-server settings became one profile");
+            Assert.That(cut.Markup, Does.Contain("old single-server Jellyfin settings moved into a profile"),
+                "the hint explains the migration");
+        }, TimeSpan.FromSeconds(3));
+
+        var profileStore = _ctx.Services.GetRequiredService<MelodyBridge.Infrastructure.Services.MediaServerProfileStore>();
+        var all = profileStore.GetAllAsync().GetAwaiter().GetResult();
+        Assert.That(all.Count, Is.EqualTo(1), "exactly one seeded profile");
+        Assert.That(all[0].Name, Is.EqualTo("Default"));
+        Assert.That(all[0].BaseUrl, Is.EqualTo("http://old-jellyfin:8096"));
+        Assert.That(all[0].ApiKey, Is.EqualTo("old-key"));
     }
 
     [Test]
@@ -166,6 +284,28 @@ public class SettingsPageTests
         var cut = _ctx.Render<Settings>();
         var btns = cut.FindAll("button");
         Assert.That(btns.Any(b => b.TextContent.Trim().Contains("Save settings")), Is.True);
+    }
+
+    [Test]
+    public async Task Settings_SaveAll_NoLongerWritesJellyfinRows()
+    {
+        var factory = _ctx.Services.GetRequiredService<IDbContextFactory<MelodyBridgeDbContext>>();
+        var cut = _ctx.Render<Settings>();
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Save settings").Click();
+
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("Settings saved.")), TimeSpan.FromSeconds(3));
+
+        using (var db = factory.CreateDbContext())
+        {
+            var keys = db.DownloaderSettings.Select(s => s.Key).ToList();
+            Assert.That(keys, Does.Not.Contain("jellyfin_url"),
+                "the old jellyfin fields are gone from SaveAll");
+            Assert.That(keys, Does.Not.Contain("jellyfin_key"));
+            Assert.That(keys, Does.Not.Contain("jellyfin_user"));
+            Assert.That(keys, Does.Contain("music_path"),
+                "the remaining settings still save");
+        }
     }
 
     [Test]

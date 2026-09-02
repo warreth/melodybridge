@@ -53,13 +53,13 @@ public class SpotifyAccountProvider : IAccountSourceProvider
         _logger = logger;
     }
 
-    public async Task<bool> IsConnectedAsync(CancellationToken ct = default)
+    public virtual async Task<bool> IsConnectedAsync(CancellationToken ct = default)
     {
         var tokens = await _tokens.GetTokensAsync(ProviderName, ct);
         return tokens is { AccessToken.Length: > 0 };
     }
 
-    public async Task<string> BeginLoginAsync(string redirectUrl, CancellationToken ct = default)
+    public virtual async Task<string> BeginLoginAsync(string redirectUrl, CancellationToken ct = default)
     {
         // The user's own app (or MelodyBridge's default), set in Settings.
         var clientId = await ReadClientIdAsync(ct);
@@ -83,7 +83,7 @@ public class SpotifyAccountProvider : IAccountSourceProvider
         return login.ToUri().ToString();
     }
 
-    public async Task<string> CompleteLoginAsync(
+    public virtual async Task<string> CompleteLoginAsync(
         string redirectQuery, string redirectUrl, CancellationToken ct = default)
     {
         var query = System.Web.HttpUtility.ParseQueryString(
@@ -110,21 +110,33 @@ public class SpotifyAccountProvider : IAccountSourceProvider
         var clientId = await ReadClientIdAsync(ct)
                        ?? throw new InvalidOperationException(
                            "Spotify Client ID is missing. Paste it in the account settings.");
-        var response = await new OAuthClient().RequestToken(
-            new PKCETokenRequest(clientId, code, new Uri(redirectUrl), pending.Value.Verifier));
+        try
+        {
+            var response = await new OAuthClient().RequestToken(
+                new PKCETokenRequest(clientId, code, new Uri(redirectUrl), pending.Value.Verifier));
 
-        await _tokens.SaveTokensAsync(ProviderName, ToTokens(response), ct);
+            await _tokens.SaveTokensAsync(ProviderName, ToTokens(response), ct);
+        }
+        catch (Exception ex)
+        {
+            // A failed exchange must not leave the pending login stuck:
+            // the next attempt starts a fresh PKCE pair.
+            _pendingLogin = null;
+            throw new InvalidOperationException(
+                $"Spotify token exchange failed: {ex.Message}. Try connecting again.");
+        }
+
         _logger.LogInformation("Spotify account connected");
         return "Spotify account connected";
     }
 
-    public Task LogoutAsync(CancellationToken ct = default)
+    public virtual Task LogoutAsync(CancellationToken ct = default)
         => _tokens.ClearAsync(ProviderName, ct);
 
-    public Task<string?> GetSettingAsync(string key, CancellationToken ct = default)
+    public virtual Task<string?> GetSettingAsync(string key, CancellationToken ct = default)
         => _tokens.GetSettingAsync(ProviderName, key, ct);
 
-    public Task SaveSettingAsync(string key, string value, CancellationToken ct = default)
+    public virtual Task SaveSettingAsync(string key, string value, CancellationToken ct = default)
         => _tokens.SaveSettingAsync(ProviderName, key, value, ct);
 
     /// <summary>

@@ -15,6 +15,7 @@
 @inject DatabaseBackupService DbBackup
 @inject UpdateCheckService UpdateCheck
 @inject NotificationService Notifications
+@inject IJellyfinUserDirectory JellyfinDirectory
 @inject IJSRuntime JS
 @implements IDisposable
 
@@ -30,7 +31,7 @@
 </section>
 
 <nav class="tab-nav">
-    @foreach (var tab in new[] { ("accounts", "Accounts"), ("connections", "Connections"), ("jellyfin", "Jellyfin"), ("paths", "Paths"), ("quality", "Quality"), ("network", "Network"), ("about", "About") })
+    @foreach (var tab in new[] { ("accounts", "Accounts"), ("connections", "Media servers"), ("paths", "Paths"), ("quality", "Quality"), ("network", "Network"), ("about", "About") })
     {
         <button class="tab-link @(activeTab == tab.Item1 ? "active" : "")"
                 @onclick="() => activeTab = tab.Item1">@tab.Item2</button>
@@ -53,8 +54,7 @@
         <div class="hint-box">
             Connect your accounts to import private playlists and your liked
             songs. MelodyBridge only asks for read access: it never changes
-            anything on your account. The redirect URI to register is
-            <code>@RedirectUrl</code>.
+            anything on your account.
         </div>
 
         <div class="account-grid">
@@ -69,12 +69,24 @@
                 }
                 else
                 {
+                    <ol>
+                        <li>Open <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener">developer.spotify.com/dashboard</a> and click <em>Create app</em>. Any name works.</li>
+                        <li>
+                            In the app settings, add this exact redirect URI:
+                            <div class="hint-box">
+                                <code>@SpotifyRedirectUrl</code>
+                                <div class="flex-actions">
+                                    <button class="btn-modern ghost small" type="button" @onclick="CopySpotifyRedirect">Copy</button>
+                                    <span class="text-muted">@copyHint</span>
+                                </div>
+                            </div>
+                        </li>
+                        <li>Paste the app's Client ID here and click Connect.</li>
+                    </ol>
                     <label>
                         Client ID (from developer.spotify.com)
                         <input @bind="spotifyClientId" placeholder="Spotify app Client ID" />
                     </label>
-                    <span class="text-muted">Create a free app at developer.spotify.com,
-                        add @RedirectUrl as redirect URI, paste the Client ID here.</span>
                     <button class="btn-modern primary" @onclick="ConnectSpotify">Connect Spotify</button>
                 }
             </div>
@@ -90,6 +102,20 @@
                 }
                 else
                 {
+                    <ol>
+                        <li>Open <a href="https://console.cloud.google.com" target="_blank" rel="noopener">console.cloud.google.com</a>, create a project, enable the <em>YouTube Data API v3</em>, then create an OAuth client (type <em>Web application</em>).</li>
+                        <li>
+                            Add this exact redirect URI to the OAuth client:
+                            <div class="hint-box">
+                                <code>@YouTubeRedirectUrl</code>
+                                <div class="flex-actions">
+                                    <button class="btn-modern ghost small" type="button" @onclick="CopyYouTubeRedirect">Copy</button>
+                                    <span class="text-muted">@copyHint</span>
+                                </div>
+                            </div>
+                        </li>
+                        <li>Paste the client ID and secret here and click Connect.</li>
+                    </ol>
                     <label>
                         Client ID (Google Cloud Console, OAuth Web application)
                         <input @bind="youtubeClientId" placeholder="OAuth client ID" />
@@ -119,10 +145,16 @@ else if (activeTab == "connections")
             <button class="btn-modern secondary small" @onclick="StartNewProfile">Add profile</button>
         </div>
         <div class="hint-box">
-            Named server profiles several sync jobs can share. The
-            Jellyfin tab still holds the app-wide default used by the
-            liked-songs sync; profiles are for everything else.
+            Named server profiles several sync jobs can share. Marking one
+            profile as the app default feeds the liked-songs sync.
         </div>
+        @if (migratedFromOldSettings)
+        {
+            <div class="hint-box">
+                Your old single-server Jellyfin settings moved into a profile
+                named "Default". Edit it here from now on.
+            </div>
+        }
         @if (profiles.Count == 0)
         {
             <div class="empty-state">No profiles yet. Add one to reuse a server across sync jobs.</div>
@@ -136,11 +168,23 @@ else if (activeTab == "connections")
                         <div style="flex:1; min-width:0;">
                             <strong>@profile.Name</strong>
                             <span class="pill neutral">@profile.Kind</span>
+                            @if (IsAppDefault(profile))
+                            {
+                                <span class="pill ok">default</span>
+                            }
+                            @if (profileTestStatus.TryGetValue(profile.Id, out var st) && st is not null)
+                            {
+                                <span class="pill @(st == "ok" ? "ok" : "err")">@(st == "ok" ? "reachable" : "unreachable")</span>
+                            }
                             <div class="text-muted" style="font-size:.85rem">@profile.BaseUrl</div>
                         </div>
                         <div class="flex-actions">
                             <button class="btn-modern ghost small" @onclick="() => EditProfile(profile)">Edit</button>
                             <button class="btn-modern ghost small" @onclick="() => DeleteProfile(profile)">Delete</button>
+                            <button class="btn-modern secondary small" @onclick="() => MakeAppDefault(profile)">Use as app default</button>
+                            <button class="btn-modern secondary small" disabled="@(testingProfile == profile.Id)" @onclick="() => TestProfile(profile)">
+                                @(testingProfile == profile.Id ? "Testing…" : "Test")
+                            </button>
                         </div>
                     </div>
                 }
@@ -174,23 +218,6 @@ else if (activeTab == "connections")
             </div>
         </section>
     }
-}
-else if (activeTab == "jellyfin")
-{
-    <section class="panel-card">
-        <div class="panel-header">
-            <div><span class="eyebrow">Media server</span>
-                <h2>Jellyfin</h2>
-            </div>
-        </div>
-        <div class="form-grid single">
-            <label>Base URL <input @bind="jellyfinUrl" /></label>
-            <label>API key <input @bind="jellyfinApiKey" type="password" /></label>
-            <label>Default user ID <input @bind="jellyfinUserId" placeholder="optional" /></label>
-        </div>
-        <div class="hint-box">Docker default uses <code>http://host.docker.internal:8096</code>. Make sure Jellyfin is
-            reachable.</div>
-    </section>
 }
 else if (activeTab == "paths")
 {
@@ -357,9 +384,6 @@ else if (activeTab == "about")
 
 @code {
     private string activeTab = "accounts";
-    private string jellyfinUrl = "http://host.docker.internal:8096";
-    private string jellyfinApiKey = "";
-    private string jellyfinUserId = "";
     private string musicPath = "/music";
     private string playlistPath = "/app/playlists";
     private string defaultQuality = "auto";
@@ -374,6 +398,9 @@ else if (activeTab == "about")
     private List<MediaServerProfile> profiles = [];
     private MediaServerProfile? editingProfile;
     private bool editingIsNew;
+    private bool migratedFromOldSettings;
+    private readonly Dictionary<string, string?> profileTestStatus = [];
+    private string? testingProfile;
 
     // About tab
     private UpdateCheckResult? updateResult;
@@ -392,11 +419,34 @@ else if (activeTab == "about")
     protected override async Task OnInitializedAsync()
     {
         profiles = (await ServerProfiles.GetAllAsync()).ToList();
-        await using var db = await DbFactory.CreateDbContextAsync();
-        var settings = await db.DownloaderSettings.ToListAsync();
-        jellyfinUrl = FindSetting(settings, "jellyfin_url", "http://host.docker.internal:8096");
-        jellyfinApiKey = FindSetting(settings, "jellyfin_key", "");
-        jellyfinUserId = FindSetting(settings, "jellyfin_user", "");
+
+        // Migration: the old single-server settings become one profile.
+        if (profiles.Count == 0)
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            var oldUrl = await db.DownloaderSettings
+                .Where(s => s.Key == "jellyfin_url" && s.Value != "")
+                .Select(s => s.Value)
+                .FirstOrDefaultAsync();
+            if (oldUrl is not null)
+            {
+                var oldKey = await db.DownloaderSettings
+                    .Where(s => s.Key == "jellyfin_key").Select(s => s.Value)
+                    .FirstOrDefaultAsync() ?? "";
+                await ServerProfiles.SaveAsync(new MediaServerProfile
+                {
+                    Name = "Default",
+                    Kind = "Jellyfin",
+                    BaseUrl = oldUrl,
+                    ApiKey = oldKey,
+                });
+                profiles = (await ServerProfiles.GetAllAsync()).ToList();
+                migratedFromOldSettings = true;
+            }
+        }
+
+        await LoadInitSettingsAsync();
+        var settings = _initSettings!;
         musicPath = FindSetting(settings, "music_path", "/music");
         playlistPath = FindSetting(settings, "playlist_path", "/app/playlists");
         defaultQuality = FindSetting(settings, "default_quality", "auto");
@@ -417,11 +467,48 @@ else if (activeTab == "about")
     private string spotifyClientId = string.Empty;
     private string youtubeClientId = string.Empty;
     private string youtubeClientSecret = string.Empty;
+    private string copyHint = string.Empty;
 
-    /// <summary>The page's own URL, as registered as the OAuth redirect.</summary>
-    private string RedirectUrl => Nav.ToAbsoluteUri("auth/callback").ToString();
+    /// <summary>The redirect URI for one provider, as registered in its
+    /// app settings. The provider marker tells the callback page which
+    /// account to finish; Spotify requires the URI to match exactly, so
+    /// the same string is used at login start and at token exchange.
+    /// Spotify also rejects "localhost" (April 2025 rule), so loopback
+    /// requests are shown and sent with the 127.0.0.1 literal instead.</summary>
+    private string RedirectUrlFor(string provider)
+        => LoopbackUri(Nav.ToAbsoluteUri($"auth/callback?provider={provider}"));
 
-    private async Task Connect(IAccountSourceProvider provider, string? clientId = null)
+    private string SpotifyRedirectUrl => RedirectUrlFor("spotify");
+    private string YouTubeRedirectUrl => RedirectUrlFor("youtube");
+
+    /// <summary>Replaces a "localhost" host with 127.0.0.1; anything else stays.
+    /// The AuthCallback page reuses this so the URI exchanged at token time
+    /// matches the one the login started with.</summary>
+    internal static string LoopbackUri(Uri uri)
+    {
+        if (!uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase))
+            return uri.ToString();
+        var builder = new UriBuilder(uri) { Host = "127.0.0.1" };
+        return builder.Uri.ToString();
+    }
+
+    private async Task CopyRedirectToClipboard(string uri)
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", uri);
+            copyHint = "Copied";
+        }
+        catch (JSException)
+        {
+            copyHint = "Copy failed — select it manually";
+        }
+    }
+
+    private Task CopySpotifyRedirect() => CopyRedirectToClipboard(SpotifyRedirectUrl);
+    private Task CopyYouTubeRedirect() => CopyRedirectToClipboard(YouTubeRedirectUrl);
+
+    private async Task Connect(IAccountSourceProvider provider, string redirectUrl, string? clientId = null)
     {
         try
         {
@@ -434,7 +521,7 @@ else if (activeTab == "about")
                     throw new InvalidOperationException("Paste the Client ID first.");
                 await provider.SaveSettingAsync("client_id", value);
             }
-            var loginUrl = await provider.BeginLoginAsync(RedirectUrl);
+            var loginUrl = await provider.BeginLoginAsync(redirectUrl);
             Nav.NavigateTo(loginUrl, forceLoad: true);
         }
         catch (Exception ex)
@@ -443,7 +530,7 @@ else if (activeTab == "about")
         }
     }
 
-    private Task ConnectSpotify() => Connect(SpotifyAccount, spotifyClientId);
+    private Task ConnectSpotify() => Connect(SpotifyAccount, SpotifyRedirectUrl, spotifyClientId);
 
     private async Task ConnectYouTube()
     {
@@ -454,7 +541,7 @@ else if (activeTab == "about")
         }
         await YouTubeAccount.SaveSettingAsync("client_id", youtubeClientId.Trim());
         await YouTubeAccount.SaveSettingAsync("client_secret", youtubeClientSecret.Trim());
-        await Connect(YouTubeAccount);
+        await Connect(YouTubeAccount, YouTubeRedirectUrl);
     }
 
     private async Task Logout(IAccountSourceProvider provider)
@@ -504,9 +591,6 @@ else if (activeTab == "about")
     private async Task SaveAll()
     {
         await using var db = await DbFactory.CreateDbContextAsync();
-        await Upsert(db, "jellyfin_url", jellyfinUrl);
-        await Upsert(db, "jellyfin_key", jellyfinApiKey);
-        await Upsert(db, "jellyfin_user", jellyfinUserId);
         await Upsert(db, "music_path", musicPath);
         await Upsert(db, "playlist_path", playlistPath);
         await Upsert(db, "default_quality", defaultQuality);
@@ -527,7 +611,58 @@ else if (activeTab == "about")
 
     private void ExportLogs() => Nav.NavigateTo("/api/logs/export", true);
 
-    // ── Connections tab ────────────────────────────────────────────
+    // ── Media servers tab ──────────────────────────────────────────
+
+    /// <summary>True when this profile's values are the app-wide jellyfin_* rows.</summary>
+    private bool IsAppDefault(MediaServerProfile profile)
+    {
+        var url = FindLiveSetting("jellyfin_url");
+        return url is not null && url.TrimEnd('/') == profile.BaseUrl.TrimEnd('/');
+    }
+
+    private string? FindLiveSetting(string key)
+    {
+        // Cached at init: good enough for the pill, avoids a DB hit per row.
+        return _initSettings?.FirstOrDefault(s => s.Key == key)?.Value;
+    }
+
+    private List<DownloaderSettingEntity>? _initSettings;
+
+    /// <summary>Writes this profile's values into the app-wide jellyfin_* rows.
+    /// Profiles carry no user id, so an existing jellyfin_user row is kept.</summary>
+    private async Task MakeAppDefault(MediaServerProfile profile)
+    {
+        await TourReset.SetAsync("jellyfin_url", profile.BaseUrl);
+        await TourReset.SetAsync("jellyfin_key", profile.ApiKey);
+        await LoadInitSettingsAsync(); // refresh the default pill
+        Notifications.Success($"'{profile.Name}' is now the app default.");
+        StateHasChanged();
+    }
+
+    private async Task LoadInitSettingsAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _initSettings = await db.DownloaderSettings.AsNoTracking().ToListAsync();
+    }
+
+    private async Task TestProfile(MediaServerProfile profile)
+    {
+        testingProfile = profile.Id;
+        try
+        {
+            var ok = await JellyfinDirectory.TestConnectionAsync(profile.BaseUrl, profile.ApiKey);
+            profileTestStatus[profile.Id] = ok ? "ok" : "err";
+        }
+        catch
+        {
+            profileTestStatus[profile.Id] = "err";
+        }
+        finally
+        {
+            testingProfile = null;
+            StateHasChanged();
+        }
+    }
 
     private void StartNewProfile()
     {

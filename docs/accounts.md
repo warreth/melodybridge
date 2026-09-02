@@ -19,12 +19,22 @@ in separate providers: when no account is connected, or the account call
 fails for any reason, the public path (Spotify embed page scraping,
 yt-dlp for YouTube) runs exactly as before.
 
+Each provider has its own redirect URI, differing only in a
+`?provider=` marker that tells the callback which account to finish.
+Always copy the exact URL from the Settings page — the platforms match
+redirect URIs exactly, including the query string.
+
+> **Spotify note:** since April 2025 Spotify rejects `localhost`
+> redirect URIs. MelodyBridge automatically shows and uses
+> `http://127.0.0.1:PORT/...` when you browse via localhost; register
+> the URL the Settings page displays and both sides match.
+
 ## Spotify
 
 1. Create an app at developer.spotify.com. No secret needed.
-2. Under Redirect URIs, add the exact URL the Settings page shows:
-   `http://localhost:5085/auth/callback` in dev, or your deployment's
-   `.../auth/callback`.
+2. Under Redirect URIs, add the exact URL the Settings page shows
+   (`http://127.0.0.1:PORT/auth/callback?provider=spotify` when you
+   browse via the loopback IP, or your deployment's equivalent).
 3. In Settings, paste the Client ID and press **Connect Spotify**.
 
 Spotify PKCE keeps the refresh token; MelodyBridge stores it in its
@@ -35,9 +45,11 @@ not break the old login: Spotify keeps it valid.
 
 1. In Google Cloud Console, enable the YouTube Data API v3 and create
    OAuth credentials of type Web application.
-2. Add the same `.../auth/callback` redirect URI as an authorized
-   redirect URI. For testing outside Google's verification you must add
-   yourself as a test user on the OAuth consent screen.
+2. Add the YouTube redirect URI the Settings page shows
+   (`http://127.0.0.1:PORT/auth/callback?provider=youtube` or your
+   deployment's equivalent) as an authorized redirect URI. For testing
+   outside Google's verification you must add yourself as a test user
+   on the OAuth consent screen.
 3. In Settings, paste the client id and secret and press
    **Connect YouTube**.
 

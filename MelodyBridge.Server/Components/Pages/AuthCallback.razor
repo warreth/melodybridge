@@ -71,10 +71,14 @@
                 throw new InvalidOperationException($"Unknown provider '{Provider}'.");
 
             // The redirect URL this page runs on, as registered in the
-            // platform's app settings.
-            var baseUri = Nav.ToBaseRelativePath(Nav.Uri);
-            var pagePath = baseUri.Contains('?') ? baseUri[..baseUri.IndexOf('?')] : baseUri;
-            var redirectUrl = Nav.Uri[..^pagePath.Length] + "auth/callback";
+            // platform's app settings — rebuilt exactly the way Settings
+            // built it when the login started, provider marker included:
+            // Spotify requires the exchange URI to match the authorize one
+            // character for character. Localhost hosts are exchanged with
+            // 127.0.0.1, the same substitution Settings makes.
+            var origin = Nav.BaseUri.TrimEnd('/');
+            var redirectUrl = Settings.LoopbackUri(new Uri(
+                $"{origin}/auth/callback?provider={Provider?.ToLowerInvariant()}"));
 
             message = await provider.CompleteLoginAsync(query, redirectUrl);
             done = true;

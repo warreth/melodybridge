@@ -45,13 +45,13 @@ public class YouTubeAccountProvider : IAccountSourceProvider
         _logger = logger;
     }
 
-    public async Task<bool> IsConnectedAsync(CancellationToken ct = default)
+    public virtual async Task<bool> IsConnectedAsync(CancellationToken ct = default)
     {
         var tokens = await _tokens.GetTokensAsync(ProviderName, ct);
         return tokens is { AccessToken.Length: > 0 };
     }
 
-    public async Task<string> BeginLoginAsync(string redirectUrl, CancellationToken ct = default)
+    public virtual async Task<string> BeginLoginAsync(string redirectUrl, CancellationToken ct = default)
     {
         var clientId = await ReadClientIdAsync(ct);
         var clientSecret = await ReadClientSecretAsync(ct);
@@ -85,7 +85,7 @@ public class YouTubeAccountProvider : IAccountSourceProvider
         return url.ToString();
     }
 
-    public async Task<string> CompleteLoginAsync(
+    public virtual async Task<string> CompleteLoginAsync(
         string redirectQuery, string redirectUrl, CancellationToken ct = default)
     {
         var query = System.Web.HttpUtility.ParseQueryString(
@@ -122,21 +122,32 @@ public class YouTubeAccountProvider : IAccountSourceProvider
             Scopes = new[] { YouTubeService.Scope.YoutubeReadonly },
         });
 
-        var response = await flow.ExchangeCodeForTokenAsync(
-            "melodybridge", code, redirectUrl, ct);
-        await SaveFromTokenResponseAsync(response, ct);
+        try
+        {
+            var response = await flow.ExchangeCodeForTokenAsync(
+                "melodybridge", code, redirectUrl, ct);
+            await SaveFromTokenResponseAsync(response, ct);
+        }
+        catch (Exception ex)
+        {
+            // A failed exchange must not leave the pending state stuck:
+            // the next attempt gets a fresh state value.
+            _pendingState = null;
+            throw new InvalidOperationException(
+                $"YouTube token exchange failed: {ex.Message}. Try connecting again.");
+        }
 
         _logger.LogInformation("YouTube account connected");
         return "YouTube account connected";
     }
 
-    public Task LogoutAsync(CancellationToken ct = default)
+    public virtual Task LogoutAsync(CancellationToken ct = default)
         => _tokens.ClearAsync(ProviderName, ct);
 
-    public Task<string?> GetSettingAsync(string key, CancellationToken ct = default)
+    public virtual Task<string?> GetSettingAsync(string key, CancellationToken ct = default)
         => _tokens.GetSettingAsync(ProviderName, key, ct);
 
-    public Task SaveSettingAsync(string key, string value, CancellationToken ct = default)
+    public virtual Task SaveSettingAsync(string key, string value, CancellationToken ct = default)
         => _tokens.SaveSettingAsync(ProviderName, key, value, ct);
 
     /// <summary>Google access tokens live 1h; refresh with the stored refresh token.</summary>
