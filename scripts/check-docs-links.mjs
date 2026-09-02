@@ -39,6 +39,10 @@ const linkPatterns = [
   /href="([^"]+)"/g,
 ]
 
+// Images under screenshots/ are paste-later placeholders in README (see the
+// SCREENSHOT comments there); only check them once the directory exists.
+const screenshotsExist = existsSync('screenshots')
+
 for (const file of files) {
   const text = readFileSync(file, 'utf8')
   for (const pattern of linkPatterns) {
@@ -46,6 +50,7 @@ for (const file of files) {
       const link = match[1]
       if (!link || link.startsWith('http') || link.startsWith('#') ||
           link.startsWith('mailto:') || link.startsWith('/')) continue
+      if (!screenshotsExist && link.startsWith('screenshots/')) continue
 
       const target = stripAnchor(link)
       if (!target) continue
