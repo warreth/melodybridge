@@ -548,7 +548,11 @@ else if (activeTab == "about")
                 await provider.SaveSettingAsync("client_id", value);
             }
             var loginUrl = await provider.BeginLoginAsync(redirectUrl);
-            Nav.NavigateTo(loginUrl, forceLoad: true);
+            // The login URL is another origin (accounts.spotify.com, ...).
+            // NavigateTo with forceLoad tears the circuit down mid-call on
+            // exactly these cross-origin jumps (a known Blazor Server race),
+            // so the browser location is assigned directly instead.
+            await JS.InvokeVoidAsync("window.location.assign", loginUrl);
         }
         catch (Exception ex)
         {

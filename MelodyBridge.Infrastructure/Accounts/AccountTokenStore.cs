@@ -54,6 +54,50 @@ public class AccountTokenStore
     public Task SaveSettingAsync(string provider, string key, string value, CancellationToken ct = default)
         => SetValueAsync($"account:{provider.ToLowerInvariant()}:{key}", value, ct);
 
+    /// <summary>
+    /// The OAuth login that is currently in flight (PKCE verifier + state,
+    /// plus when it started). Kept in the database, not in memory: the app
+    /// may restart between the redirect to the platform and the callback,
+    /// and a lost verifier means the user has to log in twice.
+    /// </summary>
+    public sealed record PendingLogin(string Verifier, string State, DateTime StartedAtUtc);
+
+    private static string PendingKey(string provider) => $"account:{provider.ToLowerInvariant()}:pending";
+
+    public async Task SavePendingLoginAsync(string provider, PendingLogin pending, CancellationToken ct = default)
+        => await SetValueAsync(PendingKey(provider),
+            System.Text.Json.JsonSerializer.Serialize(pending), ct);
+
+    public async Task<PendingLogin?> GetPendingLoginAsync(string provider, CancellationToken ct = default)
+    {
+        var value = await GetValueAsync(PendingKey(provider), ct);
+        if (value is null) return null;
+        try
+        {
+            var pending = System.Text.Json.JsonSerializer.Deserialize<PendingLogin>(value);
+            // A login older than an hour is stale: the authorize code expires
+            // long before that. Drop it so the user gets a clean retry.
+            return pending is { } p && p.StartedAtUtc > DateTime.UtcNow.AddHours(-1)
+                ? p : null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning("Corrupt pending login for {Provider}: {Message}", provider, ex.Message);
+            return null;
+        }
+    }
+
+    public async Task ClearPendingLoginAsync(string provider, CancellationToken ct = default)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var row = await db.DownloaderSettings.FirstOrDefaultAsync(s => s.Key == PendingKey(provider), ct);
+        if (row is not null)
+        {
+            db.DownloaderSettings.Remove(row);
+            await db.SaveChangesAsync(ct);
+        }
+    }
+
     /// <summary>Removes everything stored for one provider (logout).</summary>
     public async Task ClearAsync(string provider, CancellationToken ct = default)
     {

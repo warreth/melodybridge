@@ -32,9 +32,6 @@ public class YouTubeAccountProvider : IAccountSourceProvider
     private readonly AccountTokenStore _tokens;
     private readonly ILogger<YouTubeAccountProvider> _logger;
 
-    // One in-flight login: Google returns state on the redirect.
-    private static string? _pendingState;
-
     public string Name => ProviderName;
 
     public YouTubeAccountProvider(
@@ -59,7 +56,12 @@ public class YouTubeAccountProvider : IAccountSourceProvider
             throw new InvalidOperationException(
                 "No YouTube OAuth client configured. Create OAuth credentials (type Web application) in Google Cloud Console with the YouTube Data API v3 enabled, and paste the client id and secret in the account settings.");
 
-        _pendingState = Guid.NewGuid().ToString("N");
+        var state = Guid.NewGuid().ToString("N");
+        // Kept in the database: the app may restart while the user is on
+        // the Google consent page, and the state must survive that.
+        // Verifier stays empty: Google's flow is not PKCE.
+        await _tokens.SavePendingLoginAsync(ProviderName,
+            new AccountTokenStore.PendingLogin("", state, DateTime.UtcNow), ct);
 
         // Google's own flow builder; the redirect must be registered in the
         // Google Cloud Console exactly as used here.
@@ -74,7 +76,7 @@ public class YouTubeAccountProvider : IAccountSourceProvider
         });
 
         var request = flow.CreateAuthorizationCodeRequest(redirectUrl);
-        request.State = _pendingState;
+        request.State = state;
         var url = request.Build();
         // prompt=consent: Google then always issues a refresh token, also
         // for repeat logins, which the quiet default would skip.
@@ -94,20 +96,22 @@ public class YouTubeAccountProvider : IAccountSourceProvider
         var error = query["error"];
         if (!string.IsNullOrWhiteSpace(error))
         {
-            _pendingState = null;
+            await _tokens.ClearPendingLoginAsync(ProviderName, ct);
             throw new InvalidOperationException($"YouTube login failed: {error}");
         }
 
         var code = query["code"];
         var state = query["state"];
-        var expected = _pendingState;
-        _pendingState = null;
+        var pending = await _tokens.GetPendingLoginAsync(ProviderName, ct);
 
-        if (string.IsNullOrWhiteSpace(code) || expected is null)
+        if (string.IsNullOrWhiteSpace(code) || pending is null)
             throw new InvalidOperationException("YouTube login expired or was cancelled. Try again.");
-        if (state != expected)
+        if (state != pending.State)
+        {
+            await _tokens.ClearPendingLoginAsync(ProviderName, ct);
             throw new InvalidOperationException(
                 "YouTube login did not check out (state mismatch). Try again.");
+        }
 
         var clientId = await ReadClientIdAsync(ct);
         var clientSecret = await ReadClientSecretAsync(ct);
@@ -127,12 +131,13 @@ public class YouTubeAccountProvider : IAccountSourceProvider
             var response = await flow.ExchangeCodeForTokenAsync(
                 "melodybridge", code, redirectUrl, ct);
             await SaveFromTokenResponseAsync(response, ct);
+            await _tokens.ClearPendingLoginAsync(ProviderName, ct);
         }
         catch (Exception ex)
         {
             // A failed exchange must not leave the pending state stuck:
             // the next attempt gets a fresh state value.
-            _pendingState = null;
+            await _tokens.ClearPendingLoginAsync(ProviderName, ct);
             throw new InvalidOperationException(
                 $"YouTube token exchange failed: {ex.Message}. Try connecting again.");
         }

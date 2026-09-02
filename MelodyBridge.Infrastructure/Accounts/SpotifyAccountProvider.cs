@@ -39,10 +39,6 @@ public class SpotifyAccountProvider : IAccountSourceProvider
     private readonly AccountTokenStore _tokens;
     private readonly ILogger<SpotifyAccountProvider> _logger;
 
-    // One in-flight login: the PKCE verifier + state must survive between
-    // Begin and Complete. Single-user app, one login at a time is enough.
-    private static (string Verifier, string State)? _pendingLogin;
-
     public string Name => ProviderName;
 
     public SpotifyAccountProvider(
@@ -69,7 +65,10 @@ public class SpotifyAccountProvider : IAccountSourceProvider
 
         var (verifier, challenge) = PKCEUtil.GenerateCodes();
         var state = Guid.NewGuid().ToString("N");
-        _pendingLogin = (verifier, state);
+        // Kept in the database: the app may restart while the user is on
+        // the Spotify consent page, and the verifier must survive that.
+        await _tokens.SavePendingLoginAsync(ProviderName,
+            new AccountTokenStore.PendingLogin(verifier, state, DateTime.UtcNow), ct);
 
         var login = new LoginRequest(
             new Uri(redirectUrl),
@@ -92,20 +91,23 @@ public class SpotifyAccountProvider : IAccountSourceProvider
         var error = query["error"];
         if (!string.IsNullOrWhiteSpace(error))
         {
-            _pendingLogin = null;
+            await _tokens.ClearPendingLoginAsync(ProviderName, ct);
             throw new InvalidOperationException($"Spotify login failed: {error}");
         }
 
         var code = query["code"];
         var state = query["state"];
-        var pending = _pendingLogin;
-        _pendingLogin = null;
+        var pending = await _tokens.GetPendingLoginAsync(ProviderName, ct);
 
         if (string.IsNullOrWhiteSpace(code) || pending is null)
-            throw new InvalidOperationException("Spotify login expired or was cancelled. Try again.");
-        if (state != pending.Value.State)
+            throw new InvalidOperationException(
+                "Spotify login expired or was cancelled. Try again.");
+        if (state != pending.State)
+        {
+            await _tokens.ClearPendingLoginAsync(ProviderName, ct);
             throw new InvalidOperationException(
                 "Spotify login did not check out (state mismatch). Try again.");
+        }
 
         var clientId = await ReadClientIdAsync(ct)
                        ?? throw new InvalidOperationException(
@@ -113,15 +115,16 @@ public class SpotifyAccountProvider : IAccountSourceProvider
         try
         {
             var response = await new OAuthClient().RequestToken(
-                new PKCETokenRequest(clientId, code, new Uri(redirectUrl), pending.Value.Verifier));
+                new PKCETokenRequest(clientId, code, new Uri(redirectUrl), pending.Verifier));
 
             await _tokens.SaveTokensAsync(ProviderName, ToTokens(response), ct);
+            await _tokens.ClearPendingLoginAsync(ProviderName, ct);
         }
         catch (Exception ex)
         {
             // A failed exchange must not leave the pending login stuck:
             // the next attempt starts a fresh PKCE pair.
-            _pendingLogin = null;
+            await _tokens.ClearPendingLoginAsync(ProviderName, ct);
             throw new InvalidOperationException(
                 $"Spotify token exchange failed: {ex.Message}. Try connecting again.");
         }
