@@ -1,39 +1,29 @@
-# MelodyBridge docs
+---
+layout: home
 
-MelodyBridge is a self-hosted music toolbox. It saves the tracks of a Spotify
-or YouTube playlist, downloads the music through a waterfall of plugins,
-and publishes the result as an M3U file or a Jellyfin playlist.
+hero:
+  name: MelodyBridge
+  text: Your playlists, your files.
+  tagline: Save a Spotify or YouTube playlist, download the tracks through a plugin waterfall, and publish them as M3U or Jellyfin playlists — on your own server.
+  actions:
+    - theme: brand
+      text: Quick start
+      link: /quickstart
+    - theme: alt
+      text: GitHub
+      link: https://github.com/warreth/melodybridge
 
-## Start here
-
-- [Quick start](quickstart.md): get MelodyBridge running in five minutes
-  with Docker
-- [Features](features.md): what the app does and how each part works
-- [User guide](user-guide.md): a walkthrough of every page in the web UI
-
-## Deploy and configure
-
-- [Docker guide](docker.md): compose reference, volumes, environment
-  variables, production tips
-- [Accounts and OAuth](accounts.md): connect Spotify and YouTube to import
-  private playlists and liked songs
-- [Lucida and FlareSolverr](lucida.md): optional high quality downloads from
-  Tidal and Qobuz sources
-
-## Contribute
-
-- [Developer guide](developer.md): architecture, plugin interfaces, testing
-- [Desktop wrapper](https://github.com/warreth/melodybridge-desktop): optional, in its own repo
-
-## About this site
-
-This site is built with [VitePress](https://vitepress.dev). To preview it
-locally you need Node.js 18 or newer:
-
-```bash
-npm install
-npm run docs:dev
-```
-
-The dev server opens on http://localhost:5173. The production build runs in
-CI on every push to main that touches the docs.
+features:
+  - icon: 🎵
+    title: Multi-source downloads
+    details: A waterfall of plugins — Lucida, SoundCloud, Internet Archive, yt-dlp and more — tries each track until one passes your quality bar.
+  - icon: 🐳
+    title: Self-hosted, one container
+    details: Docker Compose starts the app and its Cloudflare solver. Your music and database stay in one ./data folder you own.
+  - icon: 🔍
+    title: Real quality checks
+    details: "Files are measured, not trusted: bitrate probing, duration verification and a spectral check that catches fake 320 kbps rips."
+  - icon: 📤
+    title: Publish anywhere
+    details: Write M3U files with full metadata or push playlists straight into Jellyfin, on the schedule you pick.
+---
