@@ -40,7 +40,8 @@ public class DownloadCoordinatorTests
             Interlocked.Increment(ref Downloads);
             Directory.CreateDirectory(outputDirectory);
             var path = Path.Combine(outputDirectory, $"{melodyId}.mp3");
-            await File.WriteAllTextAsync(path, "x", ct);
+            // Real MP3 bytes: the download gate ffprobes finished files.
+            await File.WriteAllBytesAsync(path, TestAudio.MinimalMp3(), ct);
             return new DownloaderDownloadResult(true, path, null);
         }
     }
@@ -253,7 +254,8 @@ public class DownloadCoordinatorTests
                 Interlocked.Increment(ref Downloads);
                 Directory.CreateDirectory(outputDirectory);
                 var path = Path.Combine(outputDirectory, melodyId + ".mp3");
-                await File.WriteAllTextAsync(path, "x", ct);
+                // Real MP3 bytes: the download gate ffprobes finished files.
+                await File.WriteAllBytesAsync(path, TestAudio.MinimalMp3(), ct);
                 return new DownloaderDownloadResult(true, path, null);
             }
             finally

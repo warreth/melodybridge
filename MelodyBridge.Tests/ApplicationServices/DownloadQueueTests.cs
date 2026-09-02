@@ -41,7 +41,10 @@ public class DownloadQueueTests
             Interlocked.Increment(ref Downloads);
             Directory.CreateDirectory(outputDirectory);
             var path = Path.Combine(outputDirectory, melodyId + ".mp3");
-            await File.WriteAllTextAsync(path, "x", ct);
+            // Real MP3 bytes: the download gate ffprobes every finished
+            // file, so a one-letter text file would fail the integrity
+            // check and never count as done.
+            await File.WriteAllBytesAsync(path, TestAudio.MinimalMp3(), ct);
             return new DownloaderDownloadResult(true, path, null);
         }
     }
