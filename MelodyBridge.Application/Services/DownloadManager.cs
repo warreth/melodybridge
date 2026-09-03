@@ -79,7 +79,14 @@ public class DownloadManager : IDownloadManager
         var skippedByBand = 0;
         try
         {
-            foreach (var downloader in _registry.GetEnabled())
+            // Quality-aware routing: plugins that cannot serve this request
+            // are excluded before any network call, survivors ranked so the
+            // most promising source runs first.
+            var plan = QualityRouter.Route(quality, _registry.GetEnabled());
+            foreach (var (downloader, reason) in plan.Excluded)
+                _logger.LogDebug("Router excluded {Name}: {Reason}", downloader.Name, reason);
+
+            foreach (var downloader in plan.Plugins)
             {
                 if (!await downloader.IsAvailableAsync(ct))
                 {
@@ -137,9 +144,12 @@ public class DownloadManager : IDownloadManager
             _progress[melodyId] = new DownloadProgress(melodyId, title, "failed", null, "No plugin could download this track");
             // Distinguish "nothing matched your filters" from "nobody has
             // the track": the fix for the first is relaxing the filters.
-            _lastFailure[melodyId] = skippedByBand > 0
-                ? $"sources had {skippedByBand} file(s) outside your quality filters"
-                : "no source had this track";
+            _lastFailure[melodyId] =
+                plan.Plugins.Count == 0 && plan.Excluded.Count > 0
+                    ? "your quality filters excluded every plugin"
+                    : skippedByBand > 0
+                        ? $"sources had {skippedByBand} file(s) outside your quality filters"
+                        : "no source had this track";
             return null;
         }
         catch (Exception ex)
