@@ -1,3 +1,4 @@
+using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -46,6 +47,22 @@ public static class SchemaPatcher
         {
             foreach (var playlist in legacy)
                 playlist.ScheduleCron = $"*/{playlist.AutoSyncIntervalMinutes ?? 60} * * * *";
+            await db.SaveChangesAsync(ct);
+        }
+
+        // One-time backfill: file imports (Exportify CSV, Spotify privacy
+        // export) used to be stored as Spotify playlists with a
+        // spotify:import: URL. They are manual snapshots with no live
+        // source: the platform moves to Unknown so the UI labels them
+        // Imported and stops offering refresh and auto-sync.
+        var imports = await db.Playlists
+            .Where(p => p.SourceUrl.StartsWith("spotify:import:")
+                        && p.SourcePlatform == Platform.Spotify)
+            .ToListAsync(ct);
+        if (imports.Count > 0)
+        {
+            foreach (var playlist in imports)
+                playlist.SourcePlatform = Platform.Unknown;
             await db.SaveChangesAsync(ct);
         }
     }

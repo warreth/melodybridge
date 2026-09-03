@@ -164,8 +164,8 @@ public class PlaylistEntity
     public string? ScheduleCron { get; set; }
     /// <summary>
     /// How re-syncs reconcile local tracks with the source:
-    /// Additive — new tracks are added, removed tracks stay.
-    /// Mirror — the snapshot exactly matches the source (removed tracks deleted locally).
+    /// Additive: new tracks are added, removed tracks stay.
+    /// Mirror: the snapshot exactly matches the source (removed tracks deleted locally).
     /// </summary>
     public string SyncMode { get; set; } = "Additive";
     public DateTime? LastSyncAt { get; set; }
@@ -179,6 +179,14 @@ public class PlaylistEntity
     /// </summary>
     public string PreferredFormat { get; set; } = "auto";
     public List<TrackEntity> Tracks { get; set; } = new();
+
+    /// <summary>
+    /// True for playlists that came from a file import (Exportify CSV,
+    /// Spotify privacy export) rather than a live source. They have no
+    /// URL to re-fetch: refresh is a re-upload, auto-sync is meaningless.
+    /// The spotify:import: marker in SourceUrl is the identity.
+    /// </summary>
+    public bool IsManualImport => SourceUrl.StartsWith("spotify:import:", StringComparison.Ordinal);
 }
 
 public class ProviderStateRow
