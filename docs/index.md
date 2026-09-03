@@ -19,7 +19,7 @@ hero:
 features:
   - icon: 🎵
     title: Multi-source downloads
-    details: A waterfall of plugins (Lucida, SoundCloud, Internet Archive, yt-dlp and more) tries each track until one passes your quality bar.
+    details: A waterfall of plugins (Lucida, SoundCloud, Internet Archive, yt-dlp and more), routed by what each can actually serve, tries each track until one passes your quality bar.
   - icon: 🐳
     title: Self-hosted, one container
     details: Docker Compose starts the app and its Cloudflare solver. Your music and database stay in one ./data folder you own.
@@ -29,4 +29,7 @@ features:
   - icon: 📤
     title: Publish anywhere
     details: Write M3U files with full metadata or push playlists straight into Jellyfin, Plex or Navidrome, on the schedule you pick.
+  - icon: 🔑
+    title: Nothing to lose
+    details: "Every file carries a source-derived ID tag, so your library survives a database wipe: re-add the playlists and everything links back, no redownloads."
 ---

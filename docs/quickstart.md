@@ -41,6 +41,12 @@ What that looks like:
 
 <img src="/screens/home.webp" alt="The MelodyBridge dashboard you see after logging in" width="800">
 
+::: tip Paths inside Docker
+Every path you type in the app is seen from inside the container: the
+music folder is `/music`, not your host path. Screens that take
+a path show the same reminder.
+:::
+
 ::: tip Jellyfin, Plex or Navidrome on the host
 If your media server runs on your host, use
 `http://host.docker.internal:8096` (Jellyfin), `:32400` (Plex) or

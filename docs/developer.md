@@ -39,11 +39,14 @@ outside this solution.
 ```
 Spotify playlist URL
    → SpotifySourceProvider (embed page scraping, no API key)
-   → PlaylistStore (SQLite snapshot, ExternalId identity, sync modes)
+   → PlaylistStore (SQLite snapshot, deterministic MelodyIds, sync modes)
    → DownloadMissingAsync → DownloadManager waterfall → YtDlpDownloader
-   → MP3 file + MELODY_ID tag + title/artist tags
+   → MP3 file + title/artist tags + MELODY_ID written by the manager
    → LibraryScanner (reads tags, keeps DB current as files move)
    → SyncJobRunner → M3uGenerator (#EXTINF) or IMediaServerSync (Jellyfin, Plex, Navidrome)
+
+The MELODY_ID in the file is the source of truth and the database is a
+cache over it: see Track identity below.
 ```
 
 ## Core interfaces
@@ -56,6 +59,7 @@ public interface IDownloader
     string Id { get; }
     string Name { get; }
     string Description => string.Empty;
+    PluginCapabilities Capabilities { get; }   // required, no default
     Task<bool> IsAvailableAsync(CancellationToken ct = default);
     Task<DownloaderSearchHit?> SearchAsync(
         string artist, string title, DownloadQuality quality, CancellationToken ct = default);
@@ -64,6 +68,19 @@ public interface IDownloader
         DownloadQuality? quality = null, CancellationToken ct = default);
 }
 ```
+
+`PluginCapabilities` is the plugin's honest manifest: the containers it
+can produce, its real bitrate bounds (null means unbounded) and whether
+lossless is in reach. It has no default implementation, so a plugin that
+does not declare its limits does not compile. The router uses it to
+exclude plugins that cannot serve a request before any network call and
+to rank the survivors: lossless requests try lossless-capable sources
+first, small-file caps try small-file specialists first, and the No
+filter quality keeps the priority order set on the Plugins page.
+
+Plugins do not write the MELODY_ID tag themselves. `DownloadManager`
+writes it once for every plugin after the file passes the quality band;
+a plugin's tagging code only handles its own metadata.
 
 Implement this to add a download source. Built-in plugins:
 
@@ -122,7 +139,7 @@ public interface IDownloadManager
 }
 ```
 
-`DownloadTrackAsync` iterates enabled plugins by priority: each searches by artist/title and the first successful download wins. `DownloadAsync` passes a direct URL to the plugins that can handle it.
+`DownloadTrackAsync` routes the enabled plugins through `QualityRouter` first: incompatible plugins are excluded before any network call, survivors are ranked for the request, and the first successful download wins. When every plugin is excluded the track fails fast with "your quality filters excluded every plugin". On success the manager writes the MELODY_ID tag. `DownloadAsync` passes a direct URL to the plugins that can handle it.
 
 ### Other key types
 
@@ -131,6 +148,37 @@ public interface IDownloadManager
 - **`TrackEntity`**, **`PlaylistEntity`**, **`ProviderStateRow`**: EF Core entities for persistence
 - **`ScanLocationEntity`**, **`SyncJobEntity`**, **`SyncJobRunEntity`**: Library paths and sync job tracking
 - **`PlaylistSyncMode`**: `Additive` (removed tracks stay as flagged history) / `Mirror` (local copy matches the source exactly)
+
+## Track identity: MELODY_ID
+
+Every downloaded file carries a `MELODY_ID` tag. The value is
+deterministic, derived from the source item by `MelodyIds` (Core):
+
+| Source | Id | Example |
+|---|---|---|
+| Spotify track | `spotify:{trackId}` | `spotify:4uLU6hMCjMI75M1A2tKUQC` |
+| YouTube video | `yt:{videoId}` | `yt:dQw4w9WgXcQ` |
+| Internet Archive item | `ia:{identifier}` | `ia:gd1970-06-14` |
+| CSV import row | `csv:{16-hex hash}` | SHA-256 of artist, title and duration |
+| Id-less fallback | `mbh:{16-hex hash}` | same hash, unknown source |
+
+The tag is the source of truth; the database is a cache over it. Wipe
+the database, re-add the same playlists: every row mints the same id
+again, the scanner upserts the files by tag, the reconciler relinks
+playlist rows to them, and nothing redownloads.
+
+Tag storage, per container format: ID3v2 TXXX frame for MP3, the
+Xiph/Vorbis comment field for FLAC, Ogg and Opus, and a
+`MELODY_ID={id}` comment marker for MP4 and the rest.
+`TaglibHelper.WriteMelodyId` probes Xiph first: creating an
+ID3v2 tag inside a FLAC fabricates a block that hijacks storage. The
+comment marker path replaces any existing marker instead of appending.
+The manager writes the tag, never the plugins, and only after the file
+passes the quality band, so no rejected file is ever tagged.
+
+Legacy databases keep their `mb-{guid}` rows: those tags
+still match their files. A SchemaPatcher backfill fills the
+deterministic id only for rows that have an ExternalId and no MelodyId.
 
 ## Dependency injection
 
@@ -204,10 +252,13 @@ MelodyBridge.Tests/
 │   │                                # containers (Category=Live, images must
 │   │                                # be pulled; the Plex one reads PLEX_TOKEN)
 │   ├── TaglibHelperTests.cs         # Tag reading/writing
+│   ├── TaglibMelodyIdFormatsTests.cs # Real ffmpeg files: MP3, FLAC, Opus, M4A roundtrips
+│   ├── StatelessRecoveryTests.cs    # Wipe db, re-add, relink, zero redownloads
 │   └── DbContextTests.cs
 ├── Services/
 │   ├── PlaylistStoreLiveTests.cs    # Live Spotify fetch, real SQLite
 │   ├── PlaylistStoreSyncModeTests.cs # Additive/Mirror with real SQLite
+│   ├── MelodyIdsTests.cs           # Deterministic id format table
 │   ├── SpotifySourceProviderTests.cs
 │   └── SyncEngineTests.cs
 ├── Integration/

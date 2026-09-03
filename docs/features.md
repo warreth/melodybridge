@@ -91,12 +91,23 @@ only appears when asked for, and MelodyBridge does not transcode, so
 strict filters can make a download fail when the sources cannot
 provide that exact format. A failed track says so in its row.
 
+Playlist settings save themselves: text fields save half a second
+after the last keystroke, dropdowns save at once, and a quiet
+indicator in the heading narrates the save. A failed save rolls the
+fields back to what the database accepted, so nothing is ever lost
+to a missed Save button, because there is none.
+
 ## Consistent tags
 
-Every downloaded file gets a unique `MELODY_ID` written into an ID3v2
-TXXX frame, plus title, artist, album and track number taken from the
-playlist data. Players show the right names and MelodyBridge can always
-recognize its own files, even after you move or rename them.
+Every downloaded file gets a `MELODY_ID` tag, plus title, artist,
+album and track number taken from the playlist data. Players show the
+right names and MelodyBridge can always recognize its own files, even
+after you move or rename them.
+
+The id is derived from the source, not minted at random: a Spotify
+track always gets the same id, whatever database it was first saved
+into. MP3 carries it in an ID3v2 TXXX frame, FLAC, Ogg and Opus in
+their native comment field, MP4 in a comment marker.
 
 ## Sync modes
 
@@ -144,6 +155,13 @@ automatically.
 The Library page lists your scan folders and how matching works;
 track lists live on the playlist pages, not here.
 
+::: tip Your library survives a database wipe
+Because every file carries its source-derived MELODY_ID, the database
+is a cache you can rebuild. Delete the database, re-add the same
+playlists, run a scan: every track links back to the file that
+already exists on disk, and nothing downloads twice.
+:::
+
 ## Dashboard
 
 The web UI is a Blazor dashboard with pages for playlists, plugins,
@@ -153,5 +171,5 @@ sync jobs, the library and logs:
 - **Plugins**: waterfall order, toggles, live download runs with pause and cancel
 - **Sync jobs**: the five step wizard from source playlist to output
 - **Library**: scan locations and scan runs
-- **Settings**: media server profiles, paths, quality checks, accounts
+- **Settings**: media server profiles, paths, quality checks, network (FlareSolverr, Spotify cookie), accounts
 - **Logs**: what happened and what went wrong
