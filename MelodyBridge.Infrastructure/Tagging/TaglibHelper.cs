@@ -1,23 +1,49 @@
+using System.Text.RegularExpressions;
 using TagLib;
 
 namespace MelodyBridge.Infrastructure.Tagging;
 
 public static class TaglibHelper
 {
-    // Write a MELODY_ID into an ID3v2 TXXX frame (UserTextInformationFrame) when possible,
-    // and fallback to Comment tag for other formats.
+    // Marker format used in the Comment fallback: "MELODY_ID={id}" on its own line.
+    private const string MelodyIdField = "MELODY_ID";
+
+    // Matches "MELODY_ID=value" when it appears as the start of a line
+    // (multiline), so a marker embedded in a longer comment is found.
+    private static readonly Regex CommentMarkerRegex =
+        new("^MELODY_ID=([^\\s]+)", RegexOptions.Multiline | RegexOptions.Compiled);
+
+    // Write a MELODY_ID into an ID3v2 TXXX frame (UserTextInformationFrame) for
+    // ID3 formats, a Xiph comment field for Ogg/FLAC/Opus, and an idempotent
+    // Comment marker fallback for MP4 and anything else.
     public static void WriteMelodyId(string filePath, string melodyId)
     {
         try
         {
             var file = TagLib.File.Create(filePath);
-            // Try ID3v2 TXXX
+
+            // Path 1: Xiph comment (Ogg Vorbis, Opus, FLAC). Checked first because
+            // GetTag(Id3v2, create:true) would fabricate an ID3v2 tag inside FLAC,
+            // hijacking the native storage for those formats.
+            try
+            {
+                var xiph = file.GetTag(TagTypes.Xiph, true) as TagLib.Ogg.XiphComment;
+                if (xiph != null)
+                {
+                    xiph.SetField(MelodyIdField, melodyId);
+                    file.Save();
+                    return;
+                }
+            }
+            catch { }
+
+            // Path 2: ID3v2 TXXX (mp3, and anything else carrying an ID3v2 tag).
             try
             {
                 var id3v2 = file.GetTag(TagTypes.Id3v2, true) as TagLib.Id3v2.Tag;
                 if (id3v2 != null)
                 {
-                    var frame = TagLib.Id3v2.UserTextInformationFrame.Get(id3v2, "MELODY_ID", true);
+                    var frame = TagLib.Id3v2.UserTextInformationFrame.Get(id3v2, MelodyIdField, true);
                     frame.Text = new[] { melodyId };
                     file.Save();
                     return;
@@ -25,8 +51,13 @@ public static class TaglibHelper
             }
             catch { }
 
-            // Fallback: append to comment
-            file.Tag.Comment = (file.Tag.Comment ?? string.Empty) + " MELODY_ID=" + melodyId;
+            // Path 3 (fallback, MP4 and others): comment marker. Replace the whole
+            // comment with a single marker so rewriting never duplicates or grows.
+            var comment = file.Tag.Comment ?? string.Empty;
+            var marker = MelodyIdField + "=" + melodyId;
+            file.Tag.Comment = CommentMarkerRegex.IsMatch(comment)
+                ? CommentMarkerRegex.Replace(comment, marker)
+                : marker;
             file.Save();
         }
         catch
@@ -85,29 +116,35 @@ public static class TaglibHelper
         try
         {
             var file = TagLib.File.Create(filePath);
-            // ID3v2
+
+            // ID3v2 TXXX
             try
             {
                 var id3v2 = file.GetTag(TagTypes.Id3v2) as TagLib.Id3v2.Tag;
                 if (id3v2 != null)
                 {
-                    var frame = TagLib.Id3v2.UserTextInformationFrame.Get(id3v2, "MELODY_ID", false);
+                    var frame = TagLib.Id3v2.UserTextInformationFrame.Get(id3v2, MelodyIdField, false);
                     if (frame != null && frame.Text?.Length > 0)
                         return frame.Text[0];
                 }
             }
             catch { }
 
-            // Fallback: comment
-            var comment = file.Tag.Comment ?? string.Empty;
-            var marker = "MELODY_ID=";
-            var idx = comment.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
-            if (idx >= 0)
+            // Xiph comment field (Ogg Vorbis/Opus, FLAC)
+            try
             {
-                var after = comment.Substring(idx + marker.Length).Trim();
-                var parts = after.Split(new[] { ' ', ';', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
-                return parts.Length > 0 ? parts[0] : after;
+                var xiph = file.GetTag(TagTypes.Xiph) as TagLib.Ogg.XiphComment;
+                var field = xiph?.GetFirstField(MelodyIdField);
+                if (!string.IsNullOrEmpty(field))
+                    return field;
             }
+            catch { }
+
+            // Comment marker
+            var comment = file.Tag.Comment ?? string.Empty;
+            var match = CommentMarkerRegex.Match(comment);
+            if (match.Success)
+                return match.Groups[1].Value;
 
             return null;
         }
