@@ -1,0 +1,24 @@
+/* Home (dashboard) scoped styles: connection rows with a brand icon
+   column, and the playlist cover placeholder glyph. */
+
+/* Brand icon column inside each connection row (app.css defines the
+   base two-column grid; this widens it to icon + text + pill). */
+::deep .connection-icon {
+    width: 24px;
+    display: inline-grid;
+    place-items: center;
+}
+
+::deep .connection-row {
+    grid-template-columns: 24px minmax(0, 1fr) auto;
+}
+
+/* The intro cover placeholder keeps its glyph box, now holding an icon. */
+::deep .cover-placeholder-icon {
+    color: var(--muted-2);
+}
+
+/* Done steps swap their number for a check icon; keep the box centered. */
+::deep .workflow-number .workflow-check {
+    display: block;
+}

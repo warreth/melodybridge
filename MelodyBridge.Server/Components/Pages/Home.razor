@@ -47,9 +47,19 @@
             </div>
             <button class="btn-modern ghost small" @onclick="RefreshStats">Refresh</button>
         </div>
+        <MountWarning />
         <div class="workflow-list">
             <a class="workflow-step @(step1Done ? "done" : "todo")" href="/playlists">
-                <span class="workflow-number">@(step1Done ? "✓" : "1")</span>
+                <span class="workflow-number">
+                    @if (step1Done)
+                    {
+                        <Icon Name="check" Size="14" Class="workflow-check" />
+                    }
+                    else
+                    {
+                        @:1
+                    }
+                </span>
                 <div>
                     <strong>Add a playlist</strong>
                     <p>Paste a public Spotify or YouTube playlist link on the Playlists page.
@@ -57,20 +67,38 @@
                         private playlists and liked songs.</p>
                     <small>@(step1Done ? $"{playlistsCount} playlist(s) saved" : "Not done yet")</small>
                 </div>
-                <span class="workflow-arrow">→</span>
+                <span class="workflow-arrow"><Icon Name="chevron-right" Size="16" /></span>
             </a>
             <a class="workflow-step @(step2Done ? "done" : "todo")" href="/playlists">
-                <span class="workflow-number">@(step2Done ? "✓" : "2")</span>
+                <span class="workflow-number">
+                    @if (step2Done)
+                    {
+                        <Icon Name="check" Size="14" Class="workflow-check" />
+                    }
+                    else
+                    {
+                        @:2
+                    }
+                </span>
                 <div>
                     <strong>Download the music</strong>
                     <p>Open the playlist and click Download missing. Each track is fetched by the
                         plugin waterfall and quality-checked before it lands on your disk.</p>
                     <small>@(step2Done ? $"{downloadedCount} track(s) downloaded" : "Nothing downloaded yet")</small>
                 </div>
-                <span class="workflow-arrow">→</span>
+                <span class="workflow-arrow"><Icon Name="chevron-right" Size="16" /></span>
             </a>
             <a class="workflow-step @(step3Done ? "done" : "todo")" href="/sync-jobs">
-                <span class="workflow-number">@(step3Done ? "✓" : "3")</span>
+                <span class="workflow-number">
+                    @if (step3Done)
+                    {
+                        <Icon Name="check" Size="14" Class="workflow-check" />
+                    }
+                    else
+                    {
+                        @:3
+                    }
+                </span>
                 <div>
                     <strong>Publish it</strong>
                     <p>Create a sync job that writes an M3U file or pushes the playlist to your
@@ -102,25 +130,25 @@ else
 
     <section class="stat-grid">
         <div class="stat-card">
-            <span class="stat-icon">♫</span>
+            <Icon Name="list-music" Size="20" Class="stat-icon" />
             <label>Playlists</label>
             <strong>@playlistsCount</strong>
             <small>Saved from Spotify or YouTube</small>
         </div>
         <div class="stat-card">
-            <span class="stat-icon">↓</span>
+            <Icon Name="download" Size="20" Class="stat-icon" />
             <label>Downloaded tracks</label>
             <strong>@downloadedCount</strong>
             <small>Files on your disk</small>
         </div>
         <div class="stat-card">
-            <span class="stat-icon">≡</span>
+            <Icon Name="library" Size="20" Class="stat-icon" />
             <label>Library</label>
             <strong>@libraryCount</strong>
             <small>Files found by the scanner</small>
         </div>
         <div class="stat-card">
-            <span class="stat-icon">🔌</span>
+            <Icon Name="package" Size="20" Class="stat-icon" />
             <label>Plugins</label>
             <strong>@enabledPlugins / @totalPlugins</strong>
             <small>Enabled in the waterfall</small>
@@ -137,28 +165,34 @@ else
             </div>
             <div class="provider-list">
                 <div class="connection-row @(spotifyConnected ? "enabled" : "")">
+                    <BrandIcon Name="spotify" Size="20" Class="connection-icon" />
                     <div><strong>Spotify</strong><small>@(spotifyConnected ? "account connected" : "public playlists only")</small></div>
-                    <span class="pill @(spotifyConnected ? "ok" : "neutral")">@(spotifyConnected ? "connected" : "guest")</span>
+                    <StatusPill Variant="@(spotifyConnected ? "connected" : "guest")">@(spotifyConnected ? "connected" : "guest")</StatusPill>
                 </div>
                 <div class="connection-row @(youtubeConnected ? "enabled" : "")">
+                    <BrandIcon Name="youtube" Size="20" Class="connection-icon" />
                     <div><strong>YouTube</strong><small>@(youtubeConnected ? "account connected" : "public playlists only")</small></div>
-                    <span class="pill @(youtubeConnected ? "ok" : "neutral")">@(youtubeConnected ? "connected" : "guest")</span>
+                    <StatusPill Variant="@(youtubeConnected ? "connected" : "guest")">@(youtubeConnected ? "connected" : "guest")</StatusPill>
                 </div>
                 <div class="connection-row @(jellyfinConfigured ? "enabled" : "")">
+                    <BrandIcon Name="jellyfin" Size="20" Class="connection-icon" />
                     <div><strong>Jellyfin</strong><small>@(jellyfinConfigured ? jellyfinUrl : "not configured")</small></div>
-                    <span class="pill @(jellyfinConfigured ? "ok" : "neutral")">@(jellyfinConfigured ? "ready" : "off")</span>
+                    <StatusPill Variant="@(jellyfinConfigured ? "ready" : "neutral")">@(jellyfinConfigured ? "ready" : "off")</StatusPill>
                 </div>
                 <div class="connection-row @(plexConfigured ? "enabled" : "")">
+                    <BrandIcon Name="plex" Size="20" Class="connection-icon" />
                     <div><strong>Plex</strong><small>@(plexConfigured ? plexUrl : "not configured")</small></div>
-                    <span class="pill @(plexConfigured ? "ok" : "neutral")">@(plexConfigured ? "ready" : "off")</span>
+                    <StatusPill Variant="@(plexConfigured ? "ready" : "neutral")">@(plexConfigured ? "ready" : "off")</StatusPill>
                 </div>
                 <div class="connection-row @(navidromeConfigured ? "enabled" : "")">
+                    <BrandIcon Name="navidrome" Size="20" Class="connection-icon" />
                     <div><strong>Navidrome</strong><small>@(navidromeConfigured ? navidromeUrl : "not configured")</small></div>
-                    <span class="pill @(navidromeConfigured ? "ok" : "neutral")">@(navidromeConfigured ? "ready" : "off")</span>
+                    <StatusPill Variant="@(navidromeConfigured ? "ready" : "neutral")">@(navidromeConfigured ? "ready" : "off")</StatusPill>
                 </div>
                 <div class="connection-row @(flareSolverrOn ? "enabled" : "")">
+                    <BrandIcon Name="flaresolverr" Size="20" Class="connection-icon" />
                     <div><strong>FlareSolverr</strong><small>@(flareSolverrOn ? flareSolverrUrlText : "Cloudflare bypass off")</small></div>
-                    <span class="pill @(flareSolverrOn ? "ok" : "neutral")">@(flareSolverrOn ? "on" : "off")</span>
+                    <StatusPill Variant="@(flareSolverrOn ? "ok" : "neutral")">@(flareSolverrOn ? "on" : "off")</StatusPill>
                 </div>
             </div>
         </div>
@@ -172,7 +206,7 @@ else
             </div>
             @if (recentErrors.Count == 0)
             {
-                <div class="empty-state">No errors. Everything ran clean.</div>
+                <EmptyState IconName="check-circle" Title="No errors">Everything ran clean.</EmptyState>
             }
             else
             {
@@ -200,7 +234,7 @@ else
         </div>
         @if (recentRuns.Count == 0)
         {
-            <div class="empty-state">No sync job has run yet.</div>
+            <EmptyState IconName="clock" Title="No sync runs yet">No sync job has run yet.</EmptyState>
         }
         else
         {
@@ -221,7 +255,7 @@ else
                                 <td><strong>@run.JobName</strong></td>
                                 <td class="text-muted">@run.Timestamp.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</td>
                                 <td>
-                                    <span class="pill @(run.Status == "Completed" ? "ok" : "err")">@run.Status</span>
+                                    <StatusPill Variant="@(run.Status == "Completed" ? "ok" : "err")">@run.Status</StatusPill>
                                 </td>
                                 <td class="text-muted">@run.Message</td>
                             </tr>
@@ -242,7 +276,7 @@ else
         </div>
         @if (playlists.Count == 0)
         {
-            <div class="empty-state">No playlists yet. Add one on the Playlists page.</div>
+            <EmptyState IconName="list-music" Title="No playlists yet">Add one on the Playlists page.</EmptyState>
         }
         else
         {
@@ -258,11 +292,11 @@ else
                             }
                             else
                             {
-                                <span class="playlist-cover-placeholder">♫</span>
+                                <span class="playlist-cover-placeholder"><Icon Name="music" Size="28" Class="cover-placeholder-icon" /></span>
                             }
                             @if (downloaded == total && total > 0)
                             {
-                                <span class="cover-badge complete" title="All tracks downloaded">✓ complete</span>
+                                <span class="cover-badge complete" title="All tracks downloaded"><Icon Name="check-circle" Size="12" /> complete</span>
                             }
                             else if (downloaded > 0)
                             {
