@@ -23,8 +23,11 @@ builder.Services.AddScoped(sp => new HttpClient
 // boot runs migrations while background services open their own
 // connections, and WAL plus a wait window absorbs the overlap instead
 // of logging "error using the connection" and dropping the query.
+// MELODYBRIDGE_DB moves the file for Docker, where /app holds the
+// application and writable state lives under a mounted /app/state.
+var dbFile = Environment.GetEnvironmentVariable("MELODYBRIDGE_DB") ?? "melodybridge.db";
 builder.Services.AddDbContextFactory<MelodyBridgeDbContext>(options =>
-    options.UseSqlite("Data Source=melodybridge.db;Default Timeout=30"));
+    options.UseSqlite($"Data Source={dbFile};Default Timeout=30"));
 builder.Services.AddScoped<MelodyBridgeDbContext>(sp =>
     sp.GetRequiredService<IDbContextFactory<MelodyBridgeDbContext>>().CreateDbContext());
 

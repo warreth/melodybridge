@@ -41,10 +41,13 @@ services:
       - Logging__LogLevel__Default=Information
       - DevPanel__Enabled=false
       - FlareSolverr__Url=auto
+      - MELODYBRIDGE_DB=/app/state/melodybridge.db
     volumes:
       - ./data/music:/music
       - ./data/playlists:/app/playlists
-      - ./data/app:/app
+      # State mount must not cover /app itself: that would hide
+      # the application binaries inside the image.
+      - ./data/app:/app/state
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
