@@ -17,9 +17,10 @@
     </div>
     <div class="topbar-actions">
         <button class="btn-modern primary" @onclick="RunScan" disabled="@scanning">
+            <Icon Name="refresh" Size="16" />
             @(scanning ? "Scanning..." : "Run scan")
         </button>
-        <button class="btn-modern secondary" @onclick="ShowAddLocation">Add location</button>
+        <button class="btn-modern secondary" @onclick="ShowAddLocation"><Icon Name="plus" Size="16" /> Add location</button>
     </div>
 </section>
 
@@ -47,23 +48,26 @@
         </div>
         @if (locations.Count == 0)
         {
-            <div class="empty-state">No scan locations configured. Add one to start scanning.</div>
+            <EmptyState IconName="folder" Title="No scan locations">No scan locations configured. Add one to start scanning.</EmptyState>
         }
         <div class="path-list">
             @foreach (var loc in locations)
             {
                 <div class="location-card">
-                    <strong>@loc.Path</strong>
-                    <small>
-                        @(FileCount(loc)) files with MELODY_ID ·
-                        @(LocationSchedule.Of(loc) is { Mode: ScanScheduleMode.Manual } ? "manual" : DescribeSchedule(LocationSchedule.Of(loc))) ·
-                        last scan @(loc.LastScannedAt is { } scanned ? scanned.ToLocalTime().ToString("yyyy-MM-dd HH:mm") : "never")
-                    </small>
-                    @if (loc.LiveMonitoring)
-                    {
-                        <span class="pill neutral">live</span>
-                    }
-                    <div class="flex-actions" style="margin-left:auto;">
+                    <Icon Name="folder" Size="20" Class="location-icon" />
+                    <div class="location-body">
+                        <code class="path-tag">@loc.Path</code>
+                        <small>
+                            @(FileCount(loc)) files with MELODY_ID ·
+                            @(LocationSchedule.Of(loc) is { Mode: ScanScheduleMode.Manual } ? "manual" : DescribeSchedule(LocationSchedule.Of(loc))) ·
+                            last scan @(loc.LastScannedAt is { } scanned ? scanned.ToLocalTime().ToString("yyyy-MM-dd HH:mm") : "never")
+                        </small>
+                        @if (loc.LiveMonitoring)
+                        {
+                            <StatusPill Variant="neutral">live</StatusPill>
+                        }
+                    </div>
+                    <div class="flex-actions location-actions">
                         <button class="btn-modern ghost small" @onclick="() => ShowEditLocation(loc)">Edit</button>
                         <button class="btn-modern ghost small" @onclick="() => AskRemoveLocation(loc)">Remove</button>
                     </div>
@@ -94,7 +98,7 @@
             <div class="wizard-header">
                 <span class="eyebrow">@(editingId is null ? "New location" : $"Editing: {newPath}")</span>
                 <h2>@(editingId is null ? "Add scan location" : "Edit scan location")</h2>
-                <button class="icon-button" @onclick="CloseForm">&times;</button>
+                <button class="icon-button" title="Close" @onclick="CloseForm"><Icon Name="x" Size="18" /></button>
             </div>
             <div class="wizard-body">
                 <div class="form-grid single">

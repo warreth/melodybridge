@@ -1,0 +1,36 @@
+/* Library page scoped styles: scan-location cards and the mono
+   path tag. Markup classes come from Library.razor. */
+
+.location-card {
+    display: flex;
+    align-items: flex-start;
+    gap: .75rem;
+}
+
+::deep .location-icon {
+    color: var(--muted);
+    margin-top: .1rem;
+}
+
+.location-body {
+    flex: 1;
+    min-width: 0;
+    display: grid;
+    gap: .3rem;
+    justify-items: start;
+}
+
+::deep .path-tag {
+    font-family: var(--font-mono);
+    font-size: .8rem;
+    background: var(--surface-3);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: .15rem .45rem;
+    color: var(--muted);
+    word-break: break-all;
+}
+
+::deep .location-actions {
+    margin-left: auto;
+}

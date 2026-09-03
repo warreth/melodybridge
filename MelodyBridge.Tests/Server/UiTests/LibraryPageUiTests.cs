@@ -60,7 +60,7 @@ public class LibraryPageUiTests
     {
         var cut = _ctx.Render<Library>();
 
-        Assert.That(cut.Markup, Does.Contain("<h1>Library</h1>"),
+        Assert.That(cut.Find("h1").TextContent, Is.EqualTo("Library"),
             "the page keeps its title");
         Assert.That(cut.Markup, Does.Contain("Scan folders with music you already own"),
             "the intro explains what the page does now");
