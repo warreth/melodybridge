@@ -205,7 +205,7 @@ else
                 <span class="eyebrow">Tracks</span>
                 <h2>Tracks (@playlist.Tracks.Count)</h2>
             </div>
-            <input class="search-input" placeholder="Filter tracks…"
+            <input type="search" class="search-input" placeholder="Filter tracks…"
                    value="@trackFilter" @oninput="OnFilterChanged" />
         </div>
         @if (playlist.Tracks.Count == 0)

@@ -601,8 +601,6 @@ else
         finally { busy = false; }
     }
 
-    private void Open(PlaylistEntity playlist) => Navigation.NavigateTo($"/playlists/{playlist.Id}");
-
     /// <summary>
     /// Shared path for both file imports (Exportify CSV, Spotify data
     /// export): read the upload, parse it, persist through the store.

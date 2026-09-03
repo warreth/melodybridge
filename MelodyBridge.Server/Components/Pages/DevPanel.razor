@@ -35,7 +35,7 @@
         </div>
         <div class="search-controls">
             <div class="search-row">
-                <input class="search-input" @bind="Dev.SearchQuery"
+                <input type="search" class="search-input" @bind="Dev.SearchQuery"
                        @bind:event="oninput"
                        placeholder="artist: song title, or paste a URL…"
                        @onkeydown="HandleSearchKeyDown" />
