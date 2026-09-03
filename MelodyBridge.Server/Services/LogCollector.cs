@@ -45,8 +45,15 @@ public sealed class LogCollector : ILogCollector
 
     public IReadOnlyList<LogEntry> GetEntries()
     {
+        // Insertion order is chronological; reverse for newest-first.
+        // Ordering by Timestamp alone is not stable when entries share a
+        // tick, which made the newest entry land mid-list.
         lock (_lock)
-            return _entries.OrderByDescending(e => e.Timestamp).ToList();
+        {
+            var list = _entries.ToList();
+            list.Reverse();
+            return list;
+        }
     }
 
     public void Clear()
