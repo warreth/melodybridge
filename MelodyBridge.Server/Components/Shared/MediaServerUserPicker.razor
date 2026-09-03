@@ -1,31 +1,34 @@
-@* Media-server user dropdown + Test connection button. Fetches the user
-   list from the server entered in the wizard (not the global settings),
-   so a job can target a different server than the Settings default.
+@* Media-server Test connection button (+ user dropdown for servers that
+   have a user list). Tests the connection entered in the wizard — not the
+   global settings — so a job can target a different server than the default.
    Servers without a user list (Plex, Navidrome) show the test result only. *@
 @inject IMediaServerDirectory UserDirectory
 
 <div class="media-server-user-picker">
-    <label>
-        Jellyfin user
-        <select @bind="UserId">
-            <option value="">(server default)</option>
-            @foreach (var u in users)
-            {
-                <option value="@u.Id">@u.Name</option>
-            }
-        </select>
-    </label>
+    @if (ShowUserList)
+    {
+        <label>
+            @UserLabel
+            <select @bind="UserId">
+                <option value="">(server default)</option>
+                @foreach (var u in users)
+                {
+                    <option value="@u.Id">@u.Name</option>
+                }
+            </select>
+        </label>
+    }
     <div class="flex-actions">
         <button class="btn-modern secondary" type="button" @onclick="TestConnectionAsync" disabled="@testing">
             @(testing ? "Testing..." : "Test connection")
         </button>
         @if (status == "ok")
         {
-            <span class="pill ok">reachable</span>
+            <span class="pill ok">connected</span>
         }
         else if (status == "err")
         {
-            <span class="pill err">unreachable</span>
+            <span class="pill err">not connected</span>
         }
         @if (!string.IsNullOrEmpty(statusMessage))
         {
@@ -37,12 +40,18 @@
 @code {
     /// <summary>Server URL to test against and list users from.</summary>
     [Parameter] public string? ServerUrl { get; set; } = "";
-    /// <summary>API key for the server.</summary>
+    /// <summary>API key / token / password, depending on the server kind.</summary>
     [Parameter] public string? ApiKey { get; set; } = "";
+    /// <summary>Username (Navidrome) or user id (Jellyfin) if the kind needs one.</summary>
+    [Parameter] public string? Username { get; set; } = "";
     /// <summary>Selected user id; empty means "(server default)".</summary>
     [Parameter] public string? UserId { get; set; } = "";
     /// <summary>Raised when the selected user changes (null-safe).</summary>
     [Parameter] public EventCallback<string?> UserIdChanged { get; set; }
+    /// <summary>True for servers with a user list (Jellyfin only today).</summary>
+    [Parameter] public bool ShowUserList { get; set; }
+    /// <summary>Label above the user dropdown.</summary>
+    [Parameter] public string UserLabel { get; set; } = "Jellyfin user";
 
     private List<MediaServerUserOption> users = new();
     private bool testing;
@@ -57,18 +66,18 @@
         statusMessage = null;
         try
         {
-            var url = ServerUrl ?? "";
-            var key = ApiKey ?? "";
-            if (await UserDirectory.TestConnectionAsync(url, key))
+            var username = string.IsNullOrWhiteSpace(Username) ? null : Username;
+            var connection = new MediaServerConnection(ServerUrl ?? "", ApiKey ?? "", username);
+            if (await UserDirectory.TestConnectionAsync(connection))
             {
-                users = await UserDirectory.GetUsersAsync(url, key);
+                users = await UserDirectory.GetUsersAsync(connection);
                 status = "ok";
-                statusMessage = $"{users.Count} user(s) found";
+                statusMessage = ShowUserList ? $"{users.Count} user(s) found" : null;
             }
             else
             {
                 status = "err";
-                statusMessage = "Server did not respond";
+                statusMessage = "Server did not accept the connection";
             }
         }
         catch (Exception ex)

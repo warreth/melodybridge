@@ -24,7 +24,8 @@
             <span class="eyebrow">Welcome to MelodyBridge</span>
             <h1>Three steps, from playlist link to your own music library.</h1>
             <p>MelodyBridge saves the tracks of a Spotify or YouTube playlist locally, downloads the
-                music through a plugin waterfall, and publishes the result to Jellyfin or an M3U file.
+                music through a plugin waterfall, and publishes the result to Jellyfin, Plex, Navidrome
+                or an M3U file.
                 Work through the checklist below. It disappears once everything is set up.</p>
             <div class="hero-actions">
                 <a class="btn-modern primary" href="/playlists">Start with a playlist</a>
@@ -73,7 +74,7 @@
                 <div>
                     <strong>Publish it</strong>
                     <p>Create a sync job that writes an M3U file or pushes the playlist to your
-                        Jellyfin server. Jobs can run automatically on a schedule.</p>
+                        Jellyfin, Plex or Navidrome server. Jobs can run automatically on a schedule.</p>
                     <small>@(step3Done ? $"{jobsCount} job(s) configured, last run @lastRunText" : "No sync job yet")</small>
                 </div>
             </a>

@@ -31,14 +31,14 @@ public class SyncJobsWizardUiTests
         _jobRunner = new Mock<ISyncJobRunner>();
         _userDirectory = new Mock<IMediaServerDirectory>();
         _userDirectory
-            .Setup(d => d.GetUsersAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Setup(d => d.GetUsersAsync(It.IsAny<MediaServerConnection>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<MediaServerUserOption>
             {
                 new("u1", "Alice"),
                 new("u2", "Bob"),
             });
         _userDirectory
-            .Setup(d => d.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Setup(d => d.TestConnectionAsync(It.IsAny<MediaServerConnection>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
 
         var options = new DbContextOptionsBuilder<MelodyBridgeDbContext>()
@@ -239,12 +239,16 @@ public class SyncJobsWizardUiTests
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Test connection").Click();
 
         _userDirectory.Verify(
-            d => d.TestConnectionAsync("http://jf:8096", "key-1", It.IsAny<CancellationToken>()),
+            d => d.TestConnectionAsync(
+                It.Is<MediaServerConnection>(c => c.BaseUrl == "http://jf:8096" && c.ApiKey == "key-1"),
+                It.IsAny<CancellationToken>()),
             Times.Once);
         _userDirectory.Verify(
-            d => d.GetUsersAsync("http://jf:8096", "key-1", It.IsAny<CancellationToken>()),
+            d => d.GetUsersAsync(
+                It.Is<MediaServerConnection>(c => c.BaseUrl == "http://jf:8096" && c.ApiKey == "key-1"),
+                It.IsAny<CancellationToken>()),
             Times.Once);
-        Assert.That(cut.Markup, Does.Contain("reachable"));
+        Assert.That(cut.Markup, Does.Contain("connected"));
         Assert.That(cut.Markup, Does.Contain("Alice"));
     }
 

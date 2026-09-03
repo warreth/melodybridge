@@ -196,10 +196,13 @@
                             </label>
                         }
                     </div>
-                    @if (draft.OutputTarget == OutputTargetType.JellyfinApi)
+                    @if (draft.OutputTarget != OutputTargetType.M3uFile)
                     {
                         <MediaServerUserPicker ServerUrl="@draft.JellyfinServerUrl"
                                             ApiKey="@draft.JellyfinApiKey"
+                                            Username="@(draft.OutputTarget == OutputTargetType.NavidromeApi ? draft.JellyfinUserId : null)"
+                                            ShowUserList="@(draft.OutputTarget == OutputTargetType.JellyfinApi)"
+                                            UserLabel="Jellyfin user"
                                             @bind-UserId="draft.JellyfinUserId" />
                     }
                     @if (draft.Schedule == SyncJobSchedule.Cron)
@@ -239,7 +242,7 @@
                         <div><strong>Name:</strong> @draft.Name</div>
                         <div><strong>Source:</strong> @(sourceType == "folder" ? selectedFolder : SourceDisplay)</div>
                         <div><strong>Search locations:</strong> @(SearchLocationSummary)</div>
-                        <div><strong>Output target:</strong> @draft.OutputTarget</div>
+                        <div><strong>Output target:</strong> @TargetLabel(draft.OutputTarget)</div>
                         @if (draft.OutputTarget == OutputTargetType.M3uFile)
                         {
                             <div><strong>M3U path:</strong> @draft.M3uOutputPath</div>
@@ -307,11 +310,11 @@
         <div class="panel-card">
             <div class="panel-header">
                 <div>
-                    <span class="eyebrow">@job.OutputTarget</span>
+                    <span class="eyebrow">@TargetLabel(job.OutputTarget)</span>
                     <h2>@job.Name</h2>
                 </div>
-                <span class="pill @(job.LastRunStatus == "Completed" ? "ok" : "neutral")">
-                    @job.LastRunStatus
+                <span class="pill @(job.LastRunStatus == "Completed" ? "ok" : job.LastRunStatus == "Failed" ? "err" : "neutral")">
+                    @(string.IsNullOrEmpty(job.LastRunStatus) ? "never run" : job.LastRunStatus)
                 </span>
             </div>
             <p>@job.LastRunSummary</p>
@@ -472,6 +475,18 @@
         4 => "Check and create",
         _ => ""
     };
+
+    /// <summary>The stored target name everywhere users look at it: friendly words.</summary>
+    private static string TargetLabel(string target) => target switch
+    {
+        nameof(OutputTargetType.M3uFile) => "M3U file",
+        nameof(OutputTargetType.JellyfinApi) => "Jellyfin",
+        nameof(OutputTargetType.PlexApi) => "Plex",
+        nameof(OutputTargetType.NavidromeApi) => "Navidrome",
+        _ => target,
+    };
+
+    private static string TargetLabel(OutputTargetType target) => TargetLabel(target.ToString());
 
     /// <summary>Review summary of step 2. Empty selection means "no folder
     /// filter" — the runner then searches every folder.</summary>

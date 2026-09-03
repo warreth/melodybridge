@@ -201,7 +201,7 @@ else if (activeTab == "connections")
                             }
                             @if (profileTestStatus.TryGetValue(profile.Id, out var st) && st is not null)
                             {
-                                <span class="pill @(st == "ok" ? "ok" : "err")">@(st == "ok" ? "reachable" : "unreachable")</span>
+                                <span class="pill @(st == "ok" ? "ok" : "err")">@(st == "ok" ? "connected" : "not connected")</span>
                             }
                             <div class="text-muted" style="font-size:.85rem">@profile.BaseUrl</div>
                         </div>
@@ -252,7 +252,8 @@ else if (activeTab == "connections")
                        placeholder="@(editingProfile.Kind == "Plex" ? "http://plex:32400" : editingProfile.Kind == "Navidrome" ? "http://navidrome:4533" : "http://jellyfin:8096")" /></label>
                 @if (editingProfile.Kind == "Navidrome")
                 {
-                    <label class="hint-text">Navidrome has no API key: the password is the credential.</label>
+                    <label>Username <input @bind="editingProfile.Username" placeholder="admin" /></label>
+                    <label class="hint-text">Navidrome has no API key: username and password are the credentials.</label>
                 }
                 <label>@(editingProfile.Kind == "Navidrome" ? "Password" : editingProfile.Kind == "Plex" ? "Plex token" : "API key")
                     <input @bind="editingProfile.ApiKey" type="password" placeholder="@(editingProfile.Kind == "Navidrome" ? "password" : editingProfile.Kind == "Plex" ? "X-Plex-Token" : "API key")" />
@@ -735,7 +736,8 @@ else if (activeTab == "about")
         {
             var directory = Directories.FirstOrDefault(d =>
                 string.Equals(d.Kind, profile.Kind, StringComparison.OrdinalIgnoreCase));
-            var ok = await (directory ?? JellyfinDirectory).TestConnectionAsync(profile.BaseUrl, profile.ApiKey);
+            var connection = new MediaServerConnection(profile.BaseUrl, profile.ApiKey, profile.Username);
+            var ok = await (directory ?? JellyfinDirectory).TestConnectionAsync(connection);
             profileTestStatus[profile.Id] = ok ? "ok" : "err";
         }
         catch

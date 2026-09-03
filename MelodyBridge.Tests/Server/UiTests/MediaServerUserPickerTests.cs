@@ -1,4 +1,5 @@
 using TestContext = Bunit.TestContext;
+using AngleSharp.Dom;
 using Bunit;
 using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.MediaServers;
@@ -9,8 +10,10 @@ namespace MelodyBridge.Tests.Server.UiTests;
 
 /// <summary>
 /// The user picker component: renders the (server default) option, the
-/// Test connection button drives the directory service with the URL and
-/// key from the wizard, and the fetched users appear in the dropdown.
+/// Test connection button drives the directory service with the connection
+/// from the wizard, and the fetched users appear in the dropdown. Servers
+/// without a user list (Plex, Navidrome) get the button without the
+/// dropdown.
 /// </summary>
 [TestFixture]
 [Category("UI")]
@@ -31,10 +34,11 @@ public class MediaServerUserPickerTests
     public void TearDown() => _ctx.Dispose();
 
     private IRenderedComponent<global::MelodyBridge.Server.Components.Shared.MediaServerUserPicker> Render(
-        string url = "http://jf:8096", string key = "k")
+        string url = "http://jf:8096", string key = "k", bool showUserList = true)
         => _ctx.Render<global::MelodyBridge.Server.Components.Shared.MediaServerUserPicker>(p => p
             .Add(c => c.ServerUrl, url)
-            .Add(c => c.ApiKey, key));
+            .Add(c => c.ApiKey, key)
+            .Add(c => c.ShowUserList, showUserList));
 
     [Test]
     public void Renders_DefaultOption_AndTestButton()
@@ -49,13 +53,27 @@ public class MediaServerUserPickerTests
     }
 
     [Test]
-    public void TestConnection_Reachable_ShowsOkPill_AndListsUsers()
+    public void WithoutUserList_RendersOnlyTheTestButton()
+    {
+        var cut = Render(showUserList: false);
+
+        Assert.That(cut.Markup, Does.Contain("Test connection"));
+        Assert.That(cut.FindAll("select"), Has.Count.EqualTo(0),
+            "Plex and Navidrome have no user dropdown");
+    }
+
+    [Test]
+    public void TestConnection_Reachable_ShowsConnectedPill_AndListsUsers()
     {
         _directory
-            .Setup(d => d.TestConnectionAsync("http://jf:8096", "k", It.IsAny<CancellationToken>()))
+            .Setup(d => d.TestConnectionAsync(
+                It.Is<MediaServerConnection>(c => c.BaseUrl == "http://jf:8096" && c.ApiKey == "k"),
+                It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
         _directory
-            .Setup(d => d.GetUsersAsync("http://jf:8096", "k", It.IsAny<CancellationToken>()))
+            .Setup(d => d.GetUsersAsync(
+                It.Is<MediaServerConnection>(c => c.BaseUrl == "http://jf:8096" && c.ApiKey == "k"),
+                It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<MediaServerUserOption>
             {
                 new("u1", "Alice"),
@@ -65,7 +83,7 @@ public class MediaServerUserPickerTests
         var cut = Render();
         cut.Find("button").Click();
 
-        Assert.That(cut.Markup, Does.Contain("reachable"));
+        Assert.That(cut.Markup, Does.Contain("connected"));
         Assert.That(cut.FindAll("option"), Has.Count.EqualTo(3),
             "default option plus the two server users");
         Assert.That(cut.Markup, Does.Contain("Alice"));
@@ -76,17 +94,37 @@ public class MediaServerUserPickerTests
     public void TestConnection_Unreachable_ShowsErrPill_AndKeepsDefaultOnly()
     {
         _directory
-            .Setup(d => d.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Setup(d => d.TestConnectionAsync(It.IsAny<MediaServerConnection>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(false);
 
         var cut = Render();
         cut.Find("button").Click();
 
-        Assert.That(cut.Markup, Does.Contain("unreachable"));
+        Assert.That(cut.Markup, Does.Contain("not connected"));
         Assert.That(cut.FindAll("option"), Has.Count.EqualTo(1));
         _directory.Verify(
-            d => d.GetUsersAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            d => d.GetUsersAsync(It.IsAny<MediaServerConnection>(), It.IsAny<CancellationToken>()),
             Times.Never, "no user fetch when the server is unreachable");
+    }
+
+    [Test]
+    public void TestConnection_Navidrome_PassesUsername()
+    {
+        _directory
+            .Setup(d => d.TestConnectionAsync(
+                It.Is<MediaServerConnection>(c =>
+                    c.BaseUrl == "http://nav:4533" && c.ApiKey == "pw" && c.UserId == "admin"),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var cut = _ctx.Render<global::MelodyBridge.Server.Components.Shared.MediaServerUserPicker>(p => p
+            .Add(c => c.ServerUrl, "http://nav:4533")
+            .Add(c => c.ApiKey, "pw")
+            .Add(c => c.Username, "admin")
+            .Add(c => c.ShowUserList, false));
+        cut.Find("button").Click();
+
+        Assert.That(cut.Markup, Does.Contain("connected"));
     }
 
     [Test]
@@ -100,7 +138,7 @@ public class MediaServerUserPickerTests
             : new HttpResponseMessage(System.Net.HttpStatusCode.NotFound);
         var directory = new JellyfinUserDirectory(new HttpClient(handler));
 
-        var users = await directory.GetUsersAsync("http://jellyfin:8096", "tok");
+        var users = await directory.GetUsersAsync(new MediaServerConnection("http://jellyfin:8096", "tok"));
 
         Assert.That(handler.Requests, Has.Count.EqualTo(1));
         Assert.That(handler.Requests[0].Url, Does.EndWith("/Users"));
@@ -117,7 +155,7 @@ public class MediaServerUserPickerTests
             url == "/System/Info" ? System.Net.HttpStatusCode.OK : System.Net.HttpStatusCode.NotFound);
         var directory = new JellyfinUserDirectory(new HttpClient(handler));
 
-        var ok = await directory.TestConnectionAsync("http://jellyfin:8096", "tok-2");
+        var ok = await directory.TestConnectionAsync(new MediaServerConnection("http://jellyfin:8096", "tok-2"));
 
         Assert.That(ok, Is.True);
         Assert.That(handler.Requests[0].Url, Does.EndWith("/System/Info"));
