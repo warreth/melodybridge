@@ -1,0 +1,59 @@
+/* Settings page scoped styles. Blazor puts the isolation attribute on
+   this page's own elements, so plain selectors apply (same pattern as
+   DevPanel.razor.css). app.css ships a broader tab-nav base; these tighten
+   it for this page. */
+.tab-nav {
+    display: flex;
+    gap: .25rem;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 1rem;
+}
+
+.tab-link {
+    padding: .6rem .9rem;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    background: transparent;
+    color: var(--muted);
+    font-weight: 600;
+    font-size: .9rem;
+    cursor: pointer;
+    transition: color .15s;
+}
+
+.tab-link:hover { color: var(--text); }
+
+.tab-link.active {
+    color: var(--accent-strong);
+    border-bottom-color: var(--accent-strong);
+}
+
+/* OAuth setup steps: callout box instead of a bare list. */
+.oauth-steps {
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent-strong);
+    border-radius: 8px;
+    padding: .9rem 1rem;
+    background: var(--surface-3);
+}
+
+.oauth-steps ol {
+    margin: .25rem 0 0;
+    padding-left: 1.1rem;
+    display: grid;
+    gap: .6rem;
+    color: var(--muted);
+}
+
+.oauth-steps li::marker {
+    color: var(--accent-strong);
+    font-weight: 700;
+}
+
+.oauth-steps code {
+    font-family: var(--font-mono);
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: .1rem .35rem;
+}

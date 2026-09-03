@@ -61,15 +61,16 @@
         <div class="account-grid">
             <div class="account-card">
                 <strong>Spotify</strong>
-                <span class="pill @(_spotifyConnected ? "ok" : "neutral")">
+                <StatusPill Variant="@(_spotifyConnected ? "connected" : "neutral")">
                     @(_spotifyConnected ? "connected" : "not connected")
-                </span>
+                </StatusPill>
                 @if (_spotifyConnected)
                 {
                     <button class="btn-modern subtle" @onclick="() => Logout(SpotifyAccount)">Disconnect</button>
                 }
                 else
                 {
+                    <div class="oauth-steps">
                     <ol>
                         <li>
                             Open <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener">developer.spotify.com/dashboard</a>
@@ -90,12 +91,13 @@
                         </li>
                         <li>Copy the <em>Client ID</em> from the same settings page, paste it below and click Connect.</li>
                     </ol>
+                    </div>
                     <p class="text-muted">
                         New Spotify apps start in <em>development mode</em>: that is fine for
                         personal use: you are the owner. Your Spotify account must have
                         Premium while the app stays in development mode, and the login only
                         works for you and anyone you explicitly allowlist in the app's
-                        Settings → Users Management.
+                        Settings, then Users Management.
                     </p>
                     <label>
                         Client ID (from developer.spotify.com)
@@ -107,21 +109,22 @@
 
             <div class="account-card">
                 <strong>YouTube</strong>
-                <span class="pill @(_youtubeConnected ? "ok" : "neutral")">
+                <StatusPill Variant="@(_youtubeConnected ? "connected" : "neutral")">
                     @(_youtubeConnected ? "connected" : "not connected")
-                </span>
+                </StatusPill>
                 @if (_youtubeConnected)
                 {
                     <button class="btn-modern subtle" @onclick="() => Logout(YouTubeAccount)">Disconnect</button>
                 }
                 else
                 {
+                    <div class="oauth-steps">
                     <ol>
                         <li>
                             Open <a href="https://console.cloud.google.com" target="_blank" rel="noopener">console.cloud.google.com</a>,
                             create a project, enable the <em>YouTube Data API v3</em>
-                            (APIs &amp; Services → Library), then create OAuth credentials of type
-                            <em>Web application</em> (APIs &amp; Services → Credentials).
+                            (APIs &amp; Services, Library), then create OAuth credentials of type
+                            <em>Web application</em> (APIs &amp; Services, Credentials).
                         </li>
                         <li>
                             Add this exact redirect URI to the OAuth client:
@@ -135,9 +138,10 @@
                         </li>
                         <li>Paste the client ID and secret here and click Connect.</li>
                     </ol>
+                    </div>
                     <p class="text-muted">
                         Before the first login, open the OAuth consent screen
-                        (APIs &amp; Services → OAuth consent screen) and add your own Google
+                        (APIs &amp; Services, OAuth consent screen) and add your own Google
                         account as a <em>Test user</em>: unverified personal apps only work
                         for their test users. You will see an "unverified app" warning: that
                         is expected for a self-hosted personal app; choose
@@ -194,14 +198,14 @@ else if (activeTab == "connections")
                     <div class="profile-row">
                         <div style="flex:1; min-width:0;">
                             <strong>@profile.Name</strong>
-                            <span class="pill neutral">@profile.Kind</span>
+                            <StatusPill Variant="neutral">@profile.Kind</StatusPill>
                             @if (IsAppDefault(profile))
                             {
-                                <span class="pill ok">default</span>
+                                <StatusPill Variant="ok">default</StatusPill>
                             }
                             @if (profileTestStatus.TryGetValue(profile.Id, out var st) && st is not null)
                             {
-                                <span class="pill @(st == "ok" ? "ok" : "err")">@(st == "ok" ? "connected" : "not connected")</span>
+                                <StatusPill Variant="@(st == "ok" ? "ok" : "err")">@(st == "ok" ? "connected" : "not connected")</StatusPill>
                             }
                             <div class="text-muted" style="font-size:.85rem">@profile.BaseUrl</div>
                         </div>
@@ -210,7 +214,7 @@ else if (activeTab == "connections")
                             <button class="btn-modern ghost small" @onclick="() => AskDeleteProfile(profile)">Delete</button>
                             <button class="btn-modern secondary small" @onclick="() => MakeAppDefault(profile)">Use as app default</button>
                             <button class="btn-modern secondary small" disabled="@(testingProfile == profile.Id)" @onclick="() => TestProfile(profile)">
-                                @(testingProfile == profile.Id ? "Testing…" : "Test")
+                                @(testingProfile == profile.Id ? "Testing..." : "Test")
                             </button>
                         </div>
                     </div>
@@ -330,9 +334,9 @@ else if (activeTab == "network")
                 <span class="eyebrow">Network</span>
                 <h2>FlareSolverr (Cloudflare)</h2>
             </div>
-            <span class="pill @(flareStatus is "ok" ? "ok" : flareStatus is null ? "neutral" : "err")">
+            <StatusPill Variant="@(flareStatus is "ok" ? "ok" : flareStatus is null ? "neutral" : "err")">
                 @(flareStatus is null ? "not tested" : flareStatus is "ok" ? "reachable" : "unreachable")
-            </span>
+            </StatusPill>
         </div>
         <div class="hint-box">
             Lucida sits behind a Cloudflare challenge. FlareSolverr is a small
@@ -389,22 +393,22 @@ else if (activeTab == "about")
         </div>
         <div class="flex-actions">
             <button class="btn-modern secondary" @onclick="CheckForUpdates" disabled="@checkingUpdate">
-                @(checkingUpdate ? "Checking…" : "Check for updates")
+                @(checkingUpdate ? "Checking..." : "Check for updates")
             </button>
             @if (updateResult is { } u)
             {
                 @if (u.Succeeded && UpdateCheckService.IsNewer(u.LatestVersion!, AppInfo.Version))
                 {
-                    <span class="pill ok">Update available: v@(u.LatestVersion)</span>
-                    <a class="hint" href="@u.ReleaseUrl" target="_blank" rel="noopener">Release notes ↗</a>
+                    <StatusPill Variant="ok">Update available: v@(u.LatestVersion)</StatusPill>
+                    <a class="hint" href="@u.ReleaseUrl" target="_blank" rel="noopener">Release notes <Icon Name="external" Size="12" /></a>
                 }
                 else if (u.Succeeded)
                 {
-                    <span class="pill neutral">You are up to date</span>
+                    <StatusPill Variant="neutral">You are up to date</StatusPill>
                 }
                 else
                 {
-                    <span class="pill err" title="@u.Error">Check failed</span>
+                    <StatusPill Variant="err" Title="@u.Error">Check failed</StatusPill>
                 }
             }
         </div>
@@ -430,7 +434,7 @@ else if (activeTab == "about")
             as a plain-text file for debugging or sharing.
         </p>
         <button class="btn-modern primary-outline" @onclick="ExportLogs">
-            <span class="btn-icon">📥</span> Export logs
+            <Icon Name="download" Size="16" Class="btn-icon" /> Export logs
         </button>
     </section>
 
@@ -737,7 +741,7 @@ else if (activeTab == "about")
 
     private void ExportLogs() => Nav.NavigateTo("/api/logs/export", true);
 
-    // ── Media servers tab ──────────────────────────────────────────
+    // -- Media servers tab ---------------------------------------------
 
     /// <summary>True when this profile's values are the app-wide jellyfin_* rows.</summary>
     /// <summary>Settings keys each server kind reads (url row first).</summary>
@@ -866,7 +870,7 @@ else if (activeTab == "about")
         deleteProfileId = null;
     }
 
-    // ── About tab ──────────────────────────────────────────────────
+    // -- About tab ----------------------------------------------------
 
     private async Task CheckForUpdates()
     {
@@ -907,7 +911,7 @@ else if (activeTab == "about")
     private async Task ImportDatabase(InputFileChangeEventArgs e)
     {
         if (e.FileCount == 0) return;
-        dbMessage = "Importing…";
+        dbMessage = "Importing...";
         try
         {
             await using var stream = e.File.OpenReadStream(200_000_000);
