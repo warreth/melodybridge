@@ -26,7 +26,7 @@
 {
     <section class="panel-card log-error-banner">
         <div class="log-error-head">
-            <span class="qi-icon err">✕</span>
+            <Icon Name="alert" Size="20" Class="qi-icon err" />
             <div>
                 <strong>@errorCount recent problem@(errorCount == 1 ? "" : "s") detected</strong>
                 <p>Errors the app ran into. Click one to jump to that area.</p>
@@ -56,41 +56,50 @@
             <span class="eyebrow">Filter</span>
             <h2>Event stream</h2>
         </div>
+    </div>
+    <div class="logs-toolbar">
         <input type="search" class="search-input" placeholder="Search text..."
                value="@searchText" @oninput="OnSearchChanged" />
-    </div>
-    <div class="filter-chips">
-        <button class="filter-chip @(selectedArea is null ? "active" : "")" @onclick="() => SelectArea(null)">
-            All areas
-        </button>
-        @foreach (var area in LogAreas.All)
-        {
-            <button class="filter-chip @(selectedArea == area ? "active" : "")" @onclick="() => SelectArea(area)">
-                @area
+        <label class="toggle-switch wide auto-scroll">
+            <input type="checkbox" @bind="newestFirst" />
+            <span class="toggle-slider"></span>
+            <span>Newest first</span>
+        </label>
+        <div class="filter-chips">
+            <button class="filter-chip @(selectedArea is null ? "active" : "")" @onclick="() => SelectArea(null)">
+                All areas
             </button>
-        }
-    </div>
-    <div class="filter-chips">
-        <button class="filter-chip @(selectedLevel is null ? "active" : "")" @onclick="() => SelectLevel(null)">
-            All levels
-        </button>
-        @foreach (var levelFilter in LevelFilters)
-        {
-            <button class="filter-chip @(selectedLevel?.Label == levelFilter.Label ? "active" : "")"
-                    @onclick="() => SelectLevel(levelFilter)">
-                @levelFilter.Label
+            @foreach (var area in LogAreas.All)
+            {
+                <button class="filter-chip @(selectedArea == area ? "active" : "")" @onclick="() => SelectArea(area)">
+                    @area
+                </button>
+            }
+        </div>
+        <div class="filter-chips">
+            <button class="filter-chip @(selectedLevel is null ? "active" : "")" @onclick="() => SelectLevel(null)">
+                All levels
             </button>
-        }
+            @foreach (var levelFilter in LevelFilters)
+            {
+                <button class="filter-chip @(selectedLevel?.Label == levelFilter.Label ? "active" : "") chip-level-@LevelClass(levelFilter.Levels[0])"
+                        @onclick="() => SelectLevel(levelFilter)">
+                    @levelFilter.Label
+                </button>
+            }
+        </div>
     </div>
 
     @if (filtered.Count == 0)
     {
-        <div class="empty-state">No log entries match the current filter.</div>
+        <EmptyState IconName="search" Title="No log entries match">
+            <p>Adjust the area, level or search text.</p>
+        </EmptyState>
     }
     else
     {
         <div class="logs-list">
-            @foreach (var entry in filtered)
+            @foreach (var entry in newestFirst ? filtered.AsEnumerable() : filtered.AsEnumerable().Reverse())
             {
                 <div class="log-row @LevelClass(entry.Level)">
                     <span class="log-time">@entry.Timestamp.ToLocalTime().ToString("HH:mm:ss")</span>
@@ -119,6 +128,7 @@
     private string? selectedArea;
     private LevelFilter? selectedLevel;
     private bool showingErrorsOnly;
+    private bool newestFirst = true;
     private string searchText = string.Empty;
     private string? statusMessage;
     private Timer? _timer;

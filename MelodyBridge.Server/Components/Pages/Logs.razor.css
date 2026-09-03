@@ -1,0 +1,42 @@
+/* Logs page scoped styles. The toolbar pins under the 64px sticky
+   topbar so search and filters stay reachable in a long stream. */
+.logs-toolbar {
+    position: sticky;
+    top: 64px;
+    z-index: 5;
+    background: var(--surface);
+    padding: .5rem 0 .75rem;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: .75rem;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: .6rem .75rem;
+    align-items: center;
+}
+
+/* Search fills the first column, the toggle sits beside it. */
+.logs-toolbar .search-input { width: 100%; }
+
+.logs-toolbar .toggle-switch.wide { margin-bottom: 0; }
+
+/* Chip rows span the full width under the search row. */
+.logs-toolbar .filter-chips { grid-column: 1 / -1; }
+
+/* Level chips take their severity color when active. */
+.filter-chip.chip-level-warn.active {
+    color: var(--warning);
+    border-color: var(--warning);
+    background: var(--warning-soft);
+}
+
+.filter-chip.chip-level-err.active {
+    color: var(--danger);
+    border-color: var(--danger);
+    background: var(--danger-soft);
+}
+
+.filter-chip.chip-level-info.active {
+    color: var(--accent-strong);
+    border-color: var(--accent);
+    background: var(--accent-soft);
+}
