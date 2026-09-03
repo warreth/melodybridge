@@ -6,7 +6,7 @@ namespace MelodyBridge.Infrastructure.Downloaders;
 
 /// <summary>
 /// Monochrome downloader plugin: community-hosted "Hi-Fi API" instances that
-/// proxy TIDAL (monochrome.tf ecosystem). No TIDAL account needed — the
+/// proxy TIDAL (monochrome.tf ecosystem). No TIDAL account needed: the
 /// instances handle auth internally. Serves FLAC (LOSSLESS / HI_RES_LOSSLESS)
 /// and AAC. Instances are tried in order until one answers, and a failing
 /// one is skipped until the next call re-runs the fallback from the top.
@@ -22,7 +22,7 @@ public class MonochromeDownloader : IDownloader
 
     public string Id => "monochrome";
     public string Name => "Monochrome (TIDAL)";
-    public string Description => "Community TIDAL rips via monochrome.tf Hi-Fi API instances — FLAC/AAC, mirror fallback";
+    public string Description => "Community TIDAL rips via monochrome.tf Hi-Fi API instances: FLAC/AAC, mirror fallback";
 
     // Official instance list (https://monochrome.tf/instances.json), tried in order.
     private static readonly string[] Instances =
@@ -112,7 +112,7 @@ public class MonochromeDownloader : IDownloader
                 }
 
                 var body = await resp.Content.ReadAsStringAsync(ct);
-                var hit = ParseSearchItems(body, artist, title);
+                var hit = ParseSearchItems(body, artist, title, quality);
                 if (hit is not null)
                 {
                     _workingInstance = index;
@@ -244,10 +244,12 @@ public class MonochromeDownloader : IDownloader
     // ── Parsers ──────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Parses a /search/?s= response ({"data":{"items":[…]}}) into a hit for
-    /// the first item, or null when there are no items.
+    /// Parses a /search/?s= response ({"data":{"items":[…]}}) into the best
+    /// hit: every item is ranked by title/artist confidence, lossless
+    /// availability breaks ties. Null when there are no usable items.
     /// </summary>
-    internal static DownloaderSearchHit? ParseSearchItems(string json, string artist, string fallbackTitle)
+    internal static DownloaderSearchHit? ParseSearchItems(
+        string json, string artist, string fallbackTitle, DownloadQuality quality)
     {
         try
         {
@@ -258,29 +260,61 @@ public class MonochromeDownloader : IDownloader
                 items.GetArrayLength() == 0)
                 return null;
 
-            var item = items[0];
-            var hitTitle = GetString(item, "title") ?? fallbackTitle;
-            var hitArtist = GetArtistName(item);
-            if (!item.TryGetProperty("id", out var idProp) || !idProp.TryGetInt64(out var trackId))
-                return null;
+            // Rank every item instead of trusting the API's first result:
+            // the list routinely buries the real match under remixes and
+            // live versions. Fuzzy score decides (an exact title outranks
+            // a remix of it); a lossless hit breaks ties.
+            DownloaderSearchHit? best = null;
+            var bestScore = -1.0;
+            var bestLossless = false;
+            foreach (var item in items.EnumerateArray())
+            {
+                var hitTitle = GetString(item, "title") ?? fallbackTitle;
+                var hitArtist = GetArtistName(item);
+                if (!item.TryGetProperty("id", out var idProp) ||
+                    !idProp.TryGetInt64(out var trackId))
+                    continue;
 
-            TimeSpan? duration = item.TryGetProperty("duration", out var d) && d.ValueKind == JsonValueKind.Number
-                ? TimeSpan.FromSeconds(d.GetInt32())
-                : null;
+                TimeSpan? duration = item.TryGetProperty("duration", out var d) && d.ValueKind == JsonValueKind.Number
+                    ? TimeSpan.FromSeconds(d.GetInt32())
+                    : null;
 
-            return new DownloaderSearchHit(
-                Title: hitTitle,
-                Artist: hitArtist,
-                SourceUrl: $"https://tidal.com/browse/track/{trackId}",
-                Duration: duration,
-                MatchConfidence: Services.FuzzyMatcher.Confidence(
-                    artist, fallbackTitle, hitArtist: hitArtist, hitTitle));
+                var score = Services.FuzzyMatcher.Score(
+                    artist, fallbackTitle, hitArtist: hitArtist, hitTitle: hitTitle);
+                var lossless = IsLossless(item);
+
+                var better = best is null
+                    || score > bestScore
+                    || (score == bestScore && lossless && !bestLossless);
+                if (!better) continue;
+
+                best = new DownloaderSearchHit(
+                    Title: hitTitle,
+                    Artist: hitArtist,
+                    SourceUrl: $"https://tidal.com/browse/track/{trackId}",
+                    Duration: duration,
+                    MatchConfidence: Services.FuzzyMatcher.Confidence(
+                        artist, fallbackTitle, hitArtist: hitArtist, hitTitle: hitTitle));
+                bestScore = score;
+                bestLossless = lossless;
+            }
+            return best;
         }
         catch (JsonException)
         {
             return null;
         }
     }
+
+    /// <summary>
+    /// True when the item exposes a lossless stream, matching the Hi-Res /
+    /// Lossless flags the API reports (audioQuality or quality key).
+    /// A lossless hit satisfies every lossy band; the download step still
+    /// applies the requested cap.
+    /// </summary>
+    private static bool IsLossless(JsonElement item)
+        => (GetString(item, "audioQuality") ?? GetString(item, "quality") ?? string.Empty)
+            .Contains("LOSSLESS", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Extracts the manifest/stream URL from a /track/ response, covering

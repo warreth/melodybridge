@@ -17,7 +17,7 @@ public class YtDlpDownloader : IDownloader
 
     public string Id => "ytdlp";
     public string Name => "yt-dlp (YouTube)";
-    public string Description => "YouTube / YouTube Music — best audio as MP3";
+    public string Description => "YouTube / YouTube Music: best audio as MP3";
 
     public YtDlpDownloader(ILogger<YtDlpDownloader> logger)
     {
@@ -129,6 +129,20 @@ public class YtDlpDownloader : IDownloader
         string stdout, string artist, string fallbackTitle, Func<string, string> urlFromId)
     {
         if (string.IsNullOrWhiteSpace(stdout)) return null;
+        try
+        {
+            return ParseFlatPlaylistHitCore(stdout, artist, fallbackTitle, urlFromId);
+        }
+        catch (JsonException)
+        {
+            // Unparseable yt-dlp output is a plugin miss, not a crash.
+            return null;
+        }
+    }
+
+    private static DownloaderSearchHit? ParseFlatPlaylistHitCore(
+        string stdout, string artist, string fallbackTitle, Func<string, string> urlFromId)
+    {
         using var doc = JsonDocument.Parse(stdout);
         var entry = doc.RootElement.TryGetProperty("entries", out var entries)
             && entries.ValueKind == JsonValueKind.Array
@@ -153,15 +167,54 @@ public class YtDlpDownloader : IDownloader
 
         var hitTitle = (entry.TryGetProperty("title", out var t) ? t.GetString() : null)
                       ?? fallbackTitle;
+        // The real artist: flat entries carry the channel/uploader; the old
+        // code compared the requested artist against the hit TITLE, so
+        // "Regard" never matched "Regard - Ride It (Official Video)".
+        var hitArtist = entry.TryGetProperty("uploader", out var up) && up.ValueKind == JsonValueKind.String
+            && !string.IsNullOrWhiteSpace(up.GetString()) ? up.GetString()
+            : entry.TryGetProperty("channel", out var ch) && ch.ValueKind == JsonValueKind.String
+                && !string.IsNullOrWhiteSpace(ch.GetString()) ? ch.GetString()
+                : SplitArtistFromTitle(hitTitle) ?? artist;
+        // Channel decorations are not part of the name.
+        hitArtist = StripChannelDecorations(hitArtist);
+
         return new DownloaderSearchHit(
             Title: hitTitle,
-            Artist: artist,
+            Artist: hitArtist,
             SourceUrl: sourceUrl,
             Duration: entry.TryGetProperty("duration", out var d) && d.TryGetDouble(out var secs)
                 ? TimeSpan.FromSeconds(secs)
                 : null,
             MatchConfidence: Services.FuzzyMatcher.Confidence(
-                artist, fallbackTitle, hitArtist: hitTitle, hitTitle));
+                artist, fallbackTitle, hitArtist: hitArtist, hitTitle: hitTitle));
+    }
+
+    /// <summary>"Artist - Title" uploader strings: splits off the artist.</summary>
+    private static string? SplitArtistFromTitle(string? title)
+    {
+        if (string.IsNullOrWhiteSpace(title)) return null;
+        var parts = title.Split(" - ", 2, StringSplitOptions.TrimEntries);
+        return parts.Length == 2 && parts[0].Length > 0 ? parts[0] : null;
+    }
+
+    /// <summary>
+    /// Drops the suffixes YouTube glues onto channel names ("RegardVEVO",
+    /// "Regard - Topic", "Regard Official") so the artist inside still
+    /// matches what was requested.
+    /// </summary>
+    private static string StripChannelDecorations(string? artist)
+    {
+        if (string.IsNullOrWhiteSpace(artist)) return artist ?? "";
+        var trimmed = artist.Trim();
+        foreach (var suffix in new[] { " - Topic", "VEVO", " Official", "Official" })
+        {
+            if (trimmed.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+            {
+                var stripped = trimmed[..^suffix.Length].Trim();
+                if (stripped.Length > 0) trimmed = stripped;
+            }
+        }
+        return trimmed;
     }
 
     /// <summary>
@@ -201,7 +254,7 @@ public class YtDlpDownloader : IDownloader
         }
         catch
         {
-            // JSON parse failed (e.g. warnings on stdout) — fall through.
+            // JSON parse failed (e.g. warnings on stdout): fall through.
         }
 
         if (videoId is not null)

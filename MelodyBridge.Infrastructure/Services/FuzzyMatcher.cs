@@ -20,13 +20,58 @@ public static class FuzzyMatcher
         string? hitArtist, string? hitTitle)
     {
         var titleScore = Similarity(requestedTitle, hitTitle);
-        var artistScore = Similarity(requestedArtist, hitArtist);
+        var artistScore = ArtistScore(requestedArtist, hitArtist);
 
         // A clean title match with a plausible artist is enough; artists
         // appear in many spellings and featuring credits on ripper sites.
         if (titleScore >= 0.80 && artistScore >= 0.55) return MatchConfidence.High;
         if (titleScore >= 0.70 && artistScore >= 0.75) return MatchConfidence.High;
         return MatchConfidence.Low;
+    }
+
+    /// <summary>
+    /// Continuous score in [0,1] for ranking several candidate hits for
+    /// the same request: title similarity weighted over artist
+    /// similarity. Confidence bands are too coarse to pick a winner
+    /// between an exact match and a remix of it.
+    /// </summary>
+    public static double Score(
+        string requestedArtist, string requestedTitle,
+        string? hitArtist, string? hitTitle)
+        => 0.7 * Similarity(requestedTitle, hitTitle)
+         + 0.3 * ArtistScore(requestedArtist, hitArtist);
+
+    /// <summary>
+    /// Artist similarity with channel-name tolerance: a hit artist that
+    /// contains the requested artist as a whole word scores full marks,
+    /// because uploaders decorate names ("RegardVEVO", "Regard - Topic").
+    /// </summary>
+    private static double ArtistScore(string requested, string? hit)
+    {
+        var baseScore = Similarity(requested, hit);
+        if (baseScore >= 0.55) return baseScore;
+        return ContainsWholeWord(hit, requested) ? 1.0 : baseScore;
+    }
+
+    /// <summary>True when <paramref name="haystack"/> contains the needle
+    /// surrounded by non-letter characters ("RegardVEVO" does not contain
+    /// the whole word "Regard", "Regard VEVO" does).</summary>
+    private static bool ContainsWholeWord(string? haystack, string? needle)
+    {
+        if (string.IsNullOrEmpty(haystack) || string.IsNullOrEmpty(needle))
+            return false;
+        var span = haystack.AsSpan();
+        while (!span.IsEmpty)
+        {
+            var i = span.IndexOf(needle, StringComparison.OrdinalIgnoreCase);
+            if (i < 0) return false;
+            var after = i + needle.Length;
+            var beforeOk = i == 0 || !char.IsLetter(span[i - 1]);
+            var afterOk = after == span.Length || !char.IsLetter(span[after]);
+            if (beforeOk && afterOk) return true;
+            span = span[Math.Min(after, span.Length)..];
+        }
+        return false;
     }
 
     /// <summary>

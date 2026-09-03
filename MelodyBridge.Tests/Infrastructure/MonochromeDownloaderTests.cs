@@ -104,6 +104,89 @@ public class MonochromeDownloaderTests
     }
 
     [Test]
+    public async Task SearchAsync_PicksTheRealMatch_NotTheFirstItem()
+    {
+        // The API's first item is a remix; the real track sits further
+        // down. Ranking by confidence must find it.
+        var handler = new StubHttpMessageHandler();
+        handler.Respond = _ => Json(HttpStatusCode.OK, new
+        {
+            data = new
+            {
+                items = new object[]
+                {
+                    new
+                    {
+                        id = 111,
+                        title = "Never Gonna Give You Up (Remix)",
+                        duration = 180,
+                        artist = new { name = "Rick Astley" },
+                        audioQuality = "LOSSLESS",
+                    },
+                    new
+                    {
+                        id = 12336220,
+                        title = "Never Gonna Give You Up",
+                        duration = 213,
+                        artist = new { name = "Rick Astley" },
+                        audioQuality = "LOSSLESS",
+                    },
+                },
+            },
+        });
+        var downloader = Create(handler, out _);
+
+        var hit = await downloader.SearchAsync(
+            "Rick Astley", "Never Gonna Give You Up", DownloadQuality.Any);
+
+        Assert.That(hit, Is.Not.Null);
+        Assert.That(hit!.SourceUrl, Is.EqualTo("https://tidal.com/browse/track/12336220"),
+            "the exact title match must beat the remix the API listed first");
+        Assert.That(hit.Title, Is.EqualTo("Never Gonna Give You Up"));
+        Assert.That(hit.MatchConfidence, Is.EqualTo(MatchConfidence.High));
+    }
+
+    [Test]
+    public async Task SearchAsync_PrefersLossless_WhenConfidenceTies()
+    {
+        // Two exact matches: the lossless one wins the tie.
+        var handler = new StubHttpMessageHandler();
+        handler.Respond = _ => Json(HttpStatusCode.OK, new
+        {
+            data = new
+            {
+                items = new object[]
+                {
+                    new
+                    {
+                        id = 222,
+                        title = "Never Gonna Give You Up",
+                        duration = 213,
+                        artist = new { name = "Rick Astley" },
+                        audioQuality = "LOW",
+                    },
+                    new
+                    {
+                        id = 333,
+                        title = "Never Gonna Give You Up",
+                        duration = 213,
+                        artist = new { name = "Rick Astley" },
+                        audioQuality = "HI_RES_LOSSLESS",
+                    },
+                },
+            },
+        });
+        var downloader = Create(handler, out _);
+
+        var hit = await downloader.SearchAsync(
+            "Rick Astley", "Never Gonna Give You Up", DownloadQuality.Any);
+
+        Assert.That(hit, Is.Not.Null);
+        Assert.That(hit!.SourceUrl, Is.EqualTo("https://tidal.com/browse/track/333"),
+            "a tie on confidence is broken by the lossless stream");
+    }
+
+    [Test]
     public async Task SearchAsync_FirstInstance500s_FallsBackToSecondInstance()
     {
         var handler = new StubHttpMessageHandler();
@@ -143,7 +226,7 @@ public class MonochromeDownloaderTests
         var searchUrl = handler.RequestedUrls.FirstOrDefault(u => u.Contains("/search/"));
         Assert.That(searchUrl, Is.Not.Null, "a search request must have been made");
         Assert.That(searchUrl, Does.Contain("/search/?s="),
-            "the v2.x API answers to s= — q= now returns HTTP 400");
+            "the v2.x API answers to s=: q= now returns HTTP 400");
         Assert.That(searchUrl, Does.Not.Contain("?q="),
             "the legacy q= parameter must not be sent anymore");
     }
