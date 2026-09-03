@@ -215,6 +215,39 @@ public class HomePageTests
     }
 
     [Test]
+    public async Task Dashboard_FlareSolverrAuto_ShowsEnabledRow()
+    {
+        var previous = MelodyBridge.Infrastructure.Cloudflare.FlareSolverrSolver.Url;
+        MelodyBridge.Infrastructure.Cloudflare.FlareSolverrSolver.Url = "auto";
+        try
+        {
+            var dbFactory = _ctx.Services.GetRequiredService<IDbContextFactory<MelodyBridgeDbContext>>();
+            using (var db = dbFactory.CreateDbContext())
+            {
+                db.DownloaderSettings.Add(new DownloaderSettingEntity { Key = "intro_dismissed", Value = "true" });
+                db.SaveChanges();
+            }
+
+            var cut = _ctx.Render<Home>();
+            cut.WaitForState(() => cut.Markup.Contains("Recent sync runs"), TimeSpan.FromSeconds(3));
+
+            var row = cut.FindAll(".connection-row").Single(r => r.TextContent.Contains("FlareSolverr"));
+            Assert.That(row.ClassList, Does.Contain("enabled"),
+                "auto counts as configured, so the row is in its enabled state");
+            var pill = row.QuerySelector(".pill");
+            Assert.That(pill!.TextContent, Is.EqualTo("on"),
+                "the pill shows on while the solver is configured");
+            Assert.That(row.TextContent, Does.Contain("auto: looks for the container"),
+                "auto gets a plain-language label instead of the raw value");
+        }
+        finally
+        {
+            // The solver URL is process-wide: restore it for the other tests.
+            MelodyBridge.Infrastructure.Cloudflare.FlareSolverrSolver.Url = previous;
+        }
+    }
+
+    [Test]
     public async Task Dashboard_EmptyDatabase_ShowsEmptyStates()
     {
         var dbFactory = _ctx.Services.GetRequiredService<IDbContextFactory<MelodyBridgeDbContext>>();

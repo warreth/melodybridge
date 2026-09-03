@@ -1,4 +1,5 @@
 using MelodyBridge.Core;
+using System.Net;
 using System.Net.Http.Json;
 using Microsoft.Extensions.Logging;
 
@@ -13,15 +14,61 @@ namespace MelodyBridge.Infrastructure.Cloudflare;
 /// </summary>
 public class FlareSolverrSolver : IChallengeSolver
 {
+    /// <summary>Deadline for one auto-detect probe: the candidates are on
+    /// the local Docker network, so a slow answer is a wrong answer.</summary>
+    private static readonly TimeSpan ProbeTimeout = TimeSpan.FromSeconds(2);
+
+    /// <summary>Minimum spacing between failed auto-detect sweeps.</summary>
+    private static readonly TimeSpan NegativeCacheWindow = TimeSpan.FromSeconds(60);
+
+    /// <summary>Auto-detect candidates in probe order: the compose network
+    /// name first, then the host loopbacks for non-compose runs. Public so
+    /// the Settings test button reports the same sweep the solver runs.</summary>
+    public static readonly string[] AutoDetectCandidates =
+    {
+        "http://flaresolverr:8191",
+        "http://host.docker.internal:8191",
+        "http://127.0.0.1:8191",
+    };
+
     private readonly HttpClient _http;
     private readonly ILogger<FlareSolverrSolver> _logger;
 
+    // Auto-detection state shared by every solver instance, guarded by
+    // DetectionGate: the resolved base URL plus a negative cache so a
+    // missing FlareSolverr is not re-probed on every waterfall hit.
+    private static readonly object DetectionGate = new();
+    private static string _url = "off";
+    private static string? _detectedUrl;
+    private static DateTimeOffset _lastFailedSweep = DateTimeOffset.MinValue;
+
     /// <summary>
-    /// FlareSolverr endpoint, e.g. http://flaresolverr:8191.
-    /// "Off" or empty disables the solver. Settable at runtime by the
-    /// Settings page.
+    /// FlareSolverr endpoint, e.g. http://flaresolverr:8191. "off" or
+    /// empty disables the solver; "auto" (case-insensitive) probes the
+    /// Docker network candidates. Settable at runtime by the Settings
+    /// page.
     /// </summary>
-    public static string Url { get; set; } = "off";
+    public static string Url
+    {
+        get => _url;
+        set
+        {
+            _url = value;
+            // A new setting invalidates anything the old mode detected.
+            lock (DetectionGate)
+            {
+                _detectedUrl = null;
+                _lastFailedSweep = DateTimeOffset.MinValue;
+            }
+        }
+    }
+
+    /// <summary>True when Url is "auto": the solver should probe for an instance.</summary>
+    public static bool IsAutoMode =>
+        string.Equals(Url, "auto", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Injectable clock so tests can age the detection negative cache.</summary>
+    internal static Func<DateTimeOffset> Clock { get; set; } = () => DateTimeOffset.UtcNow;
 
     public FlareSolverrSolver(
         HttpClient http,
@@ -33,8 +80,14 @@ public class FlareSolverrSolver : IChallengeSolver
         Url = options.Value.Url;
     }
 
-    public Task<bool> IsAvailableAsync(CancellationToken ct = default)
-        => Task.FromResult(IsConfigured);
+    public async Task<bool> IsAvailableAsync(CancellationToken ct = default)
+    {
+        if (!IsConfigured) return false;
+        // An explicit URL is trusted without a round-trip; auto mode has
+        // to find a live instance first.
+        if (!IsAutoMode) return true;
+        return await DetectAsync(ct) is not null;
+    }
 
     private static bool IsConfigured =>
         !string.IsNullOrWhiteSpace(Url)
@@ -43,7 +96,8 @@ public class FlareSolverrSolver : IChallengeSolver
     public async Task<CloudflareCredentials?> SolveAsync(string url, CancellationToken ct = default)
     {
         if (!IsConfigured) return null;
-        var baseUrl = Url.TrimEnd('/');
+        string? baseUrl = IsAutoMode ? await DetectAsync(ct) : Url.TrimEnd('/');
+        if (baseUrl is null) return null;
 
         var request = new
         {
@@ -88,6 +142,61 @@ public class FlareSolverrSolver : IChallengeSolver
         }
     }
 
+    /// <summary>
+    /// Resolves auto mode to a concrete base URL: the cached detection
+    /// when present, an immediate null inside the negative-cache window
+    /// after a failed sweep, or a fresh probe otherwise. Never throws.
+    /// </summary>
+    private async Task<string?> DetectAsync(CancellationToken ct)
+    {
+        lock (DetectionGate)
+        {
+            if (_detectedUrl is not null) return _detectedUrl;
+            if (Clock() - _lastFailedSweep < NegativeCacheWindow) return null;
+        }
+
+        var detected = await SweepAsync(ct);
+
+        lock (DetectionGate)
+        {
+            if (detected is null)
+                _lastFailedSweep = Clock();
+            else
+            {
+                _detectedUrl = detected;
+                _lastFailedSweep = DateTimeOffset.MinValue;
+            }
+        }
+
+        if (detected is null)
+            _logger.LogDebug("FlareSolverr auto-detect found no instance");
+        else
+            _logger.LogInformation("FlareSolverr detected at {Url}", detected);
+        return detected;
+    }
+
+    /// <summary>Probes each candidate's /health endpoint; the first HTTP 200 wins.</summary>
+    private async Task<string?> SweepAsync(CancellationToken ct)
+    {
+        foreach (var baseUrl in AutoDetectCandidates)
+        {
+            try
+            {
+                // The shared "flaresolverr" client allows minutes for solves,
+                // so each probe carries its own short deadline instead.
+                using var probe = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                probe.CancelAfter(ProbeTimeout);
+                using var response = await _http.GetAsync($"{baseUrl}/health", probe.Token);
+                if (response.StatusCode == HttpStatusCode.OK) return baseUrl;
+            }
+            catch (Exception)
+            {
+                // Unreachable candidate: fall through to the next one.
+            }
+        }
+        return null;
+    }
+
     // FlareSolverr response shape (only the fields we read).
     private record FlareSolverrResponse(
         string Status, string? Message, FlareSolverrSolution? Solution);
@@ -99,6 +208,7 @@ public class FlareSolverrSolver : IChallengeSolver
 /// <summary>FlareSolverr connection settings (appsettings "FlareSolverr" section).</summary>
 public class FlareSolverrOptions
 {
-    /// <summary>Base URL, e.g. http://flaresolverr:8191. "off" disables.</summary>
+    /// <summary>Base URL, e.g. http://flaresolverr:8191. "off" disables,
+    /// "auto" probes the Docker network candidates.</summary>
     public string Url { get; set; } = "off";
 }

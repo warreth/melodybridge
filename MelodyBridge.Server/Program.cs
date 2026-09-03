@@ -100,7 +100,7 @@ using (var db = app.Services.GetRequiredService<IDbContextFactory<MelodyBridgeDb
     };
 
     FlareSolverrSolver.Url = db.DownloaderSettings.FirstOrDefault(s => s.Key == "flaresolverr_url")?.Value
-                             ?? app.Configuration["FlareSolverr:Url"] ?? "off";
+                             ?? app.Configuration["FlareSolverr:Url"] ?? "auto";
 
     // EF command logs are off unless the user asked for them (Advanced page).
     MelodyBridge.Server.Services.DatabaseLogSwitch.Set(

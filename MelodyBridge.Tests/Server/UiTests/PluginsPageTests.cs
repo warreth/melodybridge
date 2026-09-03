@@ -66,7 +66,8 @@ public class PluginsPageTests
         var cut = _ctx.Render<Plugins>();
 
         Assert.That(cut.Markup, Does.Contain("Plugins"));
-        Assert.That(cut.Markup, Does.Contain("search for and download"));
+        Assert.That(cut.Markup, Does.Contain("tried in order until one delivers"),
+            "the intro explains the waterfall in the current wording");
         Assert.That(cut.Markup, Does.Contain("yt-dlp (YouTube)"));
         Assert.That(cut.Markup, Does.Contain("Second Plugin"));
     }

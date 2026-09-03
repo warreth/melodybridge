@@ -339,12 +339,14 @@ else if (activeTab == "network")
         <div class="hint-box">
             Lucida sits behind a Cloudflare challenge. FlareSolverr is a small
             companion container that solves it: the compose file ships one.
-            Point this at it and test the connection; leave "off" to disable.
+            With "auto" the app looks for that container on the Docker network
+            by itself, so compose users leave this untouched. Enter the URL
+            yourself only outside compose, or "off" to disable.
         </div>
         <div class="form-grid single">
             <label>
                 FlareSolverr URL
-                <input @bind="flaresolverrUrl" placeholder="http://flaresolverr:8191 or off" />
+                <input @bind="flaresolverrUrl" placeholder="auto, http://flaresolverr:8191 or off" />
             </label>
         </div>
         <div class="flex-actions">
@@ -522,7 +524,7 @@ else if (activeTab == "about")
         defaultQuality = FindSetting(settings, "default_quality", "auto");
         if (!PlaylistStore.IsValidFormat(defaultQuality)) defaultQuality = "auto";
         spectrumMode = FindSetting(settings, "spectrum_mode", Config?["SpectrumAnalysis:Mode"] ?? "Fast");
-        flaresolverrUrl = FindSetting(settings, "flaresolverr_url", Config?["FlareSolverr:Url"] ?? "off");
+        flaresolverrUrl = FindSetting(settings, "flaresolverr_url", Config?["FlareSolverr:Url"] ?? "auto");
 
         _spotifyConnected = await SpotifyAccount.IsConnectedAsync();
         _youtubeConnected = await YouTubeAccount.IsConnectedAsync();
@@ -642,11 +644,37 @@ else if (activeTab == "about")
                 flareMessage = "Solver is off: Lucida stays unavailable.";
                 return;
             }
-            using var http = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(8) };
-            var response = await http.PostAsJsonAsync($"{url.TrimEnd('/')}/v1",
+            if (url.Equals("auto", StringComparison.OrdinalIgnoreCase))
+            {
+                // Same sweep the solver runs: first /health that answers
+                // 200 wins, so the report matches what Lucida will use.
+                using var http = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(2) };
+                foreach (var candidate in MelodyBridge.Infrastructure.Cloudflare.FlareSolverrSolver.AutoDetectCandidates)
+                {
+                    try
+                    {
+                        using var response = await http.GetAsync($"{candidate}/health");
+                        if (response.IsSuccessStatusCode)
+                        {
+                            flareStatus = "ok";
+                            flareMessage = $"FlareSolverr answered at {candidate}: Lucida can use it.";
+                            return;
+                        }
+                    }
+                    catch (Exception)
+                    {
+                        // Unreachable candidate: fall through to the next one.
+                    }
+                }
+                flareStatus = "err";
+                flareMessage = "No FlareSolverr answered on the Docker network. Check the container.";
+                return;
+            }
+            using var http2 = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(8) };
+            var response2 = await http2.PostAsJsonAsync($"{url.TrimEnd('/')}/v1",
                 new { cmd = "sessions.list" });
-            flareStatus = response.IsSuccessStatusCode ? "ok" : $"http {(int)response.StatusCode}";
-            flareMessage = response.IsSuccessStatusCode
+            flareStatus = response2.IsSuccessStatusCode ? "ok" : $"http {(int)response2.StatusCode}";
+            flareMessage = response2.IsSuccessStatusCode
                 ? "FlareSolverr answered: Lucida can use it."
                 : "It responded but not with OK. Check the URL and container logs.";
         }

@@ -157,7 +157,7 @@ else
                     <span class="pill @(navidromeConfigured ? "ok" : "neutral")">@(navidromeConfigured ? "ready" : "off")</span>
                 </div>
                 <div class="connection-row @(flareSolverrOn ? "enabled" : "")">
-                    <div><strong>FlareSolverr</strong><small>@(flareSolverrOn ? flareSolverrUrl : "Cloudflare bypass off")</small></div>
+                    <div><strong>FlareSolverr</strong><small>@(flareSolverrOn ? flareSolverrUrlText : "Cloudflare bypass off")</small></div>
                     <span class="pill @(flareSolverrOn ? "ok" : "neutral")">@(flareSolverrOn ? "on" : "off")</span>
                 </div>
             </div>
@@ -317,6 +317,13 @@ else
     private bool navidromeConfigured => !string.IsNullOrWhiteSpace(navidromeUrl);
     private bool flareSolverrOn => !string.IsNullOrWhiteSpace(flareSolverrUrl)
         && !flareSolverrUrl.Equals("off", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>"auto" hides the raw value: the row then says what auto
+    /// does instead of showing the word the user never typed.</summary>
+    private string flareSolverrUrlText =>
+        flareSolverrUrl.Equals("auto", StringComparison.OrdinalIgnoreCase)
+            ? "auto: looks for the container"
+            : flareSolverrUrl;
 
     protected override async Task OnInitializedAsync()
     {

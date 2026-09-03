@@ -149,6 +149,52 @@ public class SettingsPageTests
     }
 
     [Test]
+    public void Settings_NetworkTab_AutoIsTheDefaultWhenNoRowExists()
+    {
+        var cut = _ctx.Render<Settings>();
+        cut.FindAll("button.tab-link").First(b => b.TextContent == "Network").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            // No flaresolverr_url row: the appsettings "auto" must land
+            // in the field so compose users never touch it.
+            var field = cut.Find("input[placeholder='auto, http://flaresolverr:8191 or off']");
+            Assert.That(field.GetAttribute("value"), Is.EqualTo("auto"),
+                "the URL field starts at auto when no DB row overrides it");
+        }, TimeSpan.FromSeconds(3));
+    }
+
+    [Test]
+    public void Settings_NetworkTab_HintExplainsAutoDetection()
+    {
+        var cut = _ctx.Render<Settings>();
+        cut.FindAll("button.tab-link").First(b => b.TextContent == "Network").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.Markup, Does.Contain("looks for that container on the Docker network"),
+                "the hint must tell compose users they can leave auto alone");
+        }, TimeSpan.FromSeconds(3));
+    }
+
+    [Test]
+    public void Settings_NetworkTab_TestButtonExistsAndIsEnabled()
+    {
+        // The auto sweep itself is covered by FlareSolverrSolverTests with
+        // stubbed HTTP; the page's own HttpClient is not stubbable here,
+        // so the UI side only pins the button down.
+        var cut = _ctx.Render<Settings>();
+        cut.FindAll("button.tab-link").First(b => b.TextContent == "Network").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            var button = cut.FindAll("button").First(b => b.TextContent.Trim() == "Test connection");
+            Assert.That(button.HasAttribute("disabled"), Is.False,
+                "the tester starts enabled, ready to probe");
+        }, TimeSpan.FromSeconds(3));
+    }
+
+    [Test]
     public void Settings_ConnectionsTab_ManagesProfilesThroughRealStore()
     {
         var cut = _ctx.Render<Settings>();
