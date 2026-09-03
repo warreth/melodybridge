@@ -160,8 +160,8 @@ public class PlaylistDetailsQualityTests
         cut.WaitForAssertion(() =>
             Assert.That(cut.Markup, Does.Contain("Fine track")), TimeSpan.FromSeconds(3));
 
-        Assert.That(cut.Markup, Does.Contain("<th>Size</th>"),
-            "the track table has a size column");
+        Assert.That(cut.FindAll("th").Any(th => th.TextContent.Trim() == "Size"),
+            Is.True, "the track table has a size column");
         Assert.That(cut.Markup, Does.Contain("8.6 MB"),
             "the 9,000,000 byte file renders as 8.6 MB next to the track");
     }
