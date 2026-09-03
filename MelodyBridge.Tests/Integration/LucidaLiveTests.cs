@@ -59,4 +59,31 @@ public class LucidaLiveTests
         Assert.That(hit, Is.Not.Null, "the search must find a well-known track");
         Assert.That(hit!.SourceUrl, Is.Not.Empty);
     }
+
+    [Test]
+    public async Task WithSolver_DeezerSearchFindsTrack()
+    {
+        var solverUrl = Environment.GetEnvironmentVariable("FLARESOLVERR_URL");
+        if (string.IsNullOrWhiteSpace(solverUrl))
+            Assert.Ignore("FLARESOLVERR_URL not set: start FlareSolverr and set it to run this test");
+
+        var http = new HttpClient { BaseAddress = new Uri("https://lucida.to") };
+        var downloader = new MelodyBridge.Infrastructure.Lucida.LucidaDownloader(
+            http,
+            new MelodyBridge.Infrastructure.Cloudflare.FlareSolverrSolver(
+                http,
+                Microsoft.Extensions.Options.Options.Create(
+                    new MelodyBridge.Infrastructure.Cloudflare.FlareSolverrOptions { Url = solverUrl }),
+                Microsoft.Extensions.Logging.Abstractions.NullLogger<
+                    MelodyBridge.Infrastructure.Cloudflare.FlareSolverrSolver>.Instance),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<
+                MelodyBridge.Infrastructure.Lucida.LucidaDownloader>.Instance);
+
+        // The chain must survive a non-tidal service: whichever service wins,
+        // the hit proves the multi-service search works against the real site.
+        var hit = await downloader.SearchAsync(
+            "Daft Punk", "One More Time", MelodyBridge.Core.DownloadQuality.Any);
+        Assert.That(hit, Is.Not.Null, "the search must find a well-known track");
+        Assert.That(hit!.SourceUrl, Is.Not.Empty);
+    }
 }

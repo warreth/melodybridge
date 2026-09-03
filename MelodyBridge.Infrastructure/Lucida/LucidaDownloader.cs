@@ -30,6 +30,17 @@ public class LucidaDownloader : IDownloader
     private const string PdStart = ",{\"type\":\"data\",\"data\":";
     private const string PdEnd = ",\"uses\":{\"url\":1}}];";
 
+    // Search services lucida.to supports, lossless-oriented and most-covered
+    // first; the country is the storefront each service searches in (the
+    // defaults come from the public lucida web client).
+    private static readonly (string Service, string Country)[] SearchServices =
+    [
+        ("tidal", "US"),
+        ("deezer", "FR"),
+        ("amazon", "US"),
+        ("qobuz", "GB"),
+    ];
+
     private readonly HttpClient _http;
     private readonly IChallengeSolver _solver;
     private readonly ILogger<LucidaDownloader> _logger;
@@ -42,7 +53,7 @@ public class LucidaDownloader : IDownloader
     public string Id => "lucida";
     public string Name => "Lucida";
     public string Description =>
-        "High-quality rips from Tidal, Qobuz and more via lucida.to. Needs a Cloudflare solver (FlareSolverr) in the settings.";
+        "High-quality rips from Tidal, Deezer, Amazon and Qobuz via lucida.to. Needs a Cloudflare solver (FlareSolverr) in the settings.";
 
     public LucidaDownloader(HttpClient http, IChallengeSolver solver, ILogger<LucidaDownloader> logger)
     {
@@ -61,23 +72,56 @@ public class LucidaDownloader : IDownloader
     public async Task<DownloaderSearchHit?> SearchAsync(
         string artist, string title, DownloadQuality quality, CancellationToken ct = default)
     {
+        // One challenge solve up front; the solver session is reused for every
+        // service request below, and SendWithRefreshAsync re-solves on a 403.
         var credentials = await _solver.SolveAsync(BaseUrl, ct);
         if (credentials is null) return null;
 
-        using var request = new HttpRequestMessage(HttpMethod.Get,
-            $"{BaseUrl}/search?query={Uri.EscapeDataString($"{artist} {title}")}&service=tidal");
-        request.Headers.UserAgent.ParseAdd(credentials.UserAgent);
-        if (!string.IsNullOrWhiteSpace(credentials.CookieHeader))
-            request.Headers.Add("Cookie", credentials.CookieHeader);
+        DownloaderSearchHit? best = null;
+        foreach (var (service, country) in SearchServices)
+        {
+            var hit = await SearchServiceAsync(service, country, artist, title, credentials, ct);
+            if (hit is null) continue;
 
-        var html = await SendWithRefreshAsync(request, credentials, ct);
-        if (html is null) return null;
+            // A High-confidence match cannot be beaten by a later service;
+            // skip the remaining requests entirely.
+            if (hit.MatchConfidence == MatchConfidence.High) return hit;
+            best = hit;
+        }
+        return best;
+    }
 
-        var blob = Between(html, PdStart, PdEnd);
-        if (blob is null) return null;
+    /// <summary>
+    /// Runs one search against a single lucida service. Any failure (network,
+    /// missing blob, bad parse) returns null so the chain can try the next
+    /// service instead of failing the whole search.
+    /// </summary>
+    private async Task<DownloaderSearchHit?> SearchServiceAsync(
+        string service, string country, string artist, string title,
+        CloudflareCredentials credentials, CancellationToken ct)
+    {
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get,
+                $"{BaseUrl}/search?query={Uri.EscapeDataString($"{artist} {title}")}"
+                + $"&service={service}&country={country}");
+            request.Headers.UserAgent.ParseAdd(credentials.UserAgent);
+            if (!string.IsNullOrWhiteSpace(credentials.CookieHeader))
+                request.Headers.Add("Cookie", credentials.CookieHeader);
 
-        var track = FindBestTrack(blob, artist, title);
-        return track;
+            var html = await SendWithRefreshAsync(request, credentials, ct);
+            if (html is null) return null;
+
+            var blob = Between(html, PdStart, PdEnd);
+            if (blob is null) return null;
+
+            return FindBestTrack(blob, artist, title);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug("Lucida {Service} search failed: {Message}", service, ex.Message);
+            return null;
+        }
     }
 
     public async Task<DownloaderDownloadResult> DownloadAsync(

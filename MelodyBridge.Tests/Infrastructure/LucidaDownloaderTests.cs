@@ -34,9 +34,14 @@ public class LucidaDownloaderTests
         public Func<HttpRequestMessage, HttpResponseMessage> Respond { get; set; } =
             _ => new HttpResponseMessage(HttpStatusCode.NotFound);
 
+        public int Requests { get; private set; }
+
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request, CancellationToken ct)
-            => Task.FromResult(Respond(request));
+        {
+            Requests++;
+            return Task.FromResult(Respond(request));
+        }
     }
 
     private static LucidaDownloader Create(
@@ -79,7 +84,9 @@ public class LucidaDownloaderTests
         handler.Respond = request =>
         {
             Assert.That(request.RequestUri!.ToString(), Does.Contain("service=tidal"),
-                "search defaults to the Tidal service for high-quality rips");
+                "the chain starts with the Tidal service for high-quality rips");
+            Assert.That(request.RequestUri!.ToString(), Does.Contain("country=US"),
+                "tidal searches its default US storefront");
             Assert.That(request.Headers.Contains("Cookie"), Is.True,
                 "the clearance cookie must travel with the request");
             var tracks = new
@@ -103,6 +110,89 @@ public class LucidaDownloaderTests
         Assert.That(hit.Artist, Is.EqualTo("Rick Astley"));
         Assert.That(hit.MatchConfidence, Is.EqualTo(MatchConfidence.High));
         Assert.That(hit.Duration, Is.EqualTo(TimeSpan.FromSeconds(213)));
+    }
+
+    [Test]
+    public async Task SearchAsync_LowConfidenceOnTidal_FallsThroughToDeezer()
+    {
+        var solver = new StubSolver();
+        var handler = new StubHttpMessageHandler();
+        var tidalTracks = new
+        {
+            tracks = new object[]
+            {
+                new { title = "Totally Unrelated", artists = new[] { new { name = "Unknown Artist" } }, url = "https://tidal.com/track/9", duration = 9999 },
+            },
+        };
+        var deezerTracks = new
+        {
+            tracks = new object[]
+            {
+                new { title = "Never Gonna Give You Up", artists = new[] { new { name = "Rick Astley" } }, url = "https://deezer.com/track/42", duration = 213000 },
+            },
+        };
+        handler.Respond = request =>
+        {
+            var url = request.RequestUri!.ToString();
+            return url.Contains("service=tidal")
+                ? Html(",{\"type\":\"data\",\"data\":" + JsonSerializer.Serialize(tidalTracks))
+                : Html(",{\"type\":\"data\",\"data\":" + JsonSerializer.Serialize(deezerTracks));
+        };
+
+        var downloader = Create(solver, handler, out var http);
+        var hit = await downloader.SearchAsync(
+            "Rick Astley", "Never Gonna Give You Up", DownloadQuality.Any);
+
+        Assert.That(hit, Is.Not.Null, "the deezer fallback must rescue the search");
+        Assert.That(hit!.SourceUrl, Is.EqualTo("https://deezer.com/track/42"));
+        Assert.That(handler.Requests, Is.EqualTo(2),
+            "tidal then deezer: exactly two search requests");
+    }
+
+    [Test]
+    public async Task SearchAsync_HighConfidenceOnFirstService_StopsEarly()
+    {
+        var solver = new StubSolver();
+        var handler = new StubHttpMessageHandler();
+        var tracks = new
+        {
+            tracks = new object[]
+            {
+                new { title = "Never Gonna Give You Up", artists = new[] { new { name = "Rick Astley" } }, url = "https://tidal.com/track/2", duration = 213000 },
+            },
+        };
+        handler.Respond = _ =>
+            Html(",{\"type\":\"data\",\"data\":" + JsonSerializer.Serialize(tracks));
+
+        var downloader = Create(solver, handler, out var http);
+        var hit = await downloader.SearchAsync(
+            "Rick Astley", "Never Gonna Give You Up", DownloadQuality.Any);
+
+        Assert.That(hit, Is.Not.Null);
+        Assert.That(hit!.MatchConfidence, Is.EqualTo(MatchConfidence.High));
+        Assert.That(handler.Requests, Is.EqualTo(1),
+            "a High-confidence hit on tidal must not try the other services");
+    }
+
+    [Test]
+    public async Task SearchAsync_AllServicesGarbage_ReturnsNullWithoutThrowing()
+    {
+        var solver = new StubSolver();
+        var handler = new StubHttpMessageHandler();
+        handler.Respond = _ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("<html>no page data here</html>"),
+        };
+
+        var downloader = Create(solver, handler, out var http);
+        DownloaderSearchHit? hit = null;
+        Assert.DoesNotThrowAsync(async () =>
+            hit = await downloader.SearchAsync(
+                "Rick Astley", "Never Gonna Give You Up", DownloadQuality.Any));
+
+        Assert.That(hit, Is.Null, "garbage responses must yield a null hit, not a crash");
+        Assert.That(handler.Requests, Is.EqualTo(4),
+            "every service is tried before giving up");
     }
 
     [Test]
