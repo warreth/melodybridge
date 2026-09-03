@@ -43,7 +43,7 @@ Spotify playlist URL
    → DownloadMissingAsync → DownloadManager waterfall → YtDlpDownloader
    → MP3 file + MELODY_ID tag + title/artist tags
    → LibraryScanner (reads tags, keeps DB current as files move)
-   → SyncJobRunner → M3uGenerator (#EXTINF) or JellyfinSync
+   → SyncJobRunner → M3uGenerator (#EXTINF) or IMediaServerSync (Jellyfin, Plex, Navidrome)
 ```
 
 ## Core interfaces
@@ -109,7 +109,7 @@ public interface IMediaServerSync
 }
 ```
 
-Implement this to sync playlists to a media server (e.g. Jellyfin). Place implementations in `MelodyBridge.Infrastructure/MediaServers/`.
+Implement this to sync playlists to a media server. Built-in targets are resolved by `Name` (`"Jellyfin"`, `"Plex"`, `"Navidrome"`): place implementations in `MelodyBridge.Infrastructure/MediaServers/` — `JellyfinSync.cs`, `PlexSync.cs`, `NavidromeSync.cs`. Each has a settings pair (`JellyfinSettings.cs`, `PlexSettings.cs`, `NavidromeSettings.cs`) reading connection values from the settings table, and `IMediaServerDirectory` (`JellyfinUserDirectory.cs`, `PlexNavidromeDirectories.cs`) supplies the wizard's Test connection and user picker. Per-job connection overrides travel in `PlaylistOutputOptions.MediaServerConnection` (base URL, credential, optional user id).
 
 ### `IDownloadManager`: the waterfall
 
@@ -146,15 +146,15 @@ Registers core services: `DownloadManager`, `SyncEngine`, library scanner, M3U g
 - `ScanSchedulingBackgroundService`: scheduled library path scans
 - `SpotifySourceProvider`, `YouTubeSourceProvider`: playlist sources
 
-### `AddJellyfinSync()`
+### `AddMediaServerSyncs()`
 
-Registers the Jellyfin media server sync plugin with `HttpClient` via `AddHttpClient`.
+Registers every media server sync plugin (Jellyfin, Plex, Navidrome), their settings and user directories, each with its own `HttpClient` via `AddHttpClient`.
 
 ### Usage in `Program.cs`
 
 ```csharp
 builder.Services.AddMelodyBridge();
-builder.Services.AddJellyfinSync();
+builder.Services.AddMediaServerSyncs();
 ```
 
 ## Testing
@@ -197,7 +197,12 @@ MelodyBridge.Tests/
 ├── Infrastructure/        # Scanner, tagger, M3U, DB context tests
 │   ├── LibraryScannerTests.cs       # Real tagged MP3s: register + move/update identity
 │   ├── M3uGeneratorTests.cs         # Read-back of produced .m3u files
-│   ├── JellyfinSyncTests.cs         # Jellyfin client behavior
+│   ├── JellyfinSyncTests.cs         # Media-server sync clients: Jellyfin,
+│   ├── PlexSyncTests.cs             # Plex, Navidrome. Unit tests run against
+│   ├── NavidromeSyncTests.cs        # ScriptedHandler, a shared scripted HTTP
+│   ├── MediaServerDirectoryTests.cs # boundary; Live tests boot real docker
+│   │                                # containers (Category=Live, images must
+│   │                                # be pulled; the Plex one reads PLEX_TOKEN)
 │   ├── TaglibHelperTests.cs         # Tag reading/writing
 │   └── DbContextTests.cs
 ├── Services/
@@ -236,6 +241,6 @@ MelodyBridge.Tests/
 
 ## Adding a new media server plugin
 
-1. Create a class implementing `IMediaServerSync` in `MelodyBridge.Infrastructure/MediaServers/`.
-2. Register it via `ServiceCollectionExtensions`.
-3. Add tests following the `JellyfinSyncTests` pattern.
+1. Create a class implementing `IMediaServerSync` in `MelodyBridge.Infrastructure/MediaServers/`, one per `Name`.
+2. Register it via `AddMediaServerSyncs()` in `ServiceCollectionExtensions`.
+3. Add tests in `MelodyBridge.Tests/Infrastructure/`: unit tests with the shared `ScriptedHandler`, live tests in a `[Category("Live")]` fixture that boots a real container.

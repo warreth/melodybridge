@@ -106,9 +106,13 @@ A sync job turns a saved playlist into output for your players:
   understands
 - **Jellyfin playlists**, pushed through the Jellyfin API with the
   configured user
+- **Plex playlists**, pushed through the Plex API for the token-holder
+- **Navidrome playlists**, pushed through Navidrome's Subsonic API with
+  username and password
 
-Tracks imported from your liked songs are flagged, and the Jellyfin
-sync marks them as favorites for the configured user.
+Tracks imported from your liked songs are flagged, and the sync marks
+them as favorites: per user in Jellyfin, a top rating on the Plex
+token-holder's account, a star in Navidrome.
 
 ## Library scan
 

@@ -63,7 +63,7 @@ See the [user compose file](https://melodybridge.app/compose.yml) for the publis
 
 ### Environment variables
 
-Configure everything Jellyfin-related in the web UI (Settings), not through the environment. The only variables you might touch:
+Configure everything media-server-related (Jellyfin, Plex, Navidrome) in the web UI (Settings), not through the environment. The only variables you might touch:
 
 | Variable | Default | Description |
 |---|---|---|
@@ -72,15 +72,24 @@ Configure everything Jellyfin-related in the web UI (Settings), not through the 
 | `DevPanel__Enabled` | `false` | Enable the /dev testing dashboard |
 | `FlareSolverr__Url` | `http://flaresolverr:8191` | Cloudflare solver endpoint (`off` disables Lucida) |
 
-After `docker compose up -d`, open http://localhost:3333 and fill in your Jellyfin base URL, API key and user under Settings. Values are stored in the database volume and apply immediately, no restart needed.
+After `docker compose up -d`, open http://localhost:3333 and fill in your connection under Settings: Jellyfin takes a base URL, API key and user; Plex takes a base URL and X-Plex-Token; Navidrome takes a base URL, username and password. Values are stored in the database volume and apply immediately, no restart needed.
 
 ### Volumes
 
 | Host Path | Container Path | Purpose |
 |---|---|---|
-| `./data/music` | `/music` | Music file storage (point Jellyfin here) |
+| `./data/music` | `/music` | Music file storage (point Jellyfin, Plex or Navidrome here) |
 | `./data/playlists` | `/app/playlists` | Generated playlist output |
 | `./data/app` | `/app` | SQLite database and app state |
+
+### Media servers in Docker
+
+When your media server runs as another container on the same compose
+network, use its service name as the base URL: `http://jellyfin:8096`,
+`http://plex:32400` or `http://navidrome:4533`. The music folder must be
+mounted at the same path on both sides; if it differs, add a path remap
+rule in the sync job. A server on the host is reached through
+`http://host.docker.internal` instead.
 
 ## Included tools
 
@@ -91,6 +100,6 @@ The Docker image includes `yt-dlp` and `ffmpeg` pre-installed for YouTube and ge
 ::: warning
 - Keep the `127.0.0.1` port binding unless you expose the app through a reverse proxy.
 - Configure a reverse proxy (nginx, Caddy, Traefik) for TLS.
-- Put your Jellyfin API key in the web UI Settings, not in any committed file.
+- Put your Jellyfin API key, Plex token or Navidrome password in the web UI Settings, not in any committed file.
 - Never publish the flaresolverr port to the host; the internal network is enough.
 :::

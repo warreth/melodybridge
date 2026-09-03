@@ -18,8 +18,8 @@ dismissed.
 The four stat cards show the playlists, downloaded tracks, library
 files and enabled plugins. Below them:
 
-- **Connections** lists Spotify, YouTube, Jellyfin and FlareSolverr with
-  their current state
+- **Connections** lists Spotify, YouTube, Jellyfin, Plex, Navidrome and
+  FlareSolverr with their current state
 - **Recent errors** shows the latest failures with a link to the Logs
   page
 - **Recent sync runs** lists the last jobs with their result
@@ -122,22 +122,29 @@ captcha-gated, so it never finds tracks by name).
 ## Sync jobs
 
 A sync job turns a saved playlist or a local folder into an M3U file or
-a Jellyfin playlist. The New sync job wizard has five steps:
+a playlist on Jellyfin, Plex or Navidrome. The New sync job wizard has
+five steps:
 
 1. **Job name and source.** The source is a saved playlist or, with
    Local folder, a single scan folder from the Library page
 2. **Search locations:** a checkbox list of your scan folders, all
    checked by default. Leave them all checked to use every folder
-3. **Output type:** M3U File or Jellyfin API. M3U needs the output
-   path. Jellyfin needs the server URL and API key, plus a Test
+3. **Output type:** M3U File, Jellyfin, Plex or Navidrome. M3U needs
+   the output path. The servers each take their own connection
+   fields: Jellyfin needs the server URL and API key, plus a Test
    connection button that checks the server and lists its users for
-   you to pick one. The schedule is manual, hourly, daily, weekly,
-   monthly or cron; cron takes a five-field expression like
+   you to pick one. Plex needs the server URL and an X-Plex-Token
+   (the token-holder is the only user, so there is no user picker).
+   Navidrome needs the server URL, a username and a password. The
+   connection values are stored per job, so two jobs can point at
+   two different servers. The schedule is manual, hourly, daily,
+   weekly, monthly or cron; cron takes a five-field expression like
    `0 3 * * *` (03:00 nightly)
 4. **Path and extension remap rules:** add as many as you need, each
    with a from and a to value. Only needed when your music player
    sees files under a different path than MelodyBridge, for example
-   inside a Docker container
+   inside a Docker container — the paths must match what the server
+   sees, such as its container mount
 5. **Review and create**
 
 Each job card shows the last run status and summary, the schedule, and
@@ -149,7 +156,7 @@ the job instead of creating a new one.
 "Synced 20/50 tracks, 30 without a local file" counts the whole
 playlist: 50 tracks are in it and 20 of them had a file to publish.
 The Log view breaks those 30 down per track, so you can see exactly
-which files are missing or were not found on the Jellyfin server.
+which files are missing or were not found on the media server.
 :::
 
 ## Library
@@ -177,9 +184,10 @@ tabs.
 
 - **Accounts**: connect Spotify and YouTube. Both only ask for read
   access, see [Accounts and OAuth](accounts.md)
-- **Media servers**: named server profiles several sync jobs can
-  share. Add and edit profiles in one place, each with a Test button
-  and a Use as app default switch
+- **Media servers**: named connection profiles for Jellyfin, Plex and
+  Navidrome that several sync jobs can share. Add and edit profiles
+  in one place, each with a Test button and a Use as app default
+  switch
 - **Paths**: music path and playlist output folder, as the server sees
   them (inside Docker: `/music` and `/app/playlists`)
 - **Quality**: the default audio quality for new playlists (each

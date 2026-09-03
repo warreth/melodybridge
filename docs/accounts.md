@@ -96,11 +96,14 @@ Liked songs arrive through the channel's `likes` playlist (`LL`);
 private playlists through the normal Data API. Rate limits are generous:
 quota counts per playlist page.
 
-## Jellyfin favorites
+## Media server favorites
 
-Tracks imported from your liked songs are flagged, and the Jellyfin sync
-marks them as favorites for the configured user (Settings, Jellyfin
-panel). With no user configured, the first non-system user is used.
+Tracks imported from your liked songs are flagged, and the sync marks
+them as favorites. Jellyfin does it per user: the configured user gets
+the favorites (Settings, Jellyfin panel), and with no user configured
+the first non-system user is used. Plex has one account in play — the
+token-holder — so liked tracks get a top user rating there. Navidrome
+stars them for the user whose username and password you configured.
 
 ## Why there is no passwordless login
 
