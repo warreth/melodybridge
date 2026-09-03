@@ -89,17 +89,15 @@ At the top:
 The **CSV** button on each playlist card on the Playlists page exports
 the same list without opening the details page.
 
-## Plugins and downloads
+## Plugins
 
-The Plugins page (called "Plugins & downloads" in the menu) configures
-the plugin waterfall and shows live progress.
-
-- The plugin list is the waterfall: each track is searched through the
-  sources in order, and the first plugin that returns a file within
-  your quality settings wins
-- Move plugins up or down with the arrows, toggle them with the switch
-- Plugins with settings show an expandable **Settings** panel with a
-  Save button; the values are remembered per plugin
+The Plugins page configures the plugin waterfall and shows live progress.
+Plugins search for and download the music: each track is tried through
+the enabled plugins in order, and the first one that returns a file
+within your quality settings wins.
+- Move plugins up or down with the arrows, toggle them with the switch;
+  plugins with settings show an expandable **Settings** panel whose
+  values are remembered per plugin
 - A plugin marked unavailable (missing binary or service down) is
   skipped automatically; the pill next to it shows the current state
 - **Live downloads** at the top shows each running playlist download

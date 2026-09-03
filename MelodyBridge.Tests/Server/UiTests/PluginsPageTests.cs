@@ -65,7 +65,8 @@ public class PluginsPageTests
     {
         var cut = _ctx.Render<Plugins>();
 
-        Assert.That(cut.Markup, Does.Contain("Download plugins"));
+        Assert.That(cut.Markup, Does.Contain("Plugins"));
+        Assert.That(cut.Markup, Does.Contain("search for and download"));
         Assert.That(cut.Markup, Does.Contain("yt-dlp (YouTube)"));
         Assert.That(cut.Markup, Does.Contain("Second Plugin"));
     }
@@ -75,8 +76,8 @@ public class PluginsPageTests
     {
         var cut = _ctx.Render<Plugins>();
 
-        Assert.That(cut.Markup, Does.Contain("Move up"));
-        var upButtons = cut.FindAll("button[title='Move up']");
+        Assert.That(cut.Markup, Does.Contain("Try this plugin first"));
+        var upButtons = cut.FindAll("button[title='Try this plugin first']");
         Assert.That(upButtons.Count, Is.EqualTo(2), "one move-up per plugin");
     }
 

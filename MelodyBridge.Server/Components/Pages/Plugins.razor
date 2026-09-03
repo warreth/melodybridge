@@ -9,9 +9,10 @@
 <section class="page-title">
     <div>
         <span class="eyebrow">Waterfall</span>
-        <h1>Download plugins</h1>
-        <p>Each track is searched through these sources in order. The first plugin that
-            returns a file within your quality settings wins. Drag the order to taste.</p>
+        <h1>Plugins</h1>
+        <p>Plugins search for and download the music. Each track is tried
+            through the enabled plugins in order; the first one that returns a
+            file within your quality settings wins. Reorder to taste.</p>
     </div>
 </section>
 
@@ -81,9 +82,15 @@
                     @(availability.GetValueOrDefault(plugin.Id) ? "ready" : "unavailable")
                 </span>
                 <label class="toggle-switch">
-                    <input type="checkbox" checked="@enabled" @onchange="e => TogglePluginAsync(plugin.Id, (bool)e.Value)" />
+                    <input type="checkbox" checked="@enabled" @onchange="e => TogglePluginAsync(plugin.Id, (bool)e.Value!)" />
                     <span class="toggle-slider"></span>
                 </label>
+                <div class="plugin-actions">
+                    <button class="icon-button" title="Try this plugin first" disabled="@(firstEnabledId == plugin.Id)"
+                            @onclick="() => MoveUp(plugin.Id)">↑</button>
+                    <button class="icon-button" title="Try this plugin later" disabled="@(lastEnabledId == plugin.Id)"
+                            @onclick="() => MoveDown(plugin.Id)">↓</button>
+                </div>
             </div>
             <div class="plugin-quality">
                 @foreach (var badge in QualityBadges(plugin.Id))
@@ -117,12 +124,6 @@
                     </div>
                 </details>
             }
-            <div class="plugin-actions">
-                <button class="icon-button" title="Move up" disabled="@(firstEnabledId == plugin.Id)"
-                        @onclick="() => MoveUp(plugin.Id)">↑</button>
-                <button class="icon-button" title="Move down" disabled="@(lastEnabledId == plugin.Id)"
-                        @onclick="() => MoveDown(plugin.Id)">↓</button>
-            </div>
         </div>
     }
 </section>
