@@ -675,6 +675,8 @@ public class TestDownloader : IDownloader
 
     public IReadOnlyList<PluginConfigField> ConfigFields { get; } = Array.Empty<PluginConfigField>();
 
+    public PluginCapabilities Capabilities => PluginCapabilities.Any;
+
     public Task<bool> IsAvailableAsync(CancellationToken ct = default) => Task.FromResult(true);
 
     public Task<DownloaderSearchHit?> SearchAsync(string artist, string title, DownloadQuality quality, CancellationToken ct = default)

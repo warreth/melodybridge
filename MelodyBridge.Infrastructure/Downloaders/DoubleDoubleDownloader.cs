@@ -24,6 +24,11 @@ public class DoubleDoubleDownloader : IDownloader
     private readonly ILogger<DoubleDoubleDownloader> _logger;
     private readonly HttpClient _http;
 
+    // DoubleDouble rips FLAC (lossless services) and MP3/AAC; bitrate depends on the source.
+    public static readonly PluginCapabilities Caps =
+        new([AudioFormat.Flac, AudioFormat.Mp3, AudioFormat.Aac], null, null, true, true);
+    public PluginCapabilities Capabilities => Caps;
+
     public string Id => "doubledouble";
     public string Name => "DoubleDouble";
     public string Description => "doubledouble.top: Tidal, Qobuz, Deezer, Amazon Music, SoundCloud direct-URL rips";

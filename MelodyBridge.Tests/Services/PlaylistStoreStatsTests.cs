@@ -301,6 +301,10 @@ public class PlaylistStoreStatsTests
         public string Id => "gate";
         public string Name => "Format Gate";
         public string Description => string.Empty;
+        // Serves both flavors on paper; DownloadAsync still refuses FLAC
+        // so the lossless-fallback path stays exercised.
+        public PluginCapabilities Capabilities { get; } =
+            new([AudioFormat.Mp3, AudioFormat.Flac], null, null, SupportsLossless: true, SupportsLossy: true);
         public Task<bool> IsAvailableAsync(CancellationToken ct = default) => Task.FromResult(true);
         public Task<DownloaderSearchHit?> SearchAsync(string artist, string title, DownloadQuality quality, CancellationToken ct = default)
             => Task.FromResult<DownloaderSearchHit?>(new DownloaderSearchHit(title, artist, "https://gate.example/1", null));

@@ -35,6 +35,7 @@ public sealed class TestDownloader : IDownloader
     public string Id { get; }
     public string Name { get; }
     public string Description => "test downloader";
+    public PluginCapabilities Capabilities => PluginCapabilities.Any;
     public IReadOnlyList<PluginConfigField> ConfigFields { get; } = Array.Empty<PluginConfigField>();
     public Task<bool> IsAvailableAsync(CancellationToken ct = default) => Task.FromResult(true);
 

@@ -75,6 +75,13 @@ public interface IDownloader
     /// </summary>
     IReadOnlyList<PluginConfigField> ConfigFields => Array.Empty<PluginConfigField>();
 
+    /// <summary>
+    /// What this plugin can honestly produce (formats + bitrate band).
+    /// Required with no default: the quality router cannot route on
+    /// unstated capabilities.
+    /// </summary>
+    PluginCapabilities Capabilities { get; }
+
     /// <summary>True when the plugin is operational (binary reachable, service up).</summary>
     Task<bool> IsAvailableAsync(CancellationToken ct = default);
 

@@ -169,6 +169,7 @@ public class CorruptionCheckTests
         public string Id => "garbage-writer";
         public string Name => "Garbage Writer (test)";
 
+        public PluginCapabilities Capabilities => PluginCapabilities.Any;
         public Task<bool> IsAvailableAsync(CancellationToken ct = default) => Task.FromResult(true);
 
         public Task<DownloaderSearchHit?> SearchAsync(string artist, string title, DownloadQuality quality, CancellationToken ct = default)

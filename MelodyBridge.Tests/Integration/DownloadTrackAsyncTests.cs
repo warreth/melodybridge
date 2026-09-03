@@ -44,6 +44,7 @@ public class DownloadTrackAsyncTests
         public string Name => "File Writer (test)";
         public List<(string artist, string title)> SearchQueries = new();
 
+        public PluginCapabilities Capabilities => PluginCapabilities.Any;
         public Task<bool> IsAvailableAsync(CancellationToken ct = default) => Task.FromResult(true);
 
         public Task<DownloaderSearchHit?> SearchAsync(string artist, string title, DownloadQuality quality, CancellationToken ct = default)

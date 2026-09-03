@@ -23,6 +23,11 @@ public class ArchiveOrgDownloader : IDownloader
 
     private static readonly Uri SearchBase = new("https://archive.org/advancedsearch.php");
 
+    // Archive files are MP3 uploads, never above 320 kbps; some rips are lossless-grade masters.
+    public static readonly PluginCapabilities Caps =
+        new([AudioFormat.Mp3], null, 320, true, false);
+    public PluginCapabilities Capabilities => Caps;
+
     public ArchiveOrgDownloader(HttpClient http, ILogger<ArchiveOrgDownloader> logger)
     {
         _http = http;

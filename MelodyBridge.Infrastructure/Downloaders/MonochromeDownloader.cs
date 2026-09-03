@@ -20,6 +20,11 @@ public class MonochromeDownloader : IDownloader
     private readonly ILogger<MonochromeDownloader> _logger;
     private readonly HttpClient _http;
 
+    // Monochrome serves TIDAL FLAC (lossless) and AAC (lossy); the API does not promise bitrates.
+    public static readonly PluginCapabilities Caps =
+        new([AudioFormat.Flac, AudioFormat.Aac], null, null, true, true);
+    public PluginCapabilities Capabilities => Caps;
+
     public string Id => "monochrome";
     public string Name => "Monochrome (TIDAL)";
     public string Description => "Community TIDAL rips via monochrome.tf Hi-Fi API instances: FLAC/AAC, mirror fallback";

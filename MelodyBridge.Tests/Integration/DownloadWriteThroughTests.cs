@@ -64,6 +64,7 @@ public class DownloadWriteThroughTests
         public string Name => "Real File (test)";
         private readonly string _sourceFlac;
         public string? LastSourceUrl;
+        public PluginCapabilities Capabilities => PluginCapabilities.Any;
 
         public RealFileDownloader(string sourceFlac) => _sourceFlac = sourceFlac;
 

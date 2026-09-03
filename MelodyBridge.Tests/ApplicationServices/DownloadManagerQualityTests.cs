@@ -28,6 +28,9 @@ public class DownloadManagerQualityTests
         public string Id { get; }
         public string Name { get; }
         public string Description => string.Empty;
+        // Honest manifest: this stub only ever writes real MP3 files.
+        public PluginCapabilities Capabilities { get; } =
+            new([AudioFormat.Mp3], null, null, SupportsLossless: false, SupportsLossy: true);
         public Task<bool> IsAvailableAsync(CancellationToken ct = default) => Task.FromResult(true);
         public Task<DownloaderSearchHit?> SearchAsync(string artist, string title, DownloadQuality quality, CancellationToken ct = default)
             => Task.FromResult(_hit);

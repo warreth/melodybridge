@@ -213,6 +213,7 @@ public class IntegrationTests
     {
         public string Id => id;
         public string Name => name;
+        public PluginCapabilities Capabilities => PluginCapabilities.Any;
 
         public Task<bool> IsAvailableAsync(CancellationToken ct = default)
             => Task.FromResult(available);

@@ -28,6 +28,7 @@ public class DownloadQueueTests
         public string Name => "Slow (test)";
         public string Description => "";
         public int Downloads;
+        public PluginCapabilities Capabilities => PluginCapabilities.Any;
         public Task<bool> IsAvailableAsync(CancellationToken ct = default) => Task.FromResult(true);
 
         public Task<DownloaderSearchHit?> SearchAsync(string artist, string title, DownloadQuality quality, CancellationToken ct = default)

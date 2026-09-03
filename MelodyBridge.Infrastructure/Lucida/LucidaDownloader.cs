@@ -34,6 +34,11 @@ public class LucidaDownloader : IDownloader
     private readonly IChallengeSolver _solver;
     private readonly ILogger<LucidaDownloader> _logger;
 
+    // Lucida serves FLAC (lossless tiers) and MP3/AAC; bitrate depends on the source service.
+    public static readonly PluginCapabilities Caps =
+        new([AudioFormat.Flac, AudioFormat.Mp3, AudioFormat.Aac], null, null, true, true);
+    public PluginCapabilities Capabilities => Caps;
+
     public string Id => "lucida";
     public string Name => "Lucida";
     public string Description =>

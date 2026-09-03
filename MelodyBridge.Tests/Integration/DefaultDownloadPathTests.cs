@@ -39,6 +39,7 @@ public class DefaultDownloadPathTests
         public string Name => "File Writer (test)";
         public List<string> OutputDirectories = new();
 
+        public PluginCapabilities Capabilities => PluginCapabilities.Any;
         public Task<bool> IsAvailableAsync(CancellationToken ct = default) => Task.FromResult(true);
 
         public Task<DownloaderSearchHit?> SearchAsync(string artist, string title, DownloadQuality quality, CancellationToken ct = default)
