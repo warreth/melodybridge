@@ -14,7 +14,7 @@
 
 @if (loading)
 {
-    <div class="empty-state">Loading playlist…</div>
+    <Skeleton Kind="table" Rows="6" />
 }
 else if (playlist == null)
 {
@@ -29,7 +29,7 @@ else if (playlist == null)
 }
 else
 {
-    <section class="page-title">
+    <section class="page-title detail-header">
         <div class="playlist-header">
             <div class="playlist-cover small">
                 @if (!string.IsNullOrEmpty(playlist.CoverImageUrl))
@@ -38,7 +38,7 @@ else
                 }
                 else
                 {
-                    <span class="playlist-cover-placeholder">♫</span>
+                    <span class="playlist-cover-placeholder"><Icon Name="music" Size="28" Class="cover-placeholder-icon" /></span>
                 }
             </div>
             <div>
@@ -58,7 +58,7 @@ else
                     @if (!playlist.IsManualImport)
                     {
                         <a href="@playlist.SourceUrl" target="_blank" rel="noopener" class="hint">
-                            Open source ↗
+                            Open source <Icon Name="external" Size="12" />
                         </a>
                     }
                 </p>
@@ -200,12 +200,12 @@ else
             </div>
             <div class="stat-grid two">
                 <div class="stat-card">
-                    <span class="stat-icon">♫</span>
+                    <Icon Name="music" Size="20" Class="stat-icon" />
                     <label>Tracks</label>
                     <strong>@playlist.Tracks.Count</strong>
                 </div>
                 <div class="stat-card">
-                    <span class="stat-icon">↓</span>
+                    <Icon Name="download" Size="20" Class="stat-icon" />
                     <label>Downloaded</label>
                     <strong>@downloadedCount / @playlist.Tracks.Count</strong>
                 </div>
@@ -213,7 +213,7 @@ else
             @if (downloadedCount > 0 && badQualityCount > 0)
             {
                 <div class="hint-box">
-                    ⚠ @badQualityCount downloaded track(s) look inflated (re-encoded from a
+                    <Icon Name="alert" Size="16" Class="inline-icon" /> @badQualityCount downloaded track(s) look inflated (re-encoded from a
                     lower-quality source). Retry them after switching the playlist to
                     <strong>Auto</strong> or a lower cap.
                 </div>
@@ -280,17 +280,22 @@ else
                                     @{ var queueLabel = TrackQueueLabel(track); }
                                     @if (queueLabel is not null)
                                     {
-                                        <span class="pill @(queueLabel == "downloading" ? "warn" : DownloadStatusClass(track.DownloadStatus))"
-                                              title="@(queueLabel == "downloading" ? "Currently downloading" : null)">
-                                            @queueLabel
-                                        </span>
+                                        @if (queueLabel == "downloading")
+                                        {
+                                            <StatusPill Variant="in_progress" Pulse="true" Title="Currently downloading">downloading</StatusPill>
+                                        }
+                                        else
+                                        {
+                                            <StatusPill Variant="neutral">@queueLabel</StatusPill>
+                                        }
                                     }
                                     else
                                     {
-                                        <span class="pill @(DownloadStatusClass(track.DownloadStatus))"
-                                              title="@(track.DownloadStatus == "failed" ? track.DownloadError : null)">
+                                        <StatusPill Variant="@(track.DownloadStatus switch
+                                            { "downloaded" => "ok", "failed" => "err", _ => "neutral" })"
+                                            Title="@(track.DownloadStatus == "failed" ? track.DownloadError : null)">
                                             @(track.DownloadStatus ?? "pending")
-                                        </span>
+                                        </StatusPill>
                                         @if (track.DownloadStatus == "failed" && !string.IsNullOrWhiteSpace(track.DownloadError))
                                         {
                                             <div class="fail-note">@track.DownloadError</div>
@@ -298,7 +303,7 @@ else
                                     }
                                     @if (!string.IsNullOrWhiteSpace(track.Warning))
                                     {
-                                        <span class="pill warn" title="@track.Warning">⚠</span>
+                                        <StatusPill Variant="warn" Title="@track.Warning">!</StatusPill>
                                     }
                                 </td>
                                 @if (showFilenameColumn)
@@ -315,20 +320,22 @@ else
                                     </td>
                                 }
                                 <td class="track-actions">
-                                    @if (track.DownloadStatus is "failed" or null or "pending")
-                                    {
-                                        <button class="btn-modern small ghost" title="Download this track now"
-                                                @onclick="() => RetryTrack(track)" disabled="@busy">
-                                            ↻ Download
-                                        </button>
-                                    }
-                                    @if (track.DownloadStatus is not null)
-                                    {
-                                        <button class="btn-modern small ghost" title="Remove from playlist (deletes the file)"
-                                                @onclick="() => RemoveTrack(track)" disabled="@busy">
-                                            ✕ Remove
-                                        </button>
-                                    }
+                                    <div class="btn-group">
+                                        @if (track.DownloadStatus is "failed" or null or "pending")
+                                        {
+                                            <button class="btn-modern small ghost" title="Download this track now"
+                                                    @onclick="() => RetryTrack(track)" disabled="@busy">
+                                                <Icon Name="refresh" Size="14" /> Download
+                                            </button>
+                                        }
+                                        @if (track.DownloadStatus is not null)
+                                        {
+                                            <button class="btn-modern small ghost" title="Remove from playlist (deletes the file)"
+                                                    @onclick="() => RemoveTrack(track)" disabled="@busy">
+                                                <Icon Name="x" Size="14" /> Remove
+                                            </button>
+                                        }
+                                    </div>
                                 </td>
                             </tr>
                         }

@@ -1,0 +1,28 @@
+/* PlaylistDetails scoped styles: the sticky action header and the
+   per-track action button group. */
+
+/* Sticky page header: stays under the 64px app topbar while the track
+   table scrolls. Opaque background so rows slide beneath it. */
+.detail-header {
+    position: sticky;
+    top: 64px;
+    z-index: 5;
+    background: var(--bg);
+    padding-bottom: .75rem;
+    border-bottom: 1px solid var(--border);
+}
+
+/* Per-track Retry / Remove buttons share one rounded group. */
+::deep .btn-group {
+    display: inline-flex;
+    gap: .3rem;
+}
+
+/* Small inline icons inside text (hint boxes, links). */
+::deep .inline-icon {
+    vertical-align: -3px;
+    color: var(--warning);
+}
+::deep .cover-placeholder-icon {
+    color: var(--muted-2);
+}
