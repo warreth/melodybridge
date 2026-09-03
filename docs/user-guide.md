@@ -98,9 +98,13 @@ the same list without opening the details page.
 ## Plugins
 
 The Plugins page configures the plugin waterfall and shows live progress.
-Plugins search for and download the music: each track is tried through
-the enabled plugins in order, and the first one that returns a file
-within your quality settings wins.
+Plugins search for and download the music: with the **No filter**
+quality each track is tried through the enabled plugins in the order
+below, and the first one that returns a file wins. The order set here
+applies only to No filter: every preset and every advanced filter picks
+its own order, skipping plugins that cannot serve the requested quality
+and trying the rest by fit (Space Saver prefers small-file sources,
+Lossless prefers the lossless-capable ones).
 - Move plugins up or down with the arrows, toggle them with the switch;
   plugins with settings show an expandable **Settings** panel whose
   values are remembered per plugin
