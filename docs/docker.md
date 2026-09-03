@@ -70,7 +70,7 @@ Configure everything media-server-related (Jellyfin, Plex, Navidrome) in the web
 | `ASPNETCORE_ENVIRONMENT` | `Production` | Set to `Development` for dev |
 | `ASPNETCORE_URLS` | `http://+:80` | Server binding address |
 | `DevPanel__Enabled` | `false` | Enable the /dev testing dashboard |
-| `FlareSolverr__Url` | `http://flaresolverr:8191` | Cloudflare solver endpoint (`off` disables Lucida) |
+| `FlareSolverr__Url` | `auto` | Cloudflare solver endpoint: `auto` detects the container on the compose network, an explicit URL uses that one, `off` disables Lucida |
 
 After `docker compose up -d`, open http://localhost:3333 and fill in your connection under Settings: Jellyfin takes a base URL, API key and user; Plex takes a base URL and X-Plex-Token; Navidrome takes a base URL, username and password. Values are stored in the database volume and apply immediately, no restart needed.
 

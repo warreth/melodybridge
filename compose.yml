@@ -4,7 +4,8 @@
 
 services:
   # Cloudflare solver for the Lucida plugin. Only reachable on the
-  # internal compose network, never published to the host.
+  # internal compose network, never published to the host. The app
+  # finds it automatically by its Docker DNS name on that network.
   flaresolverr:
     image: ghcr.io/flaresolverr/flaresolverr:latest
     container_name: flaresolverr
@@ -20,6 +21,8 @@ services:
       start_period: 30s
     security_opt:
       - no-new-privileges:true
+    networks:
+      - melodybridge
 
   melodybridge:
     image: ghcr.io/warreth/melodybridge:latest
@@ -37,7 +40,7 @@ services:
       - ASPNETCORE_URLS=http://+:80
       - Logging__LogLevel__Default=Information
       - DevPanel__Enabled=false
-      - FlareSolverr__Url=http://flaresolverr:8191
+      - FlareSolverr__Url=auto
     volumes:
       - ./data/music:/music
       - ./data/playlists:/app/playlists
@@ -45,3 +48,11 @@ services:
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
+    networks:
+      - melodybridge
+
+# One explicit network so the app can always resolve the solver by
+# its service name, even when the user changes container names.
+networks:
+  melodybridge:
+    name: melodybridge

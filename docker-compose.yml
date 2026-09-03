@@ -4,7 +4,8 @@
 # The app listens on http://localhost:3333 (dev panel /dev).
 
 services:
-  # Solves Cloudflare challenges for the Lucida plugin.
+  # Solves Cloudflare challenges for the Lucida plugin. Runs on the
+  # same network as the app, which finds it by its Docker DNS name.
   flaresolverr:
     image: ghcr.io/flaresolverr/flaresolverr:latest
     container_name: melodybridge_dev_flaresolverr
@@ -12,6 +13,14 @@ services:
       - LOG_LEVEL=info
       - TZ=Europe/Amsterdam
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:8191/health >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - melodybridge
 
   melodybridge:
     build:
@@ -19,6 +28,9 @@ services:
       dockerfile: Dockerfile
     image: melodybridge:dev
     container_name: melodybridge_dev
+    depends_on:
+      flaresolverr:
+        condition: service_healthy
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
@@ -33,9 +45,17 @@ services:
       - Jellyfin__BaseUrl=http://host.docker.internal:8096
       - Jellyfin__ApiKey=
       - DevPanel__Enabled=true
-      - FlareSolverr__Url=http://flaresolverr:8191
+      - FlareSolverr__Url=auto
     volumes:
       - ./data/music:/music
       - ./data/playlists:/app/playlists
       - ./data/app:/app
     restart: unless-stopped
+    networks:
+      - melodybridge
+
+# One explicit network so the app can always resolve the solver by
+# its service name, even when the user changes container names.
+networks:
+  melodybridge:
+    name: melodybridge
