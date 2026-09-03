@@ -307,6 +307,63 @@ public void ParseQuality_MapsFormatAndCap()
 }
 
 [Test]
+public void ParseQuality_PresetsMapToTheirRules()
+{
+    // Space Saver: anything lossy up to 160 kbps, no floor.
+    var saver = PlaylistStore.ParseQuality("preset:saver");
+    Assert.That(saver.Format, Is.EqualTo(AudioFormat.Auto),
+        "Space Saver accepts any container");
+    Assert.That(saver.MaxKbps, Is.EqualTo(160));
+    Assert.That(saver.MinKbps, Is.Null);
+
+    // High Quality: anything lossy up to 320 kbps.
+    var high = PlaylistStore.ParseQuality("preset:high");
+    Assert.That(high.Format, Is.EqualTo(AudioFormat.Auto));
+    Assert.That(high.MaxKbps, Is.EqualTo(320),
+        "the cap rejects lossless sizes so files stay reasonable");
+
+    // Lossless: FLAC first, best lossy as fallback.
+    var (lossless, fallback) = PlaylistStore.ParseQualityDetailed("preset:lossless");
+    Assert.That(lossless.Format, Is.EqualTo(AudioFormat.Flac));
+    Assert.That(fallback, Is.Not.Null, "Lossless carries a lossy fallback");
+    Assert.That(fallback!.MaxKbps, Is.EqualTo(320));
+
+    // Plain auto still means no filter at all.
+    var auto = PlaylistStore.ParseQualityDetailed("auto");
+    Assert.That(auto.primary.Format, Is.EqualTo(AudioFormat.Auto));
+    Assert.That(auto.primary.MaxKbps, Is.Null);
+    Assert.That(auto.fallback, Is.Null);
+}
+
+[Test]
+public void IsValidFormat_AcceptsPresetStrings()
+{
+    Assert.That(PlaylistStore.IsValidFormat("preset:saver"), Is.True);
+    Assert.That(PlaylistStore.IsValidFormat("preset:high"), Is.True);
+    Assert.That(PlaylistStore.IsValidFormat("preset:lossless"), Is.True);
+    Assert.That(PlaylistStore.IsValidFormat("preset:nope"), Is.False,
+        "unknown preset names are rejected like unknown containers");
+    Assert.That(PlaylistStore.IsValidFormat("mp3:192-320"), Is.True,
+        "the advanced path keeps working");
+}
+
+[Test]
+public void PresetBands_RejectWhatTheyPromise()
+{
+    // The waterfall gates measured bitrates; the presets' promises hold.
+    var saver = PlaylistStore.ParseQuality("preset:saver");
+    Assert.That(saver.IsWithinBand(128), Is.True, "128 kbps fits Space Saver");
+    Assert.That(saver.IsWithinBand(320), Is.False, "320 kbps is too big for Space Saver");
+    Assert.That(saver.IsWithinBand(900), Is.False,
+        "a lossless ~900 kbps file is far outside Space Saver");
+
+    var high = PlaylistStore.ParseQuality("preset:high");
+    Assert.That(high.IsWithinBand(320), Is.True, "320 kbps fits High Quality");
+    Assert.That(high.IsWithinBand(900), Is.False,
+        "FLAC-sized files are what High Quality rejects");
+}
+
+[Test]
 public void IsValidFormat_RejectsGarbage()
 {
     Assert.That(PlaylistStore.IsValidFormat("auto"), Is.True);

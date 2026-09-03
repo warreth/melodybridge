@@ -111,14 +111,27 @@ public class PlaylistStore
 
             try
             {
+                var (primary, fallback) = ParseQualityDetailed(preferredFormat);
                 var path = await _downloadManager.DownloadTrackAsync(
-                    track.Artist!, track.Title!, dir, track.MelodyId!,
-                    ParseQuality(preferredFormat), ct);
+                    track.Artist!, track.Title!, dir, track.MelodyId!, primary, ct);
+
+                // Lossless preset: when no source delivered a lossless
+                // file, take the best lossy copy instead of nothing.
+                if (path is null && fallback is not null)
+                {
+                    _logger.LogInformation(
+                        "No lossless source for '{Title}'; falling back to the best lossy file", track.Title);
+                    path = await _downloadManager.DownloadTrackAsync(
+                        track.Artist!, track.Title!, dir, track.MelodyId!, fallback, ct);
+                }
 
                 if (path is null)
                 {
                     track.DownloadStatus = "failed";
-                    track.DownloadError = "no plugin could download this track";
+                    // Say why: filter misses can be fixed by the user,
+                    // missing tracks cannot.
+                    track.DownloadError = _downloadManager.LastFailure(track.MelodyId!)
+                        ?? "no plugin could download this track";
                     failed++;
                 }
                 else
@@ -224,11 +237,25 @@ public class PlaylistStore
 
     /// <summary>
     /// Maps a playlist's PreferredFormat to the waterfall quality.
-    /// Format: "auto" | "mp3" | "flac" | "opus" | "aac", optionally
-    /// suffixed with a bitrate: "mp3:192" (a cap) or a band
-    /// "mp3:192-320" (min-max). Open bands ("-320", "192-") work too.
+    /// "preset:saver" | "preset:high" | "preset:lossless" | "auto" name
+    /// the shared presets; a raw container ("mp3", "flac", "opus", "aac")
+    /// optionally suffixed with a bitrate ("mp3:192" cap, "mp3:192-320"
+    /// band, open bands "-320" / "192-") is the advanced path.
     /// </summary>
     internal static DownloadQuality ParseQuality(string? preferredFormat)
+        => ParseQualityDetailed(preferredFormat).primary;
+
+    /// <summary>Same mapping, but keeps the preset's fallback rule (Lossless retries lossy).</summary>
+    internal static (DownloadQuality primary, DownloadQuality? fallback) ParseQualityDetailed(string? preferredFormat)
+    {
+        if (QualityPresets.TryParse(preferredFormat, out var preset))
+            return QualityPresets.ToQuality(preset);
+
+        var quality = ParseRawQuality(preferredFormat);
+        return (quality, null);
+    }
+
+    private static DownloadQuality ParseRawQuality(string? preferredFormat)
     {
         preferredFormat ??= "auto";
         var parts = preferredFormat.Split(':', 2);
@@ -450,10 +477,12 @@ public class PlaylistStore
             // Stable identity per imported playlist: re-uploading the
             // same file refreshes (the YourLibrary liked-songs import
             // always lands on spotify:import:liked, kept apart from the
-            // OAuth spotify:liked).
+            // OAuth spotify:liked). Manual imports have no live source
+            // to pull from, so they count as Unknown platform: the cards
+            // say Imported, and refresh/auto-sync leave them alone.
             var slug = Slugify(incoming.Name);
             await SaveSnapshotAsync(
-                providerPlatform: Platform.Spotify,
+                providerPlatform: Platform.Unknown,
                 playlist: new Playlist
                 {
                     Id = slug,
@@ -606,6 +635,10 @@ public class PlaylistStore
             .FirstOrDefaultAsync(p => p.Id == playlistId, ct)
             ?? throw new InvalidOperationException($"Playlist '{playlistId}' not found");
 
+        if (existing.IsManualImport)
+            throw new InvalidOperationException(
+                $"'{existing.Name}' was imported from a file. Re-import the file to update it.");
+
         try
         {
             var refreshed = await AddOrRefreshAsync(existing.SourceUrl, targetDirectory, ct);
@@ -705,9 +738,10 @@ public class PlaylistStore
     /// <summary>Base format values shown in the UI dropdown.</summary>
     public static readonly string[] FormatOptions = { "auto", "mp3", "flac", "opus", "aac" };
 
-    /// <summary>Validates a PreferredFormat string ("mp3", "mp3:192", legacy "mp3:192-320").</summary>
+    /// <summary>Validates a PreferredFormat string ("auto", "preset:saver", "mp3:192", legacy "mp3:192-320").</summary>
     public static bool IsValidFormat(string value)
     {
+        if (QualityPresets.IsPreset(value)) return true;
         var parts = value.Split(':', 2);
         if (!FormatOptions.Contains(parts[0].ToLowerInvariant())) return false;
         if (parts.Length == 1) return true;
@@ -732,8 +766,10 @@ public class PlaylistStore
         var now = DateTimeOffset.UtcNow;
         var candidates = await db.Playlists
             .AsNoTracking()
-            .Where(p => p.ScheduleCron != null && p.ScheduleCron != ""
+            .Where(p => (p.ScheduleCron != null && p.ScheduleCron != ""
                         || p.AutoSyncEnabled)
+                        // File imports have no live source to pull: never due.
+                        && !p.SourceUrl.StartsWith("spotify:import:"))
             .ToListAsync(ct);
 
         return candidates

@@ -1,5 +1,6 @@
 using MelodyBridge.Core;
 using MelodyBridge.Application.Services;
+using MelodyBridge.Tests;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace MelodyBridge.Tests.ApplicationServices;
@@ -38,22 +39,6 @@ public class DownloadManagerQualityTests
             File.Copy(_file, path, overwrite: true);
             return Task.FromResult(new DownloaderDownloadResult(true, path, null));
         }
-    }
-
-    private sealed class ListRegistry : IDownloaderRegistry
-    {
-        private readonly IDownloader[] _downloaders;
-        public ListRegistry(params IDownloader[] downloaders) => _downloaders = downloaders;
-        public IReadOnlyList<IDownloader> GetAll() => _downloaders;
-        public IDownloader? Get(string id) => _downloaders.FirstOrDefault(d => d.Id == id);
-        public IReadOnlyList<IDownloader> GetEnabled() => _downloaders;
-        public Task SetEnabledAsync(string id, bool enabled) => Task.CompletedTask;
-        public bool IsEnabled(string id) => true;
-        public Task<int> GetPriorityAsync(string id, CancellationToken ct = default) => Task.FromResult(0);
-        public Task SetPriorityAsync(string id, int priority, CancellationToken ct = default) => Task.CompletedTask;
-        public Task SetOrderAsync(IReadOnlyList<string> orderedIds, CancellationToken ct = default) => Task.CompletedTask;
-    public Task<string> GetConfigAsync(string id, string key, CancellationToken ct = default) => Task.FromResult("");
-    public Task SetConfigAsync(string id, string key, string? value, CancellationToken ct = default) => Task.CompletedTask;
     }
 
     private string _dir = null!;
@@ -98,7 +83,7 @@ public class DownloadManagerQualityTests
         var fitFile = MakeRealMp3(192);
 
         var manager = new DownloadManager(
-            new ListRegistry(
+            new ListDownloaderRegistry(
                 new FileDownloader("fat", "Fat Plugin", fatHit),
                 new FileDownloader("fit", "Fit Plugin", fitHit, file: fitFile)),
             NullLogger<DownloadManager>.Instance);
@@ -115,7 +100,7 @@ public class DownloadManagerQualityTests
         // Search hits without bitrate info (YouTube flat entries) stay usable.
         var unknown = new DownloaderSearchHit("Mystery Rip", "Artist", "https://unknown.example/1", null);
         var manager = new DownloadManager(
-            new ListRegistry(new FileDownloader("u", "Unknown Plugin", unknown)),
+            new ListDownloaderRegistry(new FileDownloader("u", "Unknown Plugin", unknown)),
             NullLogger<DownloadManager>.Instance);
 
         var path = await manager.DownloadTrackAsync("Artist", "Song", _dir, "mel-2", quality: new DownloadQuality(AudioFormat.Mp3, MinKbps: null, MaxKbps: 128));
@@ -131,7 +116,7 @@ public class DownloadManagerQualityTests
         var fat = MakeRealMp3(320);
         var hit = new DownloaderSearchHit("Fat", "Artist", "https://fat.example/1", null, BitrateKbps: null);
         var manager = new DownloadManager(
-            new ListRegistry(new FileDownloader("d", "D Plugin", hit, file: fat)),
+            new ListDownloaderRegistry(new FileDownloader("d", "D Plugin", hit, file: fat)),
             NullLogger<DownloadManager>.Instance);
 
         var path = await manager.DownloadTrackAsync("Artist", "Song", _dir, "mel-3", quality: new DownloadQuality(AudioFormat.Mp3, MinKbps: null, MaxKbps: 128));
@@ -148,7 +133,7 @@ public class DownloadManagerQualityTests
         var fit = MakeRealMp3(128);
         var hit = new DownloaderSearchHit("Fit", "Artist", "https://fit.example/1", null);
         var manager = new DownloadManager(
-            new ListRegistry(new FileDownloader("d", "D Plugin", hit, file: fit)),
+            new ListDownloaderRegistry(new FileDownloader("d", "D Plugin", hit, file: fit)),
             NullLogger<DownloadManager>.Instance);
 
         var path = await manager.DownloadTrackAsync("Artist", "Song", _dir, "mel-4", quality: new DownloadQuality(AudioFormat.Mp3, MinKbps: null, MaxKbps: 320));
@@ -166,7 +151,7 @@ public class DownloadManagerQualityTests
         var fatFile = MakeRealMp3(320);
 
         var manager = new DownloadManager(
-            new ListRegistry(
+            new ListDownloaderRegistry(
                 new FileDownloader("thin", "Thin Plugin", thinHit),
                 new FileDownloader("fat", "Fat Plugin", fatHit, file: fatFile)),
             NullLogger<DownloadManager>.Instance);
@@ -186,7 +171,7 @@ public class DownloadManagerQualityTests
         var thin = MakeRealMp3(96);
         var hit = new DownloaderSearchHit("Thin", "Artist", "https://thin.example/1", null);
         var manager = new DownloadManager(
-            new ListRegistry(new FileDownloader("d", "D Plugin", hit, file: thin)),
+            new ListDownloaderRegistry(new FileDownloader("d", "D Plugin", hit, file: thin)),
             NullLogger<DownloadManager>.Instance);
 
         var path = await manager.DownloadTrackAsync("Artist", "Song", _dir, "mel-6",
@@ -203,7 +188,7 @@ public class DownloadManagerQualityTests
         var fit = MakeRealMp3(256);
         var hit = new DownloaderSearchHit("Fit", "Artist", "https://fit.example/1", null);
         var manager = new DownloadManager(
-            new ListRegistry(new FileDownloader("d", "D Plugin", hit, file: fit)),
+            new ListDownloaderRegistry(new FileDownloader("d", "D Plugin", hit, file: fit)),
             NullLogger<DownloadManager>.Instance);
 
         var path = await manager.DownloadTrackAsync("Artist", "Song", _dir, "mel-7",
@@ -211,6 +196,41 @@ public class DownloadManagerQualityTests
 
         Assert.That(path, Is.Not.Null, "a measured 256 kbps file is within the 192-320 band");
         Assert.That(File.Exists(path), Is.True);
+    }
+
+    [Test]
+    public async Task LastFailure_DistinguishesFilterSkipsFromMissingTracks()
+    {
+        // Every source has the track, but only outside the band.
+        var fatHit = new DownloaderSearchHit("Fat Rip", "Artist", "https://fat.example/1", null, BitrateKbps: 320);
+        var manager = new DownloadManager(
+            new ListDownloaderRegistry(new FileDownloader("d", "D Plugin", fatHit)),
+            NullLogger<DownloadManager>.Instance);
+
+        await manager.DownloadTrackAsync("Artist", "Song", _dir, "mel-8",
+            quality: new DownloadQuality(AudioFormat.Auto, MinKbps: null, MaxKbps: 160));
+
+        Assert.That(manager.LastFailure("mel-8"), Does.Contain("outside your quality filters"),
+            "the failure names the filter conflict, the fixable case");
+
+        // Nothing has the track at all.
+        var empty = new DownloadManager(
+            new ListDownloaderRegistry(new FileDownloader("e", "E Plugin", null)),
+            NullLogger<DownloadManager>.Instance);
+        await empty.DownloadTrackAsync("Artist", "Gone", _dir, "mel-9");
+        Assert.That(empty.LastFailure("mel-9"), Does.Contain("no source had this track"),
+            "the missing-track case says so, not the filters");
+
+        // A success clears the reason.
+        var fitHit = new DownloaderSearchHit("Fit", "Artist", "https://fit.example/1", null);
+        var fitFile = MakeRealMp3(128);
+        var lucky = new DownloadManager(
+            new ListDownloaderRegistry(new FileDownloader("f", "F Plugin", fitHit, file: fitFile)),
+            NullLogger<DownloadManager>.Instance);
+        var path = await lucky.DownloadTrackAsync("Artist", "Song", _dir, "mel-10");
+        Assert.That(path, Is.Not.Null);
+        Assert.That(lucky.LastFailure("mel-10"), Is.Null,
+            "no failure reason lingers after a success");
     }
 
     [Test]

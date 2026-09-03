@@ -23,6 +23,9 @@ public class DownloadManager : IDownloadManager
     /// <summary>Live progress reporting per melodyId, for the UI.</summary>
     private readonly ConcurrentDictionary<string, DownloadProgress> _progress = new();
 
+    /// <summary>Why the last waterfall run for a melodyId produced nothing, for honest error messages.</summary>
+    private readonly ConcurrentDictionary<string, string> _lastFailure = new();
+
     public IReadOnlyList<DownloadProgress> SnapshotProgress()
         => _progress.Values.ToList();
 
@@ -54,6 +57,14 @@ public class DownloadManager : IDownloadManager
     }
 
     /// <summary>
+    /// Why the last DownloadTrackAsync call for this melodyId failed to
+    /// produce a file: outside-the-filters skips or no hit at all. Null
+    /// when the last call succeeded (or never ran).
+    /// </summary>
+    public string? LastFailure(string melodyId)
+        => _lastFailure.TryGetValue(melodyId, out var reason) ? reason : null;
+
+    /// <summary>
     /// The main entry for playlist tracks: search by artist/title through the
     /// plugin waterfall and download the first hit.
     /// </summary>
@@ -63,6 +74,9 @@ public class DownloadManager : IDownloadManager
     {
         quality ??= DownloadQuality.Any;
         _progress[melodyId] = new DownloadProgress(melodyId, title, "searching", null, null);
+        _lastFailure.TryRemove(melodyId, out _);
+        // Why nothing landed: hits the filters rejected, versus no hit at all.
+        var skippedByBand = 0;
         try
         {
             foreach (var downloader in _registry.GetEnabled())
@@ -83,6 +97,7 @@ public class DownloadManager : IDownloadManager
                 // Quality gate: reject reported bitrates outside the requested band.
                 if (!quality.IsWithinBand(hit.BitrateKbps))
                 {
+                    skippedByBand++;
                     _logger.LogInformation(
                         "{Name} hit for '{Title}' is {Hit} kbps, outside the requested {Min}–{Max} kbps band; skipping",
                         downloader.Name, title, hit.BitrateKbps,
@@ -100,6 +115,7 @@ public class DownloadManager : IDownloadManager
                     var measured = BitrateProbe.MeasureKbps(result.FilePath);
                     if (!quality.IsWithinBand(measured))
                     {
+                        skippedByBand++;
                         _logger.LogInformation(
                             "{Name} produced {Measured} kbps for '{Title}', outside the requested {Min}–{Max} kbps band; rejecting",
                             downloader.Name, measured, title,
@@ -119,6 +135,11 @@ public class DownloadManager : IDownloadManager
             }
 
             _progress[melodyId] = new DownloadProgress(melodyId, title, "failed", null, "No plugin could download this track");
+            // Distinguish "nothing matched your filters" from "nobody has
+            // the track": the fix for the first is relaxing the filters.
+            _lastFailure[melodyId] = skippedByBand > 0
+                ? $"sources had {skippedByBand} file(s) outside your quality filters"
+                : "no source had this track";
             return null;
         }
         catch (Exception ex)

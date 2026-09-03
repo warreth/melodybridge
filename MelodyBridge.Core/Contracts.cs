@@ -61,6 +61,12 @@ public interface IDownloadManager
     Task<string?> DownloadTrackAsync(string artist, string title, string outputDirectory, string melodyId, DownloadQuality? quality = null, CancellationToken ct = default);
     /// <summary>Current in-flight download states (for UI polling).</summary>
     IReadOnlyList<DownloadProgress> SnapshotProgress();
+    /// <summary>
+    /// Why the last DownloadTrackAsync for this melodyId produced nothing:
+    /// files outside the quality filters, or no hit at all. Null when the
+    /// last call succeeded or never ran.
+    /// </summary>
+    string? LastFailure(string melodyId);
 }
 
 /// <summary>

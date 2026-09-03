@@ -35,10 +35,14 @@ public class PlaylistStoreStatsTests
 
     private static PlaylistStore NewStore(
         IDbContextFactory<MelodyBridgeDbContext> factory, params ISourceProvider[] providers)
+        => NewStore(factory, new EmptyDownloaderRegistry(), providers);
+
+    private static PlaylistStore NewStore(
+        IDbContextFactory<MelodyBridgeDbContext> factory,
+        IDownloaderRegistry registry, params ISourceProvider[] providers)
         => new(factory, providers,
             new Application.Services.DownloadManager(
-                new EmptyRegistry(),
-                NullLogger<Application.Services.DownloadManager>.Instance),
+                registry, NullLogger<Application.Services.DownloadManager>.Instance),
             NullLogger<PlaylistStore>.Instance);
 
     private sealed class StubSourceProvider : ISourceProvider
@@ -58,32 +62,20 @@ public class PlaylistStoreStatsTests
                 {
                     new()
                     {
-                        Title = "One", SongID = new SongID(Platform.Spotify, "t1"),
+                        Title = "One", Artist = "Stub Artist",
+                        SongID = new SongID(Platform.Spotify, "t1"),
                         PlatformSongID = new SongID(Platform.Spotify, "t1"),
                     },
                     new()
                     {
-                        Title = "Two", SongID = new SongID(Platform.Spotify, "t2"),
+                        Title = "Two", Artist = "Stub Artist",
+                        SongID = new SongID(Platform.Spotify, "t2"),
                         PlatformSongID = new SongID(Platform.Spotify, "t2"),
                     },
                 },
             });
 
         public Task<string?> ResolveTrackUrlAsync(string query) => Task.FromResult<string?>(null);
-    }
-
-    private sealed class EmptyRegistry : IDownloaderRegistry
-    {
-        public IReadOnlyList<IDownloader> GetAll() => Array.Empty<IDownloader>();
-        public IDownloader? Get(string id) => null;
-        public IReadOnlyList<IDownloader> GetEnabled() => Array.Empty<IDownloader>();
-        public Task SetEnabledAsync(string id, bool enabled) => Task.CompletedTask;
-        public bool IsEnabled(string id) => false;
-        public Task<int> GetPriorityAsync(string id, CancellationToken ct = default) => Task.FromResult(0);
-        public Task SetPriorityAsync(string id, int priority, CancellationToken ct = default) => Task.CompletedTask;
-        public Task SetOrderAsync(IReadOnlyList<string> orderedIds, CancellationToken ct = default) => Task.CompletedTask;
-        public Task<string> GetConfigAsync(string id, string key, CancellationToken ct = default) => Task.FromResult("");
-        public Task SetConfigAsync(string id, string key, string? value, CancellationToken ct = default) => Task.CompletedTask;
     }
 
     [Test]
@@ -299,6 +291,119 @@ public class PlaylistStoreStatsTests
         {
             File.Delete(dbPath);
         }
+    }
+
+    /// <summary>Serves a real file, but fails when asked for a format it cannot produce.</summary>
+    private sealed class FormatGateDownloader : IDownloader
+    {
+        private readonly string _file;
+        public FormatGateDownloader(string file) => _file = file;
+        public string Id => "gate";
+        public string Name => "Format Gate";
+        public string Description => string.Empty;
+        public Task<bool> IsAvailableAsync(CancellationToken ct = default) => Task.FromResult(true);
+        public Task<DownloaderSearchHit?> SearchAsync(string artist, string title, DownloadQuality quality, CancellationToken ct = default)
+            => Task.FromResult<DownloaderSearchHit?>(new DownloaderSearchHit(title, artist, "https://gate.example/1", null));
+        public Task<DownloaderDownloadResult> DownloadAsync(string sourceUrl, string outputDirectory, string? melodyId, DownloadQuality? quality = null, CancellationToken ct = default)
+        {
+            // Like a lossless-only source without the requested manifest:
+            // the requested format is simply not available.
+            if (quality?.Format == AudioFormat.Flac)
+                return Task.FromResult(new DownloaderDownloadResult(false, null, "lossless not available"));
+            Directory.CreateDirectory(outputDirectory);
+            var path = Path.Combine(outputDirectory, $"gate-{Path.GetFileName(_file)}");
+            File.Copy(_file, path, overwrite: true);
+            return Task.FromResult(new DownloaderDownloadResult(true, path, null));
+        }
+    }
+
+    [Test]
+    public async Task LosslessPreset_FallsBackToBestLossyWhenNoLosslessExists()
+    {
+        var dbPath = NewDbPath();
+        var downloadDir = Path.Combine(Path.GetTempPath(), $"mb-dl-{Guid.NewGuid():N}");
+        try
+        {
+            var factory = await NewDbFactory(dbPath);
+            var registry = new ListDownloaderRegistry(new FormatGateDownloader(MakeRealMp3(192)));
+            var store = NewStore(factory, registry, new StubSourceProvider());
+            var (playlist, _) = await store.AddOrRefreshDetailedAsync("stub:playlist");
+            await store.UpdateScheduleAsync(playlist.Id, null, ScanSchedule.Manual,
+                targetDirectory: downloadDir, preferredFormat: "preset:lossless");
+
+            var (downloaded, failed) = await store.DownloadMissingAsync(playlist.Id, limit: 5);
+
+            Assert.That(downloaded, Is.EqualTo(2),
+                "no lossless source exists, so the lossy fallback takes over for both tracks");
+            Assert.That(failed, Is.EqualTo(0));
+
+            await using var db = factory.CreateDbContext();
+            var track = db.Tracks.First(t => t.PlaylistEntityId == playlist.Id);
+            Assert.That(track.DownloadStatus, Is.EqualTo("downloaded"));
+        }
+        finally
+        {
+            File.Delete(dbPath);
+            if (Directory.Exists(downloadDir))
+                try { Directory.Delete(downloadDir, true); } catch { /* best effort */ }
+        }
+    }
+
+    [Test]
+    public async Task StrictFilter_FailureNamesTheFiltersOnTheTrack()
+    {
+        var dbPath = NewDbPath();
+        var downloadDir = Path.Combine(Path.GetTempPath(), $"mb-dl-{Guid.NewGuid():N}");
+        try
+        {
+            var factory = await NewDbFactory(dbPath);
+            // Serves a real 320 kbps file, but the playlist caps at 160.
+            var registry = new ListDownloaderRegistry(new FormatGateDownloader(MakeRealMp3(320)));
+            var store = NewStore(factory, registry, new StubSourceProvider());
+            var (playlist, _) = await store.AddOrRefreshDetailedAsync("stub:playlist");
+            await store.UpdateScheduleAsync(playlist.Id, null, ScanSchedule.Manual,
+                targetDirectory: downloadDir, preferredFormat: "preset:saver");
+
+            var (downloaded, failed) = await store.DownloadMissingAsync(playlist.Id, limit: 5);
+
+            Assert.That(downloaded, Is.EqualTo(0));
+            Assert.That(failed, Is.EqualTo(2),
+                "both stub tracks only exist above the 160 kbps cap");
+
+            await using var db = factory.CreateDbContext();
+            var track = db.Tracks.First(t => t.PlaylistEntityId == playlist.Id);
+            Assert.That(track.DownloadStatus, Is.EqualTo("failed"));
+            Assert.That(track.DownloadError, Does.Contain("outside your quality filters"),
+                "the track row says the filters rejected it, not a vague plugin failure");
+        }
+        finally
+        {
+            File.Delete(dbPath);
+            if (Directory.Exists(downloadDir))
+                try { Directory.Delete(downloadDir, true); } catch { /* best effort */ }
+        }
+    }
+
+    private static string MakeRealMp3(int kbps)
+    {
+        var dir = Path.Combine(Path.GetTempPath(), $"mb-quality-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        var path = Path.Combine(dir, $"src-{kbps}.mp3");
+        var ffmpeg = MelodyBridge.Infrastructure.Audio.SpectrumAnalyzer.FindFfprobe() is { } probe
+            ? Path.Combine(Path.GetDirectoryName(probe)!, "ffmpeg")
+            : "ffmpeg";
+        var psi = new System.Diagnostics.ProcessStartInfo
+        {
+            FileName = ffmpeg,
+            Arguments = $"-hide_banner -loglevel error -f lavfi -i anullsrc=r=44100:cl=stereo -t 2 -c:a libmp3lame -b:a {kbps}k \"{path}\"",
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+        using var proc = System.Diagnostics.Process.Start(psi)!;
+        proc.StandardError.ReadToEnd();
+        proc.WaitForExit(10000);
+        return path;
     }
 
     [Test]
