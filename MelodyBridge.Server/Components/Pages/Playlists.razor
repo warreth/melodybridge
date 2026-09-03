@@ -82,6 +82,8 @@ else
                         <span class="eyebrow">@playlist.SourcePlatform</span>
                         <h2><a href="/playlists/@playlist.Id">@playlist.Name</a></h2>
                     </div>
+                    <button class="icon-button" title="Remove this playlist"
+                            @onclick="() => AskDelete(playlist)">&times;</button>
                 </div>
                 <p class="panel-description">
                     @playlist.TrackCount tracks
@@ -151,7 +153,7 @@ else
                 }
                 <div class="hint-box">
                     Public Spotify and YouTube playlists, no account needed.
-                    Quality defaults to <strong>@DefaultQualityLabel()</strong> — change the default in Settings.
+                    Quality defaults to <strong>@savedDefaultQualityLabel</strong> — change the default in Settings.
                 </div>
             </div>
             <div class="wizard-footer">
@@ -217,7 +219,14 @@ else
                             log in, click <em>Export Liked Songs</em> (or any playlist),
                             and upload the downloaded CSV here.
                         </p>
-                        <InputFile OnChange="ImportExportifyFile" accept=".csv,text/csv" class="btn-modern" disabled="@busy" />
+                        @if (busy && uploadingRoute == "exportify")
+                        {
+                            <span class="pill warn">reading file…</span>
+                        }
+                        else
+                        {
+                            <InputFile OnChange="ImportExportifyFile" accept=".csv,text/csv" class="btn-modern" disabled="@busy" />
+                        }
                     </div>
                     <div class="account-card">
                         <strong>Spotify data export</strong>
@@ -229,7 +238,14 @@ else
                             <code>YourLibrary.json</code> (liked songs) or
                             <code>Playlist1.json</code> (all playlists) here.
                         </p>
-                        <InputFile OnChange="ImportTakeoutFile" accept=".json,application/json" class="btn-modern" disabled="@busy" />
+                        @if (busy && uploadingRoute == "takeout")
+                        {
+                            <span class="pill warn">reading file…</span>
+                        }
+                        else
+                        {
+                            <InputFile OnChange="ImportTakeoutFile" accept=".json,application/json" class="btn-modern" disabled="@busy" />
+                        }
                     </div>
                 </div>
                 @if (fileImportError is not null)
@@ -290,6 +306,24 @@ else
     </div>
 }
 
+@if (confirmDeleteId is { } id)
+{
+    <ConfirmDialog Show="true"
+                   Eyebrow="Remove playlist"
+                   Title=@($"Remove '{confirmDeleteName}'?")
+                   Message="The playlist and its track list leave MelodyBridge. Your account and other playlists are not touched."
+                   ConfirmLabel="Remove playlist"
+                   Busy="busy"
+                   OnConfirm="ConfirmDelete"
+                   OnCancel="CancelDelete">
+        <label class="toggle-switch wide">
+            <input type="checkbox" @bind="deleteFilesWithPlaylist" />
+            <span class="toggle-slider"></span>
+            <span>Delete the downloaded music files too (@deleteFileCount @(deleteFileCount == 1 ? "file" : "files"), @(TrackDisplay.Size(deleteFileSizeBytes)))</span>
+        </label>
+    </ConfirmDialog>
+}
+
 @code {
     private List<PlaylistEntity> playlists = new();
     private Dictionary<string, (int downloaded, int failed, int total, long sizeBytes)> downloadStats = new();
@@ -321,14 +355,56 @@ else
 
     private Timer? refreshTimer;
 
+    // Delete flow: the card asks, the dialog confirms.
+    private string? confirmDeleteId;
+    private string confirmDeleteName = string.Empty;
+    private bool deleteFilesWithPlaylist;
+    private int deleteFileCount;
+    private long deleteFileSizeBytes;
+
+    /// <summary>Offered as a card action: remove the list, files optional.</summary>
+    private void AskDelete(PlaylistEntity playlist)
+    {
+        confirmDeleteId = playlist.Id;
+        confirmDeleteName = playlist.Name;
+        deleteFilesWithPlaylist = false;
+        var stats = downloadStats.GetValueOrDefault(playlist.Id, (0, 0, 0, 0));
+        deleteFileCount = stats.downloaded;
+        deleteFileSizeBytes = stats.sizeBytes;
+    }
+
+    private void CancelDelete()
+    {
+        confirmDeleteId = null;
+        StateHasChanged();
+    }
+
+    private async Task ConfirmDelete()
+    {
+        if (confirmDeleteId is not { } id) return;
+        busy = true;
+        try
+        {
+            await Store.DeleteAsync(id, deleteFilesWithPlaylist);
+            message = deleteFilesWithPlaylist
+                ? $"Removed '{confirmDeleteName}' and its files."
+                : $"Removed '{confirmDeleteName}'. The music files stay on disk.";
+            messageIsError = false;
+            confirmDeleteId = null;
+            await Load();
+        }
+        finally { busy = false; }
+    }
+
     /// <summary>Quality presets shared with the settings page: one list, one truth.</summary>
     private static string QualityLabel(string preferredFormat)
         => preferredFormat.Contains(':')
             ? preferredFormat.Replace(":", " · ")
             : preferredFormat;
 
-    private string DefaultQualityLabel()
-        => QualityLabel(newQuality);
+    /// <summary>The default from Settings, fixed once at load: the hint
+    /// must not rewrite itself while the user changes the picker.</summary>
+    private string savedDefaultQualityLabel = "auto";
 
     protected override async Task OnInitializedAsync()
     {
@@ -347,7 +423,10 @@ else
     {
         var raw = await Settings.GetAsync("default_quality", "auto");
         if (PlaylistStore.IsValidFormat(raw))
+        {
             newQuality = raw;
+            savedDefaultQualityLabel = QualityLabel(raw);
+        }
     }
 
     private async Task Load()
@@ -563,8 +642,20 @@ else
         }
     }
 
-    private Task ImportExportifyFile(InputFileChangeEventArgs e) => ImportUploadedFile(e);
-    private Task ImportTakeoutFile(InputFileChangeEventArgs e) => ImportUploadedFile(e);
+    // Which upload card is working, so its file input turns into feedback.
+    private string? uploadingRoute;
+
+    private Task ImportExportifyFile(InputFileChangeEventArgs e)
+    {
+        uploadingRoute = "exportify";
+        return ImportUploadedFile(e).ContinueWith(_ => uploadingRoute = null);
+    }
+
+    private Task ImportTakeoutFile(InputFileChangeEventArgs e)
+    {
+        uploadingRoute = "takeout";
+        return ImportUploadedFile(e).ContinueWith(_ => uploadingRoute = null);
+    }
 
     public void Dispose() => refreshTimer?.Dispose();
 }

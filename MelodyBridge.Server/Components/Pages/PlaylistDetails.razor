@@ -77,8 +77,27 @@ else
                 <button class="btn-modern ghost" @onclick="CancelDownload">Cancel</button>
             }
             <button class="btn-modern secondary" @onclick="ExportCsv" disabled="@busy">Export CSV</button>
+            <button class="btn-modern ghost" @onclick="AskDelete" disabled="@busy">Delete playlist</button>
         </div>
     </section>
+
+    @if (confirmDelete)
+    {
+        <ConfirmDialog Show="true"
+                       Eyebrow="Delete playlist"
+                       Title=@($"Delete '{playlist.Name}'?")
+                       Message="The playlist and its track list leave MelodyBridge. You will land back on the playlists overview."
+                       ConfirmLabel="Delete playlist"
+                       Busy="busy"
+                       OnConfirm="ConfirmDelete"
+                       OnCancel="CancelDelete">
+            <label class="toggle-switch wide">
+                <input type="checkbox" @bind="deleteFilesWithPlaylist" />
+                <span class="toggle-slider"></span>
+                <span>Delete the downloaded music files too (@downloadedCount @(downloadedCount == 1 ? "file" : "files"))</span>
+            </label>
+        </ConfirmDialog>
+    }
 
     @if (run is { } active && active.State is not Application.Services.DownloadRunState.Finished)
     {
@@ -312,6 +331,8 @@ else
 
     private int downloadedCount;
     private int badQualityCount;
+    private bool confirmDelete;
+    private bool deleteFilesWithPlaylist;
     private string resolvedDefaultMusicPath = "/music";
     private Timer? refreshTimer;
     private Application.Services.DownloadRun? observedRun;
@@ -433,6 +454,31 @@ else
     }
 
     private void OnFilterChanged(ChangeEventArgs e) => trackFilter = e.Value?.ToString() ?? string.Empty;
+
+    // Delete flow: the topbar asks, the dialog confirms, files optional.
+    private void AskDelete()
+    {
+        confirmDelete = true;
+        deleteFilesWithPlaylist = false;
+    }
+
+    private void CancelDelete()
+    {
+        confirmDelete = false;
+        StateHasChanged();
+    }
+
+    private async Task ConfirmDelete()
+    {
+        if (playlist is null) return;
+        busy = true;
+        try
+        {
+            await Store.DeleteAsync(PlaylistId, deleteFilesWithPlaylist);
+            Navigation.NavigateTo("/playlists");
+        }
+        finally { busy = false; }
+    }
 
     private IEnumerable<TrackEntity> FilteredTracks()
     {
