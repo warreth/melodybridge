@@ -141,6 +141,17 @@ else
                     <span class="eyebrow">Settings</span>
                     <h2>Sync configuration</h2>
                 </div>
+                @if (saveState != SaveState.Idle)
+                {
+                    <span class="save-state @saveState.ToString().ToLowerInvariant()">
+                        @(saveState switch
+                        {
+                            SaveState.Saving => "Saving…",
+                            SaveState.Saved => "Saved",
+                            _ => "Failed to save"
+                        })
+                    </span>
+                }
             </div>
             @if (!string.IsNullOrEmpty(message))
             {
@@ -149,37 +160,34 @@ else
             <div class="form-grid single">
                 <label>
                     Name
-                    <input @bind="editName" />
+                    <input value="@editName" @oninput="OnNameInput" />
                 </label>
                 <label>
                     Download folder
-                    <input @bind="editTargetDirectory" placeholder="@resolvedDefaultMusicPath" />
+                    <input value="@editTargetDirectory" @oninput="OnFolderInput" placeholder="@resolvedDefaultMusicPath" />
                     <small class="text-muted">Leave empty to use the default music path (@resolvedDefaultMusicPath).</small>
                 </label>
                 <label class="quality-field wide">
-                    <QualityPicker @bind-Value="editQuality" />
+                    <QualityPicker @bind-Value="editQuality" @bind-Value:after="SaveNow" />
                 </label>
                 @if (!playlist.IsManualImport)
                 {
                     <label class="wide">
                         Auto-sync schedule
-                        <SchedulePicker @bind-Value="editSchedule" />
+                        <SchedulePicker @bind-Value="editSchedule" @bind-Value:after="SaveNow" />
                     </label>
                 }
                 <label>
                     Sync mode
-                    <select @bind="editSyncMode">
+                    <select value="@editSyncMode" @onchange="OnSyncModeChanged">
                         <option value="@PlaylistSyncMode.Additive">Additive: keep removed tracks as history</option>
                         <option value="@PlaylistSyncMode.Mirror">Mirror: remove tracks deleted from source</option>
                     </select>
                 </label>
-                <div class="flex-actions">
-                    <button class="btn-modern primary" @onclick="SaveSettings" disabled="@busy">Save settings</button>
-                    @if (playlist.IsManualImport)
-                    {
-                        <span class="text-muted">Imported snapshot: re-import the file to update the track list.</span>
-                    }
-                </div>
+                @if (playlist.IsManualImport)
+                {
+                    <span class="text-muted wide">Imported snapshot: re-import the file to update the track list.</span>
+                }
             </div>
         </div>
 
@@ -347,6 +355,20 @@ else
     private ScanSchedule editSchedule = ScanSchedule.Manual;
     private PlaylistSyncMode editSyncMode = PlaylistSyncMode.Additive;
 
+    /// <summary>The auto-save machinery replaces the Save settings button.</summary>
+    private enum SaveState { Idle, Saving, Saved, Failed }
+
+    private SaveState saveState = SaveState.Idle;
+    /// <summary>True once the first Load finished: before it, nothing saves.</summary>
+    private bool formReady;
+    /// <summary>Snapshot of the last values known to be persisted; rollback source.</summary>
+    private (string name, string dir, string quality, ScanSchedule schedule, PlaylistSyncMode mode) persisted;
+    /// <summary>Debounce timer for text inputs; a fresh keystroke cancels it.</summary>
+    private CancellationTokenSource? debounceCts;
+    private CancellationTokenSource? savedPillCts;
+    private bool saveInFlight;
+    private bool dirtyAfterSave;
+
     private int downloadedCount;
     private int badQualityCount;
     private bool confirmDelete;
@@ -394,6 +416,8 @@ else
                 ? mode : PlaylistSyncMode.Additive;
             await LoadCountsOnlyAsync();
         }
+        persisted = (editName, editTargetDirectory, editQuality, editSchedule, editSyncMode);
+        formReady = true;
         observedRun = Coordinator.RunFor(PlaylistId);
         loading = false;
     }
@@ -419,12 +443,120 @@ else
         finally { busy = false; }
     }
 
-    private async Task SaveSettings()
+    /// <summary>Text edits: update state and schedule a debounced save.</summary>
+    private void OnNameInput(ChangeEventArgs e)
     {
-        var target = string.IsNullOrWhiteSpace(editTargetDirectory) ? null : editTargetDirectory;
-        await Store.UpdateScheduleAsync(PlaylistId, editName, editSchedule, target, editSyncMode, editQuality);
-        message = "Settings saved.";
-        await Load();
+        editName = e.Value?.ToString() ?? string.Empty;
+        MarkDirty();
+    }
+
+    private void OnFolderInput(ChangeEventArgs e)
+    {
+        editTargetDirectory = e.Value?.ToString() ?? string.Empty;
+        MarkDirty();
+    }
+
+    private void OnSyncModeChanged(ChangeEventArgs e)
+    {
+        editSyncMode = Enum.TryParse<PlaylistSyncMode>(e.Value?.ToString(), out var mode)
+            ? mode : PlaylistSyncMode.Additive;
+        _ = SaveNow();
+    }
+
+    /// <summary>Selects and pickers save right away; text waits 500ms.</summary>
+    private Task SaveNow()
+    {
+        debounceCts?.Cancel();
+        return RunSaveAsync();
+    }
+
+    private void MarkDirty()
+    {
+        if (!formReady) return;
+        _ = DebouncedSaveAsync();
+    }
+
+    private async Task DebouncedSaveAsync()
+    {
+        debounceCts?.Cancel();
+        debounceCts?.Dispose();
+        debounceCts = new CancellationTokenSource();
+        var token = debounceCts.Token;
+        try
+        {
+            await Task.Delay(500, token);
+        }
+        catch (TaskCanceledException) { return; }
+        if (!token.IsCancellationRequested)
+            await RunSaveAsync();
+    }
+
+    /// <summary>
+    /// The single save core (single-flight): optimistic apply, rollback on
+    /// failure, chain another save when edits landed mid-flight.
+    /// </summary>
+    private async Task RunSaveAsync()
+    {
+        if (!formReady) return;
+        if (saveInFlight) { dirtyAfterSave = true; return; }
+
+        saveInFlight = true;
+        saveState = SaveState.Saving;
+        await InvokeAsync(StateHasChanged);
+        try
+        {
+            var target = string.IsNullOrWhiteSpace(editTargetDirectory) ? null : editTargetDirectory;
+            await Store.UpdateScheduleAsync(PlaylistId, editName, editSchedule, target, editSyncMode, editQuality);
+            persisted = (editName, editTargetDirectory, editQuality, editSchedule, editSyncMode);
+            saveState = SaveState.Saved;
+            ScheduleSavedPillReset();
+        }
+        catch (Exception)
+        {
+            // Roll back to the last persisted values; the next edit retries.
+            editName = persisted.name;
+            editTargetDirectory = persisted.dir;
+            editQuality = persisted.quality;
+            editSchedule = persisted.schedule;
+            editSyncMode = persisted.mode;
+            saveState = SaveState.Failed;
+        }
+        finally
+        {
+            saveInFlight = false;
+        }
+        await InvokeAsync(StateHasChanged);
+
+        // Chain only after a success: on failure the fields are rolled
+        // back, and the next user edit starts a fresh save.
+        if (dirtyAfterSave && saveState == SaveState.Saved)
+        {
+            dirtyAfterSave = false;
+            await RunSaveAsync();
+        }
+        else dirtyAfterSave = false;
+    }
+
+    /// <summary>The Saved pill fades back to idle after a moment.</summary>
+    private void ScheduleSavedPillReset()
+    {
+        savedPillCts?.Cancel();
+        savedPillCts?.Dispose();
+        savedPillCts = new CancellationTokenSource();
+        var token = savedPillCts.Token;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(2500, token);
+                if (!token.IsCancellationRequested)
+                {
+                    saveState = SaveState.Idle;
+                    await InvokeAsync(StateHasChanged);
+                }
+            }
+            catch (TaskCanceledException) { /* a newer save superseded us */ }
+        });
     }
 
     private void StartDownload() => Coordinator.Start(PlaylistId);
@@ -513,7 +645,14 @@ else
             (t.Artist ?? "").Contains(trackFilter, StringComparison.OrdinalIgnoreCase));
     }
 
-    public void Dispose() => refreshTimer?.Dispose();
+    public void Dispose()
+    {
+        refreshTimer?.Dispose();
+        debounceCts?.Cancel();
+        debounceCts?.Dispose();
+        savedPillCts?.Cancel();
+        savedPillCts?.Dispose();
+    }
 
     private static string DownloadStatusClass(string? status) => status switch
     {

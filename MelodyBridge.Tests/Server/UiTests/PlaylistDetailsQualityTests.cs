@@ -139,15 +139,16 @@ public class PlaylistDetailsQualityTests
         Assert.That(select.TextContent, Does.Contain("Monthly"));
 
         select.Change("Weekly");
-        cut.Render();
-        cut.FindAll("button").Single(b => b.TextContent.Trim() == "Save settings").Click();
-        cut.Render();
-
-        using var db = new TestSqliteFactory(_dbPath).CreateDbContext();
-        var saved = db.Playlists.Find("pl-1")!;
-        Assert.That(saved.ScheduleCron, Is.EqualTo("0 3 * * 1"),
-            "the Weekly preset lands as its cron equivalent in the DB");
-        Assert.That(saved.AutoSyncEnabled, Is.True,
+        // Selects auto-save: the schedule persists without a Save button.
+        cut.WaitForAssertion(() =>
+        {
+            using var db = new TestSqliteFactory(_dbPath).CreateDbContext();
+            var saved = db.Playlists.Find("pl-1")!;
+            Assert.That(saved.ScheduleCron, Is.EqualTo("0 3 * * 1"),
+                "the Weekly preset lands as its cron equivalent in the DB");
+        }, TimeSpan.FromSeconds(3));
+        using var db2 = new TestSqliteFactory(_dbPath).CreateDbContext();
+        Assert.That(db2.Playlists.Find("pl-1")!.AutoSyncEnabled, Is.True,
             "the legacy boolean stays in sync for older readers");
     }
 

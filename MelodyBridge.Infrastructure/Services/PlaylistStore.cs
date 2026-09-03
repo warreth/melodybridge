@@ -755,7 +755,7 @@ public class PlaylistStore
     /// truth; the legacy boolean and minutes columns are kept in sync so
     /// nothing reading them sees a lie.
     /// </summary>
-    public async Task UpdateScheduleAsync(
+    public virtual async Task UpdateScheduleAsync(
         string playlistId, string? name, ScanSchedule schedule,
         string? targetDirectory = null, PlaylistSyncMode? syncMode = null,
         string? preferredFormat = null, CancellationToken ct = default)
