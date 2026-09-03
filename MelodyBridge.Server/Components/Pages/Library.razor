@@ -65,7 +65,7 @@
                     }
                     <div class="flex-actions" style="margin-left:auto;">
                         <button class="btn-modern ghost small" @onclick="() => ShowEditLocation(loc)">Edit</button>
-                        <button class="btn-modern ghost small" @onclick="() => DeleteLocation(loc.Id)">Remove</button>
+                        <button class="btn-modern ghost small" @onclick="() => AskRemoveLocation(loc)">Remove</button>
                     </div>
                 </div>
             }
@@ -89,8 +89,8 @@
 
 @if (showForm)
 {
-    <div class="wizard-overlay">
-        <div class="wizard-modal" style="max-width:480px;">
+    <div class="wizard-overlay" @onclick="CloseForm">
+        <div class="wizard-modal" style="max-width:480px;" @onclick:stopPropagation="true">
             <div class="wizard-header">
                 <span class="eyebrow">@(editingId is null ? "New location" : $"Editing: {newPath}")</span>
                 <h2>@(editingId is null ? "Add scan location" : "Edit scan location")</h2>
@@ -130,6 +130,17 @@
             </div>
         </div>
     </div>
+}
+
+@if (removeLocationId is { } doomedId)
+{
+    <ConfirmDialog Show="true"
+                   Eyebrow="Remove folder"
+                   Title=@($"Remove '{removeLocationPath}'?")
+                   Message="The folder stops being scanned and watched. The music files inside it are not deleted."
+                   ConfirmLabel="Remove folder"
+                   OnConfirm=@(() => DeleteLocation(doomedId))
+                   OnCancel="CancelRemoveLocation" />
 }
 
 @code {
@@ -231,6 +242,22 @@
         formError = null;
     }
 
+    // Remove flow: ask first, the files stay.
+    private int? removeLocationId;
+    private string removeLocationPath = "";
+
+    private void AskRemoveLocation(ScanLocationEntity loc)
+    {
+        removeLocationId = loc.Id;
+        removeLocationPath = loc.Path;
+    }
+
+    private void CancelRemoveLocation()
+    {
+        removeLocationId = null;
+        StateHasChanged();
+    }
+
     private void CloseForm()
     {
         showForm = false;
@@ -301,6 +328,7 @@
             db.ScanLocations.Remove(loc);
             await db.SaveChangesAsync();
         }
+        removeLocationId = null;
         await LoadDataAsync();
     }
 }
