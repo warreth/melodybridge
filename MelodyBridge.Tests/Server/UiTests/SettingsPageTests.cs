@@ -38,7 +38,7 @@ public class SettingsPageTests
         _ctx.Services.AddSingleton<MelodyBridge.Core.Logging.ILogCollector>(collector);
         _ctx.Services.AddSingleton(new MelodyBridge.Server.Services.LogExporter(collector));
         // Pages inject the directory; default mock does nothing until a test sets it up.
-        _ctx.Services.AddSingleton(new Moq.Mock<MelodyBridge.Core.IJellyfinUserDirectory>().Object);
+        _ctx.Services.AddSingleton(new Moq.Mock<MelodyBridge.Core.IMediaServerDirectory>().Object);
         _ctx.JSInterop.Mode = JSRuntimeMode.Loose;
     }
 
@@ -46,12 +46,12 @@ public class SettingsPageTests
     public void TearDown() => _ctx.Dispose();
 
     /// <summary>Swaps the setup's default directory mock for a test's own.</summary>
-    private void ReplaceService(Mock<MelodyBridge.Core.IJellyfinUserDirectory> directory)
+    private void ReplaceService(Mock<MelodyBridge.Core.IMediaServerDirectory> directory)
     {
         var descriptor = _ctx.Services.FirstOrDefault(d =>
-            d.ServiceType == typeof(MelodyBridge.Core.IJellyfinUserDirectory));
+            d.ServiceType == typeof(MelodyBridge.Core.IMediaServerDirectory));
         if (descriptor is not null) _ctx.Services.Remove(descriptor);
-        _ctx.Services.AddSingleton<MelodyBridge.Core.IJellyfinUserDirectory>(directory.Object);
+        _ctx.Services.AddSingleton<MelodyBridge.Core.IMediaServerDirectory>(directory.Object);
     }
 
     [Test]
@@ -179,7 +179,7 @@ public class SettingsPageTests
     [Test]
     public void Settings_ConnectionsTab_TestButton_UsesJellyfinDirectory()
     {
-        var directory = new Mock<MelodyBridge.Core.IJellyfinUserDirectory>();
+        var directory = new Mock<MelodyBridge.Core.IMediaServerDirectory>();
         directory.Setup(d => d.TestConnectionAsync("http://media:8096", "key1", It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
         ReplaceService(directory);
@@ -341,5 +341,40 @@ public class SettingsPageTests
         var cut = _ctx.Render<Settings>();
         Assert.That(cut.Markup, Does.Contain("Disconnect"),
             "a connected account shows a disconnect button");
+    }
+
+    [Test]
+    public void Settings_Fragment_OpensTheNamedTab()
+    {
+        // The auth callback links /settings#accounts; the dashboard links
+        // other sections. The fragment must pick the tab, not the default.
+        var fixedNav = new FixedUriNavigationManager("http://localhost/", "http://localhost/settings#quality");
+        var navDescriptor = _ctx.Services.FirstOrDefault(
+            d => d.ServiceType == typeof(Microsoft.AspNetCore.Components.NavigationManager));
+        if (navDescriptor is not null) _ctx.Services.Remove(navDescriptor);
+        _ctx.Services.AddSingleton<Microsoft.AspNetCore.Components.NavigationManager>(fixedNav);
+
+        var cut = _ctx.Render<Settings>();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.Markup, Does.Contain("Bitrate floor"),
+                "the #quality fragment opens the quality tab");
+            Assert.That(cut.Markup, Does.Not.Contain("Media server profiles"),
+                "and not the media servers tab");
+        }, TimeSpan.FromSeconds(3));
+    }
+
+    [Test]
+    public void Settings_TabClick_UpdatesTheUrlFragment()
+    {
+        var cut = _ctx.Render<Settings>();
+        cut.FindAll("button.tab-link").First(b => b.TextContent.Trim() == "Network").Click();
+
+        cut.WaitForAssertion(() =>
+            Assert.That(_ctx.Services.GetRequiredService<Microsoft.AspNetCore.Components.NavigationManager>().Uri,
+                Does.EndWith("#network"),
+                "the fragment follows the tab, so refresh keeps it"),
+            TimeSpan.FromSeconds(3));
     }
 }

@@ -31,10 +31,10 @@
 </section>
 
 <nav class="tab-nav">
-    @foreach (var tab in new[] { ("accounts", "Accounts"), ("connections", "Media servers"), ("paths", "Paths"), ("quality", "Quality"), ("network", "Network"), ("about", "About") })
+    @foreach (var (id, label) in Tabs)
     {
-        <button class="tab-link @(activeTab == tab.Item1 ? "active" : "")"
-                @onclick="() => activeTab = tab.Item1">@tab.Item2</button>
+        <button class="tab-link @(activeTab == id ? "active" : "")"
+                @onclick="() => SelectTab(id)">@label</button>
     }
 </nav>
 
@@ -427,6 +427,17 @@ else if (activeTab == "about")
 }
 
 @code {
+    // Tab ids double as URL fragments: /settings#accounts opens Accounts.
+    private static readonly (string Id, string Label)[] Tabs =
+    [
+        ("accounts", "Accounts"),
+        ("connections", "Media servers"),
+        ("paths", "Paths"),
+        ("quality", "Quality"),
+        ("network", "Network"),
+        ("about", "About"),
+    ];
+
     private string activeTab = "accounts";
     private string musicPath = "/music";
     private string playlistPath = "/app/playlists";
@@ -462,6 +473,11 @@ else if (activeTab == "about")
 
     protected override async Task OnInitializedAsync()
     {
+        // /settings#accounts, #connections, ... opens that tab directly:
+        // the auth callback and the dashboard link here with a fragment.
+        var fragment = Nav.ToAbsoluteUri(Nav.Uri).Fragment.TrimStart('#');
+        if (Tabs.Any(t => t.Id == fragment)) activeTab = fragment;
+
         profiles = (await ServerProfiles.GetAllAsync()).ToList();
 
         // Migration: the old single-server settings become one profile.
@@ -749,6 +765,14 @@ else if (activeTab == "about")
     {
         deleteProfileId = profile.Id;
         deleteProfileName = profile.Name;
+    }
+
+    /// <summary>Switching tabs rewrites the fragment, so refresh and
+    /// back keep the tab the user was on.</summary>
+    private void SelectTab(string id)
+    {
+        activeTab = id;
+        Nav.NavigateTo($"/settings#{id}", new NavigationOptions { ForceLoad = false });
     }
 
     private void CancelDeleteProfile()
