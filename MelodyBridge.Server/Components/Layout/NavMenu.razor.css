@@ -1,1 +1,18 @@
-/* Navigation styling is centralized in wwwroot/app.css for consistent theming. */
+/* Navigation styling is centralized in wwwroot/app.css for consistent
+   theming (app.css sizes the old <span> glyphs; the Icon svg needs its
+   own column rule here). */
+
+/* Icon column inside each nav link, mirroring app.css .nav-link span. */
+::deep .nav-icon {
+    width: 20px;
+    height: 16px;
+    display: inline-grid;
+    place-items: center;
+    vertical-align: -3px;
+    margin-right: .3rem;
+    color: var(--muted-2);
+}
+
+.app-nav .nav-link.active .nav-icon {
+    color: var(--accent-strong);
+}

@@ -16,7 +16,7 @@
             <button class="theme-toggle" @onclick="ToggleTheme" title="Toggle theme">
                 <span class="theme-icon">@(_isDark ? "☾" : "☀")</span>
             </button>
-            <small>v@AppInfo.Version</small>
+            <span class="version-badge" title="MelodyBridge version">v@AppInfo.Version</span>
         </div>
     </aside>
     <div class="app-main">
@@ -39,7 +39,7 @@
         {
             <div class="toast-item @toast.Level">
                 <span>@toast.Message</span>
-                <button class="toast-close" @onclick="() => DismissToast(toast)">×</button>
+                <button class="toast-close" @onclick="() => DismissToast(toast)"><Icon Name="x" Size="14" /></button>
             </div>
         }
     </div>

@@ -1,1 +1,22 @@
-/* Layout styling is centralized in wwwroot/app.css for consistent theming. */
+/* Layout styling is centralized in wwwroot/app.css for consistent theming.
+   Scoped here only: sidebar footer extras and the active nav indicator. */
+
+/* Version badge next to the theme toggle in the sidebar footer. */
+.version-badge {
+    display: inline-flex;
+    align-items: center;
+    font-size: 11px;
+    font-weight: 600;
+    padding: .15rem .5rem;
+    border-radius: 999px;
+    background: var(--surface-3);
+    border: 1px solid var(--border);
+    color: var(--muted-2);
+    font-family: var(--font-mono);
+}
+
+/* Active nav link: 2px accent bar on the left edge, on top of the
+   background tint app.css already applies. */
+::deep .app-nav .nav-link.active {
+    box-shadow: inset 2px 0 0 var(--accent);
+}

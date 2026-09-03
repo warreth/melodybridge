@@ -2,26 +2,26 @@
 
 <nav class="app-nav">
     <div class="nav-section">
-        <a class="nav-link" href="" Match="NavLinkMatch.All"><span>◈</span> Dashboard</a>
+        <a class="nav-link" href="" Match="NavLinkMatch.All"><Icon Name="home" Class="nav-icon" /> Dashboard</a>
     </div>
     <div class="nav-section">
         <div class="nav-section-header">Your music</div>
-        <a class="nav-link" href="/playlists"><span>♫</span> Playlists</a>
-        <a class="nav-link" href="/plugins"><span>⇊</span> Plugins</a>
-        <a class="nav-link" href="/library"><span>≡</span> Library</a>
+        <a class="nav-link" href="/playlists"><Icon Name="list-music" Class="nav-icon" /> Playlists</a>
+        <a class="nav-link" href="/plugins"><Icon Name="package" Class="nav-icon" /> Plugins</a>
+        <a class="nav-link" href="/library"><Icon Name="library" Class="nav-icon" /> Library</a>
     </div>
     <div class="nav-section">
         <div class="nav-section-header">Publishing</div>
-        <a class="nav-link" href="/sync-jobs"><span>↻</span> Sync jobs</a>
+        <a class="nav-link" href="/sync-jobs"><Icon Name="refresh" Class="nav-icon" /> Sync jobs</a>
     </div>
     <div class="nav-section">
         <div class="nav-section-header">System</div>
-        <a class="nav-link" href="/settings"><span>⚙</span> Settings</a>
-        <a class="nav-link" href="/advanced"><span>⚑</span> Advanced</a>
-        <a class="nav-link" href="/logs"><span>☰</span> Logs</a>
+        <a class="nav-link" href="/settings"><Icon Name="sliders" Class="nav-icon" /> Settings</a>
+        <a class="nav-link" href="/advanced"><Icon Name="flag" Class="nav-icon" /> Advanced</a>
+        <a class="nav-link" href="/logs"><Icon Name="terminal" Class="nav-icon" /> Logs</a>
         @if (DevPanel.Enabled)
         {
-            <a class="nav-link" href="/dev"><span>⚡</span> Dev panel</a>
+            <a class="nav-link" href="/dev"><Icon Name="zap" Class="nav-icon" /> Dev panel</a>
         }
     </div>
 </nav>
