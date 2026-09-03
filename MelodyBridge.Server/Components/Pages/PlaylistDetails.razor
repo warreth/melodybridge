@@ -42,7 +42,7 @@ else
                 }
             </div>
             <div>
-                <span class="eyebrow">@playlist.SourcePlatform playlist</span>
+                <span class="eyebrow">@(playlist.IsManualImport ? "Imported" : $"{playlist.SourcePlatform} playlist")</span>
                 <h1>@playlist.Name</h1>
                 <p>
                     @playlist.TrackCount tracks
@@ -53,13 +53,22 @@ else
                     <span> · last synced @(playlist.LastSyncAt?.ToLocalTime().ToString("g") ?? "never")</span>
                     @if (!string.IsNullOrWhiteSpace(playlist.PreferredFormat) && playlist.PreferredFormat != "auto")
                     {
-                        <span> · @playlist.PreferredFormat.Replace(":", " · ")</span>
+                        <span> · @QualityLabel(playlist.PreferredFormat)</span>
+                    }
+                    @if (!playlist.IsManualImport)
+                    {
+                        <a href="@playlist.SourceUrl" target="_blank" rel="noopener" class="hint">
+                            Open source ↗
+                        </a>
                     }
                 </p>
             </div>
         </div>
         <div class="topbar-actions">
-            <button class="btn-modern ghost" @onclick="Refresh" disabled="@busy">@(busy ? "Fetching…" : "Refresh")</button>
+            @if (!playlist.IsManualImport)
+            {
+                <button class="btn-modern ghost" @onclick="Refresh" disabled="@busy">@(busy ? "Fetching…" : "Refresh")</button>
+            }
             @if (run is null or { State: Application.Services.DownloadRunState.Finished })
             {
                 <button class="btn-modern primary" @onclick="StartDownload">Download missing</button>
@@ -143,16 +152,19 @@ else
                 <label>
                     Download folder
                     <input @bind="editTargetDirectory" placeholder="@resolvedDefaultMusicPath" />
-                    <small class="text-muted">Empty uses the default music path (currently @resolvedDefaultMusicPath).</small>
+                    <small class="text-muted">Leave empty to use the default music path (@resolvedDefaultMusicPath).</small>
                 </label>
                 <label class="quality-field">
                     Audio quality
                     <QualityPicker @bind-Value="editQuality" />
                 </label>
-                <label class="wide">
-                    Auto-sync schedule
-                    <SchedulePicker @bind-Value="editSchedule" />
-                </label>
+                @if (!playlist.IsManualImport)
+                {
+                    <label class="wide">
+                        Auto-sync schedule
+                        <SchedulePicker @bind-Value="editSchedule" />
+                    </label>
+                }
                 <label>
                     Sync mode
                     <select @bind="editSyncMode">
@@ -162,9 +174,10 @@ else
                 </label>
                 <div class="flex-actions">
                     <button class="btn-modern primary" @onclick="SaveSettings" disabled="@busy">Save settings</button>
-                    <a href="@playlist.SourceUrl" target="_blank" rel="noopener" class="hint">
-                        Open source ↗
-                    </a>
+                    @if (playlist.IsManualImport)
+                    {
+                        <span class="text-muted">Imported snapshot: re-import the file to update the track list.</span>
+                    }
                 </div>
             </div>
         </div>
@@ -269,6 +282,10 @@ else
                                               title="@(track.DownloadStatus == "failed" ? track.DownloadError : null)">
                                             @(track.DownloadStatus ?? "pending")
                                         </span>
+                                        @if (track.DownloadStatus == "failed" && !string.IsNullOrWhiteSpace(track.DownloadError))
+                                        {
+                                            <div class="fail-note">@track.DownloadError</div>
+                                        }
                                     }
                                     @if (!string.IsNullOrWhiteSpace(track.Warning))
                                     {
@@ -498,6 +515,16 @@ else
         "queued" or "in_progress" => "warn",
         _ => "neutral",
     };
+
+    /// <summary>The header's quality line: preset names read as words, raw strings as-is.</summary>
+    private static string QualityLabel(string stored)
+        => stored switch
+        {
+            "preset:saver" => "Space Saver",
+            "preset:high" => "High Quality",
+            "preset:lossless" => "Lossless",
+            _ => stored.Replace(":", " · "),
+        };
 
     /// <summary>
     /// Live queue label for a track while this playlist has an active run:

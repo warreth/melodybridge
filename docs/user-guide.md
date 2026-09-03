@@ -192,22 +192,26 @@ tabs.
   them (inside Docker: `/music` and `/app/playlists`)
 - **Quality**: the default audio quality for new playlists (each
   playlist can override it on its own page) and the spectrum check
-  mode. Quality is three dropdowns: a container, a bitrate floor and
-  a bitrate ceiling. Auto takes the best each source offers and locks
-  the bitrate dropdowns.
+  mode. Quality is one dropdown with named presets: Space Saver (up to
+  160 kbps, small files), High Quality (up to 320 kbps, no lossless
+  sizes), Lossless (FLAC when a source has it, otherwise the best
+  lossy file) and Auto (best the sources offer). Advanced filters…
+  opens a container, floor and ceiling selector for exact control.
 - **Network**: the FlareSolverr URL for the Lucida plugin with a Test
   connection button, `off` disables Lucida; plus a log export that
   downloads the most recent 1000 entries as a plain text file
 - **About**: app version and update check
 
-::: tip Choosing a container
-MP3 plays on every device: pick 320 kbps for a home collection,
-192 kbps when disk space is tight. Opus is the most efficient: 128 kbps
-sounds transparent to most ears, 160 kbps is a safe ceiling. AAC
-(m4a) fits the Apple world: 256 kbps is a good pick for phones. FLAC
-is lossless, locks the bitrate dropdowns and has the largest files,
-best for a media server with plenty of disk. A line under the
-dropdowns explains the trade-off for whichever container you pick.
+::: tip Which preset
+Space Saver fits massive playlists and phones: files stay small and
+sound fine. High Quality is the safe default: everything good, nothing
+huge. Lossless is for a home media server with disk to spare; when no
+source has a lossless copy it falls back to the best lossy file.
+The advanced filters take exact control: a container, a bitrate floor
+and a ceiling. MelodyBridge does not transcode, so strict filters can
+make a download fail when the sources cannot provide that exact
+format. A failed track says so in its row: sources had files outside
+your quality filters.
 :::
 
 Settings are stored in the database and apply immediately after Save

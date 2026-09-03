@@ -1,47 +1,80 @@
-@* Two-step quality picker: container format, then a bitrate floor and
-   ceiling. All three selects write back through one combined value
-   ("mp3:320", "mp3:192-", "mp3:192-320", "opus", ...) so callers keep
-   the single PreferredFormat string the store already validates and
-   persists. ParseQuality maps a single number to a cap: "mp3:320" means
-   max=320, "mp3:192-" means min=192. *@
+@* One quality picker everywhere: a Target Quality dropdown with the
+   shared presets, and an Advanced section (collapsed by default) that
+   keeps the three container/floor/ceiling selectors for power users.
+   Both views write the single PreferredFormat string the store
+   validates and persists ("preset:saver", "auto", "mp3:192-320", ...). *@
+@using MelodyBridge.Core
 @using MelodyBridge.Infrastructure.Services
 
 <div class="quality-picker">
-    <label>
-        Container
-        <select value="@Container" @onchange="OnContainerChanged">
-            @foreach (var f in Containers)
+    <label class="wide">
+        Target quality
+        <select value="@PresetChoice" @onchange="OnPresetChanged">
+            @foreach (var preset in PresetOptions)
             {
-                <option value="@f.Value">@f.Label</option>
+                <option value="@preset.Value">@preset.Label — @preset.Blurb</option>
             }
+            <option value="@AdvancedValue">Advanced filters…</option>
         </select>
     </label>
-    <label>
-        Bitrate floor
-        <select value="@MinBitrate" @onchange="OnMinChanged" disabled="@BandsLocked">
-            @foreach (var b in FloorOptions)
-            {
-                <option value="@b.Value">@b.Label</option>
-            }
-        </select>
-    </label>
-    <label>
-        Bitrate ceiling
-        <select value="@MaxBitrate" @onchange="OnMaxChanged" disabled="@BandsLocked">
-            @foreach (var b in CeilingOptions)
-            {
-                <option value="@b.Value">@b.Label</option>
-            }
-        </select>
-    </label>
+
+    @if (PresetChoice == AdvancedValue)
+    {
+        <details class="advanced-quality" open>
+            <summary>Advanced quality filters</summary>
+            <div class="hint-box">
+                Note: MelodyBridge does not transcode. Strict filters may
+                cause downloads to fail if the source plugins cannot provide
+                the exact format.
+            </div>
+            <div class="form-grid">
+                <label>
+                    Container
+                    <select value="@Container" @onchange="OnContainerChanged">
+                        @foreach (var f in Containers)
+                        {
+                            <option value="@f.Value">@f.Label</option>
+                        }
+                    </select>
+                </label>
+                <label>
+                    Bitrate floor
+                    <select value="@MinBitrate" @onchange="OnMinChanged" disabled="@BandsLocked">
+                        @foreach (var b in FloorOptions)
+                        {
+                            <option value="@b.Value">@b.Label</option>
+                        }
+                    </select>
+                </label>
+                <label>
+                    Bitrate ceiling
+                    <select value="@MaxBitrate" @onchange="OnMaxChanged" disabled="@BandsLocked">
+                        @foreach (var b in CeilingOptions)
+                        {
+                            <option value="@b.Value">@b.Label</option>
+                        }
+                    </select>
+                </label>
+            </div>
+            <p class="panel-description">@Guidance</p>
+        </details>
+    }
+    else
+    {
+        <p class="panel-description">@PresetBlurb</p>
+    }
 </div>
-<p class="panel-description">@Guidance</p>
 
 @code {
-    /// <summary>Combined quality value: "auto", "mp3", "mp3:320", "mp3:192-", "mp3:192-320"...</summary>
+    private const string AdvancedValue = "__advanced__";
+
+    /// <summary>Combined quality value: "preset:saver", "auto", "mp3:320", "mp3:192-"...</summary>
     [Parameter] public string Value { get; set; } = "auto";
     /// <summary>Raised with the new combined value after any select changes.</summary>
     [Parameter] public EventCallback<string> ValueChanged { get; set; }
+
+    private static readonly (string Value, string Label, string Blurb)[] PresetOptions =
+        QualityPresets.All.Select(p => (p.Stored, p.Label, p.Blurb)).ToArray();
 
     private static readonly (string Value, string Label)[] Containers =
     {
@@ -63,6 +96,7 @@
         ["aac"] = ["96", "128", "160", "192", "256", "320"],
     };
 
+    private string PresetChoice { get; set; } = "auto";
     private string Container { get; set; } = "auto";
     private string MinBitrate { get; set; } = "";
     private string MaxBitrate { get; set; } = "";
@@ -72,6 +106,12 @@
 
     private string[] BandValues =>
         BandTable.TryGetValue(Container, out var list) ? list : [];
+
+    private string PresetBlurb =>
+        Value == "preset:saver" ? "Any format up to 160 kbps. Small files that sound fine; made for massive playlists."
+        : Value == "preset:high" ? "Any lossy format up to 320 kbps. Full quality without lossless file sizes."
+        : Value == "preset:lossless" ? "FLAC or WAV when a source has it; otherwise the best lossy file up to 320 kbps."
+        : "Takes whatever the sources give, no filter at all.";
 
     private IEnumerable<(string Value, string Label)> FloorOptions
     {
@@ -97,7 +137,20 @@
 
     protected override void OnParametersSet()
     {
-        var parts = (Value ?? "auto").Split(':', 2);
+        // A preset (or plain auto) selects itself; anything else is the
+        // advanced path and opens the accordion seeded from the value.
+        if (QualityPresets.IsPreset(Value))
+        {
+            PresetChoice = Value;
+            return;
+        }
+        PresetChoice = AdvancedValue;
+        ParseAdvanced(Value);
+    }
+
+    private void ParseAdvanced(string value)
+    {
+        var parts = (value ?? "auto").Split(':', 2);
         Container = parts[0].ToLowerInvariant();
         if (!BandTable.ContainsKey(Container)) Container = "auto";
         MinBitrate = "";
@@ -118,12 +171,20 @@
         }
     }
 
+    private Task OnPresetChanged(ChangeEventArgs e)
+    {
+        PresetChoice = e.Value?.ToString() ?? "auto";
+        return PresetChoice == AdvancedValue
+            ? EmitAdvanced()
+            : ValueChanged.InvokeAsync(PresetChoice);
+    }
+
     private Task OnContainerChanged(ChangeEventArgs e)
     {
         Container = e.Value?.ToString() ?? "auto";
         MinBitrate = ""; // each container has its own sensible band
         MaxBitrate = "";
-        return Emit();
+        return EmitAdvanced();
     }
 
     private Task OnMinChanged(ChangeEventArgs e)
@@ -132,7 +193,7 @@
         // Raising the floor above the ceiling raises the ceiling too.
         if (int.TryParse(MinBitrate, out var min) && int.TryParse(MaxBitrate, out var max) && min > max)
             MaxBitrate = MinBitrate;
-        return Emit();
+        return EmitAdvanced();
     }
 
     private Task OnMaxChanged(ChangeEventArgs e)
@@ -141,10 +202,10 @@
         // Lowering the ceiling below the floor lowers the floor too.
         if (int.TryParse(MinBitrate, out var min) && int.TryParse(MaxBitrate, out var max) && max < min)
             MinBitrate = MaxBitrate;
-        return Emit();
+        return EmitAdvanced();
     }
 
-    private Task Emit()
+    private Task EmitAdvanced()
     {
         var hasMin = !string.IsNullOrEmpty(MinBitrate);
         var hasMax = !string.IsNullOrEmpty(MaxBitrate);

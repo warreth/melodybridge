@@ -39,7 +39,9 @@ waterfall, toggle plugins and edit their settings on the Plugins page.
 Every plugin quality-gates its files against the requested bitrate band
 (minimum and maximum): rips outside it are rejected, so a playlist does
 not fill with inflated 128 kbps files labelled as 320 — or thin ones
-below the floor you set.
+below the floor you set. When a track fails because every source fell
+outside the filters, its row says so, so the fix (relaxing the
+filters) is obvious.
 
 ::: info Integrity check
 A finished file is verified before it counts as downloaded: the
@@ -72,10 +74,15 @@ Pick the mode in Settings:
 
 ## Per-playlist quality targets <Badge type="tip" text="Optional" />
 
-Each playlist can ask the waterfall for a specific container format
-(auto, MP3, FLAC, Opus or AAC) and an optional bitrate band: a floor and
-a ceiling. Lossless formats ignore the band because limits make no
-sense there.
+Each playlist picks a target quality from named presets: Space Saver
+(any format up to 160 kbps, small files), High Quality (any lossy format
+up to 320 kbps, no lossless sizes), Lossless (FLAC when a source has it,
+otherwise the best lossy file) or Auto. Power users can open the
+advanced filters and pick a container format (MP3, FLAC, Opus or AAC)
+with a bitrate floor and ceiling instead; MelodyBridge does not
+transcode, so strict filters can make a download fail when the sources
+cannot provide that exact format, and a failed track says so in its
+row.
 
 ## Consistent tags
 

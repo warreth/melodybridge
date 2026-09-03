@@ -1277,8 +1277,21 @@ input[type="file"].btn-modern::file-selector-button {
 .quality-picker { align-items: end; gap: 1.25rem; }
 .quality-picker label { flex: 1 1 200px; min-width: 0; }
 
+/* The advanced quality filters live in a collapsible block under the
+   preset dropdown; the summary reads like the other section headers. */
+.advanced-quality { flex-basis: 100%; }
+.advanced-quality summary { cursor: pointer; font-weight: 600; margin-bottom: .5rem; }
+.advanced-quality .hint-box { margin-bottom: .75rem; }
+
+/* Why a track failed, in small quiet text under the status pill; the
+   full story stays available on the pill's hover. */
+.fail-note { font-size: .75rem; color: var(--text-muted, #888); margin-top: .15rem; max-width: 220px; }
+
 /* Form labels: stacked text over input with enough vertical rhythm. */
 .form-grid label { margin-bottom: .35rem; }
+
+/* Placeholders are suggestions, not values: visibly lighter than typed text. */
+input::placeholder, textarea::placeholder { color: var(--muted-2, #8a8f98); opacity: 1; }
 
 /* Action rows: buttons plus adjacent description text (Settings test
    results, PlaylistDetails source link) get honest spacing. */

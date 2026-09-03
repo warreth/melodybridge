@@ -111,13 +111,13 @@ public class LayoutFixUITests
         var cut = _ctx.Render<QualityPicker>(p => p.Add(p => p.Value, "mp3:320"));
 
         var selects = cut.FindAll("select");
-        Assert.That(selects.Count, Is.EqualTo(3),
-            "container, floor and ceiling are separate dropdowns");
+        Assert.That(selects.Count, Is.EqualTo(4),
+            "preset dropdown, then container, floor and ceiling");
 
-        var container = selects[0];
+        var container = selects[1];
         Assert.That(container.QuerySelector("option:checked")!.GetAttribute("value"), Is.EqualTo("mp3"));
 
-        var ceiling = selects[2];
+        var ceiling = selects[3];
         Assert.That(ceiling.QuerySelector("option:checked")!.GetAttribute("value"), Is.EqualTo("320"));
     }
 
@@ -130,7 +130,7 @@ public class LayoutFixUITests
                  })
         {
             var cut = _ctx.Render<QualityPicker>(p => p.Add(p => p.Value, container));
-            var bitrate = cut.FindAll("select")[1];
+            var bitrate = cut.FindAll("select")[2];
             Assert.That(bitrate.OuterHtml, Does.Contain($"value=\"{expected}\""),
                 $"{container} must offer a {expected} kbps cap");
             Assert.That(bitrate.HasAttribute("disabled"), Is.False,
@@ -141,13 +141,16 @@ public class LayoutFixUITests
     [Test]
     public void QualityPicker_LosslessContainers_HaveNoBitrateChoice()
     {
-        foreach (var container in new[] { "auto", "flac" })
-        {
-            var cut = _ctx.Render<QualityPicker>(p => p.Add(p => p.Value, container));
-            var bitrate = cut.FindAll("select")[1];
-            Assert.That(bitrate.HasAttribute("disabled"), Is.True,
-                $"{container} has no meaningful bitrate cap, the select locks");
-        }
+        // FLAC is a raw format: the advanced accordion opens with locked bands.
+        var cut = _ctx.Render<QualityPicker>(p => p.Add(p => p.Value, "flac"));
+        var bitrate = cut.FindAll("select")[2];
+        Assert.That(bitrate.HasAttribute("disabled"), Is.True,
+            "flac has no meaningful bitrate cap, the select locks");
+
+        // Auto is a preset: the dropdown alone, no band selectors at all.
+        var auto = _ctx.Render<QualityPicker>(p => p.Add(p => p.Value, "auto"));
+        Assert.That(auto.FindAll("select").Count, Is.EqualTo(1),
+            "the Auto preset shows no bitrate selectors");
     }
 
     [Test]
@@ -158,11 +161,11 @@ public class LayoutFixUITests
             .Add(p => p.Value, "mp3:320")
             .Add(p => p.ValueChanged, v => emitted = v));
 
-        cut.FindAll("select")[0].Change("opus");
+        cut.FindAll("select")[1].Change("opus");
         Assert.That(emitted, Is.EqualTo("opus"),
             "switching container resets the band and emits the bare format");
 
-        cut.FindAll("select")[2].Change("160");
+        cut.FindAll("select")[3].Change("160");
         Assert.That(emitted, Is.EqualTo("opus:160"),
             "picking a ceiling emits the combined value the store persists");
     }
@@ -187,9 +190,12 @@ public class LayoutFixUITests
             .Single(b => b.TextContent.Trim() == "Quality").Click();
 
         cut.WaitForAssertion(() =>
-            Assert.That(cut.Markup, Does.Contain("Bitrate floor")), TimeSpan.FromSeconds(3));
-        Assert.That(cut.Markup, Does.Contain("Container"));
-        Assert.That(cut.Markup, Does.Contain("Bitrate ceiling"));
+            Assert.That(cut.Markup, Does.Contain("Target quality")), TimeSpan.FromSeconds(3));
+        Assert.That(cut.Markup, Does.Contain("Space Saver"),
+            "the default quality offers the shared presets");
+        Assert.That(cut.Markup, Does.Contain("Lossless"));
+        Assert.That(cut.Markup, Does.Contain("Advanced filters"),
+            "the raw selectors stay reachable behind the advanced option");
     }
 
     // ── Playlists page cards ───────────────────────────────────────

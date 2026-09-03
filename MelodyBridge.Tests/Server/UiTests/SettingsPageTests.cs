@@ -112,7 +112,7 @@ public class SettingsPageTests
     public void Settings_PathsTab_ShowsPathFields()
     {
         var cut = _ctx.Render<Settings>();
-        cut.FindAll("button.tab-link").First(b => b.TextContent == "Paths").Click();
+        cut.FindAll("button.tab-link").First(b => b.TextContent == "Default paths").Click();
 
         cut.WaitForAssertion(() =>
         {
@@ -363,8 +363,10 @@ public class SettingsPageTests
 
         cut.WaitForAssertion(() =>
         {
-            Assert.That(cut.Markup, Does.Contain("Bitrate floor"),
+            Assert.That(cut.Markup, Does.Contain("Target quality"),
                 "the #quality fragment opens the quality tab");
+            Assert.That(cut.Markup, Does.Contain("Space Saver"),
+                "the quality tab carries the preset dropdown");
             Assert.That(cut.Markup, Does.Not.Contain("Media server profiles"),
                 "and not the media servers tab");
         }, TimeSpan.FromSeconds(3));
