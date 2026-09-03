@@ -206,7 +206,7 @@ else if (activeTab == "connections")
                         </div>
                         <div class="flex-actions">
                             <button class="btn-modern ghost small" @onclick="() => EditProfile(profile)">Edit</button>
-                            <button class="btn-modern ghost small" @onclick="() => DeleteProfile(profile)">Delete</button>
+                            <button class="btn-modern ghost small" @onclick="() => AskDeleteProfile(profile)">Delete</button>
                             <button class="btn-modern secondary small" @onclick="() => MakeAppDefault(profile)">Use as app default</button>
                             <button class="btn-modern secondary small" disabled="@(testingProfile == profile.Id)" @onclick="() => TestProfile(profile)">
                                 @(testingProfile == profile.Id ? "Testing…" : "Test")
@@ -217,6 +217,17 @@ else if (activeTab == "connections")
             </div>
         }
     </section>
+
+    @if (deleteProfileId is { } doomedProfileId)
+    {
+        <ConfirmDialog Show="true"
+                       Eyebrow="Delete profile"
+                       Title=@($"Delete '{deleteProfileName}'?")
+                       Message="Sync jobs that use this profile need a new server picked in their settings."
+                       ConfirmLabel="Delete profile"
+                       OnConfirm=@(() => DeleteProfile(doomedProfileId))
+                       OnCancel="CancelDeleteProfile" />
+    }
 
     @if (editingProfile is not null)
     {
@@ -256,6 +267,13 @@ else if (activeTab == "paths")
         <div class="form-grid single">
             <label>Music path <input @bind="musicPath" /></label>
             <label>Playlist output folder <input @bind="playlistPath" /></label>
+        </div>
+        <div class="hint-box">
+            Enter paths as the server sees them. Inside Docker that is the
+            container path (for example <code>/music</code>), not the host
+            path — check what the volume is mounted as in your
+            <code>compose.yml</code>. New downloads land under the music
+            path; M3U files go to the playlist output folder.
         </div>
     </section>
 }
@@ -723,13 +741,30 @@ else if (activeTab == "about")
 
     private void CancelProfileEdit() => editingProfile = null;
 
-    private async Task DeleteProfile(MediaServerProfile profile)
+    // Delete flow: the row asks, the dialog confirms.
+    private string? deleteProfileId;
+    private string deleteProfileName = "";
+
+    private void AskDeleteProfile(MediaServerProfile profile)
     {
-        if (await ServerProfiles.DeleteAsync(profile.Id))
+        deleteProfileId = profile.Id;
+        deleteProfileName = profile.Name;
+    }
+
+    private void CancelDeleteProfile()
+    {
+        deleteProfileId = null;
+        StateHasChanged();
+    }
+
+    private async Task DeleteProfile(string profileId)
+    {
+        if (await ServerProfiles.DeleteAsync(profileId))
         {
             profiles = (await ServerProfiles.GetAllAsync()).ToList();
-            Notifications.Info($"Deleted profile '{profile.Name}'.");
+            Notifications.Info($"Deleted profile '{deleteProfileName}'.");
         }
+        deleteProfileId = null;
     }
 
     // ── About tab ──────────────────────────────────────────────────
