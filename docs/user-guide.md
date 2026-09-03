@@ -63,14 +63,20 @@ The details page has two halves. The left panel configures the
 playlist:
 
 - Name and download folder
-- File format (auto, MP3, FLAC, Opus or AAC) and an optional bitrate
-  range in kbps, for example `192-320`
+- Target quality: one of the shared presets (Space Saver, High
+  Quality, Lossless, No filter) or advanced filters (container plus a
+  bitrate range, for example `192-320`)
 - Auto-sync schedule: **Manual**, **Hourly**, **Daily**, **Weekly**,
   **Monthly** or a custom cron expression, the same options the sync
   jobs and library folders use
 - Sync mode: **Additive** keeps removed tracks as history, **Mirror**
   removes tracks deleted from the source
-- **Save settings** stores the changes
+
+Every change saves itself. Text fields wait half a second after your
+last keystroke, dropdowns save at once, and a small pill next to the
+heading narrates the save: Saving, Saved, or Failed to save. A failed
+save rolls the fields back to the last stored values, so a database
+hiccup never leaves the form lying about what is persisted.
 
 The right panel shows the track status (total and downloaded) and live
 progress while a download runs. Under **Tracks** you find the full track

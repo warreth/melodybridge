@@ -23,9 +23,16 @@ playlists and your liked songs.
 <img src="/screens/playlist-details.webp" alt="Playlist details page with track list, quality info and live download progress" width="800">
 
 
-Every track is fetched by a waterfall of plugins, tried in order. The
-first plugin that finds and quality-gates a track wins. Reorder the
-waterfall, toggle plugins and edit their settings on the Plugins page.
+Every track is fetched by a waterfall of plugins. Before a single
+network call, each plugin's declared capabilities (containers it can
+produce, its honest bitrate bounds, whether it can do lossless) are
+matched against the playlist's target quality: plugins that cannot
+possibly serve the request are skipped outright, and the survivors are
+ranked so the most promising source runs first. A Space Saver playlist
+tries small-file sources first and leaves lossless producers for last;
+a Lossless playlist tries the lossless-capable sources first and keeps
+lossy ones as the fallback. With No filter, the waterfall keeps exactly
+the order you set on the Plugins page.
 
 | Plugin | What it fetches |
 |---|---|
@@ -34,7 +41,7 @@ waterfall, toggle plugins and edit their settings on the Plugins page.
 | DoubleDouble | Multi-service rips (Tidal, Qobuz, Deezer, Amazon) from direct track URLs; captcha-gated, no metadata search |
 | SoundCloud | Original uploads by the artist, 128 kbps or better |
 | Internet Archive | Public recordings and digitizations, MP3 |
-| yt-dlp | YouTube Music first, plain YouTube fallback; best audio as MP3 |
+| yt-dlp | YouTube Music first, plain YouTube fallback; MP3, Opus or AAC |
 
 Every plugin quality-gates its files against the requested bitrate band
 (minimum and maximum): rips outside it are rejected, so a playlist does
