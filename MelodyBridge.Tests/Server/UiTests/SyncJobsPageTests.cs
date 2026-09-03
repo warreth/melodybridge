@@ -5,6 +5,7 @@ using MelodyBridge.Infrastructure.Data;
 using MelodyBridge.Server.Components.Pages;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 
 namespace MelodyBridge.Tests.Server.UiTests;
@@ -108,18 +109,81 @@ public class SyncJobsPageTests
     }
 
     [Test]
-    public void RunJobNow_CallsJobRunner()
+    public async Task RunJobNow_ReallyRunsTheJob_RecordsHistoryAndWritesM3u()
     {
-        _jobRunner.Setup(j => j.RunJobAsync(It.IsAny<SyncJob>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new SyncJobRunLog(DateTime.UtcNow, SyncStatus.Completed, "ok", 1, 1));
-
-        var cut = _ctx.Render<SyncJobs>();
-        var btns = cut.FindAll("button");
-        var runBtns = btns.Where(b => b.TextContent.Trim().Contains("Run")).ToList();
-        if (runBtns.Count > 0)
+        // Real SQLite, real files on disk, the production SyncJobRunner:
+        // the click must leave a completed run row and a real M3U file.
+        var dbPath = Path.Combine(Path.GetTempPath(), $"mb-syncjob-{Guid.NewGuid():N}.db");
+        var dir = Path.Combine(Path.GetTempPath(), $"mb-syncjob-{Guid.NewGuid():N}");
+        var m3uPath = Path.Combine(dir, "weekly.m3u");
+        Directory.CreateDirectory(dir);
+        try
         {
-            runBtns[0].Click();
-            _jobRunner.Verify(j => j.RunJobAsync(It.IsAny<SyncJob>(), It.IsAny<CancellationToken>()), Times.AtLeastOnce);
+            var options = new DbContextOptionsBuilder<MelodyBridgeDbContext>()
+                .UseSqlite($"Data Source={dbPath}").Options;
+            var sqliteFactory = new InMemFactory(options);
+            using (var db = sqliteFactory.CreateDbContext())
+            {
+                db.Database.EnsureCreated();
+
+                var a = Path.Combine(dir, "a.mp3");
+                await System.IO.File.WriteAllTextAsync(a, "x");
+                db.Playlists.Add(new PlaylistEntity
+                {
+                    Id = "src-1", Name = "Weekly Source", SourceUrl = "stub:src-1",
+                    Tracks = new List<TrackEntity>
+                    {
+                        new()
+                        {
+                            MelodyId = "mel-a", Title = "Alpha", Artist = "A",
+                            DownloadStatus = "downloaded", CurrentPath = a, Position = 0,
+                        },
+                    },
+                });
+                db.SyncJobs.Add(new SyncJobEntity
+                {
+                    Id = "j1", Name = "Weekly Sync", SourceId = "src-1",
+                    SearchLocationPaths = "[]", Schedule = "Manual",
+                    OutputTarget = "M3uFile", M3uOutputPath = m3uPath,
+                });
+                db.SaveChanges();
+            }
+
+            // The production runner over the real DB, no media servers.
+            _ctx.Services.AddSingleton<IDbContextFactory<MelodyBridgeDbContext>>(sqliteFactory);
+            _ctx.Services.AddSingleton<ISyncJobRunner>(new MelodyBridge.Infrastructure.Services.SyncJobRunner(
+                sqliteFactory,
+                new MelodyBridge.Infrastructure.Playlists.M3uGenerator(
+                    NullLogger<MelodyBridge.Infrastructure.Playlists.M3uGenerator>.Instance),
+                Array.Empty<IMediaServerSync>(),
+                NullLogger<MelodyBridge.Infrastructure.Services.SyncJobRunner>.Instance));
+
+            var cut = _ctx.Render<SyncJobs>();
+            cut.WaitForAssertion(() =>
+                Assert.That(cut.Markup, Does.Contain("Weekly Sync")), TimeSpan.FromSeconds(3));
+
+            cut.FindAll("button").Single(b => b.TextContent.Trim() == "Run now").Click();
+
+            // The card's status pill flips to Completed after a real run.
+            cut.WaitForAssertion(() =>
+                Assert.That(cut.Markup, Does.Contain("Completed")), TimeSpan.FromSeconds(5));
+
+            using (var db = sqliteFactory.CreateDbContext())
+            {
+                var runs = db.SyncJobRuns.AsNoTracking().Where(r => r.SyncJobId == "j1").ToList();
+                Assert.That(runs, Has.Exactly(1).Items, "the click recorded a run-history row");
+                Assert.That(runs[0].Status, Is.EqualTo("Completed"));
+            }
+
+            var lines = await System.IO.File.ReadAllLinesAsync(m3uPath);
+            Assert.That(lines[0], Is.EqualTo("#EXTM3U"), "the M3U file was really written");
+            Assert.That(lines.Any(l => l.EndsWith("a.mp3")), Is.True, "the downloaded track is in it");
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+            foreach (var suffix in new[] { "", "-wal", "-shm" })
+                try { File.Delete(dbPath + suffix); } catch { /* best effort */ }
         }
     }
 

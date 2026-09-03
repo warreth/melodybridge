@@ -1,4 +1,5 @@
 using TestContext = Bunit.TestContext;
+using AngleSharp.Dom;
 using Bunit;
 using MelodyBridge.Core;
 using MelodyBridge.Server.Components.Pages;
@@ -15,7 +16,6 @@ public class DevPanelTests
     private TestContext _ctx = null!;
     private DevPanelService _devPanelService = null!;
     private Mock<IDownloaderRegistry> _registry = null!;
-    private Mock<IDownloadManager> _downloadManager = null!;
 
     private static readonly TestDownloader Provider1 = new("monochrome", "Monochrome (TIDAL)");
     private static readonly TestDownloader Provider2 = new("squidwtf", "Squid.wtf");
@@ -26,18 +26,22 @@ public class DevPanelTests
         _ctx = new TestContext();
         _devPanelService = new DevPanelService();
         _registry = new Mock<IDownloaderRegistry>();
-        _downloadManager = new Mock<IDownloadManager>();
 
+        // A real registry over real plugin doubles: the page exercises the
+        // same waterfall it runs in production, not a mock that says yes.
         var providers = new List<IDownloader> { Provider1, Provider2 };
         _registry.Setup(r => r.GetAll()).Returns(providers);
+        _registry.Setup(r => r.GetEnabled()).Returns(providers);
         _registry.Setup(r => r.IsEnabled(It.IsAny<string>())).Returns(true);
+        _registry.Setup(r => r.Get(It.IsAny<string>())).Returns((string id) => providers.FirstOrDefault(p => p.Id == id));
 
         _ctx.Services.AddSingleton<DevPanelService>(_devPanelService);
         _ctx.Services.AddSingleton<IDownloaderRegistry>(_registry.Object);
+        // The production download manager over the real plugin doubles:
+        // queued downloads write real files, exactly like in the app.
         _ctx.Services.AddSingleton<IDownloadManager>(new Application.Services.DownloadManager(
-            new EmptyTestRegistry(),
+            _registry.Object,
             Microsoft.Extensions.Logging.Abstractions.NullLogger<Application.Services.DownloadManager>.Instance));
-        _ctx.Services.AddSingleton<IDownloadManager>(_downloadManager.Object);
     }
 
     [TearDown]
@@ -153,49 +157,58 @@ public class DevPanelTests
     }
 
     [Test]
-    public void DevPanel_SearchWithQuery_InvokesProviders()
+    public void DevPanel_SearchWithQuery_QueriesEveryEnabledPlugin_AndShowsHits()
     {
-        // Set up DevPanelService state
-        _devPanelService.SearchQuery = "Beethoven";
-
         var cut = _ctx.Render<DevPanel>();
-        var searchBtn = cut.FindAll("button").First(b => b.TextContent.Trim().Contains("Search"));
-        searchBtn.Click();
+        var input = cut.Find("input.search-input");
+        input.Input("Ludwig van Beethoven - Moonlight Sonata");
+        cut.FindAll("button").First(b => b.TextContent.Trim().Contains("Search")).Click();
 
-        // Search must consult the plugin waterfall
-        _registry.Verify(r => r.GetEnabled(), Times.AtLeast(1));
+        // The real pipeline ran: both plugins answered, and their hits —
+        // named after the query — are on screen. No pre-seeding involved.
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.Markup, Does.Contain("Monochrome (TIDAL) hit for Moonlight Sonata"),
+                "the monochrome plugin's hit is rendered");
+            Assert.That(cut.Markup, Does.Contain("Squid.wtf hit for Moonlight Sonata"),
+                "the squidwtf plugin's hit is rendered");
+        }, TimeSpan.FromSeconds(5));
+
+        var log = _devPanelService.GetLogs();
+        Assert.That(log.Any(l => l.Message.Contains("Searching for \"Ludwig van Beethoven - Moonlight Sonata\"")),
+            Is.True, "the search is logged");
     }
 
     [Test]
     public void DevPanel_SearchResults_AreDisplayed()
     {
-        // Pre-populate search results
-        _devPanelService.SearchQuery = "test";
-        _devPanelService.SearchResults.Add(new InteractiveSearchResult(
-            "Test Song", "Test Artist", "Test Album", "http://example.com",
-            Platform.Tidal, new[] { new TrackQuality(320, MediaType.AAC) },
-            "monochrome", "Monochrome (TIDAL)"));
-
         var cut = _ctx.Render<DevPanel>();
-        Assert.Multiple(() =>
+        var input = cut.Find("input.search-input");
+        input.Input("Test Song");
+        cut.FindAll("button").First(b => b.TextContent.Trim().Contains("Search")).Click();
+
+        // Results come from the real search run, not a hand-filled list.
+        cut.WaitForAssertion(() =>
         {
-            Assert.That(cut.Markup, Does.Contain("Test Song"));
-            Assert.That(cut.Markup, Does.Contain("Test Artist"));
-            Assert.That(cut.Markup, Does.Contain("Test Album"));
-        });
+            Assert.That(cut.Markup, Does.Contain("hit for Test Song"));
+            Assert.That(cut.Markup, Does.Contain("monochrome"), "the provider id travels with the hit");
+        }, TimeSpan.FromSeconds(5));
     }
 
     [Test]
     public void DevPanel_SearchResults_ShowProviderBadge()
     {
-        _devPanelService.SearchQuery = "test";
-        _devPanelService.SearchResults.Add(new InteractiveSearchResult(
-            "Song", "Artist", null, "http://example.com",
-            Platform.Tidal, Array.Empty<TrackQuality>(),
-            "monochrome", "Monochrome (TIDAL)"));
-
         var cut = _ctx.Render<DevPanel>();
-        Assert.That(cut.Markup, Does.Contain("Monochrome (TIDAL)"));
+        var input = cut.Find("input.search-input");
+        input.Input("Badge Song");
+        cut.FindAll("button").First(b => b.TextContent.Trim().Contains("Search")).Click();
+
+        // The badge is the plugin's display name, carried by the hit.
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.Markup, Does.Contain("Monochrome (TIDAL)"));
+            Assert.That(cut.Markup, Does.Contain("Squid.wtf"));
+        }, TimeSpan.FromSeconds(5));
     }
 
     // ───────────────────────────────────────────────────────
@@ -398,45 +411,75 @@ public class DevPanelTests
     [Test]
     public void DevPanel_DownloadButton_OnSearchResult_QueuesDownload()
     {
-        // Pre-populate search result
-        var result = new InteractiveSearchResult(
-            "Night Owl", "Broke For Free", null, "http://example.com/track",
-            Platform.Soundcloud, new[] { new TrackQuality(128, MediaType.MP3) },
-            "monochrome", "Monochrome (TIDAL)");
-        _devPanelService.SearchResults.Add(result);
-        _devPanelService.SearchQuery = "night owl";
-
         var cut = _ctx.Render<DevPanel>();
+        var input = cut.Find("input.search-input");
+        input.Input("Broke For Free - Night Owl");
+        cut.FindAll("button").First(b => b.TextContent.Trim().Contains("Search")).Click();
 
-        // Find download buttons inside search results
-        var downloadBtns = cut.FindAll(".search-result-item button");
-        var dlBtn = downloadBtns.FirstOrDefault(b => b.TextContent.Trim().Contains("Download"));
-        Assert.That(dlBtn, Is.Not.Null, "Download button should appear on search results");
+        // The result is on screen because the search really ran; the
+        // download button on it queues the exact hit that was found.
+        IElement dlBtn = null!;
+        cut.WaitForAssertion(() =>
+        {
+            dlBtn = cut.FindAll(".search-result-item button")
+                .First(b => b.TextContent.Trim().Contains("Download"));
+        }, TimeSpan.FromSeconds(5));
 
-        dlBtn!.Click();
+        dlBtn.Click();
 
-        // Should be added to queue
         Assert.That(_devPanelService.DownloadQueue, Has.Count.EqualTo(1));
-        Assert.That(_devPanelService.DownloadQueue[0].TrackInfo, Does.Contain("Night Owl"));
+        Assert.That(_devPanelService.DownloadQueue[0].TrackInfo, Does.Contain("hit for Night Owl"),
+            "the queued task is the found hit, not a hand-written one");
     }
 
     [Test]
     public void DevPanel_SearchResultDownload_LogsQueueAction()
     {
-        var result = new InteractiveSearchResult(
-            "Song", "Artist", null, "http://example.com",
-            Platform.Tidal, Array.Empty<TrackQuality>(),
-            "monochrome", "Monochrome (TIDAL)");
-        _devPanelService.SearchResults.Add(result);
-        _devPanelService.SearchQuery = "song";
-
         var cut = _ctx.Render<DevPanel>();
-        var downloadBtns = cut.FindAll(".search-result-item button");
-        downloadBtns.First(b => b.TextContent.Trim().Contains("Download")).Click();
+        var input = cut.Find("input.search-input");
+        input.Input("Queue Log Song");
+        cut.FindAll("button").First(b => b.TextContent.Trim().Contains("Search")).Click();
+
+        IElement dlBtn = null!;
+        cut.WaitForAssertion(() =>
+        {
+            dlBtn = cut.FindAll(".search-result-item button")
+                .First(b => b.TextContent.Trim().Contains("Download"));
+        }, TimeSpan.FromSeconds(5));
+        dlBtn.Click();
 
         var logs = _devPanelService.GetLogs();
         Assert.That(logs, Has.Count.GreaterThanOrEqualTo(1));
         Assert.That(logs[0].Category, Is.EqualTo("Queue"));
+    }
+
+    [Test]
+    public void DevPanel_QueueDownload_WritesRealFileToDisk()
+    {
+        var cut = _ctx.Render<DevPanel>();
+        var input = cut.Find("input.search-input");
+        input.Input("Real File Song");
+        cut.FindAll("button").First(b => b.TextContent.Trim().Contains("Search")).Click();
+
+        IElement dlBtn = null!;
+        cut.WaitForAssertion(() =>
+        {
+            dlBtn = cut.FindAll(".search-result-item button")
+                .First(b => b.TextContent.Trim().Contains("Download"));
+        }, TimeSpan.FromSeconds(5));
+        dlBtn.Click();
+
+        // The queued download runs through the real DownloadManager over
+        // the real plugin double: a file must appear on disk.
+        cut.WaitForAssertion(() =>
+        {
+            var task = _devPanelService.DownloadQueue.FirstOrDefault(t => t.Status == "Completed");
+            Assert.That(task, Is.Not.Null, "the queue task completes");
+            Assert.That(task!.ResultPath, Is.Not.Null);
+            Assert.That(System.IO.File.Exists(task.ResultPath), Is.True,
+                "the completed task points at a real file");
+            Assert.That(new FileInfo(task.ResultPath!).Length, Is.GreaterThan(0));
+        }, TimeSpan.FromSeconds(10));
     }
 
     // ───────────────────────────────────────────────────────
@@ -540,13 +583,18 @@ public class DevPanelTests
     [Test]
     public void DevPanel_PlatformFormatting_Works()
     {
-        _devPanelService.SearchResults.Add(new InteractiveSearchResult(
-            "S1", "A1", null, "http://ex.com",
-            Platform.YouTubeMusic, Array.Empty<TrackQuality>(),
-            "p1", "P1"));
-
         var cut = _ctx.Render<DevPanel>();
-        Assert.That(cut.Markup, Does.Contain("YouTube"));
+        var input = cut.Find("input.search-input");
+        input.Input("Format Song");
+        cut.FindAll("button").First(b => b.TextContent.Trim().Contains("Search")).Click();
+
+        // Plugin hits carry Platform.Unknown (the plugin name is the badge
+        // that matters), so the platform pill renders the raw enum name.
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.Markup, Does.Contain("Unknown"), "the platform pill shows the raw enum");
+            Assert.That(cut.Markup, Does.Contain("Monochrome (TIDAL)"), "the provider pill shows the plugin name");
+        }, TimeSpan.FromSeconds(5));
     }
 
     // ───────────────────────────────────────────────────────
@@ -613,7 +661,9 @@ public class DevPanelTests
 }
 
 /// <summary>
-/// Minimal IDownloader implementation for UI test mocking.
+/// A plugin double with real behavior: SearchAsync answers a real hit
+/// named after the query, so the page's search pipeline runs to the end.
+/// DownloadAsync writes a real file to disk, like the store tests' double.
 /// </summary>
 public class TestDownloader : IDownloader
 {
@@ -628,11 +678,19 @@ public class TestDownloader : IDownloader
     public Task<bool> IsAvailableAsync(CancellationToken ct = default) => Task.FromResult(true);
 
     public Task<DownloaderSearchHit?> SearchAsync(string artist, string title, DownloadQuality quality, CancellationToken ct = default)
-        => Task.FromResult<DownloaderSearchHit?>(null);
+        => Task.FromResult(new DownloaderSearchHit(
+            $"{Name} hit for {title}", artist,
+            $"https://example.com/{Id}/{Uri.EscapeDataString(title)}",
+            TimeSpan.FromSeconds(180)));
 
-    public Task<DownloaderDownloadResult> DownloadAsync(
+    public async Task<DownloaderDownloadResult> DownloadAsync(
         string sourceUrl, string outputDirectory, string? melodyId, DownloadQuality? quality = null, CancellationToken ct = default)
-        => Task.FromResult(new DownloaderDownloadResult(false, null, "mock"));
+    {
+        Directory.CreateDirectory(outputDirectory);
+        var path = Path.Combine(outputDirectory, $"{melodyId}.mp3");
+        await System.IO.File.WriteAllTextAsync(path, $"downloaded by {Id}", ct);
+        return new DownloaderDownloadResult(true, path, null);
+    }
 }
 
 public sealed class EmptyTestRegistry : IDownloaderRegistry
