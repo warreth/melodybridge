@@ -1,4 +1,5 @@
 data/
+.mb-live/
 **/bin/
 **/obj/
 .git
