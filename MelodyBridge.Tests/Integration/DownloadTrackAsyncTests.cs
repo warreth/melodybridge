@@ -34,7 +34,7 @@ public class DownloadTrackAsyncTests
     }
 
     /// <summary>
-    /// Real-ish plugin: writes an actual (tiny) MP3 file and tags it —
+    /// Real-ish plugin: writes an actual (tiny) MP3 file and tags it -
     /// the same side effects YtDlpDownloader has. Fails for titles that
     /// start with "FAIL".
     /// </summary>
@@ -174,7 +174,7 @@ public class DownloadTrackAsyncTests
             Assert.That(rows[1].DownloadStatus, Is.EqualTo("downloaded"), "the clicked track downloads");
             Assert.That(rows[2].DownloadStatus, Is.EqualTo("pending"), "track 3 stays untouched");
 
-            // The plugin searched for exactly one song — the clicked one.
+            // The plugin searched for exactly one song - the clicked one.
             Assert.That(downloader.SearchQueries, Is.EqualTo(new[] { ("Artist B", "Second Song") }));
             // And the file exists on disk.
             Assert.That(System.IO.File.Exists(rows[1].CurrentPath), Is.True);
