@@ -34,14 +34,11 @@
 
 @if (loading)
 {
-    <div class="empty-state">Loading playlists…</div>
+    <Skeleton Kind="cards" Rows="6" />
 }
 else if (playlists.Count == 0)
 {
-    <div class="empty-state">
-        <strong>No playlists yet.</strong><br />
-        Paste a public Spotify or YouTube playlist link to save its tracks locally.
-    </div>
+    <EmptyState IconName="list-music" Title="No playlists yet">Paste a public Spotify or YouTube playlist link to save its tracks locally.</EmptyState>
 }
 else
 {
@@ -58,19 +55,19 @@ else
                     }
                     else
                     {
-                        <span class="playlist-cover-placeholder">♫</span>
+                        <span class="playlist-cover-placeholder"><Icon Name="music" Size="28" Class="cover-placeholder-icon" /></span>
                     }
                     @if (run is { State: Application.Services.DownloadRunState.Running })
                     {
-                        <span class="cover-badge downloading" title="Downloading: @run.Done of @run.Total done">⬇ @run.Percent%</span>
+                        <span class="cover-badge downloading" title="Downloading: @run.Done of @run.Total done">@run.Percent% downloading</span>
                     }
                     else if (run is { State: Application.Services.DownloadRunState.Paused })
                     {
-                        <span class="cover-badge paused" title="Download paused">⏸ paused</span>
+                        <span class="cover-badge paused" title="Download paused">paused</span>
                     }
                     else if (downloaded == total && total > 0)
                     {
-                        <span class="cover-badge complete" title="All tracks downloaded">✓ complete</span>
+                        <span class="cover-badge complete" title="All tracks downloaded"><Icon Name="check-circle" Size="12" /> complete</span>
                     }
                     else if (downloaded > 0)
                     {
@@ -82,24 +79,26 @@ else
                         <span class="eyebrow">@(playlist.IsManualImport ? "Imported" : playlist.SourcePlatform.ToString())</span>
                         <h2><a href="/playlists/@playlist.Id">@playlist.Name</a></h2>
                     </div>
-                    <button class="icon-button" title="Remove this playlist"
-                            @onclick="() => AskDelete(playlist)">&times;</button>
+                    <CardMenu Label="Playlist actions">
+                        <button class="danger" title="Remove this playlist"
+                                @onclick="() => AskDelete(playlist)"><Icon Name="trash" Size="14" /> Remove</button>
+                    </CardMenu>
                 </div>
-                <p class="panel-description">
-                    @playlist.TrackCount tracks
+                <div class="card-tags">
+                    <span class="quality-badge">@playlist.TrackCount tracks</span>
                     @if (!string.IsNullOrEmpty(playlist.Owner))
                     {
-                        <span> · by @playlist.Owner</span>
+                        <span class="quality-badge">by @playlist.Owner</span>
                     }
                     @if (!string.IsNullOrWhiteSpace(playlist.PreferredFormat) && playlist.PreferredFormat != "auto")
                     {
-                        <span> · @QualityLabel(playlist.PreferredFormat)</span>
+                        <span class="quality-badge">@QualityLabel(playlist.PreferredFormat)</span>
                     }
                     @if (sizeBytes > 0)
                     {
-                        <span> · @TrackDisplay.Size(sizeBytes) on disk</span>
+                        <span class="quality-badge">@TrackDisplay.Size(sizeBytes) on disk</span>
                     }
-                </p>
+                </div>
                 <small class="job-meta">
                     @(playlist.IsManualImport ? "Imported" : "Last synced"):@(playlist.LastSyncAt?.ToLocalTime().ToString("g") ?? "never")
                     @if (!playlist.IsManualImport)
@@ -121,7 +120,7 @@ else
                     <span class="eyebrow">New source</span>
                     <h2>Add playlist</h2>
                 </div>
-                <button class="icon-button" @onclick="HideAddForm">&times;</button>
+                <button class="icon-button" @onclick="HideAddForm"><Icon Name="x" Size="18" /></button>
             </div>
             <div class="wizard-body">
                 <div class="form-grid single">
@@ -176,7 +175,7 @@ else
                     <span class="eyebrow">Import</span>
                     <h2>Import your music</h2>
                 </div>
-                <button class="icon-button" @onclick="HideAccountPanel">&times;</button>
+                <button class="icon-button" @onclick="HideAccountPanel"><Icon Name="x" Size="18" /></button>
             </div>
             <div class="wizard-body">
                 <h3>Spotify</h3>
@@ -198,7 +197,7 @@ else
                             else
                             {
                                 <span class="pill neutral">not connected</span>
-                                <span class="text-muted">Connect it in Settings → Accounts.</span>
+                                <span class="text-muted">Connect it in Settings, Accounts.</span>
                             }
                         </div>
                     }

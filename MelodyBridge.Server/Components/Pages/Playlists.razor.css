@@ -1,0 +1,9 @@
+/* Playlists page scoped styles: the card tag row under each title
+   (owner, format, size as small muted badges). */
+
+.card-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .3rem;
+    margin: 0;
+}
