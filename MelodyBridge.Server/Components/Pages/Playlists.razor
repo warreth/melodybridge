@@ -79,7 +79,7 @@ else
                 </a>
                 <div class="panel-header">
                     <div>
-                        <span class="eyebrow">@playlist.SourcePlatform</span>
+                        <span class="eyebrow">@(playlist.IsManualImport ? "Imported" : playlist.SourcePlatform.ToString())</span>
                         <h2><a href="/playlists/@playlist.Id">@playlist.Name</a></h2>
                     </div>
                     <button class="icon-button" title="Remove this playlist"
@@ -101,8 +101,11 @@ else
                     }
                 </p>
                 <small class="job-meta">
-                    Last synced: @(playlist.LastSyncAt?.ToLocalTime().ToString("g") ?? "never")
-                    · @ScheduleOf(playlist).Describe()
+                    @(playlist.IsManualImport ? "Imported" : "Last synced"):@(playlist.LastSyncAt?.ToLocalTime().ToString("g") ?? "never")
+                    @if (!playlist.IsManualImport)
+                    {
+                        <span> · @ScheduleOf(playlist).Describe()</span>
+                    }
                 </small>
             </div>
         }
