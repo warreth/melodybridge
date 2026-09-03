@@ -197,7 +197,7 @@ public class MonochromeDownloader : IDownloader
                         continue;
                     }
 
-                    YtDlpDownloader.TagDownloadedFile(filePath, melodyId, expectedTitle: null);
+                    YtDlpDownloader.TagDownloadedFile(filePath, expectedTitle: null);
                     _workingInstance = index;
                     return new DownloaderDownloadResult(true, filePath, null);
                 }

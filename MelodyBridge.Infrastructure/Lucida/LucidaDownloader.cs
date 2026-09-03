@@ -229,8 +229,6 @@ public class LucidaDownloader : IDownloader
                 await source.CopyToAsync(target, ct);
             }
 
-            if (melodyId is not null)
-                TaglibHelper.WriteMelodyId(path, melodyId);
             return new DownloaderDownloadResult(true, path, null);
         }
         catch (Exception ex)

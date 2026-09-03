@@ -189,7 +189,7 @@ public class DoubleDoubleDownloader : IDownloader
             await src.CopyToAsync(dst, 81920, ct);
         }
 
-        YtDlpDownloader.TagDownloadedFile(target, melodyId, expectedTitle: null);
+        YtDlpDownloader.TagDownloadedFile(target, expectedTitle: null);
         return new DownloaderDownloadResult(true, target, null);
     }
 

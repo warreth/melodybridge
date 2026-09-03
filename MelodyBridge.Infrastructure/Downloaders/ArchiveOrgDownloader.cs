@@ -122,9 +122,6 @@ public class ArchiveOrgDownloader : IDownloader
                 Tagging.TaglibHelper.WriteTags(target,
                     title: embeddedTitle[(sep + 3)..].Trim(),
                     artist: embeddedTitle[..sep].Trim());
-            if (melodyId is not null)
-                Tagging.TaglibHelper.WriteMelodyId(target, melodyId);
-
             return new DownloaderDownloadResult(true, target, null);
         }
         catch (Exception ex)

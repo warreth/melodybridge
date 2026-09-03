@@ -111,7 +111,7 @@ public class SoundCloudDownloader : IDownloader
                     $"rejected: audio bitrate {bitrate ?? 0} kbps is below {floor} kbps");
 
             var trackTitle = ReadJsonString(stdout, "track") ?? ReadJsonString(stdout, "title");
-            YtDlpDownloader.TagDownloadedFile(file, melodyId, expectedTitle: trackTitle);
+            YtDlpDownloader.TagDownloadedFile(file, expectedTitle: trackTitle);
 
             return new DownloaderDownloadResult(true, file, null);
         }

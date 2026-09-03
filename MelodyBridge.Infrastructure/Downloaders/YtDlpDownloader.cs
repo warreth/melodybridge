@@ -117,7 +117,7 @@ public class YtDlpDownloader : IDownloader
             // keep working. Without ffmpeg the webm stays (still playable).
             file = RemuxWebmToOpus(file) ?? file;
 
-            TagDownloadedFile(file, melodyId, expectedTitle: null);
+            TagDownloadedFile(file, expectedTitle: null);
             return new DownloaderDownloadResult(true, file, null);
         }
         catch (Exception ex)
@@ -227,11 +227,13 @@ public class YtDlpDownloader : IDownloader
     /// "Artist - Title" pattern, splits it into proper tags.
     /// Shared by all yt-dlp-backed plugins.
     /// </summary>
-    internal static void TagDownloadedFile(string file, string? melodyId, string? expectedTitle)
+    /// <summary>
+    /// Metadata tagging shared by all yt-dlp-backed plugins. MELODY_ID is
+    /// no longer written here: DownloadManager writes it once for every
+    /// plugin after the file passes the quality gate.
+    /// </summary>
+    internal static void TagDownloadedFile(string file, string? expectedTitle)
     {
-        if (melodyId is not null)
-            Tagging.TaglibHelper.WriteMelodyId(file, melodyId);
-
         try
         {
             var embedded = Path.GetFileNameWithoutExtension(file);

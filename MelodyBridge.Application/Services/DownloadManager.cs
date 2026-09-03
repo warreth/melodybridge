@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.Audio;
+using MelodyBridge.Infrastructure.Tagging;
 using Microsoft.Extensions.Logging;
 
 namespace MelodyBridge.Application.Services;
@@ -130,6 +131,12 @@ public class DownloadManager : IDownloadManager
                         try { System.IO.File.Delete(result.FilePath); } catch { /* best effort */ }
                         continue;
                     }
+
+                    // One tagging point for every plugin: the MELODY_ID in
+                    // the file is what survives a database wipe, so it is
+                    // written here, once, after the file passed the band
+                    // gate. Plugins never tag it themselves.
+                    TaglibHelper.WriteMelodyId(result.FilePath, melodyId);
 
                     _progress[melodyId] = new DownloadProgress(
                         melodyId, title, "done", downloader.Name, result.FilePath, hit.MatchConfidence,
