@@ -1,31 +1,30 @@
-@* One quality picker everywhere: a Target Quality dropdown with the
-   shared presets, and an Advanced section (collapsed by default) that
-   keeps the three container/floor/ceiling selectors for power users.
-   Both views write the single PreferredFormat string the store
-   validates and persists ("preset:saver", "auto", "mp3:192-320", ...). *@
+@* One quality picker everywhere: an Audio quality dropdown with the
+   shared presets, and an Advanced filters panel for power users.
+   The panel opens only when asked for and stays open while its selects
+   are edited; picking a preset again closes it. Both faces write the
+   single PreferredFormat string the store validates and persists
+   ("preset:saver", "auto", "mp3:192-320", ...). *@
 @using MelodyBridge.Core
-@using MelodyBridge.Infrastructure.Services
 
 <div class="quality-picker">
     <label class="wide">
-        Target quality
-        <select value="@PresetChoice" @onchange="OnPresetChanged">
-            @foreach (var preset in PresetOptions)
+        Audio quality
+        <select value="@CurrentChoice" @onchange="OnSelectChanged">
+            @foreach (var preset in QualityPresets.All)
             {
-                <option value="@preset.Value">@preset.Label — @preset.Blurb</option>
+                <option value="@preset.Stored">@preset.Label — @preset.Blurb</option>
             }
             <option value="@AdvancedValue">Advanced filters…</option>
         </select>
     </label>
 
-    @if (PresetChoice == AdvancedValue)
+    @if (ShowAdvanced)
     {
-        <details class="advanced-quality" open>
-            <summary>Advanced quality filters</summary>
+        <div class="advanced-quality">
             <div class="hint-box">
-                Note: MelodyBridge does not transcode. Strict filters may
-                cause downloads to fail if the source plugins cannot provide
-                the exact format.
+                MelodyBridge does not transcode. Strict filters may cause
+                downloads to fail if the source plugins cannot provide the
+                exact format.
             </div>
             <div class="form-grid">
                 <label>
@@ -57,7 +56,7 @@
                 </label>
             </div>
             <p class="panel-description">@Guidance</p>
-        </details>
+        </div>
     }
     else
     {
@@ -70,11 +69,8 @@
 
     /// <summary>Combined quality value: "preset:saver", "auto", "mp3:320", "mp3:192-"...</summary>
     [Parameter] public string Value { get; set; } = "auto";
-    /// <summary>Raised with the new combined value after any select changes.</summary>
+    /// <summary>Raised with the new combined value after a control changes.</summary>
     [Parameter] public EventCallback<string> ValueChanged { get; set; }
-
-    private static readonly (string Value, string Label, string Blurb)[] PresetOptions =
-        QualityPresets.All.Select(p => (p.Stored, p.Label, p.Blurb)).ToArray();
 
     private static readonly (string Value, string Label)[] Containers =
     {
@@ -96,7 +92,7 @@
         ["aac"] = ["96", "128", "160", "192", "256", "320"],
     };
 
-    private string PresetChoice { get; set; } = "auto";
+    private bool ShowAdvanced { get; set; }
     private string Container { get; set; } = "auto";
     private string MinBitrate { get; set; } = "";
     private string MaxBitrate { get; set; } = "";
@@ -107,11 +103,24 @@
     private string[] BandValues =>
         BandTable.TryGetValue(Container, out var list) ? list : [];
 
+    /// <summary>
+    /// What the dropdown shows: an in-flight choice (emitted, waiting for
+    /// the parent to bind it back), else the advanced panel, else the
+    /// stored value. Without the pending slot the select would keep
+    /// showing its old option until the parent round-trips.
+    /// </summary>
+    private string CurrentChoice
+        => _pendingChoice is { } pending ? pending
+            : ShowAdvanced ? AdvancedValue
+            : Value;
+
+    private string? _pendingChoice;
+
     private string PresetBlurb =>
         Value == "preset:saver" ? "Any format up to 160 kbps. Small files that sound fine; made for massive playlists."
         : Value == "preset:high" ? "Any lossy format up to 320 kbps. Full quality without lossless file sizes."
         : Value == "preset:lossless" ? "FLAC or WAV when a source has it; otherwise the best lossy file up to 320 kbps."
-        : "Takes whatever the sources give, no filter at all.";
+        : "No quality gate: whatever the sources serve lands in the library, junk rips included.";
 
     private IEnumerable<(string Value, string Label)> FloorOptions
     {
@@ -137,16 +146,37 @@
 
     protected override void OnParametersSet()
     {
-        // A preset (or plain auto) selects itself; anything else is the
-        // advanced path and opens the accordion seeded from the value.
-        if (QualityPresets.IsPreset(Value))
+        // A raw format string is the advanced path: seed and open. A preset
+        // seeds the dropdown. An advanced state the user chose explicitly
+        // survives parameter refreshes; only picking a preset closes it.
+        if (!QualityPresets.IsPreset(Value))
         {
-            PresetChoice = Value;
-            return;
+            // A stale raw value must not reopen what the user just closed:
+            // picking a preset emits it, and until the parent binds the new
+            // value back this branch would otherwise undo the close.
+            if (_pendingChoice is null)
+            {
+                ShowAdvanced = true;
+                _userOpenedAdvanced = true;
+                ParseAdvanced(Value);
+            }
         }
-        PresetChoice = AdvancedValue;
-        ParseAdvanced(Value);
+        else if (!_userOpenedAdvanced)
+        {
+            ShowAdvanced = false;
+            _pendingChoice = null;
+        }
+        else
+        {
+            // Panel open by choice while a preset value arrives: the preset
+            // the user just picked is committed once the parent binds it.
+            if (_pendingChoice is { } pending && pending == Value)
+                _pendingChoice = null;
+        }
     }
+
+    /// <summary>True once the user asked for the advanced panel (or a raw value arrived); only a preset pick clears it.</summary>
+    private bool _userOpenedAdvanced;
 
     private void ParseAdvanced(string value)
     {
@@ -171,12 +201,32 @@
         }
     }
 
-    private Task OnPresetChanged(ChangeEventArgs e)
+    /// <summary>
+    /// The dropdown: a preset is picked and emitted; Advanced filters only
+    /// opens the panel, the stored value stays until a filter changes.
+    /// </summary>
+    private Task OnSelectChanged(ChangeEventArgs e)
     {
-        PresetChoice = e.Value?.ToString() ?? "auto";
-        return PresetChoice == AdvancedValue
-            ? EmitAdvanced()
-            : ValueChanged.InvokeAsync(PresetChoice);
+        var choice = e.Value?.ToString() ?? "auto";
+        if (choice == AdvancedValue)
+        {
+            // First open seeds the filters from whatever is stored so the
+            // panel starts sensible instead of blank.
+            if (!ShowAdvanced && QualityPresets.IsPreset(Value))
+            {
+                Container = "auto";
+                MinBitrate = "";
+                MaxBitrate = "";
+            }
+            ShowAdvanced = true;
+            _userOpenedAdvanced = true;
+            return Task.CompletedTask;
+        }
+
+        ShowAdvanced = false;
+        _userOpenedAdvanced = false;
+        _pendingChoice = choice;
+        return ValueChanged.InvokeAsync(choice);
     }
 
     private Task OnContainerChanged(ChangeEventArgs e)
@@ -225,6 +275,6 @@
         "opus" => "Opus sounds best at low bitrates. 128 kbps is transparent for most ears, 160 kbps is a safe ceiling. Smallest files for a given quality.",
         "aac" => "AAC (m4a) works everywhere Apple. 256 kbps is a good pick for phones, 192 kbps saves space with little audible loss.",
         "mp3" => "MP3 plays on literally everything. The floor rejects junk rips below the minimum; the ceiling caps how much space each file takes.",
-        _ => "Auto picks the best format each source offers. Recommended when you do not want to think about it.",
+        _ => "Auto takes the best format each source offers. Recommended when you do not want to think about it.",
     };
 }

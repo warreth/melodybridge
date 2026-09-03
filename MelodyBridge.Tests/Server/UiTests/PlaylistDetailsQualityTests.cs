@@ -106,6 +106,14 @@ public class PlaylistDetailsQualityTests
 
         cut.WaitForAssertion(() =>
             Assert.That(cut.Markup, Does.Contain("Audio quality")), TimeSpan.FromSeconds(3));
+
+        // One label, not two: the page no longer wraps the picker in its
+        // own "Audio quality" label.
+        var labelCount = System.Text.RegularExpressions.Regex
+            .Matches(cut.Markup, "Audio quality").Count;
+        Assert.That(labelCount, Is.EqualTo(1),
+            "the picker carries the single quality label");
+
         // Two selects now: container and bitrate cap. The stored "mp3:192"
         // must land as MP3 + 192 kbps.
         var selects = cut.FindAll("select");

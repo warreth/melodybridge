@@ -154,8 +154,7 @@ else
                     <input @bind="editTargetDirectory" placeholder="@resolvedDefaultMusicPath" />
                     <small class="text-muted">Leave empty to use the default music path (@resolvedDefaultMusicPath).</small>
                 </label>
-                <label class="quality-field">
-                    Audio quality
+                <label class="quality-field wide">
                     <QualityPicker @bind-Value="editQuality" />
                 </label>
                 @if (!playlist.IsManualImport)

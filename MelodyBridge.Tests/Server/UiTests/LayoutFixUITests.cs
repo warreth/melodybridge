@@ -190,7 +190,7 @@ public class LayoutFixUITests
             .Single(b => b.TextContent.Trim() == "Quality").Click();
 
         cut.WaitForAssertion(() =>
-            Assert.That(cut.Markup, Does.Contain("Target quality")), TimeSpan.FromSeconds(3));
+            Assert.That(cut.Markup, Does.Contain("Audio quality")), TimeSpan.FromSeconds(3));
         Assert.That(cut.Markup, Does.Contain("Space Saver"),
             "the default quality offers the shared presets");
         Assert.That(cut.Markup, Does.Contain("Lossless"));

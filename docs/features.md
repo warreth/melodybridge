@@ -77,12 +77,12 @@ Pick the mode in Settings:
 Each playlist picks a target quality from named presets: Space Saver
 (any format up to 160 kbps, small files), High Quality (any lossy format
 up to 320 kbps, no lossless sizes), Lossless (FLAC when a source has it,
-otherwise the best lossy file) or Auto. Power users can open the
-advanced filters and pick a container format (MP3, FLAC, Opus or AAC)
-with a bitrate floor and ceiling instead; MelodyBridge does not
-transcode, so strict filters can make a download fail when the sources
-cannot provide that exact format, and a failed track says so in its
-row.
+otherwise the best lossy file) or No filter (anything goes). Power
+users can open the advanced filters and pick a container format (MP3,
+FLAC, Opus or AAC) with a bitrate floor and ceiling instead; the panel
+only appears when asked for, and MelodyBridge does not transcode, so
+strict filters can make a download fail when the sources cannot
+provide that exact format. A failed track says so in its row.
 
 ## Consistent tags
 

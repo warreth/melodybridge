@@ -40,6 +40,8 @@ public class QualityPickerTests
     {
         var cut = _ctx.Render<QualityPicker>(p => p.Add(p => p.Value, "auto"));
 
+        Assert.That(cut.Markup, Does.Contain("Audio quality"),
+            "one label names the field, not two stacked ones");
         var presetSelect = cut.FindAll("select")[0];
         // The four presets with their short descriptions, plus advanced.
         foreach (var preset in QualityPresets.All)
@@ -49,6 +51,8 @@ public class QualityPickerTests
             Assert.That(presetSelect.TextContent, Does.Contain(preset.Blurb),
                 $"{preset.Label} carries its short description");
         }
+        Assert.That(presetSelect.TextContent, Does.Contain("No filter"),
+            "the unfiltered option says what it does instead of Auto");
         Assert.That(presetSelect.TextContent, Does.Contain("Advanced filters"),
             "the escape hatch to raw filters is named in the dropdown");
     }
@@ -56,7 +60,7 @@ public class QualityPickerTests
     [TestCase("preset:saver", "Space Saver")]
     [TestCase("preset:high", "High Quality")]
     [TestCase("preset:lossless", "Lossless")]
-    [TestCase("auto", "Auto")]
+    [TestCase("auto", "No filter")]
     public void StoredPreset_SelectsItself(string stored, string label)
     {
         var cut = _ctx.Render<QualityPicker>(p => p.Add(p => p.Value, stored));
@@ -71,6 +75,7 @@ public class QualityPickerTests
     [TestCase("preset:saver", "160")]
     [TestCase("preset:high", "320")]
     [TestCase("preset:lossless", "lossy")]
+    [TestCase("auto", "junk rips included")]
     public void Preset_ShowsItsPlainLanguageBlurb(string stored, string mustContain)
     {
         var cut = _ctx.Render<QualityPicker>(p => p.Add(p => p.Value, stored));
@@ -92,14 +97,51 @@ public class QualityPickerTests
     }
 
     [Test]
-    public void AdvancedAccordion_WarnsAboutNoTranscoding()
+    public void AdvancedPanel_WarnsAboutNoTranscoding()
     {
         var cut = _ctx.Render<QualityPicker>(p => p.Add(p => p.Value, "mp3:192-320"));
 
         Assert.That(cut.Markup, Does.Contain("does not transcode"),
-            "the advanced block warns that strict filters can fail");
-        Assert.That(cut.Markup, Does.Contain("Advanced quality filters"),
-            "the accordion names itself");
+            "the advanced panel warns that strict filters can fail");
+    }
+
+    [Test]
+    public void ChoosingAdvanced_OpensThePanelWithoutTouchingTheStoredValue()
+    {
+        string? emitted = null;
+        var cut = _ctx.Render<QualityPicker>(p => p
+            .Add(p => p.Value, "preset:high")
+            .Add(p => p.ValueChanged, v => emitted = v));
+
+        cut.FindAll("select")[0].Change("__advanced__");
+        cut.Render();
+
+        Assert.That(cut.Markup, Does.Contain("does not transcode"),
+            "the panel opens on request");
+        Assert.That(emitted, Is.Null,
+            "merely opening the panel changes nothing; the stored preset stays");
+
+        // The panel survives parameter refreshes (a parent re-render must
+        // not silently close what the user opened).
+        cut.Render();
+        Assert.That(cut.Markup, Does.Contain("does not transcode"),
+            "a preset round-trip does not close the open panel");
+    }
+
+    [Test]
+    public void PickingAPreset_ClosesTheAdvancedPanel()
+    {
+        string? emitted = null;
+        var cut = _ctx.Render<QualityPicker>(p => p
+            .Add(p => p.Value, "mp3:320")
+            .Add(p => p.ValueChanged, v => emitted = v));
+
+        cut.FindAll("select")[0].Change("preset:saver");
+        cut.Render();
+
+        Assert.That(emitted, Is.EqualTo("preset:saver"));
+        Assert.That(cut.Markup, Does.Not.Contain("does not transcode"),
+            "choosing a preset closes the advanced panel");
     }
 
     [Test]

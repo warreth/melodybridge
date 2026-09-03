@@ -363,7 +363,7 @@ public class SettingsPageTests
 
         cut.WaitForAssertion(() =>
         {
-            Assert.That(cut.Markup, Does.Contain("Target quality"),
+            Assert.That(cut.Markup, Does.Contain("Audio quality"),
                 "the #quality fragment opens the quality tab");
             Assert.That(cut.Markup, Does.Contain("Space Saver"),
                 "the quality tab carries the preset dropdown");

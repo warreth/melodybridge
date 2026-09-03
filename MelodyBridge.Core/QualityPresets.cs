@@ -26,7 +26,7 @@ public static class QualityPresets
         (Id.SpaceSaver, "preset:saver", "Space Saver", "Small files, sounds fine"),
         (Id.HighQuality, "preset:high", "High Quality", "Full quality, no huge files"),
         (Id.Lossless, "preset:lossless", "Lossless", "Perfect copies when possible"),
-        (Id.Auto, "auto", "Auto", "Best the sources offer"),
+        (Id.Auto, "auto", "No filter", "Takes whatever a source gives"),
     };
 
     /// <summary>The short description shown next to each option.</summary>

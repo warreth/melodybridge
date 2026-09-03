@@ -195,8 +195,9 @@ tabs.
   mode. Quality is one dropdown with named presets: Space Saver (up to
   160 kbps, small files), High Quality (up to 320 kbps, no lossless
   sizes), Lossless (FLAC when a source has it, otherwise the best
-  lossy file) and Auto (best the sources offer). Advanced filters…
-  opens a container, floor and ceiling selector for exact control.
+  lossy file) and No filter (takes whatever a source gives, junk rips
+  included). Advanced filters… opens a container, floor and ceiling
+  selector for exact control.
 - **Network**: the FlareSolverr URL for the Lucida plugin with a Test
   connection button, `off` disables Lucida; plus a log export that
   downloads the most recent 1000 entries as a plain text file
@@ -206,7 +207,9 @@ tabs.
 Space Saver fits massive playlists and phones: files stay small and
 sound fine. High Quality is the safe default: everything good, nothing
 huge. Lossless is for a home media server with disk to spare; when no
-source has a lossless copy it falls back to the best lossy file.
+source has a lossless copy it falls back to the best lossy file. No
+filter is the anything-goes option: whatever a source serves lands in
+the library, including inflated rips.
 The advanced filters take exact control: a container, a bitrate floor
 and a ceiling. MelodyBridge does not transcode, so strict filters can
 make a download fail when the sources cannot provide that exact
