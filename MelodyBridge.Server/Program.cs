@@ -19,9 +19,12 @@ builder.Services.AddScoped(sp => new HttpClient
     BaseAddress = new Uri(builder.Configuration.GetValue<string>("AppBaseUrl") ?? "http://localhost:3333/")
 });
 
-// Register DB context (SQLite)
+// Register DB context (SQLite). Default Timeout is the busy_timeout:
+// boot runs migrations while background services open their own
+// connections, and WAL plus a wait window absorbs the overlap instead
+// of logging "error using the connection" and dropping the query.
 builder.Services.AddDbContextFactory<MelodyBridgeDbContext>(options =>
-    options.UseSqlite("Data Source=melodybridge.db"));
+    options.UseSqlite("Data Source=melodybridge.db;Default Timeout=30"));
 builder.Services.AddScoped<MelodyBridgeDbContext>(sp =>
     sp.GetRequiredService<IDbContextFactory<MelodyBridgeDbContext>>().CreateDbContext());
 
