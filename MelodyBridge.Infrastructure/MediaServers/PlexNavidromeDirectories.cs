@@ -20,13 +20,13 @@ public class PlexDirectory : IMediaServerDirectory
     internal PlexDirectory(HttpClient http) => _http = http;
 
     public async Task<bool> TestConnectionAsync(
-        string baseUrl, string apiKey, CancellationToken ct = default)
+        MediaServerConnection connection, CancellationToken ct = default)
     {
         try
         {
             using var request = new HttpRequestMessage(HttpMethod.Get,
-                PlexSync.NormalizeBaseUrl(baseUrl).TrimEnd('/') + "/");
-            request.Headers.Add("X-Plex-Token", apiKey);
+                PlexSync.NormalizeBaseUrl(connection.BaseUrl).TrimEnd('/') + "/");
+            request.Headers.Add("X-Plex-Token", connection.ApiKey);
             request.Headers.Add("X-Plex-Client-Identifier", "melodybridge");
             request.Headers.Add("Accept", "application/json");
             using var response = await _http.SendAsync(request, ct);
@@ -39,7 +39,7 @@ public class PlexDirectory : IMediaServerDirectory
     }
 
     public Task<List<MediaServerUserOption>> GetUsersAsync(
-        string baseUrl, string apiKey, CancellationToken ct = default)
+        MediaServerConnection connection, CancellationToken ct = default)
     {
         // Plex's token-holder is the only user; there is no user list API.
         return Task.FromResult(new List<MediaServerUserOption>());
@@ -61,17 +61,17 @@ public class NavidromeDirectory : IMediaServerDirectory
     internal NavidromeDirectory(HttpClient http) => _http = http;
 
     public async Task<bool> TestConnectionAsync(
-        string baseUrl, string apiKey, CancellationToken ct = default)
+        MediaServerConnection connection, CancellationToken ct = default)
     {
-        // ping is the cheapest authenticated call. ApiKey carries the
-        // password here; the directory cannot know the username yet, so
-        // an empty username plus valid password still proves the server
-        // answers (status ok/failed both mean reachable).
+        // ping is the cheapest authenticated call: the connection carries
+        // the real username (UserId) and password (ApiKey), so this verifies
+        // the credentials a sync would actually use.
+        var username = string.IsNullOrWhiteSpace(connection.UserId) ? "admin" : connection.UserId!;
         var salt = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(6)).ToLowerInvariant();
         var token = Convert.ToHexString(System.Security.Cryptography.MD5.HashData(
-            System.Text.Encoding.UTF8.GetBytes(apiKey + salt))).ToLowerInvariant();
-        var url = $"{NavidromeSync.NormalizeBaseUrl(baseUrl).TrimEnd('/')}/rest/ping" +
-                  $"?u=melodybridge&t={token}&s={salt}&v=1.16.1&c=melodybridge&f=json";
+            System.Text.Encoding.UTF8.GetBytes(connection.ApiKey + salt))).ToLowerInvariant();
+        var url = $"{NavidromeSync.NormalizeBaseUrl(connection.BaseUrl).TrimEnd('/')}/rest/ping" +
+                  $"?u={Uri.EscapeDataString(username)}&t={token}&s={salt}&v=1.16.1&c=melodybridge&f=json";
         try
         {
             using var response = await _http.GetAsync(url, ct);
@@ -87,7 +87,7 @@ public class NavidromeDirectory : IMediaServerDirectory
     }
 
     public Task<List<MediaServerUserOption>> GetUsersAsync(
-        string baseUrl, string apiKey, CancellationToken ct = default)
+        MediaServerConnection connection, CancellationToken ct = default)
     {
         // Navidrome users are their own credentials; no directory to list.
         return Task.FromResult(new List<MediaServerUserOption>());

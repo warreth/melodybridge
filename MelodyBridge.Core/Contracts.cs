@@ -43,9 +43,9 @@ public interface IMediaServerDirectory
     /// <summary>Server kind this directory speaks ("Jellyfin", "Plex", "Navidrome").</summary>
     string Kind { get; }
     /// <summary>All users the given server reports; empty when the server has no user list.</summary>
-    Task<List<MediaServerUserOption>> GetUsersAsync(string baseUrl, string apiKey, CancellationToken ct = default);
+    Task<List<MediaServerUserOption>> GetUsersAsync(MediaServerConnection connection, CancellationToken ct = default);
     /// <summary>True when the server answers an authenticated lightweight request.</summary>
-    Task<bool> TestConnectionAsync(string baseUrl, string apiKey, CancellationToken ct = default);
+    Task<bool> TestConnectionAsync(MediaServerConnection connection, CancellationToken ct = default);
 }
 
 /// <summary>One user row of a media server, as the picker shows it.</summary>
@@ -68,7 +68,9 @@ public interface IDownloadManager
 /// When set, these values win over the global settings (the sync-job
 /// wizard stores them per job).
 /// </summary>
-public record MediaServerConnection(string BaseUrl, string ApiKey, string? UserId);
+/// <summary>UserId carries the Jellyfin user id or the Navidrome username;
+/// null for servers that need none (Plex) or the server default.</summary>
+public record MediaServerConnection(string BaseUrl, string ApiKey, string? UserId = null);
 
 public record PlaylistOutputOptions(
     string OutputPath,

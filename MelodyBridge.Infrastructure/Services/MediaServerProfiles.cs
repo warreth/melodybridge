@@ -16,6 +16,9 @@ public sealed class MediaServerProfile
     public string BaseUrl { get; set; } = string.Empty;
     public string ApiKey { get; set; } = string.Empty;
     public string Kind { get; set; } = "Jellyfin";
+    /// <summary>Navidrome username (other kinds keep this empty). Old
+    /// profiles deserialize without it; no migration needed.</summary>
+    public string? Username { get; set; }
 
     /// <summary>Editable copy so Cancel can drop unsaved changes.</summary>
     public MediaServerProfile Clone() => new()
@@ -25,6 +28,7 @@ public sealed class MediaServerProfile
         BaseUrl = BaseUrl,
         ApiKey = ApiKey,
         Kind = Kind,
+        Username = Username,
     };
 }
 

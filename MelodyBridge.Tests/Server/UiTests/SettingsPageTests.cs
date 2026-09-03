@@ -1,4 +1,5 @@
 using Bunit;
+using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.Data;
 using MelodyBridge.Server.Components.Pages;
 using Microsoft.EntityFrameworkCore;
@@ -180,7 +181,9 @@ public class SettingsPageTests
     public void Settings_ConnectionsTab_TestButton_UsesJellyfinDirectory()
     {
         var directory = new Mock<MelodyBridge.Core.IMediaServerDirectory>();
-        directory.Setup(d => d.TestConnectionAsync("http://media:8096", "key1", It.IsAny<CancellationToken>()))
+        directory.Setup(d => d.TestConnectionAsync(
+                It.Is<MediaServerConnection>(c => c.BaseUrl == "http://media:8096" && c.ApiKey == "key1"),
+                It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
         ReplaceService(directory);
 
@@ -203,8 +206,10 @@ public class SettingsPageTests
 
         cut.WaitForAssertion(() =>
         {
-            directory.Verify(d => d.TestConnectionAsync("http://media:8096", "key1", It.IsAny<CancellationToken>()), Times.Once);
-            Assert.That(cut.Markup, Does.Contain("reachable"),
+            directory.Verify(d => d.TestConnectionAsync(
+                It.Is<MediaServerConnection>(c => c.BaseUrl == "http://media:8096" && c.ApiKey == "key1"),
+                It.IsAny<CancellationToken>()), Times.Once);
+            Assert.That(cut.Markup, Does.Contain("connected"),
                 "the ok pill shows next to the row after a passing test");
         }, TimeSpan.FromSeconds(3));
     }

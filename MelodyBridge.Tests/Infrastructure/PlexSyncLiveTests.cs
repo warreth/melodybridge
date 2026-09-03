@@ -103,7 +103,7 @@ public class PlexSyncLiveTests
     public async Task Directory_TestConnection_SucceedsAgainstRealServer()
     {
         var directory = new PlexDirectory(new HttpClient());
-        Assert.That(await directory.TestConnectionAsync(BaseUrl, "any-token"), Is.True,
+        Assert.That(await directory.TestConnectionAsync(new MediaServerConnection(BaseUrl, "any-token")), Is.True,
             "token-gated routes answer on a real unclaimed server");
     }
 

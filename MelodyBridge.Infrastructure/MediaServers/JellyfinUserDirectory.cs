@@ -26,9 +26,9 @@ public class JellyfinUserDirectory : IMediaServerDirectory
     internal JellyfinUserDirectory(HttpClient http) => _http = http;
 
     public async Task<List<MediaServerUserOption>> GetUsersAsync(
-        string baseUrl, string apiKey, CancellationToken ct = default)
+        MediaServerConnection connection, CancellationToken ct = default)
     {
-        using var request = NewRequest(baseUrl, apiKey, "Users");
+        using var request = NewRequest(connection.BaseUrl, connection.ApiKey, "Users");
         using var response = await _http.SendAsync(request, ct);
         response.EnsureSuccessStatusCode();
         var users = await response.Content
@@ -40,11 +40,11 @@ public class JellyfinUserDirectory : IMediaServerDirectory
     }
 
     public async Task<bool> TestConnectionAsync(
-        string baseUrl, string apiKey, CancellationToken ct = default)
+        MediaServerConnection connection, CancellationToken ct = default)
     {
         try
         {
-            using var request = NewRequest(baseUrl, apiKey, "System/Info");
+            using var request = NewRequest(connection.BaseUrl, connection.ApiKey, "System/Info");
             using var response = await _http.SendAsync(request, ct);
             return response.IsSuccessStatusCode;
         }
