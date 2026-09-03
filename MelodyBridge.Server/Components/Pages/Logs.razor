@@ -56,7 +56,7 @@
             <span class="eyebrow">Filter</span>
             <h2>Event stream</h2>
         </div>
-        <input class="search-input" placeholder="Search text..."
+        <input type="search" class="search-input" placeholder="Search text..."
                value="@searchText" @oninput="OnSearchChanged" />
     </div>
     <div class="filter-chips">
@@ -167,7 +167,7 @@
             return true;
         return e.Message?.Contains(searchText, StringComparison.OrdinalIgnoreCase) == true
             || e.Category?.Contains(searchText, StringComparison.OrdinalIgnoreCase) == true
-            || LogAreas.FromCategory(e.Category).Contains(searchText, StringComparison.OrdinalIgnoreCase);
+            || LogAreas.FromCategory(e.Category ?? "").Contains(searchText, StringComparison.OrdinalIgnoreCase);
 }
 
     private static string LevelClass(LogLevel level) => level switch

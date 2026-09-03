@@ -102,7 +102,7 @@ public class DownloadManager : IDownloadManager
                     {
                         _logger.LogInformation(
                             "{Name} produced {Measured} kbps for '{Title}', outside the requested {Min}–{Max} kbps band; rejecting",
-                            downloader.Name, measured,
+                            downloader.Name, measured, title,
                             quality.MinKbps?.ToString() ?? "any", quality.MaxKbps?.ToString() ?? "any");
                         try { System.IO.File.Delete(result.FilePath); } catch { /* best effort */ }
                         continue;

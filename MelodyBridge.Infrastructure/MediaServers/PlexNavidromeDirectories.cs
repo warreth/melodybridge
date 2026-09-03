@@ -16,6 +16,9 @@ public class PlexDirectory : IMediaServerDirectory
     private static readonly HttpClient DefaultHttp = new() { Timeout = TimeSpan.FromSeconds(10) };
     private readonly HttpClient _http = DefaultHttp;
 
+    /// <summary>DI path: shares the static default client.</summary>
+    public PlexDirectory() { }
+
     /// <summary>Test seam: injects a scripted client (tests only).</summary>
     internal PlexDirectory(HttpClient http) => _http = http;
 
@@ -56,6 +59,9 @@ public class NavidromeDirectory : IMediaServerDirectory
 
     private static readonly HttpClient DefaultHttp = new() { Timeout = TimeSpan.FromSeconds(10) };
     private readonly HttpClient _http = DefaultHttp;
+
+    /// <summary>DI path: shares the static default client.</summary>
+    public NavidromeDirectory() { }
 
     /// <summary>Test seam: injects a scripted client (tests only).</summary>
     internal NavidromeDirectory(HttpClient http) => _http = http;

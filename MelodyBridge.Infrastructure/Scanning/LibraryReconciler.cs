@@ -106,7 +106,7 @@ public class LibraryReconciler
                     index.TryAdd(id, file);
             }
         }
-        catch (Exception ex)
+        catch (Exception)
         {
             // Unreadable folder: leave the index partial rather than failing the run.
         }

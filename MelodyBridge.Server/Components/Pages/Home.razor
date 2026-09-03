@@ -285,7 +285,6 @@ else
 
 @code {
     private bool showIntro;
-    private bool introLoaded;
     private int playlistsCount;
     private int downloadedCount;
     private int libraryCount;
@@ -322,7 +321,6 @@ else
     protected override async Task OnInitializedAsync()
     {
         showIntro = !await Settings.GetBoolAsync("intro_dismissed", fallback: false);
-        introLoaded = true;
         await RefreshStats();
 
         // Keep the dashboard current without a manual refresh.
