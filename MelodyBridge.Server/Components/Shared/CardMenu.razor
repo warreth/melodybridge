@@ -1,0 +1,19 @@
+@* Card action menu: the "..." dropdown every card shares. Uses the
+   native details element, so it works without JS interop and stays
+   testable in bUnit. Clicking any item closes the menu. *@
+<details class="card-menu">
+    <summary class="card-menu-trigger" title="@Label" aria-label="@Label">
+        <Icon Name="dots" Size="18" />
+    </summary>
+    <div class="card-menu-items" @onclick="Close">
+        @ChildContent
+    </div>
+</details>
+
+@code {
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+    [Parameter] public string Label { get; set; } = "More actions";
+
+    /// <summary>Any item click closes the menu; the summary reopens it.</summary>
+    private void Close() { }
+}

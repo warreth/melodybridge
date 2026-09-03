@@ -1,0 +1,52 @@
+@* Inline SVG icon set, lucide-style geometry. Zero JS, themeable
+   via currentColor, no emoji glyphs anywhere. *@
+<svg width="@Size" height="@Size" viewBox="0 0 24 24" fill="none"
+     stroke="currentColor" stroke-width="2" stroke-linecap="round"
+     stroke-linejoin="round" class="icon @Class" aria-hidden="true">
+    @((MarkupString)Body)
+</svg>
+
+@code {
+    /// <summary>Icon name; unknown names fall back to the check mark.</summary>
+    [Parameter] public string Name { get; set; } = "check";
+    [Parameter] public int Size { get; set; } = 16;
+    [Parameter] public string? Class { get; set; }
+
+    private string Body => Name switch
+    {
+        "music" => """<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>""",
+        "list-music" => """<path d="M21 15V6"/><path d="M18.5 18a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z"/><path d="M12 12V3"/><path d="M10 15.5V6"/><path d="M3 6h7"/><path d="M3 12h7"/><circle cx="7.5" cy="15.5" r="2.5"/>""",
+        "download" => """<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/>""",
+        "library" => """<path d="m16 6 4 14"/><path d="M12 6v14"/><path d="M8 8v12"/><path d="M4 4v16"/>""",
+        "package" => """<path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/>""",
+        "home" => """<path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/>""",
+        "refresh" => """<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 21v-5h5"/>""",
+        "plus" => """<path d="M5 12h14"/><path d="M12 5v14"/>""",
+        "x" => """<path d="M18 6 6 18"/><path d="m6 6 12 12"/>""",
+        "trash" => """<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M10 11v6"/><path d="M14 11v6"/>""",
+        "pencil" => """<path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/>""",
+        "external" => """<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>""",
+        "search" => """<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>""",
+        "filter" => """<path d="M22 3H2l8 9.46V19l4 2v-8.54Z"/>""",
+        "clock" => """<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>""",
+        "server" => """<rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><path d="M6 6h.01"/><path d="M6 18h.01"/>""",
+        "globe" => """<circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/>""",
+        "folder" => """<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>""",
+        "hard-drive" => """<path d="M22 12H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/><path d="M6 16h.01"/><path d="M10 16h.01"/><path d="M14 16h.01"/><path d="M18 16h.01"/>""",
+        "chevron-up" => """<path d="m18 15-6-6-6 6"/>""",
+        "chevron-down" => """<path d="m6 9 6 6 6-6"/>""",
+        "chevron-right" => """<path d="m9 18 6-6-6-6"/>""",
+        "dots" => """<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>""",
+        "check" => """<path d="M20 6 9 17l-5-5"/>""",
+        "check-circle" => """<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>""",
+        "alert" => """<path d="m21.73 18-8-14a2 2 0 0 0-3.46 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/>""",
+        "info" => """<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>""",
+        "terminal" => """<path d="m4 17 6-6-6-6"/><path d="M12 19h8"/>""",
+        "sliders" => """<path d="M21 4h-7"/><path d="M10 4H3"/><path d="M21 12h-9"/><path d="M8 12H3"/><path d="M21 20h-5"/><path d="M12 20H3"/><path d="M14 2v4"/><path d="M8 10v4"/><path d="M16 18v4"/>""",
+        "flag" => """<path d="M4 15s1-1 4-1 5 2 6 2 4-1 4-1V3s-1 1-4 1-5-2-6-2-4 1-4 1z"/><path d="M4 22v-7"/>""",
+        "zap" => """<path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/>""",
+        "pause" => """<path d="M6 4v16"/><path d="M18 4v16"/>""",
+        "play" => """<path d="m6 3 14 9-14 9V3z"/>""",
+        _ => """<path d="M20 6 9 17l-5-5"/>""",
+    };
+}

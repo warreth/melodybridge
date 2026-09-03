@@ -1,0 +1,39 @@
+@* Skeleton loaders for table rows, card grids and plain lists while
+   data is still being fetched. Kind: rows, cards, table. *@
+@if (Kind == "cards")
+{
+    <div class="skeleton-grid" role="status" aria-label="Loading">
+        @for (var i = 0; i < Rows; i++)
+        {
+            <div class="skeleton skeleton-card"></div>
+        }
+    </div>
+}
+else if (Kind == "table")
+{
+    <div class="skeleton-block" role="status" aria-label="Loading">
+        @for (var i = 0; i < Rows; i++)
+        {
+            <div class="skeleton-row">
+                @for (var c = 0; c < 5; c++)
+                {
+                    <div class="skeleton skeleton-cell"></div>
+                }
+            </div>
+        }
+    </div>
+}
+else
+{
+    <div class="skeleton-block" role="status" aria-label="Loading">
+        @for (var i = 0; i < Rows; i++)
+        {
+            <div class="skeleton skeleton-line @(i % 2 == 1 ? "w-60" : "")"></div>
+        }
+    </div>
+}
+
+@code {
+    [Parameter] public int Rows { get; set; } = 3;
+    [Parameter] public string Kind { get; set; } = "rows";
+}

@@ -1,0 +1,32 @@
+@* Status pill: one component for every status dot in the app.
+   Variant accepts friendly aliases so pages pass their domain words
+   ("connected", "in_progress") instead of css class names. *@
+<span class="pill @VariantClass @(Pulse ? "pulse" : "") @Class" title="@Title">
+    @if (Pulse)
+    {
+        <span class="dot" aria-hidden="true"></span>
+    }
+    @ChildContent
+</span>
+
+@code {
+    /// <summary>
+    /// Friendly status: ok, success, ready, connected, warn, in_progress,
+    /// err, error, failed, unavailable, neutral, gray, pending, guest, off,
+    /// info, running. Unknown values render as neutral.
+    /// </summary>
+    [Parameter] public string Variant { get; set; } = "neutral";
+    [Parameter] public bool Pulse { get; set; }
+    [Parameter] public string? Title { get; set; }
+    [Parameter] public string? Class { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    private string VariantClass => Variant.Trim().ToLowerInvariant() switch
+    {
+        "ok" or "success" or "ready" or "connected" => "ok",
+        "warn" or "warning" or "in_progress" or "in-progress" or "inprogress" => "warn",
+        "err" or "error" or "failed" or "unavailable" => "err",
+        "info" or "teal" or "running" => "info",
+        _ => "neutral",
+    };
+}

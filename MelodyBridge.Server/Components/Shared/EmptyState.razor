@@ -1,0 +1,25 @@
+@* Structured empty state: icon, title, muted description, optional
+   actions. Replaces the plain text boxes pages used before. *@
+<div class="empty-state">
+    <Icon Name="@IconName" Size="@IconSize" Class="empty-icon" />
+    @if (Title is not null)
+    {
+        <strong class="empty-title">@Title</strong>
+    }
+    @if (ChildContent is not null)
+    {
+        <div class="empty-desc">@ChildContent</div>
+    }
+    @if (Actions is not null)
+    {
+        <div class="empty-actions">@Actions</div>
+    }
+</div>
+
+@code {
+    [Parameter] public string IconName { get; set; } = "check-circle";
+    [Parameter] public int IconSize { get; set; } = 24;
+    [Parameter] public string? Title { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+    [Parameter] public RenderFragment? Actions { get; set; }
+}

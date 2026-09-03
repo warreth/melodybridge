@@ -1,0 +1,50 @@
+.card-menu { position: relative; }
+
+.card-menu-trigger {
+    list-style: none;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+    color: var(--muted);
+}
+.card-menu-trigger::-webkit-details-marker { display: none; }
+.card-menu-trigger:hover { color: var(--text); border-color: var(--border-strong); }
+
+.card-menu-items {
+    position: absolute;
+    right: 0;
+    top: calc(100% + .35rem);
+    z-index: 40;
+    min-width: 11rem;
+    padding: .3rem;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    box-shadow: var(--shadow);
+    display: flex;
+    flex-direction: column;
+    gap: .1rem;
+}
+
+::deep button {
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    width: 100%;
+    text-align: left;
+    padding: .45rem .6rem;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text);
+    cursor: pointer;
+    font-size: .85rem;
+}
+::deep button:hover { background: var(--surface-3); }
+::deep button.danger { color: var(--danger); }
