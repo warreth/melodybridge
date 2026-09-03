@@ -626,13 +626,30 @@ public class PlaylistStore
         }
     }
 
-    public async Task<bool> DeleteAsync(string playlistId, CancellationToken ct = default)
+    /// <summary>
+    /// Removes a playlist and its snapshot. When deleteFiles is set, the
+    /// music files on disk go too; otherwise only the database rows change.
+    /// Liked-songs playlists share files with nothing, but a track row can
+    /// exist without a file, so deletion is best-effort per path.
+    /// </summary>
+    public async Task<bool> DeleteAsync(string playlistId, bool deleteFiles = false, CancellationToken ct = default)
     {
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var entity = await db.Playlists
             .Include(p => p.Tracks)
             .FirstOrDefaultAsync(p => p.Id == playlistId, ct);
         if (entity is null) return false;
+
+        if (deleteFiles)
+        {
+            foreach (var path in entity.Tracks
+                .Where(t => t.CurrentPath is { Length: > 0 })
+                .Select(t => t.CurrentPath!)
+                .Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                try { System.IO.File.Delete(path); } catch { /* best effort */ }
+            }
+        }
 
         db.Tracks.RemoveRange(entity.Tracks);
         db.Playlists.Remove(entity);

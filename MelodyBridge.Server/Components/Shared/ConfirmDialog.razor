@@ -1,0 +1,45 @@
+@namespace MelodyBridge.Server.Components.Shared
+
+@if (Show)
+{
+    <div class="wizard-overlay" @onclick="() => OnCancel.InvokeAsync()">
+        <div class="wizard-modal confirm-modal" @onclick:stopPropagation="true">
+            <div class="wizard-header">
+                <div>
+                    <span class="eyebrow">@Eyebrow</span>
+                    <h2>@Title</h2>
+                </div>
+            </div>
+            <div class="wizard-body">
+                <p class="confirm-message">@Message</p>
+                @ChildContent
+            </div>
+            <div class="wizard-footer">
+                <button class="btn-modern" @onclick="() => OnCancel.InvokeAsync()">Cancel</button>
+                <span></span>
+                <button class="btn-modern danger" @onclick="() => OnConfirm.InvokeAsync()" disabled="@Busy">
+                    @(Busy ? "Working…" : ConfirmLabel)
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    /// <summary>
+    /// One confirmation dialog every destructive action shares: playlist
+    /// deletion, library locations, sync jobs. Renders nothing until the
+    /// caller sets <see cref="Show"/>; the body slot carries extra
+    /// choices (e.g. delete the music files too) as plain form markup.
+    /// </summary>
+
+    [Parameter] public bool Show { get; set; }
+    [Parameter] public string Eyebrow { get; set; } = "Confirm";
+    [Parameter] public string Title { get; set; } = "Are you sure?";
+    [Parameter] public string Message { get; set; } = "";
+    [Parameter] public string ConfirmLabel { get; set; } = "Confirm";
+    [Parameter] public bool Busy { get; set; }
+    [Parameter] public EventCallback OnConfirm { get; set; }
+    [Parameter] public EventCallback OnCancel { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+}
