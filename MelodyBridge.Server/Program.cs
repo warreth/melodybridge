@@ -105,6 +105,11 @@ using (var db = app.Services.GetRequiredService<IDbContextFactory<MelodyBridgeDb
     FlareSolverrSolver.Url = db.DownloaderSettings.FirstOrDefault(s => s.Key == "flaresolverr_url")?.Value
                              ?? app.Configuration["FlareSolverr:Url"] ?? "auto";
 
+    // Optional Spotify web cookie for fallback scraping: a database
+    // setting on the Network tab, no environment variable needed.
+    MelodyBridge.Infrastructure.Services.SpotifySourceProvider.WebCookie =
+        db.DownloaderSettings.FirstOrDefault(s => s.Key == "spotify_cookie")?.Value;
+
     // EF command logs are off unless the user asked for them (Advanced page).
     MelodyBridge.Server.Services.DatabaseLogSwitch.Set(
         db.DownloaderSettings.FirstOrDefault(s => s.Key == MelodyBridge.Server.Services.DatabaseLogSwitch.SettingKey)?.Value is "true");

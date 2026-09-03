@@ -23,6 +23,14 @@ public partial class SpotifySourceProvider : ISourceProvider
     private readonly HttpClient _httpClient;
     private readonly string? _spotifyCookie;
 
+    /// <summary>
+    /// Optional Spotify web cookie, stored in the app database (Network
+    /// settings tab) and applied at startup, so no environment variable is
+    /// needed. Pre-DI fallbacks: appsettings "Spotify:Cookie", then the
+    /// SPOTIFY_COOKIE environment variable.
+    /// </summary>
+    public static string? WebCookie { get; set; }
+
     // The embed page ships a public API token valid ~1h; cache it so a
     // playlist sync does not refetch the embed page every time.
     private static (string Token, DateTime Fetched)? _cachedToken;
@@ -53,7 +61,8 @@ public partial class SpotifySourceProvider : ISourceProvider
         _httpClient = httpClient ?? new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
         ConfigureDefaultHeaders(_httpClient);
 
-        _spotifyCookie = configuration?["Spotify:Cookie"];
+        _spotifyCookie = WebCookie
+                        ?? configuration?["Spotify:Cookie"];
         if (string.IsNullOrWhiteSpace(_spotifyCookie))
             _spotifyCookie = Environment.GetEnvironmentVariable("SPOTIFY_COOKIE");
     }
