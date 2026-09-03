@@ -1,0 +1,11 @@
+/* Sync jobs page scoped styles: the card action footer that
+   replaces the inline-styled topbar-actions row. */
+
+::deep .job-footer {
+    display: flex;
+    gap: .5rem;
+    align-items: center;
+    margin-top: .75rem;
+    padding-top: .75rem;
+    border-top: 1px solid var(--border);
+}

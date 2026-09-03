@@ -14,7 +14,7 @@
         <p>A sync job turns a saved playlist into an M3U file for your music player, or pushes it to Jellyfin, Plex or Navidrome.</p>
     </div>
     <div class="topbar-actions">
-        <button class="btn-modern primary" @onclick="StartNewJob">New sync job</button>
+        <button class="btn-modern primary" @onclick="StartNewJob"><Icon Name="plus" Size="16" /> New sync job</button>
     </div>
 </section>
 
@@ -29,7 +29,7 @@
                 {
                     <span class="text-muted">Editing "@draft.Name"</span>
                 }
-                <button class="icon-button" @onclick="CancelWizard">&times;</button>
+                <button class="icon-button" title="Close" @onclick="CancelWizard"><Icon Name="x" Size="18" /></button>
             </div>
             <div class="wizard-body">
                 @if (currentStep == 0)
@@ -315,22 +315,23 @@
                     <span class="eyebrow">@TargetLabel(job.OutputTarget)</span>
                     <h2>@job.Name</h2>
                 </div>
-                <span class="pill @(job.LastRunStatus == "Completed" ? "ok" : job.LastRunStatus == "Failed" ? "err" : "neutral")">
+                <StatusPill Variant="@(job.LastRunStatus == "Completed" ? "ok" : job.LastRunStatus == "Failed" ? "err" : "neutral")">
                     @(string.IsNullOrEmpty(job.LastRunStatus) ? "never run" : job.LastRunStatus)
-                </span>
+                </StatusPill>
             </div>
             <p>@job.LastRunSummary</p>
             <div class="job-meta">
                 <small>Last run: @(job.LastRunAt?.ToString("g") ?? "never")</small>
                 <small>Schedule: @job.Schedule</small>
             </div>
-            <div class="topbar-actions" style="margin-top:0.75rem;">
+            <div class="job-footer">
                 <button class="btn-modern primary" @onclick="() => RunJobNow(job.Id)" disabled="@runningJobs.Contains(job.Id)">
+                    <Icon Name="play" Size="14" />
                     @(runningJobs.Contains(job.Id) ? "Running..." : "Run now")
                 </button>
-                <button class="btn-modern secondary" @onclick="() => ViewJobLog(job)">Log</button>
-                <button class="btn-modern ghost" @onclick="() => StartEditJob(job)">Edit</button>
-                <button class="btn-modern ghost" @onclick="() => AskDeleteJob(job)">Delete</button>
+                <button class="btn-modern secondary" @onclick="() => ViewJobLog(job)"><Icon Name="terminal" Size="14" /> Log</button>
+                <button class="btn-modern ghost" @onclick="() => StartEditJob(job)"><Icon Name="pencil" Size="14" /> Edit</button>
+                <button class="btn-modern ghost" @onclick="() => AskDeleteJob(job)"><Icon Name="trash" Size="14" /> Delete</button>
             </div>
         </div>
     }
@@ -349,9 +350,7 @@
 
 @if (jobs.Count == 0 && !showWizard)
 {
-    <div class="empty-state">
-        No sync jobs yet. Click <strong>New sync job</strong> to create one.
-    </div>
+    <EmptyState IconName="clock" Title="No sync jobs yet">Click New sync job to create one.</EmptyState>
 }
 
 @if (showLog)
@@ -361,7 +360,7 @@
             <div class="wizard-header">
                 <span class="eyebrow">Run history</span>
                 <h2>@logJobName</h2>
-                <button class="icon-button" @onclick="() => showLog = false">&times;</button>
+                <button class="icon-button" title="Close" @onclick="() => showLog = false"><Icon Name="x" Size="18" /></button>
             </div>
             <div class="wizard-body">
                 @if (logEntries.Count == 0)
