@@ -50,15 +50,15 @@
                     <div class="flex-actions">
                         @if (run.State == Application.Services.DownloadRunState.Running)
                         {
-                            <button class="btn-modern small ghost" @onclick="() => Coordinator.Pause(run.PlaylistId)">Pause</button>
+                            <button class="btn-modern small ghost" @onclick="() => Coordinator.Pause(run.PlaylistId)"><Icon Name="pause" Size="14" /> Pause</button>
                         }
                         else if (run.State == Application.Services.DownloadRunState.Paused)
                         {
-                            <button class="btn-modern small primary" @onclick="() => Coordinator.Start(run.PlaylistId)">Resume</button>
+                            <button class="btn-modern small primary" @onclick="() => Coordinator.Start(run.PlaylistId)"><Icon Name="play" Size="14" /> Resume</button>
                         }
                         @if (run.State is Application.Services.DownloadRunState.Running or Application.Services.DownloadRunState.Paused)
                         {
-                            <button class="btn-modern small ghost" @onclick="() => Coordinator.Cancel(run.PlaylistId)">Cancel</button>
+                            <button class="btn-modern small ghost" @onclick="() => Coordinator.Cancel(run.PlaylistId)"><Icon Name="x" Size="14" /> Cancel</button>
                         }
                     </div>
                 </div>
@@ -73,23 +73,25 @@
         var enabled = Registry.IsEnabled(plugin.Id);
         <div class="plugin-card @(enabled ? "" : "disabled")">
             <div class="plugin-head">
-                <span class="provider-icon">@PluginIcon(plugin.Id)</span>
-                <div style="flex:1; min-width:0;">
+                <Icon Name="@PluginIconName(plugin.Id)" Size="20" Class="provider-icon" />
+                <div class="plugin-title">
                     <strong>@plugin.Name</strong>
                     <div class="plugin-description">@plugin.Description</div>
                 </div>
-                <span class="pill @(availability.GetValueOrDefault(plugin.Id) ? "ok" : "neutral")">
-                    @(availability.GetValueOrDefault(plugin.Id) ? "ready" : "unavailable")
-                </span>
-                <label class="toggle-switch">
-                    <input type="checkbox" checked="@enabled" @onchange="e => TogglePluginAsync(plugin.Id, (bool)e.Value!)" />
-                    <span class="toggle-slider"></span>
-                </label>
-                <div class="plugin-actions">
-                    <button class="icon-button" title="Try this plugin first" disabled="@(firstEnabledId == plugin.Id)"
-                            @onclick="() => MoveUp(plugin.Id)">↑</button>
-                    <button class="icon-button" title="Try this plugin later" disabled="@(lastEnabledId == plugin.Id)"
-                            @onclick="() => MoveDown(plugin.Id)">↓</button>
+                <div class="plugin-tail">
+                    <StatusPill Variant="@(availability.GetValueOrDefault(plugin.Id) ? "ready" : "unavailable")">
+                        @(availability.GetValueOrDefault(plugin.Id) ? "ready" : "unavailable")
+                    </StatusPill>
+                    <label class="toggle-switch">
+                        <input type="checkbox" checked="@enabled" @onchange="e => TogglePluginAsync(plugin.Id, (bool)e.Value!)" />
+                        <span class="toggle-slider"></span>
+                    </label>
+                    <div class="btn-group">
+                        <button class="icon-button" title="Try this plugin first" disabled="@(firstEnabledId == plugin.Id)"
+                                @onclick="() => MoveUp(plugin.Id)"><Icon Name="chevron-up" Size="16" /></button>
+                        <button class="icon-button" title="Try this plugin later" disabled="@(lastEnabledId == plugin.Id)"
+                                @onclick="() => MoveDown(plugin.Id)"><Icon Name="chevron-down" Size="16" /></button>
+                    </div>
                 </div>
             </div>
             <div class="plugin-quality">
@@ -227,15 +229,15 @@
         StateHasChanged();
     }
 
-    private static string PluginIcon(string id) => id switch
+    private static string PluginIconName(string id) => id switch
     {
-        "ytdlp" => "▶",
-        "soundcloud" => "☁",
-        "archiveorg" => "🏛",
-        "lucida" => "◈",
-        "monochrome" => "◐",
-        "doubledouble" => "⇄",
-        _ => "♪",
+        "ytdlp" => "play",
+        "soundcloud" => "globe",
+        "archiveorg" => "server",
+        "lucida" => "zap",
+        "monochrome" => "music",
+        "doubledouble" => "refresh",
+        _ => "music",
     };
 
     /// <summary>What this plugin can actually deliver, in plain words.</summary>

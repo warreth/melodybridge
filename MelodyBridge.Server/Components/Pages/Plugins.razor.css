@@ -1,0 +1,25 @@
+/* Plugins page scoped styles: card head alignment and the
+   priority button group. Markup classes come from Plugins.razor;
+   .plugin-head flex layout itself comes from app.css. */
+
+.plugin-title {
+    flex: 1;
+    min-width: 0;
+}
+
+::deep .plugin-tail {
+    display: flex;
+    align-items: center;
+    gap: .75rem;
+    margin-left: auto;
+}
+
+.btn-group {
+    display: inline-flex;
+    gap: .25rem;
+}
+
+::deep .btn-group .icon-button {
+    width: 30px;
+    min-height: 30px;
+}
