@@ -10,7 +10,7 @@ namespace MelodyBridge.Tests.Infrastructure;
 /// Live Jellyfin end-to-end: a real container is bootstrapped headless
 /// (startup wizard, admin user, music library, scan), then JellyfinSync
 /// resolves the scanned files by path, creates a playlist, updates it and
-/// marks a favorite — all verified through the server's own API. Docker is
+/// marks a favorite: all verified through the server's own API. Docker is
 /// required; the test ignores itself when the daemon or image is missing.
 /// </summary>
 [TestFixture]

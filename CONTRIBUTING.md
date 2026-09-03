@@ -11,7 +11,7 @@ dotnet run --project MelodyBridge.Server
 ```
 
 yt-dlp must be on PATH (`pip3 install --user --break-system-packages yt-dlp`).
-Docker users can skip all of that — see the [Docker guide](docs/docker.md)
+Docker users can skip all of that: see the [Docker guide](docs/docker.md)
 for the dev compose file that builds from your checkout.
 
 ## Tests

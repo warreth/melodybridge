@@ -472,7 +472,7 @@ public class SyncJobsWizardUiTests
                 TotalTracks = 3,
                 WarningDetails = System.Text.Json.JsonSerializer.Serialize(new List<string>
                 {
-                    "Some song — no local file",
+                    "Some song: no local file",
                 }),
             });
             db.SaveChanges();
@@ -484,7 +484,7 @@ public class SyncJobsWizardUiTests
         Assert.That(cut.Markup, Does.Contain("Logged job"));
         Assert.That(cut.Markup, Does.Contain("Synced 2/3 tracks"));
         Assert.That(cut.Markup, Does.Contain("1 warning"));
-        Assert.That(cut.Markup, Does.Contain("Some song — no local file"));
+        Assert.That(cut.Markup, Does.Contain("Some song: no local file"));
     }
 
     private class InMemFactory : IDbContextFactory<MelodyBridgeDbContext>

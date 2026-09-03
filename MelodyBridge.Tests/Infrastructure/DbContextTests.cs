@@ -54,7 +54,7 @@ public class DbContextTests
         await db.SaveChangesAsync();
 
         db.Tracks.Add(new TrackEntity { MelodyId = "dup-id", Title = "Second" });
-        await db.SaveChangesAsync(); // InMemory allows duplicates — no exception
+        await db.SaveChangesAsync(); // InMemory allows duplicates: no exception
 
         var count = await db.Tracks.CountAsync(t => t.MelodyId == "dup-id");
         Assert.That(count, Is.EqualTo(2));

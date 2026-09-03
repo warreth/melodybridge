@@ -51,7 +51,7 @@ public class LiveMonitoringTests
         try { File.Delete(_dbPath); } catch { /* best effort */ }
     }
 
-    /// <summary>Real mp3 via ffmpeg's internal encoder — no network.</summary>
+    /// <summary>Real mp3 via ffmpeg's internal encoder: no network.</summary>
     private string MakeTaggedMp3(string name, string melodyId)
     {
         var path = Path.Combine(_dir, name);

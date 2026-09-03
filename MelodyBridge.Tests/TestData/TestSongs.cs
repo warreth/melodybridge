@@ -25,7 +25,7 @@ public static class TestSongs
             [PlatformTarget.AmazonMusic] = "https://music.amazon.com/tracks/B0123456789",
         },
         Tags: ["cc-by", "electronic", "instrumental"],
-        Notes: "CC BY 3.0 — https://freemusicarchive.org/music/Broke_For_Free/"
+        Notes: "CC BY 3.0: https://freemusicarchive.org/music/Broke_For_Free/"
     );
 
     /// <summary>

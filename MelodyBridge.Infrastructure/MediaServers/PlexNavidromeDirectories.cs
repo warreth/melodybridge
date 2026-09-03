@@ -6,8 +6,8 @@ namespace MelodyBridge.Infrastructure.MediaServers;
 /// <summary>
 /// Plex reachability + user list for the wizard's Test connection button.
 /// /identity proves the server is reachable (no token); GET / proves the
-/// token works. Plex has no user list — the account behind the token is
-/// the only user — so GetUsersAsync returns the server's friendly name.
+/// token works. Plex has no user list: the account behind the token is
+/// the only user: so GetUsersAsync returns the server's friendly name.
 /// </summary>
 public class PlexDirectory : IMediaServerDirectory
 {

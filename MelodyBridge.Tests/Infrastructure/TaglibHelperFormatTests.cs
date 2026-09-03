@@ -21,7 +21,7 @@ public class TaglibHelperFormatTests
         try { Directory.Delete(_dir, recursive: true); } catch { /* best effort */ }
     }
 
-    /// <summary>Real opus file via ffmpeg's internal decoder — no network.</summary>
+    /// <summary>Real opus file via ffmpeg's internal decoder: no network.</summary>
     private string MakeOpus()
     {
         Directory.CreateDirectory(_dir);
@@ -38,7 +38,7 @@ public class TaglibHelperFormatTests
         return path;
     }
 
-    /// <summary>Real mp3 file via ffmpeg's internal encoder — no network.</summary>
+    /// <summary>Real mp3 file via ffmpeg's internal encoder: no network.</summary>
     private string MakeMp3()
     {
         Directory.CreateDirectory(_dir);

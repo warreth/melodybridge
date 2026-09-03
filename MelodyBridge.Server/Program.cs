@@ -53,12 +53,12 @@ builder.Services.AddScoped(sp =>
 builder.Services.AddSingleton(new MelodyBridge.Server.Services.NotificationService());
 builder.Services.AddHostedService<MelodyBridge.Server.Services.ToastObserverService>();
 
-// Dev panel (singleton, off by default — enable via DevPanel__Enabled=true env var)
+// Dev panel (singleton, off by default: enable via DevPanel__Enabled=true env var)
 var devPanel = new DevPanelService(logCollector);
 devPanel.Enabled = builder.Configuration.GetValue<bool>("DevPanel:Enabled");
 builder.Services.AddSingleton(devPanel);
 
-// Data Protection — keys live in the default container location, no volume needed.
+// Data Protection: keys live in the default container location, no volume needed.
 // Existing Blazor circuits invalidate on restart, which is fine for a personal app.
 builder.Services.AddDataProtection()
     .SetApplicationName("MelodyBridge");

@@ -14,7 +14,7 @@ namespace MelodyBridge.Tests.Server.UiTests;
 /// <summary>
 /// The noob-friendly connect flow on the accounts tab: a numbered
 /// 3-step tutorial per provider, the per-provider redirect URI shown
-/// with a copy button, and the Spotify "no localhost" rule — the URI
+/// with a copy button, and the Spotify "no localhost" rule: the URI
 /// shown and the one passed to BeginLoginAsync/CompleteLoginAsync
 /// always uses 127.0.0.1 and a ?provider= marker when the app is
 /// browsed via localhost, so the callback page knows which account to
@@ -92,7 +92,7 @@ public class AccountTutorialTests
     {
         var cut = _ctx.Render<Settings>();
 
-        // bUnit's navigation base is http://localhost/ — the shown URI must
+        // bUnit's navigation base is http://localhost/: the shown URI must
         // swap localhost for 127.0.0.1 (Spotify's April 2025 rule) and carry
         // each provider's own marker in the query.
         cut.WaitForAssertion(() =>

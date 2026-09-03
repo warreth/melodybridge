@@ -6,7 +6,7 @@ namespace MelodyBridge.Tests.Infrastructure;
 
 /// <summary>
 /// M3uGenerator tests. Every assertion reads the produced file back
-/// from disk — no mocked writers.
+/// from disk: no mocked writers.
 /// </summary>
 [TestFixture]
 public class M3uGeneratorTests

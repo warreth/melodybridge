@@ -232,7 +232,7 @@
                                       Rules="@extRules" />
                     <div class="hint-box">
                         Rules are only needed when your music player sees files under a different path or
-                        extension than MelodyBridge does — for example inside a Docker container.
+                        extension than MelodyBridge does: for example inside a Docker container.
                         Leave empty to keep paths and extensions as they are.
                     </div>
                 }
@@ -489,7 +489,7 @@
     private static string TargetLabel(OutputTargetType target) => TargetLabel(target.ToString());
 
     /// <summary>Review summary of step 2. Empty selection means "no folder
-    /// filter" — the runner then searches every folder.</summary>
+    /// filter": the runner then searches every folder.</summary>
     private string SearchLocationSummary =>
         selectedFolders.SetEquals(scanFolders) && scanFolders.Count > 0 ? "All known"
         : selectedFolders.Count == 0 ? "Every folder"

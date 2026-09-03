@@ -99,7 +99,7 @@ public class DownloadManager : IDownloadManager
                 {
                     skippedByBand++;
                     _logger.LogInformation(
-                        "{Name} hit for '{Title}' is {Hit} kbps, outside the requested {Min}–{Max} kbps band; skipping",
+                        "{Name} hit for '{Title}' is {Hit} kbps, outside the requested {Min}-{Max} kbps band; skipping",
                         downloader.Name, title, hit.BitrateKbps,
                         quality.MinKbps?.ToString() ?? "any", quality.MaxKbps?.ToString() ?? "any");
                     continue;
@@ -117,7 +117,7 @@ public class DownloadManager : IDownloadManager
                     {
                         skippedByBand++;
                         _logger.LogInformation(
-                            "{Name} produced {Measured} kbps for '{Title}', outside the requested {Min}–{Max} kbps band; rejecting",
+                            "{Name} produced {Measured} kbps for '{Title}', outside the requested {Min}-{Max} kbps band; rejecting",
                             downloader.Name, measured, title,
                             quality.MinKbps?.ToString() ?? "any", quality.MaxKbps?.ToString() ?? "any");
                         try { System.IO.File.Delete(result.FilePath); } catch { /* best effort */ }

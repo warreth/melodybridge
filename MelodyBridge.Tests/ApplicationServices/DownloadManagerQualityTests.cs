@@ -167,7 +167,7 @@ public class DownloadManagerQualityTests
     public async Task DownloadedFileBelowMin_IsRejectedAndDeleted()
     {
         // Real 96 kbps file, requested band 192-320: the post-download
-        // measurement must reject and delete it — min is as hard as the cap.
+        // measurement must reject and delete it: min is as hard as the cap.
         var thin = MakeRealMp3(96);
         var hit = new DownloaderSearchHit("Thin", "Artist", "https://thin.example/1", null);
         var manager = new DownloadManager(

@@ -42,7 +42,7 @@ duplicating them.
 
 Each provider has its own redirect URI, differing only in a
 `?provider=` marker that tells the callback which account to finish.
-Always copy the exact URL from the Settings page — the platforms match
+Always copy the exact URL from the Settings page: the platforms match
 redirect URIs exactly, including the query string.
 
 ::: warning Spotify rejects localhost
@@ -56,7 +56,7 @@ displays and both sides match.
 
 1. Create an app at developer.spotify.com. No secret needed. When the
    dashboard asks *which APIs you are planning to use*, pick
-   **Web API** — the Ads API, Web Playback SDK, iOS and Android options
+   **Web API**: the Ads API, Web Playback SDK, iOS and Android options
    cannot read playlists, they are for ads and in-app players.
 2. In the app's Settings, add the exact redirect URI the Settings page
    shows (`http://127.0.0.1:PORT/auth/callback?provider=spotify` when you
@@ -65,7 +65,7 @@ displays and both sides match.
    MelodyBridge and press **Connect Spotify**.
 
 New apps run in **development mode**, which is fine for personal use:
-you are the app owner. Two things to know — the owning Spotify account
+you are the app owner. Two things to know: the owning Spotify account
 must have Premium, and only you plus anyone you allowlist in the app's
 Settings → Users Management can log in (others get a 403). Extended
 quota mode needs a Spotify partner review that individuals cannot
@@ -85,7 +85,7 @@ not break the old login: Spotify keeps it valid.
    (`http://127.0.0.1:PORT/auth/callback?provider=youtube` or your
    deployment's equivalent) as an authorized redirect URI.
 3. On the OAuth consent screen (APIs & Services → OAuth consent
-   screen) add your own Google account as a **Test user** — an
+   screen) add your own Google account as a **Test user**: an
    unverified app only works for its test users. The "unverified
    app" warning at login is expected for a self-hosted personal
    app; choose *Continue to project*.
@@ -101,8 +101,8 @@ quota counts per playlist page.
 Tracks imported from your liked songs are flagged, and the sync marks
 them as favorites. Jellyfin does it per user: the configured user gets
 the favorites (Settings, Jellyfin panel), and with no user configured
-the first non-system user is used. Plex has one account in play — the
-token-holder — so liked tracks get a top user rating there. Navidrome
+the first non-system user is used. Plex has one account in play, the
+token-holder, so liked tracks get a top user rating there. Navidrome
 stars them for the user whose username and password you configured.
 
 ## Why there is no passwordless login

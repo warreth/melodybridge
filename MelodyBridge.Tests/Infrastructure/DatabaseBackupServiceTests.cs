@@ -72,7 +72,7 @@ public class DatabaseBackupServiceTests
     {
         // Build a "foreign" database with different content, then take a
         // VACUUM INTO snapshot the way a real export does (a raw copy of a
-        // WAL-mode file has no schema — see the reject test below).
+        // WAL-mode file has no schema: see the reject test below).
         var foreignPath = Path.Combine(_dir, "foreign.db");
         var snapshotPath = Path.Combine(_dir, "foreign-snapshot.db");
         var foreignFactory = new TestSqliteFactory(foreignPath);

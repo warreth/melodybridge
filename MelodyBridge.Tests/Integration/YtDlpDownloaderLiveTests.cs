@@ -7,7 +7,7 @@ namespace MelodyBridge.Tests.Integration;
 /// <summary>
 /// Live yt-dlp tests: real YouTube search, real download, real file validation.
 /// Requires the yt-dlp binary on PATH (CI installs it in the live job).
-/// These cannot be cheated — every assertion reads the produced file.
+/// These cannot be cheated: every assertion reads the produced file.
 /// </summary>
 [TestFixture]
 [Category("Live")]

@@ -26,7 +26,7 @@ This pulls the published image from `ghcr.io/warreth/melodybridge` via [compose.
 
 ### Development compose
 
-Contributors build from source instead of pulling the image — that is the one flow that needs a clone:
+Contributors build from source instead of pulling the image: that is the one flow that needs a clone:
 
 ```bash
 git clone https://github.com/warreth/melodybridge.git

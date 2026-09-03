@@ -200,7 +200,9 @@ public class PlaylistFileImporterTests
                     .Include(p => p.Tracks)
                     .SingleAsync(p => p.SourceUrl.StartsWith("spotify:import:"));
                 Assert.That(saved.SourceUrl, Does.StartWith("spotify:import:"));
-                Assert.That(saved.SourcePlatform, Is.EqualTo(Platform.Spotify));
+                Assert.That(saved.SourcePlatform, Is.EqualTo(Platform.Unknown),
+                    "file imports are manual snapshots, not Spotify playlists");
+                Assert.That(saved.IsManualImport, Is.True);
                 Assert.That(saved.Tracks, Has.Count.EqualTo(5));
                 Assert.That(saved.Tracks.Select(t => t.DownloadStatus), Is.All.EqualTo("pending"));
                 Assert.That(saved.Tracks.Select(t => t.ExternalId),

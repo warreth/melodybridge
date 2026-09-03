@@ -7,7 +7,7 @@ namespace MelodyBridge.Infrastructure.Downloaders;
 /// <summary>
 /// Internet Archive downloader plugin (archive.org).
 ///
-/// Uses the public advancedsearch + metadata APIs — no account, no
+/// Uses the public advancedsearch + metadata APIs: no account, no
 /// captcha. The Archive hosts vast numbers of community-uploaded and
 /// public-domain music MP3s (78rpm digitizations, live music, netlabels).
 /// Files are streamed straight from the archive servers.
@@ -147,7 +147,7 @@ public class ArchiveOrgDownloader : IDownloader
                 if (string.IsNullOrEmpty(name) || !name.EndsWith(".mp3", StringComparison.OrdinalIgnoreCase))
                     continue;
 
-                // Canonical archive.org URL — redirects to the correct storage node.
+                // Canonical archive.org URL: redirects to the correct storage node.
                 var url = $"https://archive.org/download/{identifier}/{Uri.EscapeDataString(name)}";
 
                 var title = GetString(f, "title") ?? GetMetadataTitle(doc.RootElement) ?? fallbackTitle;

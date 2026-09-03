@@ -2,7 +2,7 @@ namespace MelodyBridge.Core;
 
 /// <summary>
 /// The scan schedule of a library location: manual, a fixed interval, or a
-/// cron expression (which also backs the "every X at weekday HH" pickers —
+/// cron expression (which also backs the "every X at weekday HH" pickers:
 /// the UI composes a cron string from them, so the evaluator stays one thing).
 /// Serialized as a plain string in ScanLocationEntity.ScheduleCron.
 /// </summary>

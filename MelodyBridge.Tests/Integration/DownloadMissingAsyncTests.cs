@@ -35,7 +35,7 @@ public class DownloadMissingAsyncTests
 
     /// <summary>
     /// Real-ish plugin: writes an actual (tiny) MP3 file and tags it with
-    /// MELODY_ID + artist/title — the same side effects YtDlpDownloader has.
+    /// MELODY_ID + artist/title: the same side effects YtDlpDownloader has.
     /// Fails for tracks whose title starts with "FAIL".
     /// </summary>
     private sealed class FileWritingDownloader : IDownloader
@@ -234,7 +234,7 @@ public class DownloadMissingAsyncTests
 
             // An explicit empty-string override is the one combination with
             // no fallback left: the run refuses to start. (A null folder now
-            // falls back to music_path — see DefaultDownloadPathTests.)
+            // falls back to music_path: see DefaultDownloadPathTests.)
             Assert.That(async () => await store.DownloadMissingAsync("pl-nodir", outputDirectoryOverride: " "),
                 Throws.InvalidOperationException.With.Message.Contains("download folder"));
         }

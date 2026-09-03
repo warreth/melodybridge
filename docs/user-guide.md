@@ -45,7 +45,7 @@ The Playlists page holds your saved playlists.
     owners).
   - *Exportify CSV*: export your liked songs (or any playlist) at
     [exportify.net](https://exportify.net) and upload the CSV here.
-    **Recommended without Premium** — works with a free account.
+    **Recommended without Premium**: works with a free account.
   - *Spotify data export*: request *Download your data* at
     [spotify.com/account/privacy](https://www.spotify.com/account/privacy)
     and upload `YourLibrary.json` (liked songs) or `Playlist1.json`
@@ -143,7 +143,7 @@ five steps:
 4. **Path and extension remap rules:** add as many as you need, each
    with a from and a to value. Only needed when your music player
    sees files under a different path than MelodyBridge, for example
-   inside a Docker container — the paths must match what the server
+   inside a Docker container: the paths must match what the server
    sees, such as its container mount
 5. **Review and create**
 
@@ -163,7 +163,7 @@ which files are missing or were not found on the media server.
 
 The Library page covers your own music collection: the folders you told
 MelodyBridge to scan. Playlist downloads live on their playlist pages
-and never mix into this list — the Library page shows your folders and
+and never mix into this list: the Library page shows your folders and
 how matching works, not a track list.
 
 - **Add location**: point MelodyBridge at a folder with music files

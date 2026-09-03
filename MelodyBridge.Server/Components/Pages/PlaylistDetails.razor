@@ -114,7 +114,7 @@ else
             <div class="download-live-head">
                 <strong>
                     @(run.State == Application.Services.DownloadRunState.Paused ? "Paused" : "Downloading")
-                    — @run.Done of @run.Total
+                   : @run.Done of @run.Total
                 </strong>
                 <span>@run.Failed failed · @run.Percent%</span>
             </div>

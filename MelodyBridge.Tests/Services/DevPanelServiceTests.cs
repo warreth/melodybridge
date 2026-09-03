@@ -210,7 +210,7 @@ public class DevPanelServiceTests
     [Test]
     public void DownloadQueue_CanAddTask()
     {
-        var task = new DevDownloadTask("task1", "Artist — Song", "http://example.com",
+        var task = new DevDownloadTask("task1", "Artist: Song", "http://example.com",
             "TestProvider", "Pending", null, null);
         _service.DownloadQueue.Add(task);
         Assert.That(_service.DownloadQueue, Has.Count.EqualTo(1));

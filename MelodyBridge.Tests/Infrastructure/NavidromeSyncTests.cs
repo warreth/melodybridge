@@ -13,7 +13,7 @@ namespace MelodyBridge.Tests.Infrastructure;
 /// assert on the exact Subsonic routes called (ping, search3, createPlaylist,
 /// star), the salted-token auth parameters, and the upsert-vs-duplicate
 /// playlist logic. Subsonic-level errors come back HTTP 200 with
-/// status=failed — one test proves they surface as report errors.
+/// status=failed: one test proves they surface as report errors.
 /// </summary>
 [TestFixture]
 public class NavidromeSyncTests

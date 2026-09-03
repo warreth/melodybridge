@@ -8,8 +8,8 @@ namespace MelodyBridge.Tests.Infrastructure;
 
 /// <summary>
 /// Live Plex tests. An unclaimed headless Plex answers /identity without
-/// any token — that is the reachability probe both the wizard's Test
-/// button and PlexSync use — and token-gated routes accept requests while
+/// any token: that is the reachability probe both the wizard's Test
+/// button and PlexSync use: and token-gated routes accept requests while
 /// the server is unclaimed, so the directory's Test step works against a
 /// real container. Full playlist sync needs a claimed server with a music
 /// library; when PLEX_TOKEN is provided in the environment the deeper

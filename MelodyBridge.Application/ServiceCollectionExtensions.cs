@@ -54,7 +54,7 @@ public static class ServiceCollectionExtensions
 
         // Community Hi-Fi rips: Monochrome mirrors TIDAL (search + manifest),
         // DoubleDouble rips many services by direct URL (submit + poll, no
-        // metadata search — the frontend search is captcha-gated).
+        // metadata search: the frontend search is captcha-gated).
         services.AddHttpClient("monochrome", c => c.Timeout = TimeSpan.FromSeconds(30));
         services.AddSingleton<IDownloader>(sp =>
             new MonochromeDownloader(

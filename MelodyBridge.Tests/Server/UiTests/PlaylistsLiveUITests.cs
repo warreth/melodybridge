@@ -12,7 +12,7 @@ namespace MelodyBridge.Tests.Server.UiTests;
 /// <summary>
 /// Live UI round-trip: render the real Playlists page, click "Add playlist",
 /// type a real Spotify URL and submit. The page runs the real provider stack
-/// (real HTTP) and the real SQLite store — no stubs anywhere.
+/// (real HTTP) and the real SQLite store: no stubs anywhere.
 /// </summary>
 [TestFixture]
 [Category("Live")]

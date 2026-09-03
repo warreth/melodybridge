@@ -7,7 +7,7 @@ namespace MelodyBridge.Tests.Integration;
 /// <summary>
 /// Live SoundCloud plugin tests via yt-dlp scsearch: real network,
 /// real download, real file validation. Every assertion reads the
-/// produced file — no mocks anywhere on this path.
+/// produced file: no mocks anywhere on this path.
 /// </summary>
 [TestFixture]
 [Category("Live")]
@@ -56,11 +56,11 @@ public class SoundCloudDownloaderLiveTests
         var tag = MelodyBridge.Infrastructure.Tagging.TaglibHelper.ReadMelodyId(result.FilePath!);
         Assert.That(tag, Is.EqualTo("mb-sc-test-1"));
 
-        // Quality gate: the file itself must be at least 128 kbps — verify via ffprobe.
+        // Quality gate: the file itself must be at least 128 kbps: verify via ffprobe.
         var (ok, bitrate) = FfprobeBitrateKbps(result.FilePath!);
         Assert.That(ok, Is.True, "ffprobe must accept the file");
         Assert.That(bitrate, Is.GreaterThanOrEqualTo(128),
-            $"downloaded file is only {bitrate} kbps — the quality gate would reject this");
+            $"downloaded file is only {bitrate} kbps: the quality gate would reject this");
     }
 
     [Test]

@@ -56,7 +56,7 @@ public class PlaylistStore
     ///
     /// Tracks are claimed one at a time (atomically, status pending ->
     /// in_progress) so several concurrent callers never race on the same
-    /// track — that is what makes the coordinator's max-concurrent
+    /// track: that is what makes the coordinator's max-concurrent
     /// workers safe.
     /// </summary>
     public async Task<(int downloaded, int failed)> DownloadMissingAsync(
@@ -146,7 +146,7 @@ public class PlaylistStore
                         track: (uint?)track.Position);
 
                     // Fast integrity gate: a truncated or corrupt download
-                    // must not survive as "downloaded" — delete it and fail the
+                    // must not survive as "downloaded": delete it and fail the
                     // track so the next run retries it. DurationMs is what the
                     // source platform advertised for the track.
                     var integrity = Audio.FileIntegrity.Check(
@@ -552,8 +552,8 @@ public class PlaylistStore
             await EnsureScanLocationAsync(db, entity.TargetDirectory, ct);
 
         // Reconcile the snapshot according to the playlist's SyncMode:
-        //  Additive — removed-from-source tracks are kept but flagged.
-        //  Mirror    — removed-from-source tracks are deleted entirely.
+        //  Additive: removed-from-source tracks are kept but flagged.
+        //  Mirror   : removed-from-source tracks are deleted entirely.
         var mode = ParseSyncMode(entity.SyncMode);
         var incoming = playlist.Tracks ?? [];
         var incomingIds = incoming
@@ -562,7 +562,7 @@ public class PlaylistStore
             .ToHashSet();
 
         // Carry over stable identity and download state for tracks that
-        // persist across syncs — ExternalId is the join key.
+        // persist across syncs: ExternalId is the join key.
         var existingByExternalId = entity.Tracks
             .Where(t => t.ExternalId is not null)
             .ToDictionary(t => t.ExternalId!, t => t);

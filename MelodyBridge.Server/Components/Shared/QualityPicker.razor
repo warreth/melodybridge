@@ -12,7 +12,7 @@
         <select value="@CurrentChoice" @onchange="OnSelectChanged">
             @foreach (var preset in QualityPresets.All)
             {
-                <option value="@preset.Stored">@preset.Label — @preset.Blurb</option>
+                <option value="@preset.Stored">@preset.Label: @preset.Blurb</option>
             }
             <option value="@AdvancedValue">Advanced filters…</option>
         </select>

@@ -9,7 +9,7 @@ namespace MelodyBridge.Infrastructure.Downloaders;
 ///
 /// SoundCloud serves the artist's original upload (often 320 kbps),
 /// so it is tried before YouTube in the default waterfall. Downloads
-/// that report an audio bitrate under 128 kbps are rejected — no
+/// that report an audio bitrate under 128 kbps are rejected: no
 /// low-quality files enter the library.
 /// </summary>
 public class SoundCloudDownloader : IDownloader

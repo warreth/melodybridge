@@ -164,8 +164,8 @@ public class DevPanelTests
         input.Input("Ludwig van Beethoven - Moonlight Sonata");
         cut.FindAll("button").First(b => b.TextContent.Trim().Contains("Search")).Click();
 
-        // The real pipeline ran: both plugins answered, and their hits —
-        // named after the query — are on screen. No pre-seeding involved.
+        // The real pipeline ran: both plugins answered, and their hits,
+        // named after the query, are on screen. No pre-seeding involved.
         cut.WaitForAssertion(() =>
         {
             Assert.That(cut.Markup, Does.Contain("Monochrome (TIDAL) hit for Moonlight Sonata"),
@@ -226,13 +226,13 @@ public class DevPanelTests
     public void DevPanel_QueueWithItems_ShowsTasks()
     {
         _devPanelService.DownloadQueue.Add(new DevDownloadTask(
-            "task1", "Artist — Song", "http://example.com",
+            "task1", "Artist: Song", "http://example.com",
             "TestProvider", "Pending", null, null));
 
         var cut = _ctx.Render<DevPanel>();
         Assert.Multiple(() =>
         {
-            Assert.That(cut.Markup, Does.Contain("Artist — Song"));
+            Assert.That(cut.Markup, Does.Contain("Artist: Song"));
             Assert.That(cut.Markup, Does.Contain("Pending"));
         });
     }
@@ -241,7 +241,7 @@ public class DevPanelTests
     public void DevPanel_QueueCompletedTask_ShowsResultPath()
     {
         _devPanelService.DownloadQueue.Add(new DevDownloadTask(
-            "task1", "Artist — Song", "http://example.com",
+            "task1", "Artist: Song", "http://example.com",
             "TestProvider", "Completed", "/tmp/song.mp3", null));
 
         var cut = _ctx.Render<DevPanel>();
@@ -252,7 +252,7 @@ public class DevPanelTests
     public void DevPanel_QueueFailedTask_ShowsErrorMessage()
     {
         _devPanelService.DownloadQueue.Add(new DevDownloadTask(
-            "task1", "Artist — Song", "http://example.com",
+            "task1", "Artist: Song", "http://example.com",
             "TestProvider", "Failed", null, "Download failed"));
 
         var cut = _ctx.Render<DevPanel>();
@@ -538,7 +538,7 @@ public class DevPanelTests
     }
 
     // ───────────────────────────────────────────────────────
-    //  LOG VIEWER — DETAIL EXPANSION
+    //  LOG VIEWER: DETAIL EXPANSION
     // ───────────────────────────────────────────────────────
 
     [Test]

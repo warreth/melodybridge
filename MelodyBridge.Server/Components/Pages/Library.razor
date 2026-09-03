@@ -11,7 +11,7 @@
         <h1>Library</h1>
         <p>Scan folders with music you already own. MelodyBridge reads the
             tags of every file, adds them to the library database, and
-            matches them to your playlist tracks by their embedded ID tag —
+            matches them to your playlist tracks by their embedded ID tag,
             so a song you already have is never downloaded again. Folders
             that hold your downloads are added here automatically.</p>
     </div>
@@ -109,7 +109,7 @@
                 <label class="toggle-switch wide">
                     <input type="checkbox" @bind="liveMonitoring" />
                     <span class="toggle-slider"></span>
-                    <span>Live monitoring — rescan this folder whenever files change</span>
+                    <span>Live monitoring: rescan this folder whenever files change</span>
                 </label>
                 @if (formError is { } error)
                 {
@@ -118,7 +118,7 @@
                 <div class="hint-box">
                     Enter the path as the server sees it. Inside Docker that is
                     the container path (for example <code>/music</code>), not the
-                    path on your host — check what the volume is mounted as in
+                    path on your host: check what the volume is mounted as in
                     your <code>compose.yml</code>.
                 </div>
             </div>
@@ -164,7 +164,7 @@
         locations = await db.ScanLocations.ToListAsync();
 
         // Files with a MELODY_ID per location: a track belongs to the folder
-        // its current path lives under. Counted in memory — location paths are
+        // its current path lives under. Counted in memory: location paths are
         // prefixes and SQL LIKE with a leading wildcard would not use an index.
         var withIds = await db.Tracks
             .Where(t => t.MelodyId != null && t.CurrentPath != null)

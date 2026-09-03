@@ -38,7 +38,7 @@ waterfall, toggle plugins and edit their settings on the Plugins page.
 
 Every plugin quality-gates its files against the requested bitrate band
 (minimum and maximum): rips outside it are rejected, so a playlist does
-not fill with inflated 128 kbps files labelled as 320 — or thin ones
+not fill with inflated 128 kbps files labelled as 320, or thin ones
 below the floor you set. When a track fails because every source fell
 outside the filters, its row says so, so the fix (relaxing the
 filters) is obvious.
@@ -60,8 +60,8 @@ in parallel (1 to 8 workers, Advanced page).
 
 
 Some sites hand out files that pretend to be 320 kbps but hold far
-less. The spectrum check measures what a file actually contains — its
-frequency spectrum, not its file header — and flags tracks whose
+less. The spectrum check measures what a file actually contains (its
+frequency spectrum, not its file header) and flags tracks whose
 spectrum looks inflated for their claimed bitrate.
 
 Pick the mode in Settings:
@@ -69,7 +69,7 @@ Pick the mode in Settings:
 | Mode | What it checks |
 |---|---|
 | **Off** | Trusts the file |
-| **Fast** | The first minute — default and recommended |
+| **Fast** | The first minute (default and recommended) |
 | **Thorough** | The whole file |
 
 ## Per-playlist quality targets <Badge type="tip" text="Optional" />

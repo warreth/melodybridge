@@ -10,7 +10,7 @@ namespace MelodyBridge.Tests.Server.UiTests;
 
 /// <summary>
 /// The simplified Library page: it explains folder scanning and matching,
-/// lists the scan folders and keeps the add-location wizard — but holds no
+/// lists the scan folders and keeps the add-location wizard: but holds no
 /// tracks table anymore, because track lists live on the playlist pages.
 /// Real SQLite, the real scanner mocked only at the ILibraryScanner edge.
 /// </summary>

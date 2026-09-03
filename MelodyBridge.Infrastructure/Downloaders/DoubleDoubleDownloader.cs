@@ -15,7 +15,7 @@ namespace MelodyBridge.Infrastructure.Downloaders;
 /// SearchAsync returns null by design: the site's /search endpoint is
 /// interactive and captcha-gated, so this plugin only participates in
 /// DownloadAsync(url) flows with direct source URLs resolved elsewhere.
-/// The site is Turnstile captcha-gated — on a CAPTCHA error or HTTP 403
+/// The site is Turnstile captcha-gated: on a CAPTCHA error or HTTP 403
 /// the download fails fast with a clear message so the waterfall moves
 /// on to the next plugin.
 /// </summary>
@@ -26,7 +26,7 @@ public class DoubleDoubleDownloader : IDownloader
 
     public string Id => "doubledouble";
     public string Name => "DoubleDouble";
-    public string Description => "doubledouble.top — Tidal, Qobuz, Deezer, Amazon Music, SoundCloud direct-URL rips";
+    public string Description => "doubledouble.top: Tidal, Qobuz, Deezer, Amazon Music, SoundCloud direct-URL rips";
 
     private static readonly string[] Hosts = { "https://us.doubledouble.top", "https://eu.doubledouble.top" };
 
@@ -107,7 +107,7 @@ public class DoubleDoubleDownloader : IDownloader
     private async Task<DownloaderDownloadResult> DownloadFromHostAsync(
         string host, string sourceUrl, string outputDirectory, string? melodyId, CancellationToken ct)
     {
-        // Step 1: submit — GET /dl?url=...[&external=service].
+        // Step 1: submit: GET /dl?url=...[&external=service].
         var external = DetectService(sourceUrl);
         var submitUrl = $"{host}/dl?url={Uri.EscapeDataString(sourceUrl)}";
         if (external is not null) submitUrl += $"&external={external}";
@@ -128,7 +128,7 @@ public class DoubleDoubleDownloader : IDownloader
             // fast so the waterfall moves on to the next plugin.
             var error = submit.Error ?? "submission rejected";
             if (error.Contains("captcha", StringComparison.OrdinalIgnoreCase))
-                error += " — open doubledouble.top in a browser if this happens constantly";
+                error += ": open doubledouble.top in a browser if this happens constantly";
             return new DownloaderDownloadResult(false, null, $"doubledouble.top: {error}");
         }
 
@@ -155,7 +155,7 @@ public class DoubleDoubleDownloader : IDownloader
                     break;
                 case "error":
                     // kickback:false is terminal; kickback:true would be retryable
-                    // but we still fail fast — the waterfall re-runs the plugin.
+                    // but we still fail fast: the waterfall re-runs the plugin.
                     return new DownloaderDownloadResult(false, null,
                         $"doubledouble.top: {message ?? "rip failed"}"
                         + (kickback ? " (retryable)" : ""));

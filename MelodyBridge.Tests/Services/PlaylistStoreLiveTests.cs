@@ -61,7 +61,7 @@ public class PlaylistStoreLiveTests
 
             Assert.That(playlist.TrackCount, Is.GreaterThan(0), "live playlist should expose tracks");
 
-            // Read back through a completely fresh context — nothing cached.
+            // Read back through a completely fresh context: nothing cached.
             await using var db = await factory.CreateDbContextAsync();
             var rows = await db.Playlists.Include(p => p.Tracks).AsNoTracking().ToListAsync();
 
@@ -75,7 +75,7 @@ public class PlaylistStoreLiveTests
             Assert.That(tracks.All(t => !string.IsNullOrEmpty(t.Title)), Is.True, "every track needs a title");
             Assert.That(tracks.All(t => !string.IsNullOrEmpty(t.Artist)), Is.True, "every track needs an artist");
             Assert.That(tracks.All(t => !string.IsNullOrEmpty(t.ExternalId)), Is.True,
-                "every track needs its Spotify ID — without it downloads/scans cannot join");
+                "every track needs its Spotify ID: without it downloads/scans cannot join");
             Assert.That(tracks.Select(t => t.Position), Is.EqualTo(Enumerable.Range(0, tracks.Count)),
                 "tracks must be stored in playlist order");
             Assert.That(tracks[0].DurationMs, Is.GreaterThan(0), "live durations come in milliseconds");

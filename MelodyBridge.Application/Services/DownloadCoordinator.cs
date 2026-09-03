@@ -102,7 +102,7 @@ public class DownloadCoordinator
         => _runs.TryGetValue(playlistId, out var h) ? h.Snapshot : null;
 
     /// <summary>Ordered titles of the pending/failed tracks (Position order)
-    /// of the live run for this playlist — the visible download queue.</summary>
+    /// of the live run for this playlist: the visible download queue.</summary>
     public IReadOnlyList<string> QueueFor(string playlistId)
         => _runs.TryGetValue(playlistId, out var h) ? h.QueueTitles : Array.Empty<string>();
 

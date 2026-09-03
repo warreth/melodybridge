@@ -13,7 +13,7 @@ public sealed record ImportedFile(string Kind, IReadOnlyList<ImportedPlaylist> P
 /// Parses the two file flavors a Spotify user without API access can
 /// produce: an Exportify CSV (exportify.net) and Spotify's official
 /// privacy data export (YourLibrary.json / Playlist1.json). Pure
-/// functions; never throws on malformed input — a bad row is skipped,
+/// functions; never throws on malformed input: a bad row is skipped,
 /// an unrecognizable file returns null.
 /// </summary>
 public static class PlaylistFileImporter

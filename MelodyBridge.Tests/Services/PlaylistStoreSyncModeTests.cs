@@ -42,7 +42,7 @@ public class PlaylistStoreSyncModeTests
                 NullLogger<Application.Services.DownloadManager>.Instance),
             NullLogger<PlaylistStore>.Instance);
 
-    /// <summary>Stub provider that serves a mutable playlist — simulates source changes.</summary>
+    /// <summary>Stub provider that serves a mutable playlist: simulates source changes.</summary>
     private sealed class StubSourceProvider : ISourceProvider
     {
         public string Name => "Stub";

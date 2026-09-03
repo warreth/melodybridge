@@ -6,7 +6,7 @@ namespace MelodyBridge.Tests.Infrastructure;
 /// <summary>
 /// Scripted HTTP boundary for media-server tests: records every request and
 /// answers from a route table. Tests assert on the exact URLs that were (or
-/// were not) called — no mocks of the sync classes themselves. Each match
+/// were not) called: no mocks of the sync classes themselves. Each match
 /// serves a fresh response, so a route may answer many requests.
 /// </summary>
 public sealed class ScriptedHandler : HttpMessageHandler

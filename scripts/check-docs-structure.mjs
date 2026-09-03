@@ -51,7 +51,7 @@ if (!index) {
     fail(index, 1, 'every feature card needs icon, title and details')
   const bodyAfterFrontmatter = text.replace(/^---[\s\S]*?---\n/, '')
   if (bodyAfterFrontmatter.trim().length > 0)
-    fail(index, 1, 'landing page must be frontmatter only — move body content to a page or CONTRIBUTING.md')
+    fail(index, 1, 'landing page must be frontmatter only: move body content to a page or CONTRIBUTING.md')
 }
 
 // ---- 2. Container and code-group balance, badges, --- rules ----

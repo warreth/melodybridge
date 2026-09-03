@@ -88,7 +88,7 @@ public class SyncJobRunner : ISyncJobRunner
                 }
                 else
                 {
-                    warnings.Add($"{t.Title ?? t.CurrentPath ?? "track"} — no local file");
+                    warnings.Add($"{t.Title ?? t.CurrentPath ?? "track"}: no local file");
                 }
             }
             skippedTracks = totalTracks - matchedTracks.Count;
@@ -174,7 +174,7 @@ public class SyncJobRunner : ISyncJobRunner
                     if (server.LastReport?.UnresolvedPaths is { Length: > 0 } unresolved)
                     {
                         warnings.AddRange(unresolved
-                            .Select(p => $"{p} — not found on server"));
+                            .Select(p => $"{p}: not found on server"));
                     }
                     break;
 

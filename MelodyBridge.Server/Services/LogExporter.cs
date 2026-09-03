@@ -23,7 +23,7 @@ public class LogExporter
         var entries = _collector.GetEntries();
         var sb = new StringBuilder();
         sb.AppendLine("───────────────────────────────────────────────────────────────");
-        sb.AppendLine("  MelodyBridge — Log Export");
+        sb.AppendLine("  MelodyBridge: Log Export");
         sb.AppendLine($"  Generated: {DateTime.Now:yyyy-MM-dd HH:mm:ss UTC}");
         sb.AppendLine($"  Entries:   {entries.Count}");
         sb.AppendLine("───────────────────────────────────────────────────────────────");

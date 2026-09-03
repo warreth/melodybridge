@@ -109,7 +109,7 @@ public interface IMediaServerSync
 }
 ```
 
-Implement this to sync playlists to a media server. Built-in targets are resolved by `Name` (`"Jellyfin"`, `"Plex"`, `"Navidrome"`): place implementations in `MelodyBridge.Infrastructure/MediaServers/` — `JellyfinSync.cs`, `PlexSync.cs`, `NavidromeSync.cs`. Each has a settings pair (`JellyfinSettings.cs`, `PlexSettings.cs`, `NavidromeSettings.cs`) reading connection values from the settings table, and `IMediaServerDirectory` (`JellyfinUserDirectory.cs`, `PlexNavidromeDirectories.cs`) supplies the wizard's Test connection and user picker. Per-job connection overrides travel in `PlaylistOutputOptions.MediaServerConnection` (base URL, credential, optional user id).
+Implement this to sync playlists to a media server. Built-in targets are resolved by `Name` (`"Jellyfin"`, `"Plex"`, `"Navidrome"`): place implementations in `MelodyBridge.Infrastructure/MediaServers/`: `JellyfinSync.cs`, `PlexSync.cs`, `NavidromeSync.cs`. Each has a settings pair (`JellyfinSettings.cs`, `PlexSettings.cs`, `NavidromeSettings.cs`) reading connection values from the settings table, and `IMediaServerDirectory` (`JellyfinUserDirectory.cs`, `PlexNavidromeDirectories.cs`) supplies the wizard's Test connection and user picker. Per-job connection overrides travel in `PlaylistOutputOptions.MediaServerConnection` (base URL, credential, optional user id).
 
 ### `IDownloadManager`: the waterfall
 

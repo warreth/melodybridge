@@ -114,7 +114,7 @@ public class LibraryScannerTests
 
             await scanner.ScanAsync(new[] { new ScanLocation(tempDir) });
 
-            // Should not throw — just logs warnings since none have MELODY_ID
+            // Should not throw: just logs warnings since none have MELODY_ID
             Assert.Pass("Scan completed without errors");
         }
         finally
@@ -211,7 +211,7 @@ public class LibraryScannerTests
             var tracks = db.Tracks.AsNoTracking().Where(t => t.MelodyId == "mel-scan-2").ToList();
             Assert.That(tracks, Has.Exactly(1).Items, "one row, not a duplicate");
             Assert.That(tracks[0].CurrentPath, Is.EqualTo(newPath),
-                "the MELODY_ID is the identity — the path must follow the file");
+                "the MELODY_ID is the identity: the path must follow the file");
         }
         finally
         {

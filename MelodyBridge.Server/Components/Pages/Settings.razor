@@ -74,7 +74,7 @@
                         <li>
                             Open <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener">developer.spotify.com/dashboard</a>
                             and click <em>Create app</em>. Any name works. When Spotify asks
-                            <em>which APIs you are planning to use</em>, pick <strong>Web API</strong> —
+                            <em>which APIs you are planning to use</em>, pick <strong>Web API</strong> :
                             not Ads API, Web Playback SDK, iOS or Android. Web API is the one that
                             can read your playlists and liked songs.
                         </li>
@@ -92,7 +92,7 @@
                     </ol>
                     <p class="text-muted">
                         New Spotify apps start in <em>development mode</em>: that is fine for
-                        personal use — you are the owner. Your Spotify account must have
+                        personal use: you are the owner. Your Spotify account must have
                         Premium while the app stays in development mode, and the login only
                         works for you and anyone you explicitly allowlist in the app's
                         Settings → Users Management.
@@ -138,7 +138,7 @@
                     <p class="text-muted">
                         Before the first login, open the OAuth consent screen
                         (APIs &amp; Services → OAuth consent screen) and add your own Google
-                        account as a <em>Test user</em> — unverified personal apps only work
+                        account as a <em>Test user</em>: unverified personal apps only work
                         for their test users. You will see an "unverified app" warning: that
                         is expected for a self-hosted personal app; choose
                         <em>Continue to project</em>.
@@ -281,7 +281,7 @@ else if (activeTab == "paths")
         <div class="hint-box">
             Enter paths as the server sees them. Inside Docker that is the
             container path (for example <code>/music</code>), not the host
-            path — check what the volume is mounted as in your
+            path: check what the volume is mounted as in your
             <code>compose.yml</code>. New downloads land under the music
             path; M3U files go to the playlist output folder.
         </div>
@@ -338,7 +338,7 @@ else if (activeTab == "network")
         </div>
         <div class="hint-box">
             Lucida sits behind a Cloudflare challenge. FlareSolverr is a small
-            companion container that solves it — the compose file ships one.
+            companion container that solves it: the compose file ships one.
             Point this at it and test the connection; leave "off" to disable.
         </div>
         <div class="form-grid single">
@@ -388,7 +388,7 @@ else if (activeTab == "about")
         </div>
         <div class="hint-box">
             Self-hosted and open source. Docs live at
-            <a href="https://docs.melodybridge.app" target="_blank" rel="noopener">docs.melodybridge.app</a> —
+            <a href="https://docs.melodybridge.app" target="_blank" rel="noopener">docs.melodybridge.app</a> :
             quick start, accounts, Lucida and the Docker guide.
         </div>
         <div class="flex-actions">
@@ -422,7 +422,7 @@ else if (activeTab == "about")
         <div class="hint-box">
             The zip contains a consistent snapshot (playlists, tracks,
             settings). Import replaces the current database and parks the
-            old one next to it as .preimport.bak — restart after
+            old one next to it as .preimport.bak: restart after
             importing so the app lets go of the old file.
         </div>
         <div class="flex-actions">
@@ -571,7 +571,7 @@ else if (activeTab == "about")
         }
         catch (JSException)
         {
-            copyHint = "Copy failed — select it manually";
+            copyHint = "Copy failed: select it manually";
         }
     }
 
@@ -861,7 +861,7 @@ else if (activeTab == "about")
             await using var stream = e.File.OpenReadStream(200_000_000);
             await DbBackup.ImportZipAsync(stream);
             dbMessage = "Database restored. Restart MelodyBridge to use it.";
-            Notifications.Warn("Database imported — restart to apply.");
+            Notifications.Warn("Database imported: restart to apply.");
         }
         catch (Exception ex)
         {
