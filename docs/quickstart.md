@@ -25,8 +25,8 @@ internal network:
   only, no published port
 
 The first start creates `./data/` with `music/`, `playlists/` and `app/`
-(the SQLite database) so your files survive rebuilds. Point Jellyfin at
-`./data/music`.
+(the SQLite database) so your files survive rebuilds. Point Jellyfin,
+Plex or Navidrome at `./data/music`.
 
 ## First steps in the UI
 
@@ -35,11 +35,12 @@ The first start creates `./data/` with `music/`, `playlists/` and `app/`
 2. Open the playlist and press **Download missing**. The plugin waterfall
    fetches each track and tags it.
 3. Go to **Sync jobs** and create a job that writes an M3U file or pushes
-   the playlist to Jellyfin.
+   the playlist to Jellyfin, Plex or Navidrome.
 
-::: tip Jellyfin on the host
-If Jellyfin runs on your host, use `http://host.docker.internal:8096`
-as the base URL in Settings.
+::: tip Jellyfin, Plex or Navidrome on the host
+If your media server runs on your host, use
+`http://host.docker.internal:8096` (Jellyfin), `:32400` (Plex) or
+`:4533` (Navidrome) as the base URL in Settings.
 :::
 
 ## Running from source

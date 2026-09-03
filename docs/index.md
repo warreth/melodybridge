@@ -4,7 +4,7 @@ layout: home
 hero:
   name: MelodyBridge
   text: Your playlists, your files.
-  tagline: Save a Spotify or YouTube playlist, download the tracks through a plugin waterfall, and publish them as M3U or Jellyfin playlists — on your own server.
+  tagline: Save a Spotify or YouTube playlist, download the tracks through a plugin waterfall, and publish them as M3U, Jellyfin, Plex or Navidrome playlists — on your own server.
   actions:
     - theme: brand
       text: Quick start
@@ -25,5 +25,5 @@ features:
     details: "Files are measured, not trusted: bitrate probing, duration verification and a spectral check that catches fake 320 kbps rips."
   - icon: 📤
     title: Publish anywhere
-    details: Write M3U files with full metadata or push playlists straight into Jellyfin, on the schedule you pick.
+    details: Write M3U files with full metadata or push playlists straight into Jellyfin, Plex or Navidrome, on the schedule you pick.
 ---
