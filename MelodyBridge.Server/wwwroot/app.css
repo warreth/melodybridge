@@ -494,6 +494,19 @@ select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-s
     background: var(--surface-3);
     border: 1px solid rgba(39, 39, 42, .4);
 }
+.mount-warning {
+    display: flex;
+    gap: .7rem;
+    padding: .8rem;
+    border-radius: 8px;
+    color: var(--text);
+    background: var(--danger-soft);
+    border: 1px solid rgba(251, 113, 133, .25);
+    font-size: .85rem;
+    line-height: 1.55;
+}
+.mount-warning-icon { color: var(--danger); flex-shrink: 0; margin-top: .1rem; }
+.mount-warning code { color: var(--accent); }
 .empty-state {
     display: grid;
     place-content: center;

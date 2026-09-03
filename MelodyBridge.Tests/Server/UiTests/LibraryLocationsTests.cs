@@ -100,10 +100,15 @@ public class LibraryLocationsTests
         var cut = _ctx.Render<Library>();
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Add location").Click();
 
-        Assert.That(cut.Markup, Does.Contain("as the server sees it"),
-            "the mount-path notice must be explicit, per the docs");
-        Assert.That(cut.Markup, Does.Contain("container path"));
-        Assert.That(cut.Markup, Does.Contain("compose.yml"));
+        // The shared MountWarning component, same text on every screen.
+        Assert.That(cut.Markup, Does.Contain("mount-warning"),
+            "the shared warning component renders in the modal");
+        Assert.That(cut.Markup, Does.Contain("as the container sees it"),
+            "the notice names the container-path rule");
+        Assert.That(cut.Markup, Does.Contain("volumes:"),
+            "the notice points at the compose volumes section");
+        Assert.That(cut.Markup, Does.Contain("zero files"),
+            "the notice says what a wrong path costs: a scan that finds nothing");
     }
 
     [Test]

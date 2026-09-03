@@ -278,12 +278,10 @@ else if (activeTab == "paths")
             <label>Music path <input @bind="musicPath" /></label>
             <label>Playlist output folder <input @bind="playlistPath" /></label>
         </div>
+        <MountWarning />
         <div class="hint-box">
-            Enter paths as the server sees them. Inside Docker that is the
-            container path (for example <code>/music</code>), not the host
-            path: check what the volume is mounted as in your
-            <code>compose.yml</code>. New downloads land under the music
-            path; M3U files go to the playlist output folder.
+            New downloads land under the music path; M3U files go to the
+            playlist output folder.
         </div>
     </section>
 }
@@ -351,9 +349,31 @@ else if (activeTab == "network")
         </div>
         <div class="flex-actions">
             <button class="btn-modern secondary" @onclick="TestFlareSolverr" disabled="@testingFlare">
-                @(testingFlare ? "Testing…" : "Test connection")
+                @(testingFlare ? "Testing..." : "Test connection")
             </button>
             <span class="text-muted">@flareMessage</span>
+        </div>
+    </section>
+
+    <section class="panel-card">
+        <div class="panel-header">
+            <div>
+                <span class="eyebrow">Network</span>
+                <h2>Spotify web session</h2>
+            </div>
+        </div>
+        <div class="hint-box">
+            Public playlists and liked songs work without this. Paste a
+            Spotify web cookie (the sp_dc value from a logged-in browser
+            session) only if public scraping starts failing for you: the
+            app then sends it along as a fallback. The cookie is stored in
+            the database, not an environment variable.
+        </div>
+        <div class="form-grid single">
+            <label>
+                Spotify cookie (optional)
+                <input @bind="spotifyCookie" placeholder="sp_dc=..." />
+            </label>
         </div>
     </section>
 
@@ -525,6 +545,7 @@ else if (activeTab == "about")
         if (!PlaylistStore.IsValidFormat(defaultQuality)) defaultQuality = "auto";
         spectrumMode = FindSetting(settings, "spectrum_mode", Config?["SpectrumAnalysis:Mode"] ?? "Fast");
         flaresolverrUrl = FindSetting(settings, "flaresolverr_url", Config?["FlareSolverr:Url"] ?? "auto");
+        spotifyCookie = FindSetting(settings, "spotify_cookie", string.Empty);
 
         _spotifyConnected = await SpotifyAccount.IsConnectedAsync();
         _youtubeConnected = await YouTubeAccount.IsConnectedAsync();
@@ -537,6 +558,7 @@ else if (activeTab == "about")
     private bool _youtubeConnected;
     private string? accountMessage;
     private string spotifyClientId = string.Empty;
+    private string spotifyCookie = string.Empty;
     private string youtubeClientId = string.Empty;
     private string youtubeClientSecret = string.Empty;
     private string copyHint = string.Empty;
@@ -698,9 +720,11 @@ else if (activeTab == "about")
         await Upsert(db, "default_quality", defaultQuality);
         await Upsert(db, "spectrum_mode", spectrumMode);
         await Upsert(db, "flaresolverr_url", flaresolverrUrl);
+        await Upsert(db, "spotify_cookie", spotifyCookie);
         await db.SaveChangesAsync();
         PlaylistStore.SpectrumVerification = () => SpectrumModeValue(spectrumMode);
         FlareSolverrSolver.Url = flaresolverrUrl;
+        MelodyBridge.Infrastructure.Services.SpotifySourceProvider.WebCookie = spotifyCookie;
         savedMessage = "Settings saved.";
     }
 

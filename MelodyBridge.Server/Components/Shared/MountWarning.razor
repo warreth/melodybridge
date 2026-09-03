@@ -1,0 +1,23 @@
+@* Docker path warning: one component for every screen that takes a
+   filesystem path. MelodyBridge runs inside Docker for most users, and
+   the scanner only sees the paths as mounted INTO the container, so a
+   host path typed here silently matches nothing. *@
+<div class="mount-warning" role="note">
+    <Icon Name="alert" Size="18" Class="mount-warning-icon" />
+    <div>
+        <strong>Docker users: type the path as the container sees it.</strong>
+        The scanner reads paths from inside MelodyBridge. If the app runs
+        in Docker, a host path (for example <code>C:\Music</code> or
+        <code>/home/me/Music</code>) is invisible to it; use the container
+        path your volume is mounted as (for example <code>/music</code>).
+        Check the <code>volumes:</code> section of your compose file to see
+        the mapping, and make sure the folder is actually mounted. Without
+        a correct mount, the scanner finds zero files and downloads start
+        from scratch.
+    </div>
+</div>
+
+@code {
+    // No parameters: the warning is always the same everywhere, which is
+    // the point of having one shared component instead of per-page copies.
+}

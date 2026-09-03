@@ -115,6 +115,7 @@
                         <div class="hint-box">
                             Pick the folders to search. Leave empty to search every folder.
                         </div>
+                        <MountWarning />
                     }
                     @if (!string.IsNullOrEmpty(stepError))
                     {
@@ -139,6 +140,7 @@
                                 M3U output path
                                 <input @bind="draft.M3uOutputPath" placeholder="/app/playlists/playlist.m3u" />
                             </label>
+                            <MountWarning />
                         }
                         else if (draft.OutputTarget == OutputTargetType.JellyfinApi)
                         {

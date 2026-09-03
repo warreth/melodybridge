@@ -115,12 +115,7 @@
                 {
                     <div class="hint-box" style="margin-top:0.75rem; border-color: var(--danger);">@error</div>
                 }
-                <div class="hint-box">
-                    Enter the path as the server sees it. Inside Docker that is
-                    the container path (for example <code>/music</code>), not the
-                    path on your host: check what the volume is mounted as in
-                    your <code>compose.yml</code>.
-                </div>
+                <MountWarning />
             </div>
             <div class="wizard-footer">
                 <button class="btn-modern" @onclick="CloseForm">Cancel</button>
