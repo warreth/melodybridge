@@ -141,30 +141,40 @@ public class SyncJobRunner : ISyncJobRunner
                     break;
 
                 case OutputTargetType.JellyfinApi:
-                    var jellyfin = _mediaServers.FirstOrDefault(s =>
-                        s.Name.Equals("Jellyfin", StringComparison.OrdinalIgnoreCase));
-                    if (jellyfin != null)
-                    {
-                        // Per-job connection wins when the wizard stored one;
-                        // otherwise the global settings apply (Settings page).
-                        JellyfinConnection? connection =
-                            !string.IsNullOrWhiteSpace(job.JellyfinServerUrl)
-                                ? new JellyfinConnection(
-                                    job.JellyfinServerUrl!,
-                                    job.JellyfinApiKey ?? "",
-                                    job.JellyfinUserId)
-                                : null;
-                        var jfOptions = new PlaylistOutputOptions("/playlists/" + job.Name + ".m3u",
-                            false, remap.Count > 0 ? remap : null, connection);
-                        await jellyfin.SyncPlaylistAsync(playlist, jfOptions, ct);
-                        resolvedTracks = playlist.Tracks?.Count ?? 0;
-
-                        if (jellyfin is JellyfinSync concrete
-                            && concrete.GetLastReport()?.UnresolvedPaths is { Length: > 0 } unresolved)
+                case OutputTargetType.PlexApi:
+                case OutputTargetType.NavidromeApi:
+                    var server = _mediaServers.FirstOrDefault(s =>
+                        s.Name.Equals(job.OutputTarget switch
                         {
-                            warnings.AddRange(unresolved
-                                .Select(p => $"{p} — not found on server"));
-                        }
+                            OutputTargetType.JellyfinApi => "Jellyfin",
+                            OutputTargetType.PlexApi => "Plex",
+                            OutputTargetType.NavidromeApi => "Navidrome",
+                            _ => (string?)null
+                        }, StringComparison.OrdinalIgnoreCase));
+                    if (server == null)
+                    {
+                        errors.Add($"No plugin registered for '{job.OutputTarget}'");
+                        break;
+                    }
+
+                    // Per-job connection wins when the wizard stored one;
+                    // otherwise the global settings apply (Settings page).
+                    MediaServerConnection? connection =
+                        !string.IsNullOrWhiteSpace(job.JellyfinServerUrl)
+                            ? new MediaServerConnection(
+                                job.JellyfinServerUrl!,
+                                job.JellyfinApiKey ?? "",
+                                job.JellyfinUserId)
+                            : null;
+                    var serverOptions = new PlaylistOutputOptions("/playlists/" + job.Name + ".m3u",
+                        false, remap.Count > 0 ? remap : null, connection);
+                    await server.SyncPlaylistAsync(playlist, serverOptions, ct);
+                    resolvedTracks = playlist.Tracks?.Count ?? 0;
+
+                    if (server.LastReport?.UnresolvedPaths is { Length: > 0 } unresolved)
+                    {
+                        warnings.AddRange(unresolved
+                            .Select(p => $"{p} — not found on server"));
                     }
                     break;
 

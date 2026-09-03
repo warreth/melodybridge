@@ -30,7 +30,7 @@ public class SyncJobsReviewUiTests
             .Options;
         _dbFactory = new InMemFactory(options);
         _ctx.Services.AddSingleton<ISyncJobRunner>(new Mock<ISyncJobRunner>().Object);
-        _ctx.Services.AddSingleton<IJellyfinUserDirectory>(new Mock<IJellyfinUserDirectory>().Object);
+        _ctx.Services.AddSingleton<IMediaServerDirectory>(new Mock<IMediaServerDirectory>().Object);
         _ctx.Services.AddSingleton<IDbContextFactory<MelodyBridgeDbContext>>(_dbFactory);
     }
 

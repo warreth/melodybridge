@@ -44,12 +44,7 @@ public class SyncEngine
         if (server == null) throw new InvalidOperationException($"Server plugin '{serverName}' not found");
         await server.SyncPlaylistAsync(playlist, options, ct);
 
-        // If the concrete server exposes a report, return it
-        if (server is MelodyBridge.Infrastructure.MediaServers.JellyfinSync jelly)
-        {
-            return jelly.GetLastReport();
-        }
-
-        return null;
+        // If the server exposes a report, return it
+        return server.LastReport;
     }
 }

@@ -169,7 +169,7 @@ public class JellyfinFavoritesTests
             LikedPlaylist(Track("/music/a.mp3", liked: true)),
             new PlaylistOutputOptions("/tmp/out.m3u", false, null));
 
-        Assert.That(sync.GetLastReport(), Is.Not.Null,
+        Assert.That(sync.LastReport, Is.Not.Null,
             "a favorites failure must not fail the playlist sync");
     }
 

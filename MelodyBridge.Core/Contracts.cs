@@ -24,6 +24,8 @@ public interface IMediaServerSync
 {
     string Name { get; }
     Task SyncPlaylistAsync(Playlist playlist, PlaylistOutputOptions options, CancellationToken ct = default);
+    /// <summary>Report of the last SyncPlaylistAsync call; null before the first one.</summary>
+    MediaServerSyncReport? LastReport { get; }
 }
 
 public interface ISyncJobRunner
@@ -31,17 +33,23 @@ public interface ISyncJobRunner
     Task<SyncJobRunLog> RunJobAsync(SyncJob job, CancellationToken ct = default);
 }
 
-/// <summary>Reads the user list and reachability of an arbitrary Jellyfin server.</summary>
-public interface IJellyfinUserDirectory
+/// <summary>
+/// Reads users and reachability of an arbitrary media server (Jellyfin,
+/// Plex, Navidrome). The connection values travel per call, so nothing
+/// mutable is shared with the sync clients.
+/// </summary>
+public interface IMediaServerDirectory
 {
-    /// <summary>All users the given server reports (GET /Users).</summary>
-    Task<List<JellyfinUserOption>> GetUsersAsync(string baseUrl, string apiKey, CancellationToken ct = default);
-    /// <summary>True when GET {baseUrl}/System/Info responds successfully.</summary>
+    /// <summary>Server kind this directory speaks ("Jellyfin", "Plex", "Navidrome").</summary>
+    string Kind { get; }
+    /// <summary>All users the given server reports; empty when the server has no user list.</summary>
+    Task<List<MediaServerUserOption>> GetUsersAsync(string baseUrl, string apiKey, CancellationToken ct = default);
+    /// <summary>True when the server answers an authenticated lightweight request.</summary>
     Task<bool> TestConnectionAsync(string baseUrl, string apiKey, CancellationToken ct = default);
 }
 
-/// <summary>One user row of a Jellyfin server, as the picker shows it.</summary>
-public record JellyfinUserOption(string Id, string? Name);
+/// <summary>One user row of a media server, as the picker shows it.</summary>
+public record MediaServerUserOption(string Id, string? Name);
 
 public interface IDownloadManager
 {
@@ -56,14 +64,15 @@ public interface IDownloadManager
 }
 
 /// <summary>
-/// Per-call Jellyfin connection override. When set, these values win over
-/// the global settings (the sync-job wizard stores them per job).
+/// Per-call media-server connection override (Jellyfin, Plex, Navidrome).
+/// When set, these values win over the global settings (the sync-job
+/// wizard stores them per job).
 /// </summary>
-public record JellyfinConnection(string BaseUrl, string ApiKey, string? UserId);
+public record MediaServerConnection(string BaseUrl, string ApiKey, string? UserId);
 
 public record PlaylistOutputOptions(
     string OutputPath,
     bool UseRelativePaths,
     Dictionary<string, string>? PathRemap,
-    JellyfinConnection? JellyfinConnection = null
+    MediaServerConnection? MediaServerConnection = null
 );

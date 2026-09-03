@@ -37,7 +37,7 @@ builder.Logging.AddProvider(new DevPanelLoggerProvider(logCollector));
 
 // Register all MelodyBridge services
 builder.Services.AddMelodyBridge();
-builder.Services.AddJellyfinSync();
+builder.Services.AddMediaServerSyncs();
 
 // Update check: dedicated client because GitHub requires a User-Agent
 // header and we never want to share the app's own BaseAddress client.

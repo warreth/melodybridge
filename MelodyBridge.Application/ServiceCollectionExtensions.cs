@@ -102,11 +102,15 @@ public static class ServiceCollectionExtensions
         return services;
     }
 
-    public static IServiceCollection AddJellyfinSync(this IServiceCollection services)
+    /// <summary>
+    /// Registers every media-server sync plugin (Jellyfin, Plex, Navidrome)
+    /// and their shared connection settings. Connection values are applied
+    /// per sync call, so Settings-page changes apply without a restart.
+    /// </summary>
+    public static IServiceCollection AddMediaServerSyncs(this IServiceCollection services)
     {
-        // A plain named client: connection values are applied per sync
-        // call from IJellyfinSettings (database first, config fallback),
-        // so Settings-page changes apply without a restart.
+        // Jellyfin: a plain named client; per-call connection from
+        // IJellyfinSettings (database first, config fallback).
         services.AddHttpClient(nameof(JellyfinSync));
         services.AddSingleton<ConfigJellyfinSettings>();
         services.AddSingleton<IJellyfinSettings, DbJellyfinSettings>();
@@ -122,7 +126,33 @@ public static class ServiceCollectionExtensions
         // User picker for the wizard: per-request token, own short-timeout
         // client inside the service, so the sync's BaseAddress mutations
         // never leak into it.
-        services.AddSingleton<IJellyfinUserDirectory, JellyfinUserDirectory>();
+        services.AddSingleton<IMediaServerDirectory, JellyfinUserDirectory>();
+
+        // Plex: token auth, file-path matching, server:// playlist uris.
+        services.AddHttpClient(nameof(PlexSync));
+        services.AddSingleton<ConfigPlexSettings>();
+        services.AddSingleton<IPlexSettings, DbPlexSettings>();
+        services.AddSingleton(sp =>
+        {
+            var http = sp.GetRequiredService<IHttpClientFactory>().CreateClient(nameof(PlexSync));
+            return new PlexSync(http, sp.GetRequiredService<ILogger<PlexSync>>(),
+                sp.GetRequiredService<IPlexSettings>());
+        });
+        services.AddSingleton<IMediaServerSync>(sp => sp.GetRequiredService<PlexSync>());
+        services.AddSingleton<IMediaServerDirectory, PlexDirectory>();
+
+        // Navidrome: Subsonic salted-md5 auth, search3 lookup, star favorites.
+        services.AddHttpClient(nameof(NavidromeSync));
+        services.AddSingleton<ConfigNavidromeSettings>();
+        services.AddSingleton<INavidromeSettings, DbNavidromeSettings>();
+        services.AddSingleton(sp =>
+        {
+            var http = sp.GetRequiredService<IHttpClientFactory>().CreateClient(nameof(NavidromeSync));
+            return new NavidromeSync(http, sp.GetRequiredService<ILogger<NavidromeSync>>(),
+                sp.GetRequiredService<INavidromeSettings>());
+        });
+        services.AddSingleton<IMediaServerSync>(sp => sp.GetRequiredService<NavidromeSync>());
+        services.AddSingleton<IMediaServerDirectory, NavidromeDirectory>();
         return services;
     }
 }

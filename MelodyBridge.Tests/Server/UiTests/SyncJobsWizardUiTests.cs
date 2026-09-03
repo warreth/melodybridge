@@ -21,7 +21,7 @@ public class SyncJobsWizardUiTests
 {
     private TestContext _ctx = null!;
     private Mock<ISyncJobRunner> _jobRunner = null!;
-    private Mock<IJellyfinUserDirectory> _userDirectory = null!;
+    private Mock<IMediaServerDirectory> _userDirectory = null!;
     private InMemFactory _dbFactory = null!;
 
     [SetUp]
@@ -29,10 +29,10 @@ public class SyncJobsWizardUiTests
     {
         _ctx = new TestContext();
         _jobRunner = new Mock<ISyncJobRunner>();
-        _userDirectory = new Mock<IJellyfinUserDirectory>();
+        _userDirectory = new Mock<IMediaServerDirectory>();
         _userDirectory
             .Setup(d => d.GetUsersAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new List<JellyfinUserOption>
+            .ReturnsAsync(new List<MediaServerUserOption>
             {
                 new("u1", "Alice"),
                 new("u2", "Bob"),
@@ -47,7 +47,7 @@ public class SyncJobsWizardUiTests
         _dbFactory = new InMemFactory(options);
 
         _ctx.Services.AddSingleton<ISyncJobRunner>(_jobRunner.Object);
-        _ctx.Services.AddSingleton<IJellyfinUserDirectory>(_userDirectory.Object);
+        _ctx.Services.AddSingleton<IMediaServerDirectory>(_userDirectory.Object);
         _ctx.Services.AddSingleton<IDbContextFactory<MelodyBridgeDbContext>>(_dbFactory);
     }
 

@@ -56,7 +56,7 @@ public class AccountTutorialTests
         var collector = new MelodyBridge.Server.Services.LogCollector();
         _ctx.Services.AddSingleton<MelodyBridge.Core.Logging.ILogCollector>(collector);
         _ctx.Services.AddSingleton(new MelodyBridge.Server.Services.LogExporter(collector));
-        _ctx.Services.AddSingleton(new Mock<MelodyBridge.Core.IJellyfinUserDirectory>().Object);
+        _ctx.Services.AddSingleton(new Mock<MelodyBridge.Core.IMediaServerDirectory>().Object);
         _ctx.JSInterop.Mode = JSRuntimeMode.Loose;
     }
 

@@ -9,8 +9,10 @@ namespace MelodyBridge.Infrastructure.MediaServers;
 /// token travels per request, so nothing mutable is shared with the sync
 /// client and concurrent tests cannot leak state.
 /// </summary>
-public class JellyfinUserDirectory : IJellyfinUserDirectory
+public class JellyfinUserDirectory : IMediaServerDirectory
 {
+    public string Kind => "Jellyfin";
+
     // Own client: per-request headers only, fixed short timeout for the
     // wizard's Test connection button.
     private static readonly HttpClient DefaultHttp = new() { Timeout = TimeSpan.FromSeconds(10) };
@@ -23,7 +25,7 @@ public class JellyfinUserDirectory : IJellyfinUserDirectory
     /// <summary>Test seam: injects a scripted client (tests only).</summary>
     internal JellyfinUserDirectory(HttpClient http) => _http = http;
 
-    public async Task<List<JellyfinUserOption>> GetUsersAsync(
+    public async Task<List<MediaServerUserOption>> GetUsersAsync(
         string baseUrl, string apiKey, CancellationToken ct = default)
     {
         using var request = NewRequest(baseUrl, apiKey, "Users");
@@ -33,8 +35,8 @@ public class JellyfinUserDirectory : IJellyfinUserDirectory
             .ReadFromJsonAsync<JellyfinUserDto[]>(cancellationToken: ct);
         return users?
             .Where(u => !string.IsNullOrEmpty(u.Id))
-            .Select(u => new JellyfinUserOption(u.Id!, u.Name))
-            .ToList() ?? new List<JellyfinUserOption>();
+            .Select(u => new MediaServerUserOption(u.Id!, u.Name))
+            .ToList() ?? new List<MediaServerUserOption>();
     }
 
     public async Task<bool> TestConnectionAsync(
