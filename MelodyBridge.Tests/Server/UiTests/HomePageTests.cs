@@ -2,6 +2,7 @@ using TestContext = Bunit.TestContext;
 using Bunit;
 using MelodyBridge.Core;
 using MelodyBridge.Core.Logging;
+using MelodyBridge.Tests;
 using MelodyBridge.Infrastructure.Data;
 using MelodyBridge.Infrastructure.Services;
 using MelodyBridge.Server.Components.Pages;
@@ -69,6 +70,11 @@ public class HomePageTests
         _ctx.Services.AddSingleton<MelodyBridge.Infrastructure.MediaServers.IJellyfinSettings>(
             new MelodyBridge.Infrastructure.MediaServers.ConfigJellyfinSettings(
                 new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build()));
+        // Plex/Navidrome connection cards read these; defaults mean "not configured".
+        _ctx.Services.AddSingleton<MelodyBridge.Infrastructure.MediaServers.IPlexSettings>(
+            new TestServices.FixedPlexSettings());
+        _ctx.Services.AddSingleton<MelodyBridge.Infrastructure.MediaServers.INavidromeSettings>(
+            new TestServices.FixedNavidromeSettings());
     }
 
     [TearDown]

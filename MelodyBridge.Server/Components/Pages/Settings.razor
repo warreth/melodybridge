@@ -15,7 +15,8 @@
 @inject DatabaseBackupService DbBackup
 @inject UpdateCheckService UpdateCheck
 @inject NotificationService Notifications
-@inject IJellyfinUserDirectory JellyfinDirectory
+@inject IMediaServerDirectory JellyfinDirectory
+@inject IEnumerable<IMediaServerDirectory> Directories
 @inject IJSRuntime JS
 @implements IDisposable
 
@@ -243,11 +244,19 @@ else if (activeTab == "connections")
                 <label>Kind
                     <select @bind="editingProfile.Kind">
                         <option value="Jellyfin">Jellyfin</option>
-                        <option value="Plex">Plex (when supported)</option>
+                        <option value="Plex">Plex</option>
+                        <option value="Navidrome">Navidrome</option>
                     </select>
                 </label>
-                <label>Base URL <input @bind="editingProfile.BaseUrl" placeholder="http://jellyfin:8096" /></label>
-                <label>API key <input @bind="editingProfile.ApiKey" type="password" placeholder="API key" /></label>
+                <label>Base URL <input @bind="editingProfile.BaseUrl"
+                       placeholder="@(editingProfile.Kind == "Plex" ? "http://plex:32400" : editingProfile.Kind == "Navidrome" ? "http://navidrome:4533" : "http://jellyfin:8096")" /></label>
+                @if (editingProfile.Kind == "Navidrome")
+                {
+                    <label class="hint-text">Navidrome has no API key: the password is the credential.</label>
+                }
+                <label>@(editingProfile.Kind == "Navidrome" ? "Password" : editingProfile.Kind == "Plex" ? "Plex token" : "API key")
+                    <input @bind="editingProfile.ApiKey" type="password" placeholder="@(editingProfile.Kind == "Navidrome" ? "password" : editingProfile.Kind == "Plex" ? "X-Plex-Token" : "API key")" />
+                </label>
             </div>
             <div class="flex-actions">
                 <button class="btn-modern ghost" @onclick="CancelProfileEdit">Cancel</button>
@@ -678,9 +687,17 @@ else if (activeTab == "about")
     // ── Media servers tab ──────────────────────────────────────────
 
     /// <summary>True when this profile's values are the app-wide jellyfin_* rows.</summary>
+    /// <summary>Settings keys each server kind reads (url row first).</summary>
+    private static (string UrlKey, string SecretKey) KindKeys(string kind) => kind switch
+    {
+        "Plex" => ("plex_url", "plex_key"),
+        "Navidrome" => ("navidrome_url", "navidrome_password"),
+        _ => ("jellyfin_url", "jellyfin_key"),
+    };
+
     private bool IsAppDefault(MediaServerProfile profile)
     {
-        var url = FindLiveSetting("jellyfin_url");
+        var url = FindLiveSetting(KindKeys(profile.Kind).UrlKey);
         return url is not null && url.TrimEnd('/') == profile.BaseUrl.TrimEnd('/');
     }
 
@@ -692,12 +709,14 @@ else if (activeTab == "about")
 
     private List<DownloaderSettingEntity>? _initSettings;
 
-    /// <summary>Writes this profile's values into the app-wide jellyfin_* rows.
-    /// Profiles carry no user id, so an existing jellyfin_user row is kept.</summary>
+    /// <summary>Writes this profile's values into the app-wide rows of its
+    /// kind (jellyfin_*, plex_*, navidrome_*). Profiles carry no user id,
+    /// so an existing jellyfin_user / navidrome_user row is kept.</summary>
     private async Task MakeAppDefault(MediaServerProfile profile)
     {
-        await TourReset.SetAsync("jellyfin_url", profile.BaseUrl);
-        await TourReset.SetAsync("jellyfin_key", profile.ApiKey);
+        var (urlKey, secretKey) = KindKeys(profile.Kind);
+        await TourReset.SetAsync(urlKey, profile.BaseUrl);
+        await TourReset.SetAsync(secretKey, profile.ApiKey);
         await LoadInitSettingsAsync(); // refresh the default pill
         Notifications.Success($"'{profile.Name}' is now the app default.");
         StateHasChanged();
@@ -714,7 +733,9 @@ else if (activeTab == "about")
         testingProfile = profile.Id;
         try
         {
-            var ok = await JellyfinDirectory.TestConnectionAsync(profile.BaseUrl, profile.ApiKey);
+            var directory = Directories.FirstOrDefault(d =>
+                string.Equals(d.Kind, profile.Kind, StringComparison.OrdinalIgnoreCase));
+            var ok = await (directory ?? JellyfinDirectory).TestConnectionAsync(profile.BaseUrl, profile.ApiKey);
             profileTestStatus[profile.Id] = ok ? "ok" : "err";
         }
         catch

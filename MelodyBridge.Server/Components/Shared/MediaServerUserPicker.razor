@@ -1,9 +1,10 @@
-@* Jellyfin user dropdown + Test connection button. Fetches the user
+@* Media-server user dropdown + Test connection button. Fetches the user
    list from the server entered in the wizard (not the global settings),
-   so a job can target a different server than the Settings default. *@
-@inject IJellyfinUserDirectory UserDirectory
+   so a job can target a different server than the Settings default.
+   Servers without a user list (Plex, Navidrome) show the test result only. *@
+@inject IMediaServerDirectory UserDirectory
 
-<div class="jellyfin-user-picker">
+<div class="media-server-user-picker">
     <label>
         Jellyfin user
         <select @bind="UserId">
@@ -43,7 +44,7 @@
     /// <summary>Raised when the selected user changes (null-safe).</summary>
     [Parameter] public EventCallback<string?> UserIdChanged { get; set; }
 
-    private List<JellyfinUserOption> users = new();
+    private List<MediaServerUserOption> users = new();
     private bool testing;
     private string? status;
     private string? statusMessage;

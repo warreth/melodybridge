@@ -6,6 +6,8 @@
 @inject SpotifyAccountProvider SpotifyAccount
 @inject YouTubeAccountProvider YouTubeAccount
 @inject IJellyfinSettings JellyfinSettings
+@inject IPlexSettings PlexSettings
+@inject INavidromeSettings NavidromeSettings
 @implements IDisposable
 
 <PageTitle>@(showIntro ? "Welcome" : "MelodyBridge Dashboard")</PageTitle>
@@ -144,6 +146,14 @@ else
                 <div class="connection-row @(jellyfinConfigured ? "enabled" : "")">
                     <div><strong>Jellyfin</strong><small>@(jellyfinConfigured ? jellyfinUrl : "not configured")</small></div>
                     <span class="pill @(jellyfinConfigured ? "ok" : "neutral")">@(jellyfinConfigured ? "ready" : "off")</span>
+                </div>
+                <div class="connection-row @(plexConfigured ? "enabled" : "")">
+                    <div><strong>Plex</strong><small>@(plexConfigured ? plexUrl : "not configured")</small></div>
+                    <span class="pill @(plexConfigured ? "ok" : "neutral")">@(plexConfigured ? "ready" : "off")</span>
+                </div>
+                <div class="connection-row @(navidromeConfigured ? "enabled" : "")">
+                    <div><strong>Navidrome</strong><small>@(navidromeConfigured ? navidromeUrl : "not configured")</small></div>
+                    <span class="pill @(navidromeConfigured ? "ok" : "neutral")">@(navidromeConfigured ? "ready" : "off")</span>
                 </div>
                 <div class="connection-row @(flareSolverrOn ? "enabled" : "")">
                     <div><strong>FlareSolverr</strong><small>@(flareSolverrOn ? flareSolverrUrl : "Cloudflare bypass off")</small></div>
@@ -285,6 +295,8 @@ else
     private bool spotifyConnected;
     private bool youtubeConnected;
     private string jellyfinUrl = string.Empty;
+    private string plexUrl = string.Empty;
+    private string navidromeUrl = string.Empty;
     private string flareSolverrUrl = string.Empty;
     private List<PlaylistEntity> playlists = new();
     private Dictionary<string, (int downloaded, int total)> playlistCounts = new();
@@ -301,6 +313,8 @@ else
         ? lastRunAt.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm")
         : "never";
     private bool jellyfinConfigured => !string.IsNullOrWhiteSpace(jellyfinUrl);
+    private bool plexConfigured => !string.IsNullOrWhiteSpace(plexUrl);
+    private bool navidromeConfigured => !string.IsNullOrWhiteSpace(navidromeUrl);
     private bool flareSolverrOn => !string.IsNullOrWhiteSpace(flareSolverrUrl)
         && !flareSolverrUrl.Equals("off", StringComparison.OrdinalIgnoreCase);
 
@@ -378,15 +392,15 @@ else
             spotifyConnected = await SpotifyAccount.IsConnectedAsync();
             youtubeConnected = await YouTubeAccount.IsConnectedAsync();
             jellyfinUrl = await JellyfinSettings.GetBaseUrlAsync();
+            plexUrl = await PlexSettings.GetBaseUrlAsync();
+            navidromeUrl = await NavidromeSettings.GetBaseUrlAsync();
             flareSolverrUrl = FlareSolverrSolver.Url ?? string.Empty;
 
-            var errors = LogCollector.GetEntries()
-                .Where(e => e.Level is LogLevel.Error or LogLevel.Critical)
-                .Take(5)
-                .ToList();
-            recentErrors = errors;
-            errorCount = LogCollector.GetEntries()
-                .Count(e => e.Level is LogLevel.Error or LogLevel.Critical);
+            // One pass over the buffer, not two: it grows while we read.
+            var all = LogCollector.GetEntries();
+            var problems = all.Where(e => e.Level is LogLevel.Error or LogLevel.Critical).ToList();
+            recentErrors = problems.Take(5).ToList();
+            errorCount = problems.Count;
 
             playlists = await db.Playlists
                 .OrderByDescending(p => p.LastSyncAt ?? DateTime.MinValue)

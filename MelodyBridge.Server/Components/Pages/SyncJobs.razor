@@ -11,7 +11,7 @@
     <div>
         <span class="eyebrow">Automation</span>
         <h1>Sync jobs</h1>
-        <p>A sync job turns a saved playlist into an M3U file for your music player, or pushes it to Jellyfin.</p>
+        <p>A sync job turns a saved playlist into an M3U file for your music player, or pushes it to Jellyfin, Plex or Navidrome.</p>
     </div>
     <div class="topbar-actions">
         <button class="btn-modern primary" @onclick="StartNewJob">New sync job</button>
@@ -129,6 +129,8 @@
                             <select @bind="draft.OutputTarget">
                                 <option value="@OutputTargetType.M3uFile">M3U File</option>
                                 <option value="@OutputTargetType.JellyfinApi">Jellyfin API</option>
+                                <option value="@OutputTargetType.PlexApi">Plex API</option>
+                                <option value="@OutputTargetType.NavidromeApi">Navidrome API</option>
                             </select>
                         </label>
                         @if (draft.OutputTarget == OutputTargetType.M3uFile)
@@ -147,6 +149,32 @@
                             <label>
                                 Jellyfin API key
                                 <input @bind="draft.JellyfinApiKey" type="password" placeholder="API key" />
+                            </label>
+                        }
+                        else if (draft.OutputTarget == OutputTargetType.PlexApi)
+                        {
+                            <label>
+                                Plex server URL
+                                <input @bind="draft.JellyfinServerUrl" placeholder="http://host.docker.internal:32400" />
+                            </label>
+                            <label>
+                                Plex token
+                                <input @bind="draft.JellyfinApiKey" type="password" placeholder="X-Plex-Token" />
+                            </label>
+                        }
+                        else if (draft.OutputTarget == OutputTargetType.NavidromeApi)
+                        {
+                            <label>
+                                Navidrome server URL
+                                <input @bind="draft.JellyfinServerUrl" placeholder="http://host.docker.internal:4533" />
+                            </label>
+                            <label>
+                                Navidrome username
+                                <input @bind="draft.JellyfinUserId" placeholder="admin" />
+                            </label>
+                            <label>
+                                Navidrome password
+                                <input @bind="draft.JellyfinApiKey" type="password" placeholder="password" />
                             </label>
                         }
                         <label>
@@ -170,7 +198,7 @@
                     </div>
                     @if (draft.OutputTarget == OutputTargetType.JellyfinApi)
                     {
-                        <JellyfinUserPicker ServerUrl="@draft.JellyfinServerUrl"
+                        <MediaServerUserPicker ServerUrl="@draft.JellyfinServerUrl"
                                             ApiKey="@draft.JellyfinApiKey"
                                             @bind-UserId="draft.JellyfinUserId" />
                     }
@@ -218,7 +246,11 @@
                         }
                         else
                         {
-                            <div><strong>Jellyfin server:</strong> @draft.JellyfinServerUrl</div>
+                            <div><strong>Server:</strong> @draft.JellyfinServerUrl</div>
+                            @if (draft.OutputTarget == OutputTargetType.NavidromeApi)
+                            {
+                                <div><strong>User:</strong> @draft.JellyfinUserId</div>
+                            }
                         }
                         <div><strong>Schedule:</strong> @draft.Schedule</div>
                         @if (draft.Schedule == SyncJobSchedule.Cron && !string.IsNullOrWhiteSpace(draft.CronExpression))
@@ -482,6 +514,11 @@
             if (draft.OutputTarget == OutputTargetType.M3uFile && string.IsNullOrWhiteSpace(draft.M3uOutputPath))
             {
                 stepError = "Enter the M3U output path first.";
+                return;
+            }
+            if (draft.OutputTarget != OutputTargetType.M3uFile && string.IsNullOrWhiteSpace(draft.JellyfinServerUrl))
+            {
+                stepError = "Enter the server URL first.";
                 return;
             }
             if (draft.Schedule == SyncJobSchedule.Cron && string.IsNullOrWhiteSpace(draft.CronExpression))

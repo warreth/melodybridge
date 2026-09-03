@@ -87,7 +87,7 @@ public class LayoutFixUITests
         _ctx.Services.AddSingleton<MelodyBridge.Core.Logging.ILogCollector>(collector);
         _ctx.Services.AddSingleton(new MelodyBridge.Server.Services.LogExporter(collector));
         // Settings injects the user directory; the default mock is enough.
-        _ctx.Services.AddSingleton(new Moq.Mock<MelodyBridge.Core.IJellyfinUserDirectory>().Object);
+        _ctx.Services.AddSingleton(new Moq.Mock<MelodyBridge.Core.IMediaServerDirectory>().Object);
         // Loose mode: the dashboard calls JS helpers (tour, spotlight,
         // file download) that are irrelevant to these assertions.
         _ctx.JSInterop.Mode = JSRuntimeMode.Loose;
@@ -225,8 +225,8 @@ public class LayoutFixUITests
             Assert.That(cut.Markup, Does.Contain("Connections")), TimeSpan.FromSeconds(3));
 
         var rows = cut.FindAll(".connection-row");
-        Assert.That(rows.Count, Is.EqualTo(4),
-            "Spotify, YouTube, Jellyfin and FlareSolverr each get their own row");
+        Assert.That(rows.Count, Is.EqualTo(6),
+            "Spotify, YouTube, Jellyfin, Plex, Navidrome and FlareSolverr each get their own row");
         foreach (var row in rows)
         {
             var status = row.QuerySelector(".pill");

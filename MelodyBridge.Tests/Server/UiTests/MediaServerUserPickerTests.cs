@@ -14,25 +14,25 @@ namespace MelodyBridge.Tests.Server.UiTests;
 /// </summary>
 [TestFixture]
 [Category("UI")]
-public class JellyfinUserPickerTests
+public class MediaServerUserPickerTests
 {
     private TestContext _ctx = null!;
-    private Mock<IJellyfinUserDirectory> _directory = null!;
+    private Mock<IMediaServerDirectory> _directory = null!;
 
     [SetUp]
     public void Setup()
     {
         _ctx = new TestContext();
-        _directory = new Mock<IJellyfinUserDirectory>();
-        _ctx.Services.AddSingleton<IJellyfinUserDirectory>(_directory.Object);
+        _directory = new Mock<IMediaServerDirectory>();
+        _ctx.Services.AddSingleton<IMediaServerDirectory>(_directory.Object);
     }
 
     [TearDown]
     public void TearDown() => _ctx.Dispose();
 
-    private IRenderedComponent<global::MelodyBridge.Server.Components.Shared.JellyfinUserPicker> Render(
+    private IRenderedComponent<global::MelodyBridge.Server.Components.Shared.MediaServerUserPicker> Render(
         string url = "http://jf:8096", string key = "k")
-        => _ctx.Render<global::MelodyBridge.Server.Components.Shared.JellyfinUserPicker>(p => p
+        => _ctx.Render<global::MelodyBridge.Server.Components.Shared.MediaServerUserPicker>(p => p
             .Add(c => c.ServerUrl, url)
             .Add(c => c.ApiKey, key));
 
@@ -56,7 +56,7 @@ public class JellyfinUserPickerTests
             .ReturnsAsync(true);
         _directory
             .Setup(d => d.GetUsersAsync("http://jf:8096", "k", It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new List<JellyfinUserOption>
+            .ReturnsAsync(new List<MediaServerUserOption>
             {
                 new("u1", "Alice"),
                 new("u2", "Bob"),
