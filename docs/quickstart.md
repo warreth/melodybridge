@@ -37,6 +37,10 @@ Plex or Navidrome at `./data/music`.
 3. Go to **Sync jobs** and create a job that writes an M3U file or pushes
    the playlist to Jellyfin, Plex or Navidrome.
 
+What that looks like:
+
+<img src="/screens/home.webp" alt="The MelodyBridge dashboard you see after logging in" width="800">
+
 ::: tip Jellyfin, Plex or Navidrome on the host
 If your media server runs on your host, use
 `http://host.docker.internal:8096` (Jellyfin), `:32400` (Plex) or
