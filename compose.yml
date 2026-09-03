@@ -42,11 +42,20 @@ services:
       - DevPanel__Enabled=false
       - FlareSolverr__Url=auto
       - MELODYBRIDGE_DB=/app/state/melodybridge.db
+    # Volumes map a HOST path (left of the colon) to a CONTAINER path
+    # (right side). MelodyBridge runs inside the container, so it can
+    # only see the container side: every path typed in the app (music
+    # folder, Library scan locations, M3U output path) must be the
+    # right-hand path, like /music. The left side is where the files
+    # really live on your machine; change it to your own folder and
+    # keep the right side as is, or the app loses track of the mounts.
     volumes:
+      # Downloads land here. In the app: /music (Settings, Default paths).
       - ./data/music:/music
+      # M3U playlists are written here. In the app: /app/playlists.
       - ./data/playlists:/app/playlists
-      # State mount must not cover /app itself: that would hide
-      # the application binaries inside the image.
+      # The SQLite database and runtime state live here, so they
+      # survive container rebuilds.
       - ./data/app:/app/state
     restart: unless-stopped
     security_opt:

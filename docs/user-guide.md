@@ -187,6 +187,21 @@ recognized. Downloaded tracks are matched against the library: a track
 you already own is not downloaded again. The scan history below the
 locations shows what each run found, added and updated.
 
+Every downloaded file carries a MELODY_ID tag with a stable id derived
+from its source: a Spotify track always gets the same id, a YouTube
+video always gets the same id, a CSV import row gets a hash of its
+artist, title and duration. The tag, not the database, is the source
+of truth.
+
+::: tip Recover after wiping the database
+Because the ids are deterministic, the database is a cache you can
+rebuild. Delete the database file, re-add the same playlists, and every
+track is matched to the file that already exists on disk by its
+MELODY_ID tag: nothing is downloaded again. Run a Library scan after
+re-adding so the files are indexed, then open each playlist and the
+existing files link up automatically.
+:::
+
 ## Settings
 
 The Settings page collects everything that is not per-playlist, in six
@@ -209,8 +224,10 @@ tabs.
   included). Advanced filters… opens a container, floor and ceiling
   selector for exact control.
 - **Network**: the FlareSolverr URL for the Lucida plugin with a Test
-  connection button, `off` disables Lucida; plus a log export that
-  downloads the most recent 1000 entries as a plain text file
+  connection button, `off` disables Lucida; an optional Spotify web
+  cookie for fallback scraping (stored here, not in an environment
+  variable); plus a log export that downloads the most recent 1000
+  entries as a plain text file
 - **About**: app version and update check
 
 ::: tip Which preset

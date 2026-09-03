@@ -73,6 +73,11 @@ Configure everything media-server-related (Jellyfin, Plex, Navidrome) in the web
 | `FlareSolverr__Url` | `auto` | Cloudflare solver endpoint: `auto` detects the container on the compose network, an explicit URL uses that one, `off` disables Lucida |
 | `MELODYBRIDGE_DB` | `/app/state/melodybridge.db` | SQLite database location (defaults to the working directory outside Docker) |
 
+Everything else lives in the web UI Settings, stored in the database:
+Jellyfin, Plex and Navidrome connections, the FlareSolverr URL, the
+optional Spotify web cookie and all download behaviour. Nothing else
+needs an environment variable.
+
 After `docker compose up -d`, open http://localhost:3333 and fill in your connection under Settings: Jellyfin takes a base URL, API key and user; Plex takes a base URL and X-Plex-Token; Navidrome takes a base URL, username and password. Values are stored in the database volume and apply immediately, no restart needed.
 
 ### Volumes
@@ -82,6 +87,16 @@ After `docker compose up -d`, open http://localhost:3333 and fill in your connec
 | `./data/music` | `/music` | Music file storage (point Jellyfin, Plex or Navidrome here) |
 | `./data/playlists` | `/app/playlists` | Generated playlist output |
 | `./data/app` | `/app/state` | SQLite database and app state (the app itself stays inside the image) |
+
+::: warning Path mismatches are the number one Docker problem
+The app runs inside the container and only sees the container side of
+these mappings. Every path you type in MelodyBridge (Settings default
+paths, Library scan locations, M3U output paths) must be the container
+path, like /music, never the host path like /home/me/Music. If the
+scanner finds zero files in a folder that clearly has music, the
+folder is probably not mounted into the container at all, or you typed
+the host path. The app shows a reminder next to every path input.
+:::
 
 ### Media servers in Docker
 
