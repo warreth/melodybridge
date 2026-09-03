@@ -951,9 +951,19 @@ public class PlaylistStore
     private static TrackEntity MapTrack(Track track, Platform platform, string playlistId, int position)
     {
         var externalId = track.PlatformSongID?.ID ?? track.SongID?.ID;
+        var songId = track.PlatformSongID ?? track.SongID;
         return new TrackEntity
         {
-            MelodyId = $"mb-{Guid.NewGuid():N}",
+            // Deterministic per source track: wiping the database and
+            // re-adding the same playlist yields the same ids, so the
+            // files already on disk keep matching and nothing re-downloads.
+            // No native id: import rows hash their metadata (csv:), any
+            // other row falls back to the mbh: hash.
+            MelodyId = songId is not null
+                ? MelodyIds.For(songId)
+                : platform == Platform.Unknown
+                    ? MelodyIds.ForCsv(track.Artist, track.Title, track.Duration)
+                    : MelodyIds.ForUnknown(track.Artist, track.Title, track.Duration),
             ExternalId = externalId,
             ExternalPlatform = platform.ToString(),
             Title = track.Title,

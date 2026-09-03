@@ -65,6 +65,20 @@ public static class SchemaPatcher
                 playlist.SourcePlatform = Platform.Unknown;
             await db.SaveChangesAsync(ct);
         }
+
+        // One-time backfill: rows that carry an external id but no MelodyId
+        // (rare; mostly restored or hand-edited databases) get the same
+        // deterministic id a fresh snapshot would produce. Rows that already
+        // have an id keep it - their files carry that tag on disk.
+        var untagged = await db.Tracks
+            .Where(t => t.MelodyId == null && t.ExternalId != null)
+            .ToListAsync(ct);
+        if (untagged.Count > 0)
+        {
+            foreach (var track in untagged)
+                track.MelodyId = MelodyIds.For(track.ExternalPlatform, track.ExternalId);
+            await db.SaveChangesAsync(ct);
+        }
     }
 
     private static async Task<HashSet<string>> GetColumnsAsync(
