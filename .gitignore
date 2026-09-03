@@ -7,6 +7,9 @@
 ##
 ## Get latest from https://github.com/github/gitignore/blob/main/Dotnet.gitignore
 
+# Media-server live-test scratch (containers, fixtures, configs)
+.mb-live/
+
 # Build results
 [Dd]ebug/
 [Dd]ebugPublic/
