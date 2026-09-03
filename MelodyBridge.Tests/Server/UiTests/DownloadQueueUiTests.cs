@@ -147,4 +147,34 @@ public class DownloadQueueUiTests
         Assert.That(ok, Is.True,
             "once at least one track completed, the panel must show the ETA");
     }
+
+    [Test]
+    public async Task PerTrackDownloadButton_DownloadsOnlyThatTrack()
+    {
+        // No run is started here: only the single-track button is used.
+        var cut = _ctx.Render<PlaylistDetails>(p => p.Add(p => p.PlaylistId, "pl-queue"));
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("Beta")), TimeSpan.FromSeconds(5));
+
+        // The row of "Beta" has its own download button.
+        var betaRow = cut.FindAll("tr").First(r => r.TextContent.Contains("Beta"));
+        betaRow.QuerySelector("button[title='Download this track now']")!.Click();
+
+        // Beta completes (the slow downloader takes ~1.5s); Alpha and
+        // Gamma must stay exactly as they were. Polling the markup (not
+        // WaitForAssertion) pumps the dispatcher the handler needs.
+        var ok = await WaitMarkupAsync(
+            m => m.Contains("Beta") && RowText(cut, "Beta").Contains("downloaded"),
+            TimeSpan.FromSeconds(15), () => cut.Markup);
+        Assert.That(ok, Is.True, "the clicked track downloads");
+
+        Assert.That(RowText(cut, "Alpha"), Does.Contain("pending"),
+            "a per-track click must never download the rest of the playlist");
+        Assert.That(RowText(cut, "Gamma"), Does.Contain("pending"),
+            "a per-track click must never download the rest of the playlist");
+    }
+
+    /// <summary>The table row of a track, as plain text.</summary>
+    private static string RowText(IRenderedComponent<PlaylistDetails> cut, string title)
+        => cut.FindAll("tr").First(r => r.TextContent.Contains(title)).TextContent;
 }

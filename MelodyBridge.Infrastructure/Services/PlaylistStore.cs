@@ -96,94 +96,147 @@ public class PlaylistStore
             var trackId = await ClaimNextPendingAsync(playlistId, attempted, ct);
             if (trackId is null) break; // nothing left to claim
 
-            await using var db = await _dbFactory.CreateDbContextAsync(ct);
-            var track = await db.Tracks.FindAsync(new object[] { trackId }, ct);
-            if (track is null) continue;
-
-            if (string.IsNullOrWhiteSpace(track.Artist) || string.IsNullOrWhiteSpace(track.Title))
-            {
-                track.DownloadStatus = "failed";
-                track.DownloadError = "missing artist/title metadata";
-                await db.SaveChangesAsync(ct);
-                failed++;
-                continue;
-            }
-
-            try
-            {
-                var (primary, fallback) = ParseQualityDetailed(preferredFormat);
-                var path = await _downloadManager.DownloadTrackAsync(
-                    track.Artist!, track.Title!, dir, track.MelodyId!, primary, ct);
-
-                // Lossless preset: when no source delivered a lossless
-                // file, take the best lossy copy instead of nothing.
-                if (path is null && fallback is not null)
-                {
-                    _logger.LogInformation(
-                        "No lossless source for '{Title}'; falling back to the best lossy file", track.Title);
-                    path = await _downloadManager.DownloadTrackAsync(
-                        track.Artist!, track.Title!, dir, track.MelodyId!, fallback, ct);
-                }
-
-                if (path is null)
-                {
-                    track.DownloadStatus = "failed";
-                    // Say why: filter misses can be fixed by the user,
-                    // missing tracks cannot.
-                    track.DownloadError = _downloadManager.LastFailure(track.MelodyId!)
-                        ?? "no plugin could download this track";
-                    failed++;
-                }
-                else
-                {
-                    // Write-through: the file always ends up with full tags,
-                    // whatever the plugin could or could not read from the source.
-                    Tagging.TaglibHelper.WriteTags(
-                        path,
-                        title: track.Title,
-                        artist: track.Artist,
-                        album: track.Album,
-                        track: (uint?)track.Position);
-
-                    // Fast integrity gate: a truncated or corrupt download
-                    // must not survive as "downloaded": delete it and fail the
-                    // track so the next run retries it. DurationMs is what the
-                    // source platform advertised for the track.
-                    var integrity = Audio.FileIntegrity.Check(
-                        path, track.DurationMs is > 0 ? TimeSpan.FromMilliseconds(track.DurationMs.Value) : null);
-                    if (!integrity.Ok)
-                    {
-                        try { System.IO.File.Delete(path); } catch { /* best effort */ }
-                        track.DownloadStatus = "failed";
-                        track.DownloadError = $"corrupt download: {integrity.Reason}";
-                        failed++;
-                        await db.SaveChangesAsync(ct);
-                        continue;
-                    }
-
-                    track.DownloadStatus = "downloaded";
-                    track.CurrentPath = path;
-                    track.LastSeenAt = DateTime.UtcNow;
-                    track.Bitrate = Audio.BitrateProbe.MeasureKbps(path);
-                    AudioProbe.Fill(track, path);
-                    track.Warning = BuildWarning(track, path, spectrumMode);
-                    downloaded++;
-                }
-            }
-            catch (Exception ex)
-            {
-                track.DownloadStatus = "failed";
-                track.DownloadError = ex.Message.Truncate(1000);
-                failed++;
-            }
-
-            await db.SaveChangesAsync(ct);
+            var result = await DownloadClaimedTrackAsync(
+                trackId.Value, dir, preferredFormat, spectrumMode, ct);
+            if (result == "downloaded") downloaded++;
+            else if (result == "failed") failed++;
         }
 
         _logger.LogInformation("Download run for '{Playlist}' ({Quality}): {Downloaded} downloaded, {Failed} failed",
             playlistName, preferredFormat, downloaded, failed);
 
         return (downloaded, failed);
+    }
+
+    /// <summary>
+    /// Downloads exactly one track (the per-track button). Claims that
+    /// track atomically, runs the same pipeline as a full run, and
+    /// returns "downloaded", "failed" or "claimed-by-another-run",
+    /// never touching any other track of the playlist.
+    /// </summary>
+    public async Task<string> DownloadTrackAsync(int trackId, CancellationToken ct = default)
+    {
+        int id;
+        string dir, preferredFormat;
+        await using (var db = await _dbFactory.CreateDbContextAsync(ct))
+        {
+            var track = await db.Tracks.AsNoTracking()
+                .FirstOrDefaultAsync(t => t.Id == trackId, ct);
+            if (track is null) return "not-found";
+            id = track.Id;
+
+            var playlist = await db.Playlists.AsNoTracking()
+                .FirstOrDefaultAsync(p => p.Id == track.PlaylistEntityId, ct);
+            dir = playlist?.TargetDirectory
+                ?? await _settings.GetAsync("music_path", "/music", ct);
+            preferredFormat = playlist?.PreferredFormat ?? "";
+        }
+        if (string.IsNullOrWhiteSpace(dir))
+            throw new InvalidOperationException(
+                "No download folder configured. Set one in the playlist settings.");
+
+        // Claim exactly this track: same conditional UPDATE as the
+        // full-run claim, so a single-track click and a running batch
+        // never download the same track twice.
+        await using (var db = await _dbFactory.CreateDbContextAsync(ct))
+        {
+            var claimed = await db.Tracks
+                .Where(t => t.Id == id
+                    && (t.DownloadStatus == null || t.DownloadStatus == "pending" || t.DownloadStatus == "failed"))
+                .ExecuteUpdateAsync(s => s.SetProperty(t => t.DownloadStatus, "in_progress"), ct);
+            if (claimed != 1) return "claimed-by-another-run";
+        }
+
+        return await DownloadClaimedTrackAsync(id, dir, preferredFormat, SpectrumVerification(), ct);
+    }
+
+    /// <summary>
+    /// The per-track pipeline shared by the full run and the single-track
+    /// button: search, download, tag, integrity-check, write status.
+    /// The caller has already claimed the track.
+    /// </summary>
+    private async Task<string> DownloadClaimedTrackAsync(
+        int trackId, string dir, string preferredFormat, SpectrumMode spectrumMode, CancellationToken ct)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var track = await db.Tracks.FindAsync(new object[] { trackId }, ct);
+        if (track is null) return "skipped";
+
+        if (string.IsNullOrWhiteSpace(track.Artist) || string.IsNullOrWhiteSpace(track.Title))
+        {
+            track.DownloadStatus = "failed";
+            track.DownloadError = "missing artist/title metadata";
+            await db.SaveChangesAsync(ct);
+            return "failed";
+        }
+
+        try
+        {
+            var (primary, fallback) = ParseQualityDetailed(preferredFormat);
+            var path = await _downloadManager.DownloadTrackAsync(
+                track.Artist!, track.Title!, dir, track.MelodyId!, primary, ct);
+
+            // Lossless preset: when no source delivered a lossless
+            // file, take the best lossy copy instead of nothing.
+            if (path is null && fallback is not null)
+            {
+                _logger.LogInformation(
+                    "No lossless source for '{Title}'; falling back to the best lossy file", track.Title);
+                path = await _downloadManager.DownloadTrackAsync(
+                    track.Artist!, track.Title!, dir, track.MelodyId!, fallback, ct);
+            }
+
+            if (path is null)
+            {
+                track.DownloadStatus = "failed";
+                // Say why: filter misses can be fixed by the user,
+                // missing tracks cannot.
+                track.DownloadError = _downloadManager.LastFailure(track.MelodyId!)
+                    ?? "no plugin could download this track";
+                return "failed";
+            }
+
+            // Write-through: the file always ends up with full tags,
+            // whatever the plugin could or could not read from the source.
+            Tagging.TaglibHelper.WriteTags(
+                path,
+                title: track.Title,
+                artist: track.Artist,
+                album: track.Album,
+                track: (uint?)track.Position);
+
+            // Fast integrity gate: a truncated or corrupt download
+            // must not survive as "downloaded": delete it and fail the
+            // track so the next run retries it. DurationMs is what the
+            // source platform advertised for the track.
+            var integrity = Audio.FileIntegrity.Check(
+                path, track.DurationMs is > 0 ? TimeSpan.FromMilliseconds(track.DurationMs.Value) : null);
+            if (!integrity.Ok)
+            {
+                try { System.IO.File.Delete(path); } catch { /* best effort */ }
+                track.DownloadStatus = "failed";
+                track.DownloadError = $"corrupt download: {integrity.Reason}";
+                return "failed";
+            }
+
+            track.DownloadStatus = "downloaded";
+            track.CurrentPath = path;
+            track.LastSeenAt = DateTime.UtcNow;
+            track.Bitrate = Audio.BitrateProbe.MeasureKbps(path);
+            AudioProbe.Fill(track, path);
+            track.Warning = BuildWarning(track, path, spectrumMode);
+            return "downloaded";
+        }
+        catch (Exception ex)
+        {
+            track.DownloadStatus = "failed";
+            track.DownloadError = ex.Message.Truncate(1000);
+            return "failed";
+        }
+        finally
+        {
+            await db.SaveChangesAsync(ct);
+        }
     }
 
     /// <summary>
@@ -344,18 +397,6 @@ public class PlaylistStore
         db.Tracks.Remove(track);
         await db.SaveChangesAsync(ct);
         return true;
-    }
-
-    /// <summary>Resets a track so the next download run picks it up again.</summary>
-    public async Task RetryTrackAsync(int trackId, CancellationToken ct = default)
-    {
-        await using var db = await _dbFactory.CreateDbContextAsync(ct);
-        var track = await db.Tracks.FindAsync(new object[] { trackId }, ct);
-        if (track is null) return;
-        track.DownloadStatus = "pending";
-        track.DownloadError = null;
-        track.CurrentPath = null;
-        await db.SaveChangesAsync(ct);
     }
 
     /// <summary>One persisted playlist including its current track snapshot.</summary>

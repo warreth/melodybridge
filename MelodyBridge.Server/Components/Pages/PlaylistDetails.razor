@@ -113,8 +113,10 @@ else
         <section class="panel-card download-live">
             <div class="download-live-head">
                 <strong>
-                    @(run.State == Application.Services.DownloadRunState.Paused ? "Paused" : "Downloading")
-                   : @run.Done of @run.Total
+                    @(run.State == Application.Services.DownloadRunState.Paused
+                        ? "Paused"
+                        : "Downloading"):
+                    @run.Done of @run.Total
                 </strong>
                 <span>@run.Failed failed · @run.Percent%</span>
             </div>
@@ -444,13 +446,19 @@ else
         finally { busy = false; }
     }
 
+    /// <summary>
+    /// Downloads exactly this track: the full-run coordinator stays
+    /// untouched, so the click never kicks off the rest of the playlist.
+    /// </summary>
     private async Task RetryTrack(TrackEntity track)
     {
         busy = true;
         try
         {
-            await Store.RetryTrackAsync(track.Id);
-            Coordinator.Start(PlaylistId);
+            var result = await Store.DownloadTrackAsync(track.Id);
+            if (result == "claimed-by-another-run")
+                message = "This track is already being downloaded by a running batch.";
+            await Load();
         }
         finally { busy = false; }
     }
