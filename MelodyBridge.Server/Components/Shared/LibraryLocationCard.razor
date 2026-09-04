@@ -1,0 +1,41 @@
+@* One scan location row: path, measured file count, schedule
+   description, last scan time and the edit/remove actions. All
+   facts arrive as parameters so the card holds no data logic. *@
+<div class="location-card">
+    <Icon Name="folder" Size="20" Class="location-icon" />
+    <div class="location-body">
+        <code class="path-tag">@Location.Path</code>
+        @if (!Directory.Exists(Location.Path))
+        {
+            <StatusPill Variant="err">path missing</StatusPill>
+        }
+        <small class="location-meta">
+            <span>@FileCount files with MELODY_ID</span>
+            <span>@ScheduleText</span>
+            <span>last scan @LastScanText</span>
+        </small>
+        @if (Location.LiveMonitoring)
+        {
+            <StatusPill Variant="neutral">live</StatusPill>
+        }
+    </div>
+    <div class="flex-actions location-actions">
+        <button class="btn-modern ghost small" @onclick="() => OnEdit.InvokeAsync(Location)">Edit</button>
+        <button class="btn-modern ghost small" @onclick="() => OnRemove.InvokeAsync(Location)">Remove</button>
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public ScanLocationEntity Location { get; set; } = null!;
+    [Parameter] public int FileCount { get; set; }
+    /// <summary>Pass the resolved schedule so the card never parses the row twice.</summary>
+    [Parameter, EditorRequired] public ScanSchedule Schedule { get; set; }
+    [Parameter] public EventCallback<ScanLocationEntity> OnEdit { get; set; }
+    [Parameter] public EventCallback<ScanLocationEntity> OnRemove { get; set; }
+
+    private string ScheduleText => Schedule.Mode == ScanScheduleMode.Manual ? "manual" : Schedule.Describe();
+
+    private string LastScanText => Location.LastScannedAt is { } scanned
+        ? scanned.ToLocalTime().ToString("yyyy-MM-dd HH:mm")
+        : "never";
+}

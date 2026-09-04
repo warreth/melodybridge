@@ -1,0 +1,30 @@
+/* Track identity legend, scoped to the panel component: term left,
+   explanation right, one row per fact. */
+
+.identity-grid {
+    display: grid;
+    gap: .65rem;
+}
+
+.identity-item {
+    display: grid;
+    grid-template-columns: minmax(96px, auto) minmax(0, 1fr);
+    gap: .3rem 1rem;
+    align-items: baseline;
+    padding: .75rem 1rem;
+    background: var(--surface-3);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+}
+
+.identity-term {
+    font-size: .9rem;
+    color: var(--text);
+}
+
+.identity-desc {
+    color: var(--muted);
+    font-size: .8rem;
+    margin: 0;
+    overflow-wrap: anywhere;
+}

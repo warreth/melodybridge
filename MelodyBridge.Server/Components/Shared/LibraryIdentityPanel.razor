@@ -1,0 +1,30 @@
+@* The "How matching works" panel: three key-value facts about
+   track identity, each on its own row with the term set apart from
+   its explanation. Static content; the page only places it. *@
+<div class="panel-card">
+    <div class="panel-header">
+        <div>
+            <span class="eyebrow">How matching works</span>
+            <h2>Track identity</h2>
+        </div>
+    </div>
+    <div class="identity-grid">
+        @foreach (var item in Facts)
+        {
+            <div class="identity-item">
+                <strong class="identity-term">@item.Term</strong>
+                <small class="identity-desc">@item.Description</small>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    /// <summary>The legend facts, in display order. One wording here.</summary>
+    public static readonly (string Term, string Description)[] Facts =
+    {
+        ("MELODY_ID", "ID3v2 TXXX frame embedded during download"),
+        ("Fallback", "Comment-based marker when ID3 frames are unsupported"),
+        ("Matched", "Playlists link to files by ID tag; avoids re-downloading"),
+    };
+}

@@ -1,0 +1,65 @@
+/* One scan-location card, scoped to the card component. */
+
+.location-card {
+    display: flex;
+    align-items: flex-start;
+    gap: .75rem;
+    padding: .85rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface-2);
+    transition: border-color .15s ease;
+}
+
+.location-card:hover { border-color: var(--border-strong); }
+
+.location-icon {
+    color: var(--muted);
+    margin-top: .2rem;
+    flex-shrink: 0;
+}
+
+.location-body {
+    flex: 1;
+    min-width: 0; /* lets the path shrink and wrap inside the card */
+    display: flex;
+    flex-direction: column;
+    gap: .35rem;
+    align-items: flex-start;
+}
+
+.path-tag {
+    font-family: var(--font-mono);
+    font-size: .82rem;
+    background: var(--surface-3);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: .2rem .5rem;
+    color: var(--text);
+    overflow-wrap: anywhere; /* a long path wraps inside the card, never the grid */
+    display: inline-block;
+    max-width: 100%;
+}
+
+/* One fact per segment: files, schedule, last scan. Wraps on narrow
+   cards instead of pushing the action buttons off screen. */
+.location-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .15rem .5rem;
+    color: var(--muted);
+    margin: 0;
+}
+
+.location-meta span + span::before {
+    content: "\00b7";
+    margin-right: .5rem;
+    color: var(--muted);
+}
+
+.location-actions {
+    margin-left: auto;
+    flex-shrink: 0;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
