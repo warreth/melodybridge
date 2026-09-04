@@ -1,9 +1,21 @@
 /* Playlists page scoped styles: the card tag row under each title
-   (owner, format, size as small muted badges). */
+   (owner, format, size as small muted badges), and cover mosaic styling. */
 
 .card-tags {
     display: flex;
     flex-wrap: wrap;
-    gap: .3rem;
-    margin: 0;
+    gap: .35rem;
+    margin: .4rem 0 .2rem 0;
+}
+
+.playlist-card {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+}
+
+.playlist-card .playlist-cover {
+    aspect-ratio: 16 / 9;
+    max-height: 180px;
+    width: 100%;
 }
