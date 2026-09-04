@@ -158,7 +158,7 @@ else
                 </div>
             </div>
             <div class="wizard-footer">
-                <button class="btn-modern" @onclick="HideAddForm">Cancel</button>
+                <button class="btn-modern secondary" @onclick="HideAddForm">Cancel</button>
                 <span></span>
                 <button class="btn-modern primary" @onclick="Add" disabled="@busy">@(busy ? "Fetching…" : "Fetch & save")</button>
             </div>
@@ -186,17 +186,17 @@ else
                             <strong>@entry.Name</strong>
                             @if (entry.Connected)
                             {
-                                <span class="pill ok">connected</span>
-                                <button class="btn-modern" @onclick="() => ImportLiked(entry.Name)" disabled="@busy">
+                                <StatusPill Variant="ok">connected</StatusPill>
+                                <button class="btn-modern secondary" @onclick="() => ImportLiked(entry.Name)" disabled="@busy">
                                     @(LikedAlreadySaved(entry.Name) ? "Update liked songs" : "Import liked songs")
                                 </button>
-                                <button class="btn-modern" @onclick="() => LoadAccountPlaylists(entry.Name)" disabled="@busy">
+                                <button class="btn-modern secondary" @onclick="() => LoadAccountPlaylists(entry.Name)" disabled="@busy">
                                     Show my playlists
                                 </button>
                             }
                             else
                             {
-                                <span class="pill neutral">not connected</span>
+                                <StatusPill Variant="neutral">not connected</StatusPill>
                                 <span class="text-muted">Connect it in Settings, Accounts.</span>
                             }
                         </div>
@@ -213,7 +213,7 @@ else
                 <div class="account-grid">
                     <div class="account-card">
                         <strong>Exportify CSV</strong>
-                        <span class="pill ok">recommended</span>
+                        <StatusPill Variant="ok">recommended</StatusPill>
                         <p class="text-muted">
                             The easiest way to get your liked songs out of Spotify.
                             Go to <a href="https://exportify.net" target="_blank" rel="noopener">exportify.net</a>,
@@ -222,16 +222,16 @@ else
                         </p>
                         @if (busy && uploadingRoute == "exportify")
                         {
-                            <span class="pill warn">reading file…</span>
+                            <StatusPill Variant="warn">reading file…</StatusPill>
                         }
                         else
                         {
-                            <InputFile OnChange="ImportExportifyFile" accept=".csv,text/csv" class="btn-modern" disabled="@busy" />
+                            <InputFile OnChange="ImportExportifyFile" accept=".csv,text/csv" class="btn-modern secondary" disabled="@busy" />
                         }
                     </div>
                     <div class="account-card">
                         <strong>Spotify data export</strong>
-                        <span class="pill neutral">manual, no API</span>
+                        <StatusPill Variant="neutral">manual, no API</StatusPill>
                         <p class="text-muted">
                             Always manual, never automatic: request <em>Download your data</em>
                             at <a href="https://www.spotify.com/account/privacy" target="_blank" rel="noopener">spotify.com/account/privacy</a>,
@@ -241,11 +241,11 @@ else
                         </p>
                         @if (busy && uploadingRoute == "takeout")
                         {
-                            <span class="pill warn">reading file…</span>
+                            <StatusPill Variant="warn">reading file…</StatusPill>
                         }
                         else
                         {
-                            <InputFile OnChange="ImportTakeoutFile" accept=".json,application/json" class="btn-modern" disabled="@busy" />
+                            <InputFile OnChange="ImportTakeoutFile" accept=".json,application/json" class="btn-modern secondary" disabled="@busy" />
                         }
                     </div>
                 </div>
@@ -278,15 +278,15 @@ else
                                         <td>
                                             @if (saved)
                                             {
-                                                <span class="pill ok" title="Already saved locally; importing again updates it">saved</span>
+                                                <StatusPill Variant="ok" Title="Already saved locally; importing again updates it">saved</StatusPill>
                                             }
                                             else
                                             {
-                                                <span class="pill neutral">new</span>
+                                                <StatusPill Variant="neutral">new</StatusPill>
                                             }
                                         </td>
                                         <td>
-                                            <button class="btn-modern" @onclick="() => ImportAccountPlaylist(pl)" disabled="@busy">
+                                            <button class="btn-modern secondary" @onclick="() => ImportAccountPlaylist(pl)" disabled="@busy">
                                                 @(busy && importingId == pl.Id
                                                     ? "Importing…"
                                                     : saved ? "Update" : "Import")
