@@ -1003,9 +1003,10 @@ td.file-path {
     display: grid;
     grid-template-columns: 4.2rem 4.2rem minmax(8rem, 16rem) 1fr;
     gap: .6rem;
-    padding: .32rem .7rem;
-    border-bottom: 1px solid color-mix(in srgb, var(--border, #888) 30%, transparent);
+    padding: .45rem .7rem;
+    border-bottom: 1px solid color-mix(in srgb, var(--border, #888) 60%, transparent);
     align-items: baseline;
+    line-height: 1.45;
 }
 
 .log-row:last-child {
