@@ -129,30 +129,10 @@ else
     </section>
 
     <section class="stat-grid">
-        <div class="stat-card">
-            <Icon Name="list-music" Size="20" Class="stat-icon" />
-            <label>Playlists</label>
-            <strong>@playlistsCount</strong>
-            <small>Saved from Spotify or YouTube</small>
-        </div>
-        <div class="stat-card">
-            <Icon Name="download" Size="20" Class="stat-icon" />
-            <label>Downloaded tracks</label>
-            <strong>@downloadedCount</strong>
-            <small>Files on your disk</small>
-        </div>
-        <div class="stat-card">
-            <Icon Name="library" Size="20" Class="stat-icon" />
-            <label>Library</label>
-            <strong>@libraryCount</strong>
-            <small>Files found by the scanner</small>
-        </div>
-        <div class="stat-card">
-            <Icon Name="package" Size="20" Class="stat-icon" />
-            <label>Plugins</label>
-            <strong>@enabledPlugins / @totalPlugins</strong>
-            <small>Enabled in the waterfall</small>
-        </div>
+        <StatCard IconName="list-music" Label="Playlists" Value="@playlistsCount.ToString()" Caption="Saved from Spotify or YouTube" />
+        <StatCard IconName="download" Label="Downloaded tracks" Value="@downloadedCount.ToString()" Caption="Files on your disk" />
+        <StatCard IconName="library" Label="Library" Value="@libraryCount.ToString()" Caption="Files found by the scanner" />
+        <StatCard IconName="package" Label="Plugins" Value="@($"{enabledPlugins} / {totalPlugins}")" Caption="Enabled in the waterfall" />
     </section>
 
     <section class="content-grid two">
@@ -164,36 +144,36 @@ else
                 </div>
             </div>
             <div class="provider-list">
-                <div class="connection-row @(spotifyConnected ? "enabled" : "")">
-                    <BrandIcon Name="spotify" Size="20" Class="connection-icon" />
-                    <div><strong>Spotify</strong><small>@(spotifyConnected ? "account connected" : "public playlists only")</small></div>
-                    <StatusPill Variant="@(spotifyConnected ? "connected" : "guest")">@(spotifyConnected ? "connected" : "guest")</StatusPill>
-                </div>
-                <div class="connection-row @(youtubeConnected ? "enabled" : "")">
-                    <BrandIcon Name="youtube" Size="20" Class="connection-icon" />
-                    <div><strong>YouTube</strong><small>@(youtubeConnected ? "account connected" : "public playlists only")</small></div>
-                    <StatusPill Variant="@(youtubeConnected ? "connected" : "guest")">@(youtubeConnected ? "connected" : "guest")</StatusPill>
-                </div>
-                <div class="connection-row @(jellyfinConfigured ? "enabled" : "")">
-                    <BrandIcon Name="jellyfin" Size="20" Class="connection-icon" />
-                    <div><strong>Jellyfin</strong><small>@(jellyfinConfigured ? jellyfinUrl : "not configured")</small></div>
-                    <StatusPill Variant="@(jellyfinConfigured ? "ready" : "neutral")">@(jellyfinConfigured ? "ready" : "off")</StatusPill>
-                </div>
-                <div class="connection-row @(plexConfigured ? "enabled" : "")">
-                    <BrandIcon Name="plex" Size="20" Class="connection-icon" />
-                    <div><strong>Plex</strong><small>@(plexConfigured ? plexUrl : "not configured")</small></div>
-                    <StatusPill Variant="@(plexConfigured ? "ready" : "neutral")">@(plexConfigured ? "ready" : "off")</StatusPill>
-                </div>
-                <div class="connection-row @(navidromeConfigured ? "enabled" : "")">
-                    <BrandIcon Name="navidrome" Size="20" Class="connection-icon" />
-                    <div><strong>Navidrome</strong><small>@(navidromeConfigured ? navidromeUrl : "not configured")</small></div>
-                    <StatusPill Variant="@(navidromeConfigured ? "ready" : "neutral")">@(navidromeConfigured ? "ready" : "off")</StatusPill>
-                </div>
-                <div class="connection-row @(flareSolverrOn ? "enabled" : "")">
-                    <BrandIcon Name="flaresolverr" Size="20" Class="connection-icon" />
-                    <div><strong>FlareSolverr</strong><small>@(flareSolverrOn ? flareSolverrUrlText : "Cloudflare bypass off")</small></div>
-                    <StatusPill Variant="@(flareSolverrOn ? "ok" : "neutral")">@(flareSolverrOn ? "on" : "off")</StatusPill>
-                </div>
+                <ConnectionRow IconName="spotify" Title="Spotify"
+                               Detail="@(spotifyConnected ? "account connected" : "public playlists only")"
+                               PillVariant="@(spotifyConnected ? "connected" : "guest")"
+                               PillText="@(spotifyConnected ? "connected" : "guest")"
+                               Enabled="spotifyConnected" />
+                <ConnectionRow IconName="youtube" Title="YouTube"
+                               Detail="@(youtubeConnected ? "account connected" : "public playlists only")"
+                               PillVariant="@(youtubeConnected ? "connected" : "guest")"
+                               PillText="@(youtubeConnected ? "connected" : "guest")"
+                               Enabled="youtubeConnected" />
+                <ConnectionRow IconName="jellyfin" Title="Jellyfin"
+                               Detail="@(jellyfinConfigured ? jellyfinUrl : "not configured")"
+                               PillVariant="@(jellyfinConfigured ? "ready" : "neutral")"
+                               PillText="@(jellyfinConfigured ? "ready" : "off")"
+                               Enabled="jellyfinConfigured" />
+                <ConnectionRow IconName="plex" Title="Plex"
+                               Detail="@(plexConfigured ? plexUrl : "not configured")"
+                               PillVariant="@(plexConfigured ? "ready" : "neutral")"
+                               PillText="@(plexConfigured ? "ready" : "off")"
+                               Enabled="plexConfigured" />
+                <ConnectionRow IconName="navidrome" Title="Navidrome"
+                               Detail="@(navidromeConfigured ? navidromeUrl : "not configured")"
+                               PillVariant="@(navidromeConfigured ? "ready" : "neutral")"
+                               PillText="@(navidromeConfigured ? "ready" : "off")"
+                               Enabled="navidromeConfigured" />
+                <ConnectionRow IconName="flaresolverr" Title="FlareSolverr"
+                               Detail="@(flareSolverrOn ? flareSolverrUrlText : "Cloudflare bypass off")"
+                               PillVariant="@(flareSolverrOn ? "ok" : "neutral")"
+                               PillText="@(flareSolverrOn ? "on" : "off")"
+                               Enabled="flareSolverrOn" />
             </div>
         </div>
         <div class="panel-card">

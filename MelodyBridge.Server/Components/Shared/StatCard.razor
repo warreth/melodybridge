@@ -1,0 +1,24 @@
+@* Stat card: one component for every dashboard metric tile.
+   Keeps the exact markup of the old inline dashboard cards so the
+   visual language stays identical. Value is a string so callers pass
+   already formatted values such as "3 / 6" for plugins. *@
+<div class="stat-card">
+    <Icon Name="@IconName" Size="20" Class="stat-icon" />
+    <label>@Label</label>
+    <strong>@Value</strong>
+    @if (Caption is not null)
+    {
+        <small>@Caption</small>
+    }
+</div>
+
+@code {
+    /// <summary>Icon name passed to the Icon component, for example list-music.</summary>
+    [Parameter, EditorRequired] public string IconName { get; set; } = "";
+    /// <summary>Metric value already formatted by the caller, for example "12" or "3 / 6".</summary>
+    [Parameter] public string Value { get; set; } = "";
+    /// <summary>Short metric name shown above the value.</summary>
+    [Parameter] public string Label { get; set; } = "";
+    /// <summary>Optional caption under the value. When null no small element renders.</summary>
+    [Parameter] public string? Caption { get; set; }
+}

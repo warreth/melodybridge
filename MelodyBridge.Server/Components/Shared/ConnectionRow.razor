@@ -1,0 +1,31 @@
+@* Connection row: one component for every dashboard connection row.
+   Fully data driven, so the connections panel never grows per
+   service markup copies. *@
+<div class="connection-row @(Enabled ? "enabled" : "")">
+    <BrandIcon Name="@IconName" Size="20" Class="connection-icon" />
+    <div class="connection-info">
+        <strong>@Title</strong>
+        <small>@Detail</small>
+    </div>
+    <StatusPill Variant="@PillVariant">@PillText</StatusPill>
+</div>
+
+@code {
+    /// <summary>Brand key for the icon: spotify, youtube, jellyfin, plex, navidrome, flaresolverr.</summary>
+    [Parameter] public string IconName { get; set; } = "server";
+
+    /// <summary>Service name shown in bold, such as Jellyfin.</summary>
+    [Parameter] public string Title { get; set; } = "";
+
+    /// <summary>Second line: state text or server URL.</summary>
+    [Parameter] public string Detail { get; set; } = "";
+
+    /// <summary>Friendly StatusPill variant: connected, ready, ok, guest, neutral, ...</summary>
+    [Parameter] public string PillVariant { get; set; } = "neutral";
+
+    /// <summary>Text inside the pill, such as ready or off.</summary>
+    [Parameter] public string PillText { get; set; } = "";
+
+    /// <summary>True paints the accent left border that marks an active connection.</summary>
+    [Parameter] public bool Enabled { get; set; }
+}

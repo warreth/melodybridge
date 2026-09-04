@@ -256,6 +256,7 @@ code { color: var(--accent-strong); background: var(--accent-soft); border-radiu
 
 .panel-card,
 .stat-card { padding: 1rem; }
+.stat-card { min-height: 0; }
 .panel-header { display: flex; justify-content: space-between; gap: 1rem; align-items: start; margin-bottom: 1rem; }
 .stat-icon,
 .provider-icon {
@@ -269,8 +270,9 @@ code { color: var(--accent-strong); background: var(--accent-soft); border-radiu
 .provider-icon { width: 42px; height: 42px; font-size: 1.05rem; }
 .about-card p { color: var(--muted); margin-bottom: 1rem; }
 .github-link { width: fit-content; gap: .5rem; }
-.stat-card label { display: block; color: var(--muted); font-size: .8rem; }
-.stat-card strong { display: block; margin: .2rem 0; font-size: 1.625rem; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+.stat-card label { display: block; color: var(--muted); font-size: .8rem; line-height: 1.3; }
+.stat-card strong { display: block; margin: .25rem 0 .15rem; line-height: 1.2; font-size: 1.625rem; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+.stat-card small { display: block; color: var(--muted-2); font-size: .78rem; line-height: 1.4; margin-top: .1rem; }
 
 .btn-modern,
 .icon-button {
@@ -419,11 +421,11 @@ select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-s
 .provider-row.disabled { opacity: .55; }
 .provider-row.builtin { border-left: 3px solid var(--border); }
 .provider-icon { font-size: 1.3rem; line-height: 1; }
-/* Connection rows (dashboard): name + status pill, no icon column. */
+/* Connection rows (dashboard): icon column, flexible info, right pill. */
 .connection-row {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: .65rem;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: .75rem;
     align-items: center;
     padding: .75rem;
     border-radius: 8px;
@@ -433,6 +435,15 @@ select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-s
 .connection-row small { font-size: .78rem; color: var(--muted); margin: 0; }
 .connection-row .pill { justify-self: end; }
 .connection-row.enabled { border-left: 3px solid var(--accent-soft); }
+.connection-icon { color: var(--muted); flex-shrink: 0; }
+.connection-info { min-width: 0; }
+.connection-info small {
+    display: block;
+    color: var(--muted);
+    font-size: .78rem;
+    line-height: 1.4;
+    word-break: break-all;
+}
 .provider-info { display: flex; flex-direction: column; gap: .15rem; min-width: 0; }
 .provider-info small { font-size: .78rem; color: var(--muted); white-space: normal; }
 .provider-tags,
