@@ -71,15 +71,17 @@ docs/.vitepress/cache/
 # Playwright browser/cache scratch (screenshot tooling)
 .pwtmp/
 
-# UI screenshot/audit session scratch (screenshots, scraped
-# markup/css, throwaway scripts)
+# UI screenshot/audit session scratch (raw 2x pngs, throwaway probes)
+.shots/
 shot-*.png
 mb-home.html
 mb-pd.log
 served-app.css
 shell-audit.mjs
 reconnect-check.mjs
-scripts/shot-*.mjs
+# older single-page capture helpers, superseded by take-screenshots.mjs
+scripts/shot-playlists.mjs
+scripts/shot-syncjobs.mjs
 
 # Stashed checkout of another head for reference
 .ref-head/
