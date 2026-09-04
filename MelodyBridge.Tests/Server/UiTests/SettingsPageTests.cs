@@ -492,4 +492,65 @@ public class SettingsPageTests
                 "the fragment follows the tab, so refresh keeps it"),
             TimeSpan.FromSeconds(3));
     }
+
+    [Test]
+    public void Settings_AboutTab_ShowsAccentPickerWithAllPalettes()
+    {
+        var cut = _ctx.Render<Settings>();
+        cut.FindAll("button.tab-link").First(b => b.TextContent.Trim() == "About").Click();
+
+        var group = cut.Find(".accent-picker");
+        Assert.That(group.GetAttribute("role"), Is.EqualTo("radiogroup"),
+            "the picker announces itself as a radio group");
+
+        var swatches = cut.FindAll("button.accent-swatch");
+        Assert.That(swatches.Count, Is.EqualTo(5),
+            "all five palettes are offered");
+        Assert.That(
+            swatches.Select(s => s.GetAttribute("title").ToLowerInvariant()),
+            Is.EquivalentTo(new[] { "teal", "blue", "violet", "rose", "amber" }),
+            "the swatches carry their palette names");
+    }
+
+    [Test]
+    public void Settings_AboutTab_MarksStoredAccentAsActive()
+    {
+        // The browser reports violet as the stored accent; the swatch must
+        // reflect it instead of the default teal.
+        _ctx.JSInterop.Setup<string>("melody.getAccent").SetResult("violet");
+
+        var cut = _ctx.Render<Settings>();
+        cut.FindAll("button.tab-link").First(b => b.TextContent.Trim() == "About").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            var active = cut.FindAll("button.accent-swatch.active").Single();
+            Assert.That(active.GetAttribute("title"), Is.EqualTo("Violet"),
+                "the stored accent carries the active class");
+            Assert.That(active.GetAttribute("aria-checked"), Is.EqualTo("true"),
+                "and announces itself as checked");
+        }, TimeSpan.FromSeconds(3));
+    }
+
+    [Test]
+    public void Settings_AboutTab_ClickingSwatchCallsSetAccentAndMovesActive()
+    {
+        var setAccent = _ctx.JSInterop.SetupVoid("melody.setAccent", "rose");
+        var cut = _ctx.Render<Settings>();
+        cut.FindAll("button.tab-link").First(b => b.TextContent.Trim() == "About").Click();
+
+        cut.FindAll("button.accent-swatch").First(b => b.GetAttribute("title") == "Rose").Click();
+
+        Assert.That(setAccent.Invocations.Count, Is.EqualTo(1),
+            "the click hands the palette to the client script");
+        cut.WaitForAssertion(() =>
+        {
+            var active = cut.FindAll("button.accent-swatch.active").Single();
+            Assert.That(active.GetAttribute("title"), Is.EqualTo("Rose"),
+                "the active marker moves to the clicked swatch");
+            Assert.That(cut.FindAll("button.accent-swatch[aria-checked='true']").Single()
+                .GetAttribute("title"), Is.EqualTo("Rose"),
+                "the radio state moves with it");
+        }, TimeSpan.FromSeconds(3));
+    }
 }
