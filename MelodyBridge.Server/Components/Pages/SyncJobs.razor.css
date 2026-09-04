@@ -1,7 +1,10 @@
 /* Sync jobs page scoped styles: card action footer and wizard form grid. */
 
+/* Card actions: one horizontal toolbar under a hairline. Wraps gracefully
+   on narrow viewports instead of jamming buttons. */
 .job-footer {
     display: flex;
+    flex-wrap: wrap;
     gap: .5rem;
     align-items: center;
     margin-top: .75rem;
@@ -9,14 +12,58 @@
     border-top: 1px solid var(--border);
 }
 
-.wizard-body .form-grid {
+/* Run-history modal: slightly narrower than the wizard shell, and
+   warning detail lists must not overflow their log row. */
+.log-modal {
+    width: min(640px, calc(100vw - 2rem));
+}
+
+.log-entry details {
+    margin-top: .35rem;
+    font-size: .82rem;
+}
+
+.log-entry details ul {
+    margin: .35rem 0 0;
+    padding-left: 1.2rem;
+}
+
+/* One vertical rhythm for every step: the step body is a grid whose gap
+   spaces the form, hint boxes and child editors uniformly. */
+.wizard-step {
+    display: grid;
+    gap: 1.1rem;
+}
+
+/* Step form grids: one column in the narrow modal, two from 640px. */
+.wizard-step .form-grid {
     display: grid;
     grid-template-columns: 1fr;
     gap: 1.1rem;
 }
 
+/* Zero the global .form-grid label margin-bottom: inside these grids it
+   would stack on top of the gap and make row spacing uneven. */
+.wizard-step .form-grid label {
+    margin-bottom: 0;
+}
+
 @media (min-width: 640px) {
-    .wizard-body .form-grid:not(.single) {
+    .wizard-step .form-grid:not(.single) {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
+}
+
+/* Step validation message: danger tint, own space under the step body. */
+.wizard-error {
+    margin-top: .75rem;
+    border-color: var(--danger);
+}
+
+/* Footer: Back sits left, Next/Save stays pinned right also on step 0
+   where Back is absent. */
+.wizard-actions {
+    margin-left: auto;
+    display: flex;
+    gap: .75rem;
 }

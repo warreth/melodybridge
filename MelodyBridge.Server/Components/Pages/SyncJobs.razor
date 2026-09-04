@@ -34,255 +34,257 @@
             <div class="wizard-body">
                 @if (currentStep == 0)
                 {
-                    <div class="form-grid single">
-                        <label>
-                            Job name
-                            <input @bind="draft.Name" placeholder="e.g. My Summer Hits" />
-                        </label>
-                        <label>
-                            Source type
-                            <select @bind="sourceType">
-                                <option value="playlist">Saved playlist</option>
-                                <option value="folder">Local folder</option>
-                            </select>
-                        </label>
-                        @if (sourceType == "playlist")
-                        {
-                            <label>
-                                Source playlist
-                                <select @bind="selectedSourceId">
-                                    <option value="">Select a source...</option>
-                                    @foreach (var src in sources)
-                                    {
-                                        <option value="@src.Id">@src.Name (@src.SourcePlatform)</option>
-                                    }
-                                </select>
-                            </label>
-                        }
-                        else
-                        {
-                            <label>
-                                Source folder
-                                <select @bind="selectedFolder">
-                                    <option value="">Choose a folder...</option>
-                                    @foreach (var f in scanFolders)
-                                    {
-                                        <option value="@f">@f</option>
-                                    }
-                                </select>
-                            </label>
-                        }
-                    </div>
-                    @if (sourceType == "playlist" && sources.Count == 0)
-                    {
-                        <div class="hint-box" style="margin-top:0.75rem;">
-                            No playlists saved yet. Go to <a href="/playlists">Playlists</a> to add one first.
-                        </div>
-                    }
-                    @if (sourceType == "folder" && scanFolders.Count == 0)
-                    {
-                        <div class="hint-box" style="margin-top:0.75rem;">
-                            No scan locations yet. Add folders on the <a href="/library">Library</a> page first.
-                        </div>
-                    }
-                    @if (!string.IsNullOrEmpty(stepError))
-                    {
-                        <div class="hint-box" style="margin-top:0.75rem; border-color: var(--danger);">@stepError</div>
-                    }
-                }
-                else if (currentStep == 1)
-                {
-                    @if (scanFolders.Count == 0)
-                    {
-                        <div class="hint-box">
-                            No scan locations yet. Add folders on the <a href="/library">Library</a> page first.
-                        </div>
-                    }
-                    else
-                    {
+                    <div class="wizard-step">
                         <div class="form-grid single">
-                            @foreach (var folder in scanFolders)
+                            <label>
+                                Job name
+                                <input @bind="draft.Name" placeholder="e.g. My Summer Hits" />
+                            </label>
+                            <label>
+                                Source type
+                                <select @bind="sourceType">
+                                    <option value="playlist">Saved playlist</option>
+                                    <option value="folder">Local folder</option>
+                                </select>
+                            </label>
+                            @if (sourceType == "playlist")
                             {
-                                <label class="toggle-switch wide">
-                                    <input type="checkbox"
-                                           checked="@selectedFolders.Contains(folder)"
-                                           @onchange="e => ToggleFolder(folder, e)" />
-                                    <span class="toggle-slider"></span>
-                                    <span>@folder</span>
+                                <label>
+                                    Source playlist
+                                    <select @bind="selectedSourceId">
+                                        <option value="">Select a source...</option>
+                                        @foreach (var src in sources)
+                                        {
+                                            <option value="@src.Id">@src.Name (@src.SourcePlatform)</option>
+                                        }
+                                    </select>
+                                </label>
+                            }
+                            else
+                            {
+                                <label>
+                                    Source folder
+                                    <select @bind="selectedFolder">
+                                        <option value="">Choose a folder...</option>
+                                        @foreach (var f in scanFolders)
+                                        {
+                                            <option value="@f">@f</option>
+                                        }
+                                    </select>
                                 </label>
                             }
                         </div>
-                        <div class="hint-box">
-                            Pick the folders to search. Leave empty to search every folder.
-                        </div>
-                        <MountWarning />
-                    }
-                    @if (!string.IsNullOrEmpty(stepError))
-                    {
-                        <div class="hint-box" style="margin-top:0.75rem; border-color: var(--danger);">@stepError</div>
-                    }
+                        @if (sourceType == "playlist" && sources.Count == 0)
+                        {
+                            <div class="hint-box">
+                                No playlists saved yet. Go to <a href="/playlists">Playlists</a> to add one first.
+                            </div>
+                        }
+                        @if (sourceType == "folder" && scanFolders.Count == 0)
+                        {
+                            <div class="hint-box">
+                                No scan locations yet. Add folders on the <a href="/library">Library</a> page first.
+                            </div>
+                        }
+                    </div>
+                }
+                else if (currentStep == 1)
+                {
+                    <div class="wizard-step">
+                        @if (scanFolders.Count == 0)
+                        {
+                            <div class="hint-box">
+                                No scan locations yet. Add folders on the <a href="/library">Library</a> page first.
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="form-grid single">
+                                @foreach (var folder in scanFolders)
+                                {
+                                    <label class="toggle-switch wide">
+                                        <input type="checkbox"
+                                               checked="@selectedFolders.Contains(folder)"
+                                               @onchange="e => ToggleFolder(folder, e)" />
+                                        <span class="toggle-slider"></span>
+                                        <span>@folder</span>
+                                    </label>
+                                }
+                            </div>
+                            <div class="hint-box">
+                                Pick the folders to search. Leave empty to search every folder.
+                            </div>
+                            <MountWarning />
+                        }
+                    </div>
                 }
                 else if (currentStep == 2)
                 {
-                    <div class="form-grid">
-                        <label>
-                            Output type
-                            <select @bind="draft.OutputTarget">
-                                <option value="@OutputTargetType.M3uFile">M3U File</option>
-                                <option value="@OutputTargetType.JellyfinApi">Jellyfin API</option>
-                                <option value="@OutputTargetType.PlexApi">Plex API</option>
-                                <option value="@OutputTargetType.NavidromeApi">Navidrome API</option>
-                            </select>
-                        </label>
-                        @if (draft.OutputTarget == OutputTargetType.M3uFile)
+                    <div class="wizard-step">
+                        <div class="form-grid">
+                            <label>
+                                Output type
+                                <select @bind="draft.OutputTarget">
+                                    <option value="@OutputTargetType.M3uFile">M3U File</option>
+                                    <option value="@OutputTargetType.JellyfinApi">Jellyfin API</option>
+                                    <option value="@OutputTargetType.PlexApi">Plex API</option>
+                                    <option value="@OutputTargetType.NavidromeApi">Navidrome API</option>
+                                </select>
+                            </label>
+                            @if (draft.OutputTarget == OutputTargetType.M3uFile)
+                            {
+                                <label>
+                                    M3U output path
+                                    <input @bind="draft.M3uOutputPath" placeholder="/app/playlists/playlist.m3u" />
+                                </label>
+                                <MountWarning />
+                            }
+                            else if (draft.OutputTarget == OutputTargetType.JellyfinApi)
+                            {
+                                <label>
+                                    Jellyfin server URL
+                                    <input @bind="draft.JellyfinServerUrl" placeholder="http://host.docker.internal:8096" />
+                                </label>
+                                <label>
+                                    Jellyfin API key
+                                    <input @bind="draft.JellyfinApiKey" type="password" placeholder="API key" />
+                                </label>
+                            }
+                            else if (draft.OutputTarget == OutputTargetType.PlexApi)
+                            {
+                                <label>
+                                    Plex server URL
+                                    <input @bind="draft.JellyfinServerUrl" placeholder="http://host.docker.internal:32400" />
+                                </label>
+                                <label>
+                                    Plex token
+                                    <input @bind="draft.JellyfinApiKey" type="password" placeholder="X-Plex-Token" />
+                                </label>
+                            }
+                            else if (draft.OutputTarget == OutputTargetType.NavidromeApi)
+                            {
+                                <label>
+                                    Navidrome server URL
+                                    <input @bind="draft.JellyfinServerUrl" placeholder="http://host.docker.internal:4533" />
+                                </label>
+                                <label>
+                                    Navidrome username
+                                    <input @bind="draft.JellyfinUserId" placeholder="admin" />
+                                </label>
+                                <label>
+                                    Navidrome password
+                                    <input @bind="draft.JellyfinApiKey" type="password" placeholder="password" />
+                                </label>
+                            }
+                            <label>
+                                Schedule
+                                <select @bind="draft.Schedule">
+                                    <option value="@SyncJobSchedule.Manual">Manual</option>
+                                    <option value="@SyncJobSchedule.Hourly">Hourly</option>
+                                    <option value="@SyncJobSchedule.Daily">Daily</option>
+                                    <option value="@SyncJobSchedule.Weekly">Weekly</option>
+                                    <option value="@SyncJobSchedule.Monthly">Monthly</option>
+                                    <option value="@SyncJobSchedule.Cron">Cron</option>
+                                </select>
+                            </label>
+                            @if (draft.Schedule == SyncJobSchedule.Cron)
+                            {
+                                <label>
+                                    Cron expression
+                                    <input @bind="draft.CronExpression" placeholder="0 3 * * *" />
+                                </label>
+                            }
+                        </div>
+                        @if (draft.OutputTarget != OutputTargetType.M3uFile)
                         {
-                            <label>
-                                M3U output path
-                                <input @bind="draft.M3uOutputPath" placeholder="/app/playlists/playlist.m3u" />
-                            </label>
-                            <MountWarning />
+                            <MediaServerUserPicker ServerUrl="@draft.JellyfinServerUrl"
+                                                ApiKey="@draft.JellyfinApiKey"
+                                                Username="@(draft.OutputTarget == OutputTargetType.NavidromeApi ? draft.JellyfinUserId : null)"
+                                                ShowUserList="@(draft.OutputTarget == OutputTargetType.JellyfinApi)"
+                                                UserLabel="Jellyfin user"
+                                                @bind-UserId="draft.JellyfinUserId" />
                         }
-                        else if (draft.OutputTarget == OutputTargetType.JellyfinApi)
-                        {
-                            <label>
-                                Jellyfin server URL
-                                <input @bind="draft.JellyfinServerUrl" placeholder="http://host.docker.internal:8096" />
-                            </label>
-                            <label>
-                                Jellyfin API key
-                                <input @bind="draft.JellyfinApiKey" type="password" placeholder="API key" />
-                            </label>
-                        }
-                        else if (draft.OutputTarget == OutputTargetType.PlexApi)
-                        {
-                            <label>
-                                Plex server URL
-                                <input @bind="draft.JellyfinServerUrl" placeholder="http://host.docker.internal:32400" />
-                            </label>
-                            <label>
-                                Plex token
-                                <input @bind="draft.JellyfinApiKey" type="password" placeholder="X-Plex-Token" />
-                            </label>
-                        }
-                        else if (draft.OutputTarget == OutputTargetType.NavidromeApi)
-                        {
-                            <label>
-                                Navidrome server URL
-                                <input @bind="draft.JellyfinServerUrl" placeholder="http://host.docker.internal:4533" />
-                            </label>
-                            <label>
-                                Navidrome username
-                                <input @bind="draft.JellyfinUserId" placeholder="admin" />
-                            </label>
-                            <label>
-                                Navidrome password
-                                <input @bind="draft.JellyfinApiKey" type="password" placeholder="password" />
-                            </label>
-                        }
-                        <label>
-                            Schedule
-                            <select @bind="draft.Schedule">
-                                <option value="@SyncJobSchedule.Manual">Manual</option>
-                                <option value="@SyncJobSchedule.Hourly">Hourly</option>
-                                <option value="@SyncJobSchedule.Daily">Daily</option>
-                                <option value="@SyncJobSchedule.Weekly">Weekly</option>
-                                <option value="@SyncJobSchedule.Monthly">Monthly</option>
-                                <option value="@SyncJobSchedule.Cron">Cron</option>
-                            </select>
-                        </label>
                         @if (draft.Schedule == SyncJobSchedule.Cron)
                         {
-                            <label>
-                                Cron expression
-                                <input @bind="draft.CronExpression" placeholder="0 3 * * *" />
-                            </label>
+                            <div class="hint-box">
+                                Five-field cron with minute precision (minute hour day month weekday), for example <code>0 3 * * *</code> runs at 03:00 every night.
+                            </div>
                         }
                     </div>
-                    @if (draft.OutputTarget != OutputTargetType.M3uFile)
-                    {
-                        <MediaServerUserPicker ServerUrl="@draft.JellyfinServerUrl"
-                                            ApiKey="@draft.JellyfinApiKey"
-                                            Username="@(draft.OutputTarget == OutputTargetType.NavidromeApi ? draft.JellyfinUserId : null)"
-                                            ShowUserList="@(draft.OutputTarget == OutputTargetType.JellyfinApi)"
-                                            UserLabel="Jellyfin user"
-                                            @bind-UserId="draft.JellyfinUserId" />
-                    }
-                    @if (draft.Schedule == SyncJobSchedule.Cron)
-                    {
-                        <div class="hint-box">
-                            Five-field cron with minute precision (minute hour day month weekday), for example <code>0 3 * * *</code> runs at 03:00 every night.
-                        </div>
-                    }
-                    @if (!string.IsNullOrEmpty(stepError))
-                    {
-                        <div class="hint-box" style="margin-top:0.75rem; border-color: var(--danger);">@stepError</div>
-                    }
                 }
                 else if (currentStep == 3)
                 {
-                    <RemapRulesEditor Title="Path"
-                                      EmptyText="No rules yet."
-                                      AddLabel="Add path rule"
-                                      FromPlaceholder="/mnt/BackupHDD/Music"
-                                      ToPlaceholder="/media/music"
-                                      Rules="@pathRules" />
-                    <RemapRulesEditor Title="Extension"
-                                      EmptyText="No rules yet."
-                                      AddLabel="Add extension rule"
-                                      FromPlaceholder=".flac"
-                                      ToPlaceholder=".opus"
-                                      Rules="@extRules" />
-                    <div class="hint-box">
-                        Rules are only needed when your music player sees files under a different path or
-                        extension than MelodyBridge does: for example inside a Docker container.
-                        Leave empty to keep paths and extensions as they are.
+                    <div class="wizard-step">
+                        <RemapRulesEditor Title="Path"
+                                          EmptyText="No rules yet."
+                                          AddLabel="Add path rule"
+                                          FromPlaceholder="/mnt/BackupHDD/Music"
+                                          ToPlaceholder="/media/music"
+                                          Rules="@pathRules" />
+                        <RemapRulesEditor Title="Extension"
+                                          EmptyText="No rules yet."
+                                          AddLabel="Add extension rule"
+                                          FromPlaceholder=".flac"
+                                          ToPlaceholder=".opus"
+                                          Rules="@extRules" />
+                        <div class="hint-box">
+                            Rules are only needed when your music player sees files under a different path or
+                            extension than MelodyBridge does: for example inside a Docker container.
+                            Leave empty to keep paths and extensions as they are.
+                        </div>
                     </div>
                 }
                 else if (currentStep == 4)
                 {
-                    <div class="review-list">
-                        <div><strong>Name:</strong> @draft.Name</div>
-                        <div><strong>Source:</strong> @(sourceType == "folder" ? selectedFolder : SourceDisplay)</div>
-                        <div><strong>Search locations:</strong> @(SearchLocationSummary)</div>
-                        <div><strong>Output target:</strong> @TargetLabel(draft.OutputTarget)</div>
-                        @if (draft.OutputTarget == OutputTargetType.M3uFile)
-                        {
-                            <div><strong>M3U path:</strong> @draft.M3uOutputPath</div>
-                        }
-                        else
-                        {
-                            <div><strong>Server:</strong> @draft.JellyfinServerUrl</div>
-                            @if (draft.OutputTarget == OutputTargetType.NavidromeApi)
+                    <div class="wizard-step">
+                        <div class="review-list">
+                            <div><strong>Name:</strong> @draft.Name</div>
+                            <div><strong>Source:</strong> @(sourceType == "folder" ? selectedFolder : SourceDisplay)</div>
+                            <div><strong>Search locations:</strong> @(SearchLocationSummary)</div>
+                            <div><strong>Output target:</strong> @TargetLabel(draft.OutputTarget)</div>
+                            @if (draft.OutputTarget == OutputTargetType.M3uFile)
                             {
-                                <div><strong>User:</strong> @draft.JellyfinUserId</div>
+                                <div><strong>M3U path:</strong> @draft.M3uOutputPath</div>
                             }
-                        }
-                        <div><strong>Schedule:</strong> @draft.Schedule</div>
-                        @if (draft.Schedule == SyncJobSchedule.Cron && !string.IsNullOrWhiteSpace(draft.CronExpression))
-                        {
-                            <div><strong>Cron:</strong> @draft.CronExpression</div>
-                        }
-                        @if (pathRules.Count > 0)
-                        {
-                            <div>
-                                <strong>Path remap:</strong>
-                                @foreach (var r in pathRules)
+                            else
+                            {
+                                <div><strong>Server:</strong> @draft.JellyfinServerUrl</div>
+                                @if (draft.OutputTarget == OutputTargetType.NavidromeApi)
                                 {
-                                    <span>@r.From &rarr; @r.To;</span>
+                                    <div><strong>User:</strong> @draft.JellyfinUserId</div>
                                 }
-                            </div>
-                        }
-                        @if (extRules.Count > 0)
-                        {
-                            <div>
-                                <strong>Extension remap:</strong>
-                                @foreach (var r in extRules)
-                                {
-                                    <span>@r.From &rarr; @r.To;</span>
-                                }
-                            </div>
-                        }
+                            }
+                            <div><strong>Schedule:</strong> @draft.Schedule</div>
+                            @if (draft.Schedule == SyncJobSchedule.Cron && !string.IsNullOrWhiteSpace(draft.CronExpression))
+                            {
+                                <div><strong>Cron:</strong> @draft.CronExpression</div>
+                            }
+                            @if (pathRules.Count > 0)
+                            {
+                                <div>
+                                    <strong>Path remap:</strong>
+                                    @foreach (var r in pathRules)
+                                    {
+                                        <span>@r.From &rarr; @r.To;</span>
+                                    }
+                                </div>
+                            }
+                            @if (extRules.Count > 0)
+                            {
+                                <div>
+                                    <strong>Extension remap:</strong>
+                                    @foreach (var r in extRules)
+                                    {
+                                        <span>@r.From &rarr; @r.To;</span>
+                                    }
+                                </div>
+                            }
+                        </div>
                     </div>
+                }
+                @if (!string.IsNullOrEmpty(stepError))
+                {
+                    <div class="hint-box wizard-error">@stepError</div>
                 }
             </div>
             <div class="wizard-footer">
@@ -290,17 +292,18 @@
                 {
                     <button class="btn-modern secondary" @onclick="PrevStep">Back</button>
                 }
-                <span></span>
-                @if (currentStep < 4)
-                {
-                    <button class="btn-modern primary" @onclick="NextStep">Next</button>
-                }
-                else
-                {
-                    <button class="btn-modern primary" @onclick="SaveJob" disabled="@saving">
-                        @(saving ? "Saving..." : (isEditing ? "Save changes" : "Create sync job"))
-                    </button>
-                }
+                <div class="wizard-actions">
+                    @if (currentStep < 4)
+                    {
+                        <button class="btn-modern primary" @onclick="NextStep">Next</button>
+                    }
+                    else
+                    {
+                        <button class="btn-modern primary" @onclick="SaveJob" disabled="@saving">
+                            @(saving ? "Saving..." : (isEditing ? "Save changes" : "Create sync job"))
+                        </button>
+                    }
+                </div>
             </div>
         </div>
     </div>
@@ -356,7 +359,7 @@
 @if (showLog)
 {
     <div class="wizard-overlay" @onclick="() => showLog = false">
-        <div class="wizard-modal" style="max-width:640px;" @onclick:stopPropagation="true">
+        <div class="wizard-modal log-modal" @onclick:stopPropagation="true">
             <div class="wizard-header">
                 <span class="eyebrow">Run history</span>
                 <h2>@logJobName</h2>
@@ -624,6 +627,9 @@
     private async Task RunJobNow(string jobId)
     {
         runningJobs.Add(jobId);
+        // the button disables before the first await; without this the
+        // click handler runs its whole body before Blazor re-renders
+        StateHasChanged();
         try
         {
             await using var db = await DbFactory.CreateDbContextAsync();
