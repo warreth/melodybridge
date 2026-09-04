@@ -420,6 +420,33 @@ else if (activeTab == "about")
     <section class="panel-card about-card">
         <div class="panel-header">
             <div>
+                <span class="eyebrow">Appearance</span>
+                <h2>Accent color</h2>
+            </div>
+        </div>
+        <p class="panel-description">
+            Colors the active tab, buttons and highlights across the whole
+            app, the guided tour included. Saved in this browser only.
+        </p>
+        <div class="accent-picker" role="radiogroup" aria-label="Accent color">
+            @foreach (var accent in AccentOptions)
+            {
+                var active = accent == _activeAccent;
+                <button type="button"
+                        class="accent-swatch accent-@(accent) @(active ? "active" : "")"
+                        role="radio"
+                        aria-checked="@(active ? "true" : "false")"
+                        title="@(char.ToUpperInvariant(accent[0]) + accent[1..])"
+                        @onclick="() => PickAccent(accent)">
+                    <span class="visually-hidden">@(char.ToUpperInvariant(accent[0]) + accent[1..])</span>
+                </button>
+            }
+        </div>
+    </section>
+
+    <section class="panel-card about-card">
+        <div class="panel-header">
+            <div>
                 <span class="eyebrow">Diagnostics</span>
                 <h2>Logs</h2>
             </div>
@@ -472,6 +499,27 @@ else if (activeTab == "about")
     /// <summary>The same list as TabStrip.Tab records for the component.</summary>
     private static readonly TabStrip.Tab[] TabStripTabs =
         [.. Tabs.Select(t => new TabStrip.Tab(t.Id, t.Label))];
+
+    // Accent palette ids, matching the app.css palettes and app.js ACCENTS.
+    private static readonly string[] AccentOptions = ["teal", "blue", "violet", "rose", "amber"];
+    private string _activeAccent = "teal";
+
+    private void PickAccent(string accent)
+    {
+        if (!AccentOptions.Contains(accent)) return;
+        _activeAccent = accent;
+        _ = JS.InvokeVoidAsync("melody.setAccent", accent);
+    }
+
+    // Sync the swatch with the browser's stored accent once JS is
+    // available. Unhandled in tests, InvokeAsync returns null and the
+    // null check keeps the default teal.
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        var stored = await JS.InvokeAsync<string>("melody.getAccent");
+        if (AccentOptions.Contains(stored)) _activeAccent = stored;
+    }
 
     private string activeTab = "accounts";
     private string musicPath = "/music";

@@ -61,3 +61,50 @@
     font-size: .82rem;
     font-weight: 700;
 }
+
+/* Accent picker: one row of swatch buttons. Each swatch is a colored
+   dot; the chosen one carries a ring in its own color plus a check
+   icon. The legend colors are fixed: a swatch always shows its own
+   palette regardless of which accent is active. */
+.accent-picker {
+    display: flex;
+    gap: .75rem;
+    flex-wrap: wrap;
+}
+
+.accent-swatch {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    border: 2px solid var(--border-strong);
+    cursor: pointer;
+    position: relative;
+    background: var(--swatch);
+    transition: transform .12s ease, border-color .12s ease;
+}
+
+.accent-swatch:hover {
+    transform: scale(1.12);
+}
+
+.accent-swatch:focus-visible {
+    outline: 2px solid var(--text);
+    outline-offset: 3px;
+}
+
+.accent-swatch.active {
+    border-color: var(--swatch);
+    box-shadow: 0 0 0 3px var(--surface-2), 0 0 0 5px var(--swatch);
+}
+
+/* Fixed legend: the strong color of each palette in both modes. */
+.accent-teal { --swatch: #2dd4bf; }
+.accent-blue { --swatch: #3b82f6; }
+.accent-violet { --swatch: #a855f7; }
+.accent-rose { --swatch: #f43f5e; }
+.accent-amber { --swatch: #f59e0b; }
+:root[data-theme="light"] .accent-teal { --swatch: #0f766e; }
+:root[data-theme="light"] .accent-blue { --swatch: #2563eb; }
+:root[data-theme="light"] .accent-violet { --swatch: #7c3aed; }
+:root[data-theme="light"] .accent-rose { --swatch: #e11d48; }
+:root[data-theme="light"] .accent-amber { --swatch: #b45309; }
