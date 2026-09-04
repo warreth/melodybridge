@@ -37,11 +37,19 @@ window.melody = (() => {
         if (box) box.style.display = 'none';
     }
 
+    // Hide the framework error banner without a full reload. The banner
+    // itself is toggled by Blazor; this only wires the dismiss button.
+    function dismissErrorUi() {
+        const banner = document.getElementById('blazor-error-ui');
+        if (banner) banner.style.display = 'none';
+    }
+
     return {
         setTheme,
         init,
         spotlight,
         hideSpotlight,
+        dismissErrorUi,
         // Trigger a browser download for exported data (playlists, logs, backups).
         downloadFile(fileName, contentType, byteArray) {
             const buffer = new Uint8Array(byteArray);
@@ -58,4 +66,63 @@ window.melody = (() => {
     };
 })();
 
-document.addEventListener('DOMContentLoaded', () => window.melody.init());
+document.addEventListener('DOMContentLoaded', () => {
+    window.melody.init();
+    const dismiss = document.querySelector('#blazor-error-ui .dismiss');
+    if (dismiss) dismiss.addEventListener('click', () => window.melody.dismissErrorUi());
+    wireReconnectDialog();
+});
+
+// Blazor reconnect dialog: markup lives in _Host.cshtml, Blazor toggles
+// its classes; we own the dialog open/close calls and retry wiring.
+function wireReconnectDialog() {
+    const modal = document.getElementById('components-reconnect-modal');
+    if (!modal) return;
+    const retryButton = document.getElementById('components-reconnect-button');
+    const resumeButton = document.getElementById('components-resume-button');
+    if (!retryButton || !resumeButton) return;
+
+    modal.addEventListener('components-reconnect-state-changed', (event) => {
+        const state = event.detail.state;
+        if (state === 'show') modal.showModal();
+        else if (state === 'hide') modal.close();
+        else if (state === 'failed') {
+            document.addEventListener('visibilitychange', retryWhenVisible);
+        } else if (state === 'rejected') {
+            location.reload();
+        }
+    });
+    retryButton.addEventListener('click', retryReconnect);
+    resumeButton.addEventListener('click', resumeCircuit);
+}
+
+async function retryReconnect() {
+    document.removeEventListener('visibilitychange', retryWhenVisible);
+    try {
+        const ok = await Blazor.reconnect();
+        if (!ok) {
+            const resumed = await Blazor.resumeCircuit();
+            if (resumed) {
+                document.getElementById('components-reconnect-modal').close();
+            } else {
+                location.reload();
+            }
+        }
+    } catch {
+        // Server unreachable: keep listening for a tab becoming visible.
+        document.addEventListener('visibilitychange', retryWhenVisible);
+    }
+}
+
+async function resumeCircuit() {
+    try {
+        const ok = await Blazor.resumeCircuit();
+        if (!ok) location.reload();
+    } catch {
+        location.reload();
+    }
+}
+
+async function retryWhenVisible() {
+    if (document.visibilityState === 'visible') await retryReconnect();
+}

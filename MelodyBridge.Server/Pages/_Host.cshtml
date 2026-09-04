@@ -11,6 +11,10 @@
     <link rel="icon" type="image/svg+xml" href="logo.svg" />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <link href="/app.css" rel="stylesheet" asp-append-version="true" />
+    @* Blazor bundles every Components/**/*.razor.css into this file.
+       Without the link all scoped styles were compiled but never
+       served, so tab states and callouts rendered unstyled. *@
+    <link href="MelodyBridge.Server.styles.css" rel="stylesheet" asp-append-version="true" />
     <title>MelodyBridge</title>
     <component type="typeof(Microsoft.AspNetCore.Components.Web.HeadOutlet)" render-mode="ServerPrerendered" />
 </head>
@@ -18,10 +22,40 @@
 <body>
     <component type="typeof(MelodyBridge.Server.Components.App)" render-mode="ServerPrerendered" />
 
+    <dialog id="components-reconnect-modal" data-nosnippet>
+        <div class="components-reconnect-container">
+            <div class="components-rejoining-animation" aria-hidden="true">
+                <div></div>
+                <div></div>
+            </div>
+            <p class="components-reconnect-first-attempt-visible">
+                Rejoining the server...
+            </p>
+            <p class="components-reconnect-repeated-attempt-visible">
+                Rejoin failed... trying again in <span id="components-seconds-to-next-attempt"></span> seconds.
+            </p>
+            <p class="components-reconnect-failed-visible">
+                Failed to rejoin.<br />Please retry or reload the page.
+            </p>
+            <button id="components-reconnect-button" class="components-reconnect-failed-visible">
+                Retry
+            </button>
+            <p class="components-pause-visible">
+                The session has been paused by the server.
+            </p>
+            <button id="components-resume-button" class="components-pause-visible">
+                Resume
+            </button>
+            <p class="components-resume-failed-visible">
+                Failed to resume the session.<br />Please reload the page.
+            </p>
+        </div>
+    </dialog>
+
     <div id="blazor-error-ui">
         An unhandled error has occurred.
         <a href="" class="reload">Reload</a>
-        <a class="dismiss">🗙</a>
+        <button type="button" class="dismiss" aria-label="Dismiss">x</button>
     </div>
 
     <script src="/app.js" asp-append-version="true"></script>

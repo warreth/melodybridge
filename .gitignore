@@ -67,3 +67,24 @@ MelodyBridge.Server/melodybridge.db-wal
 # VitePress build output
 docs/.vitepress/dist/
 docs/.vitepress/cache/
+
+# Playwright browser/cache scratch (screenshot tooling)
+.pwtmp/
+
+# UI screenshot/audit session scratch (screenshots, scraped
+# markup/css, throwaway scripts)
+shot-*.png
+mb-home.html
+mb-pd.log
+served-app.css
+shell-audit.mjs
+reconnect-check.mjs
+scripts/shot-*.mjs
+
+# Stashed checkout of another head for reference
+.ref-head/
+
+# pnpm artifacts from the screenshot scratch (package.json /
+# package-lock.json are the committed docs-tooling pair)
+pnpm-lock.yaml
+pnpm-workspace.yaml
