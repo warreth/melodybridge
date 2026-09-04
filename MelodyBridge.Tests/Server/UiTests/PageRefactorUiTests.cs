@@ -240,6 +240,31 @@ public class PageRefactorUiTests
     }
 
     [Test]
+    public void Playlists_ImportPanel_UsesStatusPillAndSecondaryButtons()
+    {
+        var cut = _ctx.Render<Playlists>();
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("Add playlist")), TimeSpan.FromSeconds(3));
+
+        cut.FindAll("button").Single(b => b.TextContent.Trim() == "Import").Click();
+
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("Exportify CSV")), TimeSpan.FromSeconds(3));
+
+        Assert.That(cut.FindAll("span.pill.ok").Count(), Is.GreaterThan(0),
+            "the recommended badge renders through the shared pill");
+        Assert.That(cut.FindAll("span.pill.neutral").Any(p => p.TextContent.Trim() == "manual, no API"),
+            Is.True, "the Spotify data export card keeps its neutral badge");
+        Assert.That(cut.FindAll("span.pill.neutral").Any(p => p.TextContent.Trim() == "not connected"),
+            Is.True, "the unlinked account card shows its neutral state");
+        var upload = cut.Find("input[type='file']");
+        Assert.That(upload.ClassList, Does.Contain("btn-modern"),
+            "the file inputs keep the button look");
+        Assert.That(cut.FindAll("button.btn-modern:not(.secondary):not(.primary):not(.danger):not(.ghost)").Count(),
+            Is.EqualTo(0), "every wizard button carries an explicit variant");
+    }
+
+    [Test]
     public void Home_ConnectionsShowBrandIconsAndStatusPills()
     {
         var registry = new Mock<IDownloaderRegistry>();

@@ -273,4 +273,37 @@ public class SharedUiComponentsTests
         Assert.That(clicked, Is.True, "the menu item click runs the real handler");
         Assert.That(cut.FindAll("button").Count(), Is.EqualTo(1), "exactly the item button renders");
     }
+
+    // ── ConfirmDialog ──────────────────────────────────────────
+
+    [Test]
+    public void ConfirmDialog_CancelIsSecondary_ConfirmIsDanger()
+    {
+        var cut = _ctx.Render<ConfirmDialog>(p => p
+            .Add(d => d.Show, true)
+            .Add(d => d.Title, "Remove this?")
+            .Add(d => d.Message, "This cannot be undone.")
+            .Add(d => d.ConfirmLabel, "Remove playlist"));
+
+        var cancel = cut.Find("button.btn-modern.secondary");
+        var confirm = cut.Find("button.btn-modern.danger");
+        Assert.That(cancel.TextContent, Is.EqualTo("Cancel"),
+            "the escape route stays a quiet secondary button");
+        Assert.That(confirm.TextContent, Is.EqualTo("Remove playlist"),
+            "the destructive action carries the danger variant");
+    }
+
+    [Test]
+    public void ConfirmDialog_BusyState_DisablesConfirm()
+    {
+        var cut = _ctx.Render<ConfirmDialog>(p => p
+            .Add(d => d.Show, true)
+            .Add(d => d.Busy, true));
+
+        var confirm = cut.Find("button.btn-modern.danger");
+        Assert.That(confirm.HasAttribute("disabled"),
+            "a busy dialog cannot be confirmed twice");
+        Assert.That(confirm.TextContent, Is.EqualTo("Working…"),
+            "the label shows the busy state");
+    }
 }

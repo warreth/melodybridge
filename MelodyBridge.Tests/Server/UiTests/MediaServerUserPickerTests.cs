@@ -84,6 +84,8 @@ public class MediaServerUserPickerTests
         cut.Find("button").Click();
 
         Assert.That(cut.Markup, Does.Contain("connected"));
+        Assert.That(cut.FindAll("span.pill.ok").Count(), Is.EqualTo(1),
+            "the connected state renders through the shared status pill");
         Assert.That(cut.FindAll("option"), Has.Count.EqualTo(3),
             "default option plus the two server users");
         Assert.That(cut.Markup, Does.Contain("Alice"));
@@ -101,6 +103,8 @@ public class MediaServerUserPickerTests
         cut.Find("button").Click();
 
         Assert.That(cut.Markup, Does.Contain("not connected"));
+        Assert.That(cut.FindAll("span.pill.err").Count(), Is.EqualTo(1),
+            "the failure state renders through the shared status pill");
         Assert.That(cut.FindAll("option"), Has.Count.EqualTo(1));
         _directory.Verify(
             d => d.GetUsersAsync(It.IsAny<MediaServerConnection>(), It.IsAny<CancellationToken>()),
