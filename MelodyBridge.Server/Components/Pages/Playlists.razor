@@ -100,7 +100,7 @@ else
                     }
                 </div>
                 <small class="job-meta">
-                    @(playlist.IsManualImport ? "Imported" : "Last synced"):@(playlist.LastSyncAt?.ToLocalTime().ToString("g") ?? "never")
+                    @(playlist.IsManualImport ? "Imported" : "Last synced"): @(playlist.LastSyncAt?.ToLocalTime().ToString("g") ?? "never")
                     @if (!playlist.IsManualImport)
                     {
                         <span> · @ScheduleOf(playlist).Describe()</span>
