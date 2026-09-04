@@ -1,32 +1,8 @@
 /* Settings page scoped styles. Blazor puts the isolation attribute on
-   this page's own elements, so plain selectors apply (same pattern as
-   DevPanel.razor.css). app.css ships a broader tab-nav base; these tighten
-   it for this page. */
-.tab-nav {
-    display: flex;
-    gap: .25rem;
-    border-bottom: 1px solid var(--border);
-    margin-bottom: 1rem;
-}
-
-.tab-link {
-    padding: .6rem .9rem;
-    border: 0;
-    border-bottom: 2px solid transparent;
-    background: transparent;
-    color: var(--muted);
-    font-weight: 600;
-    font-size: .9rem;
-    cursor: pointer;
-    transition: color .15s;
-}
-
-.tab-link:hover { color: var(--text); }
-
-.tab-link.active {
-    color: var(--accent-strong);
-    border-bottom-color: var(--accent-strong);
-}
+   this page's own elements, so plain selectors apply. The tab strip is
+   a shared component and carries its own TabStrip.razor.css; those
+   rules cannot live here because page isolation never reaches into a
+   child component's elements. */
 
 /* OAuth setup steps: callout box instead of a bare list. */
 .oauth-steps {
@@ -41,8 +17,12 @@
     margin: .25rem 0 0;
     padding-left: 1.1rem;
     display: grid;
-    gap: .6rem;
+    gap: .65rem;
     color: var(--muted);
+}
+
+.oauth-steps li {
+    line-height: 1.5;
 }
 
 .oauth-steps li::marker {
@@ -56,4 +36,28 @@
     border: 1px solid var(--border);
     border-radius: 6px;
     padding: .1rem .35rem;
+}
+
+/* The redirect-URI hint inside step 2: breathing room around the code
+   line and a tidy row for the Copy button, so nothing crowds. */
+.oauth-steps .hint-box {
+    margin: .5rem 0;
+}
+
+.oauth-steps .flex-actions {
+    margin-top: .45rem;
+    flex-wrap: wrap;
+    gap: .6rem;
+    align-items: center;
+}
+
+/* Credential inputs at the card bottom: label above input, even
+   rhythm, never touching. */
+.account-card label {
+    display: grid;
+    gap: .4rem;
+    margin-top: .35rem;
+    color: var(--muted);
+    font-size: .82rem;
+    font-weight: 700;
 }

@@ -2,6 +2,7 @@ using Bunit;
 using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.Data;
 using MelodyBridge.Server.Components.Pages;
+using Microsoft.AspNetCore.Components;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -392,6 +393,67 @@ public class SettingsPageTests
         var cut = _ctx.Render<Settings>();
         Assert.That(cut.Markup, Does.Contain("Disconnect"),
             "a connected account shows a disconnect button");
+    }
+
+    [Test]
+    public void Settings_DefaultTab_IsMarkedActiveExactlyOnce()
+    {
+        var cut = _ctx.Render<Settings>();
+
+        var active = cut.FindAll("button.tab-link.active");
+        Assert.That(active.Count, Is.EqualTo(1),
+            "exactly one tab carries the active class");
+        Assert.That(active[0].TextContent.Trim(), Is.EqualTo("Accounts"),
+            "the Accounts tab is active by default");
+        Assert.That(active[0].GetAttribute("aria-current"), Is.EqualTo("tab"),
+            "the active tab announces itself to screen readers");
+
+        var selected = cut.FindAll("button.tab-link[aria-selected='true']");
+        Assert.That(selected.Count, Is.EqualTo(1),
+            "exactly one tab is aria-selected");
+    }
+
+    [Test]
+    public void Settings_TabClick_MovesActiveStateAndPanel()
+    {
+        var cut = _ctx.Render<Settings>();
+
+        cut.FindAll("button.tab-link").Single(b => b.TextContent.Trim() == "About").Click();
+
+        var active = cut.FindAll("button.tab-link.active").Single();
+        Assert.That(active.TextContent.Trim(), Is.EqualTo("About"),
+            "clicking a tab moves the active marker");
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.Markup, Does.Contain("Check for updates"),
+                "the About panel is visible");
+            Assert.That(cut.Markup, Does.Not.Contain("Connect Spotify"),
+                "the Accounts panel is hidden");
+        }, TimeSpan.FromSeconds(3));
+
+        cut.FindAll("button.tab-link").Single(b => b.TextContent.Trim() == "Accounts").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            var back = cut.FindAll("button.tab-link.active").Single();
+            Assert.That(back.TextContent.Trim(), Is.EqualTo("Accounts"),
+                "clicking back returns the marker");
+            Assert.That(cut.Markup, Does.Contain("Connect Spotify"),
+                "the Accounts panel is back");
+        }, TimeSpan.FromSeconds(3));
+    }
+
+    [Test]
+    public void Settings_TabClick_RewritesUrlFragment()
+    {
+        var cut = _ctx.Render<Settings>();
+
+        cut.FindAll("button.tab-link").Single(b => b.TextContent.Trim() == "Quality").Click();
+
+        var nav = _ctx.Services.GetRequiredService<NavigationManager>();
+        Assert.That(nav.Uri, Does.EndWith("#quality"),
+            "the tab id lands in the fragment so refresh keeps the tab");
     }
 
     [Test]

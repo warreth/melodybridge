@@ -31,13 +31,8 @@
     <button class="btn-modern primary" @onclick="SaveAll">Save settings</button>
 </section>
 
-<nav class="tab-nav">
-    @foreach (var (id, label) in Tabs)
-    {
-        <button class="tab-link @(activeTab == id ? "active" : "")"
-                @onclick="() => SelectTab(id)">@label</button>
-    }
-</nav>
+<TabStrip Tabs="TabStripTabs" ActiveId="@activeTab"
+           OnSelect="SelectTab" AriaLabel="Settings sections" />
 
 @if (!string.IsNullOrWhiteSpace(savedMessage))
 {
@@ -473,6 +468,10 @@ else if (activeTab == "about")
         ("network", "Network"),
         ("about", "About"),
     ];
+
+    /// <summary>The same list as TabStrip.Tab records for the component.</summary>
+    private static readonly TabStrip.Tab[] TabStripTabs =
+        [.. Tabs.Select(t => new TabStrip.Tab(t.Id, t.Label))];
 
     private string activeTab = "accounts";
     private string musicPath = "/music";

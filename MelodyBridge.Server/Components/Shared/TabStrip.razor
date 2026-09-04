@@ -1,0 +1,29 @@
+@* Shared tab strip for pages with fragment-addressed tabs. The host
+   page keeps its own tab ids and state; this component only renders
+   the strip and reports clicks. Styles live in TabStrip.razor.css so
+   the scoped bundle applies them to these buttons (a page's own
+   .razor.css cannot reach into a child component's elements). *@
+<nav class="tab-nav" role="tablist" aria-label="@AriaLabel">
+    @foreach (var tab in Tabs)
+    {
+        var isActive = tab.Id == ActiveId;
+        <button type="button"
+                class="tab-link @(isActive ? "active" : "")"
+                role="tab"
+                aria-current="@(isActive ? "tab" : null)"
+                aria-selected="@(isActive ? "true" : "false")"
+                @onclick="() => OnSelect.InvokeAsync(tab.Id)">
+            @tab.Label
+        </button>
+    }
+</nav>
+
+@code {
+    /// <summary>One tab: a stable id (doubles as the URL fragment) and a label.</summary>
+    public sealed record Tab(string Id, string Label);
+
+    [Parameter, EditorRequired] public IReadOnlyList<Tab> Tabs { get; set; } = [];
+    [Parameter, EditorRequired] public string ActiveId { get; set; } = "";
+    [Parameter] public EventCallback<string> OnSelect { get; set; }
+    [Parameter] public string AriaLabel { get; set; } = "Tabs";
+}

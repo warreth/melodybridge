@@ -1,0 +1,31 @@
+/* TabStrip scoped styles. The global app.css ships a tab-nav base
+   (flex row, bottom border); these add the unmistakable active state
+   and hover/focus feedback that base never had, scoped to the strip
+   so no other element picks them up. */
+
+.tab-link {
+    border-radius: 8px 8px 0 0;
+    transition: color .15s ease, border-bottom-color .15s ease,
+        background .15s ease;
+}
+
+/* Inactive tabs keep a readable label and answer to hover: text
+   brightens and a dim underline grows in, so they read as tabs and
+   not grey boxes. */
+.tab-link:not(.active):hover {
+    color: var(--text);
+    border-bottom-color: var(--border);
+    background: var(--surface-2);
+}
+
+/* Active tab: accent text, accent underline, faint accent wash. */
+.tab-link.active {
+    color: var(--accent-strong);
+    border-bottom: 2px solid var(--accent-strong);
+    background: var(--accent-soft);
+}
+
+.tab-link:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+}
