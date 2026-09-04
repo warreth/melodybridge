@@ -94,6 +94,62 @@ public class PlaylistsPageTests
     }
 
     [Test]
+    public void Playlists_CoverWithMosaicUrl_RendersSquareImgInCoverLink()
+    {
+        SeedOnePlaylist("Mosaic Mix", 9, Platform.Spotify, coverUrl: "https://mosaic.scdn.co/640/abc", owner: "Warre");
+
+        var cut = _ctx.Render<Playlists>();
+
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("Mosaic Mix")), TimeSpan.FromSeconds(3));
+        var cover = cut.Find(".playlist-card a.playlist-cover");
+        var img = cover.QuerySelector("img");
+        Assert.That(img, Is.Not.Null,
+            "a playlist with a cover url shows the image");
+        Assert.That(img!.GetAttribute("src"), Is.EqualTo("https://mosaic.scdn.co/640/abc"),
+            "the Spotify 2x2 mosaic url is used verbatim");
+        Assert.That(img.GetAttribute("alt"), Is.EqualTo("Mosaic Mix"),
+            "the image names the playlist for screen readers");
+        Assert.That(cover.QuerySelector(".cover-badge"), Is.Null,
+            "a playlist with no run and no downloads shows no badge over the mosaic");
+    }
+
+    [Test]
+    public void Playlists_TrackCountAndOwner_RenderAsSeparateBadges()
+    {
+        SeedOnePlaylist("Badge Mix", 89, Platform.Spotify, owner: "Warre");
+
+        var cut = _ctx.Render<Playlists>();
+
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("Badge Mix")), TimeSpan.FromSeconds(3));
+        var tags = cut.FindAll(".playlist-card .card-tags .quality-badge")
+            .Select(b => b.TextContent.Trim()).ToList();
+        Assert.That(tags, Has.Member("89 tracks"),
+            "the track count is its own badge");
+        Assert.That(tags, Has.Member("by Warre"),
+            "the owner is its own badge so a CSS gap can keep them apart");
+        Assert.That(string.Join("|", tags), Does.Not.Contain("tracksby"),
+            "the count and the owner must never merge into one string");
+    }
+
+    [Test]
+    public void Playlists_CardMenu_SitsInHeaderWithActions()
+    {
+        SeedOnePlaylist("Menu Mix", 5, Platform.Spotify);
+
+        var cut = _ctx.Render<Playlists>();
+
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("Menu Mix")), TimeSpan.FromSeconds(3));
+        var header = cut.Find(".playlist-card .panel-header");
+        Assert.That(header.QuerySelector("h2 a")!.GetAttribute("href"), Does.Contain("playlists/"),
+            "the title link stays in the header");
+        Assert.That(header.QuerySelector("[class*=menu], [class*=Menu]"), Is.Not.Null,
+            "the (...) action menu lives in the header next to the title");
+    }
+
+    [Test]
     public void Playlists_ImportModal_OpensWithAllThreeRoutes()
     {
         var cut = _ctx.Render<Playlists>();
@@ -197,7 +253,8 @@ public class PlaylistsPageTests
             "the import modal carries the table, so it gets the wide variant");
     }
 
-    private void SeedOnePlaylist(string name, int trackCount, Platform platform)
+    private void SeedOnePlaylist(string name, int trackCount, Platform platform,
+        string? coverUrl = null, string? owner = null)
     {
         var factory = new SqliteFactory(_dbPath);
         using var db = factory.CreateDbContext();
@@ -209,6 +266,8 @@ public class PlaylistsPageTests
             SourcePlatform = platform,
             TrackCount = trackCount,
             LastSyncStatus = SyncStatus.Completed,
+            CoverImageUrl = coverUrl,
+            Owner = owner,
         };
         for (var i = 0; i < trackCount; i++)
         {

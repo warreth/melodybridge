@@ -8,14 +8,24 @@
     margin: .4rem 0 .2rem 0;
 }
 
+/* Playlist card badges are compact square chips; the shared base in
+   app.css carries the font, colors and border. */
+.card-tags .quality-badge {
+    font-size: .7rem;
+    padding: .1rem .35rem;
+    border-radius: 4px;
+    white-space: nowrap;
+}
+
 .playlist-card {
     display: flex;
     flex-direction: column;
     justify-content: space-between;
 }
 
+/* Spotify's mosaic art is square: strict 1 / 1 box, no height clamp,
+   so the 2x2 grid renders whole. */
 .playlist-card .playlist-cover {
-    aspect-ratio: 16 / 9;
-    max-height: 180px;
+    aspect-ratio: 1 / 1;
     width: 100%;
 }
