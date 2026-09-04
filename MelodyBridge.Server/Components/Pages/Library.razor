@@ -81,12 +81,22 @@
                 <h2>Track identity</h2>
             </div>
         </div>
-        <div class="health-list">
-            <div><span class="status-dot online"></span><strong>MELODY_ID</strong><small>ID3v2 TXXX frame</small></div>
-            <div><span class="status-dot online"></span><strong>Fallback</strong><small>Comment-based marker</small>
+        <div class="identity-grid">
+            <div class="identity-item">
+                <span class="status-dot online"></span>
+                <strong>MELODY_ID</strong>
+                <small>ID3v2 TXXX frame embedded during download</small>
             </div>
-            <div><span class="status-dot online"></span><strong>Matched</strong><small>playlists link to
-                files by ID tag</small></div>
+            <div class="identity-item">
+                <span class="status-dot online"></span>
+                <strong>Fallback</strong>
+                <small>Comment-based marker when ID3 frames are unsupported</small>
+            </div>
+            <div class="identity-item">
+                <span class="status-dot online"></span>
+                <strong>Matched</strong>
+                <small>Playlists link to files by ID tag; avoids re-downloading</small>
+            </div>
         </div>
     </div>
 </section>
