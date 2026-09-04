@@ -1,10 +1,49 @@
-/* Plugins page scoped styles: card head alignment, tail layout and priority controls. */
+/* Plugins page scoped styles: waterfall cards, head layout, tail
+   controls (status pill, toggle, priority arrows) and quality badges.
+   Shared card chrome (border, radius, surface, hover) and the
+   .quality-badge base live in app.css. */
 
+.plugin-list {
+    display: grid;
+    gap: .75rem;
+    margin-top: 1rem;
+}
+
+.plugin-card {
+    display: grid;
+    gap: .6rem;
+    padding: 1rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+    transition: border-color .15s ease;
+}
+
+.plugin-card:hover { border-color: var(--border-strong); }
+
+/* Dimmed, but the toggle stays clickable at full opacity. */
+.plugin-card.disabled { opacity: .6; }
+.plugin-card.disabled .plugin-tail { opacity: 1; }
+
+.plugin-head {
+    display: flex;
+    align-items: flex-start;
+    gap: .8rem;
+    flex-wrap: wrap;
+}
+
+.plugin-head strong { display: block; }
+
+/* The title demands at least this much before the tail is pushed to
+   its own row; without a basis the tail starves it to zero width on
+   phones and the description wraps one word per line. */
 .plugin-title {
-    flex: 1;
+    flex: 1 1 200px;
     min-width: 0;
 }
 
+/* Pills and arrows keep breathing room on every viewport; the head
+   wraps instead of squeezing the title under the controls. */
 .plugin-tail {
     display: flex;
     align-items: center;
@@ -13,10 +52,35 @@
     flex-shrink: 0;
 }
 
-.btn-group {
-    display: inline-flex;
-    gap: .25rem;
+/* Under ~480px the tail drops below the title onto its own row. */
+@media (max-width: 480px) {
+    .plugin-tail {
+        margin-left: calc(42px + .8rem); /* line up with the title */
+        flex-wrap: wrap;
+        row-gap: .5rem;
+    }
 }
+
+.plugin-description {
+    color: var(--muted);
+    font-size: .85rem;
+    margin-top: .15rem;
+}
+
+.plugin-quality {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .4rem;
+}
+
+/* Plugin badges are rounded pills; the shared base in app.css
+   carries the font, colors and border. */
+.plugin-quality .quality-badge {
+    border-radius: 99px;
+    white-space: nowrap;
+}
+
+.btn-group { display: inline-flex; gap: .25rem; }
 
 .btn-group .icon-button {
     width: 32px;

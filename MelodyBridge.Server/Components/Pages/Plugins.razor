@@ -71,7 +71,8 @@
     @foreach (var plugin in orderedPlugins)
     {
         var enabled = Registry.IsEnabled(plugin.Id);
-        <div class="plugin-card @(enabled ? "" : "disabled")">
+        var ready = availability.GetValueOrDefault(plugin.Id);
+        <article class="plugin-card @(enabled ? "" : "disabled")">
             <div class="plugin-head">
                 <Icon Name="@PluginIconName(plugin.Id)" Size="20" Class="provider-icon" />
                 <div class="plugin-title">
@@ -79,19 +80,29 @@
                     <div class="plugin-description">@plugin.Description</div>
                 </div>
                 <div class="plugin-tail">
-                    <StatusPill Variant="@(availability.GetValueOrDefault(plugin.Id) ? "ready" : "unavailable")">
-                        @(availability.GetValueOrDefault(plugin.Id) ? "ready" : "unavailable")
+                    <StatusPill Variant="@(ready ? "ready" : "unavailable")"
+                                Title="@(ready ? "Checked and reachable" : "Could not reach this plugin")">
+                        @(ready ? "ready" : "unavailable")
                     </StatusPill>
                     <label class="toggle-switch">
-                        <input type="checkbox" checked="@enabled" @onchange="e => TogglePluginAsync(plugin.Id, (bool)e.Value!)" />
+                        <input type="checkbox" checked="@enabled"
+                               aria-label="Enable @plugin.Name"
+                               @onchange="e => TogglePluginAsync(plugin.Id, (bool)e.Value!)" />
                         <span class="toggle-slider"></span>
                     </label>
-                    <div class="btn-group">
-                        <button class="icon-button" title="Try this plugin first" disabled="@(firstEnabledId == plugin.Id)"
-                                @onclick="() => MoveUp(plugin.Id)"><Icon Name="chevron-up" Size="16" /></button>
-                        <button class="icon-button" title="Try this plugin later" disabled="@(lastEnabledId == plugin.Id)"
-                                @onclick="() => MoveDown(plugin.Id)"><Icon Name="chevron-down" Size="16" /></button>
-                    </div>
+                    @if (enabled)
+                    {
+                        <div class="btn-group" role="group" aria-label="@plugin.Name priority">
+                            <button class="icon-button" title="Try this plugin first"
+                                    aria-label="Move @plugin.Name up"
+                                    disabled="@(firstEnabledId == plugin.Id)"
+                                    @onclick="() => MoveUp(plugin.Id)"><Icon Name="chevron-up" Size="16" /></button>
+                            <button class="icon-button" title="Try this plugin later"
+                                    aria-label="Move @plugin.Name down"
+                                    disabled="@(lastEnabledId == plugin.Id)"
+                                    @onclick="() => MoveDown(plugin.Id)"><Icon Name="chevron-down" Size="16" /></button>
+                        </div>
+                    }
                 </div>
             </div>
             <div class="plugin-quality">
@@ -126,7 +137,7 @@
                     </div>
                 </details>
             }
-        </div>
+        </article>
     }
 </section>
 
