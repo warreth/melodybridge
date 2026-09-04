@@ -29,66 +29,39 @@ else if (playlist == null)
 }
 else
 {
-    <section class="page-title detail-header">
-        <div class="playlist-header">
-            <div class="playlist-cover small">
-                @if (!string.IsNullOrEmpty(playlist.CoverImageUrl))
-                {
-                    <img src="@playlist.CoverImageUrl" alt="@playlist.Name" />
-                }
-                else
-                {
-                    <span class="playlist-cover-placeholder"><Icon Name="music" Size="28" Class="cover-placeholder-icon" /></span>
-                }
-            </div>
-            <div>
-                <span class="eyebrow">@(playlist.IsManualImport ? "Imported" : $"{playlist.SourcePlatform} playlist")</span>
-                <h1>@playlist.Name</h1>
-                <p>
-                    @playlist.TrackCount tracks
-                    @if (!string.IsNullOrEmpty(playlist.Owner))
-                    {
-                        <span> · by @playlist.Owner</span>
-                    }
-                    <span> · last synced @(playlist.LastSyncAt?.ToLocalTime().ToString("g") ?? "never")</span>
-                    @if (!string.IsNullOrWhiteSpace(playlist.PreferredFormat) && playlist.PreferredFormat != "auto")
-                    {
-                        <span> · @QualityLabel(playlist.PreferredFormat)</span>
-                    }
-                    @if (!playlist.IsManualImport)
-                    {
-                        <a href="@playlist.SourceUrl" target="_blank" rel="noopener" class="hint">
-                            Open source <Icon Name="external" Size="12" />
-                        </a>
-                    }
-                </p>
-            </div>
-        </div>
-        <div class="topbar-actions">
+    <PlaylistActionsHeader Eyebrow="@HeaderEyebrow"
+                            Name="@playlist.Name"
+                            CoverUrl="@playlist.CoverImageUrl"
+                            ShowRefresh="@(!playlist.IsManualImport)"
+                            ShowDownloadGroup="@DownloadGroupVisible"
+                            DownloadState="@CurrentRunState"
+                            Busy="@busy"
+                            OnRefresh="Refresh"
+                            OnStart="StartDownload"
+                            OnPause="PauseDownload"
+                            OnResume="ResumeDownload"
+                            OnCancel="CancelDownload"
+                            OnExport="ExportCsv"
+                            OnDelete="AskDelete">
+        <MetaLine>
+            @playlist.TrackCount tracks
+            @if (!string.IsNullOrEmpty(playlist.Owner))
+            {
+                <span> · by @playlist.Owner</span>
+            }
+            <span> · last synced @(playlist.LastSyncAt?.ToLocalTime().ToString("g") ?? "never")</span>
+            @if (!string.IsNullOrWhiteSpace(playlist.PreferredFormat) && playlist.PreferredFormat != "auto")
+            {
+                <span> · @QualityLabel(playlist.PreferredFormat)</span>
+            }
             @if (!playlist.IsManualImport)
             {
-                <button class="btn-modern ghost" @onclick="Refresh" disabled="@busy">@(busy ? "Fetching…" : "Refresh")</button>
+                <a href="@playlist.SourceUrl" target="_blank" rel="noopener" class="hint">
+                    Open source <Icon Name="external" Size="12" />
+                </a>
             }
-            @if (run is null or { State: Application.Services.DownloadRunState.Finished })
-            {
-                <button class="btn-modern primary" @onclick="StartDownload">Download missing</button>
-            }
-            else
-            {
-                @if (run!.State == Application.Services.DownloadRunState.Paused)
-                {
-                    <button class="btn-modern primary" @onclick="ResumeDownload">Resume</button>
-                }
-                else
-                {
-                    <button class="btn-modern secondary" @onclick="PauseDownload">Pause</button>
-                }
-                <button class="btn-modern ghost" @onclick="CancelDownload">Cancel</button>
-            }
-            <button class="btn-modern secondary" @onclick="ExportCsv" disabled="@busy">Export CSV</button>
-            <button class="btn-modern ghost" @onclick="AskDelete" disabled="@busy">Delete playlist</button>
-        </div>
-    </section>
+        </MetaLine>
+    </PlaylistActionsHeader>
 
     @if (confirmDelete)
     {
@@ -236,112 +209,12 @@ else
         }
         else
         {
-            <div class="table-wrap">
-                <table class="modern-table" style="min-width:760px">
-                    <thead>
-                        <tr>
-                            <th>#</th>
-                            <th>Title</th>
-                            <th>Artist</th>
-                            <th>Duration</th>
-                            <th>Size</th>
-                            <th>Bitrate</th>
-                            <th>Rate</th>
-                            <th>Format</th>
-                            <th>Status</th>
-                            @if (showFilenameColumn)
-                            {
-                                <th>File</th>
-                            }
-                            <th></th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach (var track in FilteredTracks())
-                        {
-                            <tr>
-                                <td class="text-muted">@(track.Position + 1)</td>
-                                <td>
-                                    <strong>@(track.Title ?? "Unknown")</strong>
-                                </td>
-                                <td>@(track.Artist ?? "Unknown artist")</td>
-                                <td class="text-muted">@TrackDisplay.Duration(track.DurationMs)</td>
-                                <td class="text-muted">@TrackDisplay.Size(track)</td>
-                                <td class="text-muted">
-                                    @(track.DownloadStatus == "downloaded" ? TrackDisplay.BitrateLabel(track.Bitrate) : "-")
-                                </td>
-                                <td class="text-muted">
-                                    @(track.DownloadStatus == "downloaded" ? TrackDisplay.RateLabel(track.SampleRateHz) : "-")
-                                </td>
-                                <td class="text-muted">
-                                    @(track.DownloadStatus == "downloaded" ? TrackDisplay.FormatLabel(track.MediaType) : "-")
-                                </td>
-                                <td>
-                                    @{ var queueLabel = TrackQueueLabel(track); }
-                                    @if (queueLabel is not null)
-                                    {
-                                        @if (queueLabel == "downloading")
-                                        {
-                                            <StatusPill Variant="in_progress" Pulse="true" Title="Currently downloading">downloading</StatusPill>
-                                        }
-                                        else
-                                        {
-                                            <StatusPill Variant="neutral">@queueLabel</StatusPill>
-                                        }
-                                    }
-                                    else
-                                    {
-                                        <StatusPill Variant="@(track.DownloadStatus switch
-                                            { "downloaded" => "ok", "failed" => "err", _ => "neutral" })"
-                                            Title="@(track.DownloadStatus == "failed" ? track.DownloadError : null)">
-                                            @(track.DownloadStatus ?? "pending")
-                                        </StatusPill>
-                                        @if (track.DownloadStatus == "failed" && !string.IsNullOrWhiteSpace(track.DownloadError))
-                                        {
-                                            <div class="fail-note">@track.DownloadError</div>
-                                        }
-                                    }
-                                    @if (!string.IsNullOrWhiteSpace(track.Warning))
-                                    {
-                                        <StatusPill Variant="warn" Title="@track.Warning">!</StatusPill>
-                                    }
-                                </td>
-                                @if (showFilenameColumn)
-                                {
-                                    <td class="text-muted">
-                                        @if (!string.IsNullOrWhiteSpace(track.CurrentPath))
-                                        {
-                                            <span title="@track.CurrentPath">@Path.GetFileName(track.CurrentPath)</span>
-                                        }
-                                        else
-                                        {
-                                            <span>-</span>
-                                        }
-                                    </td>
-                                }
-                                <td class="track-actions">
-                                    <div class="btn-group">
-                                        @if (track.DownloadStatus is "failed" or null or "pending")
-                                        {
-                                            <button class="btn-modern small ghost" title="Download this track now"
-                                                    @onclick="() => RetryTrack(track)" disabled="@busy">
-                                                <Icon Name="refresh" Size="14" /> Download
-                                            </button>
-                                        }
-                                        @if (track.DownloadStatus is not null)
-                                        {
-                                            <button class="btn-modern small ghost" title="Remove from playlist (deletes the file)"
-                                                    @onclick="() => RemoveTrack(track)" disabled="@busy">
-                                                <Icon Name="x" Size="14" /> Remove
-                                            </button>
-                                        }
-                                    </div>
-                                </td>
-                            </tr>
-                        }
-                    </tbody>
-                </table>
-            </div>
+            <TrackTable Tracks="@FilteredTracks().ToList()"
+                        ShowFilenameColumn="@showFilenameColumn"
+                        Busy="@busy"
+                        QueueLabel="@TrackQueueLabel"
+                        OnRetry="RetryTrack"
+                        OnRemove="RemoveTrack" />
         }
     </section>
 }
@@ -386,6 +259,17 @@ else
 
     /// <summary>The coordinator's run for this playlist, kept current by the poll.</summary>
     private Application.Services.DownloadRun? run => observedRun;
+
+    /// <summary>Header label: imports are snapshots, everything else names its platform.</summary>
+    private string HeaderEyebrow => playlist!.IsManualImport
+        ? "Imported"
+        : $"{playlist.SourcePlatform} playlist";
+
+    /// <summary>The Pause/Cancel pair replaces Download missing while a run is live.</summary>
+    private bool DownloadGroupVisible => run is { State: not Application.Services.DownloadRunState.Finished };
+
+    private Application.Services.DownloadRunState CurrentRunState
+        => run?.State ?? Application.Services.DownloadRunState.Finished;
 
     protected override async Task OnInitializedAsync()
     {
@@ -660,14 +544,6 @@ else
         savedPillCts?.Cancel();
         savedPillCts?.Dispose();
     }
-
-    private static string DownloadStatusClass(string? status) => status switch
-    {
-        "downloaded" => "ok",
-        "failed" => "err",
-        "queued" or "in_progress" => "warn",
-        _ => "neutral",
-    };
 
     /// <summary>The header's quality line: preset names read as words, raw strings as-is.</summary>
     private static string QualityLabel(string stored)

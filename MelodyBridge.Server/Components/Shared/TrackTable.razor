@@ -1,0 +1,229 @@
+@* The track table of the playlist details page: sortable columns, stable
+   widths, status pills and per-row actions. Sorting lives here so every
+   consumer gets identical header behavior. *@
+@using MelodyBridge.Infrastructure.Data
+
+<div class="table-wrap">
+    <table class="modern-table track-table">
+        <colgroup>
+            <col class="col-pos" />
+            <col class="col-title" />
+            <col class="col-artist" />
+            <col class="col-num" />
+            <col class="col-num" />
+            <col class="col-num" />
+            <col class="col-num" />
+            <col class="col-format" />
+            <col class="col-status" />
+            @if (ShowFilenameColumn)
+            {
+                <col class="col-file" />
+            }
+            <col class="col-actions" />
+        </colgroup>
+        <thead>
+            <tr>
+                @foreach (var column in Columns)
+                {
+                    <th class="@(column.Align == TrackColumnAlign.Right ? "num" : "")"
+                        aria-sort="@(SortKey == column.Key ? (SortDescending ? "descending" : "ascending") : "none")">
+                        @if (column.Sortable)
+                        {
+                            <button class="th-sort" type="button"
+                                    @onclick="() => ToggleSort(column.Key)"
+                                    title="Sort by @column.Label.ToLowerInvariant()">
+                                @column.Label
+                                @if (SortKey == column.Key)
+                                {
+                                    <span class="sort-arrow" aria-hidden="true">@(SortDescending ? "▾" : "▴")</span>
+                                }
+                            </button>
+                        }
+                        else
+                        {
+                            @column.Label
+                        }
+                    </th>
+                }
+                @if (ShowFilenameColumn)
+                {
+                    <th class="col-file">File</th>
+                }
+                <th class="col-actions"><span class="visually-hidden">Actions</span></th>
+            </tr>
+        </thead>
+        <tbody>
+            @if (SortedTracks.Count == 0)
+            {
+                <tr><td class="empty-row" colspan="@(Columns.Length + (ShowFilenameColumn ? 2 : 1))">No tracks match the filter.</td></tr>
+            }
+            @foreach (var track in SortedTracks)
+            {
+                <tr>
+                    <td class="text-muted">@(track.Position + 1)</td>
+                    <td class="cell-title"><strong title="@(track.Title ?? "Unknown")">@(track.Title ?? "Unknown")</strong></td>
+                    <td class="cell-artist" title="@(track.Artist ?? "Unknown artist")">@(track.Artist ?? "Unknown artist")</td>
+                    <td class="text-muted num">@TrackDisplay.Duration(track.DurationMs)</td>
+                    <td class="text-muted num">@TrackDisplay.Size(track)</td>
+                    <td class="text-muted num">@(track.DownloadStatus == "downloaded" ? TrackDisplay.BitrateLabel(track.Bitrate) : "-")</td>
+                    <td class="text-muted num">@(track.DownloadStatus == "downloaded" ? TrackDisplay.RateLabel(track.SampleRateHz) : "-")</td>
+                    <td class="text-muted">@(track.DownloadStatus == "downloaded" ? TrackDisplay.FormatLabel(track.MediaType) : "-")</td>
+                    <td class="cell-status">
+                        @{ var queueLabel = QueueLabel?.Invoke(track); }
+                        @if (queueLabel is "downloading")
+                        {
+                            <StatusPill Variant="in_progress" Pulse="true" Title="Currently downloading">downloading</StatusPill>
+                        }
+                        else if (queueLabel is not null)
+                        {
+                            <StatusPill Variant="info">@queueLabel</StatusPill>
+                        }
+                        else
+                        {
+                            <StatusPill Variant="@(track.DownloadStatus switch
+                                { "downloaded" => "ok", "failed" => "err", _ => "neutral" })"
+                                Title="@(track.DownloadStatus == "failed" ? track.DownloadError : null)">
+                                @(track.DownloadStatus ?? "pending")
+                            </StatusPill>
+                            @if (track.DownloadStatus == "failed" && !string.IsNullOrWhiteSpace(track.DownloadError))
+                            {
+                                <StatusPill Variant="err" Class="pill-tight" Title="@track.DownloadError">!</StatusPill>
+                            }
+                        }
+                        @if (!string.IsNullOrWhiteSpace(track.Warning))
+                        {
+                            <StatusPill Variant="warn" Title="@track.Warning" Class="pill-tight">!</StatusPill>
+                        }
+                    </td>
+                    @if (ShowFilenameColumn)
+                    {
+                        <td class="text-muted cell-file">
+                            @if (!string.IsNullOrWhiteSpace(track.CurrentPath))
+                            {
+                                <span title="@track.CurrentPath">@System.IO.Path.GetFileName(track.CurrentPath)</span>
+                            }
+                            else
+                            {
+                                <span>-</span>
+                            }
+                        </td>
+                    }
+                    <td class="track-actions">
+                        <div class="btn-group">
+                            @if (track.DownloadStatus is "failed" or null or "pending")
+                            {
+                                <button class="btn-modern small ghost" title="Download this track now"
+                                        @onclick="() => OnRetry.InvokeAsync(track)" disabled="@Busy">
+                                    <Icon Name="refresh" Size="14" /> Download
+                                </button>
+                            }
+                            @if (track.DownloadStatus is not null)
+                            {
+                                <button class="btn-modern small ghost" title="Remove from playlist (deletes the file)"
+                                        @onclick="() => OnRemove.InvokeAsync(track)" disabled="@Busy">
+                                    <Icon Name="x" Size="14" /> Remove
+                                </button>
+                            }
+                        </div>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+</div>
+
+@code {
+    /// <summary>Tracks to show, already filtered by the page.</summary>
+    [Parameter, EditorRequired] public IReadOnlyList<TrackEntity> Tracks { get; set; } = Array.Empty<TrackEntity>();
+    /// <summary>True when a page-level action is running: row buttons disable.</summary>
+    [Parameter] public bool Busy { get; set; }
+    /// <summary>The File column appears when the user opted in.</summary>
+    [Parameter] public bool ShowFilenameColumn { get; set; }
+    /// <summary>Live queue label for a track while a run is active; null means the plain pill.</summary>
+    [Parameter] public Func<TrackEntity, string?>? QueueLabel { get; set; }
+    /// <summary>Download this one track.</summary>
+    [Parameter] public EventCallback<TrackEntity> OnRetry { get; set; }
+    /// <summary>Remove this track (and its file) from the playlist.</summary>
+    [Parameter] public EventCallback<TrackEntity> OnRemove { get; set; }
+    /// <summary>Raised whenever the sort changes, so the page can keep the state.</summary>
+    [Parameter] public EventCallback OnSortChanged { get; set; }
+
+    /// <summary>Sort key shared with the page so tests can drive it.</summary>
+    public enum TrackSortColumn { Position, Title, Artist, Duration, Size, Status }
+    public enum TrackColumnAlign { Left, Right }
+
+    private sealed record ColumnSpec(string Key, string Label, bool Sortable, TrackColumnAlign Align);
+
+    private static readonly ColumnSpec[] Columns =
+    {
+        new("Position", "#", true, TrackColumnAlign.Left),
+        new("Title", "Title", true, TrackColumnAlign.Left),
+        new("Artist", "Artist", true, TrackColumnAlign.Left),
+        new("Duration", "Duration", true, TrackColumnAlign.Right),
+        new("Size", "Size", true, TrackColumnAlign.Right),
+        new("Bitrate", "Bitrate", false, TrackColumnAlign.Right),
+        new("Rate", "Rate", false, TrackColumnAlign.Right),
+        new("Format", "Format", false, TrackColumnAlign.Left),
+        new("Status", "Status", true, TrackColumnAlign.Left),
+    };
+
+    private TrackSortColumn sortColumn = TrackSortColumn.Position;
+    private bool sortDescending;
+
+    /// <summary>Current sort key, exposed for tests and the page.</summary>
+    public string SortKey => sortColumn.ToString();
+    public bool SortDescending => sortDescending;
+
+    private void ToggleSort(string key)
+    {
+        if (!Enum.TryParse<TrackSortColumn>(key, out var column)) return;
+        if (sortColumn == column) sortDescending = !sortDescending;
+        else
+        {
+            sortColumn = column;
+            sortDescending = false;
+        }
+        OnSortChanged.InvokeAsync(StateHasChanged);
+    }
+
+    private IReadOnlyList<TrackEntity> SortedTracks
+    {
+        get
+        {
+            Func<TrackEntity, object?> key = sortColumn switch
+            {
+                TrackSortColumn.Title => t => t.Title ?? "",
+                TrackSortColumn.Artist => t => t.Artist ?? "",
+                TrackSortColumn.Duration => t => t.DurationMs ?? 0,
+                TrackSortColumn.Size => t => t.FileSizeBytes ?? 0,
+                TrackSortColumn.Status => t => StatusOrder(t),
+                _ => t => t.Position ?? 0,
+            };
+            // Position is the stable tiebreak in both directions, so rows
+            // with equal sort keys never shuffle between renders.
+            var sorted = sortDescending
+                ? Tracks.OrderByDescending(key, KeyComparer)
+                : Tracks.OrderBy(key, KeyComparer);
+            return sorted.ThenBy(t => t.Position ?? 0).ToList();
+        }
+    }
+
+    /// <summary>Compares the boxed sort keys: strings ignore case, the rest compare natively.</summary>
+    private static readonly IComparer<object?> KeyComparer = Comparer<object?>.Create((a, b) => (a, b) switch
+    {
+        (string x, string y) => string.Compare(x, y, StringComparison.OrdinalIgnoreCase),
+        (IComparable x, IComparable y) => x.CompareTo(y),
+        _ => 0,
+    });
+
+    /// <summary>Pill-visual order so Status sorting groups pills like a user reads them.</summary>
+    private static int StatusOrder(TrackEntity t) => t.DownloadStatus switch
+    {
+        "failed" => 0,
+        "in_progress" or "downloading" => 1,
+        "queued" => 2,
+        "pending" or null => 3,
+        "downloaded" => 4,
+        _ => 5,
+    };
+}

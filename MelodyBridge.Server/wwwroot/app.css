@@ -1443,16 +1443,16 @@ input[type="file"].btn-modern::file-selector-button {
 
 /* Why a track failed, in small quiet text under the status pill; the
    full story stays available on the pill's hover. */
-.fail-note { font-size: .75rem; color: var(--text-muted, #888); margin-top: .15rem; max-width: 220px; }
+.fail-note { font-size: .75rem; color: var(--text-muted, #888); margin-top: .15rem; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ── Track table: stable columns, sortable headers, pill status cells ── */
 /* Fixed layout plus explicit col widths: rows cannot wobble, borders
    line up, and the actions column never gets squeezed off screen. */
 .track-table { table-layout: fixed; }
 .track-table .col-pos { width: 3rem; }
-.track-table .col-title { width: 24%; }
-.track-table .col-artist { width: 18%; }
-.track-table .col-num { width: 5rem; }
+.track-table .col-title { width: 22%; }
+.track-table .col-artist { width: 17%; }
+.track-table .col-num { width: 6rem; }
 .track-table .col-format { width: 5.5rem; }
 .track-table .col-status { width: 9.5rem; }
 .track-table .col-file { width: 12rem; }
@@ -1480,7 +1480,7 @@ input[type="file"].btn-modern::file-selector-button {
 .track-table .sort-arrow { font-size: .7rem; line-height: 1; }
 
 /* Title and File cells clip long values instead of stretching the row. */
-.track-table .cell-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.track-table .cell-title, .track-table .cell-artist { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .track-table .cell-file span { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
 
 /* Status cells: pill plus error note stack without stretching the row. */

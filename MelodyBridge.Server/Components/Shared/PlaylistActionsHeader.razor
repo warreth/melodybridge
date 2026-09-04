@@ -1,0 +1,75 @@
+@* Sticky action bar of the playlist details page: the playlist identity
+   on the left, the grouped actions on the right. One component so the
+   button order, grouping and busy handling stay identical everywhere. *@
+
+<section class="page-title detail-header">
+    <div class="playlist-header">
+        <div class="playlist-cover small">
+            @if (!string.IsNullOrEmpty(CoverUrl))
+            {
+                <img src="@CoverUrl" alt="@Name" />
+            }
+            else
+            {
+                <span class="playlist-cover-placeholder"><Icon Name="music" Size="28" Class="cover-placeholder-icon" /></span>
+            }
+        </div>
+        <div>
+            <span class="eyebrow">@Eyebrow</span>
+            <h1>@Name</h1>
+            <p>@MetaLine</p>
+        </div>
+    </div>
+    <div class="topbar-actions detail-actions">
+        @if (ShowRefresh)
+        {
+            <button class="btn-modern ghost" @onclick="OnRefresh" disabled="@Busy">@(Busy ? "Fetching…" : "Refresh")</button>
+        }
+        @if (ShowDownloadGroup)
+        {
+            @if (DownloadState == Application.Services.DownloadRunState.Paused)
+            {
+                <button class="btn-modern primary" @onclick="OnResume">Resume</button>
+            }
+            else
+            {
+                <button class="btn-modern secondary" @onclick="OnPause">Pause</button>
+            }
+            <button class="btn-modern ghost" @onclick="OnCancel">Cancel</button>
+        }
+        else
+        {
+            <button class="btn-modern primary" @onclick="OnStart">Download missing</button>
+        }
+        <button class="btn-modern secondary" @onclick="OnExport" disabled="@Busy">Export CSV</button>
+        <button class="btn-modern ghost" @onclick="OnDelete" disabled="@Busy">Delete playlist</button>
+    </div>
+</section>
+
+@code {
+    /// <summary>Text above the title, e.g. "Spotify playlist" or "Imported".</summary>
+    [Parameter, EditorRequired] public string Eyebrow { get; set; } = "";
+    /// <summary>Playlist name.</summary>
+    [Parameter, EditorRequired] public string Name { get; set; } = "";
+    /// <summary>Meta line under the title (counts, owner, sync date, quality).</summary>
+    [Parameter] public RenderFragment? MetaLine { get; set; }
+    /// <summary>Cover image URL; empty renders the placeholder icon.</summary>
+    [Parameter] public string? CoverUrl { get; set; }
+
+    /// <summary>Refresh only exists for playlists with a live source.</summary>
+    [Parameter] public bool ShowRefresh { get; set; }
+    /// <summary>True while a run is active: Resume/Pause + Cancel replace Download missing.</summary>
+    [Parameter] public bool ShowDownloadGroup { get; set; }
+    /// <summary>Paused runs offer Resume instead of Download missing.</summary>
+    [Parameter] public Application.Services.DownloadRunState DownloadState { get; set; }
+    /// <summary>Any page-level action in flight: buttons disable.</summary>
+    [Parameter] public bool Busy { get; set; }
+
+    [Parameter] public EventCallback OnRefresh { get; set; }
+    [Parameter] public EventCallback OnStart { get; set; }
+    [Parameter] public EventCallback OnPause { get; set; }
+    [Parameter] public EventCallback OnResume { get; set; }
+    [Parameter] public EventCallback OnCancel { get; set; }
+    [Parameter] public EventCallback OnExport { get; set; }
+    [Parameter] public EventCallback OnDelete { get; set; }
+}
