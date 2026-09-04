@@ -67,7 +67,14 @@
     {
         Active = false;
         await Settings.SetAsync(PersistenceKey, "true");
-        await JS.InvokeVoidAsync("melody.hideSpotlight");
+        try
+        {
+            await JS.InvokeVoidAsync("melody.hideSpotlight");
+        }
+        catch (JSException)
+        {
+            // The browser session might disconnect or JS runtime might not be ready yet.
+        }
         await OnFinished.InvokeAsync();
         StateHasChanged();
     }
@@ -78,10 +85,17 @@
 
     private async Task SpotlightCurrentAsync()
     {
-        var selector = Current.SpotlightSelector;
-        // Missing element (page differs from the tour's home): fall back to
-        // a plain centered card by hiding the spotlight box.
-        var found = selector is null || await JS.InvokeAsync<bool>("melody.spotlight", selector);
-        if (!found) await JS.InvokeVoidAsync("melody.hideSpotlight");
+        try
+        {
+            var selector = Current.SpotlightSelector;
+            // Missing element (page differs from the tour's home): fall back to
+            // a plain centered card by hiding the spotlight box.
+            var found = selector is null || await JS.InvokeAsync<bool>("melody.spotlight", selector);
+            if (!found) await JS.InvokeVoidAsync("melody.hideSpotlight");
+        }
+        catch (JSException)
+        {
+            // Gracefully ignore missing JS interop during lifecycle initialization.
+        }
     }
 }
