@@ -15,7 +15,7 @@
                 @ChildContent
             </div>
             <div class="wizard-footer">
-                <button class="btn-modern" @onclick="() => OnCancel.InvokeAsync()">Cancel</button>
+                <button class="btn-modern secondary" @onclick="() => OnCancel.InvokeAsync()">Cancel</button>
                 <span></span>
                 <button class="btn-modern danger" @onclick="() => OnConfirm.InvokeAsync()" disabled="@Busy">
                     @(Busy ? "Working…" : ConfirmLabel)

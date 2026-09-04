@@ -24,11 +24,11 @@
         </button>
         @if (status == "ok")
         {
-            <span class="pill ok">connected</span>
+            <StatusPill Variant="ok">connected</StatusPill>
         }
         else if (status == "err")
         {
-            <span class="pill err">not connected</span>
+            <StatusPill Variant="err">not connected</StatusPill>
         }
         @if (!string.IsNullOrEmpty(statusMessage))
         {

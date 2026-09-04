@@ -32,7 +32,7 @@
                 <span class="eyebrow">Last scan</span>
                 <h2>Result</h2>
             </div>
-            <span class="pill @(scanResultOk ? "ok" : "warn")">@(scanResultOk ? "Success" : "Issues")</span>
+            <StatusPill Variant="@(scanResultOk ? "ok" : "warn")">@(scanResultOk ? "Success" : "Issues")</StatusPill>
         </div>
         <pre class="result-box">@scanResult</pre>
     </section>
@@ -122,7 +122,7 @@
                 <MountWarning />
             </div>
             <div class="wizard-footer">
-                <button class="btn-modern" @onclick="CloseForm">Cancel</button>
+                <button class="btn-modern secondary" @onclick="CloseForm">Cancel</button>
                 <button class="btn-modern primary" @onclick="SaveLocation">
                     @(editingId is null ? "Add location" : "Save changes")
                 </button>

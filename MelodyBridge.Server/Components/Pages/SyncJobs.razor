@@ -288,7 +288,7 @@
             <div class="wizard-footer">
                 @if (currentStep > 0)
                 {
-                    <button class="btn-modern" @onclick="PrevStep">Back</button>
+                    <button class="btn-modern secondary" @onclick="PrevStep">Back</button>
                 }
                 <span></span>
                 @if (currentStep < 4)
@@ -370,7 +370,7 @@
                 @foreach (var entry in logEntries)
                 {
                     <div class="log-entry">
-                        <span class="pill @(entry.Status == "Completed" ? "ok" : "warn")">@entry.Status</span>
+                        <StatusPill Variant="@(entry.Status == "Completed" ? "ok" : "warn")">@entry.Status</StatusPill>
                         <div>
                             <strong>@entry.Timestamp.ToString("g")</strong>
                             <p>@entry.Message</p>
