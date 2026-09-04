@@ -1,11 +1,22 @@
-/* Sync jobs page scoped styles: the card action footer that
-   replaces the inline-styled topbar-actions row. */
+/* Sync jobs page scoped styles: card action footer and wizard form grid. */
 
-::deep .job-footer {
+.job-footer {
     display: flex;
     gap: .5rem;
     align-items: center;
     margin-top: .75rem;
     padding-top: .75rem;
     border-top: 1px solid var(--border);
+}
+
+.wizard-body .form-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1.1rem;
+}
+
+@media (min-width: 640px) {
+    .wizard-body .form-grid:not(.single) {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
 }
