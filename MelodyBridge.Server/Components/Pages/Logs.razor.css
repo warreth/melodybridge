@@ -40,3 +40,19 @@
     border-color: var(--accent);
     background: var(--accent-soft);
 }
+
+/* Stream legibility: .8rem beats the global .74rem on this page. */
+.logs-list {
+    font-size: .8rem;
+    line-height: 1.45;
+}
+
+.log-row {
+    padding: .4rem .8rem;
+}
+
+.log-message {
+    color: var(--text);
+}
+
+/* .log-time and .log-category keep the muted color from the global rules. */

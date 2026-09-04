@@ -186,4 +186,90 @@ public class LogsPageTests
         Assert.That(entries[^1].Message, Does.Contain("entry 7"),
             "oldest entries are evicted first");
     }
+
+    [Test]
+    public void Logs_AreaChipRestoresWithAllAreas()
+    {
+        _collector.Log(LogLevel.Info, "MelodyBridge.Application.Services.DownloadManager", "downloads area entry");
+        _collector.Log(LogLevel.Info, "MelodyBridge.Infrastructure.Services.PlaylistStore", "playlists area entry");
+
+        var cut = _ctx.Render<Logs>();
+
+        cut.FindAll(".filter-chip").Single(c => c.TextContent == "Downloads").Click();
+
+        var rows = cut.FindAll(".logs-list .log-row");
+        Assert.That(rows.Count(), Is.EqualTo(1), "only the downloads row stays");
+        Assert.That(cut.Find(".logs-list").TextContent, Does.Contain("downloads area entry"));
+        Assert.That(cut.Find(".logs-list").TextContent, Does.Not.Contain("playlists area entry"));
+
+        cut.FindAll(".filter-chip").Single(c => c.TextContent.Trim() == "All areas").Click();
+
+        var restored = cut.FindAll(".logs-list .log-row");
+        Assert.That(restored.Count(), Is.EqualTo(2), "All areas must restore both rows");
+        Assert.That(cut.Find(".logs-list").TextContent, Does.Contain("downloads area entry"));
+        Assert.That(cut.Find(".logs-list").TextContent, Does.Contain("playlists area entry"));
+    }
+
+    [Test]
+    public void Logs_LevelChipTogglesBackWithAllLevels()
+    {
+        _collector.Log(LogLevel.Info, "MelodyBridge.Infrastructure.Services.PlaylistStore", "the info entry");
+        _collector.Log(LogLevel.Warn, "MelodyBridge.Infrastructure.Services.PlaylistStore", "the warn entry");
+
+        var cut = _ctx.Render<Logs>();
+
+        cut.FindAll(".filter-chip").Single(c => c.TextContent == "Warning").Click();
+
+        var warnRows = cut.FindAll(".logs-list .log-row");
+        Assert.That(warnRows.Count(), Is.EqualTo(1), "only the warn row stays");
+        Assert.That(cut.Find(".logs-list").TextContent, Does.Contain("the warn entry"));
+        Assert.That(cut.Find(".logs-list").TextContent, Does.Not.Contain("the info entry"));
+
+        cut.FindAll(".filter-chip").Single(c => c.TextContent.Trim() == "All levels").Click();
+
+        var restored = cut.FindAll(".logs-list .log-row");
+        Assert.That(restored.Count(), Is.EqualTo(2), "All levels must restore both rows");
+        Assert.That(cut.Find(".logs-list").TextContent, Does.Contain("the info entry"));
+        Assert.That(cut.Find(".logs-list").TextContent, Does.Contain("the warn entry"));
+    }
+
+    [Test]
+    public void Logs_NewestFirstToggleFlipsRowOrder()
+    {
+        _collector.Log(LogLevel.Info, "MelodyBridge.Infrastructure.Services.PlaylistStore", "alpha is older");
+        _collector.Log(LogLevel.Info, "MelodyBridge.Infrastructure.Services.PlaylistStore", "beta is newer");
+
+        var cut = _ctx.Render<Logs>();
+
+        var firstBefore = cut.FindAll(".logs-list .log-row").First();
+        Assert.That(firstBefore.TextContent, Does.Contain("beta is newer"),
+            "newest first is the default order");
+
+        cut.Find(".toggle-switch input[type='checkbox']").Change(false);
+
+        var firstAfter = cut.FindAll(".logs-list .log-row").First();
+        Assert.That(firstAfter.TextContent, Does.Contain("alpha is older"),
+            "toggling off must flip to oldest first");
+    }
+
+    [Test]
+    public void Logs_ShowOnlyProblemsButtonFiltersAndRestores()
+    {
+        _collector.Log(LogLevel.Info, "MelodyBridge.Infrastructure.Services.PlaylistStore", "harmless info entry");
+        _collector.Log(LogLevel.Error, "MelodyBridge.Application.Services.DownloadManager", "explosive error entry");
+
+        var cut = _ctx.Render<Logs>();
+
+        cut.FindAll("button.btn-modern").Single(b => b.TextContent.Trim() == "Show only problems").Click();
+
+        Assert.That(cut.FindAll(".logs-list .log-row").Count(), Is.EqualTo(1),
+            "Show only problems must hide the info row from the stream");
+        Assert.That(cut.Find(".logs-list").TextContent, Does.Contain("explosive error entry"));
+
+        cut.FindAll("button.btn-modern").Single(b => b.TextContent.Trim() == "Show all").Click();
+
+        var restored = cut.Find(".logs-list");
+        Assert.That(restored.TextContent, Does.Contain("harmless info entry"),
+            "Show all must bring the info row back");
+    }
 }
