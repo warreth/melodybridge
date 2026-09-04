@@ -1,16 +1,38 @@
 // MelodyBridge client helpers. Plain JS, no dependencies.
 window.melody = (() => {
     const THEME_KEY = 'mb-theme';
+    const ACCENT_KEY = 'mb-accent';
+    // Palettes shipped in app.css; anything else falls back to teal.
+    const ACCENTS = ['teal', 'blue', 'violet', 'rose', 'amber'];
 
     function setTheme(theme) {
         document.documentElement.setAttribute('data-theme', theme);
         try { localStorage.setItem(THEME_KEY, theme); } catch { /* private mode */ }
     }
 
+    // Swap the accent palette by setting data-accent on the html element;
+    // every accent-colored rule reads the --accent tokens, so no reload
+    // and no per-element restyling is needed.
+    function setAccent(accent) {
+        const value = ACCENTS.includes(accent) ? accent : 'teal';
+        document.documentElement.setAttribute('data-accent', value);
+        try { localStorage.setItem(ACCENT_KEY, value); } catch { /* private mode */ }
+    }
+
     function init() {
         let saved = null;
+        let savedAccent = null;
         try { saved = localStorage.getItem(THEME_KEY); } catch { /* ignore */ }
+        try { savedAccent = localStorage.getItem(ACCENT_KEY); } catch { /* ignore */ }
         setTheme(saved === 'light' ? 'light' : 'dark');
+        setAccent(savedAccent || 'teal');
+    }
+
+    // The settings page reads this once to mark the active swatch; falls
+    // back to teal when the attribute is missing (fresh browser).
+    function getAccent() {
+        const value = document.documentElement.getAttribute('data-accent');
+        return ACCENTS.includes(value) ? value : 'teal';
     }
 
     // Position the tour spotlight over an element and scroll it into view.
@@ -46,6 +68,8 @@ window.melody = (() => {
 
     return {
         setTheme,
+        setAccent,
+        getAccent,
         init,
         spotlight,
         hideSpotlight,

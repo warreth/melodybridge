@@ -47,6 +47,60 @@
     --shadow: 0 1px 2px rgba(0, 0, 0, .06), 0 10px 24px rgba(15, 23, 42, .08);
 }
 
+/* Accent palettes: the base teal ships on :root; data-accent on the
+   html element swaps the three accent tokens. Dark variants first,
+   then each palette's light-mode pair (same pattern as data-theme). */
+:root[data-accent="teal"] {
+    --accent: #2dd4bf;
+    --accent-strong: #14b8a6;
+    --accent-soft: rgba(45, 212, 191, .10);
+}
+:root[data-accent="teal"][data-theme="light"] {
+    --accent: #0f766e;
+    --accent-strong: #0f766e;
+    --accent-soft: rgba(15, 118, 110, .10);
+}
+:root[data-accent="blue"] {
+    --accent: #60a5fa;
+    --accent-strong: #3b82f6;
+    --accent-soft: rgba(59, 130, 246, .10);
+}
+:root[data-accent="blue"][data-theme="light"] {
+    --accent: #2563eb;
+    --accent-strong: #1d4ed8;
+    --accent-soft: rgba(37, 99, 235, .10);
+}
+:root[data-accent="violet"] {
+    --accent: #c084fc;
+    --accent-strong: #a855f7;
+    --accent-soft: rgba(168, 85, 247, .10);
+}
+:root[data-accent="violet"][data-theme="light"] {
+    --accent: #7c3aed;
+    --accent-strong: #6d28d9;
+    --accent-soft: rgba(109, 40, 217, .10);
+}
+:root[data-accent="rose"] {
+    --accent: #fb7185;
+    --accent-strong: #f43f5e;
+    --accent-soft: rgba(244, 63, 94, .10);
+}
+:root[data-accent="rose"][data-theme="light"] {
+    --accent: #e11d48;
+    --accent-strong: #be123c;
+    --accent-soft: rgba(190, 18, 60, .10);
+}
+:root[data-accent="amber"] {
+    --accent: #fbbf24;
+    --accent-strong: #f59e0b;
+    --accent-soft: rgba(245, 158, 11, .10);
+}
+:root[data-accent="amber"][data-theme="light"] {
+    --accent: #d97706;
+    --accent-strong: #b45309;
+    --accent-soft: rgba(180, 83, 9, .10);
+}
+
 html, body {
     margin: 0;
     min-height: 100%;
@@ -348,7 +402,7 @@ a:focus-visible {
 .pill.warn, .pill.warning { color: var(--warning); background: var(--warning-soft); border-color: rgba(251, 191, 36, .2); }
 .pill.err { color: var(--danger); background: var(--danger-soft); border-color: rgba(251, 113, 133, .2); }
 .pill.neutral { color: var(--muted); background: var(--surface-2); border-color: var(--border); }
-.pill.info { color: var(--accent-strong); background: var(--accent-soft); border-color: rgba(45, 212, 191, .2); }
+.pill.info { color: var(--accent-strong); background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 20%, transparent); }
 :root[data-theme="light"] .pill.neutral { background: #f4f4f5; color: #52525b; border-color: #e4e4e7; }
 
 .status-dot { width: 9px; height: 9px; border-radius: 999px; display: inline-block; }
@@ -1247,7 +1301,7 @@ td.file-path {
     backdrop-filter: blur(6px);
     color: white;
 }
-.cover-badge.downloading { background: rgba(45, 212, 191, .85); }
+.cover-badge.downloading { background: color-mix(in srgb, var(--accent) 85%, transparent); }
 .cover-badge.paused { background: rgba(251, 191, 36, .9); }
 .cover-badge.complete { background: rgba(52, 211, 153, .9); }
 .cover-badge.partial { background: rgba(90, 100, 120, .85); }
@@ -1424,7 +1478,7 @@ input[type="file"].btn-modern::file-selector-button {
     color: var(--text-muted, #8a8f98);
     white-space: nowrap;
 }
-.save-state.saving { color: var(--accent, #2dd4bf); border-color: var(--accent-soft); background: var(--accent-soft); }
+.save-state.saving { color: var(--accent); border-color: var(--accent-soft); background: var(--accent-soft); }
 .save-state.saved { color: var(--success); border-color: rgba(52, 211, 153, .25); background: var(--success-soft); }
 .save-state.failed { color: var(--danger); border-color: rgba(251, 113, 133, .25); background: var(--danger-soft); }
 
@@ -1479,7 +1533,7 @@ input[type="file"].btn-modern::file-selector-button {
 .track-table .th-sort:hover { color: var(--text); }
 .track-table .sort-arrow { font-size: .7rem; line-height: 1; }
 
-/* Title and File cells clip long values instead of stretching the row. */
+/* Title, artist and File cells clip long values instead of stretching the row. */
 .track-table .cell-title, .track-table .cell-artist { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .track-table .cell-file span { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
 
