@@ -32,6 +32,12 @@ jobs:
       - name: Restore
         run: dotnet restore MelodyBridge.sln
 
+      # The fast suite probes real audio files (ffprobe/ffmpeg live on
+      # ubuntu-latest by default, but the runner image is not a contract;
+      # local runners via act do not ship it either).
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
       - name: Build
         run: dotnet build MelodyBridge.sln -c Release --no-restore
 
