@@ -37,7 +37,7 @@ public class LibraryPageTests
         }
 
         _scanner.Setup(s => s.ScanAsync(It.IsAny<IEnumerable<ScanLocation>>(), It.IsAny<CancellationToken>()))
-            .Returns(Task.CompletedTask);
+            .Returns(Task.FromResult(MelodyBridge.Core.ScanReport.Empty));
 
         _ctx.Services.AddSingleton<ILibraryScanner>(_scanner.Object);
         _ctx.Services.AddSingleton<IDbContextFactory<MelodyBridgeDbContext>>(_dbFactory);
@@ -102,8 +102,12 @@ public class LibraryPageTests
             cut.FindAll("button").First(b => b.TextContent.Trim() == "Run scan").Click();
 
             cut.WaitForAssertion(() =>
-                Assert.That(cut.Markup, Does.Contain("location(s) successfully."),
-                    "the page reports the scan result"), TimeSpan.FromSeconds(5));
+            {
+                Assert.That(cut.Markup, Does.Contain("1 files with MELODY_ID"),
+                    "the page reports the honest scan numbers");
+                Assert.That(cut.Markup, Does.Contain("Path not found: /music/test"),
+                    "the seeded phantom path is named instead of silently scanning zero");
+            }, TimeSpan.FromSeconds(5));
 
             using (var db = _dbFactory.CreateDbContext())
             {

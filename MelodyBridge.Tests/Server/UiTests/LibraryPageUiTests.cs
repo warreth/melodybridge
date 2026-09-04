@@ -31,7 +31,7 @@ public class LibraryPageUiTests
         _factory = new TestSqliteFactory(_dbPath);
         _scanner = new Mock<ILibraryScanner>();
         _scanner.Setup(s => s.ScanAsync(It.IsAny<IEnumerable<ScanLocation>>(), It.IsAny<CancellationToken>()))
-            .Returns(Task.CompletedTask);
+            .Returns(Task.FromResult(MelodyBridge.Core.ScanReport.Empty));
 
         using (var db = _factory.CreateDbContext())
         {

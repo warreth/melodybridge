@@ -53,52 +53,15 @@
         <div class="path-list">
             @foreach (var loc in locations)
             {
-                <div class="location-card">
-                    <Icon Name="folder" Size="20" Class="location-icon" />
-                    <div class="location-body">
-                        <code class="path-tag">@loc.Path</code>
-                        <small>
-                            @(FileCount(loc)) files with MELODY_ID ·
-                            @(LocationSchedule.Of(loc) is { Mode: ScanScheduleMode.Manual } ? "manual" : DescribeSchedule(LocationSchedule.Of(loc))) ·
-                            last scan @(loc.LastScannedAt is { } scanned ? scanned.ToLocalTime().ToString("yyyy-MM-dd HH:mm") : "never")
-                        </small>
-                        @if (loc.LiveMonitoring)
-                        {
-                            <StatusPill Variant="neutral">live</StatusPill>
-                        }
-                    </div>
-                    <div class="flex-actions location-actions">
-                        <button class="btn-modern ghost small" @onclick="() => ShowEditLocation(loc)">Edit</button>
-                        <button class="btn-modern ghost small" @onclick="() => AskRemoveLocation(loc)">Remove</button>
-                    </div>
-                </div>
+                <LibraryLocationCard Location="loc"
+                                     FileCount="@FileCount(loc)"
+                                     Schedule="@LocationSchedule.Of(loc)"
+                                     OnEdit="ShowEditLocation"
+                                     OnRemove="AskRemoveLocation" />
             }
         </div>
     </div>
-    <div class="panel-card">
-        <div class="panel-header">
-            <div><span class="eyebrow">How matching works</span>
-                <h2>Track identity</h2>
-            </div>
-        </div>
-        <div class="identity-grid">
-            <div class="identity-item">
-                <span class="status-dot online"></span>
-                <strong>MELODY_ID</strong>
-                <small>ID3v2 TXXX frame embedded during download</small>
-            </div>
-            <div class="identity-item">
-                <span class="status-dot online"></span>
-                <strong>Fallback</strong>
-                <small>Comment-based marker when ID3 frames are unsupported</small>
-            </div>
-            <div class="identity-item">
-                <span class="status-dot online"></span>
-                <strong>Matched</strong>
-                <small>Playlists link to files by ID tag; avoids re-downloading</small>
-            </div>
-        </div>
-    </div>
+    <LibraryIdentityPanel />
 </section>
 
 @if (showForm)
@@ -193,8 +156,6 @@
     private int FileCount(ScanLocationEntity loc)
         => filesPerLocation.TryGetValue(loc.Id, out var n) ? n : 0;
 
-    private static string DescribeSchedule(ScanSchedule s) => s.Describe();
-
     private async Task RunScan()
     {
         scanning = true;
@@ -210,7 +171,7 @@
                 return;
             }
 
-            await Scanner.ScanAsync(scanLocations);
+            var report = await Scanner.ScanAsync(scanLocations);
 
             // Stamp every scanned location so the cards show a real last-scan time.
             await using var db = await DbFactory.CreateDbContextAsync();
@@ -219,8 +180,12 @@
                 loc.LastScannedAt = DateTime.UtcNow;
             await db.SaveChangesAsync();
 
-            scanResult = $"Scanned {scanLocations.Length} location(s) successfully.";
-            scanResultOk = true;
+            scanResult = report.MissingPaths.Count > 0
+                ? $"Scanned {report.Locations} location(s): {report.TaggedFiles} files with MELODY_ID, "
+                  + $"{report.UntaggedFiles} without. Path not found: {string.Join(", ", report.MissingPaths)}. "
+                  + "In Docker, type the path as the container sees it (for example /music)."
+                : $"Scanned {report.Locations} location(s): {report.TaggedFiles} files with MELODY_ID, {report.UntaggedFiles} without.";
+            scanResultOk = report.MissingPaths.Count == 0;
             await LoadDataAsync();
         }
         catch (Exception ex)
@@ -292,6 +257,13 @@
                             && string.Equals(o.Path, path, StringComparison.OrdinalIgnoreCase)))
         {
             formError = "That path is already configured.";
+            return;
+        }
+
+        if (!Directory.Exists(path))
+        {
+            formError = "That folder does not exist from the app's point of view. "
+                + "In Docker, use the container path (for example /music), not the host path.";
             return;
         }
 

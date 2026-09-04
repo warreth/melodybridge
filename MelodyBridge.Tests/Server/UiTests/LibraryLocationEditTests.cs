@@ -33,7 +33,7 @@ public class LibraryLocationEditTests
         _factory = new TestSqliteFactory(_dbPath);
         _scanner = new Mock<ILibraryScanner>();
         _scanner.Setup(s => s.ScanAsync(It.IsAny<IEnumerable<ScanLocation>>(), It.IsAny<CancellationToken>()))
-            .Returns(Task.CompletedTask);
+            .Returns(Task.FromResult(MelodyBridge.Core.ScanReport.Empty));
 
         using (var db = _factory.CreateDbContext())
         {
@@ -106,7 +106,10 @@ public class LibraryLocationEditTests
         var cut = _ctx.Render<Library>();
         cut = OpenEdit(cut, "/music/rock");
 
-        cut.Find("input[placeholder='/music']").Change("/music/metal");
+        // A real directory: saving refuses paths the app cannot see.
+        var dir = Path.Combine(Path.GetTempPath(), $"mb-edit-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        cut.Find("input[placeholder='/music']").Change(dir);
         cut.Find("label.toggle-switch.wide input[type='checkbox']").Change(false);
         cut.Render();
 
@@ -114,12 +117,12 @@ public class LibraryLocationEditTests
         cut.Render();
 
         using var db = _factory.CreateDbContext();
-        var saved = db.ScanLocations.Single(l => l.Path == "/music/metal");
+        var saved = db.ScanLocations.Single(l => l.Path == dir);
         Assert.That(saved.LiveMonitoring, Is.False,
             "the live monitoring toggle flips off and persists");
         Assert.That(db.ScanLocations.Count(), Is.EqualTo(2),
             "editing never adds a row");
-        Assert.That(cut.Markup, Does.Contain("/music/metal"),
+        Assert.That(cut.Markup, Does.Contain(dir),
             "the page re-renders the new path on the location card");
         Assert.That(cut.Markup, Does.Not.Contain("wizard-modal"),
             "the modal closes after a successful save");

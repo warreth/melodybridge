@@ -18,16 +18,23 @@ public class LibraryScanner : ILibraryScanner
         _logger = logger;
     }
 
-    public async Task ScanAsync(IEnumerable<ScanLocation> paths, CancellationToken ct = default)
+    public async Task<ScanReport> ScanAsync(IEnumerable<ScanLocation> paths, CancellationToken ct = default)
     {
         var extensions = new[] { ".mp3", ".flac", ".ogg", ".opus", ".m4a", ".wav", ".webm" };
+
+        var locations = 0;
+        var tagged = 0;
+        var untagged = 0;
+        var missing = new List<string>();
 
         foreach (var loc in paths)
         {
             if (string.IsNullOrWhiteSpace(loc.Path)) continue;
+            locations++;
             if (!Directory.Exists(loc.Path))
             {
                 _logger.LogWarning("Scan path missing: {path}", loc.Path);
+                missing.Add(loc.Path);
                 continue;
             }
 
@@ -41,7 +48,11 @@ public class LibraryScanner : ILibraryScanner
                 {
                     var id = TaglibHelper.ReadMelodyId(filePath);
                     if (string.IsNullOrWhiteSpace(id))
+                    {
+                        untagged++;
                         continue;
+                    }
+                    tagged++;
 
                     var existing = await _db.Tracks.FirstOrDefaultAsync(t => t.MelodyId == id, ct);
                     if (existing == null)
@@ -96,5 +107,7 @@ public class LibraryScanner : ILibraryScanner
                 }
             }
         }
+
+        return new ScanReport(locations, tagged, untagged, missing.ToArray());
     }
 }

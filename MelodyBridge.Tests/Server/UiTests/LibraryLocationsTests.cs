@@ -32,7 +32,7 @@ public class LibraryLocationsTests
         _factory = new TestSqliteFactory(_dbPath);
         _scanner = new Mock<ILibraryScanner>();
         _scanner.Setup(s => s.ScanAsync(It.IsAny<IEnumerable<ScanLocation>>(), It.IsAny<CancellationToken>()))
-            .Returns(Task.CompletedTask);
+            .Returns(Task.FromResult(MelodyBridge.Core.ScanReport.Empty));
 
         using (var db = _factory.CreateDbContext())
         {
@@ -129,8 +129,12 @@ public class LibraryLocationsTests
         var cut = _ctx.Render<Library>();
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Add location").Click();
 
+        // A real directory: saving refuses paths the app cannot see.
+        var dir = Path.Combine(Path.GetTempPath(), $"mb-loc-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+
         // Fill the path.
-        cut.Find("input[placeholder='/music']").Change("/music/new");
+        cut.Find("input[placeholder='/music']").Change(dir);
 
         // Pick Hourly in the schedule select (the first select on the
         // modal belongs to SchedulePicker).
@@ -143,7 +147,7 @@ public class LibraryLocationsTests
         cut.Render();
 
         using var db = _factory.CreateDbContext();
-        var saved = db.ScanLocations.Single(l => l.Path == "/music/new");
+        var saved = db.ScanLocations.Single(l => l.Path == dir);
         Assert.That(saved.ScheduleCron, Is.EqualTo("0 * * * *"),
             "the Hourly preset lands as its cron equivalent");
         Assert.That(saved.LiveMonitoring, Is.True);
@@ -154,7 +158,11 @@ public class LibraryLocationsTests
     {
         var cut = _ctx.Render<Library>();
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Add location").Click();
-        cut.Find("input[placeholder='/music']").Change("/music/cronpick");
+
+        // A real directory: saving refuses paths the app cannot see.
+        var dir = Path.Combine(Path.GetTempPath(), $"mb-loc-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        cut.Find("input[placeholder='/music']").Change(dir);
 
         var selects = cut.FindAll("select");
         selects[0].Change("Cron"); // mode
@@ -168,7 +176,7 @@ public class LibraryLocationsTests
         cut.Render();
 
         using var db = _factory.CreateDbContext();
-        var saved = db.ScanLocations.Single(l => l.Path == "/music/cronpick");
+        var saved = db.ScanLocations.Single(l => l.Path == dir);
         Assert.That(saved.ScheduleCron, Is.EqualTo("0 22 * * 5"),
             "the typed cron expression lands in the DB verbatim");
     }
@@ -188,5 +196,42 @@ public class LibraryLocationsTests
         var all = db.ScanLocations.ToList();
         Assert.That(all, Has.All.Property("LastScannedAt").Not.Null,
             "every location gets a last-scan stamp after Run scan");
+    }
+
+    [Test]
+    public void SaveLocation_NonExistentPath_ShowsError_AndDoesNotSave()
+    {
+        var cut = _ctx.Render<Library>();
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Add location").Click();
+
+        // A host-style path the app cannot see from inside its process.
+        cut.Find("input[placeholder='/music']").Change("/home/someone/Music/techno");
+        cut.Render();
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Add location" && b.ClassList.Contains("primary")).Click();
+        cut.Render();
+
+        Assert.That(cut.Markup, Does.Contain("does not exist from the app's point of view"),
+            "the inline error names the container-vs-host path trap");
+        Assert.That(cut.Markup, Does.Contain("wizard-modal"),
+            "the modal stays open so the user can fix the path");
+
+        using var db = _factory.CreateDbContext();
+        Assert.That(db.ScanLocations.Count(l => l.Path == "/home/someone/Music/techno"), Is.Zero,
+            "a path the app cannot see is never saved");
+    }
+
+    [Test]
+    public void LocationCard_MissingPath_ShowsErrPill()
+    {
+        // /music/jazz from Setup does not exist on the test host: the card
+        // must say so instead of silently reporting zero files.
+        var cut = _ctx.Render<Library>();
+
+        cut.WaitForAssertion(() =>
+        {
+            var card = cut.FindAll(".location-card").Single(c => c.TextContent.Contains("/music/jazz"));
+            Assert.That(card.QuerySelector(".pill.err"), Is.Not.Null,
+                "a path the app cannot see gets an explicit missing marker");
+        }, TimeSpan.FromSeconds(3));
     }
 }

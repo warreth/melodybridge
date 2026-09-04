@@ -27,9 +27,12 @@ public class LibraryScannerTests
 
         var paths = new[] { new ScanLocation("/nonexistent/path/that/does/not/exist") };
 
-        // Should not throw
-        await scanner.ScanAsync(paths);
+        // Should not throw, and the report names the missing path.
+        var report = await scanner.ScanAsync(paths);
         Assert.That(db.Tracks, Is.Empty);
+        Assert.That(report.Locations, Is.EqualTo(1));
+        Assert.That(report.TaggedFiles, Is.EqualTo(0));
+        Assert.That(report.MissingPaths, Is.EqualTo(new[] { "/nonexistent/path/that/does/not/exist" }));
     }
 
     [Test]
@@ -38,8 +41,12 @@ public class LibraryScannerTests
         using var db = CreateDbContext();
         var scanner = new LibraryScanner(db, NullLogger<LibraryScanner>.Instance);
 
-        await scanner.ScanAsync(Array.Empty<ScanLocation>());
+        var report = await scanner.ScanAsync(Array.Empty<ScanLocation>());
         Assert.That(db.Tracks, Is.Empty);
+        Assert.That(report.Locations, Is.EqualTo(0));
+        Assert.That(report.TaggedFiles, Is.EqualTo(0));
+        Assert.That(report.UntaggedFiles, Is.EqualTo(0));
+        Assert.That(report.MissingPaths, Is.Empty);
     }
 
     [Test]
@@ -48,8 +55,11 @@ public class LibraryScannerTests
         using var db = CreateDbContext();
         var scanner = new LibraryScanner(db, NullLogger<LibraryScanner>.Instance);
 
-        await scanner.ScanAsync(new[] { new ScanLocation("") });
+        var report = await scanner.ScanAsync(new[] { new ScanLocation("") });
         Assert.That(db.Tracks, Is.Empty);
+        Assert.That(report.Locations, Is.EqualTo(0),
+            "a whitespace-only path is skipped, not counted as a location");
+        Assert.That(report.MissingPaths, Is.Empty);
     }
 
     [Test]
@@ -217,6 +227,46 @@ public class LibraryScannerTests
         {
             Directory.Delete(dir1, recursive: true);
             Directory.Delete(dir2, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task ScanAsync_MixedDirs_ReportCountsTaggedUntaggedAndMissing()
+    {
+        // Real files in real folders plus one path that does not exist: the
+        // report must say exactly what the scan saw, nothing embellished.
+        var dir = Path.Combine(Path.GetTempPath(), $"mb-report-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var taggedPath = Path.Combine(dir, "tagged.mp3");
+            await System.IO.File.WriteAllBytesAsync(taggedPath, SilenceMp3());
+            MelodyBridge.Infrastructure.Tagging.TaglibHelper.WriteMelodyId(taggedPath, "mel-report-1");
+
+            var untaggedPath = Path.Combine(dir, "plain.mp3");
+            await System.IO.File.WriteAllBytesAsync(untaggedPath, SilenceMp3());
+
+            var missing = Path.Combine(dir, "no-such-folder");
+            using var db = CreateDbContext();
+            var scanner = new LibraryScanner(db, NullLogger<LibraryScanner>.Instance);
+
+            var report = await scanner.ScanAsync(new[]
+            {
+                new ScanLocation(dir),
+                new ScanLocation(missing),
+            });
+
+            Assert.That(report.Locations, Is.EqualTo(2), "both locations were visited");
+            Assert.That(report.TaggedFiles, Is.EqualTo(1), "one file carries a MELODY_ID");
+            Assert.That(report.UntaggedFiles, Is.EqualTo(1), "one file has no MELODY_ID");
+            Assert.That(report.MissingPaths, Is.EqualTo(new[] { missing }),
+                "the missing path is named so the UI can explain the empty scan");
+            Assert.That(db.Tracks.Count(t => t.MelodyId == "mel-report-1"), Is.EqualTo(1),
+                "the tagged file landed in the library");
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
         }
     }
 }

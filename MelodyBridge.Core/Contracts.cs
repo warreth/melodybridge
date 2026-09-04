@@ -12,7 +12,19 @@ public interface ISourceProvider
 
 public interface ILibraryScanner
 {
-    Task ScanAsync(IEnumerable<ScanLocation> paths, CancellationToken ct = default);
+    /// <summary>Scans the paths and reports what it actually saw,
+    /// including paths that do not exist from the app's point of view.</summary>
+    Task<ScanReport> ScanAsync(IEnumerable<ScanLocation> paths, CancellationToken ct = default);
+}
+
+/// <summary>Honest numbers from one scan run, shown on the Library page.</summary>
+public record ScanReport(
+    int Locations,
+    int TaggedFiles,
+    int UntaggedFiles,
+    IReadOnlyList<string> MissingPaths)
+{
+    public static readonly ScanReport Empty = new(0, 0, 0, Array.Empty<string>());
 }
 
 public interface IPlaylistComposer
