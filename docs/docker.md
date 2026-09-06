@@ -22,6 +22,23 @@ Open http://localhost:3333.
 
 This pulls the published image from `ghcr.io/warreth/melodybridge` via [compose.yml](https://melodybridge.app/compose.yml): two containers (melodybridge + flaresolverr) on one internal network, the app bound to `127.0.0.1` only, and a `./data/` directory for everything that should survive rebuilds.
 
+## Beta channel
+
+Prerelease tags (like v1.0.0-beta1) publish the same image under a
+`:beta` tag instead of `:latest`: the stable channel stays stable.
+To run a beta, point the image line at the beta tag:
+
+```bash
+mkdir melodybridge && cd melodybridge
+wget https://melodybridge.app/compose.yml
+sed -i 's/melodybridge:latest/melodybridge:beta/' compose.yml
+docker compose up -d
+```
+
+Going back to stable is the same line with `:latest`. The exact
+prerelease version (for example `ghcr.io/warreth/melodybridge:1.0.0-beta1`)
+stays available even after a newer beta moves the `:beta` tag.
+
 ## Development
 
 ### Development compose

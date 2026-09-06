@@ -36,6 +36,18 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # A prerelease tag (a hyphen after the version, like v1.0.0-beta1)
+      # must never touch :latest or the major tag: users pulling :latest
+      # get only stable releases. Prereleases move the :beta channel.
+      - name: Detect prerelease
+        id: pre
+        run: |
+          if echo "${{ github.ref_name }}" | grep -Eq '^v?[0-9.]+-'; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+
       # One metadata step picks the tag list by event type so there is no
       # code path where a manual run can overwrite :latest or a version tag.
       - name: Extract metadata (tags, labels)
@@ -46,10 +58,13 @@ jobs:
           tags: |
             # Manual dispatch: dev build, tag ONLY :dev.
             type=raw,value=dev,enable=${{ github.event_name == 'workflow_dispatch' }}
-            # Release / v* tag: :X.Y.Z, :major and :latest.
+            # Release / v* tag: the full version always.
             type=semver,pattern={{version}},enable=${{ github.event_name != 'workflow_dispatch' }}
-            type=semver,pattern={{major}},enable=${{ github.event_name != 'workflow_dispatch' }}
-            type=raw,value=latest,enable=${{ github.event_name != 'workflow_dispatch' }}
+            # Stable only: the major tag and :latest.
+            type=semver,pattern={{major}},enable=${{ github.event_name != 'workflow_dispatch' && steps.pre.outputs.prerelease == 'false' }}
+            type=raw,value=latest,enable=${{ github.event_name != 'workflow_dispatch' && steps.pre.outputs.prerelease == 'false' }}
+            # Prerelease only: the moving :beta channel.
+            type=raw,value=beta,enable=${{ github.event_name != 'workflow_dispatch' && steps.pre.outputs.prerelease == 'true' }}
 
       - name: Build and push
         uses: docker/build-push-action@v6
