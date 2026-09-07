@@ -87,15 +87,42 @@ up to 320 kbps, no lossless sizes), Lossless (FLAC when a source has it,
 otherwise the best lossy file) or No filter (anything goes). Power
 users can open the advanced filters and pick a container format (MP3,
 FLAC, Opus or AAC) with a bitrate floor and ceiling instead; the panel
-only appears when asked for, and MelodyBridge does not transcode, so
-strict filters can make a download fail when the sources cannot
-provide that exact format. A failed track says so in its row.
+only appears when asked for, and the primary download is never
+re-encoded, so strict filters can make a download fail when the
+sources cannot provide that exact format. A failed track says so in its row.
 
 Playlist settings save themselves: text fields save half a second
 after the last keystroke, dropdowns save at once, and a quiet
 indicator in the heading narrates the save. A failed save rolls the
 fields back to what the database accepted, so nothing is ever lost
 to a missed Save button, because there is none.
+
+## Hardlink deduplication <Badge type="tip" text="Optional" />
+
+The same song lands in several playlists. Downloading it again for
+each one wastes disk space for identical bytes, so before any download
+MelodyBridge checks the library: when the track (same `MELODY_ID`)
+already exists in another playlist folder in the exact quality this
+playlist asks for, no download happens at all. The existing file gets a
+hard link into this playlist's folder: a second name for the same
+bytes, costing zero extra space.
+
+The folder layout never changes. There is no central pool, no hidden
+storage: every playlist keeps its own folder, and a linked track is a
+normal file you can see and play from both places.
+
+When the existing file's quality differs from what this playlist
+wants, nothing is guessed: the track pauses with a needs review warning
+and two choices. Download a fresh file in this playlist's quality, or
+hard link the existing version and accept the difference. When a hard
+link cannot be made because the folders sit on different drives, the
+track simply downloads as it always did; files are never copied to fake
+a link.
+
+Removing a track from one playlist removes only that playlist's name
+for the file. The bytes stay as long as any other playlist still links
+them, and every database entry stays correct. Turn the whole feature
+off on the Advanced page.
 
 ## Consistent tags
 

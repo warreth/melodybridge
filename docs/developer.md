@@ -180,6 +180,34 @@ Legacy databases keep their `mb-{guid}` rows: those tags
 still match their files. A SchemaPatcher backfill fills the
 deterministic id only for rows that have an ExternalId and no MelodyId.
 
+## Hardlink deduplication
+
+The identity tag also powers deduplication. Before any download,
+`PlaylistStore` looks for another playlist's row with the same MelodyId
+and a downloaded file, and compares that file's measured quality with
+the requested band:
+
+- Exact match: `HardLinkService.Create` (P/Invoke `link(2)` on Unix,
+  `CreateHardLinkW` on Windows; `File.CreateHardLink` arrives in
+  .NET 11) places a second name for the same bytes into this
+  playlist's folder. `IsHardLink` marks the row, no network call runs.
+- Quality difference: the row pauses as `needs-review` with a warning;
+  the UI offers "Download new version" and "Hardlink existing version"
+  (`ResolveReviewAsync`). The store never picks for the user.
+- Cross-device failure (EXDEV): the exception carries the honest
+  message, the store logs it and the track downloads normally. A
+  `File.Copy` fallback is deliberately forbidden.
+
+Deletion is name-wise by hard link semantics: removing one playlist's
+row removes that playlist's file name only, and both `RemoveTrackAsync`
+and `DeleteAsync` additionally keep any path another row still
+references. No central pool exists; playlist folders stay standard.
+
+The setting `dedup_enabled` (default on) toggles the whole feature from
+the Advanced page. `Tracks.MelodyId` carries a plain (non-unique) index:
+the same source track legitimately lives in several playlists, and a
+SchemaPatcher step migrates older databases that had the unique one.
+
 ## Dependency injection
 
 The `MelodyBridge.Application` project provides extension methods for registering services.
