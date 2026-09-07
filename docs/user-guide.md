@@ -66,6 +66,8 @@ playlist:
 - Target quality: one of the shared presets (Space Saver, High
   Quality, Lossless, No filter) or advanced filters (container plus a
   bitrate range, for example `192-320`)
+- **Archive copy**: an optional second file for every download, with
+  its own folder and format
 - Auto-sync schedule: **Manual**, **Hourly**, **Daily**, **Weekly**,
   **Monthly** or a custom cron expression, the same options the sync
   jobs and library folders use
@@ -77,6 +79,22 @@ last keystroke, dropdowns save at once, and a small pill next to the
 heading narrates the save: Saving, Saved, or Failed to save. A failed
 save rolls the fields back to the last stored values, so a database
 hiccup never leaves the form lying about what is persisted.
+
+#### Archive copy
+
+The **Archive copy** group gives every download a second home. Pick
+the archive folder and the archive format: **Auto** copies the
+downloaded file as-is, while Opus, FLAC, MP3 and AAC convert it
+locally. Leave the folder empty to use the default archive path from
+the Paths tab in Settings; when both are empty, no archive copy is
+made.
+
+The track is fetched from the source once. The archive copy is
+produced from the downloaded file, so the second file never costs a
+second download. Converting needs ffmpeg on the host; when it is
+missing the download still succeeds and the track gets a warning.
+Tracks that got one show `archive: <filename>` under their filename
+when the file column is on (Advanced page).
 
 The right panel shows the track status (total and downloaded) and live
 progress while a download runs. Under **Tracks** you find the full track
@@ -214,7 +232,8 @@ tabs.
   in one place, each with a Test button and a Use as app default
   switch
 - **Paths**: music path and playlist output folder, as the server sees
-  them (inside Docker: `/music` and `/app/playlists`)
+  them (inside Docker: `/music` and `/app/playlists`), plus the
+  default archive path and format for archive copies
 - **Quality**: the default audio quality for new playlists (each
   playlist can override it on its own page) and the spectrum check
   mode. Quality is one dropdown with named presets: Space Saver (up to
@@ -238,10 +257,12 @@ source has a lossless copy it falls back to the best lossy file. No
 filter is the anything-goes option: whatever a source serves lands in
 the library, including inflated rips.
 The advanced filters take exact control: a container, a bitrate floor
-and a ceiling. MelodyBridge does not transcode, so strict filters can
-make a download fail when the sources cannot provide that exact
-format. A failed track says so in its row: sources had files outside
-your quality filters.
+and a ceiling. The primary download is never re-encoded, so strict
+filters can make a download fail when the sources cannot provide that
+exact format. A failed track says so in its row: sources had files
+outside your quality filters. Archive copies are the exception: with a
+format other than Auto they are transcoded locally from the downloaded
+file.
 :::
 
 Settings are stored in the database and apply immediately after Save

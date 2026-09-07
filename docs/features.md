@@ -124,6 +124,17 @@ for the file. The bytes stay as long as any other playlist still links
 them, and every database entry stays correct. Turn the whole feature
 off on the Advanced page.
 
+## Archive copies <Badge type="tip" text="Optional" />
+
+Every download can land in two libraries. Set an archive folder on the
+playlist page, or a default archive path on the Paths tab in Settings,
+and each downloaded track also gets a copy there. The track is fetched
+from the source once; the copy is produced locally, so the second
+library never costs another download. Auto copies the file as-is;
+Opus, FLAC, MP3 and AAC convert it with ffmpeg. When ffmpeg is
+missing the primary download still succeeds and the track gets a
+warning.
+
 ## Consistent tags
 
 Every downloaded file gets a `MELODY_ID` tag, plus title, artist,
