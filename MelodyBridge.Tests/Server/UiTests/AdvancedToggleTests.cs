@@ -54,8 +54,8 @@ public class AdvancedToggleTests
             Assert.That(cut.Markup, Does.Contain("Show the file column")), TimeSpan.FromSeconds(3));
 
         var labels = cut.FindAll("label.toggle-switch.wide");
-        Assert.That(labels.Count, Is.EqualTo(4),
-            "Display + database logs + two notification toggles use the wide switch");
+        Assert.That(labels.Count, Is.EqualTo(5),
+            "Dedup + display + database logs + two notification toggles use the wide switch");
 
         foreach (var label in labels)
         {
@@ -78,7 +78,9 @@ public class AdvancedToggleTests
         cut.WaitForAssertion(() =>
             Assert.That(cut.Markup, Does.Contain("Show the file column")), TimeSpan.FromSeconds(3));
 
-        var showFile = cut.FindAll("label.toggle-switch.wide")[0].QuerySelector("input");
+        var showFile = cut.FindAll("label.toggle-switch.wide")
+            .Single(l => l.TextContent.Contains("Show the file column"))
+            .QuerySelector("input");
         showFile.Change(true);
 
         await cut.InvokeAsync(() => cut.Find("section.page-title button.btn-modern").Click());
@@ -101,7 +103,9 @@ public class AdvancedToggleTests
             Assert.That(cut.Markup, Does.Contain("Show database activity in the logs")),
             TimeSpan.FromSeconds(3));
 
-        var dbToggle = cut.FindAll("label.toggle-switch.wide")[1].QuerySelector("input");
+        var dbToggle = cut.FindAll("label.toggle-switch.wide")
+            .Single(l => l.TextContent.Contains("Show database activity in the logs"))
+            .QuerySelector("input");
         Assert.That(dbToggle.HasAttribute("checked"), Is.False,
             "database activity logging starts off for a fresh install");
 
