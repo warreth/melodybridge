@@ -96,3 +96,117 @@ public record PlaylistOutputOptions(
     Dictionary<string, string>? PathRemap,
     MediaServerConnection? MediaServerConnection = null
 );
+
+/// <summary>
+/// Creates native OS hard links between two paths. Implemented once in
+/// Infrastructure with the platform interop; the interface lives here so
+/// the store and tests can swap a fake without referencing the platform
+/// layer.
+/// </summary>
+public interface IHardLinkService
+{
+    /// <summary>True when the filesystem supports hard links at all.</summary>
+    bool IsSupported { get; }
+
+    /// <summary>
+    /// Creates a hard link at <paramref name="linkPath"/> pointing at the
+    /// same inode as <paramref name="targetPath"/>. Throws IOException
+    /// (cross-device, permissions, unsupported filesystem) on failure;
+    /// the caller decides the fallback.
+    /// </summary>
+    void Create(string linkPath, string targetPath);
+
+    /// <summary>
+    /// True when the two paths sit on the same filesystem/partition: the
+    /// only case where a hard link between them can succeed. A cheap
+    /// pre-check so callers can skip straight to the fallback.
+    /// </summary>
+    bool SameFileSystem(string pathA, string pathB);
+
+    /// <summary>
+    /// Number of hard links to the file (1 = no other names). Unix reports
+    /// the count from stat; Windows needs GetFileInformationByHandle.
+    /// Null when the count cannot be read: the caller must then assume
+    /// other links may exist.
+    /// </summary>
+    int? LinkCount(string path);
+}
+
+/// <summary>
+/// Verdict of comparing an existing local file against the quality a
+/// playlist asks for, and the file that was compared.
+/// </summary>
+public record DedupMatch(
+    /// <summary>Path of the existing downloaded file.</summary>
+    string ExistingPath,
+    /// <summary>Container of the existing file, lower-cased extension.</summary>
+    string? ExistingFormat,
+    /// <summary>Measured bitrate of the existing file in kbps, null when unknown.</summary>
+    int? ExistingBitrateKbps,
+    /// <summary>Playlist row id the existing file belongs to (any one of them).</summary>
+    string? SourcePlaylistId,
+    /// <summary>True when container and bitrate satisfy the requested profile exactly.</summary>
+    bool QualityMatches)
+{
+    /// <summary>Human summary of the mismatch, for the UI warning.</summary>
+    public string Describe()
+    {
+        var what = ExistingBitrateKbps is { } kbps ? $"{ExistingFormat} {kbps} kbps" : ExistingFormat ?? "unknown format";
+        return QualityMatches ? what : $"{what}, different from this playlist's target";
+    }
+}
+
+/// <summary>
+/// Compares an existing file's container and measured bitrate against a
+/// playlist's requested download quality. Exact container match plus a
+/// bitrate inside the requested band counts as a match; anything else is
+/// a mismatch the user must resolve. Lossless targets only accept the
+/// lossless container; lossy targets accept their own container.
+/// </summary>
+public static class DedupQuality
+{
+    /// <summary>
+    /// Container name for a quality request: the requested AudioFormat, or
+    /// null for Auto (any container is acceptable).
+    /// </summary>
+    public static string? RequestedContainer(DownloadQuality quality)
+        => quality.Format switch
+        {
+            AudioFormat.Mp3 => "mp3",
+            AudioFormat.Flac => "flac",
+            AudioFormat.Opus => "opus",
+            AudioFormat.Aac => "m4a",
+            _ => null,
+        };
+
+    /// <summary>True when the existing file satisfies the quality request.</summary>
+    public static bool Matches(string? existingFormat, int? existingBitrateKbps, DownloadQuality quality)
+    {
+        // Unknown facts cannot be verified: treat them as a mismatch so a
+        // human decides, never a silent hardlink of a dubious file.
+        if (string.IsNullOrWhiteSpace(existingFormat) || existingBitrateKbps is not > 0)
+            return false;
+
+        var requested = RequestedContainer(quality);
+        if (requested is not null && !FormatEquals(existingFormat, requested))
+            return false;
+
+        return quality.IsWithinBand(existingBitrateKbps);
+    }
+
+    /// <summary>
+    /// Container comparison forgiving about codec/container spelling:
+    /// m4a vs aac, ogg vs opus, any casing.
+    /// </summary>
+    public static bool FormatEquals(string existing, string requested)
+    {
+        static string Canonical(string f) => f.Trim().TrimStart('.').ToLowerInvariant() switch
+        {
+            "m4a" or "aac" or "mp4a" => "aac",
+            "ogg" or "opus" => "opus",
+            "mpeg3" or "mpeg" => "mp3",
+            var other => other,
+        };
+        return Canonical(existing) == Canonical(requested);
+    }
+}

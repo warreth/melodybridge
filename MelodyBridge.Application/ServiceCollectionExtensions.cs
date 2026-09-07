@@ -23,6 +23,8 @@ public static class ServiceCollectionExtensions
         services.AddScoped<MelodyBridge.Infrastructure.Services.DatabaseBackupService>();
         services.AddScoped<MelodyBridge.Infrastructure.Services.MediaServerProfileStore>();
         services.AddSingleton<MelodyBridge.Infrastructure.Scanning.LibraryReconciler>();
+        // OS hard links for the dedup feature; stateless, one for all.
+        services.AddSingleton<MelodyBridge.Infrastructure.Files.HardLinkService>();
 
         // ── Downloader plugins (the waterfall) ──
         // SoundCloud first (original uploads, often 320 kbps), then the Internet
