@@ -156,8 +156,11 @@ public class ArchiveCopyUiTests
         Assert.That(select.TextContent, Does.Contain("AAC"));
         Assert.That(cut.Markup, Does.Contain("/archive-global"),
             "the global default shows as the placeholder hint");
-        Assert.That(select.HasAttribute("disabled"), Is.False,
-            "the global archive path keeps the select enabled");
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.FindAll(".archive-group select")
+                .Single().HasAttribute("disabled"), Is.False,
+                "the global archive path keeps the select enabled"),
+            TimeSpan.FromSeconds(3));
     }
 
     [Test]
