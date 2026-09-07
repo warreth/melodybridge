@@ -244,6 +244,7 @@ public class PlaylistStore
             track.Bitrate = Audio.BitrateProbe.MeasureKbps(path);
             AudioProbe.Fill(track, path);
             track.Warning = BuildWarning(track, path, spectrumMode);
+            await ArchiveDownloadedTrackAsync(track, db, ct);
             return "downloaded";
         }
         catch (Exception ex)
@@ -473,10 +474,71 @@ public class PlaylistStore
     }
 
     /// <summary>
+    /// Produces the secondary archive copy of a just-downloaded track:
+    /// the playlist's archive directory (or the global default), a plain
+    /// copy for format auto, a local ffmpeg transcode otherwise. Never
+    /// throws and never touches the primary: a failed archive becomes a
+    /// track warning the next run can repair, while the download stays
+    /// "downloaded". Runs after the integrity gate, so the archive path
+    /// persists with the track row in the same SaveChanges.
+    /// </summary>
+    private async Task ArchiveDownloadedTrackAsync(
+        TrackEntity track, MelodyBridgeDbContext db, CancellationToken ct)
+    {
+        string? archiveDir = null, archiveFormat = null;
+
+        // The archive lives on the playlist row (its own directory and
+        // format); the global defaults fill in what it leaves empty.
+        if (track.PlaylistEntityId is { Length: > 0 } playlistId)
+        {
+            var playlist = await db.Playlists.AsNoTracking()
+                .FirstOrDefaultAsync(p => p.Id == playlistId, ct);
+            archiveDir = playlist?.ArchiveDirectory;
+            archiveFormat = playlist?.ArchiveFormat;
+        }
+        if (string.IsNullOrWhiteSpace(archiveDir))
+            archiveDir = await _settings.GetAsync("archive_path", "", ct);
+        if (string.IsNullOrWhiteSpace(archiveFormat))
+            archiveFormat = await _settings.GetAsync("archive_format", "auto", ct);
+
+        if (string.IsNullOrWhiteSpace(archiveDir))
+        {
+            // No archive target anywhere: clear a stale archive path
+            // from an earlier configuration so the UI never shows a
+            // file that no longer belongs to this setup.
+            track.ArchivePath = null;
+            return;
+        }
+
+        var result = Audio.ArchiveCopier.Copy(
+            track.CurrentPath!, archiveDir, archiveFormat,
+            melodyId: track.MelodyId,
+            title: track.Title, artist: track.Artist, album: track.Album,
+            trackNumber: (uint?)track.Position,
+            expectedDuration: track.DurationMs is > 0
+                ? TimeSpan.FromMilliseconds(track.DurationMs.Value)
+                : null);
+
+        if (result.Ok)
+        {
+            track.ArchivePath = result.ArchivePath;
+        }
+        else
+        {
+            // Failure isolation: the primary download stands; the
+            // archive problem rides along as a warning and the next
+            // run (or per-track retry) repairs the copy alone.
+            track.ArchivePath = null;
+            track.Warning = string.IsNullOrEmpty(track.Warning)
+                ? $"archive copy failed: {result.Reason}"
+                : $"{track.Warning}; archive copy failed: {result.Reason}";
+        }
+    }
+
+    /// <summary>
     /// Builds the warning shown next to a downloaded track: low search
     /// confidence and spectral doubts from the post-download verification.
-    /// </summary>
-    private static string? BuildWarning(TrackEntity track, string path, SpectrumMode spectrumMode)
+    /// </summary>    private static string? BuildWarning(TrackEntity track, string path, SpectrumMode spectrumMode)
     {
         var warnings = new List<string>();
 
@@ -987,7 +1049,8 @@ public class PlaylistStore
     public virtual async Task UpdateScheduleAsync(
         string playlistId, string? name, ScanSchedule schedule,
         string? targetDirectory = null, PlaylistSyncMode? syncMode = null,
-        string? preferredFormat = null, CancellationToken ct = default)
+        string? preferredFormat = null, string? archiveDirectory = null,
+        string? archiveFormat = null, CancellationToken ct = default)
     {
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var entity = await db.Playlists.FindAsync(new object[] { playlistId }, ct)
@@ -1002,6 +1065,14 @@ public class PlaylistStore
         if (syncMode is not null) entity.SyncMode = syncMode.Value.ToString();
         if (preferredFormat is { Length: > 0 } fmt)
             entity.PreferredFormat = PlaylistStore.IsValidFormat(fmt) ? fmt : "auto";
+        // Archive copy: empty string clears the override (the global
+        // default takes over again), null leaves the stored value.
+        if (archiveDirectory is not null)
+            entity.ArchiveDirectory = archiveDirectory.Length == 0 ? null : archiveDirectory;
+        if (archiveFormat is not null)
+            entity.ArchiveFormat = archiveFormat.Length == 0 || archiveFormat == "auto"
+                ? null
+                : archiveFormat;
         await db.SaveChangesAsync(ct);
     }
 

@@ -277,10 +277,39 @@ else if (activeTab == "paths")
             <label>Music path <input @bind="musicPath" /></label>
             <label>Playlist output folder <input @bind="playlistPath" /></label>
         </div>
+        <div class="panel-header">
+            <div>
+                <span class="eyebrow">Archive</span>
+                <h2>Archive copy</h2>
+            </div>
+        </div>
+        <div class="hint-box">
+            Optional second home for every download. Each track is fetched
+            once; the archive copy is a local conversion with ffmpeg, so
+            the second library never costs another internet download.
+        </div>
+        <div class="form-grid single">
+            <label>
+                Archive path
+                <input @bind="archivePath" placeholder="/archive-music" />
+                <small class="text-muted">Leave empty for no archive copy. Playlists can set their own path on their page.</small>
+            </label>
+            <label>
+                Archive format
+                <select @bind="archiveFormat">
+                    <option value="auto">Auto: copy the downloaded file as-is</option>
+                    <option value="opus">Opus: small and efficient (128k)</option>
+                    <option value="flac">FLAC: lossless (level 5)</option>
+                    <option value="mp3">MP3: widely compatible (256k)</option>
+                    <option value="aac">AAC: small and modern (192k)</option>
+                </select>
+            </label>
+        </div>
         <MountWarning />
         <div class="hint-box">
             New downloads land under the music path; M3U files go to the
-            playlist output folder.
+            playlist output folder. Archive copies follow the archive
+            path above.
         </div>
     </section>
 }
@@ -524,6 +553,8 @@ else if (activeTab == "about")
     private string activeTab = "accounts";
     private string musicPath = "/music";
     private string playlistPath = "/app/playlists";
+    private string archivePath = "";
+    private string archiveFormat = "auto";
     private string defaultQuality = "auto";
     private string spectrumMode = "Fast";
     private string flaresolverrUrl = "off";
@@ -592,6 +623,8 @@ else if (activeTab == "about")
         var settings = _initSettings!;
         musicPath = FindSetting(settings, "music_path", "/music");
         playlistPath = FindSetting(settings, "playlist_path", "/app/playlists");
+        archivePath = FindSetting(settings, "archive_path", "");
+        archiveFormat = FindSetting(settings, "archive_format", "auto");
         defaultQuality = FindSetting(settings, "default_quality", "auto");
         if (!PlaylistStore.IsValidFormat(defaultQuality)) defaultQuality = "auto";
         spectrumMode = FindSetting(settings, "spectrum_mode", Config?["SpectrumAnalysis:Mode"] ?? "Fast");
@@ -768,6 +801,8 @@ else if (activeTab == "about")
         await using var db = await DbFactory.CreateDbContextAsync();
         await Upsert(db, "music_path", musicPath);
         await Upsert(db, "playlist_path", playlistPath);
+        await Upsert(db, "archive_path", archivePath);
+        await Upsert(db, "archive_format", archiveFormat);
         await Upsert(db, "default_quality", defaultQuality);
         await Upsert(db, "spectrum_mode", spectrumMode);
         await Upsert(db, "flaresolverr_url", flaresolverrUrl);

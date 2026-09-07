@@ -1536,6 +1536,28 @@ input[type="file"].btn-modern::file-selector-button {
 /* Title, artist and File cells clip long values instead of stretching the row. */
 .track-table .cell-title, .track-table .cell-artist { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .track-table .cell-file span { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+/* Archive copies: a second, quieter filename under the primary one.
+   Same clip rules, dimmer color, so the row keeps one visual line. */
+.track-table .archive-chip {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: .72rem;
+    color: var(--muted-2);
+    margin-top: .1rem;
+}
+/* Archive group on the playlist settings panel: reads as one optional
+   block, same rhythm as the quality field above it. */
+.archive-group {
+    display: grid;
+    gap: .5rem;
+    padding-top: .75rem;
+    border-top: 1px solid var(--border);
+    margin-top: .25rem;
+}
+.archive-group .eyebrow { grid-column: 1 / -1; }
 
 /* Status cells: pill plus error note stack without stretching the row. */
 .track-table .cell-status { line-height: 1.35; }

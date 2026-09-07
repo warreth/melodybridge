@@ -143,6 +143,33 @@ else
                 <label class="quality-field wide">
                     <QualityPicker @bind-Value="editQuality" @bind-Value:after="SaveNow" />
                 </label>
+                <div class="archive-group wide">
+                    <span class="eyebrow">Archive copy</span>
+                    <label>
+                        Archive folder
+                        <input value="@editArchiveDirectory" @oninput="OnArchiveFolderInput"
+                               placeholder="@(string.IsNullOrWhiteSpace(resolvedDefaultArchivePath) ? "/archive-music" : resolvedDefaultArchivePath)" />
+                        <small class="text-muted">
+                            @(string.IsNullOrWhiteSpace(resolvedDefaultArchivePath)
+                                ? "Leave empty for no archive copy."
+                                : $"Leave empty to use the default archive path ({resolvedDefaultArchivePath}).")
+                        </small>
+                    </label>
+                    @if (!string.IsNullOrWhiteSpace(editArchiveDirectory) || !string.IsNullOrWhiteSpace(resolvedDefaultArchivePath))
+                    {
+                        <label>
+                            Archive format
+                            <select value="@editArchiveFormat" @onchange="OnArchiveFormatChanged" disabled="@string.IsNullOrWhiteSpace(editArchiveDirectory) && string.IsNullOrWhiteSpace(resolvedDefaultArchivePath)">
+                                <option value="auto">Auto: copy the downloaded file as-is</option>
+                                <option value="opus">Opus: small and efficient (128k)</option>
+                                <option value="flac">FLAC: lossless (level 5)</option>
+                                <option value="mp3">MP3: widely compatible (256k)</option>
+                                <option value="aac">AAC: small and modern (192k)</option>
+                            </select>
+                            <small class="text-muted">Fetched once from the source, converted locally with ffmpeg.</small>
+                        </label>
+                    }
+                </div>
                 @if (!playlist.IsManualImport)
                 {
                     <label class="wide">
@@ -233,6 +260,8 @@ else
     private string editName = string.Empty;
     private string editTargetDirectory = string.Empty;
     private string editQuality = "auto";
+    private string editArchiveDirectory = string.Empty;
+    private string editArchiveFormat = "auto";
     private ScanSchedule editSchedule = ScanSchedule.Manual;
     private PlaylistSyncMode editSyncMode = PlaylistSyncMode.Additive;
 
@@ -243,7 +272,7 @@ else
     /// <summary>True once the first Load finished: before it, nothing saves.</summary>
     private bool formReady;
     /// <summary>Snapshot of the last values known to be persisted; rollback source.</summary>
-    private (string name, string dir, string quality, ScanSchedule schedule, PlaylistSyncMode mode) persisted;
+    private (string name, string dir, string quality, string archiveDir, string archiveFormat, ScanSchedule schedule, PlaylistSyncMode mode) persisted;
     /// <summary>Debounce timer for text inputs; a fresh keystroke cancels it.</summary>
     private CancellationTokenSource? debounceCts;
     private CancellationTokenSource? savedPillCts;
@@ -255,6 +284,8 @@ else
     private bool confirmDelete;
     private bool deleteFilesWithPlaylist;
     private string resolvedDefaultMusicPath = "/music";
+    /// <summary>Global archive default, shown as the placeholder hint.</summary>
+    private string resolvedDefaultArchivePath = "";
     private Timer? refreshTimer;
     private Application.Services.DownloadRun? observedRun;
 
@@ -293,12 +324,15 @@ else
         loading = true;
         showFilenameColumn = await Settings.GetBoolAsync("show_filename", fallback: false);
         resolvedDefaultMusicPath = await Settings.GetAsync("music_path", "/music");
+        resolvedDefaultArchivePath = await Settings.GetAsync("archive_path", "");
         playlist = await Store.GetByIdAsync(PlaylistId);
         if (playlist is not null)
         {
             editName = playlist.Name;
             editTargetDirectory = playlist.TargetDirectory ?? string.Empty;
             editQuality = PlaylistStore.IsValidFormat(playlist.PreferredFormat) ? playlist.PreferredFormat : "auto";
+            editArchiveDirectory = playlist.ArchiveDirectory ?? string.Empty;
+            editArchiveFormat = string.IsNullOrWhiteSpace(playlist.ArchiveFormat) ? "auto" : playlist.ArchiveFormat;
             editSchedule = playlist.ScheduleCron is { Length: > 0 }
                 ? ScanSchedule.Parse(playlist.ScheduleCron)
                 : playlist.AutoSyncEnabled
@@ -308,7 +342,7 @@ else
                 ? mode : PlaylistSyncMode.Additive;
             await LoadCountsOnlyAsync();
         }
-        persisted = (editName, editTargetDirectory, editQuality, editSchedule, editSyncMode);
+        persisted = (editName, editTargetDirectory, editQuality, editArchiveDirectory, editArchiveFormat, editSchedule, editSyncMode);
         formReady = true;
         observedRun = Coordinator.RunFor(PlaylistId);
         loading = false;
@@ -346,6 +380,19 @@ else
     {
         editTargetDirectory = e.Value?.ToString() ?? string.Empty;
         MarkDirty();
+    }
+
+    private void OnArchiveFolderInput(ChangeEventArgs e)
+    {
+        editArchiveDirectory = e.Value?.ToString() ?? string.Empty;
+        MarkDirty();
+    }
+
+    /// <summary>Archive format select: saves right away like the quality picker.</summary>
+    private Task OnArchiveFormatChanged(ChangeEventArgs e)
+    {
+        editArchiveFormat = e.Value?.ToString() ?? "auto";
+        return SaveNow();
     }
 
     private void OnSyncModeChanged(ChangeEventArgs e)
@@ -398,8 +445,10 @@ else
         try
         {
             var target = string.IsNullOrWhiteSpace(editTargetDirectory) ? null : editTargetDirectory;
-            await Store.UpdateScheduleAsync(PlaylistId, editName, editSchedule, target, editSyncMode, editQuality);
-            persisted = (editName, editTargetDirectory, editQuality, editSchedule, editSyncMode);
+            var archiveDir = string.IsNullOrWhiteSpace(editArchiveDirectory) ? null : editArchiveDirectory;
+            await Store.UpdateScheduleAsync(PlaylistId, editName, editSchedule, target, editSyncMode,
+                editQuality, archiveDir, editArchiveFormat);
+            persisted = (editName, editTargetDirectory, editQuality, editArchiveDirectory, editArchiveFormat, editSchedule, editSyncMode);
             saveState = SaveState.Saved;
             ScheduleSavedPillReset();
         }
@@ -409,6 +458,8 @@ else
             editName = persisted.name;
             editTargetDirectory = persisted.dir;
             editQuality = persisted.quality;
+            editArchiveDirectory = persisted.archiveDir;
+            editArchiveFormat = persisted.archiveFormat;
             editSchedule = persisted.schedule;
             editSyncMode = persisted.mode;
             saveState = SaveState.Failed;

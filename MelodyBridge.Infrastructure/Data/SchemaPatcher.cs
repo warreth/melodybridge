@@ -26,6 +26,10 @@ public static class SchemaPatcher
         ("Tracks", "IsHardLink", "INTEGER NOT NULL DEFAULT 0"),
         ("SyncJobRuns", "WarningDetails", "TEXT NULL"),
         ("Playlists", "ScheduleCron", "TEXT NULL"),
+        // Secondary archive target: one download, two library files.
+        ("Tracks", "ArchivePath", "TEXT NULL"),
+        ("Playlists", "ArchiveDirectory", "TEXT NULL"),
+        ("Playlists", "ArchiveFormat", "TEXT NULL"),
     };
 
     public static async Task PatchAsync(MelodyBridgeDbContext db, CancellationToken ct = default)

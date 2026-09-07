@@ -48,6 +48,8 @@ public class MelodyBridgeDbContext : DbContext
             e.Property(p => p.Owner).HasMaxLength(256);
             e.Property(p => p.ExternalId).HasMaxLength(128);
             e.Property(p => p.TargetDirectory).HasMaxLength(1024);
+            e.Property(p => p.ArchiveDirectory).HasMaxLength(1024);
+            e.Property(p => p.ArchiveFormat).HasMaxLength(32);
         });
 
         modelBuilder.Entity<ProviderStateRow>(e =>
@@ -127,6 +129,12 @@ public class TrackEntity
     public int? Position { get; set; }
     public string? CurrentPath { get; set; }
     /// <summary>
+    /// Secondary archive copy of the same track (the transcode or plain
+    /// copy the archive target produces). Same row, second library file;
+    /// null when the playlist has no archive target or the copy failed.
+    /// </summary>
+    public string? ArchivePath { get; set; }
+    /// <summary>
     /// True when CurrentPath is a hard link to a file another playlist
     /// owns (dedup), not an independently downloaded file. Deleting the
     /// row then only removes one link, never the shared bytes.
@@ -181,6 +189,19 @@ public class PlaylistEntity
     public SyncStatus LastSyncStatus { get; set; }
     /// <summary>Directory where downloaded files for this playlist are placed.</summary>
     public string? TargetDirectory { get; set; }
+    /// <summary>
+    /// Optional secondary archive directory: every downloaded track also
+    /// gets a copy here (see ArchiveFormat). Null or empty disables the
+    /// archive copy for this playlist; the global default fills in when
+    /// the playlist leaves it empty, mirroring the download folder.
+    /// </summary>
+    public string? ArchiveDirectory { get; set; }
+    /// <summary>
+    /// Container for the archive copy: "auto" copies the primary file
+    /// byte for byte; "opus"/"flac"/"mp3"/"aac" transcode locally with
+    /// ffmpeg (one internet download, two library files).
+    /// </summary>
+    public string? ArchiveFormat { get; set; }
     /// <summary>
     /// Audio format this playlist downloads as:
     /// "auto" | "mp3" | "flac" | "opus" | "aac",
