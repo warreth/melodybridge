@@ -71,6 +71,11 @@ public class ArchiveOrgDownloaderLiveTests
         Assert.That(result.Success, Is.True, $"download failed: {result.ErrorMessage}");
         Assert.That(System.IO.File.Exists(result.FilePath), Is.True);
 
+        // Since the tagging refactor the MELODY_ID is written by the
+        // DownloadManager, not by plugins; this direct-plugin test
+        // applies the same step the manager takes, then verifies the
+        // tag really sticks inside the downloaded bytes.
+        MelodyBridge.Infrastructure.Tagging.TaglibHelper.WriteMelodyId(result.FilePath!, "mb-ia-test-1");
         var tag = MelodyBridge.Infrastructure.Tagging.TaglibHelper.ReadMelodyId(result.FilePath!);
         Assert.That(tag, Is.EqualTo("mb-ia-test-1"), "MELODY_ID must be in the real file");
 

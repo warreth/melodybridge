@@ -52,7 +52,11 @@ public class SoundCloudDownloaderLiveTests
         Assert.That(result.Success, Is.True, $"download failed: {result.ErrorMessage}");
         Assert.That(System.IO.File.Exists(result.FilePath), Is.True);
 
-        // MELODY_ID must be in the actual file bytes.
+        // MELODY_ID must be in the actual file bytes. The manager
+        // writes the id, not the plugin, since the tagging refactor;
+        // this direct-plugin test applies that same step before
+        // verifying the tag survives inside the real bytes.
+        MelodyBridge.Infrastructure.Tagging.TaglibHelper.WriteMelodyId(result.FilePath!, "mb-sc-test-1");
         var tag = MelodyBridge.Infrastructure.Tagging.TaglibHelper.ReadMelodyId(result.FilePath!);
         Assert.That(tag, Is.EqualTo("mb-sc-test-1"));
 

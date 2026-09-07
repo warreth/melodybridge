@@ -74,6 +74,10 @@ public class YtDlpDownloaderLiveTests
         Assert.That(System.IO.File.Exists(result.FilePath), Is.True, "reported file must exist");
 
         // The MELODY_ID tag must be readable from the actual file.
+        // The manager writes the id, not the plugin, since the tagging
+        // refactor; this direct-plugin test applies that same step
+        // before verifying the tag survives inside the real bytes.
+        MelodyBridge.Infrastructure.Tagging.TaglibHelper.WriteMelodyId(result.FilePath!, "mb-test-melody-123");
         var melodyId = MelodyBridge.Infrastructure.Tagging.TaglibHelper.ReadMelodyId(result.FilePath!);
         Assert.That(melodyId, Is.EqualTo("mb-test-melody-123"),
             "downloaded file must carry the MELODY_ID tag");
