@@ -31,14 +31,15 @@ public class LucidaDownloader : IDownloader
     private const string PdEnd = ",\"uses\":{\"url\":1}}];";
 
     // Search services lucida.to supports, lossless-oriented and most-covered
-    // first; the country is the storefront each service searches in (the
-    // defaults come from the public lucida web client).
+    // first; the country is the storefront each service searches in. The
+    // reference client's COUNTRY_DEFAULTS: qobuz only accepts US, and amazon
+    // needs no country at all (empty string sends none).
     private static readonly (string Service, string Country)[] SearchServices =
     [
         ("tidal", "US"),
+        ("qobuz", "US"),
         ("deezer", "FR"),
-        ("amazon", "US"),
-        ("qobuz", "GB"),
+        ("amazon", ""),
     ];
 
     private readonly HttpClient _http;
@@ -74,7 +75,18 @@ public class LucidaDownloader : IDownloader
     {
         // One challenge solve up front; the solver session is reused for every
         // service request below, and SendWithRefreshAsync re-solves on a 403.
-        var credentials = await _solver.SolveAsync(BaseUrl, ct);
+        // A throwing solver must not escape into the waterfall (the manager
+        // has no per-plugin catch on the search path), so solve inside try.
+        CloudflareCredentials? credentials;
+        try
+        {
+            credentials = await _solver.SolveAsync(BaseUrl, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug("Lucida solver failed for search: {Message}", ex.Message);
+            return null;
+        }
         if (credentials is null) return null;
 
         // Storefront indexes are literal: parenthetical mix suffixes and
@@ -109,7 +121,8 @@ public class LucidaDownloader : IDownloader
         {
             using var request = new HttpRequestMessage(HttpMethod.Get,
                 $"{BaseUrl}/search?query={Uri.EscapeDataString($"{artist} {title}")}"
-                + $"&service={service}&country={country}");
+                + $"&service={service}"
+                + (country.Length > 0 ? $"&country={country}" : string.Empty));
             request.Headers.UserAgent.ParseAdd(credentials.UserAgent);
             if (!string.IsNullOrWhiteSpace(credentials.CookieHeader))
                 request.Headers.Add("Cookie", credentials.CookieHeader);
@@ -135,12 +148,19 @@ public class LucidaDownloader : IDownloader
     {
         try
         {
-            // The source URL is a lucida track page; page-data carries the CSRF token.
-            var credentials = await _solver.SolveAsync(sourceUrl, ct);
+            // Search hits carry the SOURCE service url (tidal.com/track/N
+            // and friends), not a lucida page: lucida.to hosts the page-data
+            // for any service url through the url query param, exactly like
+            // the reference client's fetch_page_data. Asking the service host
+            // directly gets a service page with no SvelteKit blob at all.
+            var credentials = await _solver.SolveAsync(BaseUrl, ct);
             if (credentials is null)
                 return new DownloaderDownloadResult(false, null, "Cloudflare solver unavailable");
 
-            using var pageRequest = new HttpRequestMessage(HttpMethod.Get, sourceUrl);
+            var pageDataUrl = sourceUrl.StartsWith(BaseUrl, StringComparison.OrdinalIgnoreCase)
+                ? sourceUrl
+                : $"{BaseUrl}/?url={Uri.EscapeDataString(sourceUrl)}";
+            using var pageRequest = new HttpRequestMessage(HttpMethod.Get, pageDataUrl);
             pageRequest.Headers.UserAgent.ParseAdd(credentials.UserAgent);
             if (!string.IsNullOrWhiteSpace(credentials.CookieHeader))
                 pageRequest.Headers.Add("Cookie", credentials.CookieHeader);
@@ -180,7 +200,7 @@ public class LucidaDownloader : IDownloader
                 loadRequest.Headers.Add("Cookie", credentials.CookieHeader);
             loadRequest.Content = new StringContent(loadBody, Encoding.UTF8, "application/json");
 
-            var loadJson = await SendWithRefreshAsync(loadRequest, credentials, ct);
+            var loadJson = await SendWithRefreshAsync(loadRequest, credentials, ct, loadBody);
             if (loadJson is null) return new DownloaderDownloadResult(false, null, "load request failed");
 
             var handoff = ReadString(loadJson, "handoff");
@@ -188,10 +208,13 @@ public class LucidaDownloader : IDownloader
             if (handoff is null || server is null)
                 return new DownloaderDownloadResult(false, null, "lucida did not accept the load request");
 
-            // Poll until the rip is ready.
+            // Poll until the rip is ready. A single failed poll (transient
+            // 5xx, a solver hiccup) must not kill a 30-minute rip: a few
+            // consecutive failures are tolerated before giving up.
             var statusUrl = $"https://{server}.lucida.to/api/fetch/request/{handoff}";
-            string status;
+            var status = "unknown";
             var deadline = DateTime.UtcNow + TimeSpan.FromMinutes(30);
+            var pollFailures = 0;
             do
             {
                 if (ct.IsCancellationRequested)
@@ -202,7 +225,12 @@ public class LucidaDownloader : IDownloader
                 pollRequest.Headers.UserAgent.ParseAdd(credentials.UserAgent);
                 var poll = await SendWithRefreshAsync(pollRequest, credentials, ct);
                 if (poll is null)
-                    return new DownloaderDownloadResult(false, null, "status polling failed");
+                {
+                    if (++pollFailures >= 5)
+                        return new DownloaderDownloadResult(false, null, "status polling failed");
+                    continue;
+                }
+                pollFailures = 0;
 
                 status = ReadString(poll, "status") ?? "unknown";
                 if (status == "error")
@@ -228,10 +256,22 @@ public class LucidaDownloader : IDownloader
             var ext = GuessExtension(fileResponse.Content.Headers.ContentType?.MediaType);
             var fileName = $"{Sanitize(melodyId ?? "lucida-download")}{ext}";
             var path = Path.Combine(outputDirectory, fileName);
+            Directory.CreateDirectory(outputDirectory);
             await using (var source = await fileResponse.Content.ReadAsStreamAsync(ct))
             await using (var target = File.Create(path))
             {
-                await source.CopyToAsync(target, ct);
+                try
+                {
+                    await source.CopyToAsync(target, ct);
+                }
+                catch
+                {
+                    // A half-written file is a corrupt file: never leave it
+                    // for the library scanner to pick up.
+                    target.Dispose();
+                    try { File.Delete(path); } catch { /* best effort */ }
+                    throw;
+                }
             }
 
             return new DownloaderDownloadResult(true, path, null);
@@ -249,7 +289,8 @@ public class LucidaDownloader : IDownloader
     /// pattern from lucida's own client).
     /// </summary>
     private async Task<string?> SendWithRefreshAsync(
-        HttpRequestMessage request, CloudflareCredentials credentials, CancellationToken ct)
+        HttpRequestMessage request, CloudflareCredentials credentials, CancellationToken ct,
+        string? bodySnapshot = null)
     {
         var response = await _http.SendAsync(request, ct);
         if (response.IsSuccessStatusCode)
@@ -260,22 +301,26 @@ public class LucidaDownloader : IDownloader
         }
 
         response.Dispose();
-        var fresh = await _solver.SolveAsync(request.RequestUri!.ToString(), ct);
+        var fresh = await _solver.SolveAsync(BaseUrl, ct);
         if (fresh is null) return null;
 
-        using var retry = await _http.SendAsync(Clone(request, fresh), ct);
+        using var retry = await _http.SendAsync(Clone(request, fresh, bodySnapshot), ct);
         return retry.IsSuccessStatusCode
             ? await retry.Content.ReadAsStringAsync(ct)
             : null;
     }
 
     private static HttpRequestMessage Clone(
-        HttpRequestMessage original, CloudflareCredentials credentials)
+        HttpRequestMessage original, CloudflareCredentials credentials,
+        string? bodySnapshot)
     {
-        var clone = new HttpRequestMessage(original.Method, original.RequestUri)
-        {
-            Content = original.Content,
-        };
+        // The first send disposes the original content (default
+        // CompletionOption buffers then releases it), so aliasing it in
+        // the retry throws ObjectDisposedException. The body snapshot is
+        // captured at request construction and rebuilt here instead.
+        var clone = new HttpRequestMessage(original.Method, original.RequestUri);
+        if (bodySnapshot is not null)
+            clone.Content = new StringContent(bodySnapshot, Encoding.UTF8, "application/json");
         clone.Headers.UserAgent.ParseAdd(credentials.UserAgent);
         if (!string.IsNullOrWhiteSpace(credentials.CookieHeader))
             clone.Headers.Add("Cookie", credentials.CookieHeader);

@@ -103,8 +103,17 @@ public class MonochromeDownloader : IDownloader
 
         // Start at the cached instance (or the first one) and wrap around
         // through the whole list so one dead mirror never wedges the plugin.
+        // The sweep carries its own deadline (mirroring the availability
+        // probe): eleven 30s blackholes otherwise stall the waterfall for
+        // minutes on a track the plugin cannot serve anyway.
+        var sweepDeadline = DateTime.UtcNow + TimeSpan.FromSeconds(30);
         for (var attempt = 0; attempt < Instances.Length; attempt++)
         {
+            if (DateTime.UtcNow >= sweepDeadline)
+            {
+                _logger.LogInformation("Monochrome search sweep gave up after the deadline");
+                return null;
+            }
             var index = _workingInstance < 0
                 ? attempt
                 : (_workingInstance + attempt) % Instances.Length;
@@ -178,7 +187,11 @@ public class MonochromeDownloader : IDownloader
                         continue; // unparseable shape: try next instance
 
                     var ext = ExtensionFromManifest(manifestUrl, quality.Format);
-                    var filePath = Path.Combine(outputDirectory, $"tidal_{trackId}_{qualityParam}{ext}");
+                    // MelodyId in the name (when present) makes retries and
+                    // concurrent downloads of the same track distinct files
+                    // instead of a shared path two writers clobber.
+                    var filePath = Path.Combine(outputDirectory,
+                        $"tidal_{trackId}_{qualityParam}_{(melodyId is { Length: > 0 } ? melodyId : Guid.NewGuid().ToString("N")[..8])}{ext}");
 
                     using var fileResp = await _http.GetAsync(manifestUrl, ct);
                     if (!fileResp.IsSuccessStatusCode)
@@ -216,18 +229,25 @@ public class MonochromeDownloader : IDownloader
         }
         catch (Exception ex)
         {
+            _logger.LogWarning(ex, "Monochrome download for TIDAL track {TrackId} failed", TryExtractTrackId(sourceUrl, out var id) ? id : 0);
             return new DownloaderDownloadResult(false, null, ex.Message);
         }
     }
 
     // ── Mapping helpers ──────────────────────────────────────────────────
 
-    /// <summary>Maps a download quality to the API's quality parameter.</summary>
+    /// <summary>
+    /// Maps a download quality to the API's quality parameter. The band
+    /// matters: an unbounded request asks for hi-res lossless, a capped
+    /// lossless request drops to plain LOSSLESS, and a small-file cap
+    /// (160 kbps or less) takes the lossy HIGH tier instead of pulling
+    /// a FLAC the post-download gate would reject.
+    /// </summary>
     internal static string MapQuality(DownloadQuality quality) => quality.Format switch
     {
         AudioFormat.Flac => quality.MaxKbps is null ? "HI_RES_LOSSLESS" : "LOSSLESS",
         AudioFormat.Mp3 or AudioFormat.Aac => "HIGH",
-        _ => "HI_RES_LOSSLESS",
+        _ => quality.MaxKbps is { } cap && cap <= 160 ? "HIGH" : "HI_RES_LOSSLESS",
     };
 
     /// <summary>File extension from the manifest URL path, defaulting by requested format.</summary>
@@ -277,6 +297,11 @@ public class MonochromeDownloader : IDownloader
             var bestLossless = false;
             foreach (var item in items.EnumerateArray())
             {
+                // One malformed entry must not poison the instance: skip
+                // the item, keep the loop. Non-object elements throw on
+                // TryGetProperty without this guard.
+                if (item.ValueKind != JsonValueKind.Object) continue;
+
                 var hitTitle = GetString(item, "title") ?? fallbackTitle;
                 var hitArtist = GetArtistName(item);
                 if (!item.TryGetProperty("id", out var idProp) ||
@@ -290,6 +315,12 @@ public class MonochromeDownloader : IDownloader
                 var score = Services.FuzzyMatcher.Score(
                     artist, fallbackTitle, hitArtist: hitArtist, hitTitle: hitTitle);
                 var lossless = IsLossless(item);
+
+                // A lossless request must not settle for a lossy best hit:
+                // the waterfall would download it and the measured-band
+                // gate would reject it after the bytes are already spent.
+                if (quality.Format == AudioFormat.Flac && !lossless)
+                    continue;
 
                 var better = best is null
                     || score > bestScore
@@ -366,8 +397,12 @@ public class MonochromeDownloader : IDownloader
             // Flat root fallback
             return GetString(root, "url") ?? GetString(root, "manifest") ?? GetString(root, "uri");
         }
-        catch (JsonException)
+        catch (Exception ex) when (ex is JsonException or InvalidOperationException or KeyNotFoundException)
         {
+            // A malformed instance response is a dead end, not a crash:
+            // TryGetProperty on a non-object throws InvalidOperationException
+            // and JsonDocument.Parse throws JsonException; both mean "no
+            // manifest here".
             return null;
         }
     }
@@ -390,6 +425,7 @@ public class MonochromeDownloader : IDownloader
     /// <summary>TIDAL objects carry artist {name} or artists[].name.</summary>
     private static string? GetArtistName(JsonElement item)
     {
+        if (item.ValueKind != JsonValueKind.Object) return null;
         if (item.TryGetProperty("artist", out var artist))
         {
             if (artist.ValueKind == JsonValueKind.String)

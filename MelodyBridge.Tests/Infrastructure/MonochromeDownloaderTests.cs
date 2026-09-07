@@ -324,4 +324,87 @@ public class MonochromeDownloaderTests
             Assert.That(MonochromeDownloader.TryExtractTrackId("", out var _), Is.False);
         });
     }
+
+    private static string SearchJson(params object[] items)
+        => JsonSerializer.Serialize(new { data = new { items } });
+
+    [Test]
+    public void ParseSearchItems_SkipsMalformedEntries_InsteadOfPoisoningTheInstance()
+    {
+        // A non-object entry in the items array used to throw on
+        // TryGetProperty and kill the whole instance attempt; it must be
+        // skipped so the usable entries around it still compete.
+        var json = JsonSerializer.Serialize(new
+        {
+            data = new
+            {
+                items = new object[]
+                {
+                    42,
+                    "noise",
+                    new
+                    {
+                        id = 12336220L,
+                        title = "Never Gonna Give You Up",
+                        artist = new { name = "Rick Astley" },
+                        duration = 211,
+                        audioQuality = "LOSSLESS",
+                        url = "http://www.tidal.com/track/12336220",
+                    },
+                },
+            },
+        });
+        var hit = MonochromeDownloader.ParseSearchItems(
+            json, "Rick Astley", "Never Gonna Give You Up", DownloadQuality.Any);
+
+        Assert.That(hit, Is.Not.Null,
+            "the malformed entries must be skipped, not the whole response");
+        Assert.That(hit!.Title, Is.EqualTo("Never Gonna Give You Up"));
+    }
+
+    [Test]
+    public void ParseSearchItems_LosslessRequest_RejectsLossyBestHit()
+    {
+        // Only lossy items are available: a FLAC request must come back
+        // empty-handed rather than settle for a file the band gate would
+        // reject after the bytes are spent.
+        var json = JsonSerializer.Serialize(new
+        {
+            data = new
+            {
+                items = new object[]
+                {
+                    new
+                    {
+                        id = 12336220L,
+                        title = "Never Gonna Give You Up",
+                        artist = new { name = "Rick Astley" },
+                        duration = 211,
+                        audioQuality = "HIGH",
+                        url = "http://www.tidal.com/track/12336220",
+                    },
+                },
+            },
+        });
+        var flacRequest = new DownloadQuality(AudioFormat.Flac);
+        var hit = MonochromeDownloader.ParseSearchItems(
+            json, "Rick Astley", "Never Gonna Give You Up", flacRequest);
+        Assert.That(hit, Is.Null,
+            "a lossless request must not accept a lossy-only result");
+
+        var relaxed = MonochromeDownloader.ParseSearchItems(
+            json, "Rick Astley", "Never Gonna Give You Up", DownloadQuality.Any);
+        Assert.That(relaxed, Is.Not.Null,
+            "an unbounded request still accepts the lossy hit");
+    }
+
+    [Test]
+    public void MapQuality_SmallFileCap_TakesTheLossyTier()
+    {
+        // Auto with a small-file cap must not ask for hi-res FLAC and
+        // gamble the post-download probe.
+        var capped = new DownloadQuality(AudioFormat.Auto, MinKbps: null, MaxKbps: 128);
+        Assert.That(MonochromeDownloader.MapQuality(capped), Is.EqualTo("HIGH"));
+        Assert.That(MonochromeDownloader.MapQuality(DownloadQuality.Any), Is.EqualTo("HI_RES_LOSSLESS"));
+    }
 }
