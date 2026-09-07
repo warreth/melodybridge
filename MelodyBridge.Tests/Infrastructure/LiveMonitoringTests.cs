@@ -53,8 +53,38 @@ public class LiveMonitoringTests
 
     /// <summary>Real mp3 via ffmpeg's internal encoder: no network.</summary>
     private string MakeTaggedMp3(string name, string melodyId)
+        => MakeTaggedMp3(name, melodyId, _dir);
+
+    /// <summary>
+    /// A fully tagged file appearing at once, the way files really arrive
+    /// in a watched library folder. Building it inside the monitored
+    /// directory races the watcher: the Created event of the untagged
+    /// ffmpeg output triggers the rescan, the scanner finds no melody id
+    /// yet, and the Changed event of the tag write is eaten by the
+    /// monitor's five second debounce, so the file never ingests. Writing
+    /// the file and its tag outside the folder and moving it in leaves the
+    /// watcher exactly one Created event for a complete file.
+    /// </summary>
+    private string DropTaggedMp3IntoMonitoredFolder(string name, string melodyId)
     {
-        var path = Path.Combine(_dir, name);
+        var staging = Path.Combine(Path.GetTempPath(), $"mb-stage-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(staging);
+        try
+        {
+            var staged = MakeTaggedMp3(name, melodyId, staging);
+            var target = Path.Combine(_dir, name);
+            File.Move(staged, target);
+            return target;
+        }
+        finally
+        {
+            try { Directory.Delete(staging, recursive: true); } catch { /* best effort */ }
+        }
+    }
+
+    private string MakeTaggedMp3(string name, string melodyId, string directory)
+    {
+        var path = Path.Combine(directory, name);
         var ok = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
         {
             FileName = "ffmpeg",
@@ -91,7 +121,7 @@ public class LiveMonitoringTests
             monitor.StartMonitoring(_dir, loc.Id);
         }
 
-        MakeTaggedMp3("fresh.mp3", "live-1");
+        DropTaggedMp3IntoMonitoredFolder("fresh.mp3", "live-1");
 
         // The watcher event fires within seconds; the handler completes the
         // task source when the scan is done.
