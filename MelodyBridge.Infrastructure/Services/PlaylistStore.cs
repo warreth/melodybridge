@@ -4,6 +4,7 @@ using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.Accounts;
 using MelodyBridge.Infrastructure.Audio;
 using MelodyBridge.Infrastructure.Data;
+using MelodyBridge.Infrastructure.Files;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -23,6 +24,7 @@ public class PlaylistStore
     private readonly IDownloadManager _downloadManager;
     private readonly ILogger<PlaylistStore> _logger;
     private readonly SettingsStore _settings;
+    private readonly HardLinkService _hardLinks;
 
     /// <summary>
     /// Post-download spectral verification strictness. Static: one app-wide
@@ -31,13 +33,17 @@ public class PlaylistStore
     /// </summary>
     public static Func<SpectrumMode> SpectrumVerification { get; set; } = () => SpectrumMode.Fast;
 
+    /// <summary>Settings key for the dedup toggle; default on.</summary>
+    public const string DedupSettingKey = "dedup_enabled";
+
     public PlaylistStore(
         IDbContextFactory<MelodyBridgeDbContext> dbFactory,
         IEnumerable<ISourceProvider> providers,
         IDownloadManager downloadManager,
         ILogger<PlaylistStore> logger,
         IEnumerable<IAccountSourceProvider>? accountProviders = null,
-        SettingsStore? settings = null)
+        SettingsStore? settings = null,
+        HardLinkService? hardLinks = null)
     {
         _dbFactory = dbFactory;
         _providers = providers.ToArray();
@@ -47,6 +53,9 @@ public class PlaylistStore
         // Settings live in the same database: the lazily built store reads
         // the same rows the injected singleton would.
         _settings = settings ?? new SettingsStore(dbFactory);
+        // The OS hard link wrapper has no state; one instance shared by
+        // every store, or a private one for tests that never inject it.
+        _hardLinks = hardLinks ?? new HardLinkService();
     }
 
     /// <summary>
@@ -100,6 +109,8 @@ public class PlaylistStore
                 trackId.Value, dir, preferredFormat, spectrumMode, ct);
             if (result == "downloaded") downloaded++;
             else if (result == "failed") failed++;
+            // "needs-review" tracks are neither downloaded nor failed:
+            // they wait for the user's dedup decision and the run moves on.
         }
 
         _logger.LogInformation("Download run for '{Playlist}' ({Quality}): {Downloaded} downloaded, {Failed} failed",
@@ -173,6 +184,14 @@ public class PlaylistStore
         try
         {
             var (primary, fallback) = ParseQualityDetailed(preferredFormat);
+
+            // Dedup first: when the same track already exists in another
+            // playlist folder, no network call is needed at all. Exact
+            // quality matches hardlink instantly; a mismatch pauses the
+            // track for a human decision instead of guessing.
+            if (await TryDeduplicateAsync(track, dir, primary, ct) is { } verdict)
+                return verdict;
+
             var path = await _downloadManager.DownloadTrackAsync(
                 track.Artist!, track.Title!, dir, track.MelodyId!, primary, ct);
 
@@ -237,6 +256,190 @@ public class PlaylistStore
         {
             await db.SaveChangesAsync(ct);
         }
+    }
+
+    /// <summary>
+    /// The dedup decision for one claimed track, made before any network
+    /// call. Finds an existing downloaded file for the same MelodyId in
+    /// another playlist folder and:
+    ///  - exact quality match: hardlinks it into this playlist's folder
+    ///    (no download, no duplicate bytes) and returns "downloaded";
+    ///  - quality mismatch: pauses the track as "needs-review" with the
+    ///    conflict spelled out, returns "needs-review";
+    ///  - no usable existing file, dedup disabled, or a cross-device
+    ///    link: returns null so the normal download waterfall runs.
+    ///
+    /// Copying is never a fallback here: when a hard link is impossible
+    /// the honest options are a real download or a user decision.
+    /// </summary>
+    private async Task<string?> TryDeduplicateAsync(
+        TrackEntity track, string dir, DownloadQuality quality, CancellationToken ct)
+    {
+        if (track.MelodyId is null || !await _settings.GetBoolAsync(DedupSettingKey, true, ct))
+            return null;
+
+        // The fresh file may already sit in the target folder from an
+        // earlier interrupted run: link to that one instead of hunting
+        // for a foreign original.
+        var candidate = await FindDedupCandidateAsync(track.MelodyId, track.Id, ct);
+        if (candidate is null) return null;
+
+        if (!DedupQuality.Matches(candidate.ExistingFormat, candidate.ExistingBitrateKbps, quality))
+        {
+            // Pause for a human: the requested quality differs from the
+            // file another playlist owns. Both options are spelled out
+            // for the UI; nothing is guessed, nothing is overwritten.
+            track.DownloadStatus = "needs-review";
+            track.DownloadError = null;
+            track.Warning = $"dedup conflict: playlist wants {DescribeQuality(quality)}, "
+                + $"existing file is {candidate.Describe()}. Choose hardlink existing or download new.";
+            _logger.LogInformation(
+                "Dedup conflict for '{Title}': existing {Existing} vs requested {Requested}; paused for review",
+                track.Title, candidate.Describe(), DescribeQuality(quality));
+            return "needs-review";
+        }
+
+        // Exact match: link the existing file under its own name into
+        // this playlist's folder. A link failure (cross-device EXDEV,
+        // read-only target, ...) falls back to a real download - a copy
+        // would silently defeat the space saving the user asked for.
+        var fileName = Path.GetFileName(candidate.ExistingPath);
+        var linkPath = Path.Combine(dir, fileName);
+        try
+        {
+            if (File.Exists(linkPath) && _hardLinks.LinkCount(linkPath) is not > 1)
+                File.Delete(linkPath); // stale unlinked file from an earlier run
+            Directory.CreateDirectory(dir);
+            _hardLinks.Create(linkPath, candidate.ExistingPath);
+        }
+        catch (IOException ex)
+        {
+            _logger.LogInformation(
+                "Hard link for '{Title}' failed ({Reason}); downloading instead", track.Title, ex.Message);
+            return null; // fall back to the download waterfall
+        }
+
+        track.DownloadStatus = "downloaded";
+        track.IsHardLink = true;
+        track.CurrentPath = linkPath;
+        track.LastSeenAt = DateTime.UtcNow;
+        track.Bitrate = candidate.ExistingBitrateKbps;
+        track.MediaType = candidate.ExistingFormat;
+        AudioProbe.Fill(track, linkPath);
+        track.Warning = null;
+        _logger.LogInformation(
+            "Dedup: hardlinked '{Title}' from {Source} into {Target} (zero new bytes)",
+            track.Title, candidate.ExistingPath, linkPath);
+        return "downloaded";
+    }
+
+    /// <summary>
+    /// Best existing file for the melody id: a downloaded row in another
+    /// playlist (or a non-hardlink original in this one), whose file is
+    /// still on disk. Originals win over hardlinks so the link target is
+    /// the primary copy, and newer rows win over stale ones.
+    /// </summary>
+    public async Task<DedupMatch?> FindDedupCandidateAsync(
+        string melodyId, int excludingTrackId, CancellationToken ct = default)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var existing = await db.Tracks.AsNoTracking()
+            .Where(t => t.MelodyId == melodyId
+                && t.Id != excludingTrackId
+                && t.DownloadStatus == "downloaded"
+                && t.CurrentPath != null)
+            .OrderByDescending(t => t.IsHardLink == false)
+            .ThenByDescending(t => t.LastSeenAt ?? DateTime.MinValue)
+            .ToListAsync(ct);
+
+        foreach (var row in existing)
+        {
+            if (!File.Exists(row.CurrentPath)) continue;
+            return new DedupMatch(
+                row.CurrentPath!,
+                Path.GetExtension(row.CurrentPath).TrimStart('.').ToLowerInvariant(),
+                row.Bitrate,
+                row.PlaylistEntityId,
+                // Quality facts live on the row; a missing bitrate is
+                // treated as unverifiable (mismatch) by the verdict.
+                row.Bitrate is > 0);
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Resolves a paused dedup conflict the way the user picked.
+    /// "download-new": clears the pause so the next run downloads a
+    /// fresh file in the playlist's own quality. "hardlink-existing":
+    /// links the other playlist's file as-is, accepting that this one
+    /// track differs from the playlist's target quality.
+    /// Returns false when the track is not in review or the existing
+    /// file vanished meanwhile.
+    /// </summary>
+    public async Task<bool> ResolveReviewAsync(int trackId, bool hardlinkExisting, CancellationToken ct = default)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var track = await db.Tracks.FindAsync(new object[] { trackId }, ct);
+        if (track is null || track.DownloadStatus != "needs-review" || track.MelodyId is null)
+            return false;
+
+        if (!hardlinkExisting)
+        {
+            track.DownloadStatus = "pending";
+            track.Warning = null;
+            await db.SaveChangesAsync(ct);
+            return true;
+        }
+
+        var candidate = await FindDedupCandidateAsync(track.MelodyId, track.Id, ct);
+        if (candidate is null) return false;
+
+        var playlist = await db.Playlists.AsNoTracking()
+            .FirstOrDefaultAsync(p => p.Id == track.PlaylistEntityId, ct);
+        var dir = playlist?.TargetDirectory
+            ?? await _settings.GetAsync("music_path", "/music", ct);
+        if (string.IsNullOrWhiteSpace(dir)) return false;
+
+        try
+        {
+            var linkPath = Path.Combine(dir, Path.GetFileName(candidate.ExistingPath));
+            if (File.Exists(linkPath) && _hardLinks.LinkCount(linkPath) is not > 1)
+                File.Delete(linkPath);
+            Directory.CreateDirectory(dir);
+            _hardLinks.Create(linkPath, candidate.ExistingPath);
+
+            track.DownloadStatus = "downloaded";
+            track.IsHardLink = true;
+            track.CurrentPath = linkPath;
+            track.LastSeenAt = DateTime.UtcNow;
+            track.Bitrate = candidate.ExistingBitrateKbps;
+            track.MediaType = candidate.ExistingFormat;
+            AudioProbe.Fill(track, linkPath);
+            track.Warning = $"hardlinked from {candidate.SourcePlaylistId}: "
+                + $"{candidate.Describe()} (user accepted the quality difference)";
+            await db.SaveChangesAsync(ct);
+            return true;
+        }
+        catch (IOException ex)
+        {
+            _logger.LogInformation(
+                "Hard link for review '{Title}' failed ({Reason}); leaving the track in review", track.Title, ex.Message);
+            return false;
+        }
+    }
+
+    /// <summary>Human form of a quality request for warnings and logs.</summary>
+    private static string DescribeQuality(DownloadQuality q)
+    {
+        var container = DedupQuality.RequestedContainer(q);
+        var band = (q.MinKbps, q.MaxKbps) switch
+        {
+            (null, null) => "any bitrate",
+            (null, { } max) => $"up to {max} kbps",
+            ({ } min, null) => $"{min}+ kbps",
+            ({ } min, { } max) => $"{min}-{max} kbps",
+        };
+        return container is null ? band : $"{container}, {band}";
     }
 
     /// <summary>
@@ -382,7 +585,15 @@ public class PlaylistStore
         return ids.ToHashSet();
     }
 
-    /// <summary>Removes one track from a playlist snapshot and deletes its file.</summary>
+    /// <summary>
+    /// Removes one track from a playlist snapshot and deletes its file.
+    /// Hard link aware: a dedup file is one name of possibly several,
+    /// so the delete removes this playlist's name only; another playlist
+    /// still holding the same bytes (its own name, its own row) keeps a
+    /// working file and an untouched database entry. When no other row
+    /// still points at the exact path, the last name goes and the bytes
+    /// are freed with it.
+    /// </summary>
     public async Task<bool> RemoveTrackAsync(string playlistId, int trackId, bool deleteFile, CancellationToken ct = default)
     {
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
@@ -392,7 +603,14 @@ public class PlaylistStore
 
         if (deleteFile && track.CurrentPath is not null)
         {
-            try { System.IO.File.Delete(track.CurrentPath); } catch { /* best effort */ }
+            // Another row on the same path means the name is shared: the
+            // file must survive for that row, only this row disappears.
+            var pathInUse = await db.Tracks.AsNoTracking()
+                .AnyAsync(t => t.Id != track.Id && t.CurrentPath == track.CurrentPath, ct);
+            if (!pathInUse)
+            {
+                try { System.IO.File.Delete(track.CurrentPath); } catch { /* best effort */ }
+            }
         }
         db.Tracks.Remove(track);
         await db.SaveChangesAsync(ct);
@@ -703,8 +921,9 @@ public class PlaylistStore
     /// <summary>
     /// Removes a playlist and its snapshot. When deleteFiles is set, the
     /// music files on disk go too; otherwise only the database rows change.
-    /// Liked-songs playlists share files with nothing, but a track row can
-    /// exist without a file, so deletion is best-effort per path.
+    /// Hard link aware like RemoveTrackAsync: a path another playlist's
+    /// row still references is a shared name and survives, keeping that
+    /// playlist's file and database entry intact.
     /// </summary>
     public async Task<bool> DeleteAsync(string playlistId, bool deleteFiles = false, CancellationToken ct = default)
     {
@@ -716,11 +935,21 @@ public class PlaylistStore
 
         if (deleteFiles)
         {
+            // Paths other rows (in any playlist) still reference are
+            // shared names: only this playlist's rows disappear.
+            var ownIds = entity.Tracks.Select(t => t.Id).ToHashSet();
+            var stillUsed = await db.Tracks.AsNoTracking()
+                .Where(t => t.CurrentPath != null && !ownIds.Contains(t.Id))
+                .Select(t => t.CurrentPath!)
+                .ToListAsync(ct);
+            var shared = stillUsed.ToHashSet(StringComparer.OrdinalIgnoreCase);
+
             foreach (var path in entity.Tracks
                 .Where(t => t.CurrentPath is { Length: > 0 })
                 .Select(t => t.CurrentPath!)
                 .Distinct(StringComparer.OrdinalIgnoreCase))
             {
+                if (shared.Contains(path)) continue; // another playlist still holds this name
                 try { System.IO.File.Delete(path); } catch { /* best effort */ }
             }
         }
