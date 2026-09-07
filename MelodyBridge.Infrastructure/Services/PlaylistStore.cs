@@ -538,7 +538,8 @@ public class PlaylistStore
     /// <summary>
     /// Builds the warning shown next to a downloaded track: low search
     /// confidence and spectral doubts from the post-download verification.
-    /// </summary>    private static string? BuildWarning(TrackEntity track, string path, SpectrumMode spectrumMode)
+    /// </summary>
+    private static string? BuildWarning(TrackEntity track, string path, SpectrumMode spectrumMode)
     {
         var warnings = new List<string>();
 
