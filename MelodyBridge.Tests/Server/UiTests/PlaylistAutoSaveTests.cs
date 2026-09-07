@@ -207,14 +207,15 @@ public class PlaylistAutoSaveTests
         public override async Task UpdateScheduleAsync(
             string playlistId, string? name, ScanSchedule schedule,
             string? targetDirectory = null, PlaylistSyncMode? syncMode = null,
-            string? preferredFormat = null, CancellationToken ct = default)
+            string? preferredFormat = null, string? archiveDirectory = null,
+            string? archiveFormat = null, CancellationToken ct = default)
         {
             if (!_failedOnce)
             {
                 _failedOnce = true;
                 throw new InvalidOperationException("simulated transient store failure");
             }
-            await base.UpdateScheduleAsync(playlistId, name, schedule, targetDirectory, syncMode, preferredFormat, ct);
+            await base.UpdateScheduleAsync(playlistId, name, schedule, targetDirectory, syncMode, preferredFormat, archiveDirectory, archiveFormat, ct);
         }
     }
 }
