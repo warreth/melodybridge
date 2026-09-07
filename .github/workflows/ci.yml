@@ -41,10 +41,12 @@ jobs:
       - name: Build
         run: dotnet build MelodyBridge.sln -c Release --no-restore
 
-      # Fast suite: everything except live-network tests.
+      # Fast suite: everything except live-network tests. Live tests
+      # also live outside the Integration namespace (Live UI fetches
+      # a real Spotify playlist), so the category is excluded too.
       - name: Unit tests
         run: dotnet test MelodyBridge.sln -c Release --no-build --verbosity normal
-          --filter "FullyQualifiedName!~Tests.Integration"
+          --filter "FullyQualifiedName!~Tests.Integration&Category!=Live"
 
   # Honest suite: real network to open.spotify.com, real SQLite files.
   # If the public embed page changes shape, this job fails loudly.
