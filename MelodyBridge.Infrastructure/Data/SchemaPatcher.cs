@@ -23,6 +23,7 @@ public static class SchemaPatcher
         ("Tracks", "SampleRateHz", "INTEGER NULL"),
         ("Tracks", "FileSizeBytes", "INTEGER NULL"),
         ("Tracks", "PlaylistEntityId", "TEXT NULL"),
+        ("Tracks", "IsHardLink", "INTEGER NOT NULL DEFAULT 0"),
         ("SyncJobRuns", "WarningDetails", "TEXT NULL"),
         ("Playlists", "ScheduleCron", "TEXT NULL"),
     };
@@ -79,6 +80,40 @@ public static class SchemaPatcher
                 track.MelodyId = MelodyIds.For(track.ExternalPlatform, track.ExternalId);
             await db.SaveChangesAsync(ct);
         }
+
+        // One-time rebuild: the MelodyId index used to be unique, which
+        // broke the moment one track appeared in two playlists (dedup
+        // joins rows across playlists on this id). SQLite cannot drop
+        // the uniqueness of an existing index, so the old index goes and
+        // a plain one takes its place.
+        await DropIndexIfUniqueAsync(db, "IX_Tracks_MelodyId", ct);
+    }
+
+    /// <summary>
+    /// Rebuilds the MelodyId index as non-unique when the existing one
+    /// still carries the UNIQUE constraint. Idempotent: a database that
+    /// never had the unique form (fresh installs) skips the rebuild.
+    /// </summary>
+    private static async Task DropIndexIfUniqueAsync(
+        MelodyBridgeDbContext db, string indexName, CancellationToken ct)
+    {
+        var connection = db.Database.GetDbConnection();
+        if (connection.State != System.Data.ConnectionState.Open)
+            await connection.OpenAsync(ct);
+
+        string? createSql = null;
+        await using (var check = connection.CreateCommand())
+        {
+            check.CommandText = $"SELECT sql FROM sqlite_master WHERE type='index' AND name='{indexName}'";
+            createSql = await check.ExecuteScalarAsync(ct) as string;
+        }
+
+        if (createSql is null || !createSql.Contains("UNIQUE", StringComparison.OrdinalIgnoreCase))
+            return;
+
+        await db.Database.ExecuteSqlRawAsync($"DROP INDEX {indexName}", ct);
+        await db.Database.ExecuteSqlRawAsync(
+            "CREATE INDEX IX_Tracks_MelodyId ON Tracks (MelodyId)", ct);
     }
 
     private static async Task<HashSet<string>> GetColumnsAsync(

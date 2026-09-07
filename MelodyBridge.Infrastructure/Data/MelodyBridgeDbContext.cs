@@ -23,7 +23,10 @@ public class MelodyBridgeDbContext : DbContext
         modelBuilder.Entity<TrackEntity>(e =>
         {
             e.HasKey(t => t.Id);
-            e.HasIndex(t => t.MelodyId).IsUnique();
+            // Not unique: the same source track can live in several
+            // playlists (each row carries its own download state), and
+            // the dedup logic joins rows across playlists on this id.
+            e.HasIndex(t => t.MelodyId);
             e.HasIndex(t => new { t.ExternalPlatform, t.ExternalId });
             e.Property(t => t.MelodyId).HasMaxLength(64);
             e.Property(t => t.ExternalId).HasMaxLength(128);
@@ -123,6 +126,12 @@ public class TrackEntity
     /// <summary>Position of the track inside its playlist snapshot (ordering).</summary>
     public int? Position { get; set; }
     public string? CurrentPath { get; set; }
+    /// <summary>
+    /// True when CurrentPath is a hard link to a file another playlist
+    /// owns (dedup), not an independently downloaded file. Deleting the
+    /// row then only removes one link, never the shared bytes.
+    /// </summary>
+    public bool IsHardLink { get; set; }
     public string? SourceUrl { get; set; }
     public string? Platform { get; set; }
     /// <summary>Status of the local file for this track (downloaded / pending / failed).</summary>
