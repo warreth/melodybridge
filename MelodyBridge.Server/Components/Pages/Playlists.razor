@@ -105,6 +105,10 @@ else
                     {
                         <span> · @ScheduleOf(playlist).Describe()</span>
                     }
+                    @if (playlist.SyncWarning is { Length: > 0 })
+                    {
+                        <span class="sync-warn" title="@playlist.SyncWarning"> · partial sync</span>
+                    }
                 </small>
             </div>
         }

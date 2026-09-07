@@ -255,12 +255,14 @@ public partial class SpotifySourceProvider : ISourceProvider
                     request.Headers.Add("Authorization", $"Bearer {token}");
                     using var response = await _httpClient.SendAsync(request);
 
-                    if ((int)response.StatusCode == 429 && attempt < 3)
+                    if ((int)response.StatusCode == 429 && attempt < 1)
                     {
-                        // Rate limited: wait what the API asks for, doubling
-                        // from a 2s floor when the header is absent.
+                        // Rate limited: honor the hint once. Anonymous-token
+                        // quota limits do not clear in seconds, so patience
+                        // here only delays the embed-scrape fallback; a
+                        // partial page set is still reported honestly below.
                         var wait = response.Headers.RetryAfter?.Delta
-                            ?? TimeSpan.FromSeconds(2 * Math.Pow(2, attempt));
+                            ?? TimeSpan.FromSeconds(5);
                         wait = TimeSpan.FromTicks(Math.Min(wait.Ticks, TimeSpan.FromSeconds(30).Ticks));
                         _logger.LogInformation(
                             "Spotify API rate limited at offset {Offset}; waiting {Seconds}s (attempt {Attempt})",

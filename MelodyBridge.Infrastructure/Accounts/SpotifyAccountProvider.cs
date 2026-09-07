@@ -336,17 +336,17 @@ public class SpotifyAccountProvider : IAccountSourceProvider
         while (!string.IsNullOrEmpty(next))
         {
             // 429 with the account token gets the same treatment as the
-            // public path: honor Retry-After with exponential backoff,
-            // a few attempts per page, instead of throwing the whole
-            // authenticated fetch away.
+            // public path: honor Retry-After once, capped. Anonymous quota
+            // limits do not clear in seconds, so more patience only stalls
+            // the sync; the failed page is reported by the caller.
             HttpResponseMessage response;
             for (var attempt = 0; ; attempt++)
             {
                 response = await http.GetAsync(next, ct);
-                if ((int)response.StatusCode != 429 || attempt >= 3) break;
+                if ((int)response.StatusCode != 429 || attempt >= 1) break;
 
                 var wait = response.Headers.RetryAfter?.Delta
-                    ?? TimeSpan.FromSeconds(2 * Math.Pow(2, attempt));
+                    ?? TimeSpan.FromSeconds(5);
                 wait = TimeSpan.FromTicks(Math.Min(wait.Ticks, TimeSpan.FromSeconds(30).Ticks));
                 response.Dispose();
                 await Task.Delay(wait, ct);

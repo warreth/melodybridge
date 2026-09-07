@@ -568,6 +568,12 @@ select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-s
     background: var(--surface-3);
     border: 1px solid rgba(39, 39, 42, .4);
 }
+/* Partial-sync marker next to the last-synced line: warning color, no
+   layout shift when absent. */
+.sync-warn {
+    color: var(--warning);
+    font-weight: 600;
+}
 .mount-warning {
     display: flex;
     gap: .7rem;

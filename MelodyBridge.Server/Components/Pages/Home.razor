@@ -254,6 +254,18 @@ else
             </div>
             <a class="btn-modern ghost small" href="/playlists">All playlists</a>
         </div>
+        @if (partialPlaylists.Count > 0)
+        {
+            <div class="hint-box" style="border-color: var(--danger);">
+                <strong>Some playlists did not sync completely.</strong>
+                @foreach (var p in partialPlaylists)
+                {
+                    <div>
+                        @p.Name: @p.SyncWarning. Re-sync from the playlist page to fetch the rest.
+                    </div>
+                }
+            </div>
+        }
         @if (playlists.Count == 0)
         {
             <EmptyState IconName="list-music" Title="No playlists yet">Add one on the Playlists page.</EmptyState>
@@ -285,6 +297,9 @@ else
                         </a>
                         <div>
                             <span class="eyebrow">@playlist.SourcePlatform</span>
+                            <StatusPill Variant="@(playlist.LastSyncStatus == SyncStatus.Failed ? "err" : playlist.SyncWarning is { Length: > 0 } ? "warn" : "neutral")">
+                                @(playlist.SyncWarning is { Length: > 0 } ? "partial" : playlist.LastSyncStatus.ToString().ToLowerInvariant())
+                            </StatusPill>
                             <h2><a href="/playlists/@playlist.Id">@playlist.Name</a></h2>
                             <p class="panel-description">
                                 @total tracks · @downloaded downloaded
@@ -313,6 +328,7 @@ else
     private string navidromeUrl = string.Empty;
     private string flareSolverrUrl = string.Empty;
     private List<PlaylistEntity> playlists = new();
+    private List<PlaylistEntity> partialPlaylists = new();
     private Dictionary<string, (int downloaded, int total)> playlistCounts = new();
     private List<LogEntry> recentErrors = new();
     private List<(string JobName, DateTime Timestamp, string Status, string Message)> recentRuns = new();
@@ -425,6 +441,13 @@ else
             playlists = await db.Playlists
                 .OrderByDescending(p => p.LastSyncAt ?? DateTime.MinValue)
                 .Take(6)
+                .ToListAsync();
+            // Incomplete syncs (rate limiting, failed pages) surface here:
+            // the banner names them, the cards show the partial pill.
+            partialPlaylists = await db.Playlists
+                .Where(p => p.SyncWarning != null && p.SyncWarning != "")
+                .OrderByDescending(p => p.LastSyncAt ?? DateTime.MinValue)
+                .Take(5)
                 .ToListAsync();
             playlistCounts = await db.Tracks
                 .GroupBy(t => t.PlaylistEntityId)

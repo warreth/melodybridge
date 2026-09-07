@@ -50,6 +50,10 @@ else
                 <span> · by @playlist.Owner</span>
             }
             <span> · last synced @(playlist.LastSyncAt?.ToLocalTime().ToString("g") ?? "never")</span>
+            @if (!string.IsNullOrEmpty(playlist.SyncWarning))
+            {
+                <span> · <span class="sync-warn" title="@playlist.SyncWarning">partial sync</span></span>
+            }
             @if (!string.IsNullOrWhiteSpace(playlist.PreferredFormat) && playlist.PreferredFormat != "auto")
             {
                 <span> · @QualityLabel(playlist.PreferredFormat)</span>
