@@ -159,7 +159,7 @@ else
                     {
                         <label>
                             Archive format
-                            <select value="@editArchiveFormat" @onchange="OnArchiveFormatChanged" disabled="@string.IsNullOrWhiteSpace(editArchiveDirectory) && string.IsNullOrWhiteSpace(resolvedDefaultArchivePath)">
+                            <select value="@editArchiveFormat" @onchange="OnArchiveFormatChanged">
                                 <option value="auto">Auto: copy the downloaded file as-is</option>
                                 <option value="opus">Opus: small and efficient (128k)</option>
                                 <option value="flac">FLAC: lossless (level 5)</option>
