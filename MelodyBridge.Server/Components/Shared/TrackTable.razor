@@ -81,9 +81,9 @@
                         else
                         {
                             <StatusPill Variant="@(track.DownloadStatus switch
-                                { "downloaded" => "ok", "failed" => "err", _ => "neutral" })"
-                                Title="@(track.DownloadStatus == "failed" ? track.DownloadError : null)">
-                                @(track.DownloadStatus ?? "pending")
+                                { "downloaded" => "ok", "failed" => "err", "needs-review" => "warn", _ => "neutral" })"
+                                Title="@(track.DownloadStatus == "needs-review" ? track.Warning : track.DownloadStatus == "failed" ? track.DownloadError : null)">
+                                @(track.DownloadStatus == "needs-review" ? "needs review" : track.DownloadStatus ?? "pending")
                             </StatusPill>
                             @if (track.DownloadStatus == "failed" && !string.IsNullOrWhiteSpace(track.DownloadError))
                             {
@@ -110,7 +110,18 @@
                     }
                     <td class="track-actions">
                         <div class="btn-group">
-                            @if (track.DownloadStatus is "failed" or null or "pending")
+                            @if (track.DownloadStatus == "needs-review")
+                            {
+                                <button class="btn-modern small ghost" title="Download a fresh file in this playlist's quality"
+                                        @onclick="() => OnResolveReview.InvokeAsync((track, false))" disabled="@Busy">
+                                    <Icon Name="download" Size="14" /> Download new
+                                </button>
+                                <button class="btn-modern small ghost" title="Link the file another playlist already has (keeps its quality)"
+                                        @onclick="() => OnResolveReview.InvokeAsync((track, true))" disabled="@Busy">
+                                    <Icon Name="hard-drive" Size="14" /> Hardlink existing
+                                </button>
+                            }
+                            else if (track.DownloadStatus is "failed" or null or "pending")
                             {
                                 <button class="btn-modern small ghost" title="Download this track now"
                                         @onclick="() => OnRetry.InvokeAsync(track)" disabled="@Busy">
@@ -143,6 +154,11 @@
     [Parameter] public Func<TrackEntity, string?>? QueueLabel { get; set; }
     /// <summary>Download this one track.</summary>
     [Parameter] public EventCallback<TrackEntity> OnRetry { get; set; }
+    /// <summary>
+    /// Resolve a paused dedup conflict: true hardlinks the existing
+    /// file, false downloads a fresh copy in this playlist's quality.
+    /// </summary>
+    [Parameter] public EventCallback<(TrackEntity Track, bool HardlinkExisting)> OnResolveReview { get; set; }
     /// <summary>Remove this track (and its file) from the playlist.</summary>
     [Parameter] public EventCallback<TrackEntity> OnRemove { get; set; }
     /// <summary>Raised whenever the sort changes, so the page can keep the state.</summary>
@@ -220,10 +236,11 @@
     private static int StatusOrder(TrackEntity t) => t.DownloadStatus switch
     {
         "failed" => 0,
-        "in_progress" or "downloading" => 1,
-        "queued" => 2,
-        "pending" or null => 3,
-        "downloaded" => 4,
-        _ => 5,
+        "needs-review" => 1, // a paused dedup conflict outranks plain progress
+        "in_progress" or "downloading" => 2,
+        "queued" => 3,
+        "pending" or null => 4,
+        "downloaded" => 5,
+        _ => 6,
     };
 }

@@ -214,6 +214,7 @@ else
                         Busy="@busy"
                         QueueLabel="@TrackQueueLabel"
                         OnRetry="RetryTrack"
+                        OnResolveReview="ResolveDedupReview"
                         OnRemove="RemoveTrack" />
         }
     </section>
@@ -481,6 +482,33 @@ else
             var result = await Store.DownloadTrackAsync(track.Id);
             if (result == "claimed-by-another-run")
                 message = "This track is already being downloaded by a running batch.";
+            await Load();
+        }
+        finally { busy = false; }
+    }
+
+    /// <summary>
+    /// Resolves a paused dedup conflict for one track the way the user
+    /// picked: hardlink the existing file from the other playlist, or
+    /// queue a fresh download in this playlist's own quality.
+    /// </summary>
+    private async Task ResolveDedupReview((TrackEntity Track, bool HardlinkExisting) choice)
+    {
+        busy = true;
+        try
+        {
+            if (await Store.ResolveReviewAsync(choice.Track.Id, choice.HardlinkExisting))
+            {
+                message = choice.HardlinkExisting
+                    ? $"Linked the existing file for '{choice.Track.Title}'."
+                    : $"Queued '{choice.Track.Title}' for a fresh download.";
+                if (!choice.HardlinkExisting)
+                    await Store.DownloadTrackAsync(choice.Track.Id);
+            }
+            else
+            {
+                message = $"Could not resolve '{choice.Track.Title}': the other playlist's file is gone. Retry the download.";
+            }
             await Load();
         }
         finally { busy = false; }

@@ -36,6 +36,20 @@
                 <input @bind="maxConcurrentDownloads" type="number" min="1" max="8" step="1" />
             </label>
         </div>
+        <label class="toggle-switch wide">
+            <input type="checkbox" @bind="dedupEnabled" />
+            <span class="toggle-slider"></span>
+            <span>Hardlink duplicate tracks across playlists</span>
+        </label>
+        <div class="hint-box">
+            When a track already exists in another playlist folder in the
+            exact quality this playlist asks for, MelodyBridge links the
+            existing file instead of downloading it again: same bytes,
+            zero extra disk space. A quality difference pauses that track
+            for your call (link it or download a fresh copy); a cross-drive
+            link falls back to a normal download. Folders stay as they are;
+            no pool, no moving files.
+        </div>
         <div class="hint-box">
             More simultaneous downloads finish large playlists faster but hit
             every source harder; the next run picks up the new value. When
@@ -129,6 +143,7 @@
 @code {
     private int maxConcurrentDownloads = 2;
     private bool showFilename;
+    private bool dedupEnabled = true;
     private bool notifyDownloads = true;
     private bool notifyFailures = true;
     private bool logDatabaseActivity;
@@ -140,6 +155,7 @@
         if (int.TryParse(await Settings.GetAsync("download_max_concurrent", "2"), out var maxConcurrent))
             maxConcurrentDownloads = Math.Clamp(maxConcurrent, 1, 8);
         showFilename = await Settings.GetBoolAsync("show_filename", false);
+        dedupEnabled = await Settings.GetBoolAsync(PlaylistStore.DedupSettingKey, true);
         notifyDownloads = await Settings.GetBoolAsync("notify_downloads", true);
         notifyFailures = await Settings.GetBoolAsync("notify_failures", true);
         logDatabaseActivity = await Settings.GetBoolAsync(DatabaseLogSwitch.SettingKey, false);
@@ -149,6 +165,7 @@
     {
         await Settings.SetAsync("download_max_concurrent", Math.Clamp(maxConcurrentDownloads, 1, 8).ToString());
         await Settings.SetAsync("show_filename", showFilename ? "true" : "false");
+        await Settings.SetAsync(PlaylistStore.DedupSettingKey, dedupEnabled ? "true" : "false");
         await Settings.SetAsync("notify_downloads", notifyDownloads ? "true" : "false");
         await Settings.SetAsync("notify_failures", notifyFailures ? "true" : "false");
         await Settings.SetAsync(DatabaseLogSwitch.SettingKey, logDatabaseActivity ? "true" : "false");
