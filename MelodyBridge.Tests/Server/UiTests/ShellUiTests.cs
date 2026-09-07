@@ -116,7 +116,10 @@ public class ShellUiTests
         public static string Find()
         {
             var dir = new DirectoryInfo(AppContext.BaseDirectory);
-            while (dir is not null && !Directory.Exists(Path.Combine(dir.FullName, ".git")))
+            // A linked worktree keeps a .git FILE, a normal checkout a
+            // directory; either shape marks the repo root.
+            while (dir is not null && !Directory.Exists(Path.Combine(dir.FullName, ".git"))
+                   && !File.Exists(Path.Combine(dir.FullName, ".git")))
                 dir = dir.Parent!;
             return dir!.FullName;
         }
