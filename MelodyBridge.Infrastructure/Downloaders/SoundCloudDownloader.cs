@@ -39,7 +39,7 @@ public class SoundCloudDownloader : IDownloader
     {
         if (YtDlpProcess.BinaryPath is null) return null;
 
-        var query = $"{artist} {title}".Trim();
+        var query = SearchTerms.Query(artist, title);
         if (query.Length == 0) return null;
 
         try

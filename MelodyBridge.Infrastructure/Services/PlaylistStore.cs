@@ -858,9 +858,27 @@ public class PlaylistStore
         entity.ExternalId = playlist.Id;
         entity.CoverImageUrl = playlist.CoverImageUrl;
         entity.Owner = playlist.Owner;
-        entity.TrackCount = playlist.Tracks?.Count ?? 0;
+
+        // The declared total survives the save: when the source fetched
+        // fewer tracks than it advertises (a failed page mid-playlist,
+        // rate limiting) the mismatch stays visible in the entity and
+        // the sync is marked with a warning, never a clean Completed.
+        entity.TrackCount = playlist.TrackCount ?? playlist.Tracks?.Count ?? 0;
         entity.LastSyncAt = DateTime.UtcNow;
-        entity.LastSyncStatus = SyncStatus.Completed;
+        var partial = playlist.Warning is { Length: > 0 }
+            || playlist.TrackCount is > 0 && playlist.Tracks is { Count: > 0 }
+                && playlist.Tracks.Count < playlist.TrackCount;
+        entity.LastSyncStatus = partial ? SyncStatus.CompletedWithWarning : SyncStatus.Completed;
+        if (partial)
+        {
+            entity.SyncWarning = playlist.Warning is { Length: > 0 }
+                ? playlist.Warning
+                : $"partial fetch: got {playlist.Tracks?.Count ?? 0} of {playlist.TrackCount} tracks";
+            _logger.LogWarning(
+                "Playlist '{Playlist}' synced partially: {Fetched} of {Total} tracks",
+                entity.Name, playlist.Tracks?.Count ?? 0, playlist.TrackCount);
+        }
+        else entity.SyncWarning = null;
         if (targetDirectory is not null)
             entity.TargetDirectory = targetDirectory;
         else if (isNew)
@@ -892,6 +910,17 @@ public class PlaylistStore
         var removed = entity.Tracks
             .Where(t => t.ExternalId is not null && !incomingIds.Contains(t.ExternalId))
             .ToList();
+
+        // A partial fetch did not see the whole playlist, so "absent
+        // from source" is not a fact yet: reconcile nothing, keep every
+        // row, and let the next complete sync do the bookkeeping.
+        if (partial && removed.Count > 0)
+        {
+            _logger.LogWarning(
+                "Partial sync for '{Playlist}': holding back {Count} mirror removals until a complete sync",
+                entity.Name, removed.Count);
+            removed = new List<TrackEntity>();
+        }
 
         if (mode == PlaylistSyncMode.Mirror)
         {

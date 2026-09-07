@@ -18,6 +18,12 @@ public enum SyncStatus
     Pending,
     InProgress,
     Completed,
+    /// <summary>
+    /// The sync produced a usable snapshot but not a complete one: the
+    /// source declared more tracks than arrived, or rate limiting cut
+    /// the fetch short. Never treat as clean: re-sync repairs it.
+    /// </summary>
+    CompletedWithWarning,
     Failed
 }
 

@@ -39,7 +39,7 @@ public class ArchiveOrgDownloader : IDownloader
 
     public async Task<DownloaderSearchHit?> SearchAsync(string artist, string title, DownloadQuality quality, CancellationToken ct = default)
     {
-        var query = $"{artist} {title}".Trim();
+        var query = SearchTerms.Query(artist, title);
         if (query.Length == 0) return null;
 
         try

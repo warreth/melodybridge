@@ -77,6 +77,11 @@ public class LucidaDownloader : IDownloader
         var credentials = await _solver.SolveAsync(BaseUrl, ct);
         if (credentials is null) return null;
 
+        // Storefront indexes are literal: parenthetical mix suffixes and
+        // featuring tags tank the hit rate, so every service gets the
+        // cleaned terms (the raw pair stays for match scoring).
+        (artist, title) = (SearchTerms.CleanArtist(artist), SearchTerms.CleanTitle(title));
+
         DownloaderSearchHit? best = null;
         foreach (var (service, country) in SearchServices)
         {

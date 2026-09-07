@@ -30,6 +30,13 @@ public class Playlist
     public int? TrackCount { get; set; }
     public TimeSpan? Duration { get; set; }
     public List<Track>? Tracks { get; set; }
+    /// <summary>
+    /// Non-fatal sync problem worth surfacing to the user: partial fetch
+    /// (fewer tracks than the source declares), rate limiting, and so on.
+    /// Null when the sync was clean. The sync status stays honest: a
+    /// playlist with a warning is not a clean Completed.
+    /// </summary>
+    public string? Warning { get; set; }
 }
 
 public class SyncPlaylistJob

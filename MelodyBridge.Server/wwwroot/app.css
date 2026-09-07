@@ -12,6 +12,7 @@
     --accent: #2dd4bf;
     --accent-strong: #14b8a6;
     --accent-soft: rgba(45, 212, 191, .10);
+    --accent-hover: #0d9488;
     --success: #34d399;
     --success-soft: rgba(52, 211, 153, .10);
     --warning: #fbbf24;
@@ -38,6 +39,7 @@
     --accent: #0f766e;
     --accent-strong: #0f766e;
     --accent-soft: rgba(15, 118, 110, .10);
+    --accent-hover: #115e59;
     --success: #059669;
     --success-soft: rgba(5, 150, 105, .10);
     --warning: #b45309;
@@ -48,57 +50,69 @@
 }
 
 /* Accent palettes: the base teal ships on :root; data-accent on the
-   html element swaps the three accent tokens. Dark variants first,
-   then each palette's light-mode pair (same pattern as data-theme). */
+   html element swaps the four accent tokens, hover included, so no
+   accent-colored rule anywhere carries a literal color. Dark variants
+   first, then each palette's light-mode pair (same pattern as
+   data-theme). */
 :root[data-accent="teal"] {
     --accent: #2dd4bf;
     --accent-strong: #14b8a6;
     --accent-soft: rgba(45, 212, 191, .10);
+    --accent-hover: #0d9488;
 }
 :root[data-accent="teal"][data-theme="light"] {
     --accent: #0f766e;
     --accent-strong: #0f766e;
     --accent-soft: rgba(15, 118, 110, .10);
+    --accent-hover: #115e59;
 }
 :root[data-accent="blue"] {
     --accent: #60a5fa;
     --accent-strong: #3b82f6;
     --accent-soft: rgba(59, 130, 246, .10);
+    --accent-hover: #2563eb;
 }
 :root[data-accent="blue"][data-theme="light"] {
     --accent: #2563eb;
     --accent-strong: #1d4ed8;
     --accent-soft: rgba(37, 99, 235, .10);
+    --accent-hover: #1e40af;
 }
 :root[data-accent="violet"] {
     --accent: #c084fc;
     --accent-strong: #a855f7;
     --accent-soft: rgba(168, 85, 247, .10);
+    --accent-hover: #9333ea;
 }
 :root[data-accent="violet"][data-theme="light"] {
     --accent: #7c3aed;
     --accent-strong: #6d28d9;
     --accent-soft: rgba(109, 40, 217, .10);
+    --accent-hover: #5b21b6;
 }
 :root[data-accent="rose"] {
     --accent: #fb7185;
     --accent-strong: #f43f5e;
     --accent-soft: rgba(244, 63, 94, .10);
+    --accent-hover: #e11d48;
 }
 :root[data-accent="rose"][data-theme="light"] {
     --accent: #e11d48;
     --accent-strong: #be123c;
     --accent-soft: rgba(190, 18, 60, .10);
+    --accent-hover: #9f1239;
 }
 :root[data-accent="amber"] {
     --accent: #fbbf24;
     --accent-strong: #f59e0b;
     --accent-soft: rgba(245, 158, 11, .10);
+    --accent-hover: #d97706;
 }
 :root[data-accent="amber"][data-theme="light"] {
     --accent: #d97706;
     --accent-strong: #b45309;
     --accent-soft: rgba(180, 83, 9, .10);
+    --accent-hover: #92400e;
 }
 
 html, body {
@@ -342,7 +356,7 @@ code { color: var(--accent-strong); background: var(--accent-soft); border-radiu
 .btn-modern.small { padding: .32rem .6rem; font-size: .82rem; min-height: 0; }
 .icon-button { width: 38px; padding: 0; font-size: 1rem; }
 .btn-modern.primary { background: var(--accent-strong); border-color: transparent; color: white; }
-.btn-modern.primary:hover { background: #0d9488; }
+.btn-modern.primary:hover { background: var(--accent-hover); }
 .btn-modern.danger { background: transparent; border-color: rgba(251, 113, 133, .25); color: var(--danger); }
 .btn-modern.danger:hover { background: rgba(159, 18, 57, .45); color: var(--danger); }
 .btn-modern.primary-outline { background: transparent; border-color: var(--accent); color: var(--accent); }

@@ -235,72 +235,87 @@ public partial class SpotifySourceProvider : ISourceProvider
                 _cachedToken = (token, DateTime.UtcNow);
             }
 
-            using var request = new HttpRequestMessage(HttpMethod.Get,
-                $"https://api.spotify.com/v1/playlists/{playlistId}/items?offset=0&limit=100&additional_types=track");
-            request.Headers.Add("Authorization", $"Bearer {token}");
-            var response = await _httpClient.SendAsync(request);
-            if ((int)response.StatusCode == 429)
-            {
-                // Spotify rate-limits anonymous tokens aggressively; honor the
-                // Retry-After hint once, then give up to the fallback.
-                var retryAfter = response.Headers.RetryAfter?.Delta ?? TimeSpan.FromSeconds(5);
-                _logger.LogInformation("Spotify API rate limited; waiting {Seconds}s once", retryAfter.TotalSeconds);
-                await Task.Delay(retryAfter < TimeSpan.FromSeconds(30) ? retryAfter : TimeSpan.FromSeconds(30));
-                response.Dispose();
-                response = await _httpClient.SendAsync(request);
-            }
-            if (!response.IsSuccessStatusCode)
-            {
-                _logger.LogDebug("Spotify API playlist fetch failed: {Status} for {PlaylistId}",
-                    (int)response.StatusCode, playlistId);
-                response.Dispose();
-                return null;
-            }
-
-            using var doc = await JsonDocument.ParseAsync(
-                await response.Content.ReadAsStreamAsync());
-
-            var total = doc.RootElement.TryGetProperty("total", out var totalProp)
-                ? totalProp.GetInt32()
-                : 0;
-            var items = doc.RootElement.TryGetProperty("items", out var itemsProp)
-                && itemsProp.ValueKind == JsonValueKind.Array
-                    ? itemsProp.EnumerateArray().ToList()
-                    : new List<JsonElement>();
-
-            var tracks = items
-                .Select(ParseApiTrack)
-                .Where(t => t is not null)
-                .Cast<Track>()
-                .ToList();
-
-            // Page through the rest.
+            // Paged fetch with real backpressure: every page gets its own
+            // request (an HttpRequestMessage cannot be resent), a 429 is
+            // answered with the Retry-After hint and exponential backoff,
+            // and a page that fails after retries marks the fetch partial
+            // instead of silently breaking with a Completed sync.
             const int pageSize = 100;
-            for (var offset = pageSize; offset < total; offset += pageSize)
+            var tracks = new List<Track>();
+            var total = 0;
+            string? warning = null;
+
+            for (var offset = 0; ; offset += pageSize)
             {
-                using var pageRequest = new HttpRequestMessage(HttpMethod.Get,
-                    $"https://api.spotify.com/v1/playlists/{playlistId}/items?offset={offset}&limit={pageSize}&additional_types=track");
-                pageRequest.Headers.Add("Authorization", $"Bearer {token}");
-                using var pageResponse = await _httpClient.SendAsync(pageRequest);
-                if (!pageResponse.IsSuccessStatusCode)
+                JsonDocument? pageDoc = null;
+                for (var attempt = 0; ; attempt++)
                 {
-                    _logger.LogWarning("Spotify API page at offset {Offset} failed: {Status}",
-                        offset, (int)pageResponse.StatusCode);
+                    using var request = new HttpRequestMessage(HttpMethod.Get,
+                        $"https://api.spotify.com/v1/playlists/{playlistId}/items?offset={offset}&limit={pageSize}&additional_types=track");
+                    request.Headers.Add("Authorization", $"Bearer {token}");
+                    using var response = await _httpClient.SendAsync(request);
+
+                    if ((int)response.StatusCode == 429 && attempt < 3)
+                    {
+                        // Rate limited: wait what the API asks for, doubling
+                        // from a 2s floor when the header is absent.
+                        var wait = response.Headers.RetryAfter?.Delta
+                            ?? TimeSpan.FromSeconds(2 * Math.Pow(2, attempt));
+                        wait = TimeSpan.FromTicks(Math.Min(wait.Ticks, TimeSpan.FromSeconds(30).Ticks));
+                        _logger.LogInformation(
+                            "Spotify API rate limited at offset {Offset}; waiting {Seconds}s (attempt {Attempt})",
+                            offset, wait.TotalSeconds, attempt + 1);
+                        await Task.Delay(wait);
+                        continue;
+                    }
+
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        _logger.LogWarning("Spotify API page at offset {Offset} failed: {Status} (attempt {Attempt})",
+                            offset, (int)response.StatusCode, attempt + 1);
+                        break;
+                    }
+
+                    pageDoc = await JsonDocument.ParseAsync(
+                        await response.Content.ReadAsStreamAsync());
                     break;
                 }
-                using var pageDoc = await JsonDocument.ParseAsync(
-                    await pageResponse.Content.ReadAsStreamAsync());
-                if (!pageDoc.RootElement.TryGetProperty("items", out var pageItems) ||
-                    pageItems.ValueKind != JsonValueKind.Array)
+
+                if (pageDoc is null)
+                {
+                    // A page failed for good: keep what arrived, and say so.
+                    warning = $"partial fetch: got {tracks.Count} of {total} tracks (a page failed after retries)";
                     break;
-                tracks.AddRange(pageItems.EnumerateArray()
-                    .Select(ParseApiTrack)
-                    .Where(t => t is not null)
-                    .Cast<Track>());
+                }
+
+                using (pageDoc)
+                {
+                    if (offset == 0)
+                        total = pageDoc.RootElement.TryGetProperty("total", out var totalProp)
+                            ? totalProp.GetInt32()
+                            : 0;
+
+                    if (!pageDoc.RootElement.TryGetProperty("items", out var itemsProp) ||
+                        itemsProp.ValueKind != JsonValueKind.Array)
+                    {
+                        warning = $"partial fetch: got {tracks.Count} of {total} tracks (a page was malformed)";
+                        break;
+                    }
+
+                    tracks.AddRange(itemsProp.EnumerateArray()
+                        .Select(ParseApiTrack)
+                        .Where(t => t is not null)
+                        .Cast<Track>());
+                }
+
+                if (tracks.Count >= total || total == 0) break;
             }
 
             if (tracks.Count == 0)
                 return null;
+
+            if (warning is null && total > 0 && tracks.Count < total)
+                warning = $"partial fetch: got {tracks.Count} of {total} tracks";
 
             // Metadata (name, owner, cover) from the same API.
             string? name = null, owner = null, cover = null;
@@ -345,6 +360,7 @@ public partial class SpotifySourceProvider : ISourceProvider
                 Tracks = tracks,
                 TrackCount = total,
                 Duration = SumDurations(tracks),
+                Warning = warning,
             };
         }
         catch (Exception ex)

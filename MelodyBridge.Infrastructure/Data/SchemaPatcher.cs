@@ -30,6 +30,8 @@ public static class SchemaPatcher
         ("Tracks", "ArchivePath", "TEXT NULL"),
         ("Playlists", "ArchiveDirectory", "TEXT NULL"),
         ("Playlists", "ArchiveFormat", "TEXT NULL"),
+        // Partial-sync honesty: the reason a sync was not a clean Completed.
+        ("Playlists", "SyncWarning", "TEXT NULL"),
     };
 
     public static async Task PatchAsync(MelodyBridgeDbContext db, CancellationToken ct = default)

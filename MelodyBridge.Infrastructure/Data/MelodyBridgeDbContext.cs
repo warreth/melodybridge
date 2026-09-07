@@ -187,6 +187,11 @@ public class PlaylistEntity
     public string SyncMode { get; set; } = "Additive";
     public DateTime? LastSyncAt { get; set; }
     public SyncStatus LastSyncStatus { get; set; }
+    /// <summary>
+    /// Why the last sync was incomplete (rate limiting, a failed page),
+    /// shown next to the status in the UI. Null on clean syncs.
+    /// </summary>
+    public string? SyncWarning { get; set; }
     /// <summary>Directory where downloaded files for this playlist are placed.</summary>
     public string? TargetDirectory { get; set; }
     /// <summary>

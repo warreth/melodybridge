@@ -95,7 +95,10 @@ public class MonochromeDownloader : IDownloader
     public async Task<DownloaderSearchHit?> SearchAsync(
         string artist, string title, DownloadQuality quality, CancellationToken ct = default)
     {
-        var query = (artist + " " + title).Trim();
+        // Cleaned terms: the TIDAL indexes behind the instances are
+        // literal, so "(Original Mix)" suffixes and featuring tags reduce
+        // matches before the first request is even sent.
+        var query = SearchTerms.Query(artist, title);
         if (query.Length == 0) return null;
 
         // Start at the cached instance (or the first one) and wrap around

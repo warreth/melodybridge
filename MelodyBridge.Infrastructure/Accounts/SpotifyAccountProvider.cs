@@ -335,7 +335,22 @@ public class SpotifyAccountProvider : IAccountSourceProvider
         string? next = $"https://api.spotify.com/v1/playlists/{playlistId}/items?limit=100";
         while (!string.IsNullOrEmpty(next))
         {
-            using var response = await http.GetAsync(next, ct);
+            // 429 with the account token gets the same treatment as the
+            // public path: honor Retry-After with exponential backoff,
+            // a few attempts per page, instead of throwing the whole
+            // authenticated fetch away.
+            HttpResponseMessage response;
+            for (var attempt = 0; ; attempt++)
+            {
+                response = await http.GetAsync(next, ct);
+                if ((int)response.StatusCode != 429 || attempt >= 3) break;
+
+                var wait = response.Headers.RetryAfter?.Delta
+                    ?? TimeSpan.FromSeconds(2 * Math.Pow(2, attempt));
+                wait = TimeSpan.FromTicks(Math.Min(wait.Ticks, TimeSpan.FromSeconds(30).Ticks));
+                response.Dispose();
+                await Task.Delay(wait, ct);
+            }
             response.EnsureSuccessStatusCode();
             using var doc = await System.Text.Json.JsonDocument.ParseAsync(
                 await response.Content.ReadAsStreamAsync(), cancellationToken: ct);

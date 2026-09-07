@@ -39,7 +39,9 @@ public class YtDlpDownloader : IDownloader
     {
         if (YtDlpProcess.BinaryPath is null) return null;
 
-        var query = $"{artist} {title}".Trim();
+        // YouTube search is noisy enough already: dropping mix suffixes
+        // and featuring tags keeps the real track on page one.
+        var query = SearchTerms.Query(artist, title);
         if (query.Length == 0) return null;
 
         // Try YouTube Music first for better audio matches; fall back to YouTube.
