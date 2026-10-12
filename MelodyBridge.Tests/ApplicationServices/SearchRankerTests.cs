@@ -97,7 +97,9 @@ public class SearchRankerTests
 
         Assert.That(result, Is.Not.Null);
         Assert.That(result!.SourceUrl, Is.EqualTo("https://x/1"));
-        Assert.That(result.Alternatives, Has.Count.EqualTo(2));
+        // The live cut adds an unrequested modifier and is dropped, so
+        // only the radio edit remains as a runner-up.
+        Assert.That(result.Alternatives, Has.Count.EqualTo(1));
         Assert.That(result.Alternatives![0].SourceUrl, Is.EqualTo("https://x/2"));
     }
 
@@ -129,6 +131,31 @@ public class SearchRankerTests
         Assert.That(result, Is.Not.Null);
         Assert.That(result!.Alternatives, Is.Null,
             "a Low-confidence cover is the wrong track, not a fallback");
+    }
+
+    [Test]
+    public void UnrequestedModifiers_LoseToCleanCandidates()
+    {
+        // The karaoke version is listed first; the clean match must win.
+        var result = SearchRanker.Rank("Rick Astley", "Never Gonna Give You Up", null,
+            new[]
+            {
+                Hit("Never Gonna Give You Up (Karaoke Version)", "Karaoke Channel", "https://x/karaoke"),
+                Hit("Never Gonna Give You Up", "Rick Astley", "https://x/real"),
+            });
+
+        Assert.That(result, Is.Not.Null);
+        Assert.That(result!.SourceUrl, Is.EqualTo("https://x/real"));
+    }
+
+    [Test]
+    public void KaraokeOnly_ReturnsNoHit()
+    {
+        var result = SearchRanker.Rank("Rick Astley", "Never Gonna Give You Up", null,
+            new[] { Hit("Never Gonna Give You Up (Karaoke Version)", "Karaoke Channel", "https://x/karaoke") });
+
+        Assert.That(result, Is.Null,
+            "a karaoke recording is the wrong track, never a fallback");
     }
 
     [Test]

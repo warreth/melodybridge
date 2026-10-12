@@ -63,4 +63,21 @@ public class FuzzyMatcherTests
             FuzzyMatcher.Similarity("The Song", "Song (Official Video)"),
             Is.GreaterThan(0.9));
     }
+
+    [TestCase("Never Gonna Give You Up", "Never Gonna Give You Up (Karaoke Version)", true)]
+    [TestCase("Never Gonna Give You Up", "Never Gonna Give You Up (Live at Wembley)", true)]
+    [TestCase("Never Gonna Give You Up", "Never Gonna Give You Up (Tiesto Remix)", true)]
+    [TestCase("Never Gonna Give You Up", "Never Gonna Give You Up (Piano Cover)", true)]
+    [TestCase("Never Gonna Give You Up", "Never Gonna Give You Up", false)]
+    // The requested title itself mentions the modifier: it is the track.
+    [TestCase("Song (Live)", "Song (Live at Wembley)", false)]
+    [TestCase("Cover Me", "Cover Me (Official Audio)", false)]
+    // Token boundaries: "Alive" is not "live".
+    [TestCase("Stayin' Alive", "Stayin' Alive", false)]
+    public void AddsUnrequestedModifier_FlagsOnlyNewModifiers(
+        string requested, string hit, bool expected)
+    {
+        Assert.That(FuzzyMatcher.AddsUnrequestedModifier(requested, hit), Is.EqualTo(expected),
+            $"{requested} vs {hit}");
+    }
 }

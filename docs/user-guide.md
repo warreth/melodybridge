@@ -154,7 +154,10 @@ out of the waterfall and the other plugins take over.
 Monochrome and DoubleDouble are community rip mirrors: Monochrome
 searches TIDAL and falls back between its instances automatically,
 DoubleDouble handles direct track URLs only (its search is
-captcha-gated, so it never finds tracks by name).
+captcha-gated, so it never finds tracks by name). DAB Music is a
+community Qobuz mirror as well: it searches by name and serves FLAC up
+to 24/192 or MP3 320 without an account, but the service is often down;
+the page marks it unavailable and the waterfall skips it.
 
 ## Sync jobs
 

@@ -75,6 +75,15 @@ public static class ServiceCollectionExtensions
                 sp.GetRequiredService<IHttpClientFactory>().CreateClient("doubledouble"),
                 sp.GetRequiredService<ILogger<DoubleDoubleDownloader>>()));
 
+        // DAB Music: community Qobuz rips (dabmusic.xyz), no account
+        // needed for search or stream; flaky service, gated by a cheap
+        // availability probe.
+        services.AddHttpClient("dabmusic", c => c.Timeout = TimeSpan.FromMinutes(5));
+        services.AddSingleton<IDownloader>(sp =>
+            new DabMusicDownloader(
+                sp.GetRequiredService<IHttpClientFactory>().CreateClient("dabmusic"),
+                sp.GetRequiredService<ILogger<DabMusicDownloader>>()));
+
         services.AddSingleton<IDownloaderRegistry, DownloaderRegistry>();
 
         // Source providers (playlists)

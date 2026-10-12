@@ -30,6 +30,9 @@ public static class SearchRanker
     {
         var scored = candidates
             .Where(c => !string.IsNullOrEmpty(c.SourceUrl))
+            // Karaoke, covers and unrequested remixes/live cuts are the
+            // wrong recording, not a fallback: drop them entirely.
+            .Where(c => !FuzzyMatcher.AddsUnrequestedModifier(title, c.Title))
             .Select(c => (candidate: c, score: FuzzyMatcher.ScoreWithDuration(
                 artist, title, expectedDuration, c.Artist, c.Title, c.Duration)))
             .OrderByDescending(x => x.score)

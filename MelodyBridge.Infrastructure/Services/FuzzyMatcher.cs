@@ -82,6 +82,56 @@ public static class FuzzyMatcher
     }
 
     /// <summary>
+    /// Titles that identify a different recording than the requested one
+    /// when the request itself does not mention them: karaoke, covers,
+    /// remixes, live cuts and the rest of the "wrong track" family.
+    /// </summary>
+    private static readonly string[] UnrequestedModifiers =
+    {
+        "karaoke", "cover", "tribute", "instrumental", "remix", "live",
+        "acoustic", "reprise", "demo", "orchestral", "piano", "8d",
+        "sped", "slowed", "nightcore", "mashup",
+    };
+
+    /// <summary>
+    /// True when the hit title carries a modifier the requested title
+    /// does not ("… (Karaoke Version)" for a plain request). Token-based,
+    /// so "Alive" never matches "live" and "Cover Me" stays itself when
+    /// that is the requested title.
+    /// </summary>
+    public static bool AddsUnrequestedModifier(string requestedTitle, string? hitTitle)
+    {
+        if (string.IsNullOrWhiteSpace(hitTitle)) return false;
+        var requested = WordSet(requestedTitle);
+        foreach (var token in WordSet(hitTitle))
+        {
+            if (UnrequestedModifiers.Contains(token) && !requested.Contains(token))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>Lower-cased word tokens, for modifier detection only.</summary>
+    private static HashSet<string> WordSet(string? text)
+    {
+        var words = new HashSet<string>(StringComparer.Ordinal);
+        if (string.IsNullOrWhiteSpace(text)) return words;
+
+        var builder = new System.Text.StringBuilder();
+        foreach (var ch in text.ToLowerInvariant())
+        {
+            if (char.IsLetterOrDigit(ch)) builder.Append(ch);
+            else if (builder.Length > 0)
+            {
+                words.Add(builder.ToString());
+                builder.Clear();
+            }
+        }
+        if (builder.Length > 0) words.Add(builder.ToString());
+        return words;
+    }
+
+    /// <summary>
     /// Artist similarity with channel-name tolerance: a hit artist that
     /// contains the requested artist as a whole word scores full marks,
     /// because uploaders decorate names ("RegardVEVO", "Regard - Topic").

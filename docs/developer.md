@@ -73,10 +73,12 @@ public interface IDownloader
 `expectedDuration` is the playlist's advertised track length. Plugins
 rank their search candidates with `SearchRanker.Rank`: title/artist
 similarity plus duration proximity, gross mismatches (a 30s preview for
-a 4-minute track) are dropped, and the runner-ups travel along in
-`DownloaderSearchHit.Alternatives` so a dead first choice (deleted
-video, geo-block) does not lose the plugin. `DownloadManager` passes the
-duration through and re-checks every candidate before spending bytes.
+a 4-minute track) are dropped, and candidates that add an unrequested
+modifier (karaoke, cover, remix, live cut) are never offered at all.
+The runner-ups travel along in `DownloaderSearchHit.Alternatives` so a
+dead first choice (deleted video, geo-block) does not lose the plugin.
+`DownloadManager` passes the duration through and re-checks every
+candidate before spending bytes.
 
 `PluginCapabilities` is the plugin's honest manifest: the containers it
 can produce, its real bitrate bounds (null means unbounded) and whether
@@ -100,6 +102,7 @@ Implement this to add a download source. Built-in plugins:
 | `DoubleDoubleDownloader` | `doubledouble` | us./eu.doubledouble.top | Submit-and-poll rips of direct track URLs (Tidal, Qobuz, Deezer, Amazon); `SearchAsync` returns null by design, the site search is captcha-gated |
 | `SoundCloudDownloader` | `soundcloud` | SoundCloud (via yt-dlp `scsearch`) | Original uploads, often 320 kbps; top-5 ranked; rejects files under 128 kbps |
 | `ArchiveOrgDownloader` | `archiveorg` | Internet Archive (public JSON APIs) | Public-domain and community recordings; picks the matching file inside a multi-track item, not the first one; rejects files under 128 kbps |
+| `DabMusicDownloader` | `dabmusic` | dabmusic.xyz (community Qobuz rips) | FLAC up to 24/192 and MP3 320, no account needed; community service, regularly offline, so availability is probed and cached before use |
 | `YtDlpDownloader` | `ytdlp` | YouTube (via yt-dlp) | Widest fallback; audio-only best stream, top-5 ranked by match and duration; explicit formats transcode to the requested cap |
 
 Place new implementations in `MelodyBridge.Infrastructure/Downloaders/` and register via `services.AddSingleton<IDownloader, YourPlugin>()`. Quality-gate downloads against the requested `DownloadQuality` band so bad rips never enter the library.

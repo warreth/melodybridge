@@ -242,6 +242,7 @@
         "monochrome" => "no Monochrome mirror answered",
         "doubledouble" => "no doubledouble.top host answered",
         "lucida" => "Cloudflare solver unavailable: set the FlareSolverr URL on the Settings page",
+        "dabmusic" => "dabmusic.xyz did not answer (community service, often down)",
         _ => null,
     };
 
@@ -282,6 +283,7 @@
         "lucida" => "zap",
         "monochrome" => "music",
         "doubledouble" => "refresh",
+        "dabmusic" => "globe",
         _ => "music",
     };
 
@@ -329,6 +331,7 @@
         "lucida" => new[] { "needs a FlareSolverr URL" },
         "monochrome" => new[] { "mirror fallback" },
         "doubledouble" => new[] { "direct URLs only", "captcha-gated" },
+        "dabmusic" => new[] { "Qobuz HiFi", "community service" },
         _ => Array.Empty<string>(),
     };
 
