@@ -150,4 +150,62 @@ public class DatabaseBackupServiceTests
         await using var stream = File.OpenRead(zipPath);
         Assert.ThrowsAsync<InvalidOperationException>(() => _service.ImportZipAsync(stream));
     }
+
+    /// <summary>Fails the final replace step, after the live file is parked.</summary>
+    private sealed class FailingRestoreService(
+        IDbContextFactory<MelodyBridgeDbContext> factory,
+        Microsoft.Extensions.Logging.ILogger<DatabaseBackupService> logger)
+        : DatabaseBackupService(factory, logger)
+    {
+        internal override void MoveRestoredIntoPlace(string restoredPath, string dbPath)
+            => throw new IOException("simulated restore failure");
+    }
+
+    /// <summary>A zip holding a real, schema-complete foreign database.</summary>
+    private string BuildForeignZip()
+    {
+        var foreignPath = Path.Combine(_dir, $"foreign-{Guid.NewGuid():N}.db");
+        var snapshotPath = Path.Combine(_dir, $"foreign-snapshot-{Guid.NewGuid():N}.db");
+        var foreignFactory = new TestSqliteFactory(foreignPath);
+        using (var db = foreignFactory.CreateDbContext())
+        {
+            db.Database.EnsureCreated();
+            db.Playlists.Add(new PlaylistEntity
+            {
+                Id = "p2", Name = "Foreign", SourceUrl = "https://y", TrackCount = 7,
+            });
+            db.SaveChanges();
+            db.Database.ExecuteSqlRaw($"VACUUM INTO '{snapshotPath.Replace("'", "''")}'");
+        }
+
+        var zipPath = Path.Combine(_dir, $"upload-{Guid.NewGuid():N}.zip");
+        using (var archive = ZipFile.Open(zipPath, ZipArchiveMode.Create))
+        {
+            archive.CreateEntryFromFile(snapshotPath, "melodybridge.db");
+        }
+        return zipPath;
+    }
+
+    [Test]
+    public async Task Import_Failure_PutsTheOriginalDatabaseBack()
+    {
+        // The live file is parked before the replacement lands; when the
+        // replacement fails, the parked original must come back instead of
+        // leaving the app with no database at all.
+        var zipPath = BuildForeignZip();
+        var failing = new FailingRestoreService(_factory,
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<DatabaseBackupService>.Instance);
+
+        await using (var stream = File.OpenRead(zipPath))
+        {
+            Assert.ThrowsAsync<IOException>(() => failing.ImportZipAsync(stream));
+        }
+
+        Assert.That(File.Exists(_dbPath), Is.True,
+            "a failed restore must never leave the app without a database");
+        var restored = new TestSqliteFactory(_dbPath);
+        using var db = restored.CreateDbContext();
+        Assert.That(db.Playlists.Count(p => p.Name == "Original"), Is.EqualTo(1),
+            "the original content is back");
+    }
 }

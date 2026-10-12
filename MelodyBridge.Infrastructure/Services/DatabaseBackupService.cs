@@ -11,7 +11,7 @@ namespace MelodyBridge.Infrastructure.Services;
 /// behind the DbContext, not EF snapshots, so the result is a faithful
 /// byte copy of the app's state.
 /// </summary>
-public sealed class DatabaseBackupService(
+public class DatabaseBackupService(
     IDbContextFactory<MelodyBridgeDbContext> dbFactory,
     ILogger<DatabaseBackupService> logger)
 {
@@ -95,8 +95,30 @@ public sealed class DatabaseBackupService(
             // all platforms (Windows locks open files).
             SqliteConnection.ClearAllPools();
 
-            BackupCurrent(dbPath);
-            File.Move(Path.Combine(tempDir, "restored.db"), dbPath, overwrite: true);
+            var parked = BackupCurrent(dbPath);
+            try
+            {
+                MoveRestoredIntoPlace(Path.Combine(tempDir, "restored.db"), dbPath);
+            }
+            catch
+            {
+                // The live database is already parked: put it back so a
+                // failed restore never leaves the app without one.
+                if (parked is not null)
+                {
+                    try
+                    {
+                        File.Move(parked, dbPath, overwrite: true);
+                        logger.LogWarning(
+                            "Restore failed; the previous database was put back from {Path}", parked);
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogError(ex, "Restore failed and the previous database could not be put back");
+                    }
+                }
+                throw;
+            }
 
             logger.LogInformation("Database restored from uploaded zip; restart required");
         }
@@ -128,13 +150,22 @@ public sealed class DatabaseBackupService(
     private static string ZipName()
         => $"melodybridge_{DateTime.UtcNow:yyyyMMdd_HHmmss}.zip";
 
-    private void BackupCurrent(string dbPath)
+    /// <summary>
+    /// Parks the live database next to itself (a unique name, so two
+    /// restores in one second cannot collide) and returns the parked path.
+    /// </summary>
+    private string? BackupCurrent(string dbPath)
     {
-        if (!File.Exists(dbPath)) return;
-        var backupPath = $"{dbPath}.{DateTime.UtcNow:yyyyMMdd_HHmmss}.preimport.bak";
+        if (!File.Exists(dbPath)) return null;
+        var backupPath = $"{dbPath}.{DateTime.UtcNow:yyyyMMdd_HHmmss}.{Guid.NewGuid():N}.preimport.bak";
         File.Move(dbPath, backupPath);
         logger.LogInformation("Pre-import database parked at {Path}", backupPath);
+        return backupPath;
     }
+
+    /// <summary>Test seam: the final replace step of a restore.</summary>
+    internal virtual void MoveRestoredIntoPlace(string restoredPath, string dbPath)
+        => File.Move(restoredPath, dbPath, overwrite: true);
 
     private async Task<string> GetDatabasePathAsync(CancellationToken ct)
     {
