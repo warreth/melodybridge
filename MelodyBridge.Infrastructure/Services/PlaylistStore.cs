@@ -950,24 +950,30 @@ public class PlaylistStore
             .Where(id => id is not null)
             .ToHashSet();
 
-        // Carry over stable identity and download state for tracks that
-        // persist across syncs: ExternalId is the join key.
-        var existingByExternalId = entity.Tracks
+        // Carry over stable identity, download state and the measured
+        // audio facts for tracks that persist across syncs: ExternalId is
+        // the join key. A playlist may legally contain the same track
+        // twice, so each incoming occurrence takes the next prior row
+        // with that id instead of a dictionary throwing on duplicates.
+        var priorsByExternalId = entity.Tracks
             .Where(t => t.ExternalId is not null)
-            .ToDictionary(t => t.ExternalId!, t => t);
+            .GroupBy(t => t.ExternalId!)
+            .ToDictionary(g => g.Key, g => new Queue<TrackEntity>(g));
 
         var removed = entity.Tracks
             .Where(t => t.ExternalId is not null && !incomingIds.Contains(t.ExternalId))
             .ToList();
 
         // A partial fetch did not see the whole playlist, so "absent
-        // from source" is not a fact yet: reconcile nothing, keep every
-        // row, and let the next complete sync do the bookkeeping.
+        // from source" is not a fact yet: keep those rows attached to
+        // the playlist and let the next complete sync do the bookkeeping.
+        var withheld = new List<TrackEntity>();
         if (partial && removed.Count > 0)
         {
             _logger.LogWarning(
-                "Partial sync for '{Playlist}': holding back {Count} mirror removals until a complete sync",
+                "Partial sync for '{Playlist}': keeping {Count} unseen rows until a complete sync",
                 entity.Name, removed.Count);
+            withheld = removed;
             removed = new List<TrackEntity>();
         }
 
@@ -988,13 +994,21 @@ public class PlaylistStore
         }
 
         // Replace the remaining snapshot with the fresh source state,
-        // preserving MelodyId + download state for surviving tracks.
-        db.Tracks.RemoveRange(entity.Tracks);
-        entity.Tracks = incoming
+        // preserving identity, status and the measured facts for
+        // surviving tracks. Withheld (partial-fetch) rows stay attached
+        // and survive untouched.
+        db.Tracks.RemoveRange(entity.Tracks.Except(withheld).ToList());
+        var rebuilt = incoming
             .Select((t, i) =>
             {
                 var externalId = t.PlatformSongID?.ID ?? t.SongID?.ID;
-                var prior = externalId is not null ? existingByExternalId.GetValueOrDefault(externalId) : null;
+                TrackEntity? prior = null;
+                if (externalId is not null
+                    && priorsByExternalId.TryGetValue(externalId, out var priors)
+                    && priors.Count > 0)
+                {
+                    prior = priors.Dequeue();
+                }
                 var mapped = MapTrack(t, providerPlatform, entity.Id, i);
                 mapped.IsLiked = t.IsLiked;
                 if (prior is not null)
@@ -1006,10 +1020,26 @@ public class PlaylistStore
                     // A resolved ISRC survives a refresh that does not
                     // carry one (embed scrape, YouTube).
                     mapped.Isrc ??= prior.Isrc;
+                    // The audio facts and flags measure the file on disk:
+                    // a refresh must not lose them, or the track table
+                    // goes blank and dedup can no longer verify an
+                    // existing copy.
+                    mapped.Bitrate = prior.Bitrate;
+                    mapped.SampleRateHz = prior.SampleRateHz;
+                    mapped.FileSizeBytes = prior.FileSizeBytes;
+                    mapped.ArchivePath = prior.ArchivePath;
+                    mapped.IsHardLink = prior.IsHardLink;
+                    mapped.Warning = prior.Warning;
+                    mapped.LastSeenAt = prior.LastSeenAt;
+                    mapped.SkipDedup = prior.SkipDedup;
+                    if (!string.IsNullOrEmpty(prior.MediaType))
+                        mapped.MediaType = prior.MediaType;
                 }
                 return mapped;
             })
             .ToList();
+        rebuilt.AddRange(withheld);
+        entity.Tracks = rebuilt;
 
         if (isNew) db.Playlists.Add(entity);
         await db.SaveChangesAsync(ct);

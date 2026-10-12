@@ -151,6 +151,14 @@ public class TrackEntity
     /// <summary>Status of the local file for this track (downloaded / pending / failed).</summary>
     public string? DownloadStatus { get; set; }
     public string? DownloadError { get; set; }
+
+    /// <summary>
+    /// One-shot user decision: the next download attempt must skip the
+    /// dedup check and fetch a fresh file even though another playlist
+    /// still owns a copy. Set by "Download new" on a review conflict and
+    /// cleared when the attempt starts.
+    /// </summary>
+    public bool SkipDedup { get; set; }
     /// <summary>
     /// Warning shown next to the track in the UI: low match confidence,
     /// spectral quality doubts. Null when everything is fine.
