@@ -14,7 +14,7 @@ public class AutoSyncBackgroundService : BackgroundService
     private readonly ILogger<AutoSyncBackgroundService> _logger;
 
     // Check frequently; each playlist's own interval decides what is due.
-    private static readonly TimeSpan PollInterval = TimeSpan.FromMinutes(1);
+    internal virtual TimeSpan PollInterval => TimeSpan.FromMinutes(1);
 
     public AutoSyncBackgroundService(
         IServiceProvider serviceProvider,

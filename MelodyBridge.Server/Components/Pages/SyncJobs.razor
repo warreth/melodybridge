@@ -457,7 +457,7 @@
     private void StartEditJob(SyncJobEntity job)
     {
         // hydrate the wizard from the stored entity so saving updates it in place
-        draft = MapToDomain(job);
+        draft = SyncJobMapping.MapToDomain(job);
         isEditing = true;
         sourceType = string.IsNullOrWhiteSpace(job.SourceId) && draft.SearchLocationPaths.Count > 0
             ? "folder" : "playlist";
@@ -641,7 +641,7 @@
             await using var db = await DbFactory.CreateDbContextAsync();
             var entity = await db.SyncJobs.FindAsync(jobId);
             if (entity == null) return;
-            await JobRunner.RunJobAsync(MapToDomain(entity));
+            await JobRunner.RunJobAsync(SyncJobMapping.MapToDomain(entity));
             await LoadDataAsync();
         }
         finally { runningJobs.Remove(jobId); }
@@ -684,35 +684,6 @@
             await LoadDataAsync();
         }
         deleteJobId = null;
-    }
-
-    private static SyncJob MapToDomain(SyncJobEntity entity)
-    {
-        List<string>? searchPaths = null;
-        try { searchPaths = JsonSerializer.Deserialize<List<string>>(entity.SearchLocationPaths ?? "[]"); } catch { }
-        var remapRules = new Dictionary<string, string>();
-        try { remapRules = JsonSerializer.Deserialize<Dictionary<string, string>>(entity.PathRemapRules ?? "{}") ?? new(); } catch { }
-        var extRules = new Dictionary<string, string>();
-        try { extRules = JsonSerializer.Deserialize<Dictionary<string, string>>(entity.ExtensionRemapRules ?? "{}") ?? new(); } catch { }
-
-        return new SyncJob
-        {
-            Id = entity.Id,
-            Name = entity.Name ?? "",
-            SourceId = entity.SourceId,
-            SearchLocationPaths = searchPaths ?? new(),
-            OutputTarget = Enum.TryParse<OutputTargetType>(entity.OutputTarget, true, out var ot) ? ot : OutputTargetType.M3uFile,
-            M3uOutputPath = entity.M3uOutputPath,
-            JellyfinServerUrl = entity.JellyfinServerUrl,
-            JellyfinApiKey = entity.JellyfinApiKey,
-            JellyfinUserId = entity.JellyfinUserId,
-            PathRemapRules = remapRules,
-            ExtensionRemapRules = extRules,
-            Schedule = Enum.TryParse<SyncJobSchedule>(entity.Schedule, true, out var s) ? s : SyncJobSchedule.Manual,
-            CronExpression = entity.CronExpression,
-            LastRunAt = entity.LastRunAt,
-            LastRunSummary = entity.LastRunSummary,
-        };
     }
 
     public void Dispose() { }

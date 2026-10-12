@@ -122,6 +122,7 @@ public static class ServiceCollectionExtensions
         services.AddHostedService<AutoSyncBackgroundService>();
         services.AddHostedService<ScanSchedulingBackgroundService>();
         services.AddHostedService<FileSystemMonitoringBackgroundService>();
+        services.AddHostedService<SyncJobSchedulingBackgroundService>();
 
         // File system monitor
         services.AddSingleton<IFileSystemMonitor, FileSystemMonitor>();

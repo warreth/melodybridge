@@ -199,6 +199,10 @@ buttons to run it now, view its log, edit it or delete it. **Edit**
 reopens the same wizard with the job's current values; saving updates
 the job instead of creating a new one.
 
+A job with a schedule runs on its own while MelodyBridge is running:
+the app checks once a minute and runs every due job, one after another.
+Manual jobs only run from the **Run now** button.
+
 ::: tip Reading the run summary
 "Synced 20/50 tracks, 30 without a local file" counts the whole
 playlist: 50 tracks are in it and 20 of them had a file to publish.

@@ -18,6 +18,9 @@ public class ScanSchedulingBackgroundService : BackgroundService
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<ScanSchedulingBackgroundService> _logger;
 
+    /// <summary>Fixed cadence: each location's own schedule decides what is due.</summary>
+    internal virtual TimeSpan PollInterval => TimeSpan.FromSeconds(60);
+
     public ScanSchedulingBackgroundService(
         IServiceProvider serviceProvider,
         ILogger<ScanSchedulingBackgroundService> logger)
@@ -36,7 +39,7 @@ public class ScanSchedulingBackgroundService : BackgroundService
             {
                 // Fixed cadence: each location's own schedule decides what is
                 // due, so this poll does not need to be a user knob.
-                await Task.Delay(TimeSpan.FromSeconds(60), stoppingToken);
+                await Task.Delay(PollInterval, stoppingToken);
 
                 using var scope = _serviceProvider.CreateScope();
                 var dbFactory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<MelodyBridgeDbContext>>();
