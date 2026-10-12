@@ -336,7 +336,7 @@ public class PlaylistStoreDedupTests
         public string Description => "fails when the dedup path wrongly downloads";
         public PluginCapabilities Capabilities => new([AudioFormat.Mp3], null, null, false, true);
         public Task<bool> IsAvailableAsync(CancellationToken ct = default) => Task.FromResult(true);
-        public Task<DownloaderSearchHit?> SearchAsync(string artist, string title, DownloadQuality quality, TimeSpan? expectedDuration = null, CancellationToken ct = default)
+        public Task<DownloaderSearchHit?> SearchAsync(TrackQuery query, CancellationToken ct = default)
             => throw new AssertionException("dedup must not search when a link is possible");
         public Task<DownloaderDownloadResult> DownloadAsync(string sourceUrl, string outputDirectory, string? melodyId, DownloadQuality? quality = null, CancellationToken ct = default)
             => throw new AssertionException("dedup must not download when a link is possible");
@@ -350,8 +350,8 @@ public class PlaylistStoreDedupTests
         public string Description => "copies a prepared file";
         public PluginCapabilities Capabilities => new([AudioFormat.Mp3], null, null, false, true);
         public Task<bool> IsAvailableAsync(CancellationToken ct = default) => Task.FromResult(true);
-        public Task<DownloaderSearchHit?> SearchAsync(string artist, string title, DownloadQuality quality, TimeSpan? expectedDuration = null, CancellationToken ct = default)
-            => Task.FromResult(new DownloaderSearchHit(title, artist, "https://serve.example/1", TimeSpan.FromSeconds(200), BitrateKbps: 320));
+        public Task<DownloaderSearchHit?> SearchAsync(TrackQuery query, CancellationToken ct = default)
+            => Task.FromResult(new DownloaderSearchHit(query.Title, query.Artist, "https://serve.example/1", TimeSpan.FromSeconds(200), BitrateKbps: 320));
         public Task<DownloaderDownloadResult> DownloadAsync(string sourceUrl, string outputDirectory, string? melodyId, DownloadQuality? quality = null, CancellationToken ct = default)
         {
             var path = Path.Combine(outputDirectory, Path.GetFileName(file));

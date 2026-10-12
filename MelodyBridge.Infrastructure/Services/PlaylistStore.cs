@@ -25,6 +25,7 @@ public class PlaylistStore
     private readonly ILogger<PlaylistStore> _logger;
     private readonly SettingsStore _settings;
     private readonly HardLinkService _hardLinks;
+    private readonly IsrcResolver? _isrcResolver;
 
     /// <summary>
     /// Post-download spectral verification strictness. Static: one app-wide
@@ -43,7 +44,8 @@ public class PlaylistStore
         ILogger<PlaylistStore> logger,
         IEnumerable<IAccountSourceProvider>? accountProviders = null,
         SettingsStore? settings = null,
-        HardLinkService? hardLinks = null)
+        HardLinkService? hardLinks = null,
+        IsrcResolver? isrcResolver = null)
     {
         _dbFactory = dbFactory;
         _providers = providers.ToArray();
@@ -56,6 +58,9 @@ public class PlaylistStore
         // The OS hard link wrapper has no state; one instance shared by
         // every store, or a private one for tests that never inject it.
         _hardLinks = hardLinks ?? new HardLinkService();
+        // Optional: without a resolver, tracks simply download without an
+        // ISRC like before.
+        _isrcResolver = isrcResolver;
     }
 
     /// <summary>
@@ -191,6 +196,16 @@ public class PlaylistStore
                 ? TimeSpan.FromMilliseconds(track.DurationMs.Value)
                 : (TimeSpan?)null;
 
+            // ISRC: the source may know it (Spotify account path) or not
+            // (embed scrape, YouTube, CSV). The resolver fills the gap via
+            // Deezer so ISRC-indexed catalogs can match exactly; the result
+            // persists with the track row in the finally below.
+            if (string.IsNullOrWhiteSpace(track.Isrc) && _isrcResolver is not null)
+            {
+                track.Isrc = await _isrcResolver.ResolveAsync(
+                    track.Artist!, track.Title!, expectedDuration, ct);
+            }
+
             // Dedup first: when the same track already exists in another
             // playlist folder, no network call is needed at all. Exact
             // quality matches hardlink instantly; a mismatch pauses the
@@ -198,8 +213,8 @@ public class PlaylistStore
             if (await TryDeduplicateAsync(track, dir, primary, ct) is { } verdict)
                 return verdict;
 
-            var path = await _downloadManager.DownloadTrackAsync(
-                track.Artist!, track.Title!, dir, track.MelodyId!, primary, expectedDuration, ct);
+            var query = new TrackQuery(track.Artist!, track.Title!, primary, expectedDuration, track.Isrc);
+            var path = await _downloadManager.DownloadTrackAsync(query, dir, track.MelodyId!, ct);
 
             // Lossless preset: when no source delivered a lossless
             // file, take the best lossy copy instead of nothing.
@@ -208,7 +223,7 @@ public class PlaylistStore
                 _logger.LogInformation(
                     "No lossless source for '{Title}'; falling back to the best lossy file", track.Title);
                 path = await _downloadManager.DownloadTrackAsync(
-                    track.Artist!, track.Title!, dir, track.MelodyId!, fallback, expectedDuration, ct);
+                    query with { Quality = fallback }, dir, track.MelodyId!, ct);
             }
 
             if (path is null)
@@ -987,6 +1002,9 @@ public class PlaylistStore
                     mapped.CurrentPath = prior.CurrentPath;
                     mapped.DownloadStatus = prior.DownloadStatus;
                     mapped.DownloadError = prior.DownloadError;
+                    // A resolved ISRC survives a refresh that does not
+                    // carry one (embed scrape, YouTube).
+                    mapped.Isrc ??= prior.Isrc;
                 }
                 return mapped;
             })
@@ -1332,6 +1350,7 @@ public class PlaylistStore
             Title = track.Title,
             Artist = track.Artist,
             Album = track.Album,
+            Isrc = track.Isrc,
             DurationMs = (long?)track.Duration?.TotalMilliseconds,
             MediaType = track.MediaType.ToString(),
             SourceUrl = track.CurrentTrackLocation?.Path,

@@ -42,8 +42,8 @@ public class DownloadManagerLiveTests
         var manager = Manager();
 
         var path = await manager.DownloadTrackAsync(
-            "Rick Astley", "Never Gonna Give You Up", _outDir, "mb-live-mgr-1",
-            DownloadQuality.Any, expectedDuration: TimeSpan.FromSeconds(214));
+            new TrackQuery("Rick Astley", "Never Gonna Give You Up", DownloadQuality.Any,
+                ExpectedDuration: TimeSpan.FromSeconds(214)), _outDir, "mb-live-mgr-1");
 
         Assert.That(path, Is.Not.Null, manager.LastFailure("mb-live-mgr-1"));
         Assert.That(File.Exists(path), Is.True);
@@ -81,8 +81,8 @@ public class DownloadManagerLiveTests
         // The playlist claims 100 seconds; every real source of this track
         // runs ~3:33. Downloading one anyway would be the wrong track.
         var path = await manager.DownloadTrackAsync(
-            "Rick Astley", "Never Gonna Give You Up", _outDir, "mb-live-mgr-2",
-            DownloadQuality.Any, expectedDuration: TimeSpan.FromSeconds(100));
+            new TrackQuery("Rick Astley", "Never Gonna Give You Up", DownloadQuality.Any,
+                ExpectedDuration: TimeSpan.FromSeconds(100)), _outDir, "mb-live-mgr-2");
 
         Assert.That(path, Is.Null, "a gross duration mismatch must not download");
         Assert.That(manager.LastFailure("mb-live-mgr-2"), Does.Contain("wrong length"));

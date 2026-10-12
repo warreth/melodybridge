@@ -89,8 +89,7 @@ public class MonochromeDownloaderTests
         handler.Respond = _ => Json(HttpStatusCode.OK, SearchBody());
         var downloader = Create(handler, out var http);
 
-        var hit = await downloader.SearchAsync(
-            "Rick Astley", "Never Gonna Give You Up", DownloadQuality.Any);
+        var hit = await downloader.SearchAsync(new TrackQuery("Rick Astley", "Never Gonna Give You Up", DownloadQuality.Any));
 
         Assert.Multiple(() =>
         {
@@ -136,8 +135,7 @@ public class MonochromeDownloaderTests
         });
         var downloader = Create(handler, out _);
 
-        var hit = await downloader.SearchAsync(
-            "Rick Astley", "Never Gonna Give You Up", DownloadQuality.Any);
+        var hit = await downloader.SearchAsync(new TrackQuery("Rick Astley", "Never Gonna Give You Up", DownloadQuality.Any));
 
         Assert.That(hit, Is.Not.Null);
         Assert.That(hit!.SourceUrl, Is.EqualTo("https://tidal.com/browse/track/12336220"),
@@ -178,8 +176,7 @@ public class MonochromeDownloaderTests
         });
         var downloader = Create(handler, out _);
 
-        var hit = await downloader.SearchAsync(
-            "Rick Astley", "Never Gonna Give You Up", DownloadQuality.Any);
+        var hit = await downloader.SearchAsync(new TrackQuery("Rick Astley", "Never Gonna Give You Up", DownloadQuality.Any));
 
         Assert.That(hit, Is.Not.Null);
         Assert.That(hit!.SourceUrl, Is.EqualTo("https://tidal.com/browse/track/333"),
@@ -206,8 +203,7 @@ public class MonochromeDownloaderTests
         };
         var downloader = Create(handler, out var http);
 
-        var hit = await downloader.SearchAsync(
-            "Rick Astley", "Never Gonna Give You Up", DownloadQuality.Any);
+        var hit = await downloader.SearchAsync(new TrackQuery("Rick Astley", "Never Gonna Give You Up", DownloadQuality.Any));
 
         Assert.That(hit, Is.Not.Null, "the second instance must take over when the first 500s");
         Assert.That(answered, Does.Contain("/search/?s="),
@@ -221,7 +217,7 @@ public class MonochromeDownloaderTests
         handler.Respond = _ => Json(HttpStatusCode.OK, SearchBody());
         var downloader = Create(handler, out var http);
 
-        await downloader.SearchAsync("Rick Astley", "Never Gonna Give You Up", DownloadQuality.Any);
+        await downloader.SearchAsync(new TrackQuery("Rick Astley", "Never Gonna Give You Up", DownloadQuality.Any));
 
         var searchUrl = handler.RequestedUrls.FirstOrDefault(u => u.Contains("/search/"));
         Assert.That(searchUrl, Is.Not.Null, "a search request must have been made");

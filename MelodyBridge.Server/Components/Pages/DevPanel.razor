@@ -357,7 +357,7 @@
                         continue;
                     }
 
-                    var hit = await plugin.SearchAsync(artist, title, Core.DownloadQuality.Any);
+                    var hit = await plugin.SearchAsync(new TrackQuery(artist, title, Core.DownloadQuality.Any));
                     if (hit is null || hit.SourceUrl is null)
                     {
                         Dev.LogInfo("Search", $"{plugin.Name}: no hit");

@@ -6,6 +6,12 @@ public class Track
     public string? Artist { get; set; }
     /// <summary>Album name, when the source knows it (used for tags).</summary>
     public string? Album { get; set; }
+    /// <summary>
+    /// International Standard Recording Code, when the source or the
+    /// resolver knows it. Plugins that serve ISRC-indexed catalogs
+    /// (Qobuz-backed ones) search by it first for exact matches.
+    /// </summary>
+    public string? Isrc { get; set; }
     public TimeSpan? Duration { get; set; }
     public SongID? SongID { get; set; }
     public SongID? PlatformSongID { get; set; }

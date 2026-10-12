@@ -306,8 +306,8 @@ public class PlaylistStoreStatsTests
         public PluginCapabilities Capabilities { get; } =
             new([AudioFormat.Mp3, AudioFormat.Flac], null, null, SupportsLossless: true, SupportsLossy: true);
         public Task<bool> IsAvailableAsync(CancellationToken ct = default) => Task.FromResult(true);
-        public Task<DownloaderSearchHit?> SearchAsync(string artist, string title, DownloadQuality quality, TimeSpan? expectedDuration = null, CancellationToken ct = default)
-            => Task.FromResult<DownloaderSearchHit?>(new DownloaderSearchHit(title, artist, "https://gate.example/1", null));
+        public Task<DownloaderSearchHit?> SearchAsync(TrackQuery query, CancellationToken ct = default)
+            => Task.FromResult<DownloaderSearchHit?>(new DownloaderSearchHit(query.Title, query.Artist, "https://gate.example/1", null));
         public Task<DownloaderDownloadResult> DownloadAsync(string sourceUrl, string outputDirectory, string? melodyId, DownloadQuality? quality = null, CancellationToken ct = default)
         {
             // Like a lossless-only source without the requested manifest:

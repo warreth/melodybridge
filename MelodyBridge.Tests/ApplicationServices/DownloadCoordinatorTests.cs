@@ -30,8 +30,8 @@ public class DownloadCoordinatorTests
         public PluginCapabilities Capabilities => PluginCapabilities.Any;
         public Task<bool> IsAvailableAsync(CancellationToken ct = default) => Task.FromResult(true);
 
-        public Task<DownloaderSearchHit?> SearchAsync(string artist, string title, DownloadQuality quality, TimeSpan? expectedDuration = null, CancellationToken ct = default)
-            => Task.FromResult(new DownloaderSearchHit(title, artist, "https://slow.example/" + title, TimeSpan.FromSeconds(1)));
+        public Task<DownloaderSearchHit?> SearchAsync(TrackQuery query, CancellationToken ct = default)
+            => Task.FromResult(new DownloaderSearchHit(query.Title, query.Artist, "https://slow.example/" + query.Title, TimeSpan.FromSeconds(1)));
 
         public async Task<DownloaderDownloadResult> DownloadAsync(
             string sourceUrl, string outputDirectory, string? melodyId,
@@ -234,8 +234,8 @@ public class DownloadCoordinatorTests
         public PluginCapabilities Capabilities => PluginCapabilities.Any;
         public Task<bool> IsAvailableAsync(CancellationToken ct = default) => Task.FromResult(true);
 
-        public Task<DownloaderSearchHit?> SearchAsync(string artist, string title, DownloadQuality quality, TimeSpan? expectedDuration = null, CancellationToken ct = default)
-            => Task.FromResult<DownloaderSearchHit?>(new DownloaderSearchHit(title, artist, "https://inflight.example/1", TimeSpan.FromSeconds(1)));
+        public Task<DownloaderSearchHit?> SearchAsync(TrackQuery query, CancellationToken ct = default)
+            => Task.FromResult<DownloaderSearchHit?>(new DownloaderSearchHit(query.Title, query.Artist, "https://inflight.example/1", TimeSpan.FromSeconds(1)));
 
         public async Task<DownloaderDownloadResult> DownloadAsync(
             string sourceUrl, string outputDirectory, string? melodyId,

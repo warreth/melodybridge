@@ -243,7 +243,7 @@ public class DoubleDoubleDownloaderTests
         } };
         var downloader = Create(handler, out var http);
 
-        Assert.That(await downloader.SearchAsync("Artist", "Title", DownloadQuality.Any), Is.Null,
+        Assert.That(await downloader.SearchAsync(new TrackQuery("Artist", "Title", DownloadQuality.Any)), Is.Null,
             "DoubleDouble has no captcha-free metadata search; it only downloads direct URLs");
     }
 

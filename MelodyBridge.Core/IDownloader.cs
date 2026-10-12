@@ -92,15 +92,15 @@ public interface IDownloader
     Task<bool> IsAvailableAsync(CancellationToken ct = default);
 
     /// <summary>
-    /// Find a downloadable source URL for the track metadata, honoring the
-    /// requested quality where the source exposes it. <paramref name="expectedDuration"/>
-    /// (what the source playlist advertised) ranks candidates: hits whose
-    /// length is wildly off (previews, extended mixes) lose against close
-    /// matches, and gross mismatches are dropped when alternatives exist.
+    /// Find a downloadable source URL for the track query, honoring the
+    /// requested quality where the source exposes it. Plugins rank their
+    /// candidates with <c>SearchRanker</c>: title/artist similarity plus
+    /// duration proximity, with gross mismatches and unrequested
+    /// modifiers (karaoke, cover, live cut) dropped. Plugins whose
+    /// catalog indexes ISRCs search by <c>query.Isrc</c> first when it is
+    /// present, and fall back to the text query when that yields nothing.
     /// </summary>
-    Task<DownloaderSearchHit?> SearchAsync(
-        string artist, string title, DownloadQuality quality,
-        TimeSpan? expectedDuration = null, CancellationToken ct = default);
+    Task<DownloaderSearchHit?> SearchAsync(TrackQuery query, CancellationToken ct = default);
 
     /// <summary>
     /// Download the track at sourceUrl into outputDirectory, honoring the

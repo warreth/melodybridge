@@ -41,7 +41,7 @@ public class YtDlpDownloaderLiveTests
     [Test]
     public async Task Search_ClassicalTrack_FindsYouTubeUrl()
     {
-        var hit = await _downloader.SearchAsync("Ludwig van Beethoven", "Für Elise", MelodyBridge.Core.DownloadQuality.Any);
+        var hit = await _downloader.SearchAsync(new TrackQuery("Ludwig van Beethoven", "Für Elise", MelodyBridge.Core.DownloadQuality.Any));
         Assert.That(hit, Is.Not.Null, "ytsearch must find this well-known track");
         Assert.That(hit!.SourceUrl, Does.StartWith("https://www.youtube.com/watch?v="));
         Assert.That(hit.Title, Is.Not.Null.And.Not.Empty);
@@ -52,7 +52,7 @@ public class YtDlpDownloaderLiveTests
     {
         // The top-5 results for this query contain lyric channels and
         // remixes; the official upload must win the ranking.
-        var hit = await _downloader.SearchAsync("Rick Astley", "Never Gonna Give You Up", MelodyBridge.Core.DownloadQuality.Any);
+        var hit = await _downloader.SearchAsync(new TrackQuery("Rick Astley", "Never Gonna Give You Up", MelodyBridge.Core.DownloadQuality.Any));
 
         Assert.That(hit, Is.Not.Null);
         Assert.That(hit!.Title, Does.Contain("Never Gonna Give You Up"));
@@ -71,9 +71,9 @@ public class YtDlpDownloaderLiveTests
         // candidate still surfaces so the waterfall can name the reason
         // ("wrong length"); the manager's duration gate refuses to
         // download it.
-        var hit = await _downloader.SearchAsync(
+        var hit = await _downloader.SearchAsync(new TrackQuery(
             "Rick Astley", "Never Gonna Give You Up",
-            MelodyBridge.Core.DownloadQuality.Any, expectedDuration: TimeSpan.FromSeconds(100));
+            MelodyBridge.Core.DownloadQuality.Any, ExpectedDuration: TimeSpan.FromSeconds(100)));
 
         Assert.That(hit, Is.Not.Null, "the last-resort candidate surfaces");
         Assert.That(hit!.Duration!.Value.TotalSeconds, Is.GreaterThan(180),
@@ -96,7 +96,7 @@ public class YtDlpDownloaderLiveTests
     public async Task Download_KnownTrack_ProducesValidTaggedAudioFile()
     {
         // Search first, then download the hit.
-        var hit = await _downloader.SearchAsync("Ludwig van Beethoven", "Für Elise", MelodyBridge.Core.DownloadQuality.Any);
+        var hit = await _downloader.SearchAsync(new TrackQuery("Ludwig van Beethoven", "Für Elise", MelodyBridge.Core.DownloadQuality.Any));
         Assert.That(hit, Is.Not.Null, "precondition: search finds the track");
 
         var result = await _downloader.DownloadAsync(
@@ -137,7 +137,7 @@ public class YtDlpDownloaderLiveTests
     [Test]
     public async Task Download_IsAudioOnly_NeverAVideoFile()
     {
-        var hit = await _downloader.SearchAsync("Rick Astley", "Never Gonna Give You Up", MelodyBridge.Core.DownloadQuality.Any);
+        var hit = await _downloader.SearchAsync(new TrackQuery("Rick Astley", "Never Gonna Give You Up", MelodyBridge.Core.DownloadQuality.Any));
         Assert.That(hit, Is.Not.Null, "precondition: search finds the track");
 
         var result = await _downloader.DownloadAsync(hit!.SourceUrl!, _outDir, "mb-audio-only");
@@ -166,7 +166,7 @@ public class YtDlpDownloaderLiveTests
         var hits = new List<DownloaderSearchHit>();
         foreach (var (artist, title) in tracks)
         {
-            var hit = await _downloader.SearchAsync(artist, title, MelodyBridge.Core.DownloadQuality.Any);
+            var hit = await _downloader.SearchAsync(new TrackQuery(artist, title, MelodyBridge.Core.DownloadQuality.Any));
             Assert.That(hit, Is.Not.Null, $"search must find {title}");
             hits.Add(hit!);
         }

@@ -28,7 +28,7 @@ public class QualityRouterTests
         public PluginCapabilities Capabilities => caps;
         public Task<bool> IsAvailableAsync(CancellationToken ct = default) => Task.FromResult(true);
 
-        public Task<DownloaderSearchHit?> SearchAsync(string artist, string title, DownloadQuality quality, TimeSpan? expectedDuration = null, CancellationToken ct = default)
+        public Task<DownloaderSearchHit?> SearchAsync(TrackQuery query, CancellationToken ct = default)
         {
             searchSpy?.Add(id);
             return Task.FromResult<DownloaderSearchHit?>(null);
@@ -53,11 +53,11 @@ public class QualityRouterTests
         public PluginCapabilities Capabilities => caps;
         public Task<bool> IsAvailableAsync(CancellationToken ct = default) => Task.FromResult(true);
 
-        public Task<DownloaderSearchHit?> SearchAsync(string artist, string title, DownloadQuality quality, TimeSpan? expectedDuration = null, CancellationToken ct = default)
+        public Task<DownloaderSearchHit?> SearchAsync(TrackQuery query, CancellationToken ct = default)
         {
             callOrder.Add(id);
             return Task.FromResult<DownloaderSearchHit?>(
-                new DownloaderSearchHit(title, artist, $"https://{id}.example/1", TimeSpan.FromSeconds(1)));
+                new DownloaderSearchHit(query.Title, query.Artist, $"https://{id}.example/1", TimeSpan.FromSeconds(1)));
         }
 
         public Task<DownloaderDownloadResult> DownloadAsync(
@@ -112,8 +112,7 @@ public class QualityRouterTests
             new ListDownloaderRegistry(flacOnly),
             NullLogger<DownloadManager>.Instance);
 
-        var path = await manager.DownloadTrackAsync("A", "T", Path.GetTempPath(), "mel-cap",
-            quality: new DownloadQuality(AudioFormat.Auto, MinKbps: null, MaxKbps: 160));
+        var path = await manager.DownloadTrackAsync(new TrackQuery("A", "T", new DownloadQuality(AudioFormat.Auto, MinKbps: null, MaxKbps: 160)), Path.GetTempPath(), "mel-cap");
 
         Assert.That(path, Is.Null);
         Assert.That(spy, Is.Empty, "an excluded plugin must never hit the network");
@@ -191,8 +190,7 @@ public class QualityRouterTests
                 new CapabilityDownloader("b", FlacOnly(), spy)),
             NullLogger<DownloadManager>.Instance);
 
-        var path = await manager.DownloadTrackAsync("A", "T", Path.GetTempPath(), "mel-all",
-            quality: new DownloadQuality(AudioFormat.Mp3, MinKbps: null, MaxKbps: 96));
+        var path = await manager.DownloadTrackAsync(new TrackQuery("A", "T", new DownloadQuality(AudioFormat.Mp3, MinKbps: null, MaxKbps: 96)), Path.GetTempPath(), "mel-all");
 
         Assert.That(path, Is.Null);
         Assert.That(spy, Is.Empty, "no incompatible plugin was ever searched");
@@ -333,8 +331,7 @@ public class QualityRouterTests
 
         try
         {
-            var path = await manager.DownloadTrackAsync("A", "T", dir, "mel-flac",
-                quality: new DownloadQuality(AudioFormat.Flac));
+            var path = await manager.DownloadTrackAsync(new TrackQuery("A", "T", new DownloadQuality(AudioFormat.Flac)), dir, "mel-flac");
 
             Assert.That(path, Does.EndWith("lossless.flac"));
             Assert.That(calls, Is.EqualTo(new[] { "lossless", "lossless:download" }),
@@ -358,8 +355,7 @@ public class QualityRouterTests
 
         try
         {
-            var path = await manager.DownloadTrackAsync("A", "T", dir, "mel-x",
-                quality: new DownloadQuality(AudioFormat.Flac));
+            var path = await manager.DownloadTrackAsync(new TrackQuery("A", "T", new DownloadQuality(AudioFormat.Flac)), dir, "mel-x");
 
             Assert.That(path, Is.Null);
             Assert.That(calls, Is.Empty, "no incompatible plugin runs at all");

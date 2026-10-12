@@ -85,9 +85,7 @@ public class DoubleDoubleDownloader : IDownloader
 
     // No metadata search exists without a captcha (see class doc): this
     // plugin only downloads direct URLs handed to it by the waterfall.
-    public Task<DownloaderSearchHit?> SearchAsync(
-        string artist, string title, DownloadQuality quality,
-        TimeSpan? expectedDuration = null, CancellationToken ct = default)
+    public Task<DownloaderSearchHit?> SearchAsync(TrackQuery query, CancellationToken ct = default)
         => Task.FromResult<DownloaderSearchHit?>(null);
 
     public async Task<DownloaderDownloadResult> DownloadAsync(

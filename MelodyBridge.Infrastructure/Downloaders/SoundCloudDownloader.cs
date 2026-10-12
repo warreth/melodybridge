@@ -38,20 +38,18 @@ public class SoundCloudDownloader : IDownloader
     public Task<bool> IsAvailableAsync(CancellationToken ct = default)
         => Task.FromResult(YtDlpProcess.BinaryPath is not null);
 
-    public async Task<DownloaderSearchHit?> SearchAsync(
-        string artist, string title, DownloadQuality quality,
-        TimeSpan? expectedDuration = null, CancellationToken ct = default)
+    public async Task<DownloaderSearchHit?> SearchAsync(TrackQuery query, CancellationToken ct = default)
     {
         if (YtDlpProcess.BinaryPath is null) return null;
 
-        var query = SearchTerms.Query(artist, title);
-        if (query.Length == 0) return null;
+        var searchText = query.SearchText;
+        if (searchText.Length == 0) return null;
 
         try
         {
             var (exit, stdout, _) = await YtDlpProcess.RunAsync(new[]
             {
-                $"scsearch5:{query}",
+                $"scsearch5:{searchText}",
                 "--flat-playlist",
                 "--dump-single-json",
                 "--no-warnings",
@@ -61,12 +59,13 @@ public class SoundCloudDownloader : IDownloader
 
             // Top 5 ranked, never the first row: scsearch's first hit is
             // routinely a cover, a remix or a repost of another artist.
-            var hits = YtDlpDownloader.ParseFlatPlaylistHits(stdout, artist, title, id => id);
-            return SearchRanker.Rank(artist, title, expectedDuration, hits);
+            // SoundCloud does not index ISRCs; the text query is the way in.
+            var hits = YtDlpDownloader.ParseFlatPlaylistHits(stdout, query.Artist, query.Title, id => id);
+            return SearchRanker.Rank(query.Artist, query.Title, query.ExpectedDuration, hits);
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "SoundCloud search failed for '{Query}'", query);
+            _logger.LogDebug(ex, "SoundCloud search failed for '{Query}'", searchText);
             return null;
         }
     }

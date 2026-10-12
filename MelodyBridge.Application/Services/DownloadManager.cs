@@ -75,15 +75,15 @@ public class DownloadManager : IDownloadManager
         => _lastFailure.TryGetValue(melodyId, out var reason) ? reason : null;
 
     /// <summary>
-    /// The main entry for playlist tracks: search by artist/title through the
-    /// plugin waterfall and download the first hit.
+    /// The main entry for playlist tracks: search through the plugin
+    /// waterfall and download the first hit. The query carries the
+    /// expected duration and the ISRC when known.
     /// </summary>
     public async Task<string?> DownloadTrackAsync(
-        string artist, string title, string outputDirectory, string melodyId,
-        DownloadQuality? quality = null, TimeSpan? expectedDuration = null, CancellationToken ct = default)
+        TrackQuery query, string outputDirectory, string melodyId, CancellationToken ct = default)
     {
-        quality ??= DownloadQuality.Any;
-        _progress[melodyId] = new DownloadProgress(melodyId, title, "searching", null, null);
+        var quality = query.Quality;
+        _progress[melodyId] = new DownloadProgress(melodyId, query.Title, "searching", null, null);
         _lastFailure.TryRemove(melodyId, out _);
         // Why nothing landed: hits the filters rejected, versus no hit at all.
         var skippedByBand = 0;
@@ -104,10 +104,11 @@ public class DownloadManager : IDownloadManager
                 if (!await AvailableAsync(downloader, ct))
                     continue;
 
-                var hit = await SearchAsync(downloader, artist, title, quality, expectedDuration, ct);
+                var hit = await SearchAsync(downloader, query, ct);
                 if (hit is null)
                 {
-                    _logger.LogDebug("{Name}: no search hit for '{Artist} - {Title}'", downloader.Name, artist, title);
+                    _logger.LogDebug("{Name}: no search hit for '{Artist} - {Title}'",
+                        downloader.Name, query.Artist, query.Title);
                     continue;
                 }
 
@@ -120,13 +121,13 @@ public class DownloadManager : IDownloadManager
 
                     // Gross duration mismatch: a preview or an unrelated
                     // edit is the wrong track, reject before spending bytes.
-                    if (!FuzzyMatcher.DurationPlausible(expectedDuration, candidate.Duration))
+                    if (!FuzzyMatcher.DurationPlausible(query.ExpectedDuration, candidate.Duration))
                     {
                         skippedByDuration++;
                         _logger.LogInformation(
                             "{Name} candidate '{Hit}' is {HitLength:0}s long, expected ~{Expected:0}s; skipping",
                             downloader.Name, candidate.Title,
-                            candidate.Duration?.TotalSeconds ?? 0, expectedDuration?.TotalSeconds ?? 0);
+                            candidate.Duration?.TotalSeconds ?? 0, query.ExpectedDuration?.TotalSeconds ?? 0);
                         continue;
                     }
 
@@ -136,18 +137,18 @@ public class DownloadManager : IDownloadManager
                         skippedByBand++;
                         _logger.LogInformation(
                             "{Name} hit for '{Title}' is {Hit} kbps, outside the requested {Min}-{Max} kbps band; skipping",
-                            downloader.Name, title, candidate.BitrateKbps,
+                            downloader.Name, query.Title, candidate.BitrateKbps,
                             quality.MinKbps?.ToString() ?? "any", quality.MaxKbps?.ToString() ?? "any");
                         continue;
                     }
 
                     _progress[melodyId] = new DownloadProgress(
-                        melodyId, title, "downloading", downloader.Name, null, candidate.MatchConfidence);
+                        melodyId, query.Title, "downloading", downloader.Name, null, candidate.MatchConfidence);
                     var result = await DownloadAsync(downloader, candidate.SourceUrl!, outputDirectory, melodyId, quality, ct);
                     if (result is null || !result.Success || result.FilePath is null)
                     {
                         _logger.LogWarning("{Name} download failed for '{Artist} - {Title}': {Error}",
-                            downloader.Name, artist, title, result?.ErrorMessage ?? "no result");
+                            downloader.Name, query.Artist, query.Title, result?.ErrorMessage ?? "no result");
                         continue;
                     }
 
@@ -168,7 +169,7 @@ public class DownloadManager : IDownloadManager
                         skippedByBand++;
                         _logger.LogInformation(
                             "{Name} produced {Measured} kbps for '{Title}', outside the requested {Min}-{Max} kbps band; rejecting",
-                            downloader.Name, measured, title,
+                            downloader.Name, measured, query.Title,
                             quality.MinKbps?.ToString() ?? "any", quality.MaxKbps?.ToString() ?? "any");
                         FileCleanup.DeleteQuietly(result.FilePath);
                         continue;
@@ -181,14 +182,14 @@ public class DownloadManager : IDownloadManager
                     TaglibHelper.WriteMelodyId(result.FilePath, melodyId);
 
                     _progress[melodyId] = new DownloadProgress(
-                        melodyId, title, "done", downloader.Name, result.FilePath, candidate.MatchConfidence,
+                        melodyId, query.Title, "done", downloader.Name, result.FilePath, candidate.MatchConfidence,
                         Warning: measured is null ? "bitrate could not be verified" : null);
                     return result.FilePath;
                 }
             }
 
             _progress[melodyId] = new DownloadProgress(
-                melodyId, title, "failed", null, null,
+                melodyId, query.Title, "failed", null, null,
                 Warning: "No plugin could download this track");
             // Distinguish "nothing matched your filters" from "nobody has
             // the track": the fix for the first is relaxing the filters.
@@ -206,7 +207,7 @@ public class DownloadManager : IDownloadManager
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            _progress[melodyId] = new DownloadProgress(melodyId, title, "failed", null, null, Warning: ex.Message);
+            _progress[melodyId] = new DownloadProgress(melodyId, query.Title, "failed", null, null, Warning: ex.Message);
             throw;
         }
     }
@@ -241,16 +242,16 @@ public class DownloadManager : IDownloadManager
 
     /// <summary>Search with its own guard; a throw is a miss for this plugin.</summary>
     private async Task<DownloaderSearchHit?> SearchAsync(
-        IDownloader downloader, string artist, string title,
-        DownloadQuality quality, TimeSpan? expectedDuration, CancellationToken ct)
+        IDownloader downloader, TrackQuery query, CancellationToken ct)
     {
         try
         {
-            return await downloader.SearchAsync(artist, title, quality, expectedDuration, ct);
+            return await downloader.SearchAsync(query, ct);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            _logger.LogWarning(ex, "{Name} search threw for '{Artist} - {Title}'", downloader.Name, artist, title);
+            _logger.LogWarning(ex, "{Name} search threw for '{Artist} - {Title}'",
+                downloader.Name, query.Artist, query.Title);
             return null;
         }
     }

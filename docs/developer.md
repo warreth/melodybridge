@@ -40,13 +40,14 @@ outside this solution.
 Spotify playlist URL
    → SpotifySourceProvider (embed page scraping, no API key)
    → PlaylistStore (SQLite snapshot, deterministic MelodyIds, sync modes)
-   → DownloadMissingAsync → DownloadManager waterfall → YtDlpDownloader
+   → DownloadMissingAsync → IsrcResolver (Deezer) → DownloadManager waterfall
    → MP3 file + title/artist tags + MELODY_ID written by the manager
    → LibraryScanner (reads tags, keeps DB current as files move)
    → SyncJobRunner → M3uGenerator (#EXTINF) or IMediaServerSync (Jellyfin, Plex, Navidrome)
 
 The MELODY_ID in the file is the source of truth and the database is a
-cache over it: see Track identity below.
+cache over it: see Track identity below. ISRC is the matching signal:
+see ISRC below.
 ```
 
 ## Core interfaces
@@ -61,24 +62,31 @@ public interface IDownloader
     string Description => string.Empty;
     PluginCapabilities Capabilities { get; }   // required, no default
     Task<bool> IsAvailableAsync(CancellationToken ct = default);
-    Task<DownloaderSearchHit?> SearchAsync(
-        string artist, string title, DownloadQuality quality,
-        TimeSpan? expectedDuration = null, CancellationToken ct = default);
+    Task<DownloaderSearchHit?> SearchAsync(TrackQuery query, CancellationToken ct = default);
     Task<DownloaderDownloadResult> DownloadAsync(
         string sourceUrl, string outputDirectory, string? melodyId,
         DownloadQuality? quality = null, CancellationToken ct = default);
 }
 ```
 
-`expectedDuration` is the playlist's advertised track length. Plugins
-rank their search candidates with `SearchRanker.Rank`: title/artist
-similarity plus duration proximity, gross mismatches (a 30s preview for
-a 4-minute track) are dropped, and candidates that add an unrequested
-modifier (karaoke, cover, remix, live cut) are never offered at all.
-The runner-ups travel along in `DownloaderSearchHit.Alternatives` so a
-dead first choice (deleted video, geo-block) does not lose the plugin.
-`DownloadManager` passes the duration through and re-checks every
-candidate before spending bytes.
+`TrackQuery` is one record carrying everything a plugin may search on:
+artist, title, quality, the playlist's advertised duration and the ISRC
+when known. A record instead of a widening parameter list, so the next
+matching signal is one property, not another signature change. Plugins
+rank their candidates with `SearchRanker.Rank`: title/artist similarity
+plus duration proximity, gross mismatches (a 30s preview for a 4-minute
+track) are dropped, and candidates that add an unrequested modifier
+(karaoke, cover, remix, live cut) are never offered at all. The
+runner-ups travel along in `DownloaderSearchHit.Alternatives` so a dead
+first choice (deleted video, geo-block) does not lose the plugin.
+`DownloadManager` re-checks every candidate before spending bytes.
+
+Plugins whose catalog indexes ISRCs (the Qobuz-backed ones) search by
+`query.Isrc` first when it is present and fall back to the text query
+when that yields no confident hit. YouTube, SoundCloud, Archive.org and
+the TIDAL proxies do not index ISRCs and ignore the field (the
+HiFi-RestAPI behind Monochrome exposes only s/a/al/v/p search
+parameters, verified against its OpenAPI spec).
 
 `PluginCapabilities` is the plugin's honest manifest: the containers it
 can produce, its real bitrate bounds (null means unbounded) and whether
@@ -97,12 +105,12 @@ Implement this to add a download source. Built-in plugins:
 
 | Plugin | Id | Source | Notes |
 |---|---|---|---|
-| `LucidaDownloader` | `lucida` | lucida.to (Tidal, Qobuz, Amazon Music) | High quality rips; needs a Cloudflare solver, otherwise skipped |
-| `MonochromeDownloader` | `monochrome` | monochrome.tf mirrors (community TIDAL API) | FLAC/AAC rips; tries each instance in order until one answers; quality tiers follow the requested cap (LOW under 160, HIGH under 320) |
+| `LucidaDownloader` | `lucida` | lucida.to (Tidal, Qobuz, Amazon Music) | High quality rips; needs a Cloudflare solver, otherwise skipped; Qobuz/Amazon are searched by ISRC first |
+| `MonochromeDownloader` | `monochrome` | monochrome.tf mirrors (community TIDAL API) | FLAC/AAC rips; tries each instance in order until one answers; quality tiers follow the requested cap (LOW under 160, HIGH under 320); the proxy has no ISRC filter |
 | `DoubleDoubleDownloader` | `doubledouble` | us./eu.doubledouble.top | Submit-and-poll rips of direct track URLs (Tidal, Qobuz, Deezer, Amazon); `SearchAsync` returns null by design, the site search is captcha-gated |
 | `SoundCloudDownloader` | `soundcloud` | SoundCloud (via yt-dlp `scsearch`) | Original uploads, often 320 kbps; top-5 ranked; rejects files under 128 kbps |
 | `ArchiveOrgDownloader` | `archiveorg` | Internet Archive (public JSON APIs) | Public-domain and community recordings; picks the matching file inside a multi-track item, not the first one; rejects files under 128 kbps |
-| `DabMusicDownloader` | `dabmusic` | dabmusic.xyz (community Qobuz rips) | FLAC up to 24/192 and MP3 320, no account needed; community service, regularly offline, so availability is probed and cached before use |
+| `DabMusicDownloader` | `dabmusic` | dabmusic.xyz (community Qobuz rips) | FLAC up to 24/192 and MP3 320, no account needed; searches by ISRC first; community service, regularly offline, so availability is probed and cached before use |
 | `YtDlpDownloader` | `ytdlp` | YouTube (via yt-dlp) | Widest fallback; audio-only best stream, top-5 ranked by match and duration; explicit formats transcode to the requested cap |
 
 Place new implementations in `MelodyBridge.Infrastructure/Downloaders/` and register via `services.AddSingleton<IDownloader, YourPlugin>()`. Quality-gate downloads against the requested `DownloadQuality` band so bad rips never enter the library.
@@ -148,13 +156,45 @@ Implement this to sync playlists to a media server. Built-in targets are resolve
 public interface IDownloadManager
 {
     Task<string?> DownloadAsync(string sourceUrl, string outputDirectory, string melodyId, CancellationToken ct = default);
-    Task<string?> DownloadTrackAsync(string artist, string title, string outputDirectory, string melodyId, DownloadQuality? quality = null, TimeSpan? expectedDuration = null, CancellationToken ct = default);
+    Task<string?> DownloadTrackAsync(TrackQuery query, string outputDirectory, string melodyId, CancellationToken ct = default);
     IReadOnlyList<DownloadProgress> SnapshotProgress();
     string? LastFailure(string melodyId);
 }
 ```
 
 `DownloadTrackAsync` routes the enabled plugins through `QualityRouter` first: incompatible plugins are excluded before any network call, survivors are ranked for the request, and the first successful download wins. Every plugin call is individually guarded (a plugin that throws on availability, search or download is skipped, never fatal), each hit is duration-checked before any bytes are spent, and each produced file must sniff as real audio. When every plugin is excluded the track fails fast with "your quality filters excluded every plugin". On success the manager writes the MELODY_ID tag. `DownloadAsync` passes a direct URL to the plugins that can handle it.
+
+## ISRC: exact matching
+
+`Track.Isrc` and `Tracks.Isrc` carry the International Standard
+Recording Code when it is known. Two sources fill it:
+
+1. **The Spotify account path** batches `GET /v1/tracks?ids=` (50 ids
+   per call) after fetching playlist items or liked songs, because
+   playlist items carry simplified tracks without `external_ids`. A
+   failed batch just leaves those tracks without an ISRC.
+2. **`IsrcResolver`** (Infrastructure) fills the gap for everything else
+   (the Spotify embed scrape, YouTube, CSV imports) through Deezer's
+   public search API, which returns the ISRC of every hit and needs no
+   account. Hits are ranked with the same rules the plugins use
+   (title/artist similarity, duration proximity, no unrequested
+   modifiers) and only a High-confidence, duration-plausible match is
+   accepted: a wrong ISRC is worse than none. Verdicts are memoized per
+   process and the resolved value persists on the track row, so a track
+   is looked up once.
+
+`PlaylistStore.DownloadClaimedTrackAsync` resolves a missing ISRC right
+before the download, persists it with the track status, and passes it
+in the `TrackQuery`. A snapshot refresh carries the resolved ISRC over
+when the source does not provide one. The Qobuz-backed plugins search
+by ISRC first (see above); nothing else changes for the other plugins.
+
+Spotify's public web endpoints were checked and do not expose ISRCs:
+the embed page and the track page carry none, `get_access_token` is
+blocked (403), and the partner GraphQL API needs an internal client
+token and rotating persisted-query hashes. YouTube Music exposes no
+ISRC either (yt-dlp's info JSON has no such field), so Deezer is the
+enrichment source of record.
 
 `DownloadCoordinator` runs each playlist with up to `download_max_concurrent` parallel workers (setting, default 2, clamp 1-8, Advanced page). Each run snapshots its work list (pending/failed tracks, Position order) and every track is attempted exactly once per run: a permanently failing track can no longer spin the run forever, and the visible queue plus ETA count the work still in flight. The store's claim (`DownloadTrackAsync(int)`) is still atomic, so a single-track click and a running batch never download the same track twice. Stale `in_progress` claims (crash, hard shutdown) are reset to pending at startup.
 
@@ -304,6 +344,7 @@ MelodyBridge.Tests/
 │   ├── PlaylistStoreLiveTests.cs    # Live Spotify fetch, real SQLite
 │   ├── PlaylistStoreSyncModeTests.cs # Additive/Mirror with real SQLite
 │   ├── MelodyIdsTests.cs           # Deterministic id format table
+│   ├── IsrcResolverTests.cs        # Deezer enrichment ranking and caching
 │   ├── SpotifySourceProviderTests.cs
 │   └── SyncEngineTests.cs
 ├── ApplicationServices/        # Waterfall behavior
@@ -316,6 +357,7 @@ MelodyBridge.Tests/
 ├── Integration/
 │   ├── YtDlpDownloaderLiveTests.cs  # Live search/download/tag/ffprobe
 │   ├── DownloadMissingAsyncTests.cs # Real plugin writing real tagged files
+│   ├── IsrcResolutionTests.cs       # Resolve, pass to the plugin, persist
 │   └── SyncJobRunnerTests.cs        # Real .m3u on disk + run history
 └── Server/
     ├── UiTests/            # bUnit component tests

@@ -127,7 +127,7 @@ public class IntegrationTests
             registry,
             NullLogger<Application.Services.DownloadManager>.Instance);
 
-        var path = await manager.DownloadTrackAsync("Artist", "Some Title", "/tmp", "mid2");
+        var path = await manager.DownloadTrackAsync(new TrackQuery("Artist", "Some Title", DownloadQuality.Any), "/tmp", "mid2");
 
         Assert.That(path, Is.EqualTo("/tmp/track-flow.mp3"));
         var progress = manager.SnapshotProgress().Single(p => p.MelodyId == "mid2");
@@ -218,7 +218,7 @@ public class IntegrationTests
         public Task<bool> IsAvailableAsync(CancellationToken ct = default)
             => Task.FromResult(available);
 
-        public Task<DownloaderSearchHit?> SearchAsync(string artist, string title, DownloadQuality quality, TimeSpan? expectedDuration = null, CancellationToken ct = default)
+        public Task<DownloaderSearchHit?> SearchAsync(TrackQuery query, CancellationToken ct = default)
             => Task.FromResult(searchHit);
 
         public Task<DownloaderDownloadResult> DownloadAsync(

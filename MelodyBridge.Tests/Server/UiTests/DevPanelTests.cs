@@ -701,13 +701,13 @@ public class TestDownloader : IDownloader
     public string? LastSearchArtist;
     public string? LastSearchTitle;
 
-    public Task<DownloaderSearchHit?> SearchAsync(string artist, string title, DownloadQuality quality, TimeSpan? expectedDuration = null, CancellationToken ct = default)
+    public Task<DownloaderSearchHit?> SearchAsync(TrackQuery query, CancellationToken ct = default)
     {
-        LastSearchArtist = artist;
-        LastSearchTitle = title;
+        LastSearchArtist = query.Artist;
+        LastSearchTitle = query.Title;
         return Task.FromResult(new DownloaderSearchHit(
-            $"{Name} hit for {title}", artist,
-            $"https://example.com/{Id}/{Uri.EscapeDataString(title)}",
+            $"{Name} hit for {query.Title}", query.Artist,
+            $"https://example.com/{Id}/{Uri.EscapeDataString(query.Title)}",
             TimeSpan.FromSeconds(180)));
     }
 

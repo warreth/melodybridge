@@ -91,7 +91,7 @@ public class DabMusicDownloaderTests
         handler.Respond = _ => Json(HttpStatusCode.OK, SearchBody());
         var downloader = Create(handler, out _);
 
-        var hit = await downloader.SearchAsync("Rick Astley", "Never Gonna Give You Up", DownloadQuality.Any);
+        var hit = await downloader.SearchAsync(new TrackQuery("Rick Astley", "Never Gonna Give You Up", DownloadQuality.Any));
 
         Assert.That(hit, Is.Not.Null);
         Assert.That(hit!.Title, Is.EqualTo("Never Gonna Give You Up"));
@@ -117,7 +117,7 @@ public class DabMusicDownloaderTests
         });
         var downloader = Create(handler, out _);
 
-        var hit = await downloader.SearchAsync("Rick Astley", "Never Gonna Give You Up", DownloadQuality.Any);
+        var hit = await downloader.SearchAsync(new TrackQuery("Rick Astley", "Never Gonna Give You Up", DownloadQuality.Any));
 
         Assert.That(hit, Is.Not.Null);
         Assert.That(hit!.SourceUrl, Does.Contain("trackId=2"),
@@ -132,7 +132,7 @@ public class DabMusicDownloaderTests
             "{\"tracks\":[{\"id\":98765,\"title\":\"Song\",\"artist\":\"Artist\",\"duration\":180}]}");
         var downloader = Create(handler, out _);
 
-        var hit = await downloader.SearchAsync("Artist", "Song", DownloadQuality.Any);
+        var hit = await downloader.SearchAsync(new TrackQuery("Artist", "Song", DownloadQuality.Any));
 
         Assert.That(hit, Is.Not.Null);
         Assert.That(hit!.SourceUrl, Does.Contain("trackId=98765"));
@@ -144,10 +144,10 @@ public class DabMusicDownloaderTests
         var handler = new StubHttpMessageHandler();
         handler.Respond = _ => Json(HttpStatusCode.OK, new { tracks = Array.Empty<object>() });
         var downloader = Create(handler, out _);
-        Assert.That(await downloader.SearchAsync("A", "T", DownloadQuality.Any), Is.Null);
+        Assert.That(await downloader.SearchAsync(new TrackQuery("A", "T", DownloadQuality.Any)), Is.Null);
 
         handler.Respond = _ => new HttpResponseMessage(HttpStatusCode.ServiceUnavailable);
-        Assert.That(await downloader.SearchAsync("A", "T", DownloadQuality.Any), Is.Null,
+        Assert.That(await downloader.SearchAsync(new TrackQuery("A", "T", DownloadQuality.Any)), Is.Null,
             "a down service is a miss, not a crash");
     }
 
@@ -228,6 +228,55 @@ public class DabMusicDownloaderTests
         Assert.That(result.Success, Is.False);
         Assert.That(result.ErrorMessage, Does.Contain("not audio"));
         Assert.That(Directory.EnumerateFiles(dir), Is.Empty, "the error page must not survive");
+    }
+
+    [Test]
+    public async Task SearchAsync_WithIsrc_TriesTheCodeFirst()
+    {
+        var handler = new StubHttpMessageHandler();
+        handler.Respond = request =>
+        {
+            Assert.That(request.RequestUri!.ToString(), Does.Contain("q=GBARL9300135"),
+                "the ISRC goes in as the query");
+            return Json(HttpStatusCode.OK, SearchBody());
+        };
+        var downloader = Create(handler, out _);
+
+        var hit = await downloader.SearchAsync(new TrackQuery(
+            "Rick Astley", "Never Gonna Give You Up", DownloadQuality.Any, Isrc: "GBARL9300135"));
+
+        Assert.That(hit, Is.Not.Null);
+        Assert.That(hit!.MatchConfidence, Is.EqualTo(MatchConfidence.High));
+        Assert.That(handler.RequestedUrls, Has.Count.EqualTo(1),
+            "a confident ISRC hit skips the text query");
+    }
+
+    [Test]
+    public async Task SearchAsync_IsrcWithoutConfidentHit_FallsBackToText()
+    {
+        var handler = new StubHttpMessageHandler();
+        handler.Respond = request =>
+        {
+            var url = request.RequestUri!.ToString();
+            if (url.Contains("q=GBARL9300135"))
+                // A catalog that does not index ISRCs answers with noise.
+                return Json(HttpStatusCode.OK, new
+                {
+                    tracks = new object[]
+                    {
+                        new { id = 9, title = "Blue Bird", artist = "Random", duration = 226 },
+                    },
+                });
+            return Json(HttpStatusCode.OK, SearchBody());
+        };
+        var downloader = Create(handler, out _);
+
+        var hit = await downloader.SearchAsync(new TrackQuery(
+            "Rick Astley", "Never Gonna Give You Up", DownloadQuality.Any, Isrc: "GBARL9300135"));
+
+        Assert.That(hit, Is.Not.Null);
+        Assert.That(hit!.SourceUrl, Does.Contain("trackId=12345"));
+        Assert.That(handler.RequestedUrls, Has.Count.EqualTo(2), "ISRC first, then the text query");
     }
 
     [TestCase("https://dabmusic.xyz/api/stream?trackId=42", "42")]

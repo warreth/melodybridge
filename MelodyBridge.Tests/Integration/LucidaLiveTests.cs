@@ -1,3 +1,5 @@
+using MelodyBridge.Core;
+
 namespace MelodyBridge.Tests.Integration;
 
 /// <summary>
@@ -54,8 +56,7 @@ public class LucidaLiveTests
 
         Assert.That(await downloader.IsAvailableAsync(), Is.True);
 
-        var hit = await downloader.SearchAsync(
-            "Rick Astley", "Never Gonna Give You Up", MelodyBridge.Core.DownloadQuality.Any);
+        var hit = await downloader.SearchAsync(new TrackQuery("Rick Astley", "Never Gonna Give You Up", DownloadQuality.Any));
         Assert.That(hit, Is.Not.Null, "the search must find a well-known track");
         Assert.That(hit!.SourceUrl, Is.Not.Empty);
     }
@@ -81,8 +82,7 @@ public class LucidaLiveTests
 
         // The chain must survive a non-tidal service: whichever service wins,
         // the hit proves the multi-service search works against the real site.
-        var hit = await downloader.SearchAsync(
-            "Daft Punk", "One More Time", MelodyBridge.Core.DownloadQuality.Any);
+        var hit = await downloader.SearchAsync(new TrackQuery("Daft Punk", "One More Time", DownloadQuality.Any));
         Assert.That(hit, Is.Not.Null, "the search must find a well-known track");
         Assert.That(hit!.SourceUrl, Is.Not.Empty);
     }

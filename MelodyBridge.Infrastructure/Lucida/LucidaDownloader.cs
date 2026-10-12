@@ -71,9 +71,7 @@ public class LucidaDownloader : IDownloader
         return await _solver.IsAvailableAsync(ct);
     }
 
-    public async Task<DownloaderSearchHit?> SearchAsync(
-        string artist, string title, DownloadQuality quality,
-        TimeSpan? expectedDuration = null, CancellationToken ct = default)
+    public async Task<DownloaderSearchHit?> SearchAsync(TrackQuery query, CancellationToken ct = default)
     {
         // One challenge solve up front; the solver session is reused for every
         // service request below, and SendWithRefreshAsync re-solves on a 403.
@@ -91,15 +89,37 @@ public class LucidaDownloader : IDownloader
         }
         if (credentials is null) return null;
 
+        // ISRC first when the playlist (or the resolver) knows one: Qobuz
+        // and Amazon index ISRCs, so the code finds the exact recording
+        // even when the title search is noisy. Services that treat it as
+        // text return noise the ranker rejects, and the text chain below
+        // takes over. Scoring always runs against the real artist/title.
+        if (query.HasIsrc)
+        {
+            var byIsrc = await SearchServicesAsync(query, query.Isrc!, credentials, ct);
+            if (byIsrc?.MatchConfidence == MatchConfidence.High) return byIsrc;
+        }
+
         // Storefront indexes are literal: parenthetical mix suffixes and
         // featuring tags tank the hit rate, so every service gets the
         // cleaned terms (the raw pair stays for match scoring).
-        (artist, title) = (SearchTerms.CleanArtist(artist), SearchTerms.CleanTitle(title));
+        var searchText = SearchTerms.Query(query.Artist, query.Title);
+        if (searchText.Length == 0) return null;
+        return await SearchServicesAsync(query, searchText, credentials, ct);
+    }
 
+    /// <summary>
+    /// Runs the service chain with one query text: the first
+    /// High-confidence hit wins, otherwise the best Low-confidence hit is
+    /// kept so the caller can try the text query.
+    /// </summary>
+    private async Task<DownloaderSearchHit?> SearchServicesAsync(
+        TrackQuery query, string searchText, CloudflareCredentials credentials, CancellationToken ct)
+    {
         DownloaderSearchHit? best = null;
         foreach (var (service, country) in SearchServices)
         {
-            var hit = await SearchServiceAsync(service, country, artist, title, expectedDuration, credentials, ct);
+            var hit = await SearchServiceAsync(service, country, query, searchText, credentials, ct);
             if (hit is null) continue;
 
             // A High-confidence match cannot be beaten by a later service;
@@ -116,13 +136,13 @@ public class LucidaDownloader : IDownloader
     /// service instead of failing the whole search.
     /// </summary>
     private async Task<DownloaderSearchHit?> SearchServiceAsync(
-        string service, string country, string artist, string title,
-        TimeSpan? expectedDuration, CloudflareCredentials credentials, CancellationToken ct)
+        string service, string country, TrackQuery query, string searchText,
+        CloudflareCredentials credentials, CancellationToken ct)
     {
         try
         {
             using var request = new HttpRequestMessage(HttpMethod.Get,
-                $"{BaseUrl}/search?query={Uri.EscapeDataString($"{artist} {title}")}"
+                $"{BaseUrl}/search?query={Uri.EscapeDataString(searchText)}"
                 + $"&service={service}"
                 + (country.Length > 0 ? $"&country={country}" : string.Empty));
             request.Headers.UserAgent.ParseAdd(credentials.UserAgent);
@@ -135,7 +155,7 @@ public class LucidaDownloader : IDownloader
             var blob = Between(html, PdStart, PdEnd);
             if (blob is null) return null;
 
-            return FindBestTrack(blob, artist, title, expectedDuration);
+            return FindBestTrack(blob, query.Artist, query.Title, query.ExpectedDuration);
         }
         catch (Exception ex)
         {

@@ -127,20 +127,20 @@ public class MonochromeDownloader : IDownloader
 
     // ── Search ───────────────────────────────────────────────────────────
 
-    public async Task<DownloaderSearchHit?> SearchAsync(
-        string artist, string title, DownloadQuality quality,
-        TimeSpan? expectedDuration = null, CancellationToken ct = default)
+    public async Task<DownloaderSearchHit?> SearchAsync(TrackQuery query, CancellationToken ct = default)
     {
         // Cleaned terms: the TIDAL indexes behind the instances are
         // literal, so "(Original Mix)" suffixes and featuring tags reduce
         // matches before the first request is even sent.
-        var query = SearchTerms.Query(artist, title);
-        if (query.Length == 0) return null;
+        var searchText = query.SearchText;
+        if (searchText.Length == 0) return null;
 
         // Start at the cached instance (or the first one) and wrap around
         // through the whole list so one dead mirror never wedges the plugin.
         // The sweep carries its own deadline, and every request gets its
-        // own timeout, so a hanging mirror cannot push past it.
+        // own timeout, so a hanging mirror cannot push past it. The
+        // HiFi-RestAPI exposes no ISRC filter (only s/a/al/v/p), so the
+        // ISRC is not used here.
         var sweepDeadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(30);
         for (var attempt = 0; attempt < Instances.Length; attempt++)
         {
@@ -159,7 +159,7 @@ public class MonochromeDownloader : IDownloader
                 using var request = CancellationTokenSource.CreateLinkedTokenSource(ct);
                 request.CancelAfter(remaining < SearchRequestTimeout ? remaining : SearchRequestTimeout);
 
-                var url = Instances[index].TrimEnd('/') + "/search/?s=" + Uri.EscapeDataString(query);
+                var url = Instances[index].TrimEnd('/') + "/search/?s=" + Uri.EscapeDataString(searchText);
                 using var resp = await _http.GetAsync(url, request.Token);
                 if (!resp.IsSuccessStatusCode)
                 {
@@ -169,7 +169,7 @@ public class MonochromeDownloader : IDownloader
                 }
 
                 var body = await resp.Content.ReadAsStringAsync(request.Token);
-                var hit = ParseSearchItems(body, artist, title, quality, expectedDuration);
+                var hit = ParseSearchItems(body, query.Artist, query.Title, query.Quality, query.ExpectedDuration);
                 if (hit is not null)
                 {
                     _workingInstance = index;
@@ -184,7 +184,7 @@ public class MonochromeDownloader : IDownloader
             catch (Exception ex)
             {
                 _logger.LogDebug(ex, "Monochrome instance {Instance} failed for search '{Query}'",
-                    Instances[index], query);
+                    Instances[index], searchText);
             }
         }
 

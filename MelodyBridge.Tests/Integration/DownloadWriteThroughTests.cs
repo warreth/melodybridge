@@ -70,11 +70,9 @@ public class DownloadWriteThroughTests
 
         public Task<bool> IsAvailableAsync(CancellationToken ct = default) => Task.FromResult(true);
 
-        public Task<DownloaderSearchHit?> SearchAsync(
-            string artist, string title, DownloadQuality quality,
-            TimeSpan? expectedDuration = null, CancellationToken ct = default)
+        public Task<DownloaderSearchHit?> SearchAsync(TrackQuery query, CancellationToken ct = default)
             => Task.FromResult<DownloaderSearchHit?>(
-                new DownloaderSearchHit(title, artist, "flac://real", TimeSpan.FromSeconds(3),
+                new DownloaderSearchHit(query.Title, query.Artist, "flac://real", TimeSpan.FromSeconds(3),
                     MatchConfidence: MatchConfidence.High));
 
         public Task<DownloaderDownloadResult> DownloadAsync(

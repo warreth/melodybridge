@@ -45,18 +45,18 @@ public class DownloadManagerRobustnessTests
         public readonly List<string> DownloadedUrls = new();
         public readonly List<string> SearchedUrls = new();
         public TimeSpan? LastExpectedDuration;
+        public string? LastIsrc;
 
         public Task<bool> IsAvailableAsync(CancellationToken ct = default)
             => ThrowOnAvailable
                 ? throw new InvalidOperationException("availability exploded")
                 : Task.FromResult(true);
 
-        public Task<DownloaderSearchHit?> SearchAsync(
-            string artist, string title, DownloadQuality quality,
-            TimeSpan? expectedDuration = null, CancellationToken ct = default)
+        public Task<DownloaderSearchHit?> SearchAsync(TrackQuery query, CancellationToken ct = default)
         {
-            SearchedUrls.Add($"{artist} - {title}");
-            LastExpectedDuration = expectedDuration;
+            SearchedUrls.Add($"{query.Artist} - {query.Title}");
+            LastExpectedDuration = query.ExpectedDuration;
+            LastIsrc = query.Isrc;
             if (ThrowOnSearch) throw new InvalidOperationException("search exploded");
             return Task.FromResult(Hit);
         }
@@ -94,8 +94,7 @@ public class DownloadManagerRobustnessTests
         };
         var manager = Manager(plugin);
 
-        var path = await manager.DownloadTrackAsync("Artist", "Song", _dir, "mel-1",
-            expectedDuration: TimeSpan.FromSeconds(240));
+        var path = await manager.DownloadTrackAsync(new TrackQuery("Artist", "Song", DownloadQuality.Any, TimeSpan.FromSeconds(240)), _dir, "mel-1");
 
         Assert.That(path, Is.Null, "a 30s clip for a 4-minute track must not download");
         Assert.That(plugin.DownloadedUrls, Is.Empty);
@@ -112,10 +111,26 @@ public class DownloadManagerRobustnessTests
         };
         var manager = Manager(plugin);
 
-        await manager.DownloadTrackAsync("Artist", "Song", _dir, "mel-1",
-            expectedDuration: TimeSpan.FromSeconds(200));
+        await manager.DownloadTrackAsync(new TrackQuery("Artist", "Song", DownloadQuality.Any, TimeSpan.FromSeconds(200)), _dir, "mel-1");
 
         Assert.That(plugin.LastExpectedDuration, Is.EqualTo(TimeSpan.FromSeconds(200)));
+    }
+
+    [Test]
+    public async Task Isrc_IsPassedToThePlugin()
+    {
+        var plugin = new StubPlugin("p")
+        {
+            Hit = new DownloaderSearchHit("Song", "Artist", "https://x/1", TimeSpan.FromSeconds(200)),
+            WriteFile = (_, dir) => WriteMp3(dir, "p"),
+        };
+        var manager = Manager(plugin);
+
+        await manager.DownloadTrackAsync(
+            new TrackQuery("Artist", "Song", DownloadQuality.Any, Isrc: "GBARL9300135"), _dir, "mel-1");
+
+        Assert.That(plugin.LastIsrc, Is.EqualTo("GBARL9300135"),
+            "the ISRC-indexed plugins need the code to search exactly");
     }
 
     [Test]
@@ -138,7 +153,7 @@ public class DownloadManagerRobustnessTests
         };
         var manager = Manager(bad, good);
 
-        var path = await manager.DownloadTrackAsync("Artist", "Song", _dir, "mel-1");
+        var path = await manager.DownloadTrackAsync(new TrackQuery("Artist", "Song", DownloadQuality.Any), _dir, "mel-1");
 
         Assert.That(path, Is.Not.Null);
         Assert.That(path, Does.EndWith("good.mp3"));
@@ -157,7 +172,7 @@ public class DownloadManagerRobustnessTests
         };
         var manager = Manager(broken, good);
 
-        var path = await manager.DownloadTrackAsync("Artist", "Song", _dir, "mel-1");
+        var path = await manager.DownloadTrackAsync(new TrackQuery("Artist", "Song", DownloadQuality.Any), _dir, "mel-1");
 
         Assert.That(path, Is.Not.Null, "a throwing availability probe is a skip, not a crash");
         Assert.That(good.DownloadedUrls, Has.Count.EqualTo(1));
@@ -174,7 +189,7 @@ public class DownloadManagerRobustnessTests
         };
         var manager = Manager(broken, good);
 
-        var path = await manager.DownloadTrackAsync("Artist", "Song", _dir, "mel-1");
+        var path = await manager.DownloadTrackAsync(new TrackQuery("Artist", "Song", DownloadQuality.Any), _dir, "mel-1");
 
         Assert.That(path, Is.Not.Null);
         Assert.That(good.DownloadedUrls, Has.Count.EqualTo(1));
@@ -195,7 +210,7 @@ public class DownloadManagerRobustnessTests
         };
         var manager = Manager(broken, good);
 
-        var path = await manager.DownloadTrackAsync("Artist", "Song", _dir, "mel-1");
+        var path = await manager.DownloadTrackAsync(new TrackQuery("Artist", "Song", DownloadQuality.Any), _dir, "mel-1");
 
         Assert.That(path, Is.Not.Null);
         Assert.That(good.DownloadedUrls, Has.Count.EqualTo(1));
@@ -213,7 +228,7 @@ public class DownloadManagerRobustnessTests
         };
         var manager = Manager(plugin);
 
-        var path = await manager.DownloadTrackAsync("Artist", "Song", _dir, "mel-1");
+        var path = await manager.DownloadTrackAsync(new TrackQuery("Artist", "Song", DownloadQuality.Any), _dir, "mel-1");
 
         Assert.That(path, Is.Not.Null, "the runner-up candidate must rescue the plugin");
         Assert.That(plugin.DownloadedUrls, Is.EqualTo(new[] { "https://x/primary", "https://x/alt" }));
@@ -225,7 +240,7 @@ public class DownloadManagerRobustnessTests
         var plugin = new StubPlugin("p") { Hit = null };
         var manager = Manager(plugin);
 
-        await manager.DownloadTrackAsync("Artist", "Song", _dir, "mel-1");
+        await manager.DownloadTrackAsync(new TrackQuery("Artist", "Song", DownloadQuality.Any), _dir, "mel-1");
 
         var progress = manager.SnapshotProgress().Single(p => p.MelodyId == "mel-1");
         Assert.That(progress.Status, Is.EqualTo("failed"));
@@ -248,8 +263,7 @@ public class DownloadManagerRobustnessTests
         };
         var manager = Manager(fat, fit);
 
-        var path = await manager.DownloadTrackAsync("Artist", "Song", _dir, "mel-1",
-            quality: new DownloadQuality(AudioFormat.Auto, null, MaxKbps: 256));
+        var path = await manager.DownloadTrackAsync(new TrackQuery("Artist", "Song", new DownloadQuality(AudioFormat.Auto, null, MaxKbps: 256)), _dir, "mel-1");
 
         Assert.That(path, Does.EndWith("fit.mp3"));
         Assert.That(fat.DownloadedUrls, Is.Empty, "the 320 kbps hit must not download under a 256 cap");

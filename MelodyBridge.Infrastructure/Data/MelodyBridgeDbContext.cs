@@ -118,6 +118,12 @@ public class TrackEntity
     public string? Title { get; set; }
     public string? Artist { get; set; }
     public string? Album { get; set; }
+    /// <summary>
+    /// International Standard Recording Code when known (Spotify account
+    /// batch fetch or the Deezer-backed resolver). Plugins that serve
+    /// ISRC-indexed catalogs search by it first.
+    /// </summary>
+    public string? Isrc { get; set; }
     public string? MediaType { get; set; }
     public int? Bitrate { get; set; }
     /// <summary>Real sample rate of the local file in Hz (44100, 48000, ...).</summary>

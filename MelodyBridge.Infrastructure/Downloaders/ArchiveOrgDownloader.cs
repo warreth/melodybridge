@@ -38,17 +38,16 @@ public class ArchiveOrgDownloader : IDownloader
     public Task<bool> IsAvailableAsync(CancellationToken ct = default)
         => Task.FromResult(true); // public API, always up unless the network is down
 
-    public async Task<DownloaderSearchHit?> SearchAsync(
-        string artist, string title, DownloadQuality quality,
-        TimeSpan? expectedDuration = null, CancellationToken ct = default)
+    public async Task<DownloaderSearchHit?> SearchAsync(TrackQuery query, CancellationToken ct = default)
     {
-        var query = SearchTerms.Query(artist, title);
-        if (query.Length == 0) return null;
+        var searchText = query.SearchText;
+        if (searchText.Length == 0) return null;
 
         try
         {
-            // Only items that actually contain MP3 files.
-            var q = Uri.EscapeDataString($"{query} AND mediatype:audio AND format:(VBR MP3)");
+            // Only items that actually contain MP3 files. The Archive
+            // indexes metadata text, not ISRCs, so the ISRC is unused.
+            var q = Uri.EscapeDataString($"{searchText} AND mediatype:audio AND format:(VBR MP3)");
             var url = $"{SearchBase}?q={q}&fl%5B%5D=identifier&fl%5B%5D=title&fl%5B%5D=creator&rows=5&page=1&output=json";
 
             using var resp = await _http.GetAsync(url, ct);
@@ -69,17 +68,17 @@ public class ArchiveOrgDownloader : IDownloader
                 var identifier = GetString(docItem, "identifier");
                 if (string.IsNullOrEmpty(identifier)) continue;
 
-                candidates.AddRange(await FindMp3CandidatesAsync(identifier!, artist, title, ct));
+                candidates.AddRange(await FindMp3CandidatesAsync(identifier!, query.Artist, query.Title, ct));
             }
 
             // The band is checked before ranking: a FLAC-grade master in
             // the wrong bitrate must not win over a fitting file.
-            return SearchRanker.Rank(artist, title, expectedDuration,
-                candidates.Where(c => quality.IsWithinBand(c.BitrateKbps)));
+            return SearchRanker.Rank(query.Artist, query.Title, query.ExpectedDuration,
+                candidates.Where(c => query.Quality.IsWithinBand(c.BitrateKbps)));
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "Archive.org search failed for '{Query}'", query);
+            _logger.LogDebug(ex, "Archive.org search failed for '{Query}'", searchText);
         }
 
         return null;

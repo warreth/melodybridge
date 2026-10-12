@@ -42,9 +42,9 @@ public class DefaultDownloadPathTests
         public PluginCapabilities Capabilities => PluginCapabilities.Any;
         public Task<bool> IsAvailableAsync(CancellationToken ct = default) => Task.FromResult(true);
 
-        public Task<DownloaderSearchHit?> SearchAsync(string artist, string title, DownloadQuality quality, TimeSpan? expectedDuration = null, CancellationToken ct = default)
+        public Task<DownloaderSearchHit?> SearchAsync(TrackQuery query, CancellationToken ct = default)
             => Task.FromResult<DownloaderSearchHit?>(
-                new DownloaderSearchHit(title, artist, $"https://example.com/{artist}-{title}", TimeSpan.FromSeconds(180)));
+                new DownloaderSearchHit(query.Title, query.Artist, $"https://example.com/{query.Artist}-{query.Title}", TimeSpan.FromSeconds(180)));
 
         public async Task<DownloaderDownloadResult> DownloadAsync(
             string sourceUrl, string outputDirectory, string? melodyId, DownloadQuality? quality = null, CancellationToken ct = default)

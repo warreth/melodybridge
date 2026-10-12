@@ -39,9 +39,9 @@ public class DabMusicLiveTests
         if (!await _downloader.IsAvailableAsync())
             Assert.Ignore("dabmusic.xyz is down (community service); skipping the live check");
 
-        var hit = await _downloader.SearchAsync(
+        var hit = await _downloader.SearchAsync(new TrackQuery(
             "Rick Astley", "Never Gonna Give You Up", DownloadQuality.Any,
-            expectedDuration: TimeSpan.FromSeconds(213));
+            ExpectedDuration: TimeSpan.FromSeconds(213)));
 
         Assert.That(hit, Is.Not.Null, "the search must find this well-known track when the service is up");
         Assert.That(hit!.Title, Does.Contain("Never Gonna Give You Up"));

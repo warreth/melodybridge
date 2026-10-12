@@ -82,19 +82,31 @@ public class DabMusicDownloader : IDownloader
 
     // ── Search ───────────────────────────────────────────────────────────
 
-    public async Task<DownloaderSearchHit?> SearchAsync(
-        string artist, string title, DownloadQuality quality,
-        TimeSpan? expectedDuration = null, CancellationToken ct = default)
+    public async Task<DownloaderSearchHit?> SearchAsync(TrackQuery query, CancellationToken ct = default)
     {
-        var query = SearchTerms.Query(artist, title);
-        if (query.Length == 0) return null;
+        // Qobuz indexes ISRCs, so a known code is the exact way in and
+        // skips the noise of a text search; a search that does not return
+        // a confident match falls through to the text query.
+        if (query.HasIsrc)
+        {
+            var byIsrc = await SearchTextAsync(query, query.Isrc!, ct);
+            if (byIsrc?.MatchConfidence == MatchConfidence.High) return byIsrc;
+        }
 
+        var searchText = query.SearchText;
+        if (searchText.Length == 0) return null;
+        return await SearchTextAsync(query, searchText, ct);
+    }
+
+    /// <summary>One search request with the given query text, ranked.</summary>
+    private async Task<DownloaderSearchHit?> SearchTextAsync(TrackQuery query, string searchText, CancellationToken ct)
+    {
         try
         {
             using var request = CancellationTokenSource.CreateLinkedTokenSource(ct);
             request.CancelAfter(SearchRequestTimeout);
             using var resp = await _http.GetAsync(
-                $"{BaseUrl}/api/search?q={Uri.EscapeDataString(query)}&type=track&limit=5", request.Token);
+                $"{BaseUrl}/api/search?q={Uri.EscapeDataString(searchText)}&type=track&limit=5", request.Token);
             if (!resp.IsSuccessStatusCode)
             {
                 _logger.LogDebug("DAB Music search returned {Status}", (int)resp.StatusCode);
@@ -102,16 +114,16 @@ public class DabMusicDownloader : IDownloader
             }
 
             var body = await resp.Content.ReadAsStringAsync(request.Token);
-            return ParseSearchTracks(body, artist, title, expectedDuration);
+            return ParseSearchTracks(body, query.Artist, query.Title, query.ExpectedDuration);
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
-            _logger.LogDebug("DAB Music search timed out for '{Query}'", query);
+            _logger.LogDebug("DAB Music search timed out for '{Query}'", searchText);
             return null;
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "DAB Music search failed for '{Query}'", query);
+            _logger.LogDebug(ex, "DAB Music search failed for '{Query}'", searchText);
             return null;
         }
     }

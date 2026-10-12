@@ -84,6 +84,18 @@ public static class ServiceCollectionExtensions
                 sp.GetRequiredService<IHttpClientFactory>().CreateClient("dabmusic"),
                 sp.GetRequiredService<ILogger<DabMusicDownloader>>()));
 
+        // ISRC enrichment for sources that do not provide one (Spotify
+        // embed scrape, YouTube, CSV imports): Deezer's public search API
+        // needs no account and returns the ISRC of every hit.
+        services.AddHttpClient("deezer", c =>
+        {
+            c.DefaultRequestHeaders.UserAgent.ParseAdd("MelodyBridge/1.0 (+https://melodybridge.app)");
+            c.Timeout = TimeSpan.FromSeconds(15);
+        });
+        services.AddSingleton(sp => new IsrcResolver(
+            sp.GetRequiredService<IHttpClientFactory>().CreateClient("deezer"),
+            sp.GetRequiredService<ILogger<IsrcResolver>>()));
+
         services.AddSingleton<IDownloaderRegistry, DownloaderRegistry>();
 
         // Source providers (playlists)

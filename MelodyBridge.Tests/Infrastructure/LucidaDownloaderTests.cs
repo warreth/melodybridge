@@ -101,8 +101,7 @@ public class LucidaDownloaderTests
         };
 
         var downloader = Create(solver, handler, out var http);
-        var hit = await downloader.SearchAsync(
-            "Rick Astley", "Never Gonna Give You Up", DownloadQuality.Any);
+        var hit = await downloader.SearchAsync(new TrackQuery("Rick Astley", "Never Gonna Give You Up", DownloadQuality.Any));
 
         Assert.That(hit, Is.Not.Null);
         Assert.That(hit!.SourceUrl, Is.EqualTo("https://tidal.com/track/2"));
@@ -110,6 +109,78 @@ public class LucidaDownloaderTests
         Assert.That(hit.Artist, Is.EqualTo("Rick Astley"));
         Assert.That(hit.MatchConfidence, Is.EqualTo(MatchConfidence.High));
         Assert.That(hit.Duration, Is.EqualTo(TimeSpan.FromSeconds(213)));
+    }
+
+    [Test]
+    public async Task SearchAsync_WithIsrc_SearchesByTheCodeFirst()
+    {
+        var solver = new StubSolver();
+        var handler = new StubHttpMessageHandler();
+        handler.Respond = request =>
+        {
+            Assert.That(request.RequestUri!.ToString(), Does.Contain("query=GBARL9300135"),
+                "the ISRC goes in as the search query");
+            var tracks = new
+            {
+                tracks = new object[]
+                {
+                    new { title = "Never Gonna Give You Up", artists = new[] { new { name = "Rick Astley" } }, url = "https://tidal.com/track/2", duration = 213000 },
+                },
+            };
+            return Html(",{\"type\":\"data\",\"data\":" + JsonSerializer.Serialize(tracks));
+        };
+
+        var downloader = Create(solver, handler, out var http);
+        var hit = await downloader.SearchAsync(new TrackQuery(
+            "Rick Astley", "Never Gonna Give You Up", DownloadQuality.Any, Isrc: "GBARL9300135"));
+
+        Assert.That(hit, Is.Not.Null);
+        Assert.That(hit!.MatchConfidence, Is.EqualTo(MatchConfidence.High));
+        Assert.That(handler.Requests, Is.EqualTo(1),
+            "a High-confidence ISRC hit stops the chain before any text query");
+    }
+
+    [Test]
+    public async Task SearchAsync_IsrcOnlyNoise_FallsBackToText()
+    {
+        var solver = new StubSolver();
+        var handler = new StubHttpMessageHandler();
+        handler.Respond = request =>
+        {
+            var url = request.RequestUri!.ToString();
+            if (url.Contains("query=GBARL9300135"))
+            {
+                // Services that do not index ISRCs answer with noise.
+                var noise = new
+                {
+                    tracks = new object[]
+                    {
+                        new { title = "Blue Bird", artists = new[] { new { name = "Random" } }, url = "https://tidal.com/track/9", duration = 226000 },
+                    },
+                };
+                return Html(",{\"type\":\"data\",\"data\":" + JsonSerializer.Serialize(noise));
+            }
+
+            var real = new
+            {
+                tracks = new object[]
+                {
+                    new { title = "Never Gonna Give You Up", artists = new[] { new { name = "Rick Astley" } }, url = "https://tidal.com/track/2", duration = 213000 },
+                },
+            };
+            return Html(",{\"type\":\"data\",\"data\":" + JsonSerializer.Serialize(real));
+        };
+
+        var downloader = Create(solver, handler, out var http);
+        var hit = await downloader.SearchAsync(new TrackQuery(
+            "Rick Astley", "Never Gonna Give You Up", DownloadQuality.Any, Isrc: "GBARL9300135"));
+
+        Assert.That(hit, Is.Not.Null);
+        Assert.That(hit!.SourceUrl, Is.EqualTo("https://tidal.com/track/2"));
+        // The ISRC pass runs every service (all answer noise), then the
+        // text chain finds the real track.
+        Assert.That(handler.Requests, Is.GreaterThanOrEqualTo(5),
+            "the ISRC pass is followed by the text pass");
     }
 
     [Test]
@@ -140,8 +211,7 @@ public class LucidaDownloaderTests
         };
 
         var downloader = Create(solver, handler, out var http);
-        var hit = await downloader.SearchAsync(
-            "Rick Astley", "Never Gonna Give You Up", DownloadQuality.Any);
+        var hit = await downloader.SearchAsync(new TrackQuery("Rick Astley", "Never Gonna Give You Up", DownloadQuality.Any));
 
         Assert.That(hit, Is.Not.Null, "the deezer fallback must rescue the search");
         Assert.That(hit!.SourceUrl, Is.EqualTo("https://deezer.com/track/42"));
@@ -165,8 +235,7 @@ public class LucidaDownloaderTests
             Html(",{\"type\":\"data\",\"data\":" + JsonSerializer.Serialize(tracks));
 
         var downloader = Create(solver, handler, out var http);
-        var hit = await downloader.SearchAsync(
-            "Rick Astley", "Never Gonna Give You Up", DownloadQuality.Any);
+        var hit = await downloader.SearchAsync(new TrackQuery("Rick Astley", "Never Gonna Give You Up", DownloadQuality.Any));
 
         Assert.That(hit, Is.Not.Null);
         Assert.That(hit!.MatchConfidence, Is.EqualTo(MatchConfidence.High));
@@ -187,8 +256,7 @@ public class LucidaDownloaderTests
         var downloader = Create(solver, handler, out var http);
         DownloaderSearchHit? hit = null;
         Assert.DoesNotThrowAsync(async () =>
-            hit = await downloader.SearchAsync(
-                "Rick Astley", "Never Gonna Give You Up", DownloadQuality.Any));
+            hit = await downloader.SearchAsync(new TrackQuery("Rick Astley", "Never Gonna Give You Up", DownloadQuality.Any)));
 
         Assert.That(hit, Is.Null, "garbage responses must yield a null hit, not a crash");
         Assert.That(handler.Requests, Is.EqualTo(4),

@@ -159,6 +159,13 @@ community Qobuz mirror as well: it searches by name and serves FLAC up
 to 24/192 or MP3 320 without an account, but the service is often down;
 the page marks it unavailable and the waterfall skips it.
 
+Matching uses more than the title: the playlist's track length steers
+which search result wins, karaoke versions and covers are refused, and
+when a track's ISRC is known (connected Spotify accounts provide it;
+for everything else MelodyBridge looks it up through Deezer), sources
+that index ISRCs are searched by that code first. That is how obscure
+tracks with messy titles still land on the exact recording.
+
 ## Sync jobs
 
 A sync job turns a saved playlist or a local folder into an M3U file or
