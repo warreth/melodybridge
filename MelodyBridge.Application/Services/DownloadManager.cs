@@ -89,6 +89,7 @@ public class DownloadManager : IDownloadManager
         var skippedByBand = 0;
         var skippedByDuration = 0;
         var skippedByInvalid = 0;
+        var skippedByFormat = 0;
         try
         {
             // Quality-aware routing: plugins that cannot serve this request
@@ -161,6 +162,25 @@ public class DownloadManager : IDownloadManager
                         continue;
                     }
 
+                    // An explicit format request must be honoured by the
+                    // actual bytes: a "lossless" request that silently
+                    // accepted an MP3 would break the preset's promise and
+                    // skip the documented lossy fallback.
+                    var requestedContainer = DedupQuality.RequestedContainer(quality);
+                    if (requestedContainer is not null)
+                    {
+                        var actual = AudioSignature.DetectContainer(result.FilePath);
+                        if (actual is null || !DedupQuality.FormatEquals(actual, requestedContainer))
+                        {
+                            skippedByFormat++;
+                            _logger.LogInformation(
+                                "{Name} produced {Actual} for the requested {Requested} for '{Title}'; rejecting",
+                                downloader.Name, actual ?? "unknown", requestedContainer, query.Title);
+                            FileCleanup.DeleteQuietly(result.FilePath);
+                            continue;
+                        }
+                    }
+
                     // Enforce the band on the real file: plugins can over-promise,
                     // the measurement never lies.
                     var measured = BitrateProbe.MeasureKbps(result.FilePath);
@@ -198,11 +218,13 @@ public class DownloadManager : IDownloadManager
                     ? "your quality filters excluded every plugin"
                     : skippedByBand > 0
                         ? $"sources had {skippedByBand} file(s) outside your quality filters"
-                        : skippedByInvalid > 0
-                            ? "sources returned files that are not audio"
-                            : skippedByDuration > 0
-                                ? "sources only had versions with the wrong length"
-                                : "no source had this track";
+                        : skippedByFormat > 0
+                            ? $"sources only returned files in another format than the requested {DedupQuality.RequestedContainer(quality)}"
+                            : skippedByInvalid > 0
+                                ? "sources returned files that are not audio"
+                                : skippedByDuration > 0
+                                    ? "sources only had versions with the wrong length"
+                                    : "no source had this track";
             return null;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)

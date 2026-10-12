@@ -147,6 +147,52 @@ public class DownloadManagerQualityTests
     }
 
     [Test]
+    public async Task FormatRequest_RejectsAContainerThePluginOnlyClaims()
+    {
+        // Lucida and DoubleDouble claim lossless capability but ignore the
+        // quality parameter; a lossless request must not accept their MP3
+        // silently, or the documented lossy fallback never runs.
+        var mp3 = MakeRealMp3(320);
+        var hit = new DownloaderSearchHit("Lossy In Disguise", "Artist", "https://lie.example/1", null);
+        var manager = new DownloadManager(
+            new ListDownloaderRegistry(new FormatLyingDownloader(mp3, hit)),
+            NullLogger<DownloadManager>.Instance);
+
+        var path = await manager.DownloadTrackAsync(
+            new TrackQuery("Artist", "Song", new DownloadQuality(AudioFormat.Flac)), _dir, "mel-format");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(path, Is.Null, "an mp3 for a flac request is not a lossless file");
+            Assert.That(manager.LastFailure("mel-format"), Does.Contain("format"),
+                "the failure names the real reason");
+            Assert.That(Directory.EnumerateFiles(_dir, "lie-*").ToList(), Is.Empty,
+                "the rejected file is deleted");
+        });
+    }
+
+    /// <summary>Claims lossless capability but serves whatever file it was given.</summary>
+    private sealed class FormatLyingDownloader(string file, DownloaderSearchHit hit) : IDownloader
+    {
+        public string Id => "lie";
+        public string Name => "Lossy In Disguise";
+        public string Description => "";
+        public PluginCapabilities Capabilities { get; } =
+            new([AudioFormat.Flac, AudioFormat.Mp3], null, null, SupportsLossless: true, SupportsLossy: true);
+        public Task<bool> IsAvailableAsync(CancellationToken ct = default) => Task.FromResult(true);
+        public Task<DownloaderSearchHit?> SearchAsync(TrackQuery query, CancellationToken ct = default)
+            => Task.FromResult<DownloaderSearchHit?>(hit);
+        public Task<DownloaderDownloadResult> DownloadAsync(
+            string sourceUrl, string outputDirectory, string? melodyId,
+            DownloadQuality? quality = null, CancellationToken ct = default)
+        {
+            var path = Path.Combine(outputDirectory, $"lie-{Path.GetFileName(file)}");
+            File.Copy(file, path, overwrite: true);
+            return Task.FromResult(new DownloaderDownloadResult(true, path, null));
+        }
+    }
+
+    [Test]
     public async Task HitBelowMin_IsSkipped_NextPluginWins()
     {
         var thinHit = new DownloaderSearchHit("Thin Rip", "Artist", "https://thin.example/1", TimeSpan.FromSeconds(200), BitrateKbps: 96);
