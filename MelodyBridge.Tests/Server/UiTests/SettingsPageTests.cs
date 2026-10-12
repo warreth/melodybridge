@@ -302,6 +302,41 @@ public class SettingsPageTests
     }
 
     [Test]
+    public void Settings_ConnectionsTab_MakeAppDefault_WritesNavidromeUsername()
+    {
+        var profileStore = _ctx.Services.GetRequiredService<MelodyBridge.Infrastructure.Services.MediaServerProfileStore>();
+        profileStore.SaveAsync(new MelodyBridge.Infrastructure.Services.MediaServerProfile
+        {
+            Name = "Nav server",
+            BaseUrl = "http://nav:4533",
+            ApiKey = "pw1",
+            Kind = "Navidrome",
+            Username = "alice",
+        }).GetAwaiter().GetResult();
+
+        var cut = _ctx.Render<Settings>();
+        cut.FindAll("button.tab-link").First(b => b.TextContent == "Media servers").Click();
+
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("Nav server")), TimeSpan.FromSeconds(3));
+
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Use as app default").Click();
+
+        var factory = _ctx.Services.GetRequiredService<IDbContextFactory<MelodyBridgeDbContext>>();
+        using (var db = factory.CreateDbContext())
+        {
+            var settings = db.DownloaderSettings.ToList();
+            Assert.That(settings.First(s => s.Key == "navidrome_url").Value,
+                Is.EqualTo("http://nav:4533"), "navidrome_url row written from the profile");
+            Assert.That(settings.First(s => s.Key == "navidrome_password").Value,
+                Is.EqualTo("pw1"), "navidrome_password row written from the profile");
+            Assert.That(settings.FirstOrDefault(s => s.Key == "navidrome_user")?.Value,
+                Is.EqualTo("alice"),
+                "a Navidrome default without its username cannot authenticate");
+        }
+    }
+
+    [Test]
     public void Settings_ConnectionsTab_SeedsDefaultProfile_FromOldJellyfinSettings()
     {
         var factory = _ctx.Services.GetRequiredService<IDbContextFactory<MelodyBridgeDbContext>>();

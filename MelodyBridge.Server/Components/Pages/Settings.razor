@@ -849,13 +849,19 @@ else if (activeTab == "about")
     private List<DownloaderSettingEntity>? _initSettings;
 
     /// <summary>Writes this profile's values into the app-wide rows of its
-    /// kind (jellyfin_*, plex_*, navidrome_*). Profiles carry no user id,
-    /// so an existing jellyfin_user / navidrome_user row is kept.</summary>
+    /// kind (jellyfin_*, plex_*, navidrome_*). Profiles carry no Jellyfin
+    /// user id, so an existing jellyfin_user row is kept; a Navidrome
+    /// profile does carry its username, which its sync authenticates with.</summary>
     private async Task MakeAppDefault(MediaServerProfile profile)
     {
         var (urlKey, secretKey) = KindKeys(profile.Kind);
         await TourReset.SetAsync(urlKey, profile.BaseUrl);
         await TourReset.SetAsync(secretKey, profile.ApiKey);
+        if (string.Equals(profile.Kind, "Navidrome", StringComparison.OrdinalIgnoreCase)
+            && !string.IsNullOrWhiteSpace(profile.Username))
+        {
+            await TourReset.SetAsync("navidrome_user", profile.Username!);
+        }
         await LoadInitSettingsAsync(); // refresh the default pill
         Notifications.Success($"'{profile.Name}' is now the app default.");
         StateHasChanged();
