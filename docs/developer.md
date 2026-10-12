@@ -201,7 +201,7 @@ enrichment source of record.
 ### Other key types
 
 - **`Playlist`**, **`Track`**, **`TrackQuality`**, **`MediaType`**: Core models in `MelodyBridge.Core/Classes.cs`
-- **`PlaylistOutputOptions`**: Output path, relative path toggle, path remap dictionary
+- **`PlaylistOutputOptions`**: Output path, relative path toggle, path remap dictionary, per-call media server connection, extension remap dictionary (the shared `PlaylistPathMapper` applies prefix remap first, then the extension rule)
 - **`TrackEntity`**, **`PlaylistEntity`**, **`ProviderStateRow`**: EF Core entities for persistence
 - **`ScanLocationEntity`**, **`SyncJobEntity`**, **`SyncJobRunEntity`**: Library paths and sync job tracking
 - **`PlaylistSyncMode`**: `Additive` (removed tracks stay as flagged history) / `Mirror` (local copy matches the source exactly)
@@ -250,7 +250,10 @@ the requested band:
   playlist's folder. `IsHardLink` marks the row, no network call runs.
 - Quality difference: the row pauses as `needs-review` with a warning;
   the UI offers "Download new version" and "Hardlink existing version"
-  (`ResolveReviewAsync`). The store never picks for the user.
+  (`ResolveReviewAsync`). The store never picks for the user. "Download
+  new" records a one-shot `Tracks.SkipDedup` flag, so the next attempt
+  skips the dedup check once and really fetches a fresh file instead of
+  pausing on the same candidate again.
 - Cross-device failure (EXDEV): the exception carries the honest
   message, the store logs it and the track downloads normally. A
   `File.Copy` fallback is deliberately forbidden.
@@ -277,6 +280,7 @@ Registers core services: `DownloadManager`, `SyncEngine`, library scanner, M3U g
 - `SyncJobRunner`: orchestrates sync jobs (resolve downloaded tracks → M3U / media server)
 - `AutoSyncBackgroundService`: syncs playlists whose per-playlist interval has elapsed
 - `ScanSchedulingBackgroundService`: scheduled library path scans
+- `SyncJobSchedulingBackgroundService`: runs sync jobs whose schedule (preset or cron) is due; jobs only run while the app runs
 - `SpotifySourceProvider`, `YouTubeSourceProvider`: playlist sources
 
 ### `AddMediaServerSyncs()`
