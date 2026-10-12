@@ -97,7 +97,8 @@ public record PlaylistOutputOptions(
     string OutputPath,
     bool UseRelativePaths,
     Dictionary<string, string>? PathRemap,
-    MediaServerConnection? MediaServerConnection = null
+    MediaServerConnection? MediaServerConnection = null,
+    Dictionary<string, string>? ExtensionRemap = null
 );
 
 /// <summary>

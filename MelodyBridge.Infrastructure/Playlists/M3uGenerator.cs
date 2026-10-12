@@ -41,17 +41,15 @@ public class M3uGenerator
                 continue;
             }
 
-            // Path remap: media servers often see files under a different mount.
-            if (options.PathRemap != null)
+            // Path and extension remap: media servers often see files
+            // under a different mount or extension. The mapper only
+            // returns null for a null input, which the check above rules
+            // out, but proving it keeps the nullable analysis happy.
+            path = PlaylistPathMapper.Apply(path, options);
+            if (path is null)
             {
-                foreach (var kv in options.PathRemap)
-                {
-                    if (path.StartsWith(kv.Key, StringComparison.OrdinalIgnoreCase))
-                    {
-                        path = kv.Value + path.Substring(kv.Key.Length);
-                        break;
-                    }
-                }
+                skipped++;
+                continue;
             }
 
             if (options.UseRelativePaths)

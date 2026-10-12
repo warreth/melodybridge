@@ -95,18 +95,13 @@ public class JellyfinSync : IMediaServerSync
         await MarkFavoritesAsync(baseUrl, apiKey, likedItemIds, options.MediaServerConnection?.UserId, ct);
     }
 
-    /// <summary>Applies the output path remap rules to a track path.</summary>
+    /// <summary>
+    /// Applies the output path and extension remap rules to a track
+    /// path (shared by Jellyfin, Plex and Navidrome lookups). An empty
+    /// path means "no path known" and stays null.
+    /// </summary>
     internal static string? RemapPath(string? path, PlaylistOutputOptions options)
-    {
-        if (string.IsNullOrEmpty(path)) return null;
-        if (options.PathRemap == null) return path;
-        foreach (var kv in options.PathRemap)
-        {
-            if (path.StartsWith(kv.Key, StringComparison.OrdinalIgnoreCase))
-                return kv.Value + path.Substring(kv.Key.Length);
-        }
-        return path;
-    }
+        => string.IsNullOrEmpty(path) ? null : PlaylistPathMapper.Apply(path, options);
 
     /// <summary>
     /// Resolves one local path to a Jellyfin item id, trying progressively

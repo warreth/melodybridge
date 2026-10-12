@@ -93,17 +93,12 @@ public class SyncJobRunner : ISyncJobRunner
             }
             skippedTracks = totalTracks - matchedTracks.Count;
 
-            // Apply path remapping
+            // Output path rules: the prefix map for mounts, the extension
+            // map for formats. Both travel on the options and are applied
+            // by the M3U generator and the media server clients; the job's
+            // own dictionaries are never mutated.
             var remap = job.PathRemapRules;
-
-            // Apply extension remapping
-            if (job.ExtensionRemapRules.Count > 0)
-            {
-                foreach (var kv in job.ExtensionRemapRules)
-                {
-                    remap[kv.Key] = kv.Value;
-                }
-            }
+            var extensionRemap = job.ExtensionRemapRules.Count > 0 ? job.ExtensionRemapRules : null;
 
             var playlist = new Playlist
             {
@@ -134,7 +129,8 @@ public class SyncJobRunner : ISyncJobRunner
                     if (!string.IsNullOrEmpty(job.M3uOutputPath))
                     {
                         var options = new PlaylistOutputOptions(job.M3uOutputPath, false,
-                            remap.Count > 0 ? remap : null);
+                            remap.Count > 0 ? remap : null,
+                            ExtensionRemap: extensionRemap);
                         await _m3uGenerator.GenerateM3uAsync(playlist, searchPaths, options, ct);
                         resolvedTracks = playlist.Tracks?.Count ?? 0;
                     }
@@ -167,7 +163,7 @@ public class SyncJobRunner : ISyncJobRunner
                                 job.JellyfinUserId)
                             : null;
                     var serverOptions = new PlaylistOutputOptions("/playlists/" + job.Name + ".m3u",
-                        false, remap.Count > 0 ? remap : null, connection);
+                        false, remap.Count > 0 ? remap : null, connection, extensionRemap);
                     await server.SyncPlaylistAsync(playlist, serverOptions, ct);
                     resolvedTracks = playlist.Tracks?.Count ?? 0;
 
