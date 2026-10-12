@@ -199,6 +199,12 @@
                         {
                             <MediaServerUserPicker ServerUrl="@draft.JellyfinServerUrl"
                                                 ApiKey="@draft.JellyfinApiKey"
+                                                Kind="@(draft.OutputTarget switch
+                                                {
+                                                    OutputTargetType.PlexApi => "Plex",
+                                                    OutputTargetType.NavidromeApi => "Navidrome",
+                                                    _ => "Jellyfin",
+                                                })"
                                                 Username="@(draft.OutputTarget == OutputTargetType.NavidromeApi ? draft.JellyfinUserId : null)"
                                                 ShowUserList="@(draft.OutputTarget == OutputTargetType.JellyfinApi)"
                                                 UserLabel="Jellyfin user"

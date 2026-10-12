@@ -229,6 +229,14 @@ public class SyncJobsWizardUiTests
     [Test]
     public void Step3_TestConnection_CallsDirectoryWithWizardValues_AndListsUsers()
     {
+        // A Navidrome directory registered after the Jellyfin one: a
+        // single IMediaServerDirectory resolve picks the last one, which
+        // is the production composition bug this test pins.
+        _userDirectory.SetupGet(d => d.Kind).Returns("Jellyfin");
+        var navidrome = new Mock<IMediaServerDirectory>();
+        navidrome.SetupGet(d => d.Kind).Returns("Navidrome");
+        _ctx.Services.AddSingleton<IMediaServerDirectory>(navidrome.Object);
+
         SeedScanLocations("/music");
         var cut = OpenWizardWithPlaylistSource();
         Next(cut, 2);
@@ -248,6 +256,10 @@ public class SyncJobsWizardUiTests
                 It.Is<MediaServerConnection>(c => c.BaseUrl == "http://jf:8096" && c.ApiKey == "key-1"),
                 It.IsAny<CancellationToken>()),
             Times.Once);
+        navidrome.Verify(
+            d => d.TestConnectionAsync(It.IsAny<MediaServerConnection>(), It.IsAny<CancellationToken>()),
+            Times.Never,
+            "a Jellyfin target must never be tested with the Navidrome directory");
         Assert.That(cut.Markup, Does.Contain("connected"));
         Assert.That(cut.Markup, Does.Contain("Alice"));
     }

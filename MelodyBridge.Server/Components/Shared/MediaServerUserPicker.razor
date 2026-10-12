@@ -1,8 +1,10 @@
 @* Media-server Test connection button (+ user dropdown for servers that
    have a user list). Tests the connection entered in the wizard: not the
    global settings: so a job can target a different server than the default.
-   Servers without a user list (Plex, Navidrome) show the test result only. *@
-@inject IMediaServerDirectory UserDirectory
+   Servers without a user list (Plex, Navidrome) show the test result only.
+   The directory is chosen by Kind: three are registered (Jellyfin, Plex,
+   Navidrome) and a single-service resolve would always pick the last one. *@
+@inject IEnumerable<IMediaServerDirectory> UserDirectories
 
 <div class="media-server-user-picker">
     @if (ShowUserList)
@@ -52,11 +54,29 @@
     [Parameter] public bool ShowUserList { get; set; }
     /// <summary>Label above the user dropdown.</summary>
     [Parameter] public string UserLabel { get; set; } = "Jellyfin user";
+    /// <summary>Server kind to test with ("Jellyfin", "Plex", "Navidrome").</summary>
+    [Parameter] public string? Kind { get; set; }
 
     private List<MediaServerUserOption> users = new();
     private bool testing;
     private string? status;
     private string? statusMessage;
+
+    /// <summary>
+    /// The directory that speaks this picker's kind. Without a kind the
+    /// component falls back to the single registration, so it also works
+    /// in trimmed-down compositions and component tests.
+    /// </summary>
+    private IMediaServerDirectory? ResolveDirectory()
+    {
+        var all = UserDirectories.ToList();
+        if (!string.IsNullOrWhiteSpace(Kind))
+        {
+            return all.FirstOrDefault(d =>
+                string.Equals(d.Kind, Kind, StringComparison.OrdinalIgnoreCase));
+        }
+        return all.Count == 1 ? all[0] : null;
+    }
 
     /// <summary>Tests the connection and loads the user list when reachable.</summary>
     private async Task TestConnectionAsync()
@@ -66,11 +86,21 @@
         statusMessage = null;
         try
         {
+            var directory = ResolveDirectory();
+            if (directory is null)
+            {
+                status = "err";
+                statusMessage = string.IsNullOrWhiteSpace(Kind)
+                    ? "No media server directory registered"
+                    : $"No '{Kind}' directory registered";
+                return;
+            }
+
             var username = string.IsNullOrWhiteSpace(Username) ? null : Username;
             var connection = new MediaServerConnection(ServerUrl ?? "", ApiKey ?? "", username);
-            if (await UserDirectory.TestConnectionAsync(connection))
+            if (await directory.TestConnectionAsync(connection))
             {
-                users = await UserDirectory.GetUsersAsync(connection);
+                users = await directory.GetUsersAsync(connection) ?? new();
                 status = "ok";
                 statusMessage = ShowUserList ? $"{users.Count} user(s) found" : null;
             }

@@ -166,6 +166,61 @@ public class MediaServerUserPickerTests
         Assert.That(handler.Requests[0].Token, Is.EqualTo("tok-2"));
     }
 
+    [Test]
+    public void Kind_PicksTheMatchingDirectory_NotTheLastRegistered()
+    {
+        _directory.SetupGet(d => d.Kind).Returns("Jellyfin");
+        _directory
+            .Setup(d => d.TestConnectionAsync(It.IsAny<MediaServerConnection>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+        _directory
+            .Setup(d => d.GetUsersAsync(It.IsAny<MediaServerConnection>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<MediaServerUserOption> { new("u1", "Alice") });
+
+        var plex = new Mock<IMediaServerDirectory>();
+        plex.SetupGet(d => d.Kind).Returns("Plex");
+        var navidrome = new Mock<IMediaServerDirectory>();
+        navidrome.SetupGet(d => d.Kind).Returns("Navidrome");
+        // Registered after the Jellyfin one: a single-service resolve
+        // would pick Navidrome, which is exactly the production bug.
+        _ctx.Services.AddSingleton<IMediaServerDirectory>(plex.Object);
+        _ctx.Services.AddSingleton<IMediaServerDirectory>(navidrome.Object);
+
+        var cut = _ctx.Render<global::MelodyBridge.Server.Components.Shared.MediaServerUserPicker>(p => p
+            .Add(c => c.ServerUrl, "http://jf:8096")
+            .Add(c => c.ApiKey, "k")
+            .Add(c => c.Kind, "Jellyfin")
+            .Add(c => c.ShowUserList, true));
+        cut.Find("button").Click();
+
+        _directory.Verify(d => d.TestConnectionAsync(
+            It.IsAny<MediaServerConnection>(), It.IsAny<CancellationToken>()), Times.Once);
+        navidrome.Verify(d => d.TestConnectionAsync(
+            It.IsAny<MediaServerConnection>(), It.IsAny<CancellationToken>()), Times.Never,
+            "the Navidrome directory must not test a Jellyfin target");
+        plex.Verify(d => d.TestConnectionAsync(
+            It.IsAny<MediaServerConnection>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Test]
+    public void Kind_WithoutAMatch_ReportsAnHonestError()
+    {
+        _directory.SetupGet(d => d.Kind).Returns("Jellyfin");
+
+        var cut = _ctx.Render<global::MelodyBridge.Server.Components.Shared.MediaServerUserPicker>(p => p
+            .Add(c => c.ServerUrl, "http://plex:32400")
+            .Add(c => c.ApiKey, "tok")
+            .Add(c => c.Kind, "Plex")
+            .Add(c => c.ShowUserList, false));
+        cut.Find("button").Click();
+
+        Assert.That(cut.Markup, Does.Contain("not connected"));
+        Assert.That(cut.Markup, Does.Contain("No 'Plex' directory registered"));
+        _directory.Verify(d => d.TestConnectionAsync(
+            It.IsAny<MediaServerConnection>(), It.IsAny<CancellationToken>()), Times.Never,
+            "a mismatched kind must not silently use another directory");
+    }
+
     private sealed class RecordingHandler : HttpMessageHandler
     {
         public List<(string Url, string? Token)> Requests { get; } = new();
