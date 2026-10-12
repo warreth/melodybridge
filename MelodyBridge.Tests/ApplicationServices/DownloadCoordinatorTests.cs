@@ -4,6 +4,7 @@ using MelodyBridge.Infrastructure.Data;
 using MelodyBridge.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace MelodyBridge.Tests.ApplicationServices;
@@ -257,6 +258,31 @@ public class DownloadCoordinatorTests
             Assert.That(downloader.Completed, Is.EqualTo(0),
                 "the blocked track never produced a file");
         });
+    }
+
+    [Test]
+    public async Task Run_LogsWhenFinished()
+    {
+        var id = await SeedPlaylistAsync(1);
+        var logger = new ListLogger<DownloadCoordinator>();
+        var coordinator = new DownloadCoordinator(MakeServices(new SlowDownloader()), logger);
+
+        coordinator.Start(id);
+        await WaitForAsync(() => coordinator.RunFor(id)?.State == DownloadRunState.Finished,
+            TimeSpan.FromSeconds(20));
+
+        Assert.That(logger.Messages.Any(m => m.Contains("finished") && m.Contains("1 of 1")),
+            Is.True, "a finished run reports its result to the log");
+    }
+
+    private sealed class ListLogger<T> : ILogger<T>
+    {
+        public List<string> Messages { get; } = new();
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter)
+            => Messages.Add(formatter(state, exception));
     }
 
     [Test]

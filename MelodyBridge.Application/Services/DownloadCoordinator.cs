@@ -281,12 +281,16 @@ public class DownloadCoordinator
         }
         finally
         {
-            handle.Snapshot = handle.Snapshot with
+            var finished = handle.Snapshot with
             {
                 State = DownloadRunState.Finished,
                 CurrentTrack = null,
                 CurrentPlugin = null,
             };
+            handle.Snapshot = finished;
+            _logger.LogInformation(
+                "Download run for {Playlist} finished: {Done} of {Total} done, {Failed} failed",
+                playlistId, finished.Done, finished.Total, finished.Failed);
         }
     }
 

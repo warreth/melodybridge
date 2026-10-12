@@ -175,6 +175,31 @@ public class DownloadQueueUiTests
             "a per-track click must never download the rest of the playlist");
     }
 
+    [Test]
+    public async Task Run_WhenFinished_RefreshesTheRowsWithoutAClick()
+    {
+        var cut = RenderWithRun();
+
+        // The run header disappears when the coordinator marks the run
+        // finished. From that moment the page must show the final statuses
+        // by itself: the last status write can land between two ticks, and
+        // the page used to stop refreshing right then.
+        var ok = await WaitMarkupAsync(
+            m => !m.Contains("Downloading:")
+                 && RowText(cut, "Gamma").Contains("downloaded"),
+            TimeSpan.FromSeconds(25), () => cut.Markup);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(ok, Is.True,
+                "the finished run refreshes the rows on its own");
+            Assert.That(RowText(cut, "Alpha"), Does.Contain("downloaded"));
+            Assert.That(RowText(cut, "Beta"), Does.Contain("downloaded"));
+            Assert.That(cut.Markup, Does.Contain("3 / 3"),
+                "the downloaded counter follows the refresh too");
+        });
+    }
+
     /// <summary>The table row of a track, as plain text.</summary>
     private static string RowText(IRenderedComponent<PlaylistDetails> cut, string title)
         => cut.FindAll("tr").First(r => r.TextContent.Contains(title)).TextContent;

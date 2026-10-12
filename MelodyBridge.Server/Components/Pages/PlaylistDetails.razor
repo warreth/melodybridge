@@ -325,8 +325,14 @@ else
         // bar survives navigation and never just "disappears".
         refreshTimer = new Timer(_ => InvokeAsync(async () =>
         {
-            observedRun = Coordinator.RunFor(PlaylistId);
-            if (observedRun is { State: not Application.Services.DownloadRunState.Finished })
+            var observed = Coordinator.RunFor(PlaylistId);
+            // Reload while a run is active, and once more when it just
+            // finished: the final status write can land between two ticks,
+            // and the table must not keep showing in_progress afterwards.
+            var justFinished = observedRun is { State: not Application.Services.DownloadRunState.Finished }
+                && observed is null or { State: Application.Services.DownloadRunState.Finished };
+            observedRun = observed;
+            if (observed is { State: not Application.Services.DownloadRunState.Finished } || justFinished)
             {
                 await LoadCountsOnlyAsync();
             }
