@@ -45,6 +45,16 @@ public static class ArchiveCopier
         var targetName = BuildTargetName(primaryPath, archiveFormat);
         var targetPath = Path.Combine(archiveDirectory, targetName);
 
+        // Copying a file onto itself destroys it: File.Copy fails, the
+        // failure cleanup below would delete the target, and the target
+        // is the primary download. Refuse before touching anything and
+        // let the track warning name the fix.
+        if (PathsEqual(primaryPath, targetPath))
+        {
+            return new(false, targetPath,
+                "archive directory is the same as the download directory; set a different archive folder");
+        }
+
         try
         {
             Directory.CreateDirectory(archiveDirectory);
@@ -153,6 +163,15 @@ public static class ArchiveCopier
         return result.TimedOut
             ? (-1, string.Empty, "ffmpeg timed out")
             : (result.ExitCode, result.Stdout, result.Stderr);
+    }
+
+    /// <summary>Full-path comparison; case-insensitive on Windows/macOS-style filesystems.</summary>
+    private static bool PathsEqual(string first, string second)
+    {
+        var a = Path.GetFullPath(first);
+        var b = Path.GetFullPath(second);
+        return string.Equals(a, b,
+            OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
     }
 
     private static void TryDelete(string path)
