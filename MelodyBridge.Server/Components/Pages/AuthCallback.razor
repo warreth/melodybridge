@@ -48,6 +48,7 @@
 
 @code {
     private bool done;
+    private bool processed;
     private string? error;
     private string message = string.Empty;
 
@@ -55,8 +56,18 @@
     [SupplyParameterFromQuery]
     public string? Provider { get; set; }
 
-    protected override async Task OnInitializedAsync()
+    protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        // The host renders this page with ServerPrerendered, so
+        // OnInitialized runs once during the prerender and once more when
+        // the circuit starts, while the provider's pending login is
+        // one-shot. The exchange therefore runs on the first interactive
+        // render, exactly once; the prerendered pass only shows the
+        // "one moment" state. Running it twice used to consume the pending
+        // login and show a false error after a successful connect.
+        if (!firstRender || processed) return;
+        processed = true;
+
         var query = new Uri(Nav.Uri).Query;
         try
         {
@@ -92,5 +103,7 @@
             Logger.LogWarning(ex, "Account login callback failed for {Provider}", Provider ?? "unknown");
             error = ex.Message;
         }
+
+        StateHasChanged();
     }
 }
