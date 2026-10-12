@@ -223,10 +223,53 @@ public class PlaylistStoreDedupTests
         var row = ReadTrack(_factory, trackBId);
         Assert.That(row!.DownloadStatus, Is.EqualTo("pending"),
             "the track returns to the queue for a fresh download");
+        Assert.That(row.SkipDedup, Is.True,
+            "the user's decision travels to the next attempt");
         Assert.That(row.IsHardLink, Is.False);
         Assert.That(row.CurrentPath, Is.Null, "no file claimed yet");
         Assert.That(new HardLinkService().LinkCount(sourceFile), Is.EqualTo(1),
             "playlist A's file was never touched");
+
+        // The download the UI triggers right after the resolve must now
+        // actually run: the decision skips the dedup check once.
+        var fileToServe = Path.Combine(_root, "serve.flac");
+        if (!MakeFlac(fileToServe) || MelodyBridge.Infrastructure.Audio.SpectrumAnalyzer.FindFfprobe() is null)
+            Assert.Ignore("ffmpeg or ffprobe is not installed on this machine");
+        var downloadStore = NewStore(new ServingDownloader(fileToServe));
+
+        var (downloaded, failed) = await downloadStore.DownloadMissingAsync("pl-b");
+
+        Assert.That((downloaded, failed), Is.EqualTo((1, 0)),
+            "Download new must fetch a fresh file instead of pausing again");
+        row = ReadTrack(_factory, trackBId);
+        Assert.That(row!.DownloadStatus, Is.EqualTo("downloaded"));
+        Assert.That(row.SkipDedup, Is.False, "the one-shot decision is consumed");
+        Assert.That(row.IsHardLink, Is.False, "a freshly downloaded file is not a link");
+    }
+
+    /// <summary>A real FLAC for the fresh-download path; false without ffmpeg.</summary>
+    private static bool MakeFlac(string path)
+    {
+        var ffmpeg = MelodyBridge.Infrastructure.Audio.SpectrumAnalyzer.FindBinary("ffmpeg");
+        if (ffmpeg is null) return false;
+        var psi = new System.Diagnostics.ProcessStartInfo
+        {
+            FileName = ffmpeg,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+        foreach (var arg in new[]
+        {
+            "-y", "-v", "error", "-f", "lavfi", "-i", "sine=frequency=440:duration=2",
+            "-ar", "44100", path,
+        })
+            psi.ArgumentList.Add(arg);
+        using var proc = System.Diagnostics.Process.Start(psi);
+        if (proc is null) return false;
+        proc.StandardError.ReadToEnd();
+        proc.WaitForExit(30000);
+        return proc.ExitCode == 0 && File.Exists(path);
     }
 
     [Test]
@@ -348,7 +391,7 @@ public class PlaylistStoreDedupTests
         public string Id => "serving";
         public string Name => "Serving";
         public string Description => "copies a prepared file";
-        public PluginCapabilities Capabilities => new([AudioFormat.Mp3], null, null, false, true);
+        public PluginCapabilities Capabilities => new([AudioFormat.Flac, AudioFormat.Mp3], null, null, false, true);
         public Task<bool> IsAvailableAsync(CancellationToken ct = default) => Task.FromResult(true);
         public Task<DownloaderSearchHit?> SearchAsync(TrackQuery query, CancellationToken ct = default)
             => Task.FromResult(new DownloaderSearchHit(query.Title, query.Artist, "https://serve.example/1", TimeSpan.FromSeconds(200), BitrateKbps: 320));

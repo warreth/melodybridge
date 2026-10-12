@@ -325,6 +325,14 @@ public class PlaylistStore
     private async Task<string?> TryDeduplicateAsync(
         TrackEntity track, string dir, DownloadQuality quality, CancellationToken ct)
     {
+        // A user decision to download a fresh copy trumps the conflict:
+        // consume the one-shot flag and let the waterfall run.
+        if (track.SkipDedup)
+        {
+            track.SkipDedup = false;
+            return null;
+        }
+
         if (track.MelodyId is null || !await _settings.GetBoolAsync(DedupSettingKey, true, ct))
             return null;
 
@@ -436,6 +444,9 @@ public class PlaylistStore
         if (!hardlinkExisting)
         {
             track.DownloadStatus = "pending";
+            // The next attempt must skip dedup: the user chose a fresh
+            // file and the alternative is the same pause again.
+            track.SkipDedup = true;
             track.Warning = null;
             await db.SaveChangesAsync(ct);
             return true;
