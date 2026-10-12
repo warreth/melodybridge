@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using MelodyBridge.Infrastructure.Tagging;
 
 namespace MelodyBridge.Infrastructure.Audio;
@@ -109,21 +108,25 @@ public static class ArchiveCopier
     /// <summary>
     /// ffmpeg arguments per container. FLAC and Opus carry cover art and
     /// text in Vorbis comments; -map_metadata 0 keeps them across the
-    /// transcode. mp3 keeps ID3v2 the same way.
+    /// transcode. mp3 keeps ID3v2 the same way. Arguments travel as a
+    /// list, so paths with spaces stay single arguments.
     /// </summary>
-    private static string BuildArgs(string primaryPath, string targetPath, string archiveFormat)
+    private static List<string> BuildArgs(string primaryPath, string targetPath, string archiveFormat)
     {
-        var codec = archiveFormat.Trim().ToLowerInvariant() switch
+        var args = new List<string>
         {
-            "opus" => "-c:a libopus -b:a 128k",
-            "flac" => "-c:a flac -compression_level 5",
-            "mp3" => "-c:a libmp3lame -b:a 256k",
-            "aac" => "-c:a aac -b:a 192k",
-            _ => "-c:a copy",
+            "-nostdin", "-y", "-i", primaryPath, "-map_metadata", "0", "-vn",
         };
-        // Opus lives in an ogg container, the rest map to their own
-        // extension; -map_metadata 0 is what preserves the tags.
-        return $"-nostdin -y -i {primaryPath} -map_metadata 0 -vn {codec} {targetPath}";
+        switch (archiveFormat.Trim().ToLowerInvariant())
+        {
+            case "opus": args.AddRange(new[] { "-c:a", "libopus", "-b:a", "128k" }); break;
+            case "flac": args.AddRange(new[] { "-c:a", "flac", "-compression_level", "5" }); break;
+            case "mp3": args.AddRange(new[] { "-c:a", "libmp3lame", "-b:a", "256k" }); break;
+            case "aac": args.AddRange(new[] { "-c:a", "aac", "-b:a", "192k" }); break;
+            default: args.AddRange(new[] { "-c:a", "copy" }); break;
+        }
+        args.Add(targetPath);
+        return args;
     }
 
     /// <summary>
@@ -143,31 +146,13 @@ public static class ArchiveCopier
     /// <summary>ffmpeg path on this host, mirroring FindFfprobe's discovery.</summary>
     public static string? FindFfmpeg() => SpectrumAnalyzer.FindBinary("ffmpeg");
 
-    private static (int exit, string stdout, string stderr) Run(string ffmpeg, string args, int timeoutMs)
+    private static (int exit, string stdout, string stderr) Run(
+        string ffmpeg, IReadOnlyList<string> args, int timeoutMs)
     {
-        var psi = new ProcessStartInfo
-        {
-            FileName = ffmpeg,
-            Arguments = args,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-        };
-        using var proc = Process.Start(psi)
-            ?? throw new InvalidOperationException("ffmpeg failed to start");
-        var stderr = proc.StandardError.ReadToEnd();
-        if (!proc.WaitForExit(timeoutMs))
-        {
-            TryKill(proc);
-            return (-1, "", "ffmpeg timed out");
-        }
-        return (proc.ExitCode, "", stderr);
-    }
-
-    private static void TryKill(Process proc)
-    {
-        try { proc.Kill(); } catch { /* already gone */ }
+        var result = ToolProcessRunner.Run(ffmpeg, args, timeoutMs);
+        return result.TimedOut
+            ? (-1, string.Empty, "ffmpeg timed out")
+            : (result.ExitCode, result.Stdout, result.Stderr);
     }
 
     private static void TryDelete(string path)

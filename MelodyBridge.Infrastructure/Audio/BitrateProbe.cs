@@ -25,26 +25,21 @@ public static partial class BitrateProbe
 
         try
         {
-            var psi = new ProcessStartInfo
+            // ArgumentList keeps a path with spaces a single argument.
+            var result = ToolProcessRunner.Run(ffprobe, new[]
             {
-                FileName = ffprobe,
-                // No shell involved: pass the path unquoted (quotes would be
-                // taken literally and ffprobe would not find the file).
-                Arguments = $"-v error -select_streams a:0 "
-                    + "-show_entries stream=bit_rate -show_entries format=bit_rate "
-                    + $"-of json {filePath}",
-                RedirectStandardOutput = true,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-            };
-            using var proc = Process.Start(psi);
-            if (proc is null) return null;
-            var stdout = proc.StandardOutput.ReadToEnd();
-            if (!proc.WaitForExit(15000)) return null;
+                "-v", "error",
+                "-select_streams", "a:0",
+                "-show_entries", "stream=bit_rate",
+                "-show_entries", "format=bit_rate",
+                "-of", "json",
+                filePath,
+            }, timeoutMs: 15000);
+            if (result.TimedOut || result.ExitCode != 0) return null;
 
             // json output nests streams[] and format{}: the first hit is the
             // stream value, the second (if any) the format fallback.
-            var matches = BitRateRegex().Matches(stdout);
+            var matches = BitRateRegex().Matches(result.Stdout);
             foreach (Match match in matches)
             {
                 if (int.TryParse(match.Groups[1].Value, out var bps) && bps > 0)

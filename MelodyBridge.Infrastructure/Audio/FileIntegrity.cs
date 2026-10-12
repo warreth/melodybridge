@@ -31,25 +31,20 @@ public static class FileIntegrity
 
         try
         {
-            var psi = new ProcessStartInfo
+            // ArgumentList keeps a path with spaces a single argument.
+            var result = ToolProcessRunner.Run(ffprobe, new[]
             {
-                FileName = ffprobe,
-                // No shell involved: the path goes unquoted like BitrateProbe does.
-                Arguments = $"-v error -show_entries format=duration -of json {path}",
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-            };
-            using var proc = Process.Start(psi);
-            if (proc is null) return new(false, "ffprobe failed");
-            var stdout = proc.StandardOutput.ReadToEnd();
-            if (!proc.WaitForExit(15000)) return new(false, "ffprobe failed");
-
-            if (proc.ExitCode != 0)
+                "-v", "error",
+                "-show_entries", "format=duration",
+                "-of", "json",
+                path,
+            }, timeoutMs: 15000);
+            if (result.TimedOut)
+                return new(false, "ffprobe timed out");
+            if (result.ExitCode != 0)
                 return new(false, "ffprobe failed");
 
-            var duration = ParseDuration(stdout);
+            var duration = ParseDuration(result.Stdout);
             if (duration is null or <= 0)
                 return new(false, "no duration");
 

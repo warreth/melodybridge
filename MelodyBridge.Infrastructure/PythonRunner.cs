@@ -21,12 +21,17 @@ public class PythonRunner
             var startInfo = new ProcessStartInfo
             {
                 FileName = "python",
-                Arguments = $"{scriptPath} {arguments}",
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,
                 CreateNoWindow = true
             };
+            // ArgumentList keeps the script path a single argument, so a
+            // path with spaces never splits. The caller's arguments are
+            // already joined and travel as one.
+            startInfo.ArgumentList.Add(scriptPath);
+            if (!string.IsNullOrEmpty(arguments))
+                startInfo.ArgumentList.Add(arguments);
 
             using var process = new Process { StartInfo = startInfo };
             var outputBuilder = new StringBuilder();

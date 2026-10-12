@@ -46,34 +46,32 @@ public static class SpectrumAnalyzer
         var ffmpeg = FindBinary("ffmpeg");
         if (ffmpeg is null) return null;
 
-        var limit = mode == SpectrumMode.Fast ? " -t 60" : string.Empty;
-
-        var psi = new ProcessStartInfo
+        // -t 60 for the fast mode; the file path travels as its own
+        // argument so spaces never split it.
+        var args = new List<string> { "-hide_banner", "-loglevel", "info" };
+        if (mode == SpectrumMode.Fast)
         {
-            FileName = ffmpeg,
-            Arguments =
-                $"-hide_banner -loglevel info{limit} -i \"{filePath}\" " +
-                $"-af \"aspectralstats=measure=rolloff,ametadata=mode=print\" " +
-                $"-f null -",
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-        };
+            args.Add("-t");
+            args.Add("60");
+        }
+        args.AddRange(new[]
+        {
+            "-i", filePath,
+            "-af", "aspectralstats=measure=rolloff,ametadata=mode=print",
+            "-f", "null", "-",
+        });
 
         try
         {
-            using var proc = Process.Start(psi);
-            if (proc is null) return null;
             // Metadata prints on stderr.
-            var stderr = proc.StandardError.ReadToEnd();
-            if (!proc.WaitForExit(180000)) return null;
-            if (proc.ExitCode != 0) return null;
+            var result = ToolProcessRunner.Run(ffmpeg, args, timeoutMs: 180000);
+            if (result.TimedOut || result.ExitCode != 0) return null;
 
-            var rolloffs = ParseRolloffs(stderr);
+            var rolloffs = ParseRolloffs(result.Stderr);
             if (rolloffs.Count == 0) return null;
             rolloffs.Sort();
             var median = rolloffs[rolloffs.Count / 2];
-            return Judge(median, ReadDeclaredKbps(stderr));
+            return Judge(median, ReadDeclaredKbps(result.Stderr));
         }
         catch
         {

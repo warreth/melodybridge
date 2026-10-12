@@ -338,22 +338,15 @@ public partial class YtDlpDownloader : IDownloader
         var target = Path.ChangeExtension(file, ".opus");
         try
         {
-            var psi = new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = ffmpeg,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-            };
             // -map 0:a:0: take the audio stream only, whatever else the
             // container carries, so the opus muxer always accepts it.
-            foreach (var arg in new[] { "-y", "-v", "error", "-i", file, "-map", "0:a:0", "-c", "copy", target })
-                psi.ArgumentList.Add(arg);
-
-            using var process = System.Diagnostics.Process.Start(psi);
-            if (process is null) return null;
-            process.StandardError.ReadToEnd();
-            if (!process.WaitForExit(TimeSpan.FromSeconds(60)) || process.ExitCode != 0 || !File.Exists(target))
+            // The shared runner keeps the path a single argument and the
+            // 60s timeout real.
+            var result = Audio.ToolProcessRunner.Run(ffmpeg, new[]
+            {
+                "-y", "-v", "error", "-i", file, "-map", "0:a:0", "-c", "copy", target,
+            }, timeoutMs: 60000);
+            if (result.TimedOut || result.ExitCode != 0 || !File.Exists(target))
             {
                 try { File.Delete(target); } catch { /* best effort */ }
                 return null;
