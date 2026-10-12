@@ -120,17 +120,65 @@ public sealed class HardLinkService : IHardLinkService
     // their field widths differ, so each OS gets its own shape.
     private static unsafe int Stat(string path, out UnixStat st)
     {
-        // The fields this class needs live in the first 24 bytes on both
-        // layouts; the rest is padding the kernel also writes.
+        // The fields this class needs live in the first 24 bytes on every
+        // layout; the rest is padding the kernel also writes.
         var buf = stackalloc byte[256];
         var r = stat(path, buf);
-        st = OperatingSystem.IsMacOS()
-            ? new UnixStat(*(int*)buf, *(ulong*)(buf + 8), *(ushort*)(buf + 16))
-            : new UnixStat(*(long*)buf, *(ulong*)(buf + 8), *(ulong*)(buf + 16));
+        st = ParseUnixStat(new ReadOnlySpan<byte>(buf, 256), CurrentLayout);
         return r;
     }
 
-    private readonly record struct UnixStat(long Device, ulong Inode, ulong LinkCount);
+    /// <summary>The struct stat layout of the platform this process runs on.</summary>
+    internal static UnixStatLayout CurrentLayout =>
+        OperatingSystem.IsMacOS()
+            ? UnixStatLayout.MacOS
+            : RuntimeInformation.ProcessArchitecture == Architecture.Arm64
+                ? UnixStatLayout.LinuxArm64
+                : UnixStatLayout.LinuxX64;
+
+    /// <summary>
+    /// Reads device, inode and link count out of a raw struct stat. The
+    /// layouts differ: Darwin has st_nlink (uint16) at offset 6 and
+    /// st_ino at 8; glibc aarch64 has st_mode at 16 and st_nlink (uint32)
+    /// at 20; glibc x86_64 has st_nlink (uint64) at 16. Reading the wrong
+    /// offset yielded a user id or a file mode, which silently broke the
+    /// dedup stale-link cleanup on macOS and arm64 Linux. All supported
+    /// platforms are little-endian, so BitConverter reads are correct.
+    /// </summary>
+    internal static UnixStat ParseUnixStat(ReadOnlySpan<byte> buffer, UnixStatLayout layout)
+    {
+        long device;
+        ulong inode;
+        ulong links;
+        switch (layout)
+        {
+            case UnixStatLayout.MacOS:
+                device = BitConverter.ToInt32(buffer[..4]);
+                inode = BitConverter.ToUInt64(buffer.Slice(8, 8));
+                links = BitConverter.ToUInt16(buffer.Slice(6, 2));
+                break;
+            case UnixStatLayout.LinuxArm64:
+                device = BitConverter.ToInt64(buffer[..8]);
+                inode = BitConverter.ToUInt64(buffer.Slice(8, 8));
+                links = BitConverter.ToUInt32(buffer.Slice(20, 4));
+                break;
+            default:
+                device = BitConverter.ToInt64(buffer[..8]);
+                inode = BitConverter.ToUInt64(buffer.Slice(8, 8));
+                links = BitConverter.ToUInt64(buffer.Slice(16, 8));
+                break;
+        }
+        return new UnixStat(device, inode, links);
+    }
+
+    internal enum UnixStatLayout
+    {
+        LinuxX64,
+        LinuxArm64,
+        MacOS,
+    }
+
+    internal readonly record struct UnixStat(long Device, ulong Inode, ulong LinkCount);
 
     [DllImport("libc", SetLastError = true)]
     private static extern unsafe int link(string oldpath, string newpath);
