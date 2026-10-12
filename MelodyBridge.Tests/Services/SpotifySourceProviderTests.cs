@@ -1,6 +1,7 @@
 using System.Net;
 using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.Services;
+using MelodyBridge.Tests.Infrastructure;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace MelodyBridge.Tests.Services;
@@ -13,11 +14,28 @@ public class SpotifySourceProviderTests
 
     [TestCase("https://open.spotify.com/playlist/2O9RpWPbupc8NrX4T5ZXia?si=abc", PlaylistId)]
     [TestCase("https://open.spotify.com/embed/playlist/2O9RpWPbupc8NrX4T5ZXia?utm_source=oembed", PlaylistId)]
+    [TestCase("https://open.spotify.com/intl-nl/playlist/2O9RpWPbupc8NrX4T5ZXia", PlaylistId)]
     [TestCase("spotify:playlist:2O9RpWPbupc8NrX4T5ZXia", PlaylistId)]
     [TestCase(PlaylistId, PlaylistId)]
     public void ExtractPlaylistId_SupportedInputs_ReturnsId(string input, string expected)
     {
         Assert.That(SpotifySourceProvider.ExtractPlaylistId(input), Is.EqualTo(expected));
+    }
+
+    [Test]
+    public async Task GetPlaylistAsync_PrivateOrDeadPlaylist_SaysItMustBePublic()
+    {
+        // The embed and public pages answer 404 for a private, deleted or
+        // region-blocked playlist. The provider must surface the honest
+        // message, not a raw HTTP status.
+        var handler = new ScriptedHandler();
+        var provider = new SpotifySourceProvider(
+            NullLogger<SpotifySourceProvider>.Instance, null, new HttpClient(handler));
+
+        var ex = Assert.ThrowsAsync<InvalidOperationException>(() =>
+            provider.GetPlaylistAsync("https://open.spotify.com/playlist/2O9RpWPbupc8NrX4T5ZXia"));
+
+        Assert.That(ex!.Message, Does.Contain("must be public"));
     }
 
     [Test]

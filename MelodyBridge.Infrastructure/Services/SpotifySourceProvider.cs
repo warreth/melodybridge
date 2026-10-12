@@ -91,15 +91,17 @@ public partial class SpotifySourceProvider : ISourceProvider
         if (playlist is null)
         {
             var embedUrl = $"{OpenSpotifyBase}/embed/playlist/{playlistId}?utm_source=generator";
-            var embedHtml = await GetStringAsync(embedUrl);
-            playlist = ParseEmbedPlaylistHtml(embedHtml, playlistId, canonicalUrl);
+            var embedHtml = await TryGetStringAsync(embedUrl);
+            playlist = embedHtml is null ? null : ParseEmbedPlaylistHtml(embedHtml, playlistId, canonicalUrl);
 
             if (playlist is null || playlist.Tracks is null || playlist.Tracks.Count == 0)
             {
                 _logger.LogWarning("Spotify embed page did not include tracks for {PlaylistId}; trying public playlist page", playlistId);
-                var publicHtml = await GetStringAsync($"{canonicalUrl}?nd=1");
-                playlist = ParseEmbedPlaylistHtml(publicHtml, playlistId, canonicalUrl)
-                           ?? ParseVisiblePlaylistHtml(publicHtml, playlistId, canonicalUrl);
+                var publicHtml = await TryGetStringAsync($"{canonicalUrl}?nd=1");
+                playlist = publicHtml is null
+                    ? null
+                    : ParseEmbedPlaylistHtml(publicHtml, playlistId, canonicalUrl)
+                        ?? ParseVisiblePlaylistHtml(publicHtml, playlistId, canonicalUrl);
             }
         }
 
@@ -522,6 +524,24 @@ public partial class SpotifySourceProvider : ISourceProvider
         return await response.Content.ReadAsStringAsync();
     }
 
+    /// <summary>
+    /// A fetch that tolerates a dead, private or region-blocked playlist:
+    /// the caller falls through to the honest "must be public" message
+    /// instead of surfacing a raw HTTP status.
+    /// </summary>
+    private async Task<string?> TryGetStringAsync(string url)
+    {
+        try
+        {
+            return await GetStringAsync(url);
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogDebug(ex, "Spotify fetch failed for {Url}", url);
+            return null;
+        }
+    }
+
     private async Task<SpotifyOEmbedMetadata?> TryFetchOEmbedAsync(string playlistUrl)
     {
         try
@@ -654,7 +674,7 @@ public partial class SpotifySourceProvider : ISourceProvider
 
     private sealed record SpotifyOEmbedMetadata(string? Name, string? CoverImageUrl);
 
-    [GeneratedRegex(@"(?:open\.spotify\.com/(?:embed/)?playlist/|spotify:playlist:)([A-Za-z0-9]{22,})", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"(?:open\.spotify\.com/(?:intl-[a-z]{2}/)?(?:embed/)?playlist/|spotify:playlist:)([A-Za-z0-9]{22,})", RegexOptions.IgnoreCase)]
     private static partial Regex PlaylistIdRegex();
 
     [GeneratedRegex(@"(?:open\.spotify\.com/user/|spotify:user:)([^/?#:]+)", RegexOptions.IgnoreCase)]
