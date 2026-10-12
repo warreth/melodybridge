@@ -51,7 +51,7 @@ cd melodybridge
 docker compose -f docker-compose.yml up -d --build
 ```
 
-The dev compose (`docker-compose.yml`) always builds the image from your checkout and runs it with verbose logging and the dev panel (`/dev`). Rerun the same command after code changes: compose rebuilds what changed and restarts. App state lives in `./data/`, so your test library survives rebuilds.
+The dev compose (`docker-compose.yml`) always builds the image from your checkout and runs it with verbose logging and the dev panel (`/dev`). Rerun the same command after code changes: compose rebuilds what changed and restarts. App state lives in the host folders its volumes map (see the file), so your test library survives rebuilds.
 
 ### Running from source
 
@@ -68,11 +68,19 @@ docker build -t melodybridge:latest .
 docker run -d \
   -v ./data/music:/music \
   -v ./data/playlists:/app/playlists \
-  -v ./data/app:/app \
+  -v ./data/app:/app/state \
   -p 127.0.0.1:3333:80 \
   -e ASPNETCORE_ENVIRONMENT=Production \
+  -e ASPNETCORE_URLS=http://+:80 \
+  -e MELODYBRIDGE_DB=/app/state/melodybridge.db \
   --name melodybridge melodybridge:latest
 ```
+
+Note the state mount: `/app/state`, never `/app` (the application
+itself lives in `/app`, and mounting over it hides the entrypoint). The
+`ASPNETCORE_URLS` and `MELODYBRIDGE_DB` values are what the published
+compose sets; without them the app listens on 8080 and writes its
+database into the container's working directory.
 
 ## Configuration
 
@@ -86,9 +94,9 @@ Configure everything media-server-related (Jellyfin, Plex, Navidrome) in the web
 |---|---|---|
 | `ASPNETCORE_ENVIRONMENT` | `Production` | Set to `Development` for dev |
 | `ASPNETCORE_URLS` | `http://+:80` | Server binding address |
-| `DevPanel__Enabled` | `false` | Enable the /dev testing dashboard |
+| `DevPanel__Enabled` | `false` | Enable the /dev testing dashboard (off: the route renders not-found) |
 | `FlareSolverr__Url` | `auto` | Cloudflare solver endpoint: `auto` detects the container on the compose network, an explicit URL uses that one, `off` disables Lucida |
-| `MELODYBRIDGE_DB` | `/app/state/melodybridge.db` | SQLite database location (defaults to the working directory outside Docker) |
+| `MELODYBRIDGE_DB` | `/app/state/melodybridge.db` | SQLite database location as the published compose sets it; the built-in default is `melodybridge.db` in the working directory |
 
 Everything else lives in the web UI Settings, stored in the database:
 Jellyfin, Plex and Navidrome connections, the FlareSolverr URL, the
