@@ -146,7 +146,8 @@ public class PlexSyncLiveTests
         };
         await sync.SyncPlaylistAsync(playlist, new PlaylistOutputOptions("/tmp/ignored.m3u", false, null));
 
-        Assert.That(sync.LastReport!.Message, Is.Not.EqualTo("Created playlist").Or.Not.EqualTo("Updated existing playlist"),
-            "claimed-server sync completed with a report");
+        Assert.That(sync.LastReport!.Message,
+            Is.AnyOf("Created playlist", "Updated existing playlist", "Created playlist (no id)"),
+            "a claimed-server sync must create or update the playlist, not fail");
     }
 }
