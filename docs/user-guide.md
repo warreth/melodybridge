@@ -247,9 +247,10 @@ tabs.
 - **Accounts**: connect Spotify and YouTube. Both only ask for read
   access, see [Accounts and OAuth](accounts.md)
 - **Media servers**: named connection profiles for Jellyfin, Plex and
-  Navidrome that several sync jobs can share. Add and edit profiles
-  in one place, each with a Test button and a Use as app default
-  switch
+  Navidrome kept in one place, each with a Test button and a Use as app
+  default switch. A sync job carries its own connection fields in the
+  wizard, so one job can still target a different server than the app
+  default
 - **Paths**: music path and playlist output folder, as the server sees
   them (inside Docker: `/music` and `/app/playlists`), plus the
   default archive path and format for archive copies

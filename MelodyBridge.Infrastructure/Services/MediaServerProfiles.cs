@@ -5,9 +5,10 @@ using MelodyBridge.Infrastructure.Data;
 namespace MelodyBridge.Infrastructure.Services;
 
 /// <summary>
-/// A named media-server connection (Jellyfin today, Plex when it lands)
-/// stored in the settings table so several sync jobs can share it.
-/// Mutable class on purpose: the settings form binds directly to it.
+/// A named media-server connection (Jellyfin, Plex, Navidrome) stored in
+/// the settings table so the Settings page can manage the app-wide
+/// connections in one place. Mutable class on purpose: the settings form
+/// binds directly to it.
 /// </summary>
 public sealed class MediaServerProfile
 {
