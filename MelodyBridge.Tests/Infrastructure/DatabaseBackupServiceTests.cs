@@ -116,7 +116,9 @@ public class DatabaseBackupServiceTests
         // someone zipped an empty or WAL-orphaned file). The import must
         // refuse it loudly and leave the live database untouched.
         var emptyPath = Path.Combine(_dir, "empty.db");
-        using (var connection = new SqliteConnection($"Data Source={emptyPath}"))
+        // Pooling off: a pooled connection keeps the file handle alive and
+        // Windows then refuses the teardown delete.
+        using (var connection = new SqliteConnection($"Data Source={emptyPath};Pooling=False"))
         {
             connection.Open(); // creates the file, no schema
         }

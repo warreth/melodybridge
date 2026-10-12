@@ -49,7 +49,7 @@ if (!index) {
   const missingDetail = text.match(/^\s+- icon:[^\n]*\n(?!\s+title:)/m)
   if (missingDetail)
     fail(index, 1, 'every feature card needs icon, title and details')
-  const bodyAfterFrontmatter = text.replace(/^---[\s\S]*?---\n/, '')
+  const bodyAfterFrontmatter = text.replace(/^---\r?\n[\s\S]*?---\r?\n/, '')
   if (bodyAfterFrontmatter.trim().length > 0)
     fail(index, 1, 'landing page must be frontmatter only: move body content to a page or CONTRIBUTING.md')
 }
@@ -57,7 +57,7 @@ if (!index) {
 // ---- 2. Container and code-group balance, badges, --- rules ----
 for (const file of files) {
   const text = readFileSync(file, 'utf8')
-  const stripped = text.replace(/^---[\s\S]*?---\n/, '') // ignore frontmatter
+  const stripped = text.replace(/^---\r?\n[\s\S]*?---\r?\n/, '') // ignore frontmatter
   const lines = stripped.split('\n')
 
   let open = null

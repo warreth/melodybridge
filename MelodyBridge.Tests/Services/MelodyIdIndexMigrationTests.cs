@@ -24,7 +24,7 @@ public class MelodyIdIndexMigrationTests
     {
         // 1. Create today's schema.
         var options = new DbContextOptionsBuilder<MelodyBridgeDbContext>()
-            .UseSqlite($"Data Source={path}").Options;
+            .UseSqlite($"Data Source={path};Pooling=False").Options;
         var db = new MelodyBridgeDbContext(options);
         await db.Database.EnsureCreatedAsync();
         await db.DisposeAsync();
@@ -73,7 +73,7 @@ public class MelodyIdIndexMigrationTests
             // The whole point: the same source track can now be a row in
             // two playlists, the basis of cross-playlist dedup.
             var options = new DbContextOptionsBuilder<MelodyBridgeDbContext>()
-                .UseSqlite($"Data Source={path}").Options;
+                .UseSqlite($"Data Source={path};Pooling=False").Options;
             await using var db2 = new MelodyBridgeDbContext(options);
             db2.Playlists.AddRange(
                 new PlaylistEntity
@@ -114,7 +114,7 @@ public class MelodyIdIndexMigrationTests
                 await SchemaPatcher.PatchAsync(db);
             await using (var db = new MelodyBridgeDbContext(
                 new DbContextOptionsBuilder<MelodyBridgeDbContext>()
-                    .UseSqlite($"Data Source={path}").Options))
+                    .UseSqlite($"Data Source={path};Pooling=False").Options))
                 await SchemaPatcher.PatchAsync(db); // second startup
 
             var indexSql = await IndexSqlAsync(path);

@@ -116,7 +116,7 @@ public class PlaylistsLiveUITests
         public MelodyBridgeDbContext CreateDbContext()
         {
             var options = new DbContextOptionsBuilder<MelodyBridgeDbContext>()
-                .UseSqlite($"Data Source={dbPath}")
+                .UseSqlite($"Data Source={dbPath};Pooling=False")
                 .Options;
             return new MelodyBridgeDbContext(options);
         }

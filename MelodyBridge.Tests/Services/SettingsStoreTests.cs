@@ -19,7 +19,7 @@ public class SettingsStoreTests
     private static async Task<SettingsStore> NewStoreAsync(string dbPath)
     {
         var services = new ServiceCollection();
-        services.AddDbContextFactory<MelodyBridgeDbContext>(o => o.UseSqlite($"Data Source={dbPath}"));
+        services.AddDbContextFactory<MelodyBridgeDbContext>(o => o.UseSqlite($"Data Source={dbPath};Pooling=False"));
         var sp = services.BuildServiceProvider();
         var factory = sp.GetRequiredService<IDbContextFactory<MelodyBridgeDbContext>>();
         await using (var db = factory.CreateDbContext())
@@ -61,7 +61,7 @@ public class SettingsStoreTests
             await store.SetAsync("k", "two");
 
             var services = new ServiceCollection();
-            services.AddDbContextFactory<MelodyBridgeDbContext>(o => o.UseSqlite($"Data Source={dbPath}"));
+            services.AddDbContextFactory<MelodyBridgeDbContext>(o => o.UseSqlite($"Data Source={dbPath};Pooling=False"));
             var sp = services.BuildServiceProvider();
             var factory = sp.GetRequiredService<IDbContextFactory<MelodyBridgeDbContext>>();
             await using var db = factory.CreateDbContext();

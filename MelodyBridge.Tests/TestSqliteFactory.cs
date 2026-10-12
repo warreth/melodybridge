@@ -13,7 +13,10 @@ public sealed class TestSqliteFactory(string dbPath) : IDbContextFactory<MelodyB
     public MelodyBridgeDbContext CreateDbContext()
     {
         var options = new DbContextOptionsBuilder<MelodyBridgeDbContext>()
-            .UseSqlite($"Data Source={dbPath}")
+            // Pooling off: pooled connections keep the file handle alive
+            // after context disposal, and Windows then refuses to delete
+            // the database file in test teardown.
+            .UseSqlite($"Data Source={dbPath};Pooling=False")
             .Options;
         return new MelodyBridgeDbContext(options);
     }

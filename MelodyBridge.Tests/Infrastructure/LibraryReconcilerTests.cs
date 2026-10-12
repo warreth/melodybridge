@@ -58,7 +58,10 @@ public class LibraryReconcilerTests
     /// <summary>Writes a real MP3 with a MELODY_ID tag into the folder.</summary>
     private string WriteTaggedFile(string subfolder, string melodyId)
     {
-        var dir = Path.Combine(_dir, subfolder);
+        // Normalize the subfolder separators: on Windows a combined path
+        // keeps any '/' from the caller, while the reconciler reports
+        // platform separators, and the assertion compares the two.
+        var dir = Path.Combine(_dir, subfolder.Replace('/', Path.DirectorySeparatorChar));
         Directory.CreateDirectory(dir);
         var path = Path.Combine(dir, $"{melodyId}.mp3");
         File.Copy(RealMp3(), path);

@@ -120,7 +120,7 @@ public class SyncJobsPageTests
         try
         {
             var options = new DbContextOptionsBuilder<MelodyBridgeDbContext>()
-                .UseSqlite($"Data Source={dbPath}").Options;
+                .UseSqlite($"Data Source={dbPath};Pooling=False").Options;
             var sqliteFactory = new InMemFactory(options);
             using (var db = sqliteFactory.CreateDbContext())
             {

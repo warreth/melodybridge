@@ -39,7 +39,7 @@ public class SpotifyAccountLiveTests
     {
         var services = new ServiceCollection();
         services.AddDbContextFactory<MelodyBridge.Infrastructure.Data.MelodyBridgeDbContext>(
-            o => o.UseSqlite($"Data Source={dbPath}"));
+            o => o.UseSqlite($"Data Source={dbPath};Pooling=False"));
         var sp = services.BuildServiceProvider();
         var factory = sp.GetRequiredService<IDbContextFactory<MelodyBridge.Infrastructure.Data.MelodyBridgeDbContext>>();
         await using var db = factory.CreateDbContext();

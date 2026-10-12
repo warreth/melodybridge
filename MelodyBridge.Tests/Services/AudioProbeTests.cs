@@ -98,7 +98,7 @@ public class AudioProbeTests
         // Build a database the way an old release had it: Tracks without the
         // new columns, plus one row that must survive the upgrade.
         var services = new ServiceCollection();
-        services.AddDbContextFactory<MelodyBridgeDbContext>(o => o.UseSqlite($"Data Source={dbPath}"));
+        services.AddDbContextFactory<MelodyBridgeDbContext>(o => o.UseSqlite($"Data Source={dbPath};Pooling=False"));
         var sp = services.BuildServiceProvider();
         var factory = sp.GetRequiredService<IDbContextFactory<MelodyBridgeDbContext>>();
 

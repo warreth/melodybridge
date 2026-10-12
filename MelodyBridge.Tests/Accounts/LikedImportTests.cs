@@ -71,7 +71,7 @@ public class LikedImportTests
     private static async Task<IDbContextFactory<MelodyBridgeDbContext>> NewDbFactoryAsync(string dbPath)
     {
         var services = new ServiceCollection();
-        services.AddDbContextFactory<MelodyBridgeDbContext>(o => o.UseSqlite($"Data Source={dbPath}"));
+        services.AddDbContextFactory<MelodyBridgeDbContext>(o => o.UseSqlite($"Data Source={dbPath};Pooling=False"));
         var sp = services.BuildServiceProvider();
         var factory = sp.GetRequiredService<IDbContextFactory<MelodyBridgeDbContext>>();
         await using var db = factory.CreateDbContext();
