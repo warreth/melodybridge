@@ -243,7 +243,8 @@ public class PlaylistStore
                 title: track.Title,
                 artist: track.Artist,
                 album: track.Album,
-                track: (uint?)track.Position);
+                // Position is 0-based; the tag and the UI are 1-based.
+                track: (uint?)(track.Position + 1));
 
             // Fast integrity gate: a truncated or corrupt download
             // must not survive as "downloaded": delete it and fail the
@@ -562,7 +563,7 @@ public class PlaylistStore
             track.CurrentPath!, archiveDir, archiveFormat,
             melodyId: track.MelodyId,
             title: track.Title, artist: track.Artist, album: track.Album,
-            trackNumber: (uint?)track.Position,
+            trackNumber: (uint?)(track.Position + 1),
             expectedDuration: track.DurationMs is > 0
                 ? TimeSpan.FromMilliseconds(track.DurationMs.Value)
                 : null);

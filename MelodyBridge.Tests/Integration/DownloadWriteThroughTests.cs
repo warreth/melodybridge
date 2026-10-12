@@ -202,7 +202,8 @@ public class DownloadWriteThroughTests
             Assert.That(tags.Tag.Title, Is.EqualTo("Write Through"), "title must be written");
             Assert.That(tags.Tag.Performers, Is.EqualTo(new[] { "Test Artist" }), "artist must be written");
             Assert.That(tags.Tag.Album, Is.EqualTo("Test Album"), "album must be written");
-            Assert.That(tags.Tag.Track, Is.EqualTo(1), "track number must be written");
+            Assert.That(tags.Tag.Track, Is.EqualTo(2),
+                "snapshot position 1 is the second track, tagged 1-based");
         });
 
         // MELODY_ID survives the write-through.
