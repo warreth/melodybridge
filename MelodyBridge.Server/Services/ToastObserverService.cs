@@ -71,7 +71,7 @@ public sealed class ToastObserverService(
             .Select(j => new { j.Id, j.Name, j.LastRunAt, j.LastRunStatus, j.LastRunSummary })
             .ToListAsync(ct);
 
-        var rows = jobs.Select(j => (j.Id, j.Name, j.LastRunAt, j.LastRunStatus, j.LastRunSummary));
+        var rows = jobs.Select(j => (j.Id, j.Name, j.LastRunAt, (string?)j.LastRunStatus, j.LastRunSummary));
         foreach (var (message, level) in _decisions.ObserveJobs(
                      rows, notifyCompletions, notifyFailures, _startedAtUtc))
         {
