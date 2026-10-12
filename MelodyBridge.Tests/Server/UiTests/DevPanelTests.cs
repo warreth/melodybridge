@@ -25,6 +25,7 @@ public class DevPanelTests
     {
         _ctx = new TestContext();
         _devPanelService = new DevPanelService();
+        _devPanelService.Enabled = true; // the page gates on this; production opts in
         _registry = new Mock<IDownloaderRegistry>();
 
         // A real registry over real plugin doubles: the page exercises the
@@ -56,6 +57,29 @@ public class DevPanelTests
     {
         var cut = _ctx.Render<DevPanel>();
         Assert.That(cut.Markup, Does.Contain("Dev panel"));
+    }
+
+    [Test]
+    public void Disabled_RendersNotFound_InsteadOfThePanel()
+    {
+        _devPanelService.Enabled = false;
+
+        var cut = _ctx.Render<DevPanel>();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(cut.Markup, Does.Contain("Page not found"),
+                "a disabled dev panel must not be reachable by URL");
+            Assert.That(cut.Markup, Does.Not.Contain("Clear queue"),
+                "the interactive tools must not render when the panel is off");
+        });
+    }
+
+    [Test]
+    public void Implements_IDisposable_SoThePollTimerStops()
+    {
+        Assert.That(typeof(DevPanel).GetInterfaces(), Does.Contain(typeof(IDisposable)),
+            "without IDisposable Blazor never calls Dispose and the poll timer leaks per visit");
     }
 
     [Test]

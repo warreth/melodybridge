@@ -5,8 +5,20 @@
 @inject IDownloaderRegistry Registry
 @inject IDownloadManager DownloadMgr
 @attribute [Microsoft.AspNetCore.Authorization.AllowAnonymous]
+@implements IDisposable
 
 <PageTitle>Dev Panel</PageTitle>
+
+@if (!Dev.Enabled)
+{
+    <PageTitle>Not found</PageTitle>
+    <section class="empty-state">
+        <h2>Page not found</h2>
+        <p>Sorry, there's nothing at this address.</p>
+    </section>
+}
+else
+{
 
 <section class="page-title">
     <div>
@@ -256,6 +268,8 @@
         }
     </div>
 </section>
+
+}
 
 @code {
     private List<IDownloader> _providers = new();
