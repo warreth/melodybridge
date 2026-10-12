@@ -35,6 +35,14 @@ window.melody = (() => {
         return ACCENTS.includes(value) ? value : 'teal';
     }
 
+    // The layout reads this once after the first render so the toggle icon
+    // starts in sync with the theme the browser actually shows.
+    function getTheme() {
+        const attr = document.documentElement.getAttribute('data-theme');
+        if (attr === 'light' || attr === 'dark') return attr;
+        try { return localStorage.getItem(THEME_KEY) === 'light' ? 'light' : 'dark'; } catch { return 'dark'; }
+    }
+
     // Position the tour spotlight over an element and scroll it into view.
     // Returns true when the element exists; the caller falls back to a
     // centered card when it doesn't.
@@ -70,6 +78,7 @@ window.melody = (() => {
         setTheme,
         setAccent,
         getAccent,
+        getTheme,
         init,
         spotlight,
         hideSpotlight,

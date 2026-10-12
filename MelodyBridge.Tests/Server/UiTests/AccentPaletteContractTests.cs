@@ -34,6 +34,32 @@ public class AccentPaletteContractTests
     }
 
     [Test]
+    public void SecondaryButton_TextColor_FollowsTheTheme()
+    {
+        var css = StyleSheet;
+        // The bug was a hardcoded near-white text on a near-white light
+        // surface; the rule must read a theme token, not a literal.
+        var rule = Regex.Match(css, @"\.btn-modern\.secondary,\s*\n\.btn-modern\.subtle\s*\{[^}]*\}");
+
+        Assert.That(rule.Success, Is.True, "the secondary button rule exists");
+        Assert.That(rule.Value, Does.Contain("color: var(--text)"),
+            "the button text must be a theme token so light mode stays readable");
+    }
+
+    [Test]
+    public void MobileNavigation_TurnsTheColumnIntoAGrid()
+    {
+        var css = StyleSheet;
+        // A grid-template-columns on a flex container does nothing; the
+        // responsive rules must change the display too.
+        var media = Regex.Match(css, @"@media \(max-width: 1100px\) \{.*?\n\}", RegexOptions.Singleline);
+
+        Assert.That(media.Success, Is.True, "the tablet media query exists");
+        Assert.That(media.Value, Does.Contain(".app-nav { display: grid;"),
+            "the responsive nav must become a real grid");
+    }
+
+    [Test]
     public void EveryPalette_DefinesAllFourAccentTokens_DarkAndLight()
     {
         var css = StyleSheet;

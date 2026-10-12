@@ -31,6 +31,18 @@ public class ShellUiTests
     public void TearDown() => _ctx.Dispose();
 
     [Test]
+    public void ThemeToggle_StartsInSync_WithAStoredLightTheme()
+    {
+        _ctx.JSInterop.Setup<string>("melody.getTheme").SetResult("light");
+
+        var cut = _ctx.Render<MainLayout>();
+
+        cut.WaitForAssertion(
+            () => Assert.That(cut.Find(".theme-icon").TextContent, Is.EqualTo("☀")),
+            TimeSpan.FromSeconds(3));
+    }
+
+    [Test]
     public void VersionBadge_EvaluatesInsteadOfRenderingTemplate()
     {
         var cut = _ctx.Render<MainLayout>();

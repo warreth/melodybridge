@@ -68,6 +68,23 @@
     protected override void OnInitialized()
         => Notifications.Changed += RefreshToasts;
 
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        try
+        {
+            // The browser applies the stored theme on load; the icon must
+            // start in sync with it instead of always claiming dark.
+            var theme = await JS.InvokeAsync<string>("melody.getTheme");
+            _isDark = !string.Equals(theme, "light", StringComparison.OrdinalIgnoreCase);
+            StateHasChanged();
+        }
+        catch
+        {
+            // Interop unavailable (prerender, tests): keep the default.
+        }
+    }
+
     private void RefreshToasts()
     {
         _toasts = Notifications.Snapshot().Take(4).ToList();

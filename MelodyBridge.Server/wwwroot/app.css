@@ -361,7 +361,7 @@ code { color: var(--accent-strong); background: var(--accent-soft); border-radiu
 .btn-modern.danger:hover { background: rgba(159, 18, 57, .45); color: var(--danger); }
 .btn-modern.primary-outline { background: transparent; border-color: var(--accent); color: var(--accent); }
 .btn-modern.secondary,
-.btn-modern.subtle { background: var(--surface-2); border-color: var(--border); color: #e4e4e7; }
+.btn-modern.subtle { background: var(--surface-2); border-color: var(--border); color: var(--text); }
 .btn-modern.secondary:hover,
 .btn-modern.subtle:hover { background: var(--surface-3); border-color: var(--border-strong); }
 .btn-modern.ghost { background: transparent; border-color: var(--border); color: var(--muted); }
@@ -986,7 +986,7 @@ td.file-path {
     .app-sidebar { position: relative; height: auto; border-right: 0; border-bottom: 1px solid var(--border); }
     .app-content { width: 100%; }
     .sidebar-footer { position: static; margin-top: 1rem; }
-    .app-nav { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .app-nav { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
     .hero-panel,
     .content-grid.two,
     .content-grid.three,
@@ -996,7 +996,7 @@ td.file-path {
 @media (max-width: 720px) {
     .app-topbar { padding: 0 1rem; }
     .app-content { padding: 1rem; }
-    .app-nav { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .app-nav { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
     .hero-panel,
     .content-grid.two,
     .content-grid.three,
