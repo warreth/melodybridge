@@ -100,8 +100,11 @@ The right panel shows the track status (total and downloaded) and live
 progress while a download runs. Under **Tracks** you find the full track
 list with a filter box; each track shows its state, the real quality of
 its file (bitrate, sample rate, container) and, when the quality check
-flagged it, a warning next to the entry. **Export CSV** at the top
-downloads the track list as a spreadsheet-friendly CSV file.
+flagged it, a warning next to the entry. When tracks failed or wait for
+a dedup decision, a **Needs attention** chip filters the list down to
+exactly those rows, so the errors are one click away instead of buried.
+**Export CSV** at the top downloads the track list as a
+spreadsheet-friendly CSV file.
 
 At the top:
 
@@ -126,16 +129,22 @@ Lossless prefers the lossless-capable ones).
 - Move plugins up or down with the arrows, toggle them with the switch;
   plugins with settings show an expandable **Settings** panel whose
   values are remembered per plugin
+- The quality badges under each plugin come from its declared
+  capabilities, so they always match what it can actually deliver
 - A plugin marked unavailable (missing binary or service down) is
-  skipped automatically; the pill next to it shows the current state
+  skipped automatically; the pill next to it shows the current state and
+  the card explains what to fix (install yt-dlp, set the FlareSolverr
+  URL, and so on). **Refresh status** re-checks every plugin right away
 - **Live downloads** at the top shows each running playlist download
   with its progress, the track it is on, and buttons to pause, resume
   or cancel it. Several tracks of the same playlist download in
   parallel; the number of simultaneous downloads is set on the
-  Advanced page (1 to 8, default 2)
-- Every completed file gets an integrity check: the duration must parse
-  and match the playlist metadata. A corrupt file is deleted, marked
-  failed with the reason, and retried on the next run
+  Advanced page (1 to 8, default 2). Every track is attempted once per
+  run: a track that keeps failing does not hold the run hostage
+- Every completed file gets an integrity check: the bytes must be real
+  audio, the duration must parse and match the playlist metadata. A
+  corrupt file is deleted, marked failed with the reason, and retried
+  on the next run
 
 ::: info Lucida needs a Cloudflare solver
 See [Lucida and FlareSolverr](lucida.md). Without a solver Lucida stays

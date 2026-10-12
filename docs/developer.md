@@ -62,12 +62,21 @@ public interface IDownloader
     PluginCapabilities Capabilities { get; }   // required, no default
     Task<bool> IsAvailableAsync(CancellationToken ct = default);
     Task<DownloaderSearchHit?> SearchAsync(
-        string artist, string title, DownloadQuality quality, CancellationToken ct = default);
+        string artist, string title, DownloadQuality quality,
+        TimeSpan? expectedDuration = null, CancellationToken ct = default);
     Task<DownloaderDownloadResult> DownloadAsync(
         string sourceUrl, string outputDirectory, string? melodyId,
         DownloadQuality? quality = null, CancellationToken ct = default);
 }
 ```
+
+`expectedDuration` is the playlist's advertised track length. Plugins
+rank their search candidates with `SearchRanker.Rank`: title/artist
+similarity plus duration proximity, gross mismatches (a 30s preview for
+a 4-minute track) are dropped, and the runner-ups travel along in
+`DownloaderSearchHit.Alternatives` so a dead first choice (deleted
+video, geo-block) does not lose the plugin. `DownloadManager` passes the
+duration through and re-checks every candidate before spending bytes.
 
 `PluginCapabilities` is the plugin's honest manifest: the containers it
 can produce, its real bitrate bounds (null means unbounded) and whether
@@ -87,19 +96,21 @@ Implement this to add a download source. Built-in plugins:
 | Plugin | Id | Source | Notes |
 |---|---|---|---|
 | `LucidaDownloader` | `lucida` | lucida.to (Tidal, Qobuz, Amazon Music) | High quality rips; needs a Cloudflare solver, otherwise skipped |
-| `MonochromeDownloader` | `monochrome` | monochrome.tf mirrors (community TIDAL API) | FLAC/AAC rips; tries each instance in order until one answers |
+| `MonochromeDownloader` | `monochrome` | monochrome.tf mirrors (community TIDAL API) | FLAC/AAC rips; tries each instance in order until one answers; quality tiers follow the requested cap (LOW under 160, HIGH under 320) |
 | `DoubleDoubleDownloader` | `doubledouble` | us./eu.doubledouble.top | Submit-and-poll rips of direct track URLs (Tidal, Qobuz, Deezer, Amazon); `SearchAsync` returns null by design, the site search is captcha-gated |
-| `SoundCloudDownloader` | `soundcloud` | SoundCloud (via yt-dlp `scsearch`) | Original uploads, often 320 kbps; rejects files under 128 kbps |
-| `ArchiveOrgDownloader` | `archiveorg` | Internet Archive (public JSON APIs) | Public-domain and community recordings; rejects files under 128 kbps |
-| `YtDlpDownloader` | `ytdlp` | YouTube Music, then YouTube (via yt-dlp) | Widest fallback, best audio as MP3; `ytmsearch1` tried before `ytsearch1` everywhere |
+| `SoundCloudDownloader` | `soundcloud` | SoundCloud (via yt-dlp `scsearch`) | Original uploads, often 320 kbps; top-5 ranked; rejects files under 128 kbps |
+| `ArchiveOrgDownloader` | `archiveorg` | Internet Archive (public JSON APIs) | Public-domain and community recordings; picks the matching file inside a multi-track item, not the first one; rejects files under 128 kbps |
+| `YtDlpDownloader` | `ytdlp` | YouTube (via yt-dlp) | Widest fallback; audio-only best stream, top-5 ranked by match and duration; explicit formats transcode to the requested cap |
 
 Place new implementations in `MelodyBridge.Infrastructure/Downloaders/` and register via `services.AddSingleton<IDownloader, YourPlugin>()`. Quality-gate downloads against the requested `DownloadQuality` band so bad rips never enter the library.
+
+Every plugin-produced file is sniffed with `AudioSignature` (magic bytes, never the extension) before `DownloadManager` accepts it: an HTML error page or JSON body served under a 200 status is deleted and the waterfall moves on. Plugins that save files themselves delete partial output on failure and cancellation; the yt-dlp-backed plugins keep yt-dlp's resumable `.part` fragments (never final output, and the next attempt resumes from them).
 
 `DownloadQuality` carries a bitrate band: `MinKbps` and `MaxKbps`, both optional, both hard. Search hits whose measured bitrate falls outside the band are skipped, and downloaded files are probed with `BitrateProbe.MeasureKbps` and rejected+deleted when outside it. Unknown bitrates pass the search gate and leave the verdict to the post-download measurement.
 
 `IDownloaderRegistry` manages the plugin waterfall: enable/disable and priority are persisted per plugin in the `ProviderStates` table. Plugin config values, declared via `IDownloader.ConfigFields` (Key, Label, Placeholder, Description) and read/written through `GetConfigAsync`/`SetConfigAsync`, persist in the `DownloaderSettings` table under `plugin:{id}:{key}` keys and are edited on the Plugins page in an expandable per-plugin panel.
 
-`DownloadCoordinator` runs each playlist with up to `download_max_concurrent` parallel workers (setting, default 2, clamp 1-8, Advanced page). Workers are safe together because `PlaylistStore.DownloadMissingAsync` claims each track with an atomic conditional UPDATE (pending to in_progress) before downloading, so two callers never race on the same track.
+`DownloadCoordinator` runs each playlist's downloads in parallel workers and is observable through `Snapshot()`; see `IDownloadManager` below for the per-run work-list semantics.
 
 ### `ISourceProvider`: playlist sources
 
@@ -134,12 +145,15 @@ Implement this to sync playlists to a media server. Built-in targets are resolve
 public interface IDownloadManager
 {
     Task<string?> DownloadAsync(string sourceUrl, string outputDirectory, string melodyId, CancellationToken ct = default);
-    Task<string?> DownloadTrackAsync(string artist, string title, string outputDirectory, string melodyId, DownloadQuality? quality = null, CancellationToken ct = default);
+    Task<string?> DownloadTrackAsync(string artist, string title, string outputDirectory, string melodyId, DownloadQuality? quality = null, TimeSpan? expectedDuration = null, CancellationToken ct = default);
     IReadOnlyList<DownloadProgress> SnapshotProgress();
+    string? LastFailure(string melodyId);
 }
 ```
 
-`DownloadTrackAsync` routes the enabled plugins through `QualityRouter` first: incompatible plugins are excluded before any network call, survivors are ranked for the request, and the first successful download wins. When every plugin is excluded the track fails fast with "your quality filters excluded every plugin". On success the manager writes the MELODY_ID tag. `DownloadAsync` passes a direct URL to the plugins that can handle it.
+`DownloadTrackAsync` routes the enabled plugins through `QualityRouter` first: incompatible plugins are excluded before any network call, survivors are ranked for the request, and the first successful download wins. Every plugin call is individually guarded (a plugin that throws on availability, search or download is skipped, never fatal), each hit is duration-checked before any bytes are spent, and each produced file must sniff as real audio. When every plugin is excluded the track fails fast with "your quality filters excluded every plugin". On success the manager writes the MELODY_ID tag. `DownloadAsync` passes a direct URL to the plugins that can handle it.
+
+`DownloadCoordinator` runs each playlist with up to `download_max_concurrent` parallel workers (setting, default 2, clamp 1-8, Advanced page). Each run snapshots its work list (pending/failed tracks, Position order) and every track is attempted exactly once per run: a permanently failing track can no longer spin the run forever, and the visible queue plus ETA count the work still in flight. The store's claim (`DownloadTrackAsync(int)`) is still atomic, so a single-track click and a running batch never download the same track twice. Stale `in_progress` claims (crash, hard shutdown) are reset to pending at startup.
 
 ### Other key types
 
@@ -289,6 +303,13 @@ MelodyBridge.Tests/
 │   ├── MelodyIdsTests.cs           # Deterministic id format table
 │   ├── SpotifySourceProviderTests.cs
 │   └── SyncEngineTests.cs
+├── ApplicationServices/        # Waterfall behavior
+│   ├── DownloadManagerQualityTests.cs # Real MP3s: band gate accepts/rejects
+│   ├── DownloadManagerRobustnessTests.cs # Throwing plugins, duration gate,
+│   │                                  # non-audio rejection, alternatives
+│   ├── SearchRankerTests.cs        # Candidate ranking + duration proximity
+│   ├── DownloadCoordinatorTests.cs # Pause/resume/cancel, max concurrency
+│   └── QualityRouterTests.cs       # Plugin manifests and routing order
 ├── Integration/
 │   ├── YtDlpDownloaderLiveTests.cs  # Live search/download/tag/ffprobe
 │   ├── DownloadMissingAsyncTests.cs # Real plugin writing real tagged files
