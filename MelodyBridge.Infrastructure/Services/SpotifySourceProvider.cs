@@ -245,7 +245,10 @@ public partial class SpotifySourceProvider : ISourceProvider
             var total = 0;
             string? warning = null;
 
-            for (var offset = 0; ; offset += pageSize)
+            // The cursor advances by the page the API actually returned,
+            // never by the requested size: Spotify can clamp the page
+            // below the request, and a fixed step would skip tracks.
+            for (var offset = 0; ; )
             {
                 JsonDocument? pageDoc = null;
                 for (var attempt = 0; ; attempt++)
@@ -304,13 +307,21 @@ public partial class SpotifySourceProvider : ISourceProvider
                         break;
                     }
 
-                    tracks.AddRange(itemsProp.EnumerateArray()
+                    var pageItems = itemsProp.EnumerateArray().ToList();
+                    tracks.AddRange(pageItems
                         .Select(ParseApiTrack)
                         .Where(t => t is not null)
                         .Cast<Track>());
-                }
 
-                if (tracks.Count >= total || total == 0) break;
+                    // An empty page is the end of the list. Without this
+                    // break, a clamped or filtered page set made the loop
+                    // request pages forever because the parsed count can
+                    // never reach the advertised total.
+                    if (pageItems.Count == 0) break;
+
+                    offset += pageItems.Count;
+                    if (total > 0 && offset >= total) break;
+                }
             }
 
             if (tracks.Count == 0)
