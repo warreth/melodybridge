@@ -13,6 +13,9 @@ public sealed class ScriptedHandler : HttpMessageHandler
 {
     public List<(string Method, string Url)> Requests { get; } = new();
 
+    /// <summary>Every request plus its body when one was sent, in order.</summary>
+    public List<(string Method, string Url, string? Body)> Recorded { get; } = new();
+
     private readonly List<(string PathContains, Func<string, HttpResponseMessage> Respond)> _routes = new();
 
     /// <summary>Registers a JSON body for every request whose URL contains the path.</summary>
@@ -34,6 +37,8 @@ public sealed class ScriptedHandler : HttpMessageHandler
     {
         var url = request.RequestUri!.PathAndQuery;
         Requests.Add((request.Method.Method, url));
+        Recorded.Add((request.Method.Method, url,
+            request.Content is null ? null : request.Content.ReadAsStringAsync(ct).GetAwaiter().GetResult()));
         // Longest route wins (so "/a/b" is not swallowed by "/a"); among
         // equally long matches the latest registration wins, letting tests
         // override shared route sets.

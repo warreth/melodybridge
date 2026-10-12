@@ -152,7 +152,11 @@ public class JellyfinSync : IMediaServerSync
     private async Task UpsertPlaylistAsync(string baseUrl, string apiKey, string name,
         List<string> itemIds, List<string> unresolved, CancellationToken ct)
     {
-        var payload = new { Name = name, PlaylistItems = itemIds.Select(id => new { Id = id }).ToArray() };
+        // Jellyfin binds the member item ids from "Ids" in both its
+        // CreatePlaylistDto and UpdatePlaylistDto. The old "PlaylistItems"
+        // shape was an unknown property the server ignored, so every
+        // create landed as an empty playlist.
+        var payload = new { Name = name, Ids = itemIds.ToArray() };
         try
         {
             string? existingId = null;
@@ -171,19 +175,27 @@ public class JellyfinSync : IMediaServerSync
             if (existingId is not null)
             {
                 _logger.LogInformation("Updating existing playlist {name}", name);
-                using var put = await SendAsync(baseUrl, apiKey, $"/Playlists/{existingId}",
-                    HttpMethod.Put, JsonContent.Create(payload), ct);
-                if (put.IsSuccessStatusCode)
+                // Jellyfin updates a playlist with POST /Playlists/{id}:
+                // there is no PUT route, and no route deletes a playlist
+                // whole. A failed update is reported, never duplicated.
+                using var update = await SendAsync(baseUrl, apiKey, $"/Playlists/{existingId}",
+                    HttpMethod.Post, JsonContent.Create(payload), ct);
+                if (update.IsSuccessStatusCode)
                 {
                     _lastReport = new MediaServerSyncReport(itemIds.Count, unresolved.ToArray(),
                         existingId, "Updated existing playlist");
                     return;
                 }
-                _logger.LogDebug("PUT update failed, status {status}; recreating", put.StatusCode);
 
-                // Fallback: delete and recreate
-                try { using var del = await SendAsync(baseUrl, apiKey, $"/Playlists/{existingId}",
-                    HttpMethod.Delete, ct: ct); } catch { }
+                if (update.StatusCode != System.Net.HttpStatusCode.NotFound)
+                {
+                    _logger.LogWarning("Jellyfin returned {status} when updating playlist {name}",
+                        update.StatusCode, name);
+                    _lastReport = new MediaServerSyncReport(itemIds.Count, unresolved.ToArray(),
+                        existingId, $"Update failed with {update.StatusCode}");
+                    return;
+                }
+                _logger.LogInformation("Playlist {name} vanished before the update; recreating", name);
             }
 
             using var resp = await SendAsync(baseUrl, apiKey, "/Playlists",
