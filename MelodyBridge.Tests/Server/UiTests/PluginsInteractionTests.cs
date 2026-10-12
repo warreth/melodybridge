@@ -253,6 +253,65 @@ public class PluginsInteractionTests
         }, TimeSpan.FromSeconds(3));
     }
 
+    /// <summary>
+    /// A downloader whose first availability check is instant and whose
+    /// later checks block until released: pins the sweep reentrancy guard.
+    /// </summary>
+    private sealed class GatedDownloader : IDownloader
+    {
+        public readonly TaskCompletionSource Entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public int Calls;
+
+        public string Id => "gated";
+        public string Name => "Gated Plugin";
+        public string Description => "";
+        public PluginCapabilities Capabilities => PluginCapabilities.Any;
+        public Task<DownloaderSearchHit?> SearchAsync(TrackQuery query, CancellationToken ct = default)
+            => Task.FromResult<DownloaderSearchHit?>(null);
+        public Task<DownloaderDownloadResult> DownloadAsync(
+            string sourceUrl, string outputDirectory, string? melodyId,
+            DownloadQuality? quality = null, CancellationToken ct = default)
+            => Task.FromResult(new DownloaderDownloadResult(false, null, "test"));
+
+        public async Task<bool> IsAvailableAsync(CancellationToken ct = default)
+        {
+            var call = Interlocked.Increment(ref Calls);
+            if (call > 1)
+            {
+                Entered.TrySetResult();
+                await _release.Task;
+            }
+            return true;
+        }
+
+        public void Release() => _release.TrySetResult();
+    }
+
+    [Test]
+    public async Task RefreshAvailability_OverlappingSweeps_RunOneProbeAtATime()
+    {
+        var plugin = new GatedDownloader();
+        var cut = RenderPage(plugin); // the init sweep is call 1 (instant)
+
+        // A slow sweep in flight: the second trigger must return without
+        // starting another probe.
+        var first = cut.InvokeAsync(() => cut.Instance.RefreshAvailability());
+        await plugin.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        var second = cut.InvokeAsync(() => cut.Instance.RefreshAvailability());
+        var finished = await Task.WhenAny(second, Task.Delay(TimeSpan.FromSeconds(1)));
+
+        Assert.That(finished, Is.SameAs(second),
+            "an overlapping sweep must not start another probe");
+        Assert.That(plugin.Calls, Is.EqualTo(2), "one probe per sweep, never two at once");
+
+        plugin.Release();
+        await first;
+        await second;
+    }
+
     /// <summary>TestDownloader that fails its availability check.</summary>
     private sealed class UnavailableDownloader(string id, string name)
         : TestDownloader(id, name), IDownloader

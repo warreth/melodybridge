@@ -161,6 +161,7 @@
     private string? lastEnabledId;
     private string? configMessage;
     private DateTimeOffset lastAvailabilityCheck = DateTimeOffset.MinValue;
+    private int availabilitySweep;
 
     protected override async Task OnInitializedAsync()
     {
@@ -215,24 +216,37 @@
         return Task.CompletedTask;
     }
 
-    private async Task RefreshAvailability()
+    internal async Task RefreshAvailability()
     {
-        var results = new Dictionary<string, PluginStatus>();
-        foreach (var plugin in orderedPlugins)
+        // The 1s page timer and the Refresh status button can overlap. A
+        // slow sweep must never run twice concurrently: it would pile up
+        // network probes and race on the results dictionary.
+        if (Interlocked.CompareExchange(ref availabilitySweep, 1, 0) == 1)
+            return;
+
+        try
         {
-            try
+            var results = new Dictionary<string, PluginStatus>();
+            foreach (var plugin in orderedPlugins)
             {
-                var ready = await plugin.IsAvailableAsync();
-                results[plugin.Id] = new PluginStatus(ready,
-                    ready ? null : AvailabilityHint(plugin) ?? "Could not reach this plugin");
+                try
+                {
+                    var ready = await plugin.IsAvailableAsync();
+                    results[plugin.Id] = new PluginStatus(ready,
+                        ready ? null : AvailabilityHint(plugin) ?? "Could not reach this plugin");
+                }
+                catch (Exception ex)
+                {
+                    results[plugin.Id] = new PluginStatus(false, ex.Message);
+                }
             }
-            catch (Exception ex)
-            {
-                results[plugin.Id] = new PluginStatus(false, ex.Message);
-            }
+            availability = results;
+            lastAvailabilityCheck = DateTimeOffset.UtcNow;
         }
-        availability = results;
-        lastAvailabilityCheck = DateTimeOffset.UtcNow;
+        finally
+        {
+            Interlocked.Exchange(ref availabilitySweep, 0);
+        }
     }
 
     /// <summary>The actionable reason a known plugin is down.</summary>

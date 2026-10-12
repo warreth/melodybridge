@@ -11,4 +11,7 @@
     <ProjectReference Include="..\MelodyBridge.Infrastructure\MelodyBridge.Infrastructure.csproj"/>
     <ProjectReference Include="..\MelodyBridge.UI.Components\MelodyBridge.UI.Components.csproj"/>
   </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="MelodyBridge.Tests" />
+  </ItemGroup>
 </Project>
