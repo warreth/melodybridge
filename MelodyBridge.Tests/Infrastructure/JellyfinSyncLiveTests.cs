@@ -233,6 +233,9 @@ public class JellyfinSyncLiveTests
 
         var mix = await FindPlaylist("MB Live Mix");
         Assert.That(mix.ValueKind, Is.Not.EqualTo(JsonValueKind.Undefined), "playlist exists");
+        var names = await PlaylistItemNames(mix.GetProperty("Id").GetString()!);
+        Assert.That(names, Is.EquivalentTo(new[] { "Alpha Song", "Beta Song" }),
+            "the created playlist must carry the resolved items, not an empty shell");
     }
 
     [Test]
@@ -242,13 +245,17 @@ public class JellyfinSyncLiveTests
         var playlist = PlaylistOf(new[] { ("Alpha Song", false) });
         await sync.SyncPlaylistAsync(playlist, HostOptions());
         var first = await AllPlaylistIds("MB Live Mix");
+        Assert.That(first, Has.Count.EqualTo(1), "the first sync creates exactly one playlist");
 
         await sync.SyncPlaylistAsync(PlaylistOf(new[] { ("Alpha Song", false), ("Beta Song", false) }),
             HostOptions());
         var second = await AllPlaylistIds("MB Live Mix");
 
-        Assert.That(second.Count, Is.EqualTo(first.Count),
-            "second sync updates the same playlist, never a second one");
+        Assert.That(second, Is.EquivalentTo(first),
+            "the second sync updates the same playlist, never a second one");
+        var names = await PlaylistItemNames(second.Single());
+        Assert.That(names, Is.EquivalentTo(new[] { "Alpha Song", "Beta Song" }),
+            "the update must replace the member list");
     }
 
     [Test]
@@ -286,11 +293,24 @@ public class JellyfinSyncLiveTests
             .FirstOrDefault(p => p.GetProperty("Name").GetString() == name);
     }
 
+    /// <summary>Every playlist with this name: a broken update would add one.</summary>
     private async Task<List<string>> AllPlaylistIds(string name)
     {
-        var mix = await FindPlaylist(name);
-        return mix.ValueKind == JsonValueKind.Undefined
-            ? new List<string>()
-            : new List<string> { mix.GetProperty("Id").GetString()! };
+        var items = await _api.GetFromJsonAsync<JsonElement>(
+            BaseUrl + "/Items?Recursive=true&IncludeItemTypes=Playlist");
+        return items.GetProperty("Items").EnumerateArray()
+            .Where(p => p.GetProperty("Name").GetString() == name)
+            .Select(p => p.GetProperty("Id").GetString()!)
+            .ToList();
+    }
+
+    /// <summary>The item names inside a playlist (GET /Playlists/{id}/Items).</summary>
+    private async Task<List<string>> PlaylistItemNames(string playlistId)
+    {
+        var items = await _api.GetFromJsonAsync<JsonElement>(
+            $"{BaseUrl}/Playlists/{playlistId}/Items");
+        return items.GetProperty("Items").EnumerateArray()
+            .Select(i => i.GetProperty("Name").GetString()!)
+            .ToList();
     }
 }
