@@ -56,6 +56,60 @@ public class DownloadCoordinator
     private readonly IServiceProvider _services;
     private readonly ILogger<DownloadCoordinator> _logger;
 
+    /// <summary>
+    /// The run's fixed work list with an atomically shared cursor: every
+    /// pending/failed track is attempted exactly once per run, so a
+    /// permanently failing track can never spin the run forever. A taken
+    /// item stays "remaining" until its worker marks it complete, so the
+    /// visible queue and ETA count in-flight tracks too.
+    /// </summary>
+    private sealed class WorkQueue
+    {
+        private readonly List<(int Id, string Title)> _items;
+        private readonly int[] _completed;
+        private int _taken;
+
+        public WorkQueue(List<(int Id, string Title)> items)
+        {
+            _items = items;
+            _completed = new int[items.Count];
+        }
+
+        public int TotalCount => _items.Count;
+
+        /// <summary>Atomically takes the next item; false when exhausted.</summary>
+        public bool TryTake(out int index, out (int Id, string Title) item)
+        {
+            var i = Interlocked.Increment(ref _taken) - 1;
+            if (i < _items.Count)
+            {
+                index = i;
+                item = _items[i];
+                return true;
+            }
+            index = -1;
+            item = default;
+            return false;
+        }
+
+        /// <summary>Marks a taken item as attempted (downloaded, failed or skipped).</summary>
+        public void Complete(int index)
+        {
+            if (index >= 0 && index < _completed.Length)
+                Volatile.Write(ref _completed[index], 1);
+        }
+
+        /// <summary>Titles not yet completed, in Position order: the visible queue.</summary>
+        public List<string> RemainingTitles()
+        {
+            var titles = new List<string>();
+            for (var i = 0; i < _items.Count; i++)
+                if (Volatile.Read(ref _completed[i]) == 0)
+                    titles.Add(_items[i].Title);
+            return titles;
+        }
+    }
+
     private sealed class RunHandle
     {
         public Task Task = Task.CompletedTask;
@@ -64,9 +118,11 @@ public class DownloadCoordinator
         public DownloadRun Snapshot = null!;
         /// <summary>Workers currently mid-track; keeps CurrentTrack in the snapshot honest with parallel workers.</summary>
         public int InFlight;
-        /// <summary>Ordered pending/failed track titles for the live run (Position
-        /// order); recomputed after each completed track, read by the UI.</summary>
+        /// <summary>Ordered titles of the run's remaining work (Position
+        /// order), read by the UI.</summary>
         public List<string> QueueTitles = new();
+        /// <summary>This run's work queue; replaced at every run start.</summary>
+        public WorkQueue Work = new(new List<(int, string)>());
     }
 
     private readonly ConcurrentDictionary<string, RunHandle> _runs = new();
@@ -101,8 +157,8 @@ public class DownloadCoordinator
     public DownloadRun? RunFor(string playlistId)
         => _runs.TryGetValue(playlistId, out var h) ? h.Snapshot : null;
 
-    /// <summary>Ordered titles of the pending/failed tracks (Position order)
-    /// of the live run for this playlist: the visible download queue.</summary>
+    /// <summary>Ordered titles of the live run's remaining work (Position
+    /// order) for this playlist: the visible download queue.</summary>
     public IReadOnlyList<string> QueueFor(string playlistId)
         => _runs.TryGetValue(playlistId, out var h) ? h.QueueTitles : Array.Empty<string>();
 
@@ -199,17 +255,19 @@ public class DownloadCoordinator
                 Done = counts.done,
                 Failed = counts.failed,
             };
-            await RefreshQueueAsync(playlistId, handle, ct);
+            handle.Work = new WorkQueue(await LoadWorkItemsAsync(playlistId, ct));
+            RefreshQueue(handle);
 
             var workers = await MaxConcurrentAsync(ct);
-            _logger.LogInformation("Download run for {Playlist} starting with {Workers} workers",
-                playlistId, workers);
+            _logger.LogInformation("Download run for {Playlist} starting with {Workers} workers over {Count} tracks",
+                playlistId, workers, handle.Work.TotalCount);
 
-            // Each worker claims one pending track at a time (the store's
-            // claim is atomic), so the workers never race on a track. The
+            // Each worker claims the next work item from the shared cursor
+            // (atomic) and downloads exactly that track: the store's claim
+            // still guards against a concurrent single-track click. The
             // shared pause gate holds every worker between tracks.
             var tasks = Enumerable.Range(0, workers)
-                .Select(_ => WorkerAsync(playlistId, handle, store, ct))
+                .Select(_ => WorkerAsync(handle, store, ct))
                 .ToArray();
             await Task.WhenAll(tasks);
         }
@@ -232,34 +290,40 @@ public class DownloadCoordinator
         }
     }
 
-    /// <summary>One download worker loop: claim a track, download it, repeat.</summary>
-    private async Task WorkerAsync(string playlistId, RunHandle handle, PlaylistStore store, CancellationToken ct)
+    /// <summary>One download worker loop: take the next work item, download it, repeat.</summary>
+    private async Task WorkerAsync(RunHandle handle, PlaylistStore store, CancellationToken ct)
     {
         while (!ct.IsCancellationRequested)
         {
             handle.Gate.Wait(ct); // cooperative pause between tracks
             if (ct.IsCancellationRequested) break;
 
-            var next = await NextPendingTitleAsync(playlistId, ct);
-            if (next is null) break; // nothing left to download
-
-            var inFlight = Interlocked.Increment(ref handle.InFlight);
+            if (!handle.Work.TryTake(out var workIndex, out var work)) break; // work list exhausted
+            var (trackId, title) = work;
+            Interlocked.Increment(ref handle.InFlight);
             handle.Snapshot = handle.Snapshot with
             {
-                CurrentTrack = next,
+                CurrentTrack = title,
                 State = DownloadRunState.Running,
             };
 
             try
             {
-                await store.DownloadMissingAsync(playlistId, limit: 1, ct: ct);
+                await store.DownloadTrackAsync(trackId, ct);
+            }
+            catch (OperationCanceledException)
+            {
+                throw; // the run is cancelling: stop this worker
             }
             finally
             {
+                // The item was attempted (or the run is ending): it leaves
+                // the visible queue either way.
+                handle.Work.Complete(workIndex);
                 Interlocked.Decrement(ref handle.InFlight);
             }
 
-            var counts = await CountAsync(playlistId);
+            var counts = await CountAsync(handle.Snapshot.PlaylistId);
             var snapshot = handle.Snapshot with
             {
                 Done = counts.done,
@@ -271,32 +335,24 @@ public class DownloadCoordinator
 
             // The queue and the ETA move as tracks complete: one refresh per
             // finished track keeps both honest without extra polling.
-            await RefreshQueueAsync(playlistId, handle, ct);
+            RefreshQueue(handle);
         }
     }
 
     /// <summary>
-    /// Recomputes the visible queue (pending/failed titles, Position order)
-    /// and folds it into the snapshot: queue length plus an ETA derived from
-    /// the average pace of the tracks completed so far.
+    /// Recomputes the visible queue (the work items not yet taken, in
+    /// Position order) and folds it into the snapshot: queue length plus
+    /// an ETA derived from the average pace of the tracks completed so far.
     /// </summary>
-    private async Task RefreshQueueAsync(string playlistId, RunHandle handle, CancellationToken ct)
+    private static void RefreshQueue(RunHandle handle)
     {
-        await using var db = await NewDbAsync(ct);
-        var titles = await db.Tracks.AsNoTracking()
-            .Where(t => t.PlaylistEntityId == playlistId
-                && (t.DownloadStatus == null || t.DownloadStatus == "pending"
-                    || t.DownloadStatus == "failed" || t.DownloadStatus == "in_progress"))
-            .OrderBy(t => t.Position)
-            .Select(t => t.Title ?? "")
-            .ToListAsync(ct);
-        handle.QueueTitles = titles;
+        handle.QueueTitles = handle.Work.RemainingTitles();
 
         var s = handle.Snapshot;
         handle.Snapshot = s with
         {
-            QueueLength = titles.Count,
-            EtaUtc = DownloadRun.ComputeEta(s.StartedAtUtc, s.Done + s.Failed, titles.Count),
+            QueueLength = handle.QueueTitles.Count,
+            EtaUtc = DownloadRun.ComputeEta(s.StartedAtUtc, s.Done + s.Failed, handle.QueueTitles.Count),
         };
     }
 
@@ -322,14 +378,19 @@ public class DownloadCoordinator
             tracks.Count(s => s == "failed"));
     }
 
-    private async Task<string?> NextPendingTitleAsync(string playlistId, CancellationToken ct)
+    /// <summary>
+    /// This run's work list: every pending/failed track, in playlist
+    /// Position order. Snapshot at run start so each track is attempted
+    /// exactly once per run.
+    /// </summary>
+    private async Task<List<(int Id, string Title)>> LoadWorkItemsAsync(string playlistId, CancellationToken ct)
     {
         await using var db = await NewDbAsync(ct);
         return await db.Tracks.AsNoTracking()
             .Where(t => t.PlaylistEntityId == playlistId
                 && (t.DownloadStatus == null || t.DownloadStatus == "pending" || t.DownloadStatus == "failed"))
             .OrderBy(t => t.Position)
-            .Select(t => t.Title)
-            .FirstOrDefaultAsync(ct);
+            .Select(t => new ValueTuple<int, string>(t.Id, t.Title ?? ""))
+            .ToListAsync(ct);
     }
 }

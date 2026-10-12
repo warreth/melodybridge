@@ -79,6 +79,15 @@ using (var scope = app.Services.CreateScope())
     using var db = dbFactory.CreateDbContext();
     db.Database.EnsureCreated();
     await SchemaPatcher.PatchAsync(db);
+
+    // Stale-claim recovery: a track claimed "in_progress" by a run that
+    // died (crash, hard shutdown) can never be claimed again. Nothing can
+    // be in flight at startup, so every stale claim goes back to pending.
+    var stale = db.Tracks
+        .Where(t => t.DownloadStatus == "in_progress")
+        .ExecuteUpdate(s => s.SetProperty(t => t.DownloadStatus, "pending"));
+    if (stale > 0)
+        app.Logger.LogInformation("Reset {Count} stale in-progress download claim(s) to pending", stale);
 }
 
 // Reconcile playlist tracks with files on disk: relink what still

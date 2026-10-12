@@ -31,7 +31,7 @@ public class DownloadQueueTests
         public PluginCapabilities Capabilities => PluginCapabilities.Any;
         public Task<bool> IsAvailableAsync(CancellationToken ct = default) => Task.FromResult(true);
 
-        public Task<DownloaderSearchHit?> SearchAsync(string artist, string title, DownloadQuality quality, CancellationToken ct = default)
+        public Task<DownloaderSearchHit?> SearchAsync(string artist, string title, DownloadQuality quality, TimeSpan? expectedDuration = null, CancellationToken ct = default)
             => Task.FromResult(new DownloaderSearchHit(title, artist, "https://slow.example/" + title, TimeSpan.FromSeconds(1)));
 
         public async Task<DownloaderDownloadResult> DownloadAsync(
@@ -234,6 +234,41 @@ public class DownloadQueueTests
         var queue = coordinator.QueueFor(id);
         Assert.That(queue.Count, Is.GreaterThanOrEqualTo(3),
             "pending + failed tracks all belong to the visible queue");
+
+        await WaitForAsync(() => coordinator.RunFor(id)?.State == DownloadRunState.Finished, TimeSpan.FromSeconds(30));
+    }
+
+    [Test]
+    public async Task QueueFor_DoesNotPromiseTracksAddedAfterTheRunStarted()
+    {
+        var id = await SeedPlaylistAsync(3);
+        var downloader = new SlowDownloader();
+        var services = MakeServices(downloader);
+        var coordinator = MakeCoordinator(services);
+
+        coordinator.Start(id);
+        await WaitForAsync(() => (coordinator.RunFor(id)?.Done ?? 0) >= 1, TimeSpan.FromSeconds(20));
+
+        // A playlist refresh adds a track mid-run: the run's work list is
+        // fixed at start, so the queue must not promise a track this run
+        // will never attempt.
+        await using (var db = _factory.CreateDbContext())
+        {
+            db.Tracks.Add(new TrackEntity
+            {
+                MelodyId = "mb-late",
+                Title = "Late Track",
+                Artist = "Artist",
+                Position = 9,
+                DownloadStatus = "pending",
+                PlaylistEntityId = id,
+            });
+            await db.SaveChangesAsync();
+        }
+
+        await Task.Delay(300); // give a worker the chance to refresh the queue
+        Assert.That(coordinator.QueueFor(id), Does.Not.Contain("Late Track"),
+            "the queue reflects the run's work list, not everything in the database");
 
         await WaitForAsync(() => coordinator.RunFor(id)?.State == DownloadRunState.Finished, TimeSpan.FromSeconds(30));
     }
