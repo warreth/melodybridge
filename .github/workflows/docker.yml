@@ -48,6 +48,18 @@ jobs:
             echo "prerelease=false" >> "$GITHUB_OUTPUT"
           fi
 
+      # The image stamps the version from the tag so the About tab and the
+      # sidebar report what was released. Manual runs pass nothing.
+      - name: Version for stamping
+        id: version
+        run: |
+          ref="${GITHUB_REF_NAME#v}"
+          if echo "$ref" | grep -Eq '^[0-9]+\.[0-9]+'; then
+            echo "value=$ref" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=" >> "$GITHUB_OUTPUT"
+          fi
+
       # One metadata step picks the tag list by event type so there is no
       # code path where a manual run can overwrite :latest or a version tag.
       - name: Extract metadata (tags, labels)
@@ -71,6 +83,8 @@ jobs:
         with:
           context: .
           push: true
+          build-args: |
+            VERSION=${{ steps.version.outputs.value }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha

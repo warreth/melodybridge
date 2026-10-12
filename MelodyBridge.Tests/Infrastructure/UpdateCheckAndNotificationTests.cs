@@ -20,6 +20,18 @@ public class UpdateCheckAndNotificationTests
     public void IsNewer_Compares_Versions(string latest, string current, bool expected)
         => Assert.That(UpdateCheckService.IsNewer(latest, current), Is.EqualTo(expected));
 
+    [TestCase("1.5.0-beta1", "1.0.0", true)]       // a newer beta is newer
+    [TestCase("1.0.0-beta2", "1.0.0-beta1", true)] // prerelease ordering
+    [TestCase("1.0.0", "1.0.0-beta2", true)]       // a release beats its prereleases
+    [TestCase("1.0.0-beta1", "1.0.0", false)]      // an older beta is not an update
+    [TestCase("1.0.0-beta1", "1.5.0", false)]      // the old string-inequality bug
+    [TestCase("v1.2.3", "1.2.2", true)]            // the v prefix is tolerated
+    [TestCase("1.2.3+build5", "1.2.3", false)]     // build metadata is ignored
+    [TestCase("1.2.3-rc.2", "1.2.3-rc.10", false)] // numeric identifiers compare numerically
+    [TestCase("1.2.3-rc.1", "1.2.3-beta.1", true)] // rc sorts above beta lexically
+    public void IsNewer_Orders_Semver_Correctly(string latest, string current, bool expected)
+        => Assert.That(UpdateCheckService.IsNewer(latest, current), Is.EqualTo(expected));
+
     [Test]
     public async Task CheckAsync_Parses_A_Real_GitHub_Response()
     {

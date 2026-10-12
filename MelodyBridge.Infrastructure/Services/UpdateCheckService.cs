@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using MelodyBridge.Core;
 
@@ -52,14 +53,92 @@ public sealed class UpdateCheckService(HttpClient http)
         }
     }
 
-    /// <summary>True when latest differs from the running version (not just newer: any mismatch).</summary>
+    /// <summary>
+    /// True when the latest tag is newer than the running version. Both
+    /// sides are compared as SemVer 2.0: numeric identifiers numerically,
+    /// a prerelease sorts before its release, build metadata is ignored.
+    /// Unparsable tags fall back to plain inequality so a user still sees
+    /// something instead of silence.
+    /// </summary>
     public static bool IsNewer(string latest, string current)
     {
-        if (Version.TryParse(latest, out var newVersion) &&
-            Version.TryParse(current, out var currentVersion))
-            return newVersion > currentVersion;
+        var newVersion = ParseSemver(latest);
+        var currentVersion = ParseSemver(current);
+        if (newVersion is null || currentVersion is null)
+            return !string.Equals(latest, current, StringComparison.OrdinalIgnoreCase);
+        return Compare(newVersion.Value, currentVersion.Value) > 0;
+    }
 
-        // Unparsable tags fall back to plain inequality so users still see it.
-        return !string.Equals(latest, current, StringComparison.OrdinalIgnoreCase);
+    /// <summary>Major.minor.patch plus the optional prerelease label; null when unparsable.</summary>
+    internal static (int Major, int Minor, int Patch, string? Prerelease)? ParseSemver(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+
+        var text = value.Trim().TrimStart('v', 'V');
+
+        string? prerelease = null;
+        var dash = text.IndexOf('-');
+        if (dash >= 0)
+        {
+            prerelease = text[(dash + 1)..];
+            text = text[..dash];
+            if (prerelease.Length == 0) return null;
+        }
+
+        // Build metadata never participates in precedence.
+        var plus = text.IndexOf('+');
+        if (plus >= 0) text = text[..plus];
+
+        var parts = text.Split('.');
+        if (parts.Length is < 1 or > 3) return null;
+
+        var numbers = new int[3];
+        for (var i = 0; i < parts.Length; i++)
+        {
+            if (!int.TryParse(parts[i], NumberStyles.None, CultureInfo.InvariantCulture, out numbers[i]))
+                return null;
+        }
+        return (numbers[0], numbers[1], numbers[2], prerelease);
+    }
+
+    private static int Compare(
+        (int Major, int Minor, int Patch, string? Prerelease) a,
+        (int Major, int Minor, int Patch, string? Prerelease) b)
+    {
+        var core = a.Major.CompareTo(b.Major);
+        if (core != 0) return core;
+        core = a.Minor.CompareTo(b.Minor);
+        if (core != 0) return core;
+        core = a.Patch.CompareTo(b.Patch);
+        if (core != 0) return core;
+
+        // A release outranks any prerelease of the same core version.
+        if (a.Prerelease is null && b.Prerelease is null) return 0;
+        if (a.Prerelease is null) return 1;
+        if (b.Prerelease is null) return -1;
+        return ComparePrerelease(a.Prerelease, b.Prerelease);
+    }
+
+    private static int ComparePrerelease(string a, string b)
+    {
+        var left = a.Split('.');
+        var right = b.Split('.');
+        for (var i = 0; i < Math.Max(left.Length, right.Length); i++)
+        {
+            if (i >= left.Length) return -1;
+            if (i >= right.Length) return 1;
+
+            var lNumeric = int.TryParse(left[i], NumberStyles.None, CultureInfo.InvariantCulture, out var ln);
+            var rNumeric = int.TryParse(right[i], NumberStyles.None, CultureInfo.InvariantCulture, out var rn);
+
+            int comparison;
+            if (lNumeric && rNumeric) comparison = ln.CompareTo(rn);
+            else if (lNumeric) comparison = -1; // numeric identifiers sort below alphanumeric
+            else if (rNumeric) comparison = 1;
+            else comparison = string.CompareOrdinal(left[i], right[i]);
+
+            if (comparison != 0) return comparison;
+        }
+        return 0;
     }
 }
