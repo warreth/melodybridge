@@ -39,7 +39,7 @@ builder.Services.AddSingleton<LogExporter>();
 
 // Bridge the standard ILogger<T> pipeline into the log collector
 // so providers, services, and controllers appear in the DevPanel
-builder.Logging.AddProvider(new DevPanelLoggerProvider(logCollector));
+builder.Logging.AddDevPanel(logCollector);
 
 // Register all MelodyBridge services
 builder.Services.AddMelodyBridge();
