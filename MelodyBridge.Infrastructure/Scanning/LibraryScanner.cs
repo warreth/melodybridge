@@ -11,11 +11,14 @@ public class LibraryScanner : ILibraryScanner
 {
     private readonly MelodyBridgeDbContext _db;
     private readonly ILogger<LibraryScanner> _logger;
+    private readonly LibraryReconciler? _reconciler;
 
-    public LibraryScanner(MelodyBridgeDbContext db, ILogger<LibraryScanner> logger)
+    public LibraryScanner(MelodyBridgeDbContext db, ILogger<LibraryScanner> logger,
+        LibraryReconciler? reconciler = null)
     {
         _db = db;
         _logger = logger;
+        _reconciler = reconciler;
     }
 
     public async Task<ScanReport> ScanAsync(IEnumerable<ScanLocation> paths, CancellationToken ct = default)
@@ -105,6 +108,21 @@ public class LibraryScanner : ILibraryScanner
                 {
                     _logger.LogDebug(ex, "Failed to inspect file {file}", filePath);
                 }
+            }
+        }
+
+        // A scan must link the files it found to their playlist rows
+        // right away: without this, a track that exists on disk stays
+        // "pending" until the next restart.
+        if (_reconciler is not null)
+        {
+            try
+            {
+                await _reconciler.ReconcileAllAsync(ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Reconcile after scan failed");
             }
         }
 
