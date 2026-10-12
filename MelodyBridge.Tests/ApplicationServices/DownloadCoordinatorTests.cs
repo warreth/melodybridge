@@ -47,6 +47,45 @@ public class DownloadCoordinatorTests
         }
     }
 
+    /// <summary>
+    /// Blocks inside DownloadAsync until released: pins what a cancel
+    /// does to a download that is already in flight.
+    /// </summary>
+    private sealed class BlockingDownloader : IDownloader
+    {
+        private readonly TaskCompletionSource _release =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public int Started;
+        public int Completed;
+
+        public string Id => "blocking";
+        public string Name => "Blocking (test)";
+        public string Description => "";
+        public PluginCapabilities Capabilities => PluginCapabilities.Any;
+
+        public Task<bool> IsAvailableAsync(CancellationToken ct = default) => Task.FromResult(true);
+
+        public Task<DownloaderSearchHit?> SearchAsync(TrackQuery query, CancellationToken ct = default)
+            => Task.FromResult(new DownloaderSearchHit(query.Title, query.Artist,
+                "https://blocking.example/1", TimeSpan.FromSeconds(1)));
+
+        public async Task<DownloaderDownloadResult> DownloadAsync(
+            string sourceUrl, string outputDirectory, string? melodyId,
+            DownloadQuality? quality = null, CancellationToken ct = default)
+        {
+            Interlocked.Increment(ref Started);
+            await _release.Task.WaitAsync(ct); // throws OperationCanceledException on cancel
+            Interlocked.Increment(ref Completed);
+            Directory.CreateDirectory(outputDirectory);
+            var path = Path.Combine(outputDirectory, $"{melodyId}.mp3");
+            await File.WriteAllBytesAsync(path, TestAudio.MinimalMp3(), CancellationToken.None);
+            return new DownloaderDownloadResult(true, path, null);
+        }
+
+        public void Release() => _release.TrySetResult();
+    }
+
     private sealed class ListRegistry : IDownloaderRegistry
     {
         private readonly IDownloader[] _downloaders;
@@ -185,6 +224,39 @@ public class DownloadCoordinatorTests
         Assert.That(downloader.Downloads, Is.LessThan(10), "cancel must stop before all 10 are done");
         Assert.That(coordinator.RunFor(id)!.Done + coordinator.RunFor(id)!.Failed,
             Is.LessThan(10), "the snapshot reflects the partial run");
+    }
+
+    [Test]
+    public async Task Cancel_WhileATrackIsInFlight_ReleasesTheClaim()
+    {
+        var id = await SeedPlaylistAsync(3);
+        var downloader = new BlockingDownloader();
+        var coordinator = MakeCoordinator(MakeServices(downloader));
+
+        coordinator.Start(id);
+        await WaitForAsync(() => downloader.Started >= 1, TimeSpan.FromSeconds(20));
+
+        coordinator.Cancel(id);
+        downloader.Release(); // let the in-flight call observe the cancelled token
+
+        await WaitForAsync(() => coordinator.RunFor(id)?.State == DownloadRunState.Finished,
+            TimeSpan.FromSeconds(20));
+
+        await using var db = _factory.CreateDbContext();
+        var statuses = await db.Tracks.AsNoTracking()
+            .Where(t => t.PlaylistEntityId == id)
+            .Select(t => t.DownloadStatus)
+            .ToListAsync();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(statuses, Does.Not.Contain("in_progress"),
+                "a cancelled in-flight track must not stay claimed");
+            Assert.That(statuses.Count(s => s == "failed"), Is.GreaterThanOrEqualTo(1),
+                "the cancelled attempt is recorded honestly");
+            Assert.That(downloader.Completed, Is.EqualTo(0),
+                "the blocked track never produced a file");
+        });
     }
 
     [Test]
