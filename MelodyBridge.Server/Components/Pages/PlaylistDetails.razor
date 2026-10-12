@@ -231,8 +231,18 @@ else
                 <span class="eyebrow">Tracks</span>
                 <h2>Tracks (@playlist.Tracks.Count)</h2>
             </div>
-            <input type="search" class="search-input" placeholder="Filter tracks…"
-                   value="@trackFilter" @oninput="OnFilterChanged" />
+            <div class="track-filters">
+                <input type="search" class="search-input" placeholder="Filter tracks…"
+                       value="@trackFilter" @oninput="OnFilterChanged" />
+                @if (attentionCount > 0)
+                {
+                    <button class="filter-chip @(attentionOnly ? "active" : "")"
+                            @onclick="ToggleAttentionOnly"
+                            title="Only failed tracks and tracks waiting for a dedup decision">
+                        Needs attention (@attentionCount)
+                    </button>
+                }
+            </div>
         </div>
         @if (playlist.Tracks.Count == 0)
         {
@@ -259,6 +269,7 @@ else
     private bool busy;
     private string message = string.Empty;
     private string trackFilter = string.Empty;
+    private bool attentionOnly;
     private bool showFilenameColumn;
 
     private string editName = string.Empty;
@@ -613,11 +624,21 @@ else
     private IEnumerable<TrackEntity> FilteredTracks()
     {
         var source = playlist?.Tracks ?? Enumerable.Empty<TrackEntity>();
+        if (attentionOnly)
+            source = source.Where(NeedsAttention);
         if (string.IsNullOrWhiteSpace(trackFilter)) return source;
         return source.Where(t =>
             (t.Title ?? "").Contains(trackFilter, StringComparison.OrdinalIgnoreCase) ||
             (t.Artist ?? "").Contains(trackFilter, StringComparison.OrdinalIgnoreCase));
     }
+
+    /// <summary>Failed tracks and dedup conflicts: the rows that need a human.</summary>
+    private static bool NeedsAttention(TrackEntity t)
+        => t.DownloadStatus is "failed" or "needs-review";
+
+    private int attentionCount => (playlist?.Tracks ?? new List<TrackEntity>()).Count(NeedsAttention);
+
+    private void ToggleAttentionOnly() => attentionOnly = !attentionOnly;
 
     public void Dispose()
     {

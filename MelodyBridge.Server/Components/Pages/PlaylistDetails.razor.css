@@ -18,6 +18,18 @@
     gap: .3rem;
 }
 
+/* Tracks header: the filter input plus the needs-attention chip. */
+.track-filters {
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    flex-wrap: wrap;
+}
+
+.track-filters .search-input {
+    max-width: 220px;
+}
+
 /* Small inline icons inside text (hint boxes, links). */
 ::deep .inline-icon {
     vertical-align: -3px;

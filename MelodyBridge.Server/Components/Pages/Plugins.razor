@@ -14,6 +14,9 @@
             a file. That order applies to the <strong>No filter</strong>
             quality; presets and filters pick their own order by fit.</p>
     </div>
+    <button class="btn-modern small ghost" @onclick="RefreshAvailability" title="Probe every plugin again">
+        <Icon Name="refresh" Size="14" /> Refresh status
+    </button>
 </section>
 
 @if (!string.IsNullOrWhiteSpace(configMessage))
@@ -71,7 +74,7 @@
     @foreach (var plugin in orderedPlugins)
     {
         var enabled = Registry.IsEnabled(plugin.Id);
-        var ready = availability.GetValueOrDefault(plugin.Id);
+        var status = availability.GetValueOrDefault(plugin.Id, new PluginStatus(false, null));
         <article class="plugin-card @(enabled ? "" : "disabled")">
             <div class="plugin-head">
                 <Icon Name="@PluginIconName(plugin.Id)" Size="20" Class="provider-icon" />
@@ -80,9 +83,9 @@
                     <div class="plugin-description">@plugin.Description</div>
                 </div>
                 <div class="plugin-tail">
-                    <StatusPill Variant="@(ready ? "ready" : "unavailable")"
-                                Title="@(ready ? "Checked and reachable" : "Could not reach this plugin")">
-                        @(ready ? "ready" : "unavailable")
+                    <StatusPill Variant="@(status.Ready ? "ready" : "unavailable")"
+                                Title="@(status.Ready ? "Checked and reachable" : status.Detail ?? "Could not reach this plugin")">
+                        @(status.Ready ? "ready" : "unavailable")
                     </StatusPill>
                     <label class="toggle-switch">
                         <input type="checkbox" checked="@enabled"
@@ -106,11 +109,15 @@
                 </div>
             </div>
             <div class="plugin-quality">
-                @foreach (var badge in QualityBadges(plugin.Id))
+                @foreach (var badge in QualityBadges(plugin))
                 {
                     <span class="quality-badge">@badge</span>
                 }
             </div>
+            @if (!status.Ready && !string.IsNullOrEmpty(status.Detail))
+            {
+                <div class="hint-box">@status.Detail</div>
+            }
             @if (plugin.ConfigFields.Count > 0)
             {
                 <details class="plugin-config">
@@ -142,14 +149,18 @@
 </section>
 
 @code {
+    /// <summary>Availability verdict per plugin plus why it is not ready.</summary>
+    private sealed record PluginStatus(bool Ready, string? Detail);
+
     private List<IDownloader> orderedPlugins = new();
-    private Dictionary<string, bool> availability = new();
+    private Dictionary<string, PluginStatus> availability = new();
     private Dictionary<string, string> configValues = new();
     private List<Application.Services.DownloadRun> runs = new();
     private Timer? _timer;
     private string? firstEnabledId;
     private string? lastEnabledId;
     private string? configMessage;
+    private DateTimeOffset lastAvailabilityCheck = DateTimeOffset.MinValue;
 
     protected override async Task OnInitializedAsync()
     {
@@ -161,6 +172,10 @@
         {
             runs = Coordinator.Snapshot().Where(r => r.State != Application.Services.DownloadRunState.Finished).ToList();
             await ReorderPluginsAsync();
+            // Keep the ready pills honest: a cheap re-probe (plugins cache
+            // their own verdicts) every half minute.
+            if (DateTimeOffset.UtcNow - lastAvailabilityCheck > TimeSpan.FromSeconds(30))
+                await RefreshAvailability();
             StateHasChanged();
         }), null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
     }
@@ -202,14 +217,33 @@
 
     private async Task RefreshAvailability()
     {
-        var results = new Dictionary<string, bool>();
+        var results = new Dictionary<string, PluginStatus>();
         foreach (var plugin in orderedPlugins)
         {
-            try { results[plugin.Id] = await plugin.IsAvailableAsync(); }
-            catch { results[plugin.Id] = false; }
+            try
+            {
+                var ready = await plugin.IsAvailableAsync();
+                results[plugin.Id] = new PluginStatus(ready,
+                    ready ? null : AvailabilityHint(plugin) ?? "Could not reach this plugin");
+            }
+            catch (Exception ex)
+            {
+                results[plugin.Id] = new PluginStatus(false, ex.Message);
+            }
         }
         availability = results;
+        lastAvailabilityCheck = DateTimeOffset.UtcNow;
     }
+
+    /// <summary>The actionable reason a known plugin is down.</summary>
+    private static string? AvailabilityHint(IDownloader plugin) => plugin.Id switch
+    {
+        "ytdlp" or "soundcloud" => "yt-dlp is not installed or not on PATH",
+        "monochrome" => "no Monochrome mirror answered",
+        "doubledouble" => "no doubledouble.top host answered",
+        "lucida" => "Cloudflare solver unavailable: set the FlareSolverr URL on the Settings page",
+        _ => null,
+    };
 
     private async Task TogglePluginAsync(string id, bool enabled)
     {
@@ -251,15 +285,50 @@
         _ => "music",
     };
 
-    /// <summary>What this plugin can actually deliver, in plain words.</summary>
-    private static IEnumerable<string> QualityBadges(string id) => id switch
+    /// <summary>
+    /// What this plugin can actually deliver, derived from its declared
+    /// capabilities (never a hand-kept list that drifts), plus a short
+    /// note about its source.
+    /// </summary>
+    private static IEnumerable<string> QualityBadges(IDownloader plugin)
     {
-        "ytdlp" => new[] { "up to 160 kbps (opus)", "re-encodes to any cap", "widest catalog" },
-        "soundcloud" => new[] { "originals 64-320 kbps", "keeps source format on auto" },
-        "archiveorg" => new[] { "public MP3s", "bitrate shown before download" },
-        "lucida" => new[] { "Tidal/Qobuz rips", "lossless-capable", "needs FlareSolverr" },
-        "monochrome" => new[] { "TIDAL rips", "lossless FLAC", "mirror fallback" },
-        "doubledouble" => new[] { "multi-service rips", "direct URLs only", "captcha-gated" },
+        var badges = new List<string>();
+        var containers = plugin.Capabilities.Containers
+            .Where(c => c != AudioFormat.Auto)
+            .Select(FormatName)
+            .Distinct()
+            .ToList();
+        if (containers.Count > 0) badges.Add(string.Join("/", containers));
+        badges.Add(plugin.Capabilities switch
+        {
+            { MinKbps: { } min, MaxKbps: { } max } => $"{min}-{max} kbps",
+            { MaxKbps: { } cap } => $"up to {cap} kbps",
+            { MinKbps: { } floor } => $"{floor}+ kbps",
+            _ => "any bitrate",
+        });
+        if (plugin.Capabilities.SupportsLossless) badges.Add("lossless-capable");
+        badges.AddRange(PluginNotes(plugin.Id));
+        return badges;
+    }
+
+    private static string FormatName(AudioFormat format) => format switch
+    {
+        AudioFormat.Mp3 => "MP3",
+        AudioFormat.Flac => "FLAC",
+        AudioFormat.Opus => "Opus",
+        AudioFormat.Aac => "AAC",
+        _ => format.ToString(),
+    };
+
+    /// <summary>Curated one-liners that capabilities cannot express.</summary>
+    private static IEnumerable<string> PluginNotes(string id) => id switch
+    {
+        "ytdlp" => new[] { "widest catalog" },
+        "soundcloud" => new[] { "original uploads" },
+        "archiveorg" => new[] { "public-domain recordings" },
+        "lucida" => new[] { "needs a FlareSolverr URL" },
+        "monochrome" => new[] { "mirror fallback" },
+        "doubledouble" => new[] { "direct URLs only", "captcha-gated" },
         _ => Array.Empty<string>(),
     };
 

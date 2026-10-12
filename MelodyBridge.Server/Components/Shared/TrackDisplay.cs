@@ -1,3 +1,4 @@
+using System.Globalization;
 using MelodyBridge.Infrastructure.Data;
 
 namespace MelodyBridge.Server.Components.Shared;
@@ -5,7 +6,9 @@ namespace MelodyBridge.Server.Components.Shared;
 /// <summary>
 /// One place that turns a track row into the quality, size and duration
 /// strings the UI shows. Used by the playlist details page and the
-/// library page so both display the same facts the same way.
+/// library page so both display the same facts the same way. Technical
+/// values format invariantly ("44.1 kHz"), never with the browser
+/// locale's decimal separator.
 /// </summary>
 public static class TrackDisplay
 {
@@ -18,7 +21,7 @@ public static class TrackDisplay
     {
         var parts = new List<string>();
         if (bitrate is > 0) parts.Add($"{bitrate} kbps");
-        if (sampleRateHz is > 0) parts.Add($"{sampleRateHz / 1000.0:0.#} kHz");
+        if (sampleRateHz is > 0) parts.Add($"{FormatOne(sampleRateHz.Value / 1000.0)} kHz");
         if (!string.IsNullOrWhiteSpace(mediaType)) parts.Add(mediaType);
         return string.Join(" · ", parts);
     }
@@ -29,7 +32,7 @@ public static class TrackDisplay
 
     /// <summary>Sample rate alone ("44.1 kHz"), "-" when unknown.</summary>
     public static string RateLabel(int? sampleRateHz)
-        => sampleRateHz is > 0 ? $"{sampleRateHz / 1000.0:0.#} kHz" : "-";
+        => sampleRateHz is > 0 ? $"{FormatOne(sampleRateHz.Value / 1000.0)} kHz" : "-";
 
     /// <summary>Upper-cased container ("MP3"), "-" when unknown.</summary>
     public static string FormatLabel(string? mediaType)
@@ -42,16 +45,21 @@ public static class TrackDisplay
     public static string Size(long? bytes)
     {
         if (bytes is not > 0) return string.Empty;
-        var mb = bytes / (1024.0 * 1024.0);
+        var mb = bytes.Value / (1024.0 * 1024.0);
         return mb >= 1024
-            ? $"{mb / 1024.0:0.#} GB"
+            ? $"{FormatOne(mb / 1024.0)} GB"
             : mb >= 1
-                ? $"{mb:0.#} MB"
-                : $"{bytes / 1024.0:0.#} KB";
+                ? $"{FormatOne(mb)} MB"
+                : $"{FormatOne(bytes.Value / 1024.0)} KB";
     }
 
+    /// <summary>Duration as "m:ss", "-" when unknown.</summary>
     public static string Duration(long? ms)
         => ms is > 0
-            ? TimeSpan.FromMilliseconds(ms.Value).ToString(@"mm\:ss")
+            ? TimeSpan.FromMilliseconds(ms.Value).ToString(@"mm\:ss", CultureInfo.InvariantCulture)
             : "-";
+
+    /// <summary>One decimal, invariant: the UI language is not a number format.</summary>
+    private static string FormatOne(double value)
+        => value.ToString("0.#", CultureInfo.InvariantCulture);
 }

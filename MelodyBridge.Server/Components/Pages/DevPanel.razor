@@ -4,7 +4,6 @@
 @inject DevPanelService Dev
 @inject IDownloaderRegistry Registry
 @inject IDownloadManager DownloadMgr
-@inject IDownloadManager DownloadMgr
 @attribute [Microsoft.AspNetCore.Authorization.AllowAnonymous]
 
 <PageTitle>Dev Panel</PageTitle>
@@ -341,9 +340,11 @@
         {
             Dev.LogInfo("Search", $"Searching for \"{query}\"");
 
-            // Query is "artist - title" or plain text; split on " - " when present.
+            // Query is "artist - title" or a plain title; split on " - "
+            // when present. Without a separator the whole query is the
+            // title, never both fields (that doubled the search term).
             var parts = query.Split(" - ", 2, StringSplitOptions.TrimEntries);
-            var artist = parts.Length == 2 ? parts[0] : query;
+            var artist = parts.Length == 2 ? parts[0] : "";
             var title = parts.Length == 2 ? parts[1] : query;
 
             foreach (var plugin in Registry.GetEnabled())

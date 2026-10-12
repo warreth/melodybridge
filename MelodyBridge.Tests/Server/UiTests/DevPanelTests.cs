@@ -433,6 +433,25 @@ public class DevPanelTests
     }
 
     [Test]
+    public void DevPanel_SearchWithoutSeparator_DoesNotDoubleTheQuery()
+    {
+        // Plain-text queries used to reach the plugins as both artist and
+        // title, doubling the search term ("Night Owl Night Owl").
+        var cut = _ctx.Render<DevPanel>();
+        var input = cut.Find("input.search-input");
+        input.Input("Night Owl");
+        cut.FindAll("button").First(b => b.TextContent.Trim().Contains("Search")).Click();
+
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("hit for Night Owl")), TimeSpan.FromSeconds(5));
+
+        Assert.That(Provider1.LastSearchArtist, Is.EqualTo(""),
+            "a query without a separator has no artist half");
+        Assert.That(Provider1.LastSearchTitle, Is.EqualTo("Night Owl"),
+            "the whole query is the title exactly once");
+    }
+
+    [Test]
     public void DevPanel_SearchResultDownload_LogsQueueAction()
     {
         var cut = _ctx.Render<DevPanel>();
@@ -679,18 +698,27 @@ public class TestDownloader : IDownloader
 
     public Task<bool> IsAvailableAsync(CancellationToken ct = default) => Task.FromResult(true);
 
-    public Task<DownloaderSearchHit?> SearchAsync(string artist, string title, DownloadQuality quality, CancellationToken ct = default)
-        => Task.FromResult(new DownloaderSearchHit(
+    public string? LastSearchArtist;
+    public string? LastSearchTitle;
+
+    public Task<DownloaderSearchHit?> SearchAsync(string artist, string title, DownloadQuality quality, TimeSpan? expectedDuration = null, CancellationToken ct = default)
+    {
+        LastSearchArtist = artist;
+        LastSearchTitle = title;
+        return Task.FromResult(new DownloaderSearchHit(
             $"{Name} hit for {title}", artist,
             $"https://example.com/{Id}/{Uri.EscapeDataString(title)}",
             TimeSpan.FromSeconds(180)));
+    }
 
     public async Task<DownloaderDownloadResult> DownloadAsync(
         string sourceUrl, string outputDirectory, string? melodyId, DownloadQuality? quality = null, CancellationToken ct = default)
     {
         Directory.CreateDirectory(outputDirectory);
         var path = Path.Combine(outputDirectory, $"{melodyId}.mp3");
-        await System.IO.File.WriteAllTextAsync(path, $"downloaded by {Id}", ct);
+        // Real MP3 bytes: the manager sniffs finished files before
+        // accepting them, so a text file would be rejected as non-audio.
+        await System.IO.File.WriteAllBytesAsync(path, TestAudio.MinimalMp3(), ct);
         return new DownloaderDownloadResult(true, path, null);
     }
 }

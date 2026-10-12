@@ -87,7 +87,10 @@ public class PluginsPageTests
     {
         var cut = _ctx.Render<Plugins>();
 
-        Assert.That(cut.Markup, Does.Contain("re-encodes to any cap"), "yt-dlp badges render");
+        // Badges derive from the declared capabilities plus a curated
+        // note; the stub declares the "anything might work" manifest.
+        Assert.That(cut.Markup, Does.Contain("any bitrate"), "the capability band renders");
+        Assert.That(cut.Markup, Does.Contain("widest catalog"), "the curated note renders");
     }
 
     [Test]

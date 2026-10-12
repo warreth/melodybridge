@@ -206,10 +206,9 @@ public class PluginsInteractionTests
         var badges = CardFor(cut, "yt-dlp (YouTube)")
             .QuerySelectorAll("span.quality-badge")
             .Select(b => b.TextContent.Trim()).ToList();
-        Assert.That(badges.Count, Is.EqualTo(3), "one span per badge, no fusing");
         Assert.That(badges, Is.EqualTo(new[]
         {
-            "up to 160 kbps (opus)", "re-encodes to any cap", "widest catalog",
+            "any bitrate", "lossless-capable", "widest catalog",
         }), "each badge keeps its own text with real spaces");
     }
 
