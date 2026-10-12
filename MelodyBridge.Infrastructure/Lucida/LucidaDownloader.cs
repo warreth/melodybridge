@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
+using MelodyBridge.Infrastructure.Services;
 using MelodyBridge.Infrastructure.Tagging;
 using Microsoft.Extensions.Logging;
 
@@ -71,7 +72,8 @@ public class LucidaDownloader : IDownloader
     }
 
     public async Task<DownloaderSearchHit?> SearchAsync(
-        string artist, string title, DownloadQuality quality, CancellationToken ct = default)
+        string artist, string title, DownloadQuality quality,
+        TimeSpan? expectedDuration = null, CancellationToken ct = default)
     {
         // One challenge solve up front; the solver session is reused for every
         // service request below, and SendWithRefreshAsync re-solves on a 403.
@@ -97,7 +99,7 @@ public class LucidaDownloader : IDownloader
         DownloaderSearchHit? best = null;
         foreach (var (service, country) in SearchServices)
         {
-            var hit = await SearchServiceAsync(service, country, artist, title, credentials, ct);
+            var hit = await SearchServiceAsync(service, country, artist, title, expectedDuration, credentials, ct);
             if (hit is null) continue;
 
             // A High-confidence match cannot be beaten by a later service;
@@ -115,7 +117,7 @@ public class LucidaDownloader : IDownloader
     /// </summary>
     private async Task<DownloaderSearchHit?> SearchServiceAsync(
         string service, string country, string artist, string title,
-        CloudflareCredentials credentials, CancellationToken ct)
+        TimeSpan? expectedDuration, CloudflareCredentials credentials, CancellationToken ct)
     {
         try
         {
@@ -133,7 +135,7 @@ public class LucidaDownloader : IDownloader
             var blob = Between(html, PdStart, PdEnd);
             if (blob is null) return null;
 
-            return FindBestTrack(blob, artist, title);
+            return FindBestTrack(blob, artist, title, expectedDuration);
         }
         catch (Exception ex)
         {
@@ -274,7 +276,18 @@ public class LucidaDownloader : IDownloader
                 }
             }
 
-            return new DownloaderDownloadResult(true, path, null);
+            // Sniff the real bytes: a rip server that answers with an HTML
+            // error page under a 200 must not land as an audio file. The
+            // extension follows the actual container, not the content type.
+            var container = Audio.AudioSignature.EnsureExtension(path);
+            if (container is null || new FileInfo(container).Length == 0)
+            {
+                try { File.Delete(container ?? path); } catch { /* best effort */ }
+                return new DownloaderDownloadResult(false, null,
+                    "lucida returned a file that is not audio");
+            }
+
+            return new DownloaderDownloadResult(true, container, null);
         }
         catch (Exception ex)
         {
@@ -327,8 +340,13 @@ public class LucidaDownloader : IDownloader
         return clone;
     }
 
-    /// <summary>Picks the best matching track from the search page-data blob.</summary>
-    private static DownloaderSearchHit? FindBestTrack(string blob, string artist, string title)
+    /// <summary>
+    /// Picks the best matching track from the search page-data blob:
+    /// every entry is a candidate, ranked by title/artist similarity plus
+    /// duration proximity, with the runner-ups attached as alternatives.
+    /// </summary>
+    private static DownloaderSearchHit? FindBestTrack(
+        string blob, string artist, string title, TimeSpan? expectedDuration)
     {
         try
         {
@@ -339,8 +357,7 @@ public class LucidaDownloader : IDownloader
                 || tracks.Value.GetArrayLength() == 0)
                 return null;
 
-            DownloaderSearchHit? best = null;
-            var bestScore = -1.0;
+            var candidates = new List<DownloaderSearchHit>();
             foreach (var entry in tracks.Value.EnumerateArray())
             {
                 var url = entry.GetPropertySafe("url")?.GetString();
@@ -353,19 +370,16 @@ public class LucidaDownloader : IDownloader
                     .Select(a => a.GetPropertySafe("name")?.GetString() ?? ""));
                 var durationMs = entry.GetPropertySafe("duration")?.GetInt64Safe();
 
-                var score = FuzzyScore(artist, title, entryArtist, entryTitle);
-                if (score <= bestScore) continue;
-
-                bestScore = score;
-                best = new DownloaderSearchHit(
+                candidates.Add(new DownloaderSearchHit(
                     entryTitle,
                     entryArtist,
                     url,
                     durationMs is > 0 ? TimeSpan.FromMilliseconds(durationMs.Value) : null,
-                    MatchConfidence: MelodyBridge.Infrastructure.Services.FuzzyMatcher.Confidence(
-                        artist, title, entryArtist, entryTitle));
+                    MatchConfidence: Services.FuzzyMatcher.Confidence(
+                        artist, title, entryArtist, entryTitle)));
             }
-            return best;
+
+            return SearchRanker.Rank(artist, title, expectedDuration, candidates);
         }
         catch
         {
@@ -424,14 +438,6 @@ public class LucidaDownloader : IDownloader
             default:
                 return null;
         }
-    }
-
-    private static double FuzzyScore(
-        string artist, string title, string hitArtist, string hitTitle)
-    {
-        // Averaged similarity; only used to rank hits against each other.
-        return (MelodyBridge.Infrastructure.Services.FuzzyMatcher.Similarity(title, hitTitle)
-                + MelodyBridge.Infrastructure.Services.FuzzyMatcher.Similarity(artist, hitArtist)) / 2;
     }
 
     private static string? ReadString(string json, string property)

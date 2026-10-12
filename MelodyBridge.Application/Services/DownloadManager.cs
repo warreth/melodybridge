@@ -1,6 +1,8 @@
 using System.Collections.Concurrent;
 using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.Audio;
+using MelodyBridge.Infrastructure.Files;
+using MelodyBridge.Infrastructure.Services;
 using MelodyBridge.Infrastructure.Tagging;
 using Microsoft.Extensions.Logging;
 
@@ -9,6 +11,12 @@ namespace MelodyBridge.Application.Services;
 /// <summary>
 /// Coordinates downloader plugins (the waterfall): given track metadata,
 /// search and download through enabled plugins in priority order.
+///
+/// Every plugin call is individually guarded: a plugin that throws on
+/// availability, search or download never stops the waterfall, it just
+/// stops being the answer for this track. Search hits are duration-checked
+/// before any bytes are spent, and every produced file is sniffed for real
+/// audio bytes before it can enter the library.
 /// </summary>
 public class DownloadManager : IDownloadManager
 {
@@ -36,20 +44,21 @@ public class DownloadManager : IDownloadManager
         // Direct URL case: let plugins download the URL as-is.
         foreach (var downloader in _registry.GetEnabled())
         {
-            if (!await downloader.IsAvailableAsync(ct))
-            {
-                _logger.LogDebug("Skipping {Name}: unavailable", downloader.Name);
+            if (!await AvailableAsync(downloader, ct))
                 continue;
-            }
 
             try
             {
                 var result = await downloader.DownloadAsync(sourceUrl, outputDirectory, melodyId, null, ct);
                 if (result.Success && result.FilePath is not null)
+                {
+                    if (RejectNonAudio(result.FilePath, downloader.Name))
+                        continue;
                     return result.FilePath;
+                }
                 _logger.LogWarning("{Name} failed for {Url}: {Error}", downloader.Name, sourceUrl, result.ErrorMessage);
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 _logger.LogWarning(ex, "{Name} threw for {Url}", downloader.Name, sourceUrl);
             }
@@ -71,13 +80,15 @@ public class DownloadManager : IDownloadManager
     /// </summary>
     public async Task<string?> DownloadTrackAsync(
         string artist, string title, string outputDirectory, string melodyId,
-        DownloadQuality? quality = null, CancellationToken ct = default)
+        DownloadQuality? quality = null, TimeSpan? expectedDuration = null, CancellationToken ct = default)
     {
         quality ??= DownloadQuality.Any;
         _progress[melodyId] = new DownloadProgress(melodyId, title, "searching", null, null);
         _lastFailure.TryRemove(melodyId, out _);
         // Why nothing landed: hits the filters rejected, versus no hit at all.
         var skippedByBand = 0;
+        var skippedByDuration = 0;
+        var skippedByInvalid = 0;
         try
         {
             // Quality-aware routing: plugins that cannot serve this request
@@ -89,35 +100,66 @@ public class DownloadManager : IDownloadManager
 
             foreach (var downloader in plan.Plugins)
             {
-                if (!await downloader.IsAvailableAsync(ct))
-                {
-                    _logger.LogDebug("Skipping {Name}: unavailable", downloader.Name);
+                ct.ThrowIfCancellationRequested();
+                if (!await AvailableAsync(downloader, ct))
                     continue;
-                }
 
-                var hit = await downloader.SearchAsync(artist, title, quality, ct);
-                if (hit is null || hit.SourceUrl is null)
+                var hit = await SearchAsync(downloader, artist, title, quality, expectedDuration, ct);
+                if (hit is null)
                 {
                     _logger.LogDebug("{Name}: no search hit for '{Artist} - {Title}'", downloader.Name, artist, title);
                     continue;
                 }
 
-                // Quality gate: reject reported bitrates outside the requested band.
-                if (!quality.IsWithinBand(hit.BitrateKbps))
+                // The primary hit plus the runner-ups the plugin attached:
+                // a dead first choice (deleted video, geo-block) gets one
+                // more chance from the same plugin instead of losing it.
+                foreach (var candidate in Candidates(hit))
                 {
-                    skippedByBand++;
-                    _logger.LogInformation(
-                        "{Name} hit for '{Title}' is {Hit} kbps, outside the requested {Min}-{Max} kbps band; skipping",
-                        downloader.Name, title, hit.BitrateKbps,
-                        quality.MinKbps?.ToString() ?? "any", quality.MaxKbps?.ToString() ?? "any");
-                    continue;
-                }
+                    ct.ThrowIfCancellationRequested();
 
-                _progress[melodyId] = new DownloadProgress(
-                    melodyId, title, "downloading", downloader.Name, null, hit.MatchConfidence);
-                var result = await downloader.DownloadAsync(hit.SourceUrl, outputDirectory, melodyId, quality, ct);
-                if (result.Success && result.FilePath is not null)
-                {
+                    // Gross duration mismatch: a preview or an unrelated
+                    // edit is the wrong track, reject before spending bytes.
+                    if (!FuzzyMatcher.DurationPlausible(expectedDuration, candidate.Duration))
+                    {
+                        skippedByDuration++;
+                        _logger.LogInformation(
+                            "{Name} candidate '{Hit}' is {HitLength:0}s long, expected ~{Expected:0}s; skipping",
+                            downloader.Name, candidate.Title,
+                            candidate.Duration?.TotalSeconds ?? 0, expectedDuration?.TotalSeconds ?? 0);
+                        continue;
+                    }
+
+                    // Quality gate: reject reported bitrates outside the requested band.
+                    if (!quality.IsWithinBand(candidate.BitrateKbps))
+                    {
+                        skippedByBand++;
+                        _logger.LogInformation(
+                            "{Name} hit for '{Title}' is {Hit} kbps, outside the requested {Min}-{Max} kbps band; skipping",
+                            downloader.Name, title, candidate.BitrateKbps,
+                            quality.MinKbps?.ToString() ?? "any", quality.MaxKbps?.ToString() ?? "any");
+                        continue;
+                    }
+
+                    _progress[melodyId] = new DownloadProgress(
+                        melodyId, title, "downloading", downloader.Name, null, candidate.MatchConfidence);
+                    var result = await DownloadAsync(downloader, candidate.SourceUrl!, outputDirectory, melodyId, quality, ct);
+                    if (result is null || !result.Success || result.FilePath is null)
+                    {
+                        _logger.LogWarning("{Name} download failed for '{Artist} - {Title}': {Error}",
+                            downloader.Name, artist, title, result?.ErrorMessage ?? "no result");
+                        continue;
+                    }
+
+                    // Real bytes only: an error page saved as audio must
+                    // never pass. The check reads the file's leading bytes,
+                    // never its extension.
+                    if (RejectNonAudio(result.FilePath, downloader.Name))
+                    {
+                        skippedByInvalid++;
+                        continue;
+                    }
+
                     // Enforce the band on the real file: plugins can over-promise,
                     // the measurement never lies.
                     var measured = BitrateProbe.MeasureKbps(result.FilePath);
@@ -128,7 +170,7 @@ public class DownloadManager : IDownloadManager
                             "{Name} produced {Measured} kbps for '{Title}', outside the requested {Min}-{Max} kbps band; rejecting",
                             downloader.Name, measured, title,
                             quality.MinKbps?.ToString() ?? "any", quality.MaxKbps?.ToString() ?? "any");
-                        try { System.IO.File.Delete(result.FilePath); } catch { /* best effort */ }
+                        FileCleanup.DeleteQuietly(result.FilePath);
                         continue;
                     }
 
@@ -139,16 +181,15 @@ public class DownloadManager : IDownloadManager
                     TaglibHelper.WriteMelodyId(result.FilePath, melodyId);
 
                     _progress[melodyId] = new DownloadProgress(
-                        melodyId, title, "done", downloader.Name, result.FilePath, hit.MatchConfidence,
+                        melodyId, title, "done", downloader.Name, result.FilePath, candidate.MatchConfidence,
                         Warning: measured is null ? "bitrate could not be verified" : null);
                     return result.FilePath;
                 }
-
-                _logger.LogWarning("{Name} download failed for '{Artist} - {Title}': {Error}",
-                    downloader.Name, artist, title, result.ErrorMessage);
             }
 
-            _progress[melodyId] = new DownloadProgress(melodyId, title, "failed", null, "No plugin could download this track");
+            _progress[melodyId] = new DownloadProgress(
+                melodyId, title, "failed", null, null,
+                Warning: "No plugin could download this track");
             // Distinguish "nothing matched your filters" from "nobody has
             // the track": the fix for the first is relaxing the filters.
             _lastFailure[melodyId] =
@@ -156,13 +197,91 @@ public class DownloadManager : IDownloadManager
                     ? "your quality filters excluded every plugin"
                     : skippedByBand > 0
                         ? $"sources had {skippedByBand} file(s) outside your quality filters"
-                        : "no source had this track";
+                        : skippedByInvalid > 0
+                            ? "sources returned files that are not audio"
+                            : skippedByDuration > 0
+                                ? "sources only had versions with the wrong length"
+                                : "no source had this track";
             return null;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            _progress[melodyId] = new DownloadProgress(melodyId, title, "failed", null, ex.Message);
+            _progress[melodyId] = new DownloadProgress(melodyId, title, "failed", null, null, Warning: ex.Message);
             throw;
         }
+    }
+
+    /// <summary>The primary hit followed by its runner-up alternatives.</summary>
+    private static IEnumerable<DownloaderSearchHit> Candidates(DownloaderSearchHit hit)
+    {
+        yield return hit;
+        if (hit.Alternatives is null) yield break;
+        foreach (var alternative in hit.Alternatives)
+            yield return alternative;
+    }
+
+    /// <summary>
+    /// Availability with its own guard: a plugin that throws while
+    /// probing is unavailable for this track, nothing more.
+    /// </summary>
+    private async Task<bool> AvailableAsync(IDownloader downloader, CancellationToken ct)
+    {
+        try
+        {
+            if (await downloader.IsAvailableAsync(ct)) return true;
+            _logger.LogDebug("Skipping {Name}: unavailable", downloader.Name);
+            return false;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Skipping {Name}: availability probe threw", downloader.Name);
+            return false;
+        }
+    }
+
+    /// <summary>Search with its own guard; a throw is a miss for this plugin.</summary>
+    private async Task<DownloaderSearchHit?> SearchAsync(
+        IDownloader downloader, string artist, string title,
+        DownloadQuality quality, TimeSpan? expectedDuration, CancellationToken ct)
+    {
+        try
+        {
+            return await downloader.SearchAsync(artist, title, quality, expectedDuration, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "{Name} search threw for '{Artist} - {Title}'", downloader.Name, artist, title);
+            return null;
+        }
+    }
+
+    /// <summary>Download with its own guard; a throw is a miss for this candidate.</summary>
+    private async Task<DownloaderDownloadResult?> DownloadAsync(
+        IDownloader downloader, string sourceUrl, string outputDirectory,
+        string melodyId, DownloadQuality quality, CancellationToken ct)
+    {
+        try
+        {
+            return await downloader.DownloadAsync(sourceUrl, outputDirectory, melodyId, quality, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "{Name} download threw for {Url}", downloader.Name, sourceUrl);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Deletes a file whose bytes are not audio and reports the rejection.
+    /// Returns true when the file was rejected (caller moves on).
+    /// </summary>
+    private bool RejectNonAudio(string filePath, string pluginName)
+    {
+        if (AudioSignature.LooksLikeAudio(filePath)) return false;
+        _logger.LogWarning(
+            "{Name} produced {File}, which is not audio (no recognizable container signature); deleting",
+            pluginName, filePath);
+        FileCleanup.DeleteQuietly(filePath);
+        return true;
     }
 }

@@ -71,7 +71,8 @@ public class DownloadWriteThroughTests
         public Task<bool> IsAvailableAsync(CancellationToken ct = default) => Task.FromResult(true);
 
         public Task<DownloaderSearchHit?> SearchAsync(
-            string artist, string title, DownloadQuality quality, CancellationToken ct = default)
+            string artist, string title, DownloadQuality quality,
+            TimeSpan? expectedDuration = null, CancellationToken ct = default)
             => Task.FromResult<DownloaderSearchHit?>(
                 new DownloaderSearchHit(title, artist, "flac://real", TimeSpan.FromSeconds(3),
                     MatchConfidence: MatchConfidence.High));
@@ -122,7 +123,7 @@ public class DownloadWriteThroughTests
         Directory.CreateDirectory(dir);
 
         var services = new ServiceCollection();
-        services.AddDbContextFactory<MelodyBridgeDbContext>(o => o.UseSqlite($"Data Source={dbPath}"));
+        services.AddDbContextFactory<MelodyBridgeDbContext>(o => o.UseSqlite($"Data Source={dbPath};Pooling=False"));
         var sp = services.BuildServiceProvider();
         var factory = sp.GetRequiredService<IDbContextFactory<MelodyBridgeDbContext>>();
         await using (var db = await factory.CreateDbContextAsync())

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using MelodyBridge.Core;
 
 namespace MelodyBridge.Infrastructure.Downloaders;
 
@@ -13,6 +14,77 @@ internal static class YtDlpProcess
 
     /// <summary>Resolved yt-dlp binary path, or null when not installed.</summary>
     public static string? BinaryPath => Binary.Value;
+
+    /// <summary>
+    /// Download arguments shared by the yt-dlp-backed plugins. Always
+    /// audio-only: yt-dlp's default format chain is
+    /// bestvideo*+bestaudio, which downloads full video files (tens of
+    /// megabytes) for a music library that only needs the audio stream
+    /// (a few megabytes). Explicit formats add the transcode flags.
+    /// </summary>
+    public static List<string> BuildDownloadArgs(string template, string sourceUrl, DownloadQuality quality)
+    {
+        var args = new List<string>
+        {
+            "-f", "bestaudio/best",
+            "-o", template,
+            sourceUrl,
+            "--print-json",
+            "--no-simulate",
+            // A watch URL carrying a list parameter must download the
+            // track, never the whole playlist.
+            "--no-playlist",
+            "--socket-timeout", "20",
+            "--retries", "3",
+            "--fragment-retries", "3",
+        };
+        if (quality.NeedsTranscode)
+        {
+            args.InsertRange(0, new[]
+            {
+                "-x",
+                "--audio-format", AudioFormatArg(quality.Format),
+                "--audio-quality", quality.YtDlpAudioQuality,
+                "--embed-metadata",
+            });
+        }
+        return args;
+    }
+
+    /// <summary>yt-dlp's --audio-format name for the requested container.</summary>
+    private static string AudioFormatArg(AudioFormat format) => format switch
+    {
+        AudioFormat.Aac => "m4a", // yt-dlp names the AAC container m4a
+        AudioFormat.Opus => "opus",
+        AudioFormat.Flac => "flac",
+        _ => "mp3",
+    };
+
+    /// <summary>
+    /// Runs a download with one retry on a transient failure (YouTube 403s
+    /// and timeouts happen under parallel downloads; a fresh extraction
+    /// usually hands out new media URLs). Caller cancellation and real
+    /// errors propagate immediately.
+    /// </summary>
+    public static async Task<(int exit, string stdout, string stderr)> RunDownloadAsync(
+        IReadOnlyList<string> arguments, TimeSpan timeout, CancellationToken ct)
+    {
+        var first = await RunAsync(arguments, timeout, ct);
+        if (first.exit == 0 || !IsTransientFailure(first.stderr))
+            return first;
+
+        await Task.Delay(TimeSpan.FromSeconds(3), ct);
+        return await RunAsync(arguments, timeout, ct);
+    }
+
+    /// <summary>Media-URL 403/429/5xx and connection timeouts are worth a second try.</summary>
+    internal static bool IsTransientFailure(string stderr)
+        => stderr.Contains("HTTP Error 403", StringComparison.Ordinal)
+        || stderr.Contains("HTTP Error 429", StringComparison.Ordinal)
+        || stderr.Contains("HTTP Error 5", StringComparison.Ordinal)
+        || stderr.Contains("timed out", StringComparison.OrdinalIgnoreCase)
+        || stderr.Contains("Connection reset", StringComparison.OrdinalIgnoreCase)
+        || stderr.Contains("Temporary failure", StringComparison.OrdinalIgnoreCase);
 
     public static async Task<(int exit, string stdout, string stderr)> RunAsync(
         IReadOnlyList<string> arguments, TimeSpan timeout, CancellationToken ct)

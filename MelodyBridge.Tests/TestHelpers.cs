@@ -39,7 +39,7 @@ public sealed class TestDownloader : IDownloader
     public IReadOnlyList<PluginConfigField> ConfigFields { get; } = Array.Empty<PluginConfigField>();
     public Task<bool> IsAvailableAsync(CancellationToken ct = default) => Task.FromResult(true);
 
-    public Task<DownloaderSearchHit?> SearchAsync(string artist, string title, DownloadQuality quality, CancellationToken ct = default)
+    public Task<DownloaderSearchHit?> SearchAsync(string artist, string title, DownloadQuality quality, TimeSpan? expectedDuration = null, CancellationToken ct = default)
         => Task.FromResult<DownloaderSearchHit?>(null);
 
     public Task<DownloaderDownloadResult> DownloadAsync(

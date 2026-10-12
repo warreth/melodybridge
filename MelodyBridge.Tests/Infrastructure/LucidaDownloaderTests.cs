@@ -220,9 +220,12 @@ public class LucidaDownloaderTests
             if (url.EndsWith("/api/fetch/request/h1/download"))
             {
                 stage = 3;
+                var payload = new List<byte>();
+                payload.AddRange("fLaC"u8.ToArray());
+                payload.AddRange(System.Text.Encoding.UTF8.GetBytes("fake-flac-bytes"));
                 return new HttpResponseMessage(HttpStatusCode.OK)
                 {
-                    Content = new StringContent("fake-flac-bytes")
+                    Content = new ByteArrayContent(payload.ToArray())
                     {
                         Headers = { ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("audio/flac") },
                     },
@@ -248,7 +251,7 @@ public class LucidaDownloaderTests
         });
 
         var content = await File.ReadAllTextAsync(result.FilePath!);
-        Assert.That(content, Is.EqualTo("fake-flac-bytes"));
+        Assert.That(content, Is.EqualTo("fLaCfake-flac-bytes"));
         Directory.Delete(dir, recursive: true);
     }
 

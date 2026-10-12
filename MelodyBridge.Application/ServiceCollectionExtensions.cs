@@ -37,7 +37,12 @@ public static class ServiceCollectionExtensions
                 sp.GetRequiredService<ILogger<ArchiveOrgDownloader>>()));
         services.AddSingleton<IDownloader>(sp =>
             new YtDlpDownloader(sp.GetRequiredService<ILogger<YtDlpDownloader>>()));
-        services.AddHttpClient("archiveorg", c => c.Timeout = TimeSpan.FromMinutes(5));
+        services.AddHttpClient("archiveorg", c =>
+        {
+            // archive.org asks API clients to identify themselves.
+            c.DefaultRequestHeaders.UserAgent.ParseAdd("MelodyBridge/1.0 (+https://melodybridge.app)");
+            c.Timeout = TimeSpan.FromMinutes(5);
+        });
 
         // Cloudflare solver shared by challenge-gated plugins (Lucida).
         services.AddHttpClient("flaresolverr", c => c.Timeout = TimeSpan.FromMinutes(2));
@@ -56,8 +61,10 @@ public static class ServiceCollectionExtensions
 
         // Community Hi-Fi rips: Monochrome mirrors TIDAL (search + manifest),
         // DoubleDouble rips many services by direct URL (submit + poll, no
-        // metadata search: the frontend search is captcha-gated).
-        services.AddHttpClient("monochrome", c => c.Timeout = TimeSpan.FromSeconds(30));
+        // metadata search: the frontend search is captcha-gated). The
+        // Monochrome client allows long manifest transfers; the plugin caps
+        // each API call with its own short timeout.
+        services.AddHttpClient("monochrome", c => c.Timeout = TimeSpan.FromMinutes(5));
         services.AddSingleton<IDownloader>(sp =>
             new MonochromeDownloader(
                 sp.GetRequiredService<IHttpClientFactory>().CreateClient("monochrome"),

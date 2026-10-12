@@ -42,6 +42,46 @@ public static class FuzzyMatcher
          + 0.3 * ArtistScore(requestedArtist, hitArtist);
 
     /// <summary>
+    /// Score with a duration-proximity penalty: when the expected length
+    /// is known and the hit deviates from it, equally-named candidates
+    /// (a remix, a live cut, a longer album version) lose against the
+    /// close match. No penalty when either duration is unknown.
+    /// </summary>
+    public static double ScoreWithDuration(
+        string requestedArtist, string requestedTitle, TimeSpan? expectedDuration,
+        string? hitArtist, string? hitTitle, TimeSpan? hitDuration)
+    {
+        var score = Score(requestedArtist, requestedTitle, hitArtist, hitTitle);
+        if (expectedDuration is { TotalSeconds: >= 45 } expected && hitDuration is { } hit)
+        {
+            var tolerance = Math.Max(15, expected.TotalSeconds * 0.12);
+            var delta = Math.Abs((hit - expected).TotalSeconds);
+            if (delta > tolerance)
+            {
+                var excess = (delta - tolerance) / expected.TotalSeconds;
+                score *= Math.Max(0.1, 1 - excess);
+            }
+        }
+        return score;
+    }
+
+    /// <summary>
+    /// True when a hit's length is plausible for the requested track.
+    /// Both durations must be known and the expected track at least 45
+    /// seconds long; the hit must land within [0.55x, 1.8x] of the
+    /// expectation. Previews (a 30s clip of a 4-minute song) and
+    /// unrelated extended edits are rejected; live versions with an
+    /// intro still pass.
+    /// </summary>
+    public static bool DurationPlausible(TimeSpan? expected, TimeSpan? hit)
+    {
+        if (expected is not { } e || hit is not { } h) return true;
+        if (e.TotalSeconds < 45) return true; // short tracks carry too little signal
+        var ratio = h.TotalSeconds / e.TotalSeconds;
+        return ratio is >= 0.55 and <= 1.8;
+    }
+
+    /// <summary>
     /// Artist similarity with channel-name tolerance: a hit artist that
     /// contains the requested artist as a whole word scores full marks,
     /// because uploaders decorate names ("RegardVEVO", "Regard - Topic").

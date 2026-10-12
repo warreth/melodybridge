@@ -28,7 +28,7 @@ public class QualityRouterTests
         public PluginCapabilities Capabilities => caps;
         public Task<bool> IsAvailableAsync(CancellationToken ct = default) => Task.FromResult(true);
 
-        public Task<DownloaderSearchHit?> SearchAsync(string artist, string title, DownloadQuality quality, CancellationToken ct = default)
+        public Task<DownloaderSearchHit?> SearchAsync(string artist, string title, DownloadQuality quality, TimeSpan? expectedDuration = null, CancellationToken ct = default)
         {
             searchSpy?.Add(id);
             return Task.FromResult<DownloaderSearchHit?>(null);
@@ -53,7 +53,7 @@ public class QualityRouterTests
         public PluginCapabilities Capabilities => caps;
         public Task<bool> IsAvailableAsync(CancellationToken ct = default) => Task.FromResult(true);
 
-        public Task<DownloaderSearchHit?> SearchAsync(string artist, string title, DownloadQuality quality, CancellationToken ct = default)
+        public Task<DownloaderSearchHit?> SearchAsync(string artist, string title, DownloadQuality quality, TimeSpan? expectedDuration = null, CancellationToken ct = default)
         {
             callOrder.Add(id);
             return Task.FromResult<DownloaderSearchHit?>(
@@ -67,7 +67,11 @@ public class QualityRouterTests
             callOrder.Add(id + ":download");
             Directory.CreateDirectory(outputDirectory);
             var path = Path.Combine(outputDirectory, $"{id}.{fileExt}");
-            File.WriteAllText(path, "x");
+            // The manager sniffs real bytes before accepting a file, so the
+            // spy writes the matching container magic.
+            File.WriteAllBytes(path, fileExt == "flac"
+                ? "fLaC"u8.ToArray()
+                : TestAudio.MinimalMp3());
             return Task.FromResult(new DownloaderDownloadResult(true, path, null));
         }
     }
@@ -247,8 +251,9 @@ public class QualityRouterTests
         Assert.That(SoundCloudDownloader.Caps.Containers, Is.EqualTo(new[] { AudioFormat.Mp3 }));
         Assert.That(SoundCloudDownloader.Caps.MinKbps, Is.EqualTo(128));
         Assert.That(SoundCloudDownloader.Caps.MaxKbps, Is.EqualTo(320));
-        Assert.That(SoundCloudDownloader.Caps.SupportsLossless, Is.True);
-        Assert.That(SoundCloudDownloader.Caps.SupportsLossy, Is.False);
+        Assert.That(SoundCloudDownloader.Caps.SupportsLossless, Is.False,
+            "SoundCloud serves lossy originals only");
+        Assert.That(SoundCloudDownloader.Caps.SupportsLossy, Is.True);
     }
 
     [Test]
@@ -290,8 +295,9 @@ public class QualityRouterTests
         Assert.That(ArchiveOrgDownloader.Caps.Containers, Is.EqualTo(new[] { AudioFormat.Mp3 }));
         Assert.That(ArchiveOrgDownloader.Caps.MinKbps, Is.Null);
         Assert.That(ArchiveOrgDownloader.Caps.MaxKbps, Is.EqualTo(320));
-        Assert.That(ArchiveOrgDownloader.Caps.SupportsLossless, Is.True);
-        Assert.That(ArchiveOrgDownloader.Caps.SupportsLossy, Is.False);
+        Assert.That(ArchiveOrgDownloader.Caps.SupportsLossless, Is.False,
+            "archive.org hands back lossy MP3 uploads");
+        Assert.That(ArchiveOrgDownloader.Caps.SupportsLossy, Is.True);
     }
 
     [Test]

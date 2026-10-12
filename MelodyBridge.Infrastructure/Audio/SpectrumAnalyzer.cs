@@ -162,10 +162,19 @@ public static class SpectrumAnalyzer
             try
             {
                 var candidate = System.IO.Path.Combine(dir.Trim(), name);
-                if (System.IO.Path.Exists(candidate))
-                    return OperatingSystem.IsWindows() && !name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
-                        ? candidate + ".exe"
-                        : candidate;
+                if (OperatingSystem.IsWindows())
+                {
+                    // Windows never resolves executables without their
+                    // explicit extension: probe both "ffmpeg" and "ffmpeg.exe".
+                    if (System.IO.File.Exists(candidate)) return candidate;
+                    if (!name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
+                        && System.IO.File.Exists(candidate + ".exe"))
+                        return candidate + ".exe";
+                }
+                else if (System.IO.File.Exists(candidate))
+                {
+                    return candidate;
+                }
             }
             catch { /* unreadable PATH entry */ }
         }

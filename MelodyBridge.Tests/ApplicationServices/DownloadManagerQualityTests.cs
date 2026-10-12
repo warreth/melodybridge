@@ -32,7 +32,7 @@ public class DownloadManagerQualityTests
         public PluginCapabilities Capabilities { get; } =
             new([AudioFormat.Mp3], null, null, SupportsLossless: false, SupportsLossy: true);
         public Task<bool> IsAvailableAsync(CancellationToken ct = default) => Task.FromResult(true);
-        public Task<DownloaderSearchHit?> SearchAsync(string artist, string title, DownloadQuality quality, CancellationToken ct = default)
+        public Task<DownloaderSearchHit?> SearchAsync(string artist, string title, DownloadQuality quality, TimeSpan? expectedDuration = null, CancellationToken ct = default)
             => Task.FromResult(_hit);
         public Task<DownloaderDownloadResult> DownloadAsync(string sourceUrl, string outputDirectory, string? melodyId, DownloadQuality? quality = null, CancellationToken ct = default)
         {

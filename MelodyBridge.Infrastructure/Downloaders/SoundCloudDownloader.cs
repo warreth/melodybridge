@@ -1,5 +1,6 @@
 using System.Text.Json;
 using MelodyBridge.Core;
+using MelodyBridge.Infrastructure.Services;
 using Microsoft.Extensions.Logging;
 
 namespace MelodyBridge.Infrastructure.Downloaders;
@@ -8,9 +9,11 @@ namespace MelodyBridge.Infrastructure.Downloaders;
 /// SoundCloud downloader plugin backed by yt-dlp's scsearch extractor.
 ///
 /// SoundCloud serves the artist's original upload (often 320 kbps),
-/// so it is tried before YouTube in the default waterfall. Downloads
-/// that report an audio bitrate under 128 kbps are rejected: no
-/// low-quality files enter the library.
+/// so it is tried before YouTube in the default waterfall. The top
+/// search results are ranked by match quality instead of trusting the
+/// first row, and downloads that report an audio bitrate under
+/// 128 kbps are rejected and deleted: no low-quality files enter the
+/// library.
 /// </summary>
 public class SoundCloudDownloader : IDownloader
 {
@@ -20,7 +23,7 @@ public class SoundCloudDownloader : IDownloader
 
     // SoundCloud source mp3: 128-320 kbps, lossy only (opus originals count as lossy too).
     public static readonly PluginCapabilities Caps =
-        new([AudioFormat.Mp3], 128, 320, true, false);
+        new([AudioFormat.Mp3], 128, 320, SupportsLossless: false, SupportsLossy: true);
     public PluginCapabilities Capabilities => Caps;
 
     public string Id => "soundcloud";
@@ -35,7 +38,9 @@ public class SoundCloudDownloader : IDownloader
     public Task<bool> IsAvailableAsync(CancellationToken ct = default)
         => Task.FromResult(YtDlpProcess.BinaryPath is not null);
 
-    public async Task<DownloaderSearchHit?> SearchAsync(string artist, string title, DownloadQuality quality, CancellationToken ct = default)
+    public async Task<DownloaderSearchHit?> SearchAsync(
+        string artist, string title, DownloadQuality quality,
+        TimeSpan? expectedDuration = null, CancellationToken ct = default)
     {
         if (YtDlpProcess.BinaryPath is null) return null;
 
@@ -46,15 +51,18 @@ public class SoundCloudDownloader : IDownloader
         {
             var (exit, stdout, _) = await YtDlpProcess.RunAsync(new[]
             {
-                $"scsearch1:{query}",
+                $"scsearch5:{query}",
                 "--flat-playlist",
                 "--dump-single-json",
                 "--no-warnings",
-            }, TimeSpan.FromSeconds(45), ct);
+            }, TimeSpan.FromSeconds(30), ct);
 
             if (exit != 0) return null;
 
-            return YtDlpDownloader.ParseFlatPlaylistHit(stdout, artist, title, id => id);
+            // Top 5 ranked, never the first row: scsearch's first hit is
+            // routinely a cover, a remix or a repost of another artist.
+            var hits = YtDlpDownloader.ParseFlatPlaylistHits(stdout, artist, title, id => id);
+            return SearchRanker.Rank(artist, title, expectedDuration, hits);
         }
         catch (Exception ex)
         {
@@ -79,21 +87,10 @@ public class SoundCloudDownloader : IDownloader
             var template = Path.Combine(outputDirectory, "sc_%(id)s.%(ext)s");
             quality ??= DownloadQuality.Any;
 
-            // Same policy as yt-dlp: Auto keeps the source codec (SoundCloud
-            // originals, often opus/m4a); explicit formats transcode to the cap.
-            var args = new List<string> { "-o", template, sourceUrl, "--print-json", "--no-simulate" };
-            if (quality.NeedsTranscode)
-            {
-                args.InsertRange(0, new[]
-                {
-                    "-x",
-                    "--audio-format", quality!.Format.ToString().ToLowerInvariant(),
-                    "--audio-quality", quality.YtDlpAudioQuality,
-                    "--embed-metadata",
-                });
-            }
-
-            var (exit, stdout, stderr) = await YtDlpProcess.RunAsync(args.ToArray(), TimeSpan.FromMinutes(5), ct);
+            // Same policy as the YouTube plugin: audio-only, explicit
+            // formats transcode to the cap, Auto keeps the source codec.
+            var args = YtDlpProcess.BuildDownloadArgs(template, sourceUrl, quality);
+            var (exit, stdout, stderr) = await YtDlpProcess.RunDownloadAsync(args, TimeSpan.FromMinutes(5), ct);
 
             if (exit != 0)
                 return new DownloaderDownloadResult(false, null, $"yt-dlp exited {exit}: {Truncate(stderr, 400)}");
@@ -104,11 +101,15 @@ public class SoundCloudDownloader : IDownloader
 
             // Quality gate: reject low-bitrate rips so bad files never land
             // in the library. A requested band floor above 128 tightens it.
+            // A rejected file is deleted, not left for the scanner to find.
             var bitrate = ReadAudioBitrateKbps(stdout);
             var floor = Math.Max(MinimumAudioBitrateKbps, quality?.MinKbps ?? 0);
             if (bitrate < floor)
+            {
+                try { File.Delete(file); } catch { /* best effort */ }
                 return new DownloaderDownloadResult(false, null,
-                    $"rejected: audio bitrate {bitrate ?? 0} kbps is below {floor} kbps");
+                    $"rejected: audio bitrate {bitrate?.ToString() ?? "unknown"} kbps is below {floor} kbps");
+            }
 
             var trackTitle = ReadJsonString(stdout, "track") ?? ReadJsonString(stdout, "title");
             YtDlpDownloader.TagDownloadedFile(file, expectedTitle: trackTitle);
@@ -121,8 +122,12 @@ public class SoundCloudDownloader : IDownloader
         }
     }
 
-    /// <summary>Reads the abr/vbr bitrate (bps) from yt-dlp JSON into kbps.</summary>
-    private static int? ReadAudioBitrateKbps(string jsonOutput)
+    /// <summary>
+    /// Reads the audio bitrate (kbps) from yt-dlp's JSON. yt-dlp reports
+    /// both "abr" and "tbr" in kbps already; "vbr" is the video bitrate
+    /// and never a valid audio signal.
+    /// </summary>
+    internal static int? ReadAudioBitrateKbps(string jsonOutput)
     {
         try
         {
@@ -130,10 +135,8 @@ public class SoundCloudDownloader : IDownloader
             var root = doc.RootElement;
             if (root.TryGetProperty("abr", out var abr) && abr.ValueKind == JsonValueKind.Number)
                 return (int)Math.Round(abr.GetDouble());
-            if (root.TryGetProperty("vbr", out var vbr) && vbr.ValueKind == JsonValueKind.Number)
-                return (int)Math.Round(vbr.GetDouble());
             if (root.TryGetProperty("tbr", out var tbr) && tbr.ValueKind == JsonValueKind.Number)
-                return (int)Math.Round(tbr.GetDouble() / 1000);
+                return (int)Math.Round(tbr.GetDouble());
         }
         catch { /* parse failure falls through to null */ }
         return null;

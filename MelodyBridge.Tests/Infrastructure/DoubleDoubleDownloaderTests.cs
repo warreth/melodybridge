@@ -49,10 +49,21 @@ public class DoubleDoubleDownloaderTests
         Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json"),
     };
 
-    private static HttpResponseMessage Bytes(string data) => new(HttpStatusCode.OK)
+    /// <summary>
+    /// The rip endpoint's bytes must be sniffable audio: the downloader
+    /// rejects error pages saved under audio names, so stubs serve a real
+    /// FLAC stream marker plus the marker text.
+    /// </summary>
+    private static HttpResponseMessage Bytes(string data)
     {
-        Content = new ByteArrayContent(Encoding.UTF8.GetBytes(data)),
-    };
+        var payload = new List<byte>();
+        payload.AddRange("fLaC"u8.ToArray());
+        payload.AddRange(Encoding.UTF8.GetBytes(data));
+        return new(HttpStatusCode.OK)
+        {
+            Content = new ByteArrayContent(payload.ToArray()),
+        };
+    }
 
     private static string TempDir()
     {
@@ -98,8 +109,8 @@ public class DoubleDoubleDownloaderTests
             Assert.That(File.Exists(result.FilePath), Is.True);
         });
         Assert.That(new FileInfo(result.FilePath!).Length,
-            Is.EqualTo(Encoding.UTF8.GetByteCount("fake-flac-bytes")),
-            "the stub bytes must land on disk intact");
+            Is.EqualTo(4 + Encoding.UTF8.GetByteCount("fake-flac-bytes")),
+            "the stub bytes (FLAC magic + marker) must land on disk intact");
         Directory.Delete(dir, recursive: true);
     }
 
@@ -127,7 +138,7 @@ public class DoubleDoubleDownloaderTests
             "https://open.qobuz.com/track/99", dir, null);
 
         Assert.That(result.Success, Is.True, result.ErrorMessage);
-        Assert.That(File.ReadAllText(result.FilePath!), Is.EqualTo("relative"));
+        Assert.That(File.ReadAllText(result.FilePath!), Is.EqualTo("fLaCrelative"));
         Directory.Delete(dir, recursive: true);
     }
 
@@ -218,7 +229,7 @@ public class DoubleDoubleDownloaderTests
             Assert.That(result.Success, Is.True, result.ErrorMessage);
             Assert.That(euPolled, Is.True, "the eu host must take over when us refuses");
         });
-        Assert.That(await File.ReadAllTextAsync(result.FilePath!), Is.EqualTo("eu-bytes"));
+        Assert.That(await File.ReadAllTextAsync(result.FilePath!), Is.EqualTo("fLaCeu-bytes"));
         Directory.Delete(dir, recursive: true);
     }
 

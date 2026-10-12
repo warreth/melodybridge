@@ -1,5 +1,7 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using MelodyBridge.Core;
+using MelodyBridge.Infrastructure.Services;
 using Microsoft.Extensions.Logging;
 
 namespace MelodyBridge.Infrastructure.Downloaders;
@@ -8,10 +10,11 @@ namespace MelodyBridge.Infrastructure.Downloaders;
 /// yt-dlp downloader plugin.
 ///
 /// Searches YouTube Music first (falls back to plain YouTube) with
-/// "artist title" queries, downloads the best audio as MP3, and writes
-/// MELODY_ID + artist/title metadata tags into the file.
+/// "artist title" queries, ranks the top results by title/artist
+/// similarity plus duration proximity, downloads the best audio stream
+/// as an audio-only file, and writes artist/title metadata tags.
 /// </summary>
-public class YtDlpDownloader : IDownloader
+public partial class YtDlpDownloader : IDownloader
 {
     private readonly ILogger<YtDlpDownloader> _logger;
 
@@ -22,7 +25,7 @@ public class YtDlpDownloader : IDownloader
 
     public string Id => "ytdlp";
     public string Name => "yt-dlp (YouTube)";
-    public string Description => "YouTube / YouTube Music: best audio as MP3";
+    public string Description => "YouTube: best audio as MP3";
 
     public YtDlpDownloader(ILogger<YtDlpDownloader> logger)
     {
@@ -35,7 +38,9 @@ public class YtDlpDownloader : IDownloader
         return Task.FromResult(YtDlpProcess.BinaryPath is not null);
     }
 
-    public async Task<DownloaderSearchHit?> SearchAsync(string artist, string title, DownloadQuality quality, CancellationToken ct = default)
+    public async Task<DownloaderSearchHit?> SearchAsync(
+        string artist, string title, DownloadQuality quality,
+        TimeSpan? expectedDuration = null, CancellationToken ct = default)
     {
         if (YtDlpProcess.BinaryPath is null) return null;
 
@@ -44,30 +49,37 @@ public class YtDlpDownloader : IDownloader
         var query = SearchTerms.Query(artist, title);
         if (query.Length == 0) return null;
 
-        // Try YouTube Music first for better audio matches; fall back to YouTube.
-        foreach (var extractor in new[] { "ytmsearch1", "ytsearch1" })
+        // Top 5, ranked by title/artist similarity plus duration
+        // proximity: never blindly the first row, which is routinely a
+        // lyric video or a remix. (The old ytmsearch pseudo-extractor is
+        // gone from current yt-dlp versions; ytsearch covers the catalog.)
+        var hits = await SearchExtractorAsync("ytsearch5", artist, title, query, ct);
+        return SearchRanker.Rank(artist, title, expectedDuration, hits);
+    }
+
+    /// <summary>Runs one search extractor and parses every flat entry as a candidate.</summary>
+    private async Task<List<DownloaderSearchHit>> SearchExtractorAsync(
+        string extractor, string artist, string title, string query, CancellationToken ct)
+    {
+        try
         {
-            try
+            var (exit, stdout, _) = await YtDlpProcess.RunAsync(new[]
             {
-                var (exit, stdout, _) = await YtDlpProcess.RunAsync(new[]
-                {
-                    $"{extractor}:{query}",
-                    "--flat-playlist",
-                    "--dump-single-json",
-                    "--no-warnings",
-                }, TimeSpan.FromSeconds(45), ct);
+                $"{extractor}:{query}",
+                "--flat-playlist",
+                "--dump-single-json",
+                "--no-warnings",
+            }, TimeSpan.FromSeconds(30), ct);
 
-                var hit = ParseFlatPlaylistHit(stdout, artist, title,
-                    id => $"https://www.youtube.com/watch?v={id}");
-                if (hit is not null) return hit;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "yt-dlp search via {Extractor} failed for '{Query}'", extractor, query);
-            }
+            if (exit != 0) return new List<DownloaderSearchHit>();
+            return ParseFlatPlaylistHits(stdout, artist, title,
+                id => $"https://www.youtube.com/watch?v={id}");
         }
-
-        return null;
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "yt-dlp search via {Extractor} failed for '{Query}'", extractor, query);
+            return new List<DownloaderSearchHit>();
+        }
     }
 
     public async Task<DownloaderDownloadResult> DownloadAsync(
@@ -87,28 +99,16 @@ public class YtDlpDownloader : IDownloader
             // Deterministic filename so re-downloads replace instead of duplicate.
             var template = Path.Combine(outputDirectory, "%(id)s.%(ext)s");
             quality ??= DownloadQuality.Any;
+            var args = YtDlpProcess.BuildDownloadArgs(template, sourceUrl, quality);
 
-            // Auto = keep the source codec (no transcode, no quality loss, no
-            // fake-bitrate files). Any explicit format transcodes with the
-            // requested bitrate cap as the VBR target.
-            var args = new List<string> { "-o", template, sourceUrl, "--print-json", "--no-simulate" };
-            if (quality.NeedsTranscode)
-            {
-                args.InsertRange(0, new[]
-                {
-                    "-x",
-                    "--audio-format", quality!.Format.ToString().ToLowerInvariant(),
-                    "--audio-quality", quality.YtDlpAudioQuality,
-                    "--embed-metadata",
-                });
-            }
-
-            var (exit, stdout, stderr) = await YtDlpProcess.RunAsync(args.ToArray(), TimeSpan.FromMinutes(5), ct);
+            var (exit, stdout, stderr) = await YtDlpProcess.RunDownloadAsync(args, TimeSpan.FromMinutes(5), ct);
 
             if (exit != 0)
                 return new DownloaderDownloadResult(false, null, $"yt-dlp exited {exit}: {Truncate(stderr, 400)}");
 
-            // Locate the produced file (id from JSON confirms which one is ours).
+            // Locate the produced file (the JSON's filepath, or the video
+            // id + audio extension; never "the newest file", which races
+            // concurrent downloads into the same folder).
             var file = FindProducedFile(stdout, outputDirectory);
             if (file is null)
                 return new DownloaderDownloadResult(false, null, "yt-dlp reported success but no output file found");
@@ -129,51 +129,48 @@ public class YtDlpDownloader : IDownloader
     }
 
     /// <summary>
-    /// Parses yt-dlp --dump-single-json output (flat playlist) into a search hit.
-    /// Shared by all yt-dlp-backed plugins.
+    /// Parses every entry of a flat playlist JSON into a candidate hit.
+    /// Shared by all yt-dlp-backed plugins; the caller ranks the list.
     /// </summary>
-    internal static DownloaderSearchHit? ParseFlatPlaylistHit(
+    internal static List<DownloaderSearchHit> ParseFlatPlaylistHits(
         string stdout, string artist, string fallbackTitle, Func<string, string> urlFromId)
     {
-        if (string.IsNullOrWhiteSpace(stdout)) return null;
+        var hits = new List<DownloaderSearchHit>();
+        if (string.IsNullOrWhiteSpace(stdout)) return hits;
         try
         {
-            return ParseFlatPlaylistHitCore(stdout, artist, fallbackTitle, urlFromId);
+            using var doc = JsonDocument.Parse(stdout);
+            var root = doc.RootElement;
+            var entries = root.TryGetProperty("entries", out var e) && e.ValueKind == JsonValueKind.Array
+                ? e.EnumerateArray().ToList()
+                : new List<JsonElement> { root };
+            foreach (var entry in entries)
+            {
+                if (entry.ValueKind != JsonValueKind.Object) continue;
+                var hit = ParseEntry(entry, artist, fallbackTitle, urlFromId);
+                if (hit is not null) hits.Add(hit);
+            }
         }
         catch (JsonException)
         {
             // Unparseable yt-dlp output is a plugin miss, not a crash.
-            return null;
         }
+        return hits;
     }
 
-    private static DownloaderSearchHit? ParseFlatPlaylistHitCore(
-        string stdout, string artist, string fallbackTitle, Func<string, string> urlFromId)
+    private static DownloaderSearchHit? ParseEntry(
+        JsonElement entry, string artist, string fallbackTitle, Func<string, string> urlFromId)
     {
-        using var doc = JsonDocument.Parse(stdout);
-        var entry = doc.RootElement.TryGetProperty("entries", out var entries)
-            && entries.ValueKind == JsonValueKind.Array
-            && entries.GetArrayLength() > 0
-            ? entries[0]
-            : doc.RootElement.TryGetProperty("url", out _)
-                ? doc.RootElement
-                : default;
-
-        if (entry.ValueKind == JsonValueKind.Undefined) return null;
-
-        // Flat-playlist entries expose either a full URL (SoundCloud, …) or just an
-        // ID (YouTube); prefer the full URL when present.
-        var url = entry.TryGetProperty("webpage_url", out var wp) && wp.ValueKind == JsonValueKind.String
-            ? wp.GetString()
-            : entry.TryGetProperty("url", out var u) && u.ValueKind == JsonValueKind.String
-                ? u.GetString()
-                : null;
-        var id = entry.TryGetProperty("id", out var idProp) ? idProp.GetString() : null;
-        var sourceUrl = url ?? (string.IsNullOrEmpty(id) ? null : urlFromId(id!));
+        var id = entry.TryGetProperty("id", out var idProp) && idProp.ValueKind == JsonValueKind.String
+            ? idProp.GetString()
+            : null;
+        var sourceUrl = ExtractSourceUrl(entry, id, urlFromId);
         if (string.IsNullOrEmpty(sourceUrl)) return null;
 
-        var hitTitle = (entry.TryGetProperty("title", out var t) ? t.GetString() : null)
-                      ?? fallbackTitle;
+        var hitTitle = (entry.TryGetProperty("title", out var t) && t.ValueKind == JsonValueKind.String
+            ? t.GetString()
+            : null) ?? fallbackTitle;
+
         // The real artist: flat entries carry the channel/uploader; the old
         // code compared the requested artist against the hit TITLE, so
         // "Regard" never matched "Regard - Ride It (Official Video)".
@@ -192,8 +189,27 @@ public class YtDlpDownloader : IDownloader
             Duration: entry.TryGetProperty("duration", out var d) && d.TryGetDouble(out var secs)
                 ? TimeSpan.FromSeconds(secs)
                 : null,
-            MatchConfidence: Services.FuzzyMatcher.Confidence(
+            MatchConfidence: FuzzyMatcher.Confidence(
                 artist, fallbackTitle, hitArtist: hitArtist, hitTitle: hitTitle));
+    }
+
+    /// <summary>
+    /// The entry's URL: a full webpage URL when the extractor provides
+    /// one, otherwise built from the bare id. A bare non-URL "url" field
+    /// (some extractors put just the id there) is never passed through.
+    /// </summary>
+    private static string? ExtractSourceUrl(JsonElement entry, string? id, Func<string, string> urlFromId)
+    {
+        foreach (var property in new[] { "webpage_url", "url" })
+        {
+            if (!entry.TryGetProperty(property, out var value) || value.ValueKind != JsonValueKind.String)
+                continue;
+            var text = value.GetString();
+            if (!string.IsNullOrEmpty(text) && Uri.TryCreate(text, UriKind.Absolute, out var uri)
+                && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps))
+                return text;
+        }
+        return string.IsNullOrEmpty(id) ? null : urlFromId(id);
     }
 
     /// <summary>"Artist - Title" uploader strings: splits off the artist.</summary>
@@ -225,11 +241,6 @@ public class YtDlpDownloader : IDownloader
     }
 
     /// <summary>
-    /// Writes MELODY_ID and, when the filename or metadata contains an
-    /// "Artist - Title" pattern, splits it into proper tags.
-    /// Shared by all yt-dlp-backed plugins.
-    /// </summary>
-    /// <summary>
     /// Metadata tagging shared by all yt-dlp-backed plugins. MELODY_ID is
     /// no longer written here: DownloadManager writes it once for every
     /// plugin after the file passes the quality gate.
@@ -250,40 +261,67 @@ public class YtDlpDownloader : IDownloader
         catch { /* tagging must never fail a download */ }
     }
 
+    /// <summary>
+    /// Locates the produced file: the JSON's own filepath when present,
+    /// otherwise the entry matching the video id and an audio extension.
+    /// Intermediate fragment files (".f251.", ".part") are never final
+    /// output. No "newest file" fallback: with parallel downloads into one
+    /// folder that returns another track's file.
+    /// </summary>
     internal static string? FindProducedFile(string jsonOutput, string outputDirectory)
     {
-        // --print-json's "filename" points at the pre-extraction file (e.g. .webm);
-        // the real output is {template}_{id}.mp3. Match by video ID + audio ext.
         string? videoId = null;
+        string? reported = null;
         try
         {
             using var doc = JsonDocument.Parse(jsonOutput);
-            if (doc.RootElement.TryGetProperty("id", out var id) && id.ValueKind == JsonValueKind.String)
+            var root = doc.RootElement;
+            if (root.TryGetProperty("id", out var id) && id.ValueKind == JsonValueKind.String)
                 videoId = id.GetString();
+            if (root.TryGetProperty("filepath", out var fp) && fp.ValueKind == JsonValueKind.String)
+                reported = fp.GetString();
         }
         catch
         {
             // JSON parse failed (e.g. warnings on stdout): fall through.
         }
 
+        if (!string.IsNullOrEmpty(reported) && File.Exists(reported)
+            && IsAudioExtension(Path.GetExtension(reported)))
+            return reported;
+
         if (videoId is not null)
         {
             var byId = Directory.EnumerateFiles(outputDirectory)
-                .FirstOrDefault(p =>
-                    Path.GetFileName(p).Contains(videoId, StringComparison.Ordinal) &&
-                    IsAudioExtension(Path.GetExtension(p)));
+                .FirstOrDefault(p => IsFinalAudioFile(Path.GetFileName(p), videoId));
             if (byId is not null) return byId;
         }
 
-        // Fallback: newest audio file in the directory.
-        return Directory.EnumerateFiles(outputDirectory)
+        // Last resort when the JSON was unreadable: the single fresh audio
+        // file in the folder. Only when there is exactly one, so parallel
+        // downloads cannot hand back the wrong track.
+        var fresh = Directory.EnumerateFiles(outputDirectory)
             .Where(p => IsAudioExtension(Path.GetExtension(p)))
-            .OrderByDescending(File.GetLastWriteTimeUtc)
-            .FirstOrDefault();
+            .Where(p => File.GetLastWriteTimeUtc(p) > DateTime.UtcNow.AddMinutes(-15))
+            .Take(2)
+            .ToList();
+        return fresh.Count == 1 ? fresh[0] : null;
+    }
+
+    /// <summary>True for "<id>.opus"/"<id> - title.mp3"-style final files, false for ".f251.webm" fragments.</summary>
+    private static bool IsFinalAudioFile(string fileName, string videoId)
+    {
+        if (!IsAudioExtension(Path.GetExtension(fileName))) return false;
+        if (!fileName.Contains(videoId, StringComparison.Ordinal)) return false;
+        return !FragmentPattern().IsMatch(fileName);
     }
 
     private static bool IsAudioExtension(string? ext)
         => ext is not null && ext.ToLowerInvariant() is ".mp3" or ".m4a" or ".opus" or ".ogg" or ".flac" or ".wav" or ".webm";
+
+    /// <summary>yt-dlp's per-format fragments look like "name.f251.webm".</summary>
+    [GeneratedRegex(@"\.f\d+\.", RegexOptions.CultureInvariant)]
+    private static partial Regex FragmentPattern();
 
     /// <summary>
     /// Losslessly re-containers a .webm download as .opus so it becomes
@@ -299,20 +337,36 @@ public class YtDlpDownloader : IDownloader
         if (ffmpeg is null) return null;
 
         var target = Path.ChangeExtension(file, ".opus");
-        using var process = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+        try
         {
-            FileName = ffmpeg,
-            Arguments = $"-y -v error -i {file} -c copy {target}",
-            RedirectStandardError = true,
-            UseShellExecute = false,
-        });
-        if (process is null) return null;
-        process.StandardError.ReadToEnd();
-        if (!process.WaitForExit(TimeSpan.FromSeconds(30)) || process.ExitCode != 0 || !File.Exists(target))
-            return null;
+            var psi = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = ffmpeg,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            };
+            // -map 0:a:0: take the audio stream only, whatever else the
+            // container carries, so the opus muxer always accepts it.
+            foreach (var arg in new[] { "-y", "-v", "error", "-i", file, "-map", "0:a:0", "-c", "copy", target })
+                psi.ArgumentList.Add(arg);
 
-        try { File.Delete(file); } catch { /* keep both, harmless */ }
-        return target;
+            using var process = System.Diagnostics.Process.Start(psi);
+            if (process is null) return null;
+            process.StandardError.ReadToEnd();
+            if (!process.WaitForExit(TimeSpan.FromSeconds(60)) || process.ExitCode != 0 || !File.Exists(target))
+            {
+                try { File.Delete(target); } catch { /* best effort */ }
+                return null;
+            }
+
+            try { File.Delete(file); } catch { /* keep both, harmless */ }
+            return target;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static string Truncate(string? s, int max)

@@ -2,6 +2,11 @@ namespace MelodyBridge.Core;
 
 /// <summary>
 /// Result of a track search performed by a downloader plugin.
+/// <paramref name="Alternatives"/> carries the runner-up candidates in
+/// rank order: when the first choice turns out to be undownloadable
+/// (deleted video, geo-block, dead mirror), the manager can fall back to
+/// the next candidate from the same plugin instead of abandoning the
+/// plugin entirely.
 /// </summary>
 public record DownloaderSearchHit(
     string Title,
@@ -9,7 +14,8 @@ public record DownloaderSearchHit(
     string? SourceUrl,
     TimeSpan? Duration,
     int? BitrateKbps = null,
-    MatchConfidence MatchConfidence = MatchConfidence.Low);
+    MatchConfidence MatchConfidence = MatchConfidence.Low,
+    IReadOnlyList<DownloaderSearchHit>? Alternatives = null);
 
 /// <summary>
 /// How sure a plugin is that its search result is the requested track.
@@ -87,9 +93,14 @@ public interface IDownloader
 
     /// <summary>
     /// Find a downloadable source URL for the track metadata, honoring the
-    /// requested quality where the source exposes it.
+    /// requested quality where the source exposes it. <paramref name="expectedDuration"/>
+    /// (what the source playlist advertised) ranks candidates: hits whose
+    /// length is wildly off (previews, extended mixes) lose against close
+    /// matches, and gross mismatches are dropped when alternatives exist.
     /// </summary>
-    Task<DownloaderSearchHit?> SearchAsync(string artist, string title, DownloadQuality quality, CancellationToken ct = default);
+    Task<DownloaderSearchHit?> SearchAsync(
+        string artist, string title, DownloadQuality quality,
+        TimeSpan? expectedDuration = null, CancellationToken ct = default);
 
     /// <summary>
     /// Download the track at sourceUrl into outputDirectory, honoring the

@@ -169,21 +169,27 @@ public class PlaylistStore
     private async Task<string> DownloadClaimedTrackAsync(
         int trackId, string dir, string preferredFormat, SpectrumMode spectrumMode, CancellationToken ct)
     {
-        await using var db = await _dbFactory.CreateDbContextAsync(ct);
-        var track = await db.Tracks.FindAsync(new object[] { trackId }, ct);
+        await using var db = await _dbFactory.CreateDbContextAsync(CancellationToken.None);
+        // The lookup uses CancellationToken.None: a cancel arriving between
+        // the claim and this call must still reach the status write below,
+        // otherwise the claimed row stays in_progress forever.
+        var track = await db.Tracks.FindAsync(new object[] { trackId }, CancellationToken.None);
         if (track is null) return "skipped";
 
         if (string.IsNullOrWhiteSpace(track.Artist) || string.IsNullOrWhiteSpace(track.Title))
         {
             track.DownloadStatus = "failed";
             track.DownloadError = "missing artist/title metadata";
-            await db.SaveChangesAsync(ct);
+            await db.SaveChangesAsync(CancellationToken.None);
             return "failed";
         }
 
         try
         {
             var (primary, fallback) = ParseQualityDetailed(preferredFormat);
+            var expectedDuration = track.DurationMs is > 0
+                ? TimeSpan.FromMilliseconds(track.DurationMs.Value)
+                : (TimeSpan?)null;
 
             // Dedup first: when the same track already exists in another
             // playlist folder, no network call is needed at all. Exact
@@ -193,7 +199,7 @@ public class PlaylistStore
                 return verdict;
 
             var path = await _downloadManager.DownloadTrackAsync(
-                track.Artist!, track.Title!, dir, track.MelodyId!, primary, ct);
+                track.Artist!, track.Title!, dir, track.MelodyId!, primary, expectedDuration, ct);
 
             // Lossless preset: when no source delivered a lossless
             // file, take the best lossy copy instead of nothing.
@@ -202,7 +208,7 @@ public class PlaylistStore
                 _logger.LogInformation(
                     "No lossless source for '{Title}'; falling back to the best lossy file", track.Title);
                 path = await _downloadManager.DownloadTrackAsync(
-                    track.Artist!, track.Title!, dir, track.MelodyId!, fallback, ct);
+                    track.Artist!, track.Title!, dir, track.MelodyId!, fallback, expectedDuration, ct);
             }
 
             if (path is null)
@@ -247,6 +253,16 @@ public class PlaylistStore
             await ArchiveDownloadedTrackAsync(track, db, ct);
             return "downloaded";
         }
+        catch (OperationCanceledException)
+        {
+            // Cooperative cancel: the claim must not stick. Save with a
+            // non-cancelled token, otherwise the row stays "in_progress"
+            // and no later run can ever claim it again.
+            track.DownloadStatus = "failed";
+            track.DownloadError = "cancelled";
+            await SaveQuietlyAsync(db);
+            throw;
+        }
         catch (Exception ex)
         {
             track.DownloadStatus = "failed";
@@ -255,7 +271,24 @@ public class PlaylistStore
         }
         finally
         {
-            await db.SaveChangesAsync(ct);
+            // A cancelled token must not swallow the status write: the
+            // claimed row has to leave "in_progress" whatever happened.
+            await SaveQuietlyAsync(db);
+        }
+    }
+
+    /// <summary>SaveChanges that survives a cancelled caller token.</summary>
+    private async Task SaveQuietlyAsync(MelodyBridgeDbContext db)
+    {
+        try
+        {
+            await db.SaveChangesAsync(CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            // The in-memory track is lost either way; the next run's
+            // stale-claim recovery is the safety net.
+            _logger.LogWarning(ex, "Could not persist track status after cancellation");
         }
     }
 

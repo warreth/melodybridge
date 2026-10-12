@@ -1,5 +1,6 @@
 using System.Text.Json;
 using MelodyBridge.Core;
+using MelodyBridge.Infrastructure.Services;
 using Microsoft.Extensions.Logging;
 
 namespace MelodyBridge.Infrastructure.Downloaders;
@@ -23,9 +24,9 @@ public class ArchiveOrgDownloader : IDownloader
 
     private static readonly Uri SearchBase = new("https://archive.org/advancedsearch.php");
 
-    // Archive files are MP3 uploads, never above 320 kbps; some rips are lossless-grade masters.
+    // Archive files are MP3 uploads, never above 320 kbps, lossy by container.
     public static readonly PluginCapabilities Caps =
-        new([AudioFormat.Mp3], null, 320, true, false);
+        new([AudioFormat.Mp3], null, 320, SupportsLossless: false, SupportsLossy: true);
     public PluginCapabilities Capabilities => Caps;
 
     public ArchiveOrgDownloader(HttpClient http, ILogger<ArchiveOrgDownloader> logger)
@@ -37,7 +38,9 @@ public class ArchiveOrgDownloader : IDownloader
     public Task<bool> IsAvailableAsync(CancellationToken ct = default)
         => Task.FromResult(true); // public API, always up unless the network is down
 
-    public async Task<DownloaderSearchHit?> SearchAsync(string artist, string title, DownloadQuality quality, CancellationToken ct = default)
+    public async Task<DownloaderSearchHit?> SearchAsync(
+        string artist, string title, DownloadQuality quality,
+        TimeSpan? expectedDuration = null, CancellationToken ct = default)
     {
         var query = SearchTerms.Query(artist, title);
         if (query.Length == 0) return null;
@@ -57,17 +60,22 @@ public class ArchiveOrgDownloader : IDownloader
                 docs.ValueKind != JsonValueKind.Array || docs.GetArrayLength() == 0)
                 return null;
 
-            foreach (var docItem in docs.EnumerateArray())
+            // Collect candidates from several items (an item usually holds
+            // a whole album): the right track may be the third item or the
+            // eighth file inside one, so nothing is trusted by position.
+            var candidates = new List<DownloaderSearchHit>();
+            foreach (var docItem in docs.EnumerateArray().Take(3))
             {
                 var identifier = GetString(docItem, "identifier");
                 if (string.IsNullOrEmpty(identifier)) continue;
 
-                // Look up the first MP3 file inside the item.
-                var hit = await TryFindMp3InItem(identifier!, artist, title, ct);
-                // Real per-file bitrate is known before downloading; honor the band.
-                if (hit is not null && quality.IsWithinBand(hit.BitrateKbps))
-                    return hit;
+                candidates.AddRange(await FindMp3CandidatesAsync(identifier!, artist, title, ct));
             }
+
+            // The band is checked before ranking: a FLAC-grade master in
+            // the wrong bitrate must not win over a fitting file.
+            return SearchRanker.Rank(artist, title, expectedDuration,
+                candidates.Where(c => quality.IsWithinBand(c.BitrateKbps)));
         }
         catch (Exception ex)
         {
@@ -97,15 +105,39 @@ public class ArchiveOrgDownloader : IDownloader
             if (!target.EndsWith(".mp3", StringComparison.OrdinalIgnoreCase))
                 target += ".mp3";
 
+            // Item file names are not unique across items ("01 - Intro.mp3"
+            // lives in thousands of albums): never overwrite a file that
+            // belongs to another track.
+            if (File.Exists(target))
+                target = Path.Combine(outputDirectory,
+                    $"{Path.GetFileNameWithoutExtension(target)}_{ShortHash(sourceUrl)}{Path.GetExtension(target)}");
+
             using var resp = await _http.GetAsync(sourceUrl, HttpCompletionOption.ResponseHeadersRead, ct);
             if (!resp.IsSuccessStatusCode)
                 return new DownloaderDownloadResult(false, null, $"archive.org returned {(int)resp.StatusCode}");
 
-            await using (var src = await resp.Content.ReadAsStreamAsync(ct))
-            await using (var dst = File.Create(target))
+            try
             {
-                await src.CopyToAsync(dst, 81920, ct);
+                await using (var src = await resp.Content.ReadAsStreamAsync(ct))
+                await using (var dst = File.Create(target))
+                {
+                    await src.CopyToAsync(dst, 81920, ct);
+                }
             }
+            catch
+            {
+                try { File.Delete(target); } catch { /* best effort */ }
+                throw;
+            }
+
+            // An error page served under a 200 is not an MP3; sniff the bytes.
+            var container = Audio.AudioSignature.EnsureExtension(target);
+            if (container is null || !container.EndsWith(".mp3", StringComparison.OrdinalIgnoreCase))
+            {
+                try { File.Delete(container ?? target); } catch { /* best effort */ }
+                return new DownloaderDownloadResult(false, null, "archive.org returned a file that is not MP3 audio");
+            }
+            target = container;
 
             // Quality gate: only keep real MP3s of decent bitrate.
             var bitrate = ProbeBitrateKbps(target);
@@ -113,7 +145,7 @@ public class ArchiveOrgDownloader : IDownloader
             {
                 try { File.Delete(target); } catch { /* best effort */ }
                 return new DownloaderDownloadResult(false, null,
-                    $"rejected: {bitrate ?? 0} kbps is below 128 kbps");
+                    $"rejected: {bitrate?.ToString() ?? "unknown"} kbps is below 128 kbps");
             }
 
             var embeddedTitle = Path.GetFileNameWithoutExtension(fileName);
@@ -130,9 +162,22 @@ public class ArchiveOrgDownloader : IDownloader
         }
     }
 
-    private async Task<DownloaderSearchHit?> TryFindMp3InItem(
+    /// <summary>Stable short hash for filename disambiguation.</summary>
+    private static string ShortHash(string value)
+    {
+        var bytes = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(value));
+        return Convert.ToHexString(bytes)[..8].ToLowerInvariant();
+    }
+
+    /// <summary>
+    /// Every MP3 file inside one archive item as a candidate hit: an item
+    /// holds a whole album, so the requested track is usually not the
+    /// first file. Ranking happens across all items and files.
+    /// </summary>
+    private async Task<List<DownloaderSearchHit>> FindMp3CandidatesAsync(
         string identifier, string artist, string fallbackTitle, CancellationToken ct)
     {
+        var hits = new List<DownloaderSearchHit>();
         try
         {
             using var resp = await _http.GetAsync($"https://archive.org/metadata/{identifier}", ct);
@@ -140,30 +185,64 @@ public class ArchiveOrgDownloader : IDownloader
             using var doc = await JsonDocument.ParseAsync(await resp.Content.ReadAsStreamAsync(ct), cancellationToken: ct);
 
             if (!doc.RootElement.TryGetProperty("files", out var files) || files.ValueKind != JsonValueKind.Array)
-                return null;
+                return hits;
 
-            // Prefer the first mp3 whose name hints at a full track (skip 30s preview-like files by size heuristics later).
+            var itemTitle = GetMetadataTitle(doc.RootElement);
+            var creator = GetMetadataCreator(doc.RootElement);
             foreach (var f in files.EnumerateArray())
             {
                 var name = GetString(f, "name");
                 if (string.IsNullOrEmpty(name) || !name.EndsWith(".mp3", StringComparison.OrdinalIgnoreCase))
                     continue;
 
+                // Skip preview-like fragments when the length is known.
+                var duration = GetDurationSeconds(GetString(f, "length"));
+                if (duration is { TotalSeconds: < 20 }) continue;
+
                 // Canonical archive.org URL: redirects to the correct storage node.
                 var url = $"https://archive.org/download/{identifier}/{Uri.EscapeDataString(name)}";
 
-                var title = GetString(f, "title") ?? GetMetadataTitle(doc.RootElement) ?? fallbackTitle;
-                var duration = GetDurationSeconds(GetString(f, "length"));
-
-                return new DownloaderSearchHit(title, artist, url, duration,
-                    BitrateKbps: TryGetInt(f, "bitrate"));
+                var fileTitle = GetString(f, "title") ?? TitleFromFileName(name) ?? itemTitle ?? fallbackTitle;
+                var fileArtist = creator ?? artist;
+                hits.Add(new DownloaderSearchHit(
+                    Title: fileTitle,
+                    Artist: fileArtist,
+                    SourceUrl: url,
+                    Duration: duration,
+                    BitrateKbps: TryGetInt(f, "bitrate"),
+                    MatchConfidence: Services.FuzzyMatcher.Confidence(
+                        artist, fallbackTitle, fileArtist, fileTitle)));
             }
         }
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "Archive.org metadata lookup failed for {Identifier}", identifier);
         }
-        return null;
+        return hits;
+    }
+
+    /// <summary>"Artist - Title.mp3" file names: the readable title inside.</summary>
+    private static string? TitleFromFileName(string name)
+    {
+        var withoutExtension = Path.GetFileNameWithoutExtension(name);
+        var sep = withoutExtension.IndexOf(" - ", StringComparison.Ordinal);
+        return sep > 0 ? withoutExtension[(sep + 3)..].Trim() : withoutExtension;
+    }
+
+    /// <summary>Item creator, string or array (archive.org stores both).</summary>
+    private static string? GetMetadataCreator(JsonElement root)
+    {
+        if (!root.TryGetProperty("metadata", out var meta) || meta.ValueKind != JsonValueKind.Object)
+            return null;
+        if (!meta.TryGetProperty("creator", out var c))
+            return null;
+        return c.ValueKind switch
+        {
+            JsonValueKind.String => c.GetString(),
+            JsonValueKind.Array when c.GetArrayLength() > 0 && c[0].ValueKind == JsonValueKind.String
+                => c[0].GetString(),
+            _ => null,
+        };
     }
 
     /// <summary>Reads the bitrate of a local MP3 via TagLib properties.</summary>
@@ -202,14 +281,18 @@ public class ArchiveOrgDownloader : IDownloader
                 : null;
     }
 
+    /// <summary>Archive file facts arrive as numbers or numeric strings.</summary>
     private static int? TryGetInt(JsonElement element, string property)
     {
-        if (element.ValueKind == JsonValueKind.Object
-            && element.TryGetProperty(property, out var v)
-            && v.ValueKind == JsonValueKind.Number
-            && v.TryGetInt32(out var i))
-            return i;
-        return null;
+        if (element.ValueKind != JsonValueKind.Object
+            || !element.TryGetProperty(property, out var v))
+            return null;
+        return v.ValueKind switch
+        {
+            JsonValueKind.Number when v.TryGetInt32(out var i) => i,
+            JsonValueKind.String when int.TryParse(v.GetString(), out var s) => s,
+            _ => null,
+        };
     }
 
     private static string? GetString(JsonElement element, string property)

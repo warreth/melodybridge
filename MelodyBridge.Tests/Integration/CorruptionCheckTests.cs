@@ -76,7 +76,7 @@ public class CorruptionCheckTests
     private static async Task<IDbContextFactory<MelodyBridgeDbContext>> NewDbFactory(string dbPath)
     {
         var services = new ServiceCollection();
-        services.AddDbContextFactory<MelodyBridgeDbContext>(o => o.UseSqlite($"Data Source={dbPath}"));
+        services.AddDbContextFactory<MelodyBridgeDbContext>(o => o.UseSqlite($"Data Source={dbPath};Pooling=False"));
         var sp = services.BuildServiceProvider();
         var factory = sp.GetRequiredService<IDbContextFactory<MelodyBridgeDbContext>>();
         await using var db = factory.CreateDbContext();
@@ -172,7 +172,7 @@ public class CorruptionCheckTests
         public PluginCapabilities Capabilities => PluginCapabilities.Any;
         public Task<bool> IsAvailableAsync(CancellationToken ct = default) => Task.FromResult(true);
 
-        public Task<DownloaderSearchHit?> SearchAsync(string artist, string title, DownloadQuality quality, CancellationToken ct = default)
+        public Task<DownloaderSearchHit?> SearchAsync(string artist, string title, DownloadQuality quality, TimeSpan? expectedDuration = null, CancellationToken ct = default)
             => Task.FromResult<DownloaderSearchHit?>(
                 new DownloaderSearchHit(title, artist, "https://example.com/x", TimeSpan.FromSeconds(180)));
 
@@ -255,9 +255,9 @@ public class CorruptionCheckTests
             await using var checkDb = await factory.CreateDbContextAsync();
             var track = await checkDb.Tracks.AsNoTracking().SingleAsync(t => t.MelodyId == "mel-corrupt-1");
             Assert.That(track.DownloadStatus, Is.EqualTo("failed"));
-            Assert.That(track.DownloadError, Does.Contain("corrupt"),
-                $"the error must name the corruption; got: {track.DownloadError}");
-            Assert.That(track.CurrentPath, Is.Null, "a corrupt download must not keep its path");
+            Assert.That(track.DownloadError, Does.Contain("not audio"),
+                $"the error must name why the file was rejected; got: {track.DownloadError}");
+            Assert.That(track.CurrentPath, Is.Null, "a rejected download must not keep its path");
         }
         finally
         {

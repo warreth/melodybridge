@@ -24,7 +24,7 @@ public class DefaultDownloadPathTests
     private static async Task<IDbContextFactory<MelodyBridgeDbContext>> NewDbFactory(string dbPath)
     {
         var services = new ServiceCollection();
-        services.AddDbContextFactory<MelodyBridgeDbContext>(o => o.UseSqlite($"Data Source={dbPath}"));
+        services.AddDbContextFactory<MelodyBridgeDbContext>(o => o.UseSqlite($"Data Source={dbPath};Pooling=False"));
         var sp = services.BuildServiceProvider();
         var factory = sp.GetRequiredService<IDbContextFactory<MelodyBridgeDbContext>>();
         await using var db = factory.CreateDbContext();
@@ -42,7 +42,7 @@ public class DefaultDownloadPathTests
         public PluginCapabilities Capabilities => PluginCapabilities.Any;
         public Task<bool> IsAvailableAsync(CancellationToken ct = default) => Task.FromResult(true);
 
-        public Task<DownloaderSearchHit?> SearchAsync(string artist, string title, DownloadQuality quality, CancellationToken ct = default)
+        public Task<DownloaderSearchHit?> SearchAsync(string artist, string title, DownloadQuality quality, TimeSpan? expectedDuration = null, CancellationToken ct = default)
             => Task.FromResult<DownloaderSearchHit?>(
                 new DownloaderSearchHit(title, artist, $"https://example.com/{artist}-{title}", TimeSpan.FromSeconds(180)));
 

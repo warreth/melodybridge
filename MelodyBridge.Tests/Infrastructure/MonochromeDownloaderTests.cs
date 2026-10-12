@@ -399,12 +399,63 @@ public class MonochromeDownloaderTests
     }
 
     [Test]
-    public void MapQuality_SmallFileCap_TakesTheLossyTier()
+    public async Task IsAvailable_CachesTheVerdict_WithinTheTtl()
     {
-        // Auto with a small-file cap must not ask for hi-res FLAC and
-        // gamble the post-download probe.
-        var capped = new DownloadQuality(AudioFormat.Auto, MinKbps: null, MaxKbps: 128);
-        Assert.That(MonochromeDownloader.MapQuality(capped), Is.EqualTo("HIGH"));
+        var handler = new StubHttpMessageHandler();
+        handler.Respond = _ => Json(HttpStatusCode.OK, SearchBody());
+        var downloader = Create(handler, out _);
+
+        Assert.That(await downloader.IsAvailableAsync(), Is.True);
+        var afterFirst = handler.RequestedUrls.Count;
+        Assert.That(afterFirst, Is.GreaterThan(0), "the first check really probes");
+
+        Assert.That(await downloader.IsAvailableAsync(), Is.True);
+        Assert.That(handler.RequestedUrls.Count, Is.EqualTo(afterFirst),
+            "a second check within the TTL reuses the cached verdict instead of re-sweeping");
+    }
+
+    [Test]
+    public void MapQuality_HonorsTheCapTiers()
+    {
+        // Auto with a small-file cap must ask for the tier that fits the
+        // cap: HIGH (320 kbps AAC) would be rejected by the post-download
+        // probe after the bytes were already spent.
+        Assert.That(MonochromeDownloader.MapQuality(
+            new DownloadQuality(AudioFormat.Auto, MinKbps: null, MaxKbps: 128)), Is.EqualTo("LOW"));
+        Assert.That(MonochromeDownloader.MapQuality(
+            new DownloadQuality(AudioFormat.Auto, MinKbps: null, MaxKbps: 160)), Is.EqualTo("LOW"));
+        // A 320 cap fits the HIGH tier exactly; above it the hi-res FLAC.
+        Assert.That(MonochromeDownloader.MapQuality(
+            new DownloadQuality(AudioFormat.Auto, MinKbps: null, MaxKbps: 320)), Is.EqualTo("HIGH"));
         Assert.That(MonochromeDownloader.MapQuality(DownloadQuality.Any), Is.EqualTo("HI_RES_LOSSLESS"));
+        // Lossless requests: uncapped asks for hi-res, a capped one for
+        // plain LOSSLESS.
+        Assert.That(MonochromeDownloader.MapQuality(
+            new DownloadQuality(AudioFormat.Flac)), Is.EqualTo("HI_RES_LOSSLESS"));
+        Assert.That(MonochromeDownloader.MapQuality(
+            new DownloadQuality(AudioFormat.Flac, MinKbps: null, MaxKbps: 1411)), Is.EqualTo("LOSSLESS"));
+    }
+
+    [Test]
+    public void TryMapQuality_FailsFastWhenNoTierFits()
+    {
+        // TIDAL tiers are roughly 96, 320 and 900+. A 192-256 band has
+        // none: failing before the request beats downloading a 320 file
+        // the post-download gate would delete.
+        Assert.That(MonochromeDownloader.TryMapQuality(
+            new DownloadQuality(AudioFormat.Auto, MinKbps: 192, MaxKbps: 256)), Is.Null);
+
+        // The same band with a 320 ceiling is served by HIGH.
+        Assert.That(MonochromeDownloader.TryMapQuality(
+            new DownloadQuality(AudioFormat.Auto, MinKbps: 192, MaxKbps: 320)), Is.EqualTo("HIGH"));
+
+        // An uncapped floor with a 256 ceiling is served by the 96 tier.
+        Assert.That(MonochromeDownloader.TryMapQuality(
+            new DownloadQuality(AudioFormat.Auto, MinKbps: null, MaxKbps: 256)), Is.EqualTo("LOW"));
+
+        // A floor above HIGH needs the lossless tier, so an uncapped
+        // request takes it.
+        Assert.That(MonochromeDownloader.TryMapQuality(
+            new DownloadQuality(AudioFormat.Auto, MinKbps: 400, MaxKbps: null)), Is.EqualTo("HI_RES_LOSSLESS"));
     }
 }

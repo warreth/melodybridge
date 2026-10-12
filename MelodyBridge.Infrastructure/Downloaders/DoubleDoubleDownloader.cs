@@ -1,6 +1,9 @@
 using System.Net;
 using System.Text.Json;
 using MelodyBridge.Core;
+using MelodyBridge.Infrastructure.Audio;
+using MelodyBridge.Infrastructure.Files;
+using MelodyBridge.Infrastructure.Services;
 using Microsoft.Extensions.Logging;
 
 namespace MelodyBridge.Infrastructure.Downloaders;
@@ -35,6 +38,10 @@ public class DoubleDoubleDownloader : IDownloader
 
     private static readonly string[] Hosts = { "https://us.doubledouble.top", "https://eu.doubledouble.top" };
 
+    // Availability cache: the waterfall probes every enabled plugin per
+    // track; a host probe answer is trusted for a short window.
+    private readonly AvailabilityCache _availability = new();
+
     /// <summary>Poll cap, settable for tests. 45 x 2s gives ~90s+ per track.</summary>
     internal int MaxPollAttempts { get; set; } = 45;
 
@@ -49,27 +56,38 @@ public class DoubleDoubleDownloader : IDownloader
 
     public async Task<bool> IsAvailableAsync(CancellationToken ct = default)
     {
+        if (_availability.TryGet(out var cached))
+            return cached;
+
         // Cheap per-waterfall check: any host answering HTTP 200 counts.
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         cts.CancelAfter(TimeSpan.FromSeconds(10));
+        var available = false;
         foreach (var host in Hosts)
         {
             try
             {
                 using var resp = await _http.GetAsync($"{host}/captcha/config?url=x", cts.Token);
-                if (resp.IsSuccessStatusCode) return true;
+                if (resp.IsSuccessStatusCode)
+                {
+                    available = true;
+                    break;
+                }
             }
             catch (Exception ex)
             {
                 _logger.LogDebug(ex, "DoubleDouble availability probe failed for {Host}", host);
             }
         }
-        return false;
+        _availability.Store(available);
+        return available;
     }
 
     // No metadata search exists without a captcha (see class doc): this
     // plugin only downloads direct URLs handed to it by the waterfall.
-    public Task<DownloaderSearchHit?> SearchAsync(string artist, string title, DownloadQuality quality, CancellationToken ct = default)
+    public Task<DownloaderSearchHit?> SearchAsync(
+        string artist, string title, DownloadQuality quality,
+        TimeSpan? expectedDuration = null, CancellationToken ct = default)
         => Task.FromResult<DownloaderSearchHit?>(null);
 
     public async Task<DownloaderDownloadResult> DownloadAsync(
@@ -138,17 +156,41 @@ public class DoubleDoubleDownloader : IDownloader
         }
 
         // Step 2: poll GET /dl/{id} every 2s until done / error / cap.
+        // A few consecutive transient failures (5xx, network hiccups) are
+        // tolerated: aborting a 90-second rip over one blip would throw
+        // away all the work the site already did.
         string? downloadUrl = null;
+        var pollFailures = 0;
         for (var attempt = 0; attempt < MaxPollAttempts && downloadUrl is null; attempt++)
         {
             if (attempt > 0) await Delay(2000, ct);
 
-            using var pollResp = await _http.GetAsync($"{host}/dl/{submit.Id}", ct);
-            pollResp.EnsureSuccessStatusCode();
-            using var pollDoc = await JsonDocument.ParseAsync(
-                await pollResp.Content.ReadAsStreamAsync(ct), cancellationToken: ct);
+            JsonElement pollRoot;
+            try
+            {
+                using var pollResp = await _http.GetAsync($"{host}/dl/{submit.Id}", ct);
+                if (!pollResp.IsSuccessStatusCode)
+                {
+                    if (++pollFailures >= 5)
+                        return new DownloaderDownloadResult(false, null,
+                            $"doubledouble.top: status polling failed with HTTP {(int)pollResp.StatusCode}");
+                    continue;
+                }
+                using var pollDoc = await JsonDocument.ParseAsync(
+                    await pollResp.Content.ReadAsStreamAsync(ct), cancellationToken: ct);
+                pollRoot = pollDoc.RootElement.Clone();
+            }
+            catch (Exception ex) when (ex is HttpRequestException
+                || (ex is TaskCanceledException && !ct.IsCancellationRequested))
+            {
+                if (++pollFailures >= 5)
+                    return new DownloaderDownloadResult(false, null,
+                        "doubledouble.top: status polling failed: " + ex.Message);
+                continue;
+            }
+            pollFailures = 0;
 
-            var (status, url, message, kickback) = ParsePollResponse(pollDoc.RootElement);
+            var (status, url, message, kickback) = ParsePollResponse(pollRoot);
             switch (status)
             {
                 case "done":
@@ -176,21 +218,39 @@ public class DoubleDoubleDownloader : IDownloader
             return new DownloaderDownloadResult(false, null,
                 $"doubledouble.top: download did not finish within {MaxPollAttempts} polls");
 
-        // Step 3: stream the finished rip to dd_{guid}{ext}.
+        // Step 3: stream the finished rip to dd_{guid}{ext}. The bytes are
+        // sniffed before acceptance: a JSON/HTML error body served under a
+        // 200 must not enter the library as audio.
         Directory.CreateDirectory(outputDirectory);
         var ext = ExtensionFromUrl(downloadUrl) ?? DefaultExtension(sourceUrl);
         var target = Path.Combine(outputDirectory, $"dd_{Guid.NewGuid():N}{ext}");
 
-        using var dlResp = await _http.GetAsync(downloadUrl, HttpCompletionOption.ResponseHeadersRead, ct);
-        dlResp.EnsureSuccessStatusCode();
-        await using (var src = await dlResp.Content.ReadAsStreamAsync(ct))
-        await using (var dst = File.Create(target))
+        try
         {
-            await src.CopyToAsync(dst, 81920, ct);
+            using var dlResp = await _http.GetAsync(downloadUrl, HttpCompletionOption.ResponseHeadersRead, ct);
+            dlResp.EnsureSuccessStatusCode();
+            await using (var src = await dlResp.Content.ReadAsStreamAsync(ct))
+            await using (var dst = File.Create(target))
+            {
+                await src.CopyToAsync(dst, 81920, ct);
+            }
+        }
+        catch
+        {
+            FileCleanup.DeleteQuietly(target);
+            throw;
         }
 
-        YtDlpDownloader.TagDownloadedFile(target, expectedTitle: null);
-        return new DownloaderDownloadResult(true, target, null);
+        var container = AudioSignature.EnsureExtension(target);
+        if (container is null)
+        {
+            FileCleanup.DeleteQuietly(target);
+            return new DownloaderDownloadResult(false, null,
+                "doubledouble.top: the rip endpoint did not return audio");
+        }
+
+        YtDlpDownloader.TagDownloadedFile(container, expectedTitle: null);
+        return new DownloaderDownloadResult(true, container, null);
     }
 
     /// <summary>Maps a track URL host to the site's external= service name (null = omit).</summary>

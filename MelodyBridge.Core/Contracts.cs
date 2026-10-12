@@ -69,8 +69,12 @@ public interface IDownloadManager
     /// <summary>
     /// Search for the track by metadata through the plugin waterfall,
     /// download it into outputDirectory, tag the MELODY_ID, return the path.
+    /// <paramref name="expectedDuration"/> is the playlist's advertised
+    /// track length; it steers candidate ranking and rejects gross
+    /// mismatches (a 30s preview for a 4-minute track) before any bytes
+    /// are spent.
     /// </summary>
-    Task<string?> DownloadTrackAsync(string artist, string title, string outputDirectory, string melodyId, DownloadQuality? quality = null, CancellationToken ct = default);
+    Task<string?> DownloadTrackAsync(string artist, string title, string outputDirectory, string melodyId, DownloadQuality? quality = null, TimeSpan? expectedDuration = null, CancellationToken ct = default);
     /// <summary>Current in-flight download states (for UI polling).</summary>
     IReadOnlyList<DownloadProgress> SnapshotProgress();
     /// <summary>

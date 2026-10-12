@@ -48,6 +48,39 @@ public class YtDlpDownloaderLiveTests
     }
 
     [Test]
+    public async Task Search_RanksTheOfficialTrack_NotTheLyricVideo()
+    {
+        // The top-5 results for this query contain lyric channels and
+        // remixes; the official upload must win the ranking.
+        var hit = await _downloader.SearchAsync("Rick Astley", "Never Gonna Give You Up", MelodyBridge.Core.DownloadQuality.Any);
+
+        Assert.That(hit, Is.Not.Null);
+        Assert.That(hit!.Title, Does.Contain("Never Gonna Give You Up"));
+        Assert.That(hit.Artist, Does.Contain("Rick Astley"),
+            "the ranking must prefer the artist's own upload over cover/lyric channels");
+        Assert.That(hit.MatchConfidence, Is.EqualTo(MatchConfidence.High));
+        Assert.That(hit.Duration, Is.Not.Null);
+        Assert.That(hit.Duration!.Value.TotalSeconds, Is.InRange(195, 235),
+            "the official track runs about 3:33");
+    }
+
+    [Test]
+    public async Task Search_WrongLengthExpectation_ReturnsTheCandidate_ForTheManagerToReject()
+    {
+        // The ranker treats a gross mismatch as a last resort: the
+        // candidate still surfaces so the waterfall can name the reason
+        // ("wrong length"); the manager's duration gate refuses to
+        // download it.
+        var hit = await _downloader.SearchAsync(
+            "Rick Astley", "Never Gonna Give You Up",
+            MelodyBridge.Core.DownloadQuality.Any, expectedDuration: TimeSpan.FromSeconds(100));
+
+        Assert.That(hit, Is.Not.Null, "the last-resort candidate surfaces");
+        Assert.That(hit!.Duration!.Value.TotalSeconds, Is.GreaterThan(180),
+            "and its length really is wrong for the expectation");
+    }
+
+    [Test]
     public async Task Download_InvalidUrl_ReturnsFailureNotThrow()
     {
         var result = await _downloader.DownloadAsync(
@@ -94,7 +127,82 @@ public class YtDlpDownloaderLiveTests
         var duration = await ffprobe!.StandardOutput.ReadToEndAsync();
         await ffprobe.WaitForExitAsync();
         Assert.That(ffprobe.ExitCode, Is.EqualTo(0), "ffprobe must accept the file");
-        Assert.That(double.TryParse(duration.Trim(), out var seconds), Is.True, $"ffprobe duration parse: '{duration}'");
+        // Invariant culture: ffprobe prints a dot decimal; a Dutch locale
+        // would read "213.58" as 213,580,000.
+        Assert.That(double.TryParse(duration.Trim(), System.Globalization.NumberStyles.Float,
+            System.Globalization.CultureInfo.InvariantCulture, out var seconds), Is.True, $"ffprobe duration parse: '{duration}'");
         Assert.That(seconds, Is.GreaterThan(60).And.LessThan(600), "Für Elise is ~3-4 minutes");
+    }
+
+    [Test]
+    public async Task Download_IsAudioOnly_NeverAVideoFile()
+    {
+        var hit = await _downloader.SearchAsync("Rick Astley", "Never Gonna Give You Up", MelodyBridge.Core.DownloadQuality.Any);
+        Assert.That(hit, Is.Not.Null, "precondition: search finds the track");
+
+        var result = await _downloader.DownloadAsync(hit!.SourceUrl!, _outDir, "mb-audio-only");
+        Assert.That(result.Success, Is.True, result.ErrorMessage);
+
+        // yt-dlp's default format chain would download the full video
+        // (tens of megabytes); the plugin must pick the audio stream only.
+        var streamTypes = await FfprobeAsync("-v error -show_entries stream=codec_type -of csv=p=0", result.FilePath!);
+        var types = streamTypes.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        Assert.That(types, Is.EqualTo(new[] { "audio" }),
+            "exactly one audio stream, no video stream");
+        Assert.That(new FileInfo(result.FilePath!).Length, Is.LessThan(15 * 1024 * 1024),
+            "an audio-only download stays a few megabytes, not tens");
+    }
+
+    [Test]
+    public async Task ParallelDownloads_IntoOneFolder_ProduceDistinctIntactFiles()
+    {
+        var tracks = new[]
+        {
+            ("Ludwig van Beethoven", "Für Elise"),
+            ("Frédéric Chopin", "Nocturne in E-flat major, Op. 9 No. 2"),
+            ("Erik Satie", "Gymnopédie No. 1"),
+        };
+
+        var hits = new List<DownloaderSearchHit>();
+        foreach (var (artist, title) in tracks)
+        {
+            var hit = await _downloader.SearchAsync(artist, title, MelodyBridge.Core.DownloadQuality.Any);
+            Assert.That(hit, Is.Not.Null, $"search must find {title}");
+            hits.Add(hit!);
+        }
+
+        // Three downloads race into the same folder, like the coordinator's
+        // parallel workers do: every file must land intact under its own
+        // name, never clobbering another track.
+        var tasks = hits.Select((hit, index) =>
+            _downloader.DownloadAsync(hit.SourceUrl!, _outDir, $"mb-parallel-{index}")).ToList();
+        var results = await Task.WhenAll(tasks);
+
+        Assert.That(results.Select(r => r.Success), Is.All.True,
+            string.Join("; ", results.Select(r => r.ErrorMessage)));
+        var paths = results.Select(r => r.FilePath!).ToList();
+        Assert.That(paths.Distinct().Count(), Is.EqualTo(3), "no two downloads share a file");
+        foreach (var path in paths)
+        {
+            Assert.That(System.IO.File.Exists(path), Is.True);
+            Assert.That(new FileInfo(path).Length, Is.GreaterThan(100 * 1024),
+                "each parallel download produced real bytes");
+        }
+    }
+
+    private static async Task<string> FfprobeAsync(string arguments, string file)
+    {
+        using var ffprobe = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+        {
+            FileName = "ffprobe",
+            Arguments = $"{arguments} \"{file}\"",
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        })!;
+        var stdout = await ffprobe.StandardOutput.ReadToEndAsync();
+        await ffprobe.WaitForExitAsync();
+        return stdout;
     }
 }
