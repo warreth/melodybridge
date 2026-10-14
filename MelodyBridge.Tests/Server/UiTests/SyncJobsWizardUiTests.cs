@@ -49,6 +49,8 @@ public class SyncJobsWizardUiTests
         _ctx.Services.AddSingleton<ISyncJobRunner>(_jobRunner.Object);
         _ctx.Services.AddSingleton<IMediaServerDirectory>(_userDirectory.Object);
         _ctx.Services.AddSingleton<IDbContextFactory<MelodyBridgeDbContext>>(_dbFactory);
+        _ctx.Services.AddSingleton<MelodyBridge.Infrastructure.MediaServers.JellyfinLoginService>(
+            new TestServices.StubJellyfinLogin());
     }
 
     [TearDown]
@@ -243,7 +245,7 @@ public class SyncJobsWizardUiTests
         cut.FindAll("select").First(s => s.TextContent.Contains("M3U File")).Change("JellyfinApi");
 
         cut.Find("input[placeholder='http://host.docker.internal:8096']").Change("http://jf:8096");
-        cut.Find("input[placeholder='API key']").Change("key-1");
+        cut.Find("input[placeholder='from sign-in, or an API key']").Change("key-1");
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Test connection").Click();
 
         _userDirectory.Verify(
@@ -262,6 +264,32 @@ public class SyncJobsWizardUiTests
             "a Jellyfin target must never be tested with the Navidrome directory");
         Assert.That(cut.Markup, Does.Contain("connected"));
         Assert.That(cut.Markup, Does.Contain("Alice"));
+    }
+
+    [Test]
+    public void Step3_SignIn_FillsTheSessionTokenAndUser()
+    {
+        var login = new TestServices.StubJellyfinLogin();
+        _ctx.Services.AddSingleton<MelodyBridge.Infrastructure.MediaServers.JellyfinLoginService>(login);
+
+        SeedScanLocations("/music");
+        var cut = OpenWizardWithPlaylistSource();
+        Next(cut, 2);
+        cut.FindAll("select").First(s => s.TextContent.Contains("M3U File")).Change("JellyfinApi");
+
+        cut.Find("input[placeholder='http://host.docker.internal:8096']").Change("http://jf:8096");
+        cut.Find("input[placeholder='jellyfin user']").Change("mbadmin");
+        cut.Find("input[placeholder='password (not stored)']").Change("secret");
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Sign in").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(login.Calls, Is.EqualTo(1), "the button runs the sign-in");
+            Assert.That(cut.Markup, Does.Contain("Signed in as mbadmin"));
+            var token = cut.Find("input[placeholder='from sign-in, or an API key']");
+            Assert.That(token.GetAttribute("value"), Is.EqualTo("session-token"),
+                "the session token lands in the job's credential field");
+        }, TimeSpan.FromSeconds(3));
     }
 
     // ── C3: multiple remap rules ────────────────────────────────────

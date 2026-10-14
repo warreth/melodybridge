@@ -3,6 +3,7 @@
 @using MelodyBridge.Infrastructure.MediaServers
 @inject ISyncJobRunner JobRunner
 @inject IDbContextFactory<MelodyBridgeDbContext> DbFactory
+@inject JellyfinLoginService JellyfinLogin
 @implements IDisposable
 
 <PageTitle>Sync Jobs</PageTitle>
@@ -149,8 +150,25 @@
                                     <input @bind="draft.JellyfinServerUrl" placeholder="http://host.docker.internal:8096" />
                                 </label>
                                 <label>
-                                    Jellyfin API key
-                                    <input @bind="draft.JellyfinApiKey" type="password" placeholder="API key" />
+                                    Jellyfin username
+                                    <input @bind="wizardJellyfinUsername" placeholder="jellyfin user" />
+                                </label>
+                                <label>
+                                    Jellyfin password
+                                    <input @bind="wizardJellyfinPassword" type="password" placeholder="password (not stored)" />
+                                </label>
+                                <div class="flex-actions">
+                                    <button class="btn-modern small" disabled="@wizardSigningIn" @onclick="SignInWizardJellyfinAsync">
+                                        @(wizardSigningIn ? "Signing in…" : "Sign in")
+                                    </button>
+                                    @if (!string.IsNullOrWhiteSpace(wizardSignInStatus))
+                                    {
+                                        <span class="text-muted">@wizardSignInStatus</span>
+                                    }
+                                </div>
+                                <label>
+                                    Session token
+                                    <input @bind="draft.JellyfinApiKey" type="password" placeholder="from sign-in, or an API key" />
                                 </label>
                             }
                             else if (draft.OutputTarget == OutputTargetType.PlexApi)
@@ -428,6 +446,10 @@
     private HashSet<string> selectedFolders = new();
     private List<RemapRule> pathRules = new();
     private List<RemapRule> extRules = new();
+    private string wizardJellyfinUsername = "";
+    private string wizardJellyfinPassword = "";
+    private string? wizardSignInStatus;
+    private bool wizardSigningIn;
 
     protected override async Task OnInitializedAsync()
     {
@@ -452,9 +474,45 @@
         selectedFolders = new HashSet<string>();
         pathRules = new List<RemapRule>();
         extRules = new List<RemapRule>();
+        wizardJellyfinUsername = "";
+        wizardJellyfinPassword = "";
+        wizardSignInStatus = null;
         currentStep = 0;
         stepError = null;
         showWizard = true;
+    }
+
+    /// <summary>
+    /// Signs in to Jellyfin and fills the job's credential with the session
+    /// token. Playlists there belong to a user; an API key has none, so the
+    /// wizard signs in the way the sync needs.
+    /// </summary>
+    private async Task SignInWizardJellyfinAsync()
+    {
+        wizardSigningIn = true;
+        wizardSignInStatus = null;
+        StateHasChanged();
+        try
+        {
+            var result = await JellyfinLogin.LoginAsync(
+                draft.JellyfinServerUrl, wizardJellyfinUsername, wizardJellyfinPassword);
+            if (result.Succeeded)
+            {
+                draft.JellyfinApiKey = result.Token!;
+                if (!string.IsNullOrWhiteSpace(result.UserId))
+                    draft.JellyfinUserId = result.UserId!;
+                wizardSignInStatus = $"Signed in as {result.UserName ?? wizardJellyfinUsername}.";
+            }
+            else
+            {
+                wizardSignInStatus = "Sign-in failed: " + result.Error;
+            }
+        }
+        finally
+        {
+            wizardSigningIn = false;
+            StateHasChanged();
+        }
     }
 
     private void StartEditJob(SyncJobEntity job)

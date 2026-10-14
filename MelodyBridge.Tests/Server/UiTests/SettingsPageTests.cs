@@ -225,6 +225,33 @@ public class SettingsPageTests
     }
 
     [Test]
+    public void Settings_ConnectionsTab_SignIn_FillsTheSessionToken()
+    {
+        var login = new TestServices.StubJellyfinLogin();
+        _ctx.Services.AddSingleton<MelodyBridge.Infrastructure.MediaServers.JellyfinLoginService>(login);
+
+        var cut = _ctx.Render<Settings>();
+        cut.FindAll("button.tab-link").First(b => b.TextContent == "Media servers").Click();
+
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Add profile").Click();
+        cut.Find("input[placeholder='Living room Jellyfin']").Change("Main server");
+        cut.Find("input[placeholder='http://jellyfin:8096']").Change("http://media:8096");
+        cut.Find("input[placeholder='jellyfin user']").Change("mbadmin");
+        cut.Find("input[placeholder='password (not stored)']").Change("secret");
+
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Sign in").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(login.Calls, Is.EqualTo(1), "the button runs the sign-in");
+            Assert.That(cut.Markup, Does.Contain("Signed in as mbadmin"));
+            var token = cut.Find("input[placeholder='sign in above, or paste an API key']");
+            Assert.That(token.GetAttribute("value"), Is.EqualTo("session-token"),
+                "the session token lands in the credential field");
+        }, TimeSpan.FromSeconds(3));
+    }
+
+    [Test]
     public void Settings_ConnectionsTab_TestButton_UsesJellyfinDirectory()
     {
         var directory = new Mock<MelodyBridge.Core.IMediaServerDirectory>();

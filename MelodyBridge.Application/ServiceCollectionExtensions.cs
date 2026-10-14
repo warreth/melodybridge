@@ -167,6 +167,14 @@ public static class ServiceCollectionExtensions
         // never leak into it.
         services.AddSingleton<IMediaServerDirectory, JellyfinUserDirectory>();
 
+        // Sign-in for Jellyfin: playlists belong to a user there, and an
+        // API key has no user context, so the wizard signs in and stores the
+        // returned session token as the connection credential.
+        services.AddHttpClient("jellyfin-login", c => c.Timeout = TimeSpan.FromSeconds(15));
+        services.AddSingleton(sp => new JellyfinLoginService(
+            sp.GetRequiredService<IHttpClientFactory>().CreateClient("jellyfin-login"),
+            sp.GetRequiredService<ILogger<JellyfinLoginService>>()));
+
         // Plex: token auth, file-path matching, server:// playlist uris.
         services.AddHttpClient(nameof(PlexSync));
         services.AddSingleton<ConfigPlexSettings>();

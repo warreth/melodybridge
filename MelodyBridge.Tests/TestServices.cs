@@ -50,6 +50,10 @@ public static class TestServices
         // tests from shelling out to a real binary.
         services.AddSingleton<MelodyBridge.Infrastructure.Downloaders.YtDlpUpdater>(
             new StubYtDlpUpdater());
+        // The Settings and wizard pages sign in to Jellyfin; a stub keeps
+        // them off the network.
+        services.AddSingleton<MelodyBridge.Infrastructure.MediaServers.JellyfinLoginService>(
+            new StubJellyfinLogin());
         // Update check: a plain HttpClient; tests that need GitHub
         // behaviour stub the handler themselves.
         services.AddSingleton(new UpdateCheckService(new HttpClient()));
@@ -84,6 +88,26 @@ public static class TestServices
         {
             UpdateCalls++;
             Version = "2026.10.14";
+            return Task.FromResult(NextResult);
+        }
+    }
+
+    /// <summary>Jellyfin sign-in stub for page tests: no network, fixed outcome.</summary>
+    public sealed class StubJellyfinLogin : MelodyBridge.Infrastructure.MediaServers.JellyfinLoginService
+    {
+        public MelodyBridge.Infrastructure.MediaServers.JellyfinLoginResult NextResult { get; set; } =
+            new(true, "session-token", "user-1", "mbadmin", null);
+        public int Calls { get; private set; }
+
+        public StubJellyfinLogin()
+            : base(null!, NullLogger<MelodyBridge.Infrastructure.MediaServers.JellyfinLoginService>.Instance)
+        {
+        }
+
+        public override Task<MelodyBridge.Infrastructure.MediaServers.JellyfinLoginResult> LoginAsync(
+            string baseUrl, string username, string password, CancellationToken ct = default)
+        {
+            Calls++;
             return Task.FromResult(NextResult);
         }
     }

@@ -258,9 +258,16 @@ public class ReleasePipelineLiveTests
         foreach (var track in rows)
             await JellyfinLiveServer.WaitUntilResolvableAsync(_jellyfin.Api, track.Title!);
 
-        // The login token is a user context: the playlist it creates is
-        // owned by that user and visible in Jellyfin's own UI, which is what
-        // this test verifies against.
+        // Sign in the way the wizard does: Jellyfin playlists belong to a
+        // user and an API key has none, so the sync runs on a session token.
+        // This is the flow users actually configure, not a hand-made token.
+        var login = new JellyfinLoginService(
+            new HttpClient(new HttpClientHandler()),
+            NullLogger<JellyfinLoginService>.Instance);
+        var signIn = await login.LoginAsync(
+            JellyfinLiveServer.BaseUrl, JellyfinLiveServer.AdminUser, JellyfinLiveServer.AdminPw);
+        Assert.That(signIn.Succeeded, Is.True, "Jellyfin sign-in failed: " + signIn.Error);
+
         var jellyfinSync = new JellyfinSync(new HttpClient { Timeout = TimeSpan.FromSeconds(60) },
             NullLogger<JellyfinSync>.Instance, new JellyfinFixedSettings());
         var runner = new SyncJobRunner(_factory,
@@ -274,7 +281,8 @@ public class ReleasePipelineLiveTests
             SourceId = _playlistId,
             OutputTarget = OutputTargetType.JellyfinApi,
             JellyfinServerUrl = JellyfinLiveServer.BaseUrl,
-            JellyfinApiKey = _jellyfin.Token,
+            JellyfinApiKey = signIn.Token!,
+            JellyfinUserId = signIn.UserId,
             PathRemapRules = new Dictionary<string, string> { [_musicDir] = "/media" },
         };
 
