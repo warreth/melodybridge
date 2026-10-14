@@ -1,14 +1,17 @@
-name: Live container tests
+name: Release gate
 
-# The media-server live suites boot real Jellyfin, Plex and Navidrome
-# containers and verify the sync clients against them. The fixtures
-# self-skip unless the images are already pulled, and they use host
-# networking on fixed ports, all of which GitHub's Ubuntu runners
-# provide.
+# The release gate boots real Jellyfin, Plex and Navidrome containers and
+# runs the end-to-end pipeline test against them: a real Spotify playlist
+# is fetched, real tracks are downloaded through yt-dlp, the quality and
+# archive copies are read from disk, an M3U is written and the playlist is
+# pushed into the containers and streamed back. Everything is tagged
+# Category=ReleaseGate so this only runs here (and monthly), never on a
+# plain push. The fixtures self-skip unless the images are already pulled,
+# so the images are pulled first.
 #
-# Runs monthly for early warning and is called by the release workflow
-# as a gate before an image is built. PLEX_TOKEN is optional: without it
-# the claimed-server sync test skips itself.
+# PLEX_TOKEN is optional: without it the claimed-server Plex sync test
+# skips itself and the Plex leg of the end-to-end run checks the honest
+# report instead of a full push.
 
 on:
   workflow_call:
@@ -18,9 +21,9 @@ on:
     - cron: "0 3 1 * *"
 
 jobs:
-  media-servers:
+  release-gate:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
 
@@ -42,6 +45,15 @@ jobs:
       - name: Build
         run: dotnet build MelodyBridge.sln -c Release --no-restore
 
+      # The end-to-end run downloads a real track, so yt-dlp and ffmpeg
+      # must be on PATH, exactly like the shipped image has them.
+      - name: Install yt-dlp and ffmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          sudo pip3 install --break-system-packages yt-dlp
+          yt-dlp --version
+
       # The fixtures inspect for the images; without a pull they would
       # skip themselves and the job would prove nothing.
       - name: Pull media server images
@@ -50,19 +62,19 @@ jobs:
           docker pull deluan/navidrome:latest
           docker pull plexinc/pms-docker:latest
 
-      - name: Media server live tests
+      - name: Release gate suites
         env:
           PLEX_TOKEN: ${{ secrets.PLEX_TOKEN }}
         run: >
           dotnet test MelodyBridge.sln -c Release --no-build
-          --filter "FullyQualifiedName~JellyfinSyncLiveTests|FullyQualifiedName~NavidromeSyncLiveTests|FullyQualifiedName~PlexSyncLiveTests"
-          --logger "trx;LogFileName=live-containers.trx"
+          --filter "Category=ReleaseGate"
+          --logger "trx;LogFileName=release-gate.trx"
           --logger "console;verbosity=normal"
 
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: live-container-results
+          name: release-gate-results
           path: MelodyBridge.Tests/TestResults/*.trx
           if-no-files-found: ignore

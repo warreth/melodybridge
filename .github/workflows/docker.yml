@@ -56,14 +56,15 @@ jobs:
           dotnet test MelodyBridge.sln -c Release --no-build
           --filter "FullyQualifiedName!~Tests.Integration&Category!=Live"
 
-  # Real Jellyfin, Plex and Navidrome containers: a release must not
-  # publish an image whose sync clients have never met a real server.
-  media-servers:
-    uses: ./.github/workflows/live-containers.yml
+  # Real Jellyfin, Plex and Navidrome containers plus the end-to-end
+  # pipeline run: a release must not publish an image whose sync clients
+  # and download pipeline have never met real servers.
+  release-gate:
+    uses: ./.github/workflows/release-gate.yml
     secrets: inherit
 
   build-and-push:
-    needs: [verify, media-servers]
+    needs: [verify, release-gate]
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
@@ -102,19 +103,31 @@ jobs:
           fi
 
       # The image stamps the version from the tag so the About tab and the
-      # sidebar report what was released. Manual runs pass nothing.
+      # sidebar report what was released, and the tag list below is built
+      # from the same value. Two-component tags like v1.0-rc1 are padded to
+      # 1.0.0-rc1: the semver parsers and the app's update check want all
+      # three components. Manual runs pass nothing.
       - name: Version for stamping
         id: version
         run: |
           ref="${GITHUB_REF_NAME#v}"
-          if echo "$ref" | grep -Eq '^[0-9]+\.[0-9]+'; then
+          if echo "$ref" | grep -Eq '^[0-9]+\.[0-9]+-'; then
+            ref="${ref%%-*}.0-${ref#*-}"
+          elif echo "$ref" | grep -Eq '^[0-9]+\.[0-9]+$'; then
+            ref="$ref.0"
+          fi
+          if echo "$ref" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+'; then
             echo "value=$ref" >> "$GITHUB_OUTPUT"
+            echo "major=${ref%%.*}" >> "$GITHUB_OUTPUT"
           else
             echo "value=" >> "$GITHUB_OUTPUT"
+            echo "major=" >> "$GITHUB_OUTPUT"
           fi
 
       # One metadata step picks the tag list by event type so there is no
       # code path where a manual run can overwrite :latest or a version tag.
+      # The values are raw (not type=semver) so a two-component tag cannot
+      # silently produce an empty tag list.
       - name: Extract metadata (tags, labels)
         id: meta
         uses: docker/metadata-action@v5
@@ -123,10 +136,10 @@ jobs:
           tags: |
             # Manual dispatch: dev build, tag ONLY :dev.
             type=raw,value=dev,enable=${{ github.event_name == 'workflow_dispatch' }}
-            # Release: the full version always.
-            type=semver,pattern={{version}},enable=${{ github.event_name != 'workflow_dispatch' }}
+            # Release: the normalized full version, always.
+            type=raw,value=${{ steps.version.outputs.value }},enable=${{ github.event_name != 'workflow_dispatch' && steps.version.outputs.value != '' }}
             # Stable only: the major tag and :latest.
-            type=semver,pattern={{major}},enable=${{ github.event_name != 'workflow_dispatch' && steps.pre.outputs.prerelease == 'false' }}
+            type=raw,value=${{ steps.version.outputs.major }},enable=${{ github.event_name != 'workflow_dispatch' && steps.pre.outputs.prerelease == 'false' && steps.version.outputs.major != '' }}
             type=raw,value=latest,enable=${{ github.event_name != 'workflow_dispatch' && steps.pre.outputs.prerelease == 'false' }}
             # Prerelease only: the moving :beta channel.
             type=raw,value=beta,enable=${{ github.event_name != 'workflow_dispatch' && steps.pre.outputs.prerelease == 'true' }}
