@@ -50,7 +50,7 @@ public class JellyfinSync : IMediaServerSync
         using var request = new HttpRequestMessage(
             method ?? HttpMethod.Get, NormalizeBaseUrl(baseUrl).TrimEnd('/') + "/" + relativeUrl.TrimStart('/'));
         if (!string.IsNullOrEmpty(apiKey))
-            request.Headers.Add("X-Emby-Token", apiKey);
+            request.Headers.TryAddWithoutValidation("Authorization", $"MediaBrowser Token=\"{apiKey}\"");
         if (content is not null)
             request.Content = content;
         return await _http.SendAsync(request, ct);
@@ -111,7 +111,9 @@ public class JellyfinSync : IMediaServerSync
     private async Task<string?> ResolveItemIdAsync(
         string baseUrl, string apiKey, string lookupPath, Track track, CancellationToken ct)
     {
-        // 1) Exact path
+        // 1) Exact path. Jellyfin 10.11 removed this route (it now answers
+        //    400 for /Items/ByPath), so this stays as a cheap try for older
+        //    servers and falls through immediately on new ones.
         try
         {
             using var resp = await SendAsync(baseUrl, apiKey,
@@ -124,12 +126,17 @@ public class JellyfinSync : IMediaServerSync
         }
         catch (Exception ex) { _logger.LogDebug(ex, "ByPath lookup failed for {path}", lookupPath); }
 
-        // 2) Search by full path, 3) by filename, 4) by title/artist
+        // 2) Search by full path, 3) by filename, 4) by title/artist, 5) by
+        // title alone. Current Jellyfin does not index file names and its
+        // search does not match a combined "title artist" term, so the
+        // title search is the one that resolves real tracks; the artist and
+        // duration pick the right item when the title is not unique.
         var terms = new[]
         {
             lookupPath,
             Path.GetFileName(lookupPath),
-            string.Join(' ', new[] { track.Title, track.Artist }.Where(t => !string.IsNullOrEmpty(t)))
+            string.Join(' ', new[] { track.Title, track.Artist }.Where(t => !string.IsNullOrEmpty(t))),
+            track.Title
         };
         foreach (var term in terms)
         {
@@ -141,11 +148,47 @@ public class JellyfinSync : IMediaServerSync
                     ct: ct);
                 if (!resp.IsSuccessStatusCode) continue;
                 var list = await resp.Content.ReadFromJsonAsync<JellyfinItemsResult>(cancellationToken: ct);
-                if (list?.Items is { Length: > 0 }) return list.Items[0].Id;
+                if (list?.Items is not { Length: > 0 }) continue;
+                var best = PickBest(list.Items, track);
+                if (best?.Id is { Length: > 0 } id) return id;
             }
             catch (Exception ex) { _logger.LogDebug(ex, "Search lookup failed for {term}", term); }
         }
         return null;
+    }
+
+    /// <summary>
+    /// The item that fits the track best: a single result wins outright,
+    /// otherwise the artist and the duration decide. A title search can
+    /// return covers and live versions, so the first hit is not enough.
+    /// </summary>
+    private static JellyfinItem? PickBest(JellyfinItem[] items, Track track)
+    {
+        if (items.Length == 1) return items[0];
+
+        JellyfinItem? best = null;
+        var bestScore = -1;
+        foreach (var item in items)
+        {
+            var score = 0;
+            if (!string.IsNullOrEmpty(track.Artist) && item.Artists is { Length: > 0 }
+                && item.Artists.Any(a => a.Contains(track.Artist, StringComparison.OrdinalIgnoreCase)
+                    || track.Artist.Contains(a, StringComparison.OrdinalIgnoreCase)))
+            {
+                score += 2;
+            }
+            if (track.Duration is { } duration && item.RunTimeTicks is { } ticks
+                && Math.Abs(TimeSpan.FromTicks(ticks).TotalSeconds - duration.TotalSeconds) <= 5)
+            {
+                score += 1;
+            }
+            if (score > bestScore)
+            {
+                bestScore = score;
+                best = item;
+            }
+        }
+        return best;
     }
 
     /// <summary>Updates the named playlist in place, or creates it.</summary>
@@ -308,7 +351,13 @@ public class JellyfinSync : IMediaServerSync
         return url.Contains("://") ? url : "http://" + url;
     }
 
-    private class JellyfinItem { public string? Id { get; set; } public string? Name { get; set; } }
+    private class JellyfinItem
+    {
+        public string? Id { get; set; }
+        public string? Name { get; set; }
+        public string[]? Artists { get; set; }
+        public long? RunTimeTicks { get; set; }
+    }
     private class JellyfinItemsResult { public JellyfinItem[]? Items { get; set; } }
     private class JellyfinPlaylist { public string? Id { get; set; } public string? Name { get; set; } }
 }

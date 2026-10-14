@@ -185,9 +185,21 @@ public class SyncJobRunnerLogTests
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request, CancellationToken ct)
         {
-            Requests.Add((request.RequestUri!.ToString(),
-                request.Headers.TryGetValues("X-Emby-Token", out var t) ? t.FirstOrDefault() : null));
+            Requests.Add((request.RequestUri!.ToString(), MediaBrowserToken(request)));
             return Task.FromResult(Respond(request.RequestUri!.PathAndQuery));
+        }
+
+        /// <summary>The token out of "Authorization: MediaBrowser Token=\"...\""."</summary>
+        private static string? MediaBrowserToken(HttpRequestMessage request)
+        {
+            if (!request.Headers.TryGetValues("Authorization", out var values)) return null;
+            var raw = values.FirstOrDefault() ?? "";
+            const string marker = "Token=\"";
+            var start = raw.IndexOf(marker, StringComparison.Ordinal);
+            if (start < 0) return null;
+            start += marker.Length;
+            var end = raw.IndexOf('"', start);
+            return end < 0 ? null : raw[start..end];
         }
     }
 

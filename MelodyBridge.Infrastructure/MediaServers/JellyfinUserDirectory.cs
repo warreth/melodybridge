@@ -60,7 +60,7 @@ public class JellyfinUserDirectory : IMediaServerDirectory
         var request = new HttpRequestMessage(
             HttpMethod.Get, NormalizeBaseUrl(baseUrl).TrimEnd('/') + "/" + relative);
         if (!string.IsNullOrEmpty(apiKey))
-            request.Headers.Add("X-Emby-Token", apiKey);
+            request.Headers.TryAddWithoutValidation("Authorization", $"MediaBrowser Token=\"{apiKey}\"");
         return request;
     }
 

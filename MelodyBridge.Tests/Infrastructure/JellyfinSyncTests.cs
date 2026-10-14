@@ -71,4 +71,51 @@ public class JellyfinSyncTests
 
         Assert.That(sync.Name, Is.EqualTo("Jellyfin"));
     }
+
+    [Test]
+    public async Task SyncPlaylistAsync_SendsTheModernAuthorizationHeader()
+    {
+        // Current Jellyfin rejects the legacy X-Emby-Token header with 401;
+        // the supported form is Authorization: MediaBrowser Token="...".
+        var authHeaders = new List<string?>();
+        var mock = new Mock<HttpMessageHandler>(MockBehavior.Loose);
+        mock.Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .Callback<HttpRequestMessage, CancellationToken>((request, _) =>
+                authHeaders.Add(request.Headers.TryGetValues("Authorization", out var values)
+                    ? values.FirstOrDefault()
+                    : null))
+            .ReturnsAsync(() => new HttpResponseMessage
+            {
+                StatusCode = HttpStatusCode.OK,
+                Content = new StringContent("{}"),
+            });
+
+        var client = new HttpClient(mock.Object);
+        var sync = new JellyfinSync(client,
+            new Microsoft.Extensions.Logging.Abstractions.NullLogger<JellyfinSync>(),
+            _settings);
+
+        var playlist = new Playlist
+        {
+            Name = "Mix",
+            Tracks = new List<Track>
+            {
+                new()
+                {
+                    Title = "Song",
+                    Artist = "Artist",
+                    CurrentTrackLocation = new FileLocation("/music/song.mp3"),
+                },
+            },
+        };
+        await sync.SyncPlaylistAsync(playlist, new PlaylistOutputOptions("/tmp/out.m3u", false, null));
+
+        Assert.That(authHeaders, Is.Not.Empty, "the sync must have sent at least one request");
+        Assert.That(authHeaders, Has.All.EqualTo("MediaBrowser Token=\"test-key\""),
+            "every request carries the modern Authorization header");
+    }
 }
