@@ -74,3 +74,52 @@
   font-size: 13.5px;
   line-height: 1.6;
 }
+
+/* Numbered steps for quick-start walkthroughs. Usage in markdown:
+   <div class="steps">
+     <div class="step" data-step="1"><strong>Title</strong><p>Text</p></div>
+   </div> */
+.steps {
+  display: grid;
+  gap: 10px;
+  margin: 16px 0;
+}
+.step {
+  position: relative;
+  padding: 14px 16px 14px 52px;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 10px;
+  background-color: var(--vp-c-bg-soft);
+}
+.step::before {
+  content: attr(data-step);
+  position: absolute;
+  left: 14px;
+  top: 14px;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background-color: var(--vp-c-brand-soft);
+  color: var(--vp-c-brand-1);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+}
+.step strong {
+  display: block;
+  margin-bottom: 2px;
+  font-size: 15px;
+  font-weight: 600;
+}
+.step p {
+  margin: 0;
+  color: var(--vp-c-text-2);
+  font-size: 14px;
+  line-height: 1.6;
+}
+.step a {
+  color: var(--vp-c-brand-1);
+  font-weight: 500;
+}

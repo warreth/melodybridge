@@ -32,15 +32,20 @@ MelodyBridge downloads.
 
 ## Your first download
 
-1. Open http://localhost:3333. A fresh install shows a three-step checklist that
-   ticks itself off as you go. You can skip it and use the dashboard instead.
-2. Go to **Playlists**, paste a public Spotify or YouTube playlist link and press
-   **Fetch & save**. MelodyBridge stores the track list in its local database.
-3. Open the playlist and press **Download missing**. The plugins search and
-   download each track, and the list fills in with the real quality of every file.
-4. Go to **Sync jobs** and create a job that writes an M3U file or pushes the
-   playlist to Jellyfin, Plex or Navidrome. More about that in
-   [Publishing playlists](/publishing).
+<div class="steps">
+<div class="step" data-step="1">
+<strong>Add a playlist</strong>
+<p>Open <b>Playlists</b> and paste a public Spotify or YouTube playlist link. Press <b>Fetch &amp; save</b>; MelodyBridge stores the track list in its local database.</p>
+</div>
+<div class="step" data-step="2">
+<strong>Download the music</strong>
+<p>Open the playlist and press <b>Download missing</b>. The plugins search and download each track, and the list fills in with the real quality of every file.</p>
+</div>
+<div class="step" data-step="3">
+<strong>Publish it</strong>
+<p>Create a sync job that writes an M3U file or pushes the playlist to Jellyfin, Plex or Navidrome. More about that in <a href="/publishing">Publishing playlists</a>.</p>
+</div>
+</div>
 
 <img src="/screens/playlists.webp" alt="Playlists page with saved playlists and their download progress" width="800">
 

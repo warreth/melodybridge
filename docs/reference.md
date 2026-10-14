@@ -151,7 +151,7 @@ automatically.
 - The **Track identity** panel on the right repeats the short version of how
   matching works. The long version is in [How it works](/concepts).
 
-## The Advanced page
+## The Advanced page <Badge type="warning" text="Advanced" />
 
 <img src="/screens/advanced.webp" alt="Advanced page with download, display, logging and maintenance options" width="800">
 

@@ -153,7 +153,7 @@ instead of guessing.
 
 <img src="/screens/playlist-details.webp" alt="Playlist details page with track quality columns and a download in progress" width="800">
 
-## Every file knows where it came from
+## Track identity
 
 Each downloaded file carries a `MELODY_ID` tag. The value is derived from the
 source, so it is the same on every machine and in every database:
@@ -189,7 +189,7 @@ at startup and after every scan, so a fresh database over an existing music
 folder heals by itself. Playlists imported from a CSV file or your liked songs
 need the import repeated before their rows exist again.
 
-## One song, several playlists
+## Duplicate tracks <Badge type="tip" text="Optional" />
 
 The same track often sits in more than one playlist. Downloading identical bytes
 again would waste disk space, so before a download MelodyBridge checks whether
@@ -211,7 +211,7 @@ can be turned off with **Hardlink duplicate tracks across playlists** on the
 Advanced page, and a track that was linked rather than downloaded does not
 produce an archive copy, because no download happened.
 
-## A second copy, in another format
+## Archive copies <Badge type="tip" text="Optional" />
 
 Archive copies give every download a second home. The use case is simple: keep a
 FLAC archive for the long term, and let your media server stream smaller Opus or
