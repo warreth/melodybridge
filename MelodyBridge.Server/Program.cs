@@ -59,6 +59,16 @@ builder.Services.AddScoped(sp =>
 builder.Services.AddSingleton(new MelodyBridge.Server.Services.NotificationService());
 builder.Services.AddHostedService<MelodyBridge.Server.Services.ToastObserverService>();
 
+// ntfy push: best effort, own client with a short timeout so a dead
+// topic can never stall a notification sweep.
+builder.Services.AddHttpClient("ntfy", c => c.Timeout = TimeSpan.FromSeconds(10));
+builder.Services.AddSingleton<MelodyBridge.Server.Services.NtfyNotifier>();
+
+// Serious background failures (auto-sync, scans, crashed runs) reach the
+// toasts and ntfy through this sink.
+builder.Services.AddSingleton<MelodyBridge.Core.IBackgroundFailureSink,
+    MelodyBridge.Server.Services.BackgroundFailureSink>();
+
 // Dev panel (singleton, off by default: enable via DevPanel__Enabled=true env var)
 var devPanel = new DevPanelService(logCollector);
 devPanel.Enabled = builder.Configuration.GetValue<bool>("DevPanel:Enabled");

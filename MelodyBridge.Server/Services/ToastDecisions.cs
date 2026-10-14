@@ -5,10 +5,11 @@ namespace MelodyBridge.Server.Services;
 /// <summary>
 /// The notification decisions of the toast observer, kept apart from its
 /// polling loop so they are directly testable. Rules:
-///  - one toast per playlist run, keyed by the run's start time (a second
-///    run of the same playlist toasts again);
-///  - sync job completions follow the download-notification toggle;
-///  - sync job failures follow the failure toggle;
+///  - one event per playlist run, keyed by the run's start time (a second
+///    run of the same playlist fires again);
+///  - every event carries its category; the toast toggles are applied by
+///    <see cref="NotificationRouting"/> and the ntfy switches by
+///    <see cref="NtfyNotifier"/>, so the two sinks stay independent;
 ///  - runs and jobs that happened before the process started are seeded
 ///    once and never replayed.
 /// </summary>
@@ -25,8 +26,8 @@ internal sealed class ToastDecisions
                 _lastJobRuns[job.Id] = at;
     }
 
-    /// <summary>The toasts for the finished playlist runs, newest state wins.</summary>
-    public IEnumerable<(string Message, string Level)> ObservePlaylists(IEnumerable<DownloadRun> runs)
+    /// <summary>The events for the finished playlist runs, newest state wins.</summary>
+    public IEnumerable<ToastEvent> ObservePlaylists(IEnumerable<DownloadRun> runs)
     {
         foreach (var run in runs)
         {
@@ -36,16 +37,15 @@ internal sealed class ToastDecisions
             _lastPlaylistRun[run.PlaylistId] = run.StartedAtUtc;
 
             var failed = run.Failed > 0 ? $" ({run.Failed} failed)" : string.Empty;
-            yield return ($"'{run.PlaylistName}' finished: {run.Done} of {run.Total} done{failed}.",
+            yield return new ToastEvent(NotificationCategories.Downloads,
+                $"'{run.PlaylistName}' finished: {run.Done} of {run.Total} done{failed}.",
                 run.Failed > 0 ? "warn" : "success");
         }
     }
 
-    /// <summary>The toasts for sync jobs that finished since the last sweep.</summary>
-    public IEnumerable<(string Message, string Level)> ObserveJobs(
+    /// <summary>The events for sync jobs that finished since the last sweep.</summary>
+    public IEnumerable<ToastEvent> ObserveJobs(
         IEnumerable<(string Id, string Name, DateTime? LastRunAt, string? Status, string? Summary)> jobs,
-        bool notifyCompletions,
-        bool notifyFailures,
         DateTime startedAtUtc)
     {
         foreach (var job in jobs)
@@ -59,7 +59,7 @@ internal sealed class ToastDecisions
             }
             else
             {
-                // A job never seen before: only toast when it ran after we
+                // A job never seen before: only report when it ran after we
                 // started watching (it appeared mid-session).
                 _lastJobRuns[job.Id] = at;
                 if (at <= startedAtUtc) continue;
@@ -67,12 +67,13 @@ internal sealed class ToastDecisions
 
             if (job.Status == "Completed")
             {
-                if (notifyCompletions)
-                    yield return ($"Sync job '{job.Name}' completed.", "success");
+                yield return new ToastEvent(NotificationCategories.Jobs,
+                    $"Sync job '{job.Name}' completed.", "success");
             }
-            else if (notifyFailures)
+            else
             {
-                yield return ($"Sync job '{job.Name}' {job.Status?.ToLowerInvariant()}: {job.Summary}", "warn");
+                yield return new ToastEvent(NotificationCategories.JobFailures,
+                    $"Sync job '{job.Name}' {job.Status?.ToLowerInvariant()}: {job.Summary}", "warn");
             }
         }
     }

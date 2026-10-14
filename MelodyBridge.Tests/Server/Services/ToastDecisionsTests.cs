@@ -4,10 +4,11 @@ using MelodyBridge.Server.Services;
 namespace MelodyBridge.Tests.Server.Services;
 
 /// <summary>
-/// The toast decision rules: every run of the same playlist toasts again
-/// (keyed by its start time, not a one-shot set), sync job completions
-/// follow the download toggle while failures follow the failure toggle,
-/// and runs from before the process started are never replayed.
+/// The notification decision rules: every run of the same playlist fires
+/// again (keyed by its start time, not a one-shot set), every event
+/// carries its category so the toast toggles and the ntfy switches can
+/// gate independently, and runs from before the process started are never
+/// replayed.
 /// </summary>
 [TestFixture]
 public class ToastDecisionsTests
@@ -22,19 +23,23 @@ public class ToastDecisionsTests
         => (id, "Job " + id, at, status, summary);
 
     [Test]
-    public void FinishedRun_Toasts()
+    public void FinishedRun_FiresADownloadsEvent()
     {
         var decisions = new ToastDecisions();
 
-        var toasts = decisions.ObservePlaylists(new[] { Run("pl-1", "Mix", DateTime.UtcNow) }).ToList();
+        var events = decisions.ObservePlaylists(new[] { Run("pl-1", "Mix", DateTime.UtcNow) }).ToList();
 
-        Assert.That(toasts, Has.Count.EqualTo(1));
-        Assert.That(toasts[0].Message, Does.Contain("'Mix' finished: 3 of 3"));
-        Assert.That(toasts[0].Level, Is.EqualTo("success"));
+        Assert.Multiple(() =>
+        {
+            Assert.That(events, Has.Count.EqualTo(1));
+            Assert.That(events[0].Category, Is.EqualTo(NotificationCategories.Downloads));
+            Assert.That(events[0].Message, Does.Contain("'Mix' finished: 3 of 3"));
+            Assert.That(events[0].Level, Is.EqualTo("success"));
+        });
     }
 
     [Test]
-    public void SecondRunOfTheSamePlaylist_ToastsAgain()
+    public void SecondRunOfTheSamePlaylist_FiresAgain()
     {
         var decisions = new ToastDecisions();
         var firstStart = DateTime.UtcNow;
@@ -43,59 +48,57 @@ public class ToastDecisionsTests
 
         // The same finished run observed twice must not duplicate.
         var repeated = decisions.ObservePlaylists(new[] { Run("pl-1", "Mix", firstStart) }).ToList();
-        Assert.That(repeated, Is.Empty, "the same run is not re-toasted on the next sweep");
+        Assert.That(repeated, Is.Empty, "the same run is not re-reported on the next sweep");
 
         // A new run of the same playlist is a new event.
         var second = decisions.ObservePlaylists(new[] { Run("pl-1", "Mix", firstStart + TimeSpan.FromMinutes(5)) }).ToList();
         Assert.That(second, Has.Count.EqualTo(1),
-            "the next run of the same playlist must toast again");
+            "the next run of the same playlist must fire again");
     }
 
     [Test]
-    public void FailedRun_ToastsAsWarning()
+    public void FailedRun_IsAWarning()
     {
         var decisions = new ToastDecisions();
 
-        var toasts = decisions.ObservePlaylists(new[] { Run("pl-1", "Mix", DateTime.UtcNow, done: 1, failed: 2) }).ToList();
+        var events = decisions.ObservePlaylists(new[] { Run("pl-1", "Mix", DateTime.UtcNow, done: 1, failed: 2) }).ToList();
 
-        Assert.That(toasts, Has.Count.EqualTo(1));
-        Assert.That(toasts[0].Level, Is.EqualTo("warn"));
-        Assert.That(toasts[0].Message, Does.Contain("2 failed"));
+        Assert.That(events, Has.Count.EqualTo(1));
+        Assert.That(events[0].Level, Is.EqualTo("warn"));
+        Assert.That(events[0].Message, Does.Contain("2 failed"));
     }
 
     [Test]
-    public void SyncJobCompletion_FollowsTheDownloadToggle()
+    public void SyncJobCompletion_FiresAJobsEvent()
     {
         var decisions = new ToastDecisions();
 
-        var off = decisions.ObserveJobs(
-            new[] { Job("j1", DateTime.UtcNow) },
-            notifyCompletions: false, notifyFailures: true, startedAtUtc: DateTime.MinValue).ToList();
-        Assert.That(off, Is.Empty, "completions follow the download toggle, not the failure toggle");
+        var events = decisions.ObserveJobs(
+            new[] { Job("j1", DateTime.UtcNow) }, startedAtUtc: DateTime.MinValue).ToList();
 
-        var on = decisions.ObserveJobs(
-            new[] { Job("j1", DateTime.UtcNow) },
-            notifyCompletions: true, notifyFailures: true, startedAtUtc: DateTime.MinValue).ToList();
-        Assert.That(on, Has.Count.EqualTo(1));
-        Assert.That(on[0].Message, Does.Contain("completed"));
+        Assert.Multiple(() =>
+        {
+            Assert.That(events, Has.Count.EqualTo(1));
+            Assert.That(events[0].Category, Is.EqualTo(NotificationCategories.Jobs));
+            Assert.That(events[0].Message, Does.Contain("completed"));
+        });
     }
 
     [Test]
-    public void SyncJobFailure_FollowsTheFailureToggle()
+    public void SyncJobFailure_FiresAJobFailuresEvent()
     {
         var decisions = new ToastDecisions();
 
-        var off = decisions.ObserveJobs(
-            new[] { Job("j1", DateTime.UtcNow, "Failed", "boom") },
-            notifyCompletions: true, notifyFailures: false, startedAtUtc: DateTime.MinValue).ToList();
-        Assert.That(off, Is.Empty, "failures follow the failure toggle, not the download toggle");
+        var events = decisions.ObserveJobs(
+            new[] { Job("j1", DateTime.UtcNow, "Failed", "boom") }, startedAtUtc: DateTime.MinValue).ToList();
 
-        var on = decisions.ObserveJobs(
-            new[] { Job("j1", DateTime.UtcNow, "Failed", "boom") },
-            notifyCompletions: true, notifyFailures: true, startedAtUtc: DateTime.MinValue).ToList();
-        Assert.That(on, Has.Count.EqualTo(1));
-        Assert.That(on[0].Level, Is.EqualTo("warn"));
-        Assert.That(on[0].Message, Does.Contain("failed"));
+        Assert.Multiple(() =>
+        {
+            Assert.That(events, Has.Count.EqualTo(1));
+            Assert.That(events[0].Category, Is.EqualTo(NotificationCategories.JobFailures));
+            Assert.That(events[0].Level, Is.EqualTo("warn"));
+            Assert.That(events[0].Message, Does.Contain("failed"));
+        });
     }
 
     [Test]
@@ -106,25 +109,53 @@ public class ToastDecisionsTests
         var startedAt = DateTime.UtcNow - TimeSpan.FromHours(1);
         decisions.SeedJobs(new[] { ("j1", (DateTime?)old) });
 
-        var toasts = decisions.ObserveJobs(
-            new[] { Job("j1", old) },
-            notifyCompletions: true, notifyFailures: true, startedAtUtc: startedAt).ToList();
+        var events = decisions.ObserveJobs(
+            new[] { Job("j1", old) }, startedAtUtc: startedAt).ToList();
 
-        Assert.That(toasts, Is.Empty, "a run from before the process started is not replayed");
+        Assert.That(events, Is.Empty, "a run from before the process started is not replayed");
     }
 
     [Test]
-    public void JobFromThisSession_ToastsOnce()
+    public void JobFromThisSession_FiresOnce()
     {
         var decisions = new ToastDecisions();
         var startedAt = DateTime.UtcNow;
         var ranAt = startedAt + TimeSpan.FromSeconds(30);
         var job = Job("j1", ranAt);
 
-        var first = decisions.ObserveJobs(new[] { job }, true, true, startedAt).ToList();
-        var second = decisions.ObserveJobs(new[] { job }, true, true, startedAt).ToList();
+        var first = decisions.ObserveJobs(new[] { job }, startedAt).ToList();
+        var second = decisions.ObserveJobs(new[] { job }, startedAt).ToList();
 
-        Assert.That(first, Has.Count.EqualTo(1), "a job that ran while we watched toasts");
-        Assert.That(second, Is.Empty, "the same run is not toasted twice");
+        Assert.That(first, Has.Count.EqualTo(1), "a job that ran while we watched fires");
+        Assert.That(second, Is.Empty, "the same run is not reported twice");
+    }
+
+    // ── Toast gating (independent of ntfy) ────────────────────────
+
+    [Test]
+    public void ToastRouting_FollowsTheAdvancedToggles()
+    {
+        var downloads = new ToastEvent(NotificationCategories.Downloads, "m", "success");
+        var completion = new ToastEvent(NotificationCategories.Jobs, "m", "success");
+        var jobFailure = new ToastEvent(NotificationCategories.JobFailures, "m", "warn");
+        var serious = new ToastEvent(NotificationCategories.Failures, "m", "warn");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(NotificationRouting.ShouldToast(downloads, notifyDownloads: false, notifyFailures: true),
+                Is.False, "completions follow the download toggle");
+            Assert.That(NotificationRouting.ShouldToast(downloads, notifyDownloads: true, notifyFailures: false),
+                Is.True);
+            Assert.That(NotificationRouting.ShouldToast(completion, notifyDownloads: false, notifyFailures: true),
+                Is.False, "sync job completions follow the download toggle");
+            Assert.That(NotificationRouting.ShouldToast(jobFailure, notifyDownloads: true, notifyFailures: false),
+                Is.False, "failures follow the failure toggle");
+            Assert.That(NotificationRouting.ShouldToast(jobFailure, notifyDownloads: false, notifyFailures: true),
+                Is.True);
+            Assert.That(NotificationRouting.ShouldToast(serious, notifyDownloads: false, notifyFailures: false),
+                Is.False, "background failures honour the failure toggle too");
+            Assert.That(NotificationRouting.ShouldToast(serious, notifyDownloads: false, notifyFailures: true),
+                Is.True);
+        });
     }
 }

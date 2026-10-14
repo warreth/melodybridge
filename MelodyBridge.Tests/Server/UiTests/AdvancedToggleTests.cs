@@ -54,8 +54,8 @@ public class AdvancedToggleTests
             Assert.That(cut.Markup, Does.Contain("Show the file column")), TimeSpan.FromSeconds(3));
 
         var labels = cut.FindAll("label.toggle-switch.wide");
-        Assert.That(labels.Count, Is.EqualTo(5),
-            "Dedup + display + database logs + two notification toggles use the wide switch");
+        Assert.That(labels.Count, Is.EqualTo(10),
+            "Dedup + display + database logs + two toast toggles + five ntfy toggles use the wide switch");
 
         foreach (var label in labels)
         {
@@ -140,5 +140,80 @@ public class AdvancedToggleTests
             Assert.That(cut.Find(".toast-preview"), Is.Not.Null,
                 "the save confirmation keeps its own preview box, not the global stack"),
             TimeSpan.FromSeconds(3));
+    }
+
+    [Test]
+    public async Task Advanced_NtfySettings_PersistThroughSave()
+    {
+        var cut = _ctx.Render<Advanced>();
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("Send notifications to ntfy")), TimeSpan.FromSeconds(3));
+
+        var enable = cut.FindAll("label.toggle-switch.wide")
+            .Single(l => l.TextContent.Contains("Send notifications to ntfy"))
+            .QuerySelector("input");
+        enable.Change(true);
+        cut.Find("input[placeholder='https://ntfy.sh/melodybridge']").Change("https://ntfy.example/music");
+
+        // One category off proves the switches are independent.
+        var jobFailures = cut.FindAll("label.toggle-switch.wide")
+            .Single(l => l.TextContent.Contains("A sync job fails"))
+            .QuerySelector("input");
+        jobFailures.Change(false);
+
+        await cut.InvokeAsync(() => cut.Find("section.page-title button.btn-modern").Click());
+
+        var factory = _ctx.Services.GetRequiredService<IDbContextFactory<MelodyBridgeDbContext>>();
+        await using var db = await factory.CreateDbContextAsync();
+        var settings = await db.DownloaderSettings.AsNoTracking()
+            .ToDictionaryAsync(s => s.Key, s => s.Value);
+        Assert.Multiple(() =>
+        {
+            Assert.That(settings.GetValueOrDefault("ntfy_enabled"), Is.EqualTo("true"));
+            Assert.That(settings.GetValueOrDefault("ntfy_url"), Is.EqualTo("https://ntfy.example/music"));
+            Assert.That(settings.GetValueOrDefault("ntfy_job_failures"), Is.EqualTo("false"));
+            Assert.That(settings.GetValueOrDefault("ntfy_downloads"), Is.EqualTo("true"),
+                "untouched categories keep their default");
+        });
+    }
+
+    [Test]
+    public async Task Advanced_NtfyTestButton_SendsWithTheTypedValues()
+    {
+        var fake = new RecordingNtfy();
+        var descriptor = _ctx.Services.FirstOrDefault(d =>
+            d.ServiceType == typeof(MelodyBridge.Server.Services.NtfyNotifier));
+        if (descriptor is not null) _ctx.Services.Remove(descriptor);
+        _ctx.Services.AddSingleton<MelodyBridge.Server.Services.NtfyNotifier>(fake);
+
+        var cut = _ctx.Render<Advanced>();
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("Send notifications to ntfy")), TimeSpan.FromSeconds(3));
+
+        cut.Find("input[placeholder='https://ntfy.sh/melodybridge']").Change("https://ntfy.example/music");
+        await cut.InvokeAsync(() => cut.FindAll("button.btn-modern")
+            .Single(b => b.TextContent.Contains("Send test notification")).Click());
+
+        cut.WaitForAssertion(() =>
+            Assert.That(fake.Tests, Has.Count.EqualTo(1), "the test button sends once"),
+            TimeSpan.FromSeconds(3));
+        Assert.That(fake.Tests[0].Url, Is.EqualTo("https://ntfy.example/music"));
+    }
+
+    /// <summary>Records test sends instead of hitting a topic.</summary>
+    private sealed class RecordingNtfy : MelodyBridge.Server.Services.NtfyNotifier
+    {
+        public List<(string Url, string? Token)> Tests { get; } = new();
+
+        public RecordingNtfy() : base(null!, null!,
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<MelodyBridge.Server.Services.NtfyNotifier>.Instance)
+        {
+        }
+
+        public override Task<string?> TestAsync(string url, string? token, CancellationToken ct = default)
+        {
+            Tests.Add((url, token));
+            return Task.FromResult<string?>(null);
+        }
     }
 }

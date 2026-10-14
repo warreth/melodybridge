@@ -44,6 +44,7 @@ public class ScanSchedulingBackgroundService : BackgroundService
                 using var scope = _serviceProvider.CreateScope();
                 var dbFactory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<MelodyBridgeDbContext>>();
                 var scanner = scope.ServiceProvider.GetRequiredService<ILibraryScanner>();
+                var failures = scope.ServiceProvider.GetService<IBackgroundFailureSink>();
 
                 await using var db = await dbFactory.CreateDbContextAsync(stoppingToken);
                 var locations = await db.ScanLocations.ToListAsync(stoppingToken);
@@ -73,6 +74,8 @@ public class ScanSchedulingBackgroundService : BackgroundService
                     catch (Exception ex)
                     {
                         _logger.LogError(ex, "Scheduled scan failed for: {path}", loc.Path);
+                        if (failures is not null)
+                            await failures.ReportAsync($"Scheduled scan failed for '{loc.Path}': {ex.Message}");
                     }
                 }
             }

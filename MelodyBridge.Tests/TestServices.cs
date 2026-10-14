@@ -40,6 +40,12 @@ public static class TestServices
         services.AddSingleton(new DatabaseBackupService(dbFactory,
             NullLogger<DatabaseBackupService>.Instance));
         services.AddSingleton(new MelodyBridge.Server.Services.NotificationService());
+        // The Advanced page injects the ntfy notifier; tests that exercise
+        // sending replace it with a recording subclass.
+        services.AddSingleton(sp => new MelodyBridge.Server.Services.NtfyNotifier(
+            settingsStore,
+            sp.GetRequiredService<IHttpClientFactory>(),
+            NullLogger<MelodyBridge.Server.Services.NtfyNotifier>.Instance));
         // Update check: a plain HttpClient; tests that need GitHub
         // behaviour stub the handler themselves.
         services.AddSingleton(new UpdateCheckService(new HttpClient()));

@@ -7,16 +7,19 @@ namespace MelodyBridge.Server.Services;
 
 /// <summary>
 /// Watches the download coordinator and sync jobs, and turns finished
-/// runs or failures into toasts - gated by the Advanced toggles. Polling
-/// is deliberate: both sources already live in the database or a
-/// singleton snapshot, so no event plumbing across layers is needed.
-/// The decision rules live in <see cref="ToastDecisions"/>.
+/// runs or failures into notifications: toasts follow the Advanced
+/// toggles, ntfy follows its own category switches. Polling is deliberate:
+/// both sources already live in the database or a singleton snapshot, so
+/// no event plumbing across layers is needed. The decision rules live in
+/// <see cref="ToastDecisions"/>, the toast gating in
+/// <see cref="NotificationRouting"/>.
 /// </summary>
 public sealed class ToastObserverService(
     DownloadCoordinator coordinator,
     IDbContextFactory<MelodyBridgeDbContext> dbFactory,
     SettingsStore settings,
     NotificationService notifications,
+    NtfyNotifier ntfy,
     ILogger<ToastObserverService> logger) : BackgroundService
 {
     private static readonly TimeSpan Poll = TimeSpan.FromSeconds(10);
@@ -32,8 +35,7 @@ public sealed class ToastObserverService(
         {
             try
             {
-                await ObserveCoordinatorAsync();
-                await ObserveSyncJobsAsync(stoppingToken);
+                await ObserveAsync(stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -41,7 +43,7 @@ public sealed class ToastObserverService(
             }
             catch (Exception ex)
             {
-                // Never let toast plumbing kill the loop.
+                // Never let notification plumbing kill the loop.
                 logger.LogDebug(ex, "Toast observer sweep failed");
             }
 
@@ -49,22 +51,19 @@ public sealed class ToastObserverService(
         }
     }
 
-    private async Task ObserveCoordinatorAsync()
+    /// <summary>
+    /// One sweep. The decisions always run, so their state stays current
+    /// (turning a toggle on later must not replay old runs); the toggles
+    /// only decide which events reach the toasts, and ntfy has its own
+    /// switches inside the notifier.
+    /// </summary>
+    private async Task ObserveAsync(CancellationToken ct)
     {
-        if (!await settings.GetBoolAsync("notify_downloads", true)) return;
+        var notifyDownloads = await settings.GetBoolAsync("notify_downloads", true, ct);
+        var notifyFailures = await settings.GetBoolAsync("notify_failures", true, ct);
 
-        foreach (var (message, level) in _decisions.ObservePlaylists(coordinator.Snapshot()))
-            notifications.Background(message, level);
-    }
-
-    private async Task ObserveSyncJobsAsync(CancellationToken ct)
-    {
-        // Completions are a download notice; failures are their own
-        // toggle. Either way the observer still has to track the jobs so
-        // a later enable does not replay old runs as fresh toasts.
-        var notifyCompletions = await settings.GetBoolAsync("notify_downloads", true);
-        var notifyFailures = await settings.GetBoolAsync("notify_failures", true);
-        if (!notifyCompletions && !notifyFailures) return;
+        foreach (var notification in _decisions.ObservePlaylists(coordinator.Snapshot()))
+            await PublishAsync(notification, notifyDownloads, notifyFailures, ct);
 
         await using var db = await dbFactory.CreateDbContextAsync(ct);
         var jobs = await db.SyncJobs.AsNoTracking()
@@ -72,11 +71,16 @@ public sealed class ToastObserverService(
             .ToListAsync(ct);
 
         var rows = jobs.Select(j => (j.Id, j.Name, j.LastRunAt, (string?)j.LastRunStatus, j.LastRunSummary));
-        foreach (var (message, level) in _decisions.ObserveJobs(
-                     rows, notifyCompletions, notifyFailures, _startedAtUtc))
-        {
-            notifications.Background(message, level);
-        }
+        foreach (var notification in _decisions.ObserveJobs(rows, _startedAtUtc))
+            await PublishAsync(notification, notifyDownloads, notifyFailures, ct);
+    }
+
+    private async Task PublishAsync(
+        ToastEvent notification, bool notifyDownloads, bool notifyFailures, CancellationToken ct)
+    {
+        if (NotificationRouting.ShouldToast(notification, notifyDownloads, notifyFailures))
+            notifications.Background(notification.Message, notification.Level);
+        await ntfy.NotifyAsync(notification.Category, notification.Message, notification.Level, ct);
     }
 
     private async Task SeedJobStateAsync(CancellationToken ct)

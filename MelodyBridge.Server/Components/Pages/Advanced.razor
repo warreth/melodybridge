@@ -5,6 +5,7 @@
 @inject SettingsStore Settings
 @inject PlaylistStore PlaylistStore
 @inject NotificationService Notifications
+@inject NtfyNotifier Ntfy
 
 <PageTitle>Advanced - MelodyBridge</PageTitle>
 
@@ -123,12 +124,71 @@
         <label class="toggle-switch wide">
             <input type="checkbox" @bind="notifyFailures" />
             <span class="toggle-slider"></span>
-            <span>Toast when a track or sync job fails</span>
+            <span>Toast when a track, sync job or background task fails</span>
         </label>
         <div class="hint-box">
             Failures are always written to the log regardless of this
             setting. Toasts only decide what pops up in the corner.
         </div>
+    </div>
+
+    <div class="panel-card">
+        <div class="panel-header">
+            <div>
+                <span class="eyebrow">Notifications</span>
+                <h2>ntfy push</h2>
+            </div>
+        </div>
+        <label class="toggle-switch wide">
+            <input type="checkbox" @bind="ntfyEnabled" />
+            <span class="toggle-slider"></span>
+            <span>Send notifications to ntfy</span>
+        </label>
+        <div class="form-grid single">
+            <label>
+                Topic URL
+                <input @bind="ntfyUrl" placeholder="https://ntfy.sh/melodybridge" />
+            </label>
+            <label>
+                Access token (optional)
+                <input type="password" @bind="ntfyToken" placeholder="tk_..." />
+            </label>
+        </div>
+        <span class="eyebrow">Send when</span>
+        <label class="toggle-switch wide">
+            <input type="checkbox" @bind="ntfyDownloads" />
+            <span class="toggle-slider"></span>
+            <span>A playlist download run finishes</span>
+        </label>
+        <label class="toggle-switch wide">
+            <input type="checkbox" @bind="ntfyJobs" />
+            <span class="toggle-slider"></span>
+            <span>A sync job completes</span>
+        </label>
+        <label class="toggle-switch wide">
+            <input type="checkbox" @bind="ntfyJobFailures" />
+            <span class="toggle-slider"></span>
+            <span>A sync job fails</span>
+        </label>
+        <label class="toggle-switch wide">
+            <input type="checkbox" @bind="ntfyFailures" />
+            <span class="toggle-slider"></span>
+            <span>A background task fails (auto-sync, scan, crashed run)</span>
+        </label>
+        <div class="hint-box">
+            The message goes to the server you enter here, including track
+            names. A protected topic needs its access token. The categories
+            are independent of the toast toggles above.
+        </div>
+        <div class="flex-actions">
+            <button class="btn-modern" disabled="@testingNtfy" @onclick="TestNtfy">
+                @(testingNtfy ? "Sending…" : "Send test notification")
+            </button>
+        </div>
+        @if (ntfyTestResult is not null)
+        {
+            <div class="hint-box">@ntfyTestResult</div>
+        }
     </div>
 
     <div class="panel-card">
@@ -158,6 +218,15 @@
     private bool dedupEnabled = true;
     private bool notifyDownloads = true;
     private bool notifyFailures = true;
+    private bool ntfyEnabled;
+    private string ntfyUrl = "";
+    private string ntfyToken = "";
+    private bool ntfyDownloads = true;
+    private bool ntfyJobs = true;
+    private bool ntfyJobFailures = true;
+    private bool ntfyFailures = true;
+    private bool testingNtfy;
+    private string? ntfyTestResult;
     private bool logDatabaseActivity;
     private bool recomputing;
     private string? savedMessage;
@@ -170,6 +239,13 @@
         dedupEnabled = await Settings.GetBoolAsync(PlaylistStore.DedupSettingKey, true);
         notifyDownloads = await Settings.GetBoolAsync("notify_downloads", true);
         notifyFailures = await Settings.GetBoolAsync("notify_failures", true);
+        ntfyEnabled = await Settings.GetBoolAsync("ntfy_enabled", false);
+        ntfyUrl = await Settings.GetAsync("ntfy_url", "");
+        ntfyToken = await Settings.GetAsync("ntfy_token", "");
+        ntfyDownloads = await Settings.GetBoolAsync(NtfyNotifier.SettingKeyFor(NotificationCategories.Downloads), true);
+        ntfyJobs = await Settings.GetBoolAsync(NtfyNotifier.SettingKeyFor(NotificationCategories.Jobs), true);
+        ntfyJobFailures = await Settings.GetBoolAsync(NtfyNotifier.SettingKeyFor(NotificationCategories.JobFailures), true);
+        ntfyFailures = await Settings.GetBoolAsync(NtfyNotifier.SettingKeyFor(NotificationCategories.Failures), true);
         logDatabaseActivity = await Settings.GetBoolAsync(DatabaseLogSwitch.SettingKey, false);
     }
 
@@ -180,11 +256,40 @@
         await Settings.SetAsync(PlaylistStore.DedupSettingKey, dedupEnabled ? "true" : "false");
         await Settings.SetAsync("notify_downloads", notifyDownloads ? "true" : "false");
         await Settings.SetAsync("notify_failures", notifyFailures ? "true" : "false");
+        await SaveNtfyAsync();
         await Settings.SetAsync(DatabaseLogSwitch.SettingKey, logDatabaseActivity ? "true" : "false");
         // Applies immediately, no restart: the log pipeline reads the
         // switch on every entry.
         DatabaseLogSwitch.Set(logDatabaseActivity);
         savedMessage = "Saved.";
+    }
+
+    /// <summary>Persists the ntfy block; a test send saves first so it tests what is on screen.</summary>
+    private async Task SaveNtfyAsync()
+    {
+        await Settings.SetAsync("ntfy_enabled", ntfyEnabled ? "true" : "false");
+        await Settings.SetAsync("ntfy_url", ntfyUrl.Trim());
+        await Settings.SetAsync("ntfy_token", ntfyToken.Trim());
+        await Settings.SetAsync(NtfyNotifier.SettingKeyFor(NotificationCategories.Downloads), ntfyDownloads ? "true" : "false");
+        await Settings.SetAsync(NtfyNotifier.SettingKeyFor(NotificationCategories.Jobs), ntfyJobs ? "true" : "false");
+        await Settings.SetAsync(NtfyNotifier.SettingKeyFor(NotificationCategories.JobFailures), ntfyJobFailures ? "true" : "false");
+        await Settings.SetAsync(NtfyNotifier.SettingKeyFor(NotificationCategories.Failures), ntfyFailures ? "true" : "false");
+    }
+
+    /// <summary>Sends a test message with the typed values; the enable toggle is not required.</summary>
+    private async Task TestNtfy()
+    {
+        testingNtfy = true;
+        ntfyTestResult = null;
+        try
+        {
+            await SaveNtfyAsync();
+            ntfyTestResult = await Ntfy.TestAsync(ntfyUrl.Trim(), ntfyToken.Trim()) ?? "Sent.";
+        }
+        finally
+        {
+            testingNtfy = false;
+        }
     }
 
     private async Task RecomputeFacts()

@@ -221,6 +221,13 @@ public class RecomputeFactsTests
         ctx.Services.AddSingleton<IDbContextFactory<MelodyBridgeDbContext>>(_factory);
         ctx.Services.AddSingleton(new SettingsStore(_factory));
         ctx.Services.AddSingleton(new MelodyBridge.Server.Services.NotificationService());
+        // The page injects the ntfy notifier now; a plain client is enough
+        // because this test never sends.
+        ctx.Services.AddHttpClient();
+        ctx.Services.AddSingleton(sp => new MelodyBridge.Server.Services.NtfyNotifier(
+            sp.GetRequiredService<SettingsStore>(),
+            sp.GetRequiredService<System.Net.Http.IHttpClientFactory>(),
+            NullLogger<MelodyBridge.Server.Services.NtfyNotifier>.Instance));
         var store = new PlaylistStore(
             _factory,
             Array.Empty<ISourceProvider>(),
