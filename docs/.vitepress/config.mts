@@ -3,7 +3,7 @@ import { defineConfig } from 'vitepress'
 // Site lives at https://docs.melodybridge.app (custom domain, root path).
 export default defineConfig({
   title: 'MelodyBridge',
-  description: 'Self-hosted music toolbox: fetch playlists, download the tracks, publish M3U and Jellyfin playlists.',
+  description: 'Self-hosted music toolbox: save Spotify and YouTube playlists, download the tracks through a plugin waterfall, and publish M3U, Jellyfin, Plex or Navidrome playlists.',
   lang: 'en',
   head: [
     ['link', { rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg' }]
@@ -16,8 +16,7 @@ export default defineConfig({
     logo: '/favicon.svg',
     nav: [
       { text: 'Docs', link: '/' },
-      { text: 'Features', link: '/features' },
-      { text: 'User guide', link: '/user-guide' },
+      { text: 'Quick start', link: '/quickstart' },
       {
         text: 'Contribute',
         items: [
@@ -38,16 +37,32 @@ export default defineConfig({
         items: [
           { text: 'Overview', link: '/' },
           { text: 'Quick start', link: '/quickstart' },
-          { text: 'Features', link: '/features' },
-          { text: 'User guide', link: '/user-guide' }
+          { text: 'Docker deployment', link: '/docker' }
         ]
       },
       {
-        text: 'Deploy and configure',
+        text: 'Core concepts',
         items: [
-          { text: 'Docker', link: '/docker' },
-          { text: 'Accounts and OAuth', link: '/accounts' },
+          { text: 'How it works', link: '/concepts' }
+        ]
+      },
+      {
+        text: 'Publishing',
+        items: [
+          { text: 'Publishing playlists', link: '/publishing' }
+        ]
+      },
+      {
+        text: 'Setup',
+        items: [
+          { text: 'Accounts and imports', link: '/accounts' },
           { text: 'Lucida and FlareSolverr', link: '/lucida' }
+        ]
+      },
+      {
+        text: 'Reference',
+        items: [
+          { text: 'Settings and options', link: '/reference' }
         ]
       },
       {

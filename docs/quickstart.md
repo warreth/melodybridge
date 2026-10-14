@@ -1,6 +1,6 @@
 # Quick start
 
-You need Docker (or Podman) and nothing else.
+MelodyBridge runs in Docker. You need Docker or Podman, nothing else.
 
 ::: code-group
 ```bash [Docker]
@@ -16,57 +16,48 @@ podman compose up -d
 ```
 :::
 
-That pulls the published image from GHCR and starts two containers on one
-internal network:
+That starts two containers on one internal network: MelodyBridge on
+http://localhost:3333, and FlareSolverr, the Cloudflare solver that the Lucida
+plugin needs. The port binds to `127.0.0.1`, so the app is not reachable from
+other machines until you put a reverse proxy in front of it.
 
-- melodybridge on http://localhost:3333, bound to 127.0.0.1 so it is not
-  reachable from other machines unless you put a reverse proxy in front
-- flaresolverr, the Cloudflare solver used by the Lucida plugin, internal
-  only, no published port
+The first start creates a `./data` folder next to the compose file:
 
-The first start creates `./data/` with `music/`, `playlists/` and `app/`
-(the SQLite database) so your files survive rebuilds. Point Jellyfin,
-Plex or Navidrome at `./data/music`.
+- `./data/music` for downloads
+- `./data/playlists` for M3U output
+- `./data/app` for the SQLite database
 
-## First steps in the UI
+Point Jellyfin, Plex or Navidrome at `./data/music` and they will see everything
+MelodyBridge downloads.
 
-1. Open http://localhost:3333 and go to **Playlists**. Paste a public
-   Spotify or YouTube playlist link and save it.
-2. Open the playlist and press **Download missing**. The plugin waterfall
-   fetches each track and tags it.
-3. Go to **Sync jobs** and create a job that writes an M3U file or pushes
-   the playlist to Jellyfin, Plex or Navidrome.
+## Your first download
 
-What that looks like:
+1. Open http://localhost:3333. A fresh install shows a three-step checklist that
+   ticks itself off as you go. You can skip it and use the dashboard instead.
+2. Go to **Playlists**, paste a public Spotify or YouTube playlist link and press
+   **Fetch & save**. MelodyBridge stores the track list in its local database.
+3. Open the playlist and press **Download missing**. The plugins search and
+   download each track, and the list fills in with the real quality of every file.
+4. Go to **Sync jobs** and create a job that writes an M3U file or pushes the
+   playlist to Jellyfin, Plex or Navidrome. More about that in
+   [Publishing playlists](/publishing).
 
-<img src="/screens/home.webp" alt="The MelodyBridge dashboard you see after logging in" width="800">
+<img src="/screens/playlists.webp" alt="Playlists page with saved playlists and their download progress" width="800">
 
-::: tip Paths inside Docker
-Every path you type in the app is seen from inside the container: the
-music folder is `/music`, not your host path. Screens that take
-a path show the same reminder.
+::: tip Paths inside the container
+MelodyBridge only sees the container side of your volumes, so every path you type
+in the app is a container path: the music folder is `/music`, not `C:\Music` or
+`/home/you/Music`. If your media server runs on the same machine as Docker, use
+`http://host.docker.internal:8096` (Jellyfin), `:32400` (Plex) or `:4533`
+(Navidrome) as its server URL.
 :::
 
-::: tip Jellyfin, Plex or Navidrome on the host
-If your media server runs on your host, use
-`http://host.docker.internal:8096` (Jellyfin), `:32400` (Plex) or
-`:4533` (Navidrome) as the base URL in Settings.
-:::
+## What next
 
-## Running from source
-
-```bash
-dotnet run --project MelodyBridge.Server
-```
-
-yt-dlp must be on PATH:
-
-```bash
-pip3 install --user --break-system-packages yt-dlp
-```
-
-The test suite runs with `dotnet test MelodyBridge.sln`. Live tests need
-yt-dlp and ffmpeg on PATH.
-
-From here the sidebar covers everything: the [Docker guide](docker.md),
-the [User guide](user-guide.md) and [Accounts and OAuth](accounts.md).
+- [Docker deployment](/docker) for the beta channel, the dev setup, a manual
+  build and what every volume and environment variable does.
+- [How it works](/concepts) for the download waterfall, the quality checks and
+  how your library survives a database wipe.
+- [Publishing playlists](/publishing) for the full sync job wizard and schedules.
+- [Accounts and imports](/accounts) when you want private playlists or liked
+  songs, not just public links.

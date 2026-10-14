@@ -1,67 +1,87 @@
 # Docker deployment
 
-Run MelodyBridge as a self-hosted service using Docker or Podman.
+MelodyBridge ships as one app image plus the FlareSolverr companion for the
+Lucida plugin. Most people run the published compose file; contributors build
+from source instead.
 
 ## Quick start
 
-```bash
-mkdir melodybridge && cd melodybridge
-wget https://melodybridge.app/compose.yml
-```
-
 ::: code-group
 ```bash [Docker]
+mkdir melodybridge && cd melodybridge
+wget https://melodybridge.app/compose.yml
 docker compose up -d
 ```
+
 ```bash [Podman]
-podman compose up -d   # or: podman-compose up -d
+mkdir melodybridge && cd melodybridge
+wget https://melodybridge.app/compose.yml
+podman compose up -d
 ```
 :::
 
-Open http://localhost:3333.
+The compose file pulls `ghcr.io/warreth/melodybridge:latest` and starts both
+containers on one internal network. The app binds to `127.0.0.1:3333`, so it is
+only reachable from this machine until you put a reverse proxy in front. Open
+http://localhost:3333 and you are in.
 
-This pulls the published image from `ghcr.io/warreth/melodybridge` via [compose.yml](https://melodybridge.app/compose.yml): two containers (melodybridge + flaresolverr) on one internal network, the app bound to `127.0.0.1` only, and a `./data/` directory for everything that should survive rebuilds.
+## Volumes and paths
+
+| Host path | Container path | What lives there |
+|---|---|---|
+| `./data/music` | `/music` | Downloads. Point Jellyfin, Plex or Navidrome here |
+| `./data/playlists` | `/app/playlists` | Generated M3U files |
+| `./data/app` | `/app/state` | SQLite database and app state |
+
+::: warning Paths inside the app are container paths
+MelodyBridge runs inside the container and only sees the container side of these
+mappings. Every path you type in the app (Settings defaults, Library locations,
+M3U output paths) must look like `/music`, never like the folder on your host.
+If a scan finds zero files in a folder that clearly has music, the folder is
+probably not mounted, or the host path was used instead. The app repeats this
+reminder next to every path input.
+:::
+
+## Media servers next to it
+
+When Jellyfin, Plex or Navidrome runs as a container on the same compose
+network, use its service name as the base URL: `http://jellyfin:8096`,
+`http://plex:32400` or `http://navidrome:4533`. A server on the host is reachable
+through `http://host.docker.internal:8096` and friends; the shipped compose file
+adds the host alias for you.
+
+Either way the music folder must be mounted at the same path on both sides. If
+the paths differ, add a path remap rule in the sync job, see
+[Publishing playlists](/publishing).
 
 ## Beta channel
 
-Prerelease tags (like v1.0.0-beta1) publish the same image under a
-`:beta` tag instead of `:latest`: the stable channel stays stable.
-To run a beta, point the image line at the beta tag:
+Prerelease tags (like `v1.0.0-beta1`) are published under the `:beta` tag, never
+`:latest`, so the stable channel stays stable. To run a beta, change the image
+line in `compose.yml` from `:latest` to `:beta` and run `docker compose up -d`
+again. Going back is the same edit with `:latest`.
 
-```bash
-mkdir melodybridge && cd melodybridge
-wget https://melodybridge.app/compose.yml
-sed -i 's/melodybridge:latest/melodybridge:beta/' compose.yml
-docker compose up -d
-```
+Exact version tags stay available forever, so
+`ghcr.io/warreth/melodybridge:1.0.0-beta1` keeps working even after a newer beta
+moves the `:beta` tag.
 
-Going back to stable is the same line with `:latest`. The exact
-prerelease version (for example `ghcr.io/warreth/melodybridge:1.0.0-beta1`)
-stays available even after a newer beta moves the `:beta` tag.
+## Environment variables
 
-## Development
+Almost everything is configured in the web UI and stored in the database. These
+are the variables the shipped compose file sets, and the only ones worth
+touching:
 
-### Development compose
-
-Contributors build from source instead of pulling the image: that is the one flow that needs a clone:
-
-```bash
-git clone https://github.com/warreth/melodybridge.git
-cd melodybridge
-docker compose -f docker-compose.yml up -d --build
-```
-
-The dev compose (`docker-compose.yml`) always builds the image from your checkout and runs it with verbose logging and the dev panel (`/dev`). Rerun the same command after code changes: compose rebuilds what changed and restarts. App state lives in the host folders its volumes map (see the file), so your test library survives rebuilds.
-
-### Running from source
-
-```bash
-dotnet run --project MelodyBridge.Server
-```
-
-The test suite: `dotnet test MelodyBridge.sln`. Live tests need yt-dlp and ffmpeg on PATH.
+| Variable | Default | Purpose |
+|---|---|---|
+| `ASPNETCORE_ENVIRONMENT` | `Production` | Set to `Development` for the dev setup |
+| `ASPNETCORE_URLS` | `http://+:80` | Where the server listens inside the container |
+| `DevPanel__Enabled` | `false` | Enable the `/dev` testing dashboard |
+| `FlareSolverr__Url` | `auto` | Solver endpoint: `auto`, an explicit URL, or `off` |
+| `MELODYBRIDGE_DB` | `/app/state/melodybridge.db` | SQLite database location |
 
 ## Manual build
+
+Without compose:
 
 ```bash
 docker build -t melodybridge:latest .
@@ -76,71 +96,36 @@ docker run -d \
   --name melodybridge melodybridge:latest
 ```
 
-Note the state mount: `/app/state`, never `/app` (the application
-itself lives in `/app`, and mounting over it hides the entrypoint). The
-`ASPNETCORE_URLS` and `MELODYBRIDGE_DB` values are what the published
-compose sets; without them the app listens on 8080 and writes its
-database into the container's working directory.
+Mount state at `/app/state`, never at `/app`: the application itself lives in
+`/app`, and mounting over it hides the entrypoint. The image already includes
+yt-dlp and ffmpeg.
 
-## Configuration
+## Running from source
 
-See the [user compose file](https://melodybridge.app/compose.yml) for the published-image setup and the dev compose file in the repo ([docker-compose.yml](https://github.com/warreth/melodybridge/blob/main/docker-compose.yml)) for the dev defaults.
+For development, run the server directly:
 
-### Environment variables
+```bash
+dotnet run --project MelodyBridge.Server
+```
 
-Configure everything media-server-related (Jellyfin, Plex, Navidrome) in the web UI (Settings), not through the environment. The only variables you might touch:
+yt-dlp must be on PATH. Contributors can also use the dev compose file, which
+builds the image from the checkout and runs it with verbose logging and the
+`/dev` panel:
 
-| Variable | Default | Description |
-|---|---|---|
-| `ASPNETCORE_ENVIRONMENT` | `Production` | Set to `Development` for dev |
-| `ASPNETCORE_URLS` | `http://+:80` | Server binding address |
-| `DevPanel__Enabled` | `false` | Enable the /dev testing dashboard (off: the route renders not-found) |
-| `FlareSolverr__Url` | `auto` | Cloudflare solver endpoint: `auto` detects the container on the compose network, an explicit URL uses that one, `off` disables Lucida |
-| `MELODYBRIDGE_DB` | `/app/state/melodybridge.db` | SQLite database location as the published compose sets it; the built-in default is `melodybridge.db` in the working directory |
+```bash
+docker compose -f docker-compose.yml up -d --build
+```
 
-Everything else lives in the web UI Settings, stored in the database:
-Jellyfin, Plex and Navidrome connections, the FlareSolverr URL, the
-optional Spotify web cookie and all download behaviour. Nothing else
-needs an environment variable.
+Build, test and architecture details live in the
+[developer guide](/developer) and
+[CONTRIBUTING.md](https://github.com/warreth/melodybridge/blob/main/CONTRIBUTING.md).
 
-After `docker compose up -d`, open http://localhost:3333 and fill in your connection under Settings: Jellyfin takes a base URL, API key and user; Plex takes a base URL and X-Plex-Token; Navidrome takes a base URL, username and password. Values are stored in the database volume and apply immediately, no restart needed.
-
-### Volumes
-
-| Host Path | Container Path | Purpose |
-|---|---|---|
-| `./data/music` | `/music` | Music file storage (point Jellyfin, Plex or Navidrome here) |
-| `./data/playlists` | `/app/playlists` | Generated playlist output |
-| `./data/app` | `/app/state` | SQLite database and app state (the app itself stays inside the image) |
-
-::: warning Path mismatches are the number one Docker problem
-The app runs inside the container and only sees the container side of
-these mappings. Every path you type in MelodyBridge (Settings default
-paths, Library scan locations, M3U output paths) must be the container
-path, like /music, never the host path like /home/me/Music. If the
-scanner finds zero files in a folder that clearly has music, the
-folder is probably not mounted into the container at all, or you typed
-the host path. The app shows a reminder next to every path input.
-:::
-
-### Media servers in Docker
-
-When your media server runs as another container on the same compose
-network, use its service name as the base URL: `http://jellyfin:8096`,
-`http://plex:32400` or `http://navidrome:4533`. The music folder must be
-mounted at the same path on both sides; if it differs, add a path remap
-rule in the sync job. A server on the host is reached through
-`http://host.docker.internal` instead.
-
-## Included tools
-
-The Docker image includes `yt-dlp` and `ffmpeg` pre-installed for YouTube and generic URL media downloads.
-
-## Production checklist
+## Before you expose it
 
 ::: warning
-- Keep the `127.0.0.1` port binding unless you expose the app through a reverse proxy.
-- Configure a reverse proxy (nginx, Caddy, Traefik) for TLS.
-- Put your Jellyfin API key, Plex token or Navidrome password in the web UI Settings, not in any committed file.
-- Never publish the flaresolverr port to the host; the internal network is enough.
+- Keep the `127.0.0.1` port binding unless a reverse proxy handles access.
+- Use a reverse proxy (nginx, Caddy, Traefik) for TLS.
+- Keep API keys, tokens and passwords in the web UI, never in a committed file.
+- Never publish the flaresolverr port to the host; the internal network is
+  enough.
 :::

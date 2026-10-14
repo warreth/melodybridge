@@ -2,7 +2,7 @@
 
 # MelodyBridge
 
-Self-hosted music toolbox: fetch playlists from Spotify or YouTube, download the tracks through a plugin waterfall, and publish clean M3U or Jellyfin playlists.
+Self-hosted music toolbox: fetch playlists from Spotify or YouTube, download the tracks through a plugin waterfall, and publish them as M3U, Jellyfin, Plex or Navidrome playlists.
 
 ![MelodyBridge dashboard](docs/public/screens/home.webp)
 
