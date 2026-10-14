@@ -17,74 +17,26 @@ namespace MelodyBridge.Tests.Infrastructure;
 /// </summary>
 [TestFixture]
 [Category("Live")]
+[Category("ReleaseGate")]
 public class PlexSyncLiveTests
 {
-    private const string BaseUrl = "http://127.0.0.1:32400";
-    private const string Container = "mb-live-test-plex";
-
-    private HttpClient _http = null!;
+    private PlexLiveServer _server = null!;
 
     [OneTimeSetUp]
     public async Task SetUp()
     {
         Assume.That(LiveFixtureHelpers.DockerImageReady("plexinc/pms-docker:latest"),
             "plex image or docker daemon unavailable");
-
-        var root = Path.Combine(FindRepoRoot(), ".mb-live", "plex");
-        var config = Path.Combine(root, "config-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(config);
-
-        DockerOrIgnore($"rm -f {Container}");
-        LiveFixtureHelpers.Docker($"run -d --name {Container} --network host " +
-            $"-v {config}:/config plexinc/pms-docker:latest", 120);
-
-        await WaitUntilIdentity();
-        _http = new HttpClient();
-        _http.DefaultRequestHeaders.Add("Accept", "application/json");
-        _http.DefaultRequestHeaders.Add("X-Plex-Client-Identifier", "melodybridge");
+        _server = await PlexLiveServer.StartAsync();
     }
 
     [OneTimeTearDown]
-    public void TearDown()
-    {
-        try { LiveFixtureHelpers.Docker($"rm -f {Container}", 30); } catch { /* best effort */ }
-        _http?.Dispose();
-    }
-
-    private static string FindRepoRoot()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null && !dir.Name.Equals("MelodyBridge.Tests", StringComparison.OrdinalIgnoreCase))
-            dir = dir.Parent;
-        return dir!.Parent!.FullName;
-    }
-
-    private static void DockerOrIgnore(string args)
-    {
-        try { LiveFixtureHelpers.Docker(args); }
-        catch (InvalidOperationException ex) { Assert.Ignore(ex.Message); }
-    }
-
-    private async Task WaitUntilIdentity()
-    {
-        using var http = new HttpClient();
-        http.DefaultRequestHeaders.Add("Accept", "application/json");
-        for (var i = 0; i < 60; i++)
-        {
-            try
-            {
-                using var resp = await http.GetAsync(BaseUrl + "/identity");
-                if (resp.IsSuccessStatusCode) return;
-            }
-            catch { /* not up yet */ }
-            await Task.Delay(2000);
-        }
-        Assert.Fail("plex /identity did not answer within 2 minutes");
-    }
+    public void TearDown() => _server?.Dispose();
 
     private sealed class FixedSettings : IPlexSettings
     {
-        public Task<string> GetBaseUrlAsync(CancellationToken ct = default) => Task.FromResult(BaseUrl);
+        public Task<string> GetBaseUrlAsync(CancellationToken ct = default)
+            => Task.FromResult(PlexLiveServer.BaseUrl);
         public Task<string> GetApiKeyAsync(CancellationToken ct = default)
             => Task.FromResult(Environment.GetEnvironmentVariable("PLEX_TOKEN") ?? "unclaimed-token");
     }
@@ -94,7 +46,7 @@ public class PlexSyncLiveTests
     [Test]
     public async Task Identity_AnswersWithMachineIdentifier()
     {
-        var identity = await _http.GetFromJsonAsync<JsonElement>(BaseUrl + "/identity");
+        var identity = await _server.Http.GetFromJsonAsync<JsonElement>(PlexLiveServer.BaseUrl + "/identity");
         Assert.That(identity.GetProperty("MediaContainer").TryGetProperty("machineIdentifier", out _),
             Is.True, "the sync requires the machine id for its server:// uris");
     }
@@ -103,7 +55,8 @@ public class PlexSyncLiveTests
     public async Task Directory_TestConnection_SucceedsAgainstRealServer()
     {
         var directory = new PlexDirectory(new HttpClient());
-        Assert.That(await directory.TestConnectionAsync(new MediaServerConnection(BaseUrl, "any-token")), Is.True,
+        Assert.That(await directory.TestConnectionAsync(
+            new MediaServerConnection(PlexLiveServer.BaseUrl, "any-token")), Is.True,
             "token-gated routes answer on a real unclaimed server");
     }
 
