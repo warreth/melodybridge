@@ -1173,7 +1173,7 @@ public class PlaylistStore
         string playlistId, string? name, ScanSchedule schedule,
         string? targetDirectory = null, PlaylistSyncMode? syncMode = null,
         string? preferredFormat = null, string? archiveDirectory = null,
-        string? archiveFormat = null, CancellationToken ct = default)
+        string? archiveFormat = null, bool? autoDownload = null, CancellationToken ct = default)
     {
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var entity = await db.Playlists.FindAsync(new object[] { playlistId }, ct)
@@ -1196,6 +1196,10 @@ public class PlaylistStore
             entity.ArchiveFormat = archiveFormat.Length == 0 || archiveFormat == "auto"
                 ? null
                 : archiveFormat;
+        // Auto-download toggle: null leaves the stored value, so callers
+        // that only touch the schedule never reset it.
+        if (autoDownload is { } ad)
+            entity.AutoDownloadEnabled = ad;
         await db.SaveChangesAsync(ct);
     }
 

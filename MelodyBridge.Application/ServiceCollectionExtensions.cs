@@ -107,6 +107,9 @@ public static class ServiceCollectionExtensions
         // (that is why the progress bar used to vanish between pages).
         services.AddSingleton<IDownloadManager, DownloadManager>();
         services.AddSingleton<DownloadCoordinator>();
+        // The auto-sync scheduler starts runs through the Core trigger,
+        // so Infrastructure never has to reference Application.
+        services.AddSingleton<IDownloadTrigger>(sp => sp.GetRequiredService<DownloadCoordinator>());
         services.AddScoped<SyncEngine>();
         services.AddScoped<ISyncJobRunner, SyncJobRunner>();
         // Account connections (Spotify/YouTube private + liked imports).

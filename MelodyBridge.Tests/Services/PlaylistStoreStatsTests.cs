@@ -200,6 +200,93 @@ public class PlaylistStoreStatsTests
     }
 
     [Test]
+    public async Task UpdateScheduleAsync_PersistsTheAutoDownloadToggle()
+    {
+        var dbPath = NewDbPath();
+        try
+        {
+            var factory = await NewDbFactory(dbPath);
+            var store = NewStore(factory, new StubSourceProvider());
+            var (playlist, _) = await store.AddOrRefreshDetailedAsync("stub:playlist");
+
+            await using (var db = factory.CreateDbContext())
+            {
+                var fresh = await db.Playlists.AsNoTracking().SingleAsync(p => p.Id == playlist.Id);
+                Assert.That(fresh.AutoDownloadEnabled, Is.False,
+                    "off by default: downloading stays a deliberate choice");
+            }
+
+            await store.UpdateScheduleAsync(playlist.Id, null, ScanSchedule.Manual, autoDownload: true);
+            await using (var db = factory.CreateDbContext())
+            {
+                var on = await db.Playlists.AsNoTracking().SingleAsync(p => p.Id == playlist.Id);
+                Assert.That(on.AutoDownloadEnabled, Is.True, "the toggle persists");
+            }
+
+            // A save that only touches the schedule must not reset the flag.
+            await store.UpdateScheduleAsync(playlist.Id, null, ScanSchedule.FromCron("0 * * * *"));
+            await using (var db = factory.CreateDbContext())
+            {
+                var kept = await db.Playlists.AsNoTracking().SingleAsync(p => p.Id == playlist.Id);
+                Assert.That(kept.AutoDownloadEnabled, Is.True,
+                    "null leaves the stored value alone");
+            }
+
+            await store.UpdateScheduleAsync(playlist.Id, null, ScanSchedule.Manual, autoDownload: false);
+            await using (var db = factory.CreateDbContext())
+            {
+                var off = await db.Playlists.AsNoTracking().SingleAsync(p => p.Id == playlist.Id);
+                Assert.That(off.AutoDownloadEnabled, Is.False, "the toggle turns back off");
+            }
+        }
+        finally
+        {
+            File.Delete(dbPath);
+        }
+    }
+
+    [Test]
+    public async Task SchemaPatcher_OldPlaylists_GainTheAutoDownloadColumn()
+    {
+        var dbPath = NewDbPath();
+        try
+        {
+            var factory = await NewDbFactory(dbPath);
+
+            await using (var db = factory.CreateDbContext())
+            {
+                db.Playlists.Add(new PlaylistEntity
+                {
+                    Id = "old-pl",
+                    Name = "Old",
+                    SourceUrl = "stub:old",
+                });
+                await db.SaveChangesAsync();
+
+                // Simulate the pre-column schema.
+                await db.Database.ExecuteSqlRawAsync("ALTER TABLE Playlists DROP COLUMN AutoDownloadEnabled");
+            }
+
+            await using (var db = factory.CreateDbContext())
+                await SchemaPatcher.PatchAsync(db);
+
+            await using (var check = factory.CreateDbContext())
+            {
+                var row = await check.Playlists.AsNoTracking().SingleAsync(p => p.Id == "old-pl");
+                Assert.Multiple(() =>
+                {
+                    Assert.That(row.AutoDownloadEnabled, Is.False, "existing rows keep the off default");
+                    Assert.That(row.Name, Is.EqualTo("Old"), "data survives the patch");
+                });
+            }
+        }
+        finally
+        {
+            File.Delete(dbPath);
+        }
+    }
+
+    [Test]
     public async Task DueForAutoSync_FollowsTheCronSchedule()
     {
         var dbPath = NewDbPath();

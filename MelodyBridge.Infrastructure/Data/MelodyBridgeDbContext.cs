@@ -194,6 +194,12 @@ public class PlaylistEntity
     /// </summary>
     public string? ScheduleCron { get; set; }
     /// <summary>
+    /// Opt-in: after an auto-sync refresh that left pending work, the
+    /// scheduler starts a download run for this playlist. Off by default;
+    /// downloading stays a deliberate choice otherwise.
+    /// </summary>
+    public bool AutoDownloadEnabled { get; set; }
+    /// <summary>
     /// How re-syncs reconcile local tracks with the source:
     /// Additive: new tracks are added, removed tracks stay.
     /// Mirror: the snapshot exactly matches the source (removed tracks deleted locally).

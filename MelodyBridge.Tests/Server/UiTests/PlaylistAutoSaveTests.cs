@@ -127,6 +127,51 @@ public class PlaylistAutoSaveTests
     }
 
     [Test]
+    public void AutoDownloadToggle_SavesImmediately()
+    {
+        var cut = _ctx.Render<PlaylistDetails>(p => p.Add(x => x.PlaylistId, "pl-1"));
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("Auto save test")), TimeSpan.FromSeconds(3));
+
+        var toggle = cut.FindAll("label.toggle-switch.wide")
+            .Single(l => l.TextContent.Contains("Download new tracks after auto-sync"))
+            .QuerySelector("input");
+        Assert.That(toggle.HasAttribute("checked"), Is.False, "off by default");
+        toggle.Change(true);
+
+        cut.WaitForAssertion(() =>
+        {
+            using var db = _factory.CreateDbContext();
+            Assert.That(db.Playlists.AsNoTracking().First(p => p.Id == "pl-1").AutoDownloadEnabled,
+                Is.True, "the toggle saves without a Save button");
+        }, TimeSpan.FromSeconds(3));
+    }
+
+    [Test]
+    public void ManualImport_HidesTheAutoDownloadToggle()
+    {
+        using (var db = _factory.CreateDbContext())
+        {
+            db.Playlists.Add(new PlaylistEntity
+            {
+                Id = "pl-import",
+                Name = "Imported",
+                SourceUrl = "spotify:import:file.csv",
+                TargetDirectory = "/tmp",
+                PreferredFormat = "auto",
+            });
+            db.SaveChanges();
+        }
+
+        var cut = _ctx.Render<PlaylistDetails>(p => p.Add(x => x.PlaylistId, "pl-import"));
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("Imported snapshot")), TimeSpan.FromSeconds(3));
+
+        Assert.That(cut.Markup, Does.Not.Contain("Download new tracks after auto-sync"),
+            "imports have no live source to sync, so no auto-download");
+    }
+
+    [Test]
     public async Task FailedSave_RollsBackAndShowsThePill()
     {
         // A real store whose first UpdateScheduleAsync throws once:
@@ -208,14 +253,14 @@ public class PlaylistAutoSaveTests
             string playlistId, string? name, ScanSchedule schedule,
             string? targetDirectory = null, PlaylistSyncMode? syncMode = null,
             string? preferredFormat = null, string? archiveDirectory = null,
-            string? archiveFormat = null, CancellationToken ct = default)
+            string? archiveFormat = null, bool? autoDownload = null, CancellationToken ct = default)
         {
             if (!_failedOnce)
             {
                 _failedOnce = true;
                 throw new InvalidOperationException("simulated transient store failure");
             }
-            await base.UpdateScheduleAsync(playlistId, name, schedule, targetDirectory, syncMode, preferredFormat, archiveDirectory, archiveFormat, ct);
+            await base.UpdateScheduleAsync(playlistId, name, schedule, targetDirectory, syncMode, preferredFormat, archiveDirectory, archiveFormat, autoDownload, ct);
         }
     }
 }

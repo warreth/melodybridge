@@ -213,6 +213,65 @@ public class BackgroundServiceExecuteTests
         public Task<string?> ResolveTrackUrlAsync(string query) => Task.FromResult<string?>(null);
     }
 
+    /// <summary>Records what the auto-sync scheduler asks the coordinator.</summary>
+    private sealed class FakeDownloadTrigger : IDownloadTrigger
+    {
+        public bool Pending { get; set; }
+        public List<string> Started { get; } = new();
+
+        public Task<bool> HasPendingWorkAsync(string playlistId, CancellationToken ct = default)
+            => Task.FromResult(Pending);
+
+        public void Start(string playlistId) => Started.Add(playlistId);
+    }
+
+    /// <summary>
+    /// Seeds one due playlist with the auto-download toggle, runs the real
+    /// scheduler against the real store and returns the fake trigger.
+    /// </summary>
+    private async Task<FakeDownloadTrigger> RunAutoSyncAsync(
+        string playlistId, bool autoDownload, bool pending, string sourceUrl)
+    {
+        await using (var db = _factory.CreateDbContext())
+        {
+            db.Playlists.Add(new PlaylistEntity
+            {
+                Id = playlistId,
+                Name = playlistId,
+                SourceUrl = sourceUrl,
+                SourcePlatform = Platform.Spotify,
+                ExternalId = sourceUrl,
+                TargetDirectory = Path.Combine(_root, playlistId),
+                ScheduleCron = "interval:10",
+                AutoDownloadEnabled = autoDownload,
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var trigger = new FakeDownloadTrigger { Pending = pending };
+        var services = new ServiceCollection();
+        services.AddSingleton<IDbContextFactory<MelodyBridgeDbContext>>(_factory);
+        services.AddSingleton<IDownloadTrigger>(trigger);
+        services.AddScoped(_ => new PlaylistStore(
+            _factory,
+            new ISourceProvider[] { new StubProvider() },
+            new MelodyBridge.Application.Services.DownloadManager(
+                new EmptyRegistry(),
+                NullLogger<MelodyBridge.Application.Services.DownloadManager>.Instance),
+            NullLogger<PlaylistStore>.Instance));
+        var sp = services.BuildServiceProvider();
+
+        await RunUntilAsync(new FastAutoSync(sp, NullLogger<AutoSyncBackgroundService>.Instance), async () =>
+        {
+            if (trigger.Started.Count > 0) return true;
+            await using var db = _factory.CreateDbContext();
+            var stamped = await db.Playlists.AsNoTracking().SingleOrDefaultAsync(p => p.Id == playlistId);
+            return stamped?.LastSyncAt is not null;
+        }, TimeSpan.FromSeconds(15));
+
+        return trigger;
+    }
+
     [Test]
     public async Task AutoSync_RefreshesPlaylistsWhoseScheduleIsDue()
     {
@@ -262,6 +321,33 @@ public class BackgroundServiceExecuteTests
         var row = await verify.Playlists.AsNoTracking().SingleAsync(p => p.Id == "pl-auto");
         Assert.That(row.LastSyncAt, Is.Not.Null,
             "the refresh is stamped; service log: " + string.Join(" | ", serviceLog.Messages));
+    }
+
+    [Test]
+    public async Task AutoSync_AutoDownloadEnabled_WithPendingWork_StartsARun()
+    {
+        var trigger = await RunAutoSyncAsync("pl-dl", autoDownload: true, pending: true, sourceUrl: "stub:dl");
+
+        Assert.That(trigger.Started, Does.Contain("pl-dl"),
+            "a due refresh that leaves work starts a download run");
+    }
+
+    [Test]
+    public async Task AutoSync_AutoDownloadDisabled_DoesNotStartARun()
+    {
+        var trigger = await RunAutoSyncAsync("pl-nodl", autoDownload: false, pending: true, sourceUrl: "stub:nodl");
+
+        Assert.That(trigger.Started, Is.Empty,
+            "the toggle is off by default: downloading stays a deliberate choice");
+    }
+
+    [Test]
+    public async Task AutoSync_AutoDownloadEnabled_NoPendingWork_DoesNotStartARun()
+    {
+        var trigger = await RunAutoSyncAsync("pl-clean", autoDownload: true, pending: false, sourceUrl: "stub:clean");
+
+        Assert.That(trigger.Started, Is.Empty,
+            "a playlist with nothing left to fetch starts nothing");
     }
 
     [Test]

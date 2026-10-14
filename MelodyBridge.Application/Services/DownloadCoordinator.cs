@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Linq.Expressions;
 using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.Data;
 using MelodyBridge.Infrastructure.Services;
@@ -51,7 +52,7 @@ public record DownloadRun(
 /// Pause is cooperative: the runner waits on a gate between tracks, so the
 /// in-flight track always finishes and no half files are left behind.
 /// </summary>
-public class DownloadCoordinator
+public class DownloadCoordinator : IDownloadTrigger
 {
     private readonly IServiceProvider _services;
     private readonly ILogger<DownloadCoordinator> _logger;
@@ -127,6 +128,14 @@ public class DownloadCoordinator
 
     private readonly ConcurrentDictionary<string, RunHandle> _runs = new();
 
+    /// <summary>
+    /// The work predicate: never downloaded, pending or failed. Shared by
+    /// the run's work list and the pending check the auto-sync scheduler
+    /// asks, so both always agree on what "work" means.
+    /// </summary>
+    private static readonly Expression<Func<TrackEntity, bool>> PendingWork =
+        t => t.DownloadStatus == null || t.DownloadStatus == "pending" || t.DownloadStatus == "failed";
+
     public DownloadCoordinator(
         IServiceProvider services,
         ILogger<DownloadCoordinator> logger)
@@ -165,6 +174,16 @@ public class DownloadCoordinator
     public bool IsActive(string playlistId)
         => _runs.TryGetValue(playlistId, out var h)
             && h.Snapshot.State is DownloadRunState.Running or DownloadRunState.Paused or DownloadRunState.Cancelling;
+
+    /// <summary>True when the playlist still has tracks that need a download.</summary>
+    public async Task<bool> HasPendingWorkAsync(string playlistId, CancellationToken ct = default)
+    {
+        await using var db = await NewDbAsync(ct);
+        return await db.Tracks.AsNoTracking()
+            .Where(t => t.PlaylistEntityId == playlistId)
+            .Where(PendingWork)
+            .AnyAsync(ct);
+    }
 
     /// <summary>Starts (or resumes) a run. No-ops while one is already active.</summary>
     public void Start(string playlistId)
@@ -278,6 +297,11 @@ public class DownloadCoordinator
         catch (Exception ex)
         {
             _logger.LogError(ex, "Download run for {Playlist} crashed", playlistId);
+            if (runScope.ServiceProvider.GetService<IBackgroundFailureSink>() is { } failures)
+            {
+                var name = handle.Snapshot.PlaylistName is { Length: > 0 } n ? n : playlistId;
+                await failures.ReportAsync($"Download run for '{name}' crashed: {ex.Message}");
+            }
         }
         finally
         {
@@ -391,8 +415,8 @@ public class DownloadCoordinator
     {
         await using var db = await NewDbAsync(ct);
         return await db.Tracks.AsNoTracking()
-            .Where(t => t.PlaylistEntityId == playlistId
-                && (t.DownloadStatus == null || t.DownloadStatus == "pending" || t.DownloadStatus == "failed"))
+            .Where(t => t.PlaylistEntityId == playlistId)
+            .Where(PendingWork)
             .OrderBy(t => t.Position)
             .Select(t => new ValueTuple<int, string>(t.Id, t.Title ?? ""))
             .ToListAsync(ct);

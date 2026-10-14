@@ -36,6 +36,8 @@ public static class SchemaPatcher
         ("Tracks", "Isrc", "TEXT NULL"),
         // One-shot "Download new" decision from a dedup review.
         ("Tracks", "SkipDedup", "INTEGER NOT NULL DEFAULT 0"),
+        // Opt-in: download new tracks right after an auto-sync refresh.
+        ("Playlists", "AutoDownloadEnabled", "INTEGER NOT NULL DEFAULT 0"),
     };
 
     public static async Task PatchAsync(MelodyBridgeDbContext db, CancellationToken ct = default)

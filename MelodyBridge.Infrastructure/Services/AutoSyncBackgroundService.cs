@@ -1,3 +1,4 @@
+using MelodyBridge.Core;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -36,6 +37,8 @@ public class AutoSyncBackgroundService : BackgroundService
 
                 using var scope = _serviceProvider.CreateScope();
                 var store = scope.ServiceProvider.GetRequiredService<PlaylistStore>();
+                var trigger = scope.ServiceProvider.GetService<IDownloadTrigger>();
+                var failures = scope.ServiceProvider.GetService<IBackgroundFailureSink>();
                 var due = await store.GetDueForAutoSyncAsync(stoppingToken);
 
                 foreach (var playlist in due)
@@ -45,10 +48,22 @@ public class AutoSyncBackgroundService : BackgroundService
                         _logger.LogInformation("Auto-syncing playlist {Playlist} ({Source})",
                             playlist.Name, playlist.SourceUrl);
                         await store.AddOrRefreshAsync(playlist.SourceUrl, playlist.TargetDirectory, stoppingToken);
+
+                        // Opt-in: a refresh that left work starts a run.
+                        if (playlist.AutoDownloadEnabled && trigger is not null
+                            && await trigger.HasPendingWorkAsync(playlist.Id, stoppingToken))
+                        {
+                            _logger.LogInformation(
+                                "Auto-sync left pending work for {Playlist}; starting a download run",
+                                playlist.Name);
+                            trigger.Start(playlist.Id);
+                        }
                     }
                     catch (Exception ex)
                     {
                         _logger.LogError(ex, "Auto-sync failed for playlist {Playlist}", playlist.Name);
+                        if (failures is not null)
+                            await failures.ReportAsync($"Auto-sync failed for '{playlist.Name}': {ex.Message}");
                     }
                 }
             }

@@ -183,6 +183,39 @@ public class DownloadCoordinatorTests
     }
 
     [Test]
+    public async Task HasPendingWorkAsync_CountsPendingAndFailedTracks()
+    {
+        var id = await SeedPlaylistAsync(2);
+        var coordinator = MakeCoordinator(MakeServices(new SlowDownloader()));
+
+        Assert.That(await coordinator.HasPendingWorkAsync(id), Is.True,
+            "never downloaded tracks are pending work");
+
+        // One downloaded, one failed: still work (failures retry each run).
+        await using (var db = _factory.CreateDbContext())
+        {
+            var tracks = await db.Tracks.Where(t => t.PlaylistEntityId == id)
+                .OrderBy(t => t.Position).ToListAsync();
+            tracks[0].DownloadStatus = "downloaded";
+            tracks[1].DownloadStatus = "failed";
+            await db.SaveChangesAsync();
+        }
+        Assert.That(await coordinator.HasPendingWorkAsync(id), Is.True, "failed tracks count as work");
+
+        // Everything downloaded: nothing left.
+        await using (var db = _factory.CreateDbContext())
+        {
+            var tracks = await db.Tracks.Where(t => t.PlaylistEntityId == id).ToListAsync();
+            foreach (var track in tracks) track.DownloadStatus = "downloaded";
+            await db.SaveChangesAsync();
+        }
+        Assert.That(await coordinator.HasPendingWorkAsync(id), Is.False);
+
+        Assert.That(await coordinator.HasPendingWorkAsync("pl-missing"), Is.False,
+            "a playlist that does not exist has no work");
+    }
+
+    [Test]
     public async Task Pause_BetweenTracks_ThenResume()
     {
         var id = await SeedPlaylistAsync(4);
