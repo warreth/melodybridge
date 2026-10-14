@@ -235,7 +235,7 @@ public class JellyfinSync : IMediaServerSync
                     _logger.LogWarning("Jellyfin returned {status} when updating playlist {name}",
                         update.StatusCode, name);
                     _lastReport = new MediaServerSyncReport(itemIds.Count, unresolved.ToArray(),
-                        existingId, $"Update failed with {update.StatusCode}");
+                        existingId, $"Update failed with {update.StatusCode}", Succeeded: false);
                     return;
                 }
                 _logger.LogInformation("Playlist {name} vanished before the update; recreating", name);
@@ -262,14 +262,14 @@ public class JellyfinSync : IMediaServerSync
                 _logger.LogWarning("Jellyfin returned {status} when creating playlist {name}",
                     resp.StatusCode, name);
                 _lastReport = new MediaServerSyncReport(itemIds.Count, unresolved.ToArray(),
-                    null, $"Create failed with {resp.StatusCode}");
+                    null, $"Create failed with {resp.StatusCode}", Succeeded: false);
             }
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to call Jellyfin API to upsert playlist");
             _lastReport = new MediaServerSyncReport(itemIds.Count, unresolved.ToArray(),
-                null, $"Error: {ex.Message}");
+                null, $"Error: {ex.Message}", Succeeded: false);
         }
 
         if (_lastReport == null)

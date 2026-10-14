@@ -77,7 +77,8 @@ public class PlexSync : IMediaServerSync
         if (machineId is null)
         {
             _lastReport = new MediaServerSyncReport(0, Array.Empty<string>(), null,
-                "Could not reach the Plex server (missing machineIdentifier). Check the URL and token.");
+                "Could not reach the Plex server (missing machineIdentifier). Check the URL and token.",
+                Succeeded: false);
             return;
         }
 
@@ -85,7 +86,7 @@ public class PlexSync : IMediaServerSync
         if (sectionId is null)
         {
             _lastReport = new MediaServerSyncReport(0, Array.Empty<string>(), null,
-                "No music (artist-type) library section found on the Plex server.");
+                "No music (artist-type) library section found on the Plex server.", Succeeded: false);
             return;
         }
 
@@ -232,7 +233,7 @@ public class PlexSync : IMediaServerSync
             if (ratingKeys.Count == 0)
             {
                 _lastReport = new MediaServerSyncReport(0, unresolved.ToArray(), null,
-                    "No resolved tracks; playlist deleted or not created");
+                    "No resolved tracks; playlist deleted or not created", Succeeded: false);
                 return;
             }
 
@@ -253,14 +254,14 @@ public class PlexSync : IMediaServerSync
             {
                 _logger.LogWarning("Plex returned {status} when creating playlist {name}", create.StatusCode, name);
                 _lastReport = new MediaServerSyncReport(ratingKeys.Count, unresolved.ToArray(),
-                    null, $"Create failed with {create.StatusCode}");
+                    null, $"Create failed with {create.StatusCode}", Succeeded: false);
             }
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to call Plex API to upsert playlist");
             _lastReport = new MediaServerSyncReport(ratingKeys.Count, unresolved.ToArray(),
-                null, $"Error: {ex.Message}");
+                null, $"Error: {ex.Message}", Succeeded: false);
         }
     }
 

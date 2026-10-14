@@ -172,6 +172,11 @@ public class SyncJobRunner : ISyncJobRunner
                         warnings.AddRange(unresolved
                             .Select(p => $"{p}: not found on server"));
                     }
+
+                    // A sync that failed on the server (unreachable, rejected
+                    // create or update) must fail the job, not report success.
+                    if (server.LastReport is { Succeeded: false } failedReport)
+                        errors.Add($"{server.Name}: {failedReport.Message}");
                     break;
 
                 default:

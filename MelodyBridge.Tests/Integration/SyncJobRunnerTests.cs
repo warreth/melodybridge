@@ -193,6 +193,67 @@ public class SyncJobRunnerTests
         finally { TryDelete(dbPath); }
     }
 
+    [Test]
+    public async Task RunJob_FailedServerReport_FailsTheJob()
+    {
+        // A media server that rejected the create must fail the run: the
+        // old behaviour reported Completed while nothing was written.
+        var dbPath = NewDbPath();
+        var dir = Path.Combine(Path.GetTempPath(), $"mb-job-{Guid.NewGuid():N}");
+        try
+        {
+            var factory = await NewDbFactory(dbPath);
+            await SeedPlaylistAsync(factory, dir);
+            var server = new FailingServerSync();
+            var runner = new SyncJobRunner(factory,
+                new M3uGenerator(NullLogger<M3uGenerator>.Instance),
+                new IMediaServerSync[] { server },
+                NullLogger<SyncJobRunner>.Instance);
+            var job = new SyncJob
+            {
+                Id = "job-failed-server",
+                Name = "Job Playlist",
+                SourceId = "pl-job",
+                OutputTarget = OutputTargetType.JellyfinApi,
+                JellyfinServerUrl = "http://jellyfin:8096",
+                JellyfinApiKey = "key",
+            };
+
+            var log = await runner.RunJobAsync(job);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(log.Status, Is.EqualTo(SyncStatus.Failed),
+                    "a failed server write must fail the job, not report Completed");
+                Assert.That(log.Message, Does.Contain("Create failed"));
+            });
+
+            await using var db = await factory.CreateDbContextAsync();
+            var run = await db.SyncJobRuns.AsNoTracking()
+                .SingleAsync(r => r.SyncJobId == "job-failed-server");
+            Assert.That(run.Status, Is.EqualTo("Failed"), "the stored run says Failed too");
+        }
+        finally
+        {
+            TryDelete(dbPath);
+            try { Directory.Delete(dir, recursive: true); } catch { /* best effort */ }
+        }
+    }
+
+    /// <summary>A server sync that always reports a rejected create.</summary>
+    private sealed class FailingServerSync : IMediaServerSync
+    {
+        public string Name => "Jellyfin";
+        public MediaServerSyncReport? LastReport { get; private set; }
+
+        public Task SyncPlaylistAsync(Playlist playlist, PlaylistOutputOptions options, CancellationToken ct = default)
+        {
+            LastReport = new MediaServerSyncReport(0, Array.Empty<string>(), null,
+                "Create failed with BadRequest", Succeeded: false);
+            return Task.CompletedTask;
+        }
+    }
+
     private static void TryDelete(string dbPath)
     {
         foreach (var suffix in new[] { "", "-wal", "-shm" })

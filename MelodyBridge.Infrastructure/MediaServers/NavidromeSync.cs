@@ -187,7 +187,7 @@ public class NavidromeSync : IMediaServerSync
             if (songIds.Count == 0)
             {
                 _lastReport = new MediaServerSyncReport(0, unresolved.ToArray(), null,
-                    "No resolved tracks; playlist not created");
+                    "No resolved tracks; playlist not created", Succeeded: false);
                 return;
             }
 
@@ -204,7 +204,7 @@ public class NavidromeSync : IMediaServerSync
         {
             _logger.LogError(ex, "Failed to call Navidrome API to upsert playlist");
             _lastReport = new MediaServerSyncReport(songIds.Count, unresolved.ToArray(),
-                null, $"Error: {ex.Message}");
+                null, $"Error: {ex.Message}", Succeeded: false);
         }
     }
 
