@@ -25,7 +25,10 @@
 <section class="page-title">
     <div>
         <span class="eyebrow">Configuration</span>
-        <h1>Settings</h1>
+        <div class="title-with-help">
+            <h1>Settings</h1>
+            <HelpTip Path="reference#settings" Text="Accounts, paths, quality and network. Power knobs live on the Advanced page." />
+        </div>
         <p>Accounts, paths and download behaviour. Power knobs live on the Advanced page.</p>
     </div>
     <button class="btn-modern primary" @onclick="SaveAll">Save settings</button>
@@ -44,7 +47,10 @@
     <section class="panel-card">
         <div class="panel-header">
             <div><span class="eyebrow">Accounts</span>
-                <h2>Spotify &amp; YouTube</h2>
+                <div class="title-with-help">
+                    <h2>Spotify &amp; YouTube</h2>
+                    <HelpTip Path="accounts" Text="Both logins are read-only. For private playlists and liked songs, connect here or import an export file." />
+                </div>
             </div>
         </div>
         <div class="hint-box">
@@ -166,7 +172,10 @@ else if (activeTab == "connections")
         <div class="panel-header">
             <div>
                 <span class="eyebrow">Connections</span>
-                <h2>Media server profiles</h2>
+                <div class="title-with-help">
+                    <h2>Media server profiles</h2>
+                    <HelpTip Path="reference#media-servers" Text="Profiles are shortcuts for sync jobs. Mark one as the app default to feed the liked songs sync." />
+                </div>
             </div>
             <button class="btn-modern secondary small" @onclick="StartNewProfile">Add profile</button>
         </div>
@@ -270,7 +279,10 @@ else if (activeTab == "paths")
     <section class="panel-card">
         <div class="panel-header">
             <div><span class="eyebrow">Library</span>
-                <h2>Default paths</h2>
+                <div class="title-with-help">
+                    <h2>Default paths</h2>
+                    <HelpTip Path="docker#volumes-and-paths" Text="These are paths inside the container, not on your host: /music and /app/playlists in Docker." />
+                </div>
             </div>
         </div>
         <div class="form-grid single">
@@ -280,7 +292,10 @@ else if (activeTab == "paths")
         <div class="panel-header">
             <div>
                 <span class="eyebrow">Archive</span>
-                <h2>Archive copy</h2>
+                <div class="title-with-help">
+                    <h2>Archive copy</h2>
+                    <HelpTip Path="concepts#archive-copies" Text="A second copy in another folder and format, converted locally from the same download." />
+                </div>
             </div>
         </div>
         <div class="hint-box">
@@ -319,7 +334,10 @@ else if (activeTab == "quality")
         <div class="panel-header">
             <div>
                 <span class="eyebrow">Quality</span>
-                <h2>Default audio quality</h2>
+                <div class="title-with-help">
+                    <h2>Default audio quality</h2>
+                    <HelpTip Path="reference#quality" Text="Space Saver caps at 160 kbps, High Quality at 320, Lossless prefers FLAC. Playlists can override this." />
+                </div>
             </div>
         </div>
         <div class="hint-box">
@@ -330,7 +348,10 @@ else if (activeTab == "quality")
         <div class="panel-header">
             <div>
                 <span class="eyebrow">Verification</span>
-                <h2>Real quality check</h2>
+                <div class="title-with-help">
+                    <h2>Real quality check</h2>
+                    <HelpTip Path="concepts#the-spectrum-check" Text="Measures what a file really contains and warns when the quality looks inflated. It never deletes anything." />
+                </div>
             </div>
         </div>
         <div class="hint-box">
@@ -356,7 +377,10 @@ else if (activeTab == "network")
         <div class="panel-header">
             <div>
                 <span class="eyebrow">Network</span>
-                <h2>FlareSolverr (Cloudflare)</h2>
+                <div class="title-with-help">
+                    <h2>FlareSolverr (Cloudflare)</h2>
+                    <HelpTip Path="lucida" Text="auto finds the solver container on the Docker network; off disables the Lucida plugin." />
+                </div>
             </div>
             <StatusPill Variant="@(flareStatus is "ok" ? "ok" : flareStatus is null ? "neutral" : "err")">
                 @(flareStatus is null ? "not tested" : flareStatus is "ok" ? "reachable" : "unreachable")
@@ -387,7 +411,10 @@ else if (activeTab == "network")
         <div class="panel-header">
             <div>
                 <span class="eyebrow">Network</span>
-                <h2>Spotify web session</h2>
+                <div class="title-with-help">
+                    <h2>Spotify web session</h2>
+                    <HelpTip Path="reference#network" Text="Only needed when public playlist scraping starts failing." />
+                </div>
             </div>
         </div>
         <div class="hint-box">
@@ -493,7 +520,10 @@ else if (activeTab == "about")
         <div class="panel-header">
             <div>
                 <span class="eyebrow">Backup</span>
-                <h2>Database</h2>
+                <div class="title-with-help">
+                    <h2>Database</h2>
+                    <HelpTip Path="reference#about" Text="Export snapshots the database as a zip; importing replaces it and needs a restart afterwards." />
+                </div>
             </div>
         </div>
         <div class="hint-box">

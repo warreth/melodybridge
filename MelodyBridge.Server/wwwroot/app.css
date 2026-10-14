@@ -587,6 +587,54 @@ select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-s
 }
 .mount-warning-icon { color: var(--danger); flex-shrink: 0; margin-top: .1rem; }
 .mount-warning code { color: var(--accent); }
+
+/* Help tips: a question-mark button next to a feature or setting. Hover
+   or keyboard focus shows the short explanation; clicking opens the
+   matching page on docs.melodybridge.app, anchors included. */
+.title-with-help { display: flex; align-items: center; gap: .45rem; }
+.field-with-help { display: flex; align-items: flex-start; gap: .35rem; }
+.field-with-help > label { flex: 1; min-width: 0; }
+.field-with-help .help-tip { margin-top: .3rem; }
+.toggle-with-help { display: flex; align-items: center; gap: .35rem; }
+.toggle-with-help > label { flex: 1; min-width: 0; }
+.help-tip {
+    position: relative;
+    display: inline-grid;
+    place-items: center;
+    width: 21px;
+    height: 21px;
+    flex-shrink: 0;
+    border: 1px solid var(--border-strong);
+    border-radius: 50%;
+    background: var(--surface-2);
+    color: var(--muted);
+    text-decoration: none;
+}
+.help-tip:hover,
+.help-tip:focus-visible { color: var(--accent-strong); border-color: var(--accent-strong); }
+.help-tip-popup {
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 0;
+    z-index: 400;
+    display: none;
+    width: min(300px, calc(100vw - 2rem));
+    padding: .6rem .7rem;
+    border: 1px solid var(--border-strong);
+    border-radius: 8px;
+    background: var(--surface-2);
+    box-shadow: var(--shadow);
+    color: var(--muted);
+    font-size: .78rem;
+    font-weight: 400;
+    line-height: 1.5;
+    text-align: left;
+    white-space: normal;
+}
+.help-tip:hover .help-tip-popup,
+.help-tip:focus-visible .help-tip-popup { display: block; }
+.help-tip-more { display: block; margin-top: .3rem; color: var(--accent-strong); font-weight: 600; }
+.help-tip-more svg { vertical-align: -2px; margin-left: .15rem; }
 .empty-state {
     display: grid;
     place-content: center;

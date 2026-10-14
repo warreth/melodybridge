@@ -18,7 +18,10 @@
 <section class="page-title">
     <div>
         <span class="eyebrow">Your music</span>
-        <h1>Playlists</h1>
+        <div class="title-with-help">
+            <h1>Playlists</h1>
+            <HelpTip Path="quickstart" Text="Public links need no account. Add one, download it on its page, then publish it with a sync job." />
+        </div>
         <p>Save a public Spotify or YouTube playlist here, or import from your account or an export file.</p>
     </div>
     <div class="topbar-actions">
@@ -177,7 +180,10 @@ else
             <div class="wizard-header">
                 <div>
                     <span class="eyebrow">Import</span>
-                    <h2>Import your music</h2>
+                    <div class="title-with-help">
+                        <h2>Import your music</h2>
+                        <HelpTip Path="accounts" Text="Account imports need Spotify Premium. No Premium? Use Exportify or the Spotify data export; both work with a free account." />
+                    </div>
                 </div>
                 <button class="icon-button" @onclick="HideAccountPanel"><Icon Name="x" Size="18" /></button>
             </div>

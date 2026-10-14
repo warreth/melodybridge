@@ -1,0 +1,26 @@
+@* Question-mark help next to a feature or setting. Hover or keyboard
+   focus shows a short explanation; clicking opens the matching page on
+   docs.melodybridge.app, anchors included. An anchor on purpose: touch
+   taps open the docs, which is the action that matters there. *@
+<a class="help-tip" href="@Href" target="_blank" rel="noopener"
+   aria-label="@AriaLabel">
+    <Icon Name="help" Size="13" />
+    <span class="help-tip-popup" aria-hidden="true">
+        @Text
+        <span class="help-tip-more">Open the docs <Icon Name="external" Size="11" /></span>
+    </span>
+</a>
+
+@code {
+    /// <summary>Docs path relative to the site root, anchor included, like "concepts#the-waterfall".</summary>
+    [Parameter, EditorRequired] public string Path { get; set; } = "";
+
+    /// <summary>Short explanation shown on hover and focus; one or two sentences, plain English.</summary>
+    [Parameter, EditorRequired] public string Text { get; set; } = "";
+
+    public const string DocsBaseUrl = "https://docs.melodybridge.app";
+
+    private string Href => $"{DocsBaseUrl}/{Path.TrimStart('/')}";
+
+    private string AriaLabel => $"Help: {Text} Opens the docs in a new tab.";
+}

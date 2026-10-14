@@ -11,7 +11,10 @@
 <section class="page-title">
     <div>
         <span class="eyebrow">System</span>
-        <h1>Advanced</h1>
+        <div class="title-with-help">
+            <h1>Advanced</h1>
+            <HelpTip Path="reference#the-advanced-page" Text="Download limits, the dedup toggle, display, logging and maintenance options." />
+        </div>
         <p>Interface and maintenance details most people never need to touch.</p>
     </div>
     <button class="btn-modern primary" @onclick="SaveAll">Save</button>
@@ -31,16 +34,22 @@
             </div>
         </div>
         <div class="form-grid single">
-            <label>
-                Max simultaneous track downloads
-                <input @bind="maxConcurrentDownloads" type="number" min="1" max="8" step="1" />
-            </label>
+            <div class="field-with-help">
+                <label>
+                    Max simultaneous track downloads
+                    <input @bind="maxConcurrentDownloads" type="number" min="1" max="8" step="1" />
+                </label>
+                <HelpTip Path="reference#the-advanced-page" Text="How many tracks download at once. Higher finishes playlists faster but hits every source harder." />
+            </div>
         </div>
-        <label class="toggle-switch wide">
-            <input type="checkbox" @bind="dedupEnabled" />
-            <span class="toggle-slider"></span>
-            <span>Hardlink duplicate tracks across playlists</span>
-        </label>
+        <div class="toggle-with-help">
+            <label class="toggle-switch wide">
+                <input type="checkbox" @bind="dedupEnabled" />
+                <span class="toggle-slider"></span>
+                <span>Hardlink duplicate tracks across playlists</span>
+            </label>
+            <HelpTip Path="concepts#duplicate-tracks" Text="When a track already exists in another playlist folder in the right quality, link it instead of downloading it again." />
+        </div>
         <div class="hint-box">
             When a track already exists in another playlist folder in the
             exact quality this playlist asks for, MelodyBridge links the
@@ -66,11 +75,14 @@
                 <h2>Display</h2>
             </div>
         </div>
-        <label class="toggle-switch wide">
-            <input type="checkbox" @bind="showFilename" />
-            <span class="toggle-slider"></span>
-            <span>Show the file column on playlist tracks</span>
-        </label>
+        <div class="toggle-with-help">
+            <label class="toggle-switch wide">
+                <input type="checkbox" @bind="showFilename" />
+                <span class="toggle-slider"></span>
+                <span>Show the file column on playlist tracks</span>
+            </label>
+            <HelpTip Path="concepts#archive-copies" Text="Reveals the exact file behind every track, archive copies included." />
+        </div>
         <div class="hint-box">
             The filename column shows the exact file behind each track in a
             playlist: useful when hunting inflated downloads.

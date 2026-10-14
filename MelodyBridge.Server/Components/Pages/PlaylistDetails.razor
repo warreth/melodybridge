@@ -116,7 +116,10 @@ else
             <div class="panel-header">
                 <div>
                     <span class="eyebrow">Settings</span>
-                    <h2>Sync configuration</h2>
+                    <div class="title-with-help">
+                        <h2>Sync configuration</h2>
+                        <HelpTip Path="reference#playlist-options" Text="Quality, archive copy, auto-sync schedule and sync mode for this playlist. Changes save themselves." />
+                    </div>
                 </div>
                 @if (saveState != SaveState.Idle)
                 {
