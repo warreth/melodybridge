@@ -62,6 +62,8 @@ public class PluginsInteractionTests
         _ctx.Services.AddSingleton(store);
         _ctx.Services.AddSingleton<DownloadCoordinator>();
         _ctx.Services.AddSingleton(new SettingsStore(dbFactory));
+        _ctx.Services.AddSingleton<MelodyBridge.Infrastructure.Downloaders.YtDlpUpdater>(
+            new TestServices.StubYtDlpUpdater());
     }
 
     private IRenderedComponent<Plugins> RenderPage(params IDownloader[] plugins)

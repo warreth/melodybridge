@@ -98,6 +98,11 @@ public static class ServiceCollectionExtensions
 
         services.AddSingleton<IDownloaderRegistry, DownloaderRegistry>();
 
+        // Version read and update button for the shared yt-dlp binary
+        // (YouTube and SoundCloud plugins) on the Plugins page.
+        services.AddSingleton(sp => new YtDlpUpdater(
+            sp.GetRequiredService<ILogger<YtDlpUpdater>>()));
+
         // Source providers (playlists)
         services.AddSingleton<ISourceProvider, YouTubeSourceProvider>();
         services.AddSingleton<ISourceProvider, SpotifySourceProvider>();

@@ -1,7 +1,9 @@
 @page "/plugins"
 @using MelodyBridge.Core
+@using MelodyBridge.Infrastructure.Downloaders
 @inject IDownloaderRegistry Registry
 @inject Application.Services.DownloadCoordinator Coordinator
+@inject YtDlpUpdater YtDlp
 @implements IDisposable
 
 <PageTitle>Plugins - MelodyBridge</PageTitle>
@@ -72,6 +74,36 @@
         </div>
     </section>
 }
+
+<section class="panel-card">
+    <div class="panel-header">
+        <div>
+            <span class="eyebrow">Dependency</span>
+            <div class="title-with-help">
+                <h2>yt-dlp</h2>
+                <HelpTip Path="reference#the-plugins-page" Text="The shared yt-dlp binary behind the YouTube and SoundCloud plugins. Updating keeps until the next image pull." />
+            </div>
+        </div>
+    </div>
+    <div class="qi-item">
+        <div style="flex:1; min-width:0;">
+            <strong>@(ytDlpVersion is null ? "not found" : ytDlpVersion)</strong>
+            <div class="qi-meta">
+                Shared by the YouTube and SoundCloud plugins. Updates stay
+                until the next image pull, which brings its own copy.
+            </div>
+        </div>
+        <div class="flex-actions">
+            <button class="btn-modern small" disabled="@updatingYtDlp" @onclick="UpdateYtDlp">
+                <Icon Name="refresh" Size="14" /> @(updatingYtDlp ? "Updating…" : "Update yt-dlp")
+            </button>
+        </div>
+    </div>
+    @if (!string.IsNullOrWhiteSpace(ytDlpMessage))
+    {
+        <div class="hint-box">@ytDlpMessage</div>
+    }
+</section>
 
 <section class="plugin-list">
     @foreach (var plugin in orderedPlugins)
@@ -165,6 +197,9 @@
     private string? configMessage;
     private DateTimeOffset lastAvailabilityCheck = DateTimeOffset.MinValue;
     private int availabilitySweep;
+    private string? ytDlpVersion;
+    private string? ytDlpMessage;
+    private bool updatingYtDlp;
 
     protected override async Task OnInitializedAsync()
     {
@@ -172,6 +207,7 @@
         await ReorderPluginsAsync();
         await RefreshAvailability();
         await LoadConfigValuesAsync();
+        ytDlpVersion = await YtDlp.GetVersionAsync();
         _timer = new Timer(_ => InvokeAsync(async () =>
         {
             runs = Coordinator.Snapshot().Where(r => r.State != Application.Services.DownloadRunState.Finished).ToList();
@@ -196,6 +232,25 @@
 
     private void ConfigChanged(string key, ChangeEventArgs e)
         => configValues[key] = e.Value?.ToString() ?? "";
+
+    /// <summary>Runs the yt-dlp update and shows the outcome.</summary>
+    private async Task UpdateYtDlp()
+    {
+        updatingYtDlp = true;
+        ytDlpMessage = null;
+        StateHasChanged();
+        try
+        {
+            var result = await YtDlp.UpdateAsync();
+            ytDlpVersion = await YtDlp.GetVersionAsync();
+            ytDlpMessage = result.Message;
+        }
+        finally
+        {
+            updatingYtDlp = false;
+            StateHasChanged();
+        }
+    }
 
     private async Task SaveConfigAsync(string pluginId)
     {

@@ -55,6 +55,8 @@ public class PluginsPageTests
         // provider per run, like the real app does.
         _ctx.Services.AddSingleton<Application.Services.DownloadCoordinator>();
         _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Services.SettingsStore(dbFactory));
+        _ctx.Services.AddSingleton<MelodyBridge.Infrastructure.Downloaders.YtDlpUpdater>(
+            new TestServices.StubYtDlpUpdater());
     }
 
     [TearDown]
@@ -70,6 +72,30 @@ public class PluginsPageTests
             "the intro explains the waterfall in the current wording");
         Assert.That(cut.Markup, Does.Contain("yt-dlp (YouTube)"));
         Assert.That(cut.Markup, Does.Contain("Second Plugin"));
+    }
+
+    [Test]
+    public async Task Plugins_YtDlpStrip_ShowsVersion_AndUpdatesOnClick()
+    {
+        var updater = new TestServices.StubYtDlpUpdater();
+        _ctx.Services.AddSingleton<MelodyBridge.Infrastructure.Downloaders.YtDlpUpdater>(updater);
+
+        var cut = _ctx.Render<Plugins>();
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("2026.08.19"),
+                "the installed yt-dlp version is shown"), TimeSpan.FromSeconds(3));
+
+        var button = cut.FindAll("button").Single(b => b.TextContent.Contains("Update yt-dlp"));
+        await cut.InvokeAsync(() => button.Click());
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(updater.UpdateCalls, Is.EqualTo(1), "the button runs the updater");
+            Assert.That(cut.Markup, Does.Contain("Updated with python3 -m pip"),
+                "the update output is shown");
+            Assert.That(cut.Markup, Does.Contain("2026.10.14"),
+                "the new version replaces the old one");
+        }, TimeSpan.FromSeconds(3));
     }
 
     [Test]

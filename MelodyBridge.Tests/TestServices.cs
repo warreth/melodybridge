@@ -46,6 +46,10 @@ public static class TestServices
             settingsStore,
             sp.GetRequiredService<IHttpClientFactory>(),
             NullLogger<MelodyBridge.Server.Services.NtfyNotifier>.Instance));
+        // The Plugins page reads the yt-dlp version; a stub keeps the page
+        // tests from shelling out to a real binary.
+        services.AddSingleton<MelodyBridge.Infrastructure.Downloaders.YtDlpUpdater>(
+            new StubYtDlpUpdater());
         // Update check: a plain HttpClient; tests that need GitHub
         // behaviour stub the handler themselves.
         services.AddSingleton(new UpdateCheckService(new HttpClient()));
@@ -57,6 +61,31 @@ public static class TestServices
             new FixedPlexSettings());
         services.AddSingleton<MelodyBridge.Infrastructure.MediaServers.INavidromeSettings>(
             new FixedNavidromeSettings());
+    }
+
+    /// <summary>Plugins page stub: a fixed version and recorded updates.</summary>
+    public sealed class StubYtDlpUpdater : MelodyBridge.Infrastructure.Downloaders.YtDlpUpdater
+    {
+        public string? Version { get; set; } = "2026.08.19";
+        public MelodyBridge.Infrastructure.Downloaders.YtDlpUpdateResult NextResult { get; set; } =
+            new(true, "Updated with python3 -m pip. Now on 2026.10.14.");
+        public int UpdateCalls { get; private set; }
+
+        public StubYtDlpUpdater()
+            : base(NullLogger<MelodyBridge.Infrastructure.Downloaders.YtDlpUpdater>.Instance)
+        {
+        }
+
+        public override Task<string?> GetVersionAsync(CancellationToken ct = default)
+            => Task.FromResult(Version);
+
+        public override Task<MelodyBridge.Infrastructure.Downloaders.YtDlpUpdateResult> UpdateAsync(
+            CancellationToken ct = default)
+        {
+            UpdateCalls++;
+            Version = "2026.10.14";
+            return Task.FromResult(NextResult);
+        }
     }
 
     /// <summary>Fixed connection values, exactly what the settings interfaces deliver.</summary>
