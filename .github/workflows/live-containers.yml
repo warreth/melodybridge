@@ -1,0 +1,68 @@
+name: Live container tests
+
+# The media-server live suites boot real Jellyfin, Plex and Navidrome
+# containers and verify the sync clients against them. The fixtures
+# self-skip unless the images are already pulled, and they use host
+# networking on fixed ports, all of which GitHub's Ubuntu runners
+# provide.
+#
+# Runs monthly for early warning and is called by the release workflow
+# as a gate before an image is built. PLEX_TOKEN is optional: without it
+# the claimed-server sync test skips itself.
+
+on:
+  workflow_call:
+  workflow_dispatch:
+  schedule:
+    # Monthly, the first day at 03:00 UTC.
+    - cron: "0 3 1 * *"
+
+jobs:
+  media-servers:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj') }}
+          restore-keys: nuget-${{ runner.os }}-
+
+      - name: Restore
+        run: dotnet restore MelodyBridge.sln
+
+      - name: Build
+        run: dotnet build MelodyBridge.sln -c Release --no-restore
+
+      # The fixtures inspect for the images; without a pull they would
+      # skip themselves and the job would prove nothing.
+      - name: Pull media server images
+        run: |
+          docker pull jellyfin/jellyfin:latest
+          docker pull deluan/navidrome:latest
+          docker pull plexinc/pms-docker:latest
+
+      - name: Media server live tests
+        env:
+          PLEX_TOKEN: ${{ secrets.PLEX_TOKEN }}
+        run: >
+          dotnet test MelodyBridge.sln -c Release --no-build
+          --filter "FullyQualifiedName~JellyfinSyncLiveTests|FullyQualifiedName~NavidromeSyncLiveTests|FullyQualifiedName~PlexSyncLiveTests"
+          --logger "trx;LogFileName=live-containers.trx"
+          --logger "console;verbosity=normal"
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-container-results
+          path: MelodyBridge.Tests/TestResults/*.trx
+          if-no-files-found: ignore
