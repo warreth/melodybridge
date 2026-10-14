@@ -62,6 +62,66 @@ public class UpdateCheckAndNotificationTests
         Assert.That(result.Error, Is.Not.Null.And.Not.Empty);
     }
 
+    [Test]
+    public async Task CheckAsync_NoStableRelease_FallsBackToTheNewestPublished()
+    {
+        // While every release is a prerelease GitHub answers 404 for
+        // /releases/latest; the About tab must still show the RC.
+        var handler = new RoutingHandler(url =>
+            url.Contains("/releases/latest", StringComparison.Ordinal)
+                ? (System.Net.HttpStatusCode.NotFound, "{}")
+                : (System.Net.HttpStatusCode.OK,
+                    """
+                    [
+                      {"tag_name":"v1.0.0-rc1","html_url":"https://github.com/warreth/melodybridge/releases/tag/v1.0.0-rc1","draft":false,"prerelease":true},
+                      {"tag_name":"1.0-beta2","html_url":"https://github.com/warreth/melodybridge/releases/tag/1.0-beta2","draft":false,"prerelease":true}
+                    ]
+                    """));
+        var service = new UpdateCheckService(new HttpClient(handler));
+
+        var result = await service.CheckAsync();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Succeeded, Is.True, $"error was: {result.Error}");
+            Assert.That(result.LatestVersion, Is.EqualTo("1.0.0-rc1"));
+            Assert.That(result.ReleaseUrl, Does.Contain("v1.0.0-rc1"));
+        });
+    }
+
+    [Test]
+    public async Task CheckAsync_StableReleaseExists_DoesNotFetchTheList()
+    {
+        var handler = new RoutingHandler(_ =>
+            (System.Net.HttpStatusCode.OK,
+                """{"tag_name":"v1.0.0","html_url":"https://github.com/warreth/melodybridge/releases/tag/v1.0.0"}"""));
+        var service = new UpdateCheckService(new HttpClient(handler));
+
+        var result = await service.CheckAsync();
+
+        Assert.That(result.LatestVersion, Is.EqualTo("1.0.0"));
+        Assert.That(handler.RequestedUrls.Any(u => u.Contains("/releases?", StringComparison.Ordinal)), Is.False,
+            "the fallback list is only for the no-stable-release case");
+    }
+
+    [Test]
+    public async Task CheckAsync_NoReleasesAtAll_KeepsTheHonestError()
+    {
+        var handler = new RoutingHandler(url =>
+            url.Contains("/releases/latest", StringComparison.Ordinal)
+                ? (System.Net.HttpStatusCode.NotFound, "{}")
+                : (System.Net.HttpStatusCode.OK, "[]"));
+        var service = new UpdateCheckService(new HttpClient(handler));
+
+        var result = await service.CheckAsync();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Succeeded, Is.False);
+            Assert.That(result.Error, Does.Contain("404"));
+        });
+    }
+
     // ── Toast bus ─────────────────────────────────────────────────
 
     [Test]
@@ -119,5 +179,24 @@ public class UpdateCheckAndNotificationTests
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request, CancellationToken ct)
             => throw new HttpRequestException("offline");
+    }
+
+    /// <summary>Answers per URL and records every request.</summary>
+    private sealed class RoutingHandler(
+        Func<string, (System.Net.HttpStatusCode Status, string Body)> respond) : HttpMessageHandler
+    {
+        public List<string> RequestedUrls { get; } = new();
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken ct)
+        {
+            var url = request.RequestUri!.ToString();
+            RequestedUrls.Add(url);
+            var (status, body) = respond(url);
+            return Task.FromResult(new HttpResponseMessage(status)
+            {
+                Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json"),
+            });
+        }
     }
 }

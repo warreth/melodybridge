@@ -32,4 +32,8 @@ public static class AppInfo
     /// <summary>Releases feed the update check on the About tab compares against.</summary>
     public const string ReleasesFeed =
         "https://api.github.com/repos/warreth/melodybridge/releases/latest";
+
+    /// <summary>Newest releases, newest first: the fallback while no stable release exists.</summary>
+    public const string ReleasesListFeed =
+        "https://api.github.com/repos/warreth/melodybridge/releases?per_page=20";
 }

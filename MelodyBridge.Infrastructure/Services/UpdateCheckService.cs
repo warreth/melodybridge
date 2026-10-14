@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Net;
 using System.Text.Json;
 using MelodyBridge.Core;
 
@@ -21,36 +22,78 @@ public sealed class UpdateCheckService(HttpClient http)
     {
         try
         {
-            // GitHub's API requires a User-Agent; identify ourselves plainly.
-            using var request = new HttpRequestMessage(HttpMethod.Get, AppInfo.ReleasesFeed);
-            request.Headers.UserAgent.ParseAdd($"MelodyBridge/{AppInfo.Version}");
-            using var response = await http.SendAsync(request, ct);
+            var (latest, notFound) = await FetchReleaseAsync(AppInfo.ReleasesFeed, ct);
+            if (!notFound) return latest;
 
-            if (!response.IsSuccessStatusCode)
-                return new UpdateCheckResult(false, null, null,
-                    $"GitHub answered {(int)response.StatusCode}.");
-
-            // Manual parse: the payload is two fields and this keeps
-            // deserialization independent of type accessibility rules.
-            using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
-            var latest = doc.RootElement.TryGetProperty("tag_name", out var tag)
-                && tag.ValueKind == JsonValueKind.String
-                    ? tag.GetString()?.TrimStart('v')
-                    : null;
-            var url = doc.RootElement.TryGetProperty("html_url", out var link)
-                && link.ValueKind == JsonValueKind.String
-                    ? link.GetString()
-                    : null;
-            if (string.IsNullOrWhiteSpace(latest))
-                return new UpdateCheckResult(false, null, null, "No release found.");
-
-            return new UpdateCheckResult(true, latest!, url, null);
+            // GitHub answers 404 for /releases/latest while every release
+            // is a prerelease. Fall back to the newest published release
+            // so beta users still see the release they can upgrade to; a
+            // repo without any release keeps the honest error.
+            return await FetchNewestReleaseAsync(ct) ?? latest;
         }
         catch (Exception ex)
         {
             // Offline or DNS failure is a normal outcome, not an error state.
             return new UpdateCheckResult(false, null, null, ex.Message);
         }
+    }
+
+    /// <summary>One release JSON, or the GitHub status when it failed.</summary>
+    private async Task<(UpdateCheckResult Result, bool NotFound)> FetchReleaseAsync(
+        string url, CancellationToken ct)
+    {
+        // GitHub's API requires a User-Agent; identify ourselves plainly.
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.UserAgent.ParseAdd($"MelodyBridge/{AppInfo.Version}");
+        using var response = await http.SendAsync(request, ct);
+
+        if (!response.IsSuccessStatusCode)
+            return (new UpdateCheckResult(false, null, null,
+                $"GitHub answered {(int)response.StatusCode}."),
+                response.StatusCode == HttpStatusCode.NotFound);
+
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
+        return (ParseRelease(doc.RootElement), false);
+    }
+
+    /// <summary>The newest published (non-draft) release, or null when there is none.</summary>
+    private async Task<UpdateCheckResult?> FetchNewestReleaseAsync(CancellationToken ct)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, AppInfo.ReleasesListFeed);
+        request.Headers.UserAgent.ParseAdd($"MelodyBridge/{AppInfo.Version}");
+        using var response = await http.SendAsync(request, ct);
+        if (!response.IsSuccessStatusCode) return null;
+
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
+        if (doc.RootElement.ValueKind != JsonValueKind.Array) return null;
+
+        foreach (var release in doc.RootElement.EnumerateArray())
+        {
+            if (release.TryGetProperty("draft", out var draft) && draft.ValueKind == JsonValueKind.True)
+                continue;
+            var parsed = ParseRelease(release);
+            if (parsed.Succeeded) return parsed;
+        }
+        return null;
+    }
+
+    /// <summary>Maps one GitHub release object onto the result the UI renders.</summary>
+    private static UpdateCheckResult ParseRelease(JsonElement release)
+    {
+        // Manual parse: the payload is two fields and this keeps
+        // deserialization independent of type accessibility rules.
+        var latest = release.TryGetProperty("tag_name", out var tag)
+            && tag.ValueKind == JsonValueKind.String
+                ? tag.GetString()?.TrimStart('v')
+                : null;
+        var url = release.TryGetProperty("html_url", out var link)
+            && link.ValueKind == JsonValueKind.String
+                ? link.GetString()
+                : null;
+        if (string.IsNullOrWhiteSpace(latest))
+            return new UpdateCheckResult(false, null, null, "No release found.");
+
+        return new UpdateCheckResult(true, latest!, url, null);
     }
 
     /// <summary>
