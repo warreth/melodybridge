@@ -87,6 +87,7 @@ Open a playlist card and the left panel holds everything specific to it:
 | Audio quality | One of the presets above, or advanced filters |
 | Archive copy | Archive folder and format; empty folder means no archive |
 | Auto-sync schedule | Manual, hourly, daily, weekly, monthly or cron |
+| Download new tracks after auto-sync | Off by default. After a successful auto-sync refresh, a download run starts when there is pending work; failed tracks are retried every interval. Hidden for file imports |
 | Sync mode | Additive keeps removed tracks as history, Mirror matches the source |
 
 There is no Save button. Text fields save half a second after you stop typing,
@@ -155,7 +156,7 @@ automatically.
 
 <img src="/screens/advanced.webp" alt="Advanced page with download, display, logging and maintenance options" width="800">
 
-The knobs most people never need, in five groups:
+The knobs most people never need, in six panels:
 
 - **Downloads**: *Max simultaneous track downloads* (1 to 8, default 2; the next
   run picks up a change) and *Hardlink duplicate tracks across playlists*, the
@@ -166,11 +167,30 @@ The knobs most people never need, in five groups:
   EF Core writes a line for every SQL command. Warnings and errors show up
   either way. Applies immediately.
 - **Notifications**: toasts for finished playlist downloads and for failed
-  tracks or sync jobs. Both on by default; failures always reach the log
-  regardless.
+  tracks, sync jobs or background tasks. Both on by default; failures always
+  reach the log regardless.
+- **ntfy push**: sends the same events to your own ntfy server, detailed below.
 - **Maintenance**: **Recompute audio facts** reads bitrate, sample rate and size
   straight from the files on disk, for downloads that predate the probing. Tracks
   whose file has vanished are queued for a re-download.
+
+### ntfy push
+
+ntfy is a small push service you host yourself or use hosted. Flip **Send
+notifications to ntfy**, enter the **Topic URL** (for example
+`https://ntfy.sh/melodybridge`) and, if the topic is protected, an **Access
+token**. Then pick what goes out:
+
+- A playlist download run finishes
+- A sync job completes
+- A sync job fails
+- A background task fails: auto-sync, scan, a crashed run
+
+The four switches work independently of the toast toggles above: a category can
+push without popping up, and the other way around. **Send test notification**
+sends one message with the values on screen, even with the enable toggle off.
+Messages include track names, and delivery is best effort, so a dead ntfy
+server never stalls a download or a scan.
 
 ## The Logs page
 

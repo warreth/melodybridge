@@ -183,11 +183,14 @@ else
                         Auto-sync schedule
                         <SchedulePicker @bind-Value="editSchedule" @bind-Value:after="SaveNow" />
                     </label>
-                    <label class="toggle-switch wide">
-                        <input type="checkbox" @bind="editAutoDownload" @bind:after="SaveNow" />
-                        <span class="toggle-slider"></span>
-                        <span>Download new tracks after auto-sync</span>
-                    </label>
+                    <div class="toggle-with-help">
+                        <label class="toggle-switch wide">
+                            <input type="checkbox" @bind="editAutoDownload" @bind:after="SaveNow" />
+                            <span class="toggle-slider"></span>
+                            <span>Download new tracks after auto-sync</span>
+                        </label>
+                        <HelpTip Path="concepts#playlists-are-snapshots" Text="After the scheduled refresh, start a download run when there is pending work; failed tracks are retried every interval." />
+                    </div>
                 }
                 <label>
                     Sync mode

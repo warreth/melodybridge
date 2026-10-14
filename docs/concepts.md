@@ -37,9 +37,12 @@ follow the **Sync mode** you picked:
 
 Two things worth knowing:
 
-- Auto-sync only refreshes the track list. It never starts downloads by itself;
-  press **Download missing** (or the Download button on a single track) to fetch
-  what's new. Sync jobs publish whatever files exist at their run time.
+- Auto-sync refreshes the track list. Downloads stay manual unless the playlist
+  opts in with **Download new tracks after auto-sync**: after a successful
+  refresh, MelodyBridge starts a download run as soon as there is pending work,
+  new tracks and earlier failures alike. Failed tracks are retried every
+  interval. The toggle is off by default and hidden for file imports, which
+  have no live source. Sync jobs publish whatever files exist at their run time.
 - If a fetch comes back incomplete, the playlist card shows a **partial sync**
   warning and the next refresh fills the gaps.
 
