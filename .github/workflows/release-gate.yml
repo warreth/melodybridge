@@ -2,7 +2,8 @@ name: Release gate
 
 # The release gate boots real Jellyfin, Plex and Navidrome containers and
 # runs the end-to-end pipeline test against them: a real Spotify playlist
-# is fetched, real tracks are downloaded through yt-dlp, the quality and
+# is fetched, real tracks are downloaded through the shipped first-party
+# waterfall (SoundCloud, Internet Archive, yt-dlp), the quality and
 # archive copies are read from disk, an M3U is written and the playlist is
 # pushed into the containers and streamed back. Everything is tagged
 # Category=ReleaseGate so this only runs here (and monthly), never on a
@@ -45,8 +46,9 @@ jobs:
       - name: Build
         run: dotnet build MelodyBridge.sln -c Release --no-restore
 
-      # The end-to-end run downloads a real track, so yt-dlp and ffmpeg
-      # must be on PATH, exactly like the shipped image has them.
+      # The end-to-end run downloads real tracks (SoundCloud and YouTube
+      # legs both go through yt-dlp), so yt-dlp and ffmpeg must be on
+      # PATH, exactly like the shipped image has them.
       - name: Install yt-dlp and ffmpeg
         run: |
           sudo apt-get update
