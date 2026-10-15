@@ -56,13 +56,13 @@ the paths differ, add a path remap rule in the sync job, see
 
 ## Beta channel
 
-Prerelease tags (like `v1.0.0-beta1`) are published under the `:beta` tag, never
+Prerelease tags (like `v1.0-beta1`) are published under the `:beta` tag, never
 `:latest`, so the stable channel stays stable. To run a beta, change the image
 line in `compose.yml` from `:latest` to `:beta` and run `docker compose up -d`
 again. Going back is the same edit with `:latest`.
 
 Exact version tags stay available forever, so
-`ghcr.io/warreth/melodybridge:1.0.0-beta1` keeps working even after a newer beta
+`ghcr.io/warreth/melodybridge:1.0-beta1` keeps working even after a newer beta
 moves the `:beta` tag.
 
 ## Environment variables
