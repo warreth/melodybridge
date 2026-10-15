@@ -21,9 +21,10 @@ podman compose up -d
 :::
 
 The compose file pulls `ghcr.io/warreth/melodybridge:latest` and starts both
-containers on one internal network. The app binds to `127.0.0.1:3333`, so it is
-only reachable from this machine until you put a reverse proxy in front. Open
-http://localhost:3333 and you are in.
+containers on one internal network. The app publishes port 3333 on all host
+interfaces, so open http://localhost:3333 (or `http://<your-server>:3333` from
+another machine). Change the mapping in `compose.yml` to `127.0.0.1:3333:80`
+to keep the app reachable from this machine only.
 
 ## Volumes and paths
 
@@ -68,8 +69,9 @@ moves the `:beta` tag.
 ## Environment variables
 
 Almost everything is configured in the web UI and stored in the database. These
-are the variables the shipped compose file sets, and the only ones worth
-touching:
+are the variables the app reads, with their built-in defaults; the shipped
+compose file only sets `ASPNETCORE_URLS`, `FlareSolverr__Url` and
+`MELODYBRIDGE_DB`.
 
 | Variable | Default | Purpose |
 |---|---|---|
@@ -89,8 +91,7 @@ docker run -d \
   -v ./data/music:/music \
   -v ./data/playlists:/app/playlists \
   -v ./data/app:/app/state \
-  -p 127.0.0.1:3333:80 \
-  -e ASPNETCORE_ENVIRONMENT=Production \
+  -p 3333:80 \
   -e ASPNETCORE_URLS=http://+:80 \
   -e MELODYBRIDGE_DB=/app/state/melodybridge.db \
   --name melodybridge melodybridge:latest
@@ -123,8 +124,9 @@ Build, test and architecture details live in the
 ## Before you expose it
 
 ::: warning
-- Keep the `127.0.0.1` port binding unless a reverse proxy handles access.
-- Use a reverse proxy (nginx, Caddy, Traefik) for TLS.
+- The shipped compose publishes port 3333 on all interfaces. Put a reverse
+  proxy in front for TLS, or change the mapping to `127.0.0.1:3333:80` to keep
+  the app on this machine only.
 - Keep API keys, tokens and passwords in the web UI, never in a committed file.
 - Never publish the flaresolverr port to the host; the internal network is
   enough.

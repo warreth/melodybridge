@@ -5,10 +5,10 @@
 services:
   # Cloudflare solver for the Lucida plugin. Only reachable on the
   # internal compose network, never published to the host. The app
-  # finds it automatically by its Docker DNS name on that network.
+  # finds it automatically by its service name on that network.
   flaresolverr:
     image: ghcr.io/flaresolverr/flaresolverr:latest
-    container_name: flaresolverr
+    container_name: mb_flaresolverr
     environment:
       - LOG_LEVEL=info
       - TZ=Europe/Amsterdam
@@ -33,29 +33,25 @@ services:
     # Reaches a Jellyfin running on the host through this alias.
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    # 3333 on every host interface. Use "127.0.0.1:3333:80" instead to
+    # keep the app reachable from this machine only.
     ports:
-      - "127.0.0.1:3333:80"
+      - "3333:80"
     environment:
-      - ASPNETCORE_ENVIRONMENT=Production
+      # Where the server listens inside the container; the base image
+      # would otherwise pick its own default port.
       - ASPNETCORE_URLS=http://+:80
-      - Logging__LogLevel__Default=Information
-      - DevPanel__Enabled=false
       - FlareSolverr__Url=auto
+      # SQLite database and runtime state on the mounted volume.
       - MELODYBRIDGE_DB=/app/state/melodybridge.db
-    # Volumes map a HOST path (left of the colon) to a CONTAINER path
-    # (right side). MelodyBridge runs inside the container, so it can
-    # only see the container side: every path typed in the app (music
-    # folder, Library scan locations, M3U output path) must be the
-    # right-hand path, like /music. The left side is where the files
-    # really live on your machine; change it to your own folder and
-    # keep the right side as is, or the app loses track of the mounts.
+    # Volumes map a HOST path (left) to a CONTAINER path (right). Every
+    # path typed in the app is a container path, like /music; change
+    # only the left side to your own folders.
     volumes:
-      # Downloads land here. In the app: /music (Settings, Default paths).
+      # Downloads (in the app: /music), M3U output (/app/playlists) and
+      # the database plus app state (/app/state).
       - ./data/music:/music
-      # M3U playlists are written here. In the app: /app/playlists.
       - ./data/playlists:/app/playlists
-      # The SQLite database and runtime state live here, so they
-      # survive container rebuilds.
       - ./data/app:/app/state
     restart: unless-stopped
     security_opt:
@@ -63,8 +59,8 @@ services:
     networks:
       - melodybridge
 
-# One explicit network so the app can always resolve the solver by
-# its service name, even when the user changes container names.
+# One explicit network so the app can always resolve the solver by its
+# service name, whatever the containers are named.
 networks:
   melodybridge:
     name: melodybridge
