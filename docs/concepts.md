@@ -56,18 +56,32 @@ every plugin at every track: it routes first, then runs the survivors in order.
 
 ### Routing
 
-Each plugin declares its honest capabilities: which container formats it can
-produce, what bitrate range is realistic for it, and whether lossless is within
-reach. Two things use that list:
+Each plugin declares its honest capabilities: the container formats it can
+produce, which bitrate levels those arrive in, whether lossless content is
+really in reach, and whether the plugin can be *asked* for a level or merely
+hands back whatever the source serves. Two things use that list:
 
-- **Format and bitrate filters.** If your requested quality cannot be served by
-  a plugin, that plugin is skipped before any network call. With a strict filter
-  you might see the track fail with a message like *sources had 3 file(s)
-  outside your quality filters*, which is your cue to loosen the filter.
-- **Run order.** A Lossless request tries the lossless-capable sources first. A
-  Space Saver request tries the small-file specialists first and leaves the
-  lossless producers for last. High Quality and No filter keep the order you set
-  yourself on the Plugins page.
+- **Format and bitrate filters.** A plugin that cannot serve your requested
+  quality is skipped before any network call. When every plugin is out, the
+  track fails with a message like *your quality filters excluded every plugin*,
+  which is your cue to loosen the filter or enable more plugins.
+- **Run order.** With **No filter** your own order on the Plugins page is the
+  order. When you ask for a specific quality, the plugins that can actually be
+  asked for it run first, and your order decides between plugins of the same
+  kind. A Lossless request therefore starts at the lossless producers and an
+  mp3 request at the plugins that can hand out mp3, without any per-quality
+  configuration.
+
+### Strict quality
+
+Every playlist has a **Strict quality** switch. On, which is the default, only
+the quality you asked for may be delivered; when nothing can serve it, the
+track fails with the reason. Off, the download steps down through the quality
+levels the enabled plugins themselves declare, best first, until one delivers:
+a Lossless request lands on the best lossy file, and a request with a bitrate
+floor drops its floor instead of failing. The follow-up switch **Allow
+container changes** decides whether a fallback step may leave the chosen
+container; turn it off when the container itself is the point.
 
 Plugins that are missing their tool or reporting a dead service mark themselves
 unavailable and get skipped automatically. The pill on their card shows the

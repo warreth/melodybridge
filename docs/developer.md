@@ -88,14 +88,20 @@ the TIDAL proxies do not index ISRCs and ignore the field (the
 HiFi-RestAPI behind Monochrome exposes only s/a/al/v/p search
 parameters, verified against its OpenAPI spec).
 
-`PluginCapabilities` is the plugin's honest manifest: the containers it
-can produce, its real bitrate bounds (null means unbounded) and whether
-lossless is in reach. It has no default implementation, so a plugin that
-does not declare its limits does not compile. The router uses it to
-exclude plugins that cannot serve a request before any network call and
-to rank the survivors: lossless requests try lossless-capable sources
-first, small-file caps try small-file specialists first, and the No
-filter quality keeps the priority order set on the Plugins page.
+`PluginCapabilities` is the plugin's honest manifest: every quality level it
+can deliver (container, the bitrate band it arrives in, whether the content is
+really lossless) and, per level, whether the plugin can be *asked* for it or
+merely hands back what the service decides. It has no default implementation,
+so a plugin that does not declare its limits does not compile. The router
+filters on this data before any network call and orders the survivors: with
+**No filter** the user's Plugins-page order is the order, and with a
+constrained request the plugins that control the quality run before the ones
+that only report what may arrive. No plugin name, no priority table and no
+magic band is involved. A non-strict playlist additionally walks
+`QualityLadder.Build`: the request first, then the best declared level per
+other container, stepping down until a source delivers (`DownloadManager`
+takes a `DownloadFallback` policy for this); the request's cap is never
+exceeded.
 
 Plugins do not write the MELODY_ID tag themselves. `DownloadManager`
 writes it once for every plugin after the file passes the quality band;
@@ -105,9 +111,9 @@ Implement this to add a download source. Built-in plugins:
 
 | Plugin | Id | Source | Notes |
 |---|---|---|---|
-| `LucidaDownloader` | `lucida` | lucida.to (Tidal, Qobuz, Amazon Music) | High quality rips; needs a Cloudflare solver, otherwise skipped; Qobuz/Amazon are searched by ISRC first |
-| `MonochromeDownloader` | `monochrome` | monochrome.tf mirrors (community TIDAL API) | FLAC/AAC rips; tries each instance in order until one answers; quality tiers follow the requested cap (LOW under 160, HIGH under 320); the proxy has no ISRC filter |
-| `DoubleDoubleDownloader` | `doubledouble` | us./eu.doubledouble.top | Submit-and-poll rips of direct track URLs (Tidal, Qobuz, Deezer, Amazon); `SearchAsync` returns null by design, the site search is captcha-gated |
+| `LucidaDownloader` | `lucida` | lucida.to (Tidal, Qobuz, Amazon Music) | High quality rips; needs a Cloudflare solver, otherwise skipped; Qobuz/Amazon are searched by ISRC first; the load API has no quality parameter, so its manifest is honest-but-uncontrollable |
+| `MonochromeDownloader` | `monochrome` | monochrome.tf mirrors (community TIDAL API) | FLAC/AAC rips; tries each instance in order until one answers; the manifest names the real tiers (AAC 96/320, FLAC lossless), not a continuous band; the proxy has no ISRC filter |
+| `DoubleDoubleDownloader` | `doubledouble` | us./eu.doubledouble.top | Submit-and-poll rips of direct track URLs (Tidal, Qobuz, Deezer, Amazon); `SearchAsync` returns null by design, the site search is captcha-gated; no quality parameter, so its manifest is uncontrollable too |
 | `SoundCloudDownloader` | `soundcloud` | SoundCloud (via yt-dlp `scsearch`) | Original uploads, often 320 kbps; top-5 ranked; rejects files under 128 kbps |
 | `ArchiveOrgDownloader` | `archiveorg` | Internet Archive (public JSON APIs) | Public-domain and community recordings; picks the matching file inside a multi-track item, not the first one; rejects files under 128 kbps |
 | `DabMusicDownloader` | `dabmusic` | dabmusic.xyz (community Qobuz rips) | FLAC up to 24/192 and MP3 320, no account needed; searches by ISRC first; community service, regularly offline, so availability is probed and cached before use |
@@ -162,7 +168,7 @@ public interface IDownloadManager
 }
 ```
 
-`DownloadTrackAsync` routes the enabled plugins through `QualityRouter` first: incompatible plugins are excluded before any network call, survivors are ranked for the request, and the first successful download wins. Every plugin call is individually guarded (a plugin that throws on availability, search or download is skipped, never fatal), each hit is duration-checked before any bytes are spent, and each produced file must sniff as real audio. When every plugin is excluded the track fails fast with "your quality filters excluded every plugin". On success the manager writes the MELODY_ID tag. `DownloadAsync` passes a direct URL to the plugins that can handle it.
+`DownloadTrackAsync` routes the enabled plugins through `QualityRouter` first: incompatible plugins are excluded before any network call, survivors are ranked for the request, and the first successful download wins. Without a fallback policy the request is strict: exactly the requested quality or nothing. With a `DownloadFallback` (a non-strict playlist) a miss walks the `QualityLadder`, stepping down through the levels the enabled plugins declare. Every plugin call is individually guarded (a plugin that throws on availability, search or download is skipped, never fatal), each hit is duration-checked before any bytes are spent, and each produced file must sniff as real audio. When every plugin is excluded the track fails fast with "your quality filters excluded every plugin". On success the manager writes the MELODY_ID tag. `DownloadAsync` passes a direct URL to the plugins that can handle it.
 
 ## ISRC: exact matching
 

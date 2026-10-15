@@ -87,6 +87,8 @@ Open a playlist card and the left panel holds everything specific to it:
 | Name | Shown everywhere in the app |
 | Download folder | Empty means the default music path |
 | Audio quality | One of the presets above, or advanced filters |
+| Strict quality | On: only the exact quality is accepted. Off: the download steps down to the best lower quality the enabled plugins declare. See [strict quality](/concepts#strict-quality) |
+| Allow container changes | Shown when strict is off: whether a fallback step may leave the chosen container |
 | Archive copy | Archive folder and format; empty folder means no archive |
 | Auto-sync schedule | Manual, hourly, daily, weekly, monthly or cron |
 | Download new tracks after auto-sync | Off by default. After a successful auto-sync refresh, a download run starts when there is pending work; failed tracks are retried every interval. Hidden for file imports |
@@ -120,10 +122,12 @@ tracks** on the Advanced page to see the file names, including
 
 <img src="/screens/plugins.webp" alt="Plugins page with order controls, capability badges and live download progress" width="800">
 
-Plugins search for and download your tracks. The order set here applies to the
-**No filter** quality; other presets route by fit first, trying lossless
-sources first for Lossless and small-file sources first for Space Saver. Use the
-arrows to move a plugin and the switch to enable or disable it.
+Plugins search for and download your tracks. The order set here is the whole
+story for the **No filter** quality. When a playlist asks for a specific
+quality, MelodyBridge first picks the plugins that can really deliver it (their
+declared capabilities decide) and the order here only breaks ties between
+plugins of the same kind. Use the arrows to move a plugin and the switch to
+enable or disable it.
 
 - Each plugin card shows its capability badges (formats, bitrate range) and an
   expandable **Settings** panel when it has options. Values are remembered per
