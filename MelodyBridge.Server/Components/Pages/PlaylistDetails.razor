@@ -150,6 +150,25 @@ else
                 <label class="quality-field wide">
                     <QualityPicker @bind-Value="editQuality" @bind-Value:after="SaveNow" />
                 </label>
+                <div class="toggle-with-help">
+                    <label class="toggle-switch wide">
+                        <input type="checkbox" @bind="editStrictQuality" @bind:after="SaveNow" />
+                        <span class="toggle-slider"></span>
+                        <span>Strict quality</span>
+                    </label>
+                    <HelpTip Path="concepts#strict-quality" Text="On: only the exact quality above is accepted; a track no source can deliver fails with the reason. Off: the download steps down to the best lower quality the enabled plugins declare, until one delivers." />
+                </div>
+                @if (!editStrictQuality)
+                {
+                    <div class="toggle-with-help">
+                        <label class="toggle-switch wide">
+                            <input type="checkbox" @bind="editAllowContainerChange" @bind:after="SaveNow" />
+                            <span class="toggle-slider"></span>
+                            <span>Allow container changes while stepping down</span>
+                        </label>
+                        <HelpTip Path="concepts#strict-quality" Text="Off: a fallback stays in the chosen container, so an FLAC request fails when no lossless source exists. On: it may land on the best lossy file." />
+                    </div>
+                }
                 <div class="archive-group wide">
                     <span class="eyebrow">Archive copy</span>
                     <label>
@@ -292,6 +311,10 @@ else
     private PlaylistSyncMode editSyncMode = PlaylistSyncMode.Additive;
     /// <summary>Opt-in: download new tracks right after an auto-sync refresh.</summary>
     private bool editAutoDownload;
+    /// <summary>Strict: only the requested quality may be delivered.</summary>
+    private bool editStrictQuality = true;
+    /// <summary>Non-strict only: may a fallback step change the container.</summary>
+    private bool editAllowContainerChange = true;
 
     /// <summary>The auto-save machinery replaces the Save settings button.</summary>
     private enum SaveState { Idle, Saving, Saved, Failed }
@@ -300,7 +323,7 @@ else
     /// <summary>True once the first Load finished: before it, nothing saves.</summary>
     private bool formReady;
     /// <summary>Snapshot of the last values known to be persisted; rollback source.</summary>
-    private (string name, string dir, string quality, string archiveDir, string archiveFormat, ScanSchedule schedule, PlaylistSyncMode mode, bool autoDownload) persisted;
+    private (string name, string dir, string quality, string archiveDir, string archiveFormat, ScanSchedule schedule, PlaylistSyncMode mode, bool autoDownload, bool strict, bool allowContainerChange) persisted;
     /// <summary>Debounce timer for text inputs; a fresh keystroke cancels it.</summary>
     private CancellationTokenSource? debounceCts;
     private CancellationTokenSource? savedPillCts;
@@ -375,9 +398,11 @@ else
             editSyncMode = Enum.TryParse<PlaylistSyncMode>(playlist.SyncMode, out var mode)
                 ? mode : PlaylistSyncMode.Additive;
             editAutoDownload = playlist.AutoDownloadEnabled;
+            editStrictQuality = playlist.StrictQuality;
+            editAllowContainerChange = playlist.AllowContainerChange;
             await LoadCountsOnlyAsync();
         }
-        persisted = (editName, editTargetDirectory, editQuality, editArchiveDirectory, editArchiveFormat, editSchedule, editSyncMode, editAutoDownload);
+        persisted = (editName, editTargetDirectory, editQuality, editArchiveDirectory, editArchiveFormat, editSchedule, editSyncMode, editAutoDownload, editStrictQuality, editAllowContainerChange);
         formReady = true;
         observedRun = Coordinator.RunFor(PlaylistId);
         loading = false;
@@ -482,8 +507,9 @@ else
             var target = string.IsNullOrWhiteSpace(editTargetDirectory) ? null : editTargetDirectory;
             var archiveDir = string.IsNullOrWhiteSpace(editArchiveDirectory) ? null : editArchiveDirectory;
             await Store.UpdateScheduleAsync(PlaylistId, editName, editSchedule, target, editSyncMode,
-                editQuality, archiveDir, editArchiveFormat, editAutoDownload);
-            persisted = (editName, editTargetDirectory, editQuality, editArchiveDirectory, editArchiveFormat, editSchedule, editSyncMode, editAutoDownload);
+                editQuality, archiveDir, editArchiveFormat, editAutoDownload,
+                editStrictQuality, editAllowContainerChange);
+            persisted = (editName, editTargetDirectory, editQuality, editArchiveDirectory, editArchiveFormat, editSchedule, editSyncMode, editAutoDownload, editStrictQuality, editAllowContainerChange);
             saveState = SaveState.Saved;
             ScheduleSavedPillReset();
         }
@@ -498,6 +524,8 @@ else
             editSchedule = persisted.schedule;
             editSyncMode = persisted.mode;
             editAutoDownload = persisted.autoDownload;
+            editStrictQuality = persisted.strict;
+            editAllowContainerChange = persisted.allowContainerChange;
             saveState = SaveState.Failed;
         }
         finally

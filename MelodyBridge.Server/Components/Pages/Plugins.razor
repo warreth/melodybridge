@@ -15,9 +15,12 @@
             <h1>Plugins</h1>
             <HelpTip Path="concepts#the-waterfall" Text="Plugins declare what they can serve. Each track is routed to the fitting plugins and tried in order until one delivers." />
         </div>
-        <p>Plugins search and download, tried in order until one delivers
-            a file. That order applies to the <strong>No filter</strong>
-            quality; presets and filters pick their own order by fit.</p>
+        <p>Plugins are tried in this order, and that order is the whole
+            story for the <strong>No filter</strong> quality. When a
+            playlist asks for a specific quality, MelodyBridge first picks
+            the plugins that can really deliver it (the declarations below
+            decide, not this list) and your order only decides between
+            equals.</p>
     </div>
     <button class="btn-modern small ghost" @onclick="RefreshAvailability" title="Probe every plugin again">
         <Icon Name="refresh" Size="14" /> Refresh status
@@ -367,23 +370,32 @@
     private static IEnumerable<string> QualityBadges(IDownloader plugin)
     {
         var badges = new List<string>();
-        var containers = plugin.Capabilities.Containers
-            .Where(c => c != AudioFormat.Auto)
-            .Select(FormatName)
-            .Distinct()
-            .ToList();
-        if (containers.Count > 0) badges.Add(string.Join("/", containers));
-        badges.Add(plugin.Capabilities switch
+        // One badge per declared level: same band, same kind, same control
+        // collapse into one line; a service that cannot be asked for a
+        // level says so.
+        var levels = plugin.Capabilities.Deliverables
+            .GroupBy(d => (d.Lossless, d.MinKbps, d.MaxKbps, d.Controlled));
+        foreach (var group in levels)
         {
-            { MinKbps: { } min, MaxKbps: { } max } => $"{min}-{max} kbps",
-            { MaxKbps: { } cap } => $"up to {cap} kbps",
-            { MinKbps: { } floor } => $"{floor}+ kbps",
-            _ => "any bitrate",
-        });
-        if (plugin.Capabilities.SupportsLossless) badges.Add("lossless-capable");
+            var names = string.Join("/", group.Select(d => FormatName(d.Container)).Distinct());
+            var label = group.Key.Lossless
+                ? $"{names} lossless"
+                : $"{names} {DescribeBand(group.Key.MinKbps, group.Key.MaxKbps)}";
+            if (!group.Key.Controlled) label += ", service decides";
+            badges.Add(label);
+        }
         badges.AddRange(PluginNotes(plugin.Id));
         return badges;
     }
+
+    private static string DescribeBand(int? min, int? max) => (min, max) switch
+    {
+        (null, null) => "any bitrate",
+        (null, { } cap) => $"up to {cap} kbps",
+        ({ } floor, null) => $"{floor}+ kbps",
+        ({ } floor, { } cap) when floor == cap => $"{floor} kbps",
+        ({ } floor, { } cap) => $"{floor}-{cap} kbps",
+    };
 
     private static string FormatName(AudioFormat format) => format switch
     {

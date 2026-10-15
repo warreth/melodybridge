@@ -718,7 +718,11 @@ public class TestDownloader : IDownloader
 
     public IReadOnlyList<PluginConfigField> ConfigFields { get; } = Array.Empty<PluginConfigField>();
 
-    public PluginCapabilities Capabilities => PluginCapabilities.Any;
+    public PluginCapabilities Capabilities => new(
+    [
+        new QualityDeliverable(AudioFormat.Mp3, Lossless: false, 64, 320),
+        new QualityDeliverable(AudioFormat.Flac, Lossless: true, 900, 10000),
+    ]);
 
     public Task<bool> IsAvailableAsync(CancellationToken ct = default) => Task.FromResult(true);
 

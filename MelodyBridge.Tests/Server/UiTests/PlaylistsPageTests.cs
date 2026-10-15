@@ -219,6 +219,34 @@ public class PlaylistsPageTests
     }
 
     [Test]
+    public void Playlists_AddForm_OffersStrictQuality_OnByDefault()
+    {
+        var cut = _ctx.Render<Playlists>();
+        cut.Find("div.topbar-actions button.primary").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.Markup, Does.Contain("Strict quality"),
+                "the wizard lets the quality be strict");
+            Assert.That(cut.Markup, Does.Contain("only the exact quality above is accepted"),
+                "the question mark explains what strict means");
+            Assert.That(cut.Markup, Does.Not.Contain("Allow container changes"),
+                "the container choice appears only when strict is off");
+        }, TimeSpan.FromSeconds(3));
+
+        var toggle = cut.FindAll("input[type=checkbox]")
+            .First(i => i.ParentElement!.TextContent.Contains("Strict quality"));
+        Assert.That(toggle.HasAttribute("checked"), Is.True,
+            "strict is the default for a new playlist");
+
+        toggle.Change(false);
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("Allow container changes"),
+                "turning strict off reveals the container-change choice"),
+            TimeSpan.FromSeconds(3));
+    }
+
+    [Test]
     public void Playlists_Card_ShowsSizeOnDiskAndSyncSchedule()
     {
         SeedOnePlaylist("Sized Mix", 2, Platform.Spotify);

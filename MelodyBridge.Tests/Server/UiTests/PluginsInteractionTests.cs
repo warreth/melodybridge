@@ -210,7 +210,7 @@ public class PluginsInteractionTests
             .Select(b => b.TextContent.Trim()).ToList();
         Assert.That(badges, Is.EqualTo(new[]
         {
-            "any bitrate", "lossless-capable", "widest catalog",
+            "MP3 64-320 kbps", "FLAC lossless", "widest catalog",
         }), "each badge keeps its own text with real spaces");
     }
 

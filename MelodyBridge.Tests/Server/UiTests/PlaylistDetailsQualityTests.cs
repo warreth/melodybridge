@@ -125,6 +125,31 @@ public class PlaylistDetailsQualityTests
     }
 
     [Test]
+    public void StrictQuality_Toggle_Renders_AndPersistsThroughTheStore()
+    {
+        var cut = _ctx.Render<PlaylistDetails>(p => p.Add(p => p.PlaylistId, "pl-1"));
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("Strict quality")), TimeSpan.FromSeconds(3));
+
+        Assert.That(cut.Markup, Does.Contain("only the exact quality above is accepted"),
+            "the question mark explains what strict means");
+        Assert.That(cut.Markup, Does.Not.Contain("Allow container changes"),
+            "the container choice only appears when strict is off");
+
+        var toggle = cut.FindAll("input[type=checkbox]")
+            .First(i => i.ParentElement!.TextContent.Contains("Strict quality"));
+        toggle.Change(false);
+
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("Allow container changes")), TimeSpan.FromSeconds(3));
+
+        using var db = new TestSqliteFactory(_dbPath).CreateDbContext();
+        var saved = db.Playlists.Single(p => p.Id == "pl-1");
+        Assert.That(saved.StrictQuality, Is.False, "the toggle persists on the playlist row");
+        Assert.That(saved.AllowContainerChange, Is.True, "the container default stays on");
+    }
+
+    [Test]
     public void ScheduleSelect_SavesThePickedPreset()
     {
         var cut = _ctx.Render<PlaylistDetails>(p => p.Add(p => p.PlaylistId, "pl-1"));

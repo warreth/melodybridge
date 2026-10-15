@@ -143,6 +143,25 @@ else
                     <label class="quality-field wide">
                         <QualityPicker @bind-Value="newQuality" />
                     </label>
+                    <div class="toggle-with-help">
+                        <label class="toggle-switch wide">
+                            <input type="checkbox" @bind="newStrictQuality" />
+                            <span class="toggle-slider"></span>
+                            <span>Strict quality</span>
+                        </label>
+                        <HelpTip Path="concepts#strict-quality" Text="On: only the exact quality above is accepted; a track no source can deliver fails with the reason. Off: the download steps down to the best lower quality the enabled plugins declare, until one delivers." />
+                    </div>
+                    @if (!newStrictQuality)
+                    {
+                        <div class="toggle-with-help">
+                            <label class="toggle-switch wide">
+                                <input type="checkbox" @bind="newAllowContainerChange" />
+                                <span class="toggle-slider"></span>
+                                <span>Allow container changes while stepping down</span>
+                            </label>
+                            <HelpTip Path="concepts#strict-quality" Text="Off: a fallback stays in the chosen container, so an FLAC request fails when no lossless source exists. On: it may land on the best lossy file." />
+                        </div>
+                    }
                     <label class="wide">
                         Auto-sync schedule
                         <SchedulePicker @bind-Value="newSchedule" />
@@ -349,6 +368,8 @@ else
     private string newQuality = "auto";
     private ScanSchedule newSchedule = ScanSchedule.Manual;
     private PlaylistSyncMode newSyncMode = PlaylistSyncMode.Additive;
+    private bool newStrictQuality = true;
+    private bool newAllowContainerChange = true;
 
     private string message = string.Empty;
     private bool messageIsError;
@@ -454,6 +475,8 @@ else
         newTargetDirectory = string.Empty;
         newSchedule = ScanSchedule.Manual;
         newSyncMode = PlaylistSyncMode.Additive;
+        newStrictQuality = true;
+        newAllowContainerChange = true;
         addError = string.Empty;
         showAddForm = true;
     }
@@ -597,7 +620,8 @@ else
         {
             var target = TargetOrNull();
             var (playlist, newlySaved) = await Store.AddOrRefreshDetailedAsync(newUrl.Trim(), target);
-            await Store.UpdateScheduleAsync(playlist.Id, null, newSchedule, target, newSyncMode, newQuality);
+            await Store.UpdateScheduleAsync(playlist.Id, null, newSchedule, target, newSyncMode, newQuality,
+                strictQuality: newStrictQuality, allowContainerChange: newAllowContainerChange);
             showAddForm = false;
             message = newlySaved
                 ? $"Saved '{playlist.Name}' with {playlist.TrackCount} tracks."

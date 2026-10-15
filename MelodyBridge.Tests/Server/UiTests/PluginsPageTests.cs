@@ -114,8 +114,9 @@ public class PluginsPageTests
         var cut = _ctx.Render<Plugins>();
 
         // Badges derive from the declared capabilities plus a curated
-        // note; the stub declares the "anything might work" manifest.
-        Assert.That(cut.Markup, Does.Contain("any bitrate"), "the capability band renders");
+        // note; the stub declares a controlled mp3 band and lossless.
+        Assert.That(cut.Markup, Does.Contain("64-320 kbps"), "the capability band renders");
+        Assert.That(cut.Markup, Does.Contain("FLAC lossless"), "the lossless level renders");
         Assert.That(cut.Markup, Does.Contain("widest catalog"), "the curated note renders");
     }
 
