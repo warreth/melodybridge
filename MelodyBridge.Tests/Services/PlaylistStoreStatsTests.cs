@@ -287,6 +287,51 @@ public class PlaylistStoreStatsTests
     }
 
     [Test]
+    public async Task SchemaPatcher_OldPlaylists_GainTheStrictQualityColumns()
+    {
+        var dbPath = NewDbPath();
+        try
+        {
+            var factory = await NewDbFactory(dbPath);
+
+            await using (var db = factory.CreateDbContext())
+            {
+                db.Playlists.Add(new PlaylistEntity
+                {
+                    Id = "old-pl",
+                    Name = "Old",
+                    SourceUrl = "stub:old",
+                });
+                await db.SaveChangesAsync();
+
+                // Simulate the pre-column schema.
+                await db.Database.ExecuteSqlRawAsync("ALTER TABLE Playlists DROP COLUMN StrictQuality");
+                await db.Database.ExecuteSqlRawAsync("ALTER TABLE Playlists DROP COLUMN AllowContainerChange");
+            }
+
+            await using (var db = factory.CreateDbContext())
+                await SchemaPatcher.PatchAsync(db);
+
+            await using (var check = factory.CreateDbContext())
+            {
+                var row = await check.Playlists.AsNoTracking().SingleAsync(p => p.Id == "old-pl");
+                Assert.Multiple(() =>
+                {
+                    Assert.That(row.StrictQuality, Is.True,
+                        "existing playlists stay strict: the old automatic lossy fallback is now opt-in");
+                    Assert.That(row.AllowContainerChange, Is.True,
+                        "container changes stay allowed once strict is turned off");
+                    Assert.That(row.Name, Is.EqualTo("Old"), "data survives the patch");
+                });
+            }
+        }
+        finally
+        {
+            File.Delete(dbPath);
+        }
+    }
+
+    [Test]
     public async Task DueForAutoSync_FollowsTheCronSchedule()
     {
         var dbPath = NewDbPath();
@@ -467,6 +512,46 @@ public class PlaylistStoreStatsTests
             Assert.That(track.DownloadStatus, Is.EqualTo("downloaded"));
             Assert.That(Path.GetExtension(track.CurrentPath), Is.EqualTo(".mp3"),
                 "the fallback lands on the lossy container the manifest declares");
+        }
+        finally
+        {
+            File.Delete(dbPath);
+            if (Directory.Exists(downloadDir))
+                try { Directory.Delete(downloadDir, true); } catch { /* best effort */ }
+        }
+    }
+
+    [Test]
+    public async Task SingleTrackDownload_PassesThePlaylistQualityPolicy()
+    {
+        var dbPath = NewDbPath();
+        var downloadDir = Path.Combine(Path.GetTempPath(), $"mb-dl-{Guid.NewGuid():N}");
+        try
+        {
+            var factory = await NewDbFactory(dbPath);
+            var registry = new ListDownloaderRegistry(new FormatGateDownloader(MakeRealMp3(192)));
+            var store = NewStore(factory, registry, new StubSourceProvider());
+            var (playlist, _) = await store.AddOrRefreshDetailedAsync("stub:playlist");
+            await store.UpdateScheduleAsync(playlist.Id, null, ScanSchedule.Manual,
+                targetDirectory: downloadDir, preferredFormat: "preset:lossless",
+                strictQuality: false, allowContainerChange: true);
+
+            int trackId;
+            await using (var db = factory.CreateDbContext())
+                trackId = db.Tracks.Where(t => t.PlaylistEntityId == playlist.Id)
+                    .OrderBy(t => t.Position).First().Id;
+
+            var result = await store.DownloadTrackAsync(trackId);
+
+            Assert.That(result, Is.EqualTo("downloaded"),
+                "the per-track button reads the playlist's strict setting too");
+            await using (var db = factory.CreateDbContext())
+            {
+                var track = db.Tracks.Single(t => t.Id == trackId);
+                Assert.That(track.DownloadStatus, Is.EqualTo("downloaded"));
+                Assert.That(Path.GetExtension(track.CurrentPath), Is.EqualTo(".mp3"),
+                    "it landed on the lossy level the manifest declares");
+            }
         }
         finally
         {
