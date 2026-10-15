@@ -198,6 +198,7 @@ public class SpotifySourceProviderTests
 
     [Test]
     [Category("External")]
+    [Category("Live")]
     public async Task GetPlaylistAsync_RealPublicPlaylist_ReturnsExpectedTracks()
     {
         var provider = new SpotifySourceProvider(NullLogger<SpotifySourceProvider>.Instance);
@@ -224,6 +225,7 @@ public class SpotifySourceProviderTests
     /// </summary>
     [Test]
     [Category("External")]
+    [Category("Live")]
     public async Task GetPlaylistAsync_PlaylistOver100Tracks_ReturnsAll()
     {
         var provider = new SpotifySourceProvider(NullLogger<SpotifySourceProvider>.Instance);
