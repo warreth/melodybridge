@@ -13,19 +13,16 @@ namespace MelodyBridge.Tests.Infrastructure;
 /// </summary>
 public static class LiveServers
 {
-    /// <summary>The checkout root: FindRepoRoot in the old fixtures.</summary>
-    public static string RepoRoot()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null && !dir.Name.Equals("MelodyBridge.Tests", StringComparison.OrdinalIgnoreCase))
-            dir = dir.Parent;
-        return dir!.Parent!.FullName;
-    }
-
-    /// <summary>Creates (if needed) and returns a scratch dir under .mb-live.</summary>
+    /// <summary>
+    /// Creates (if needed) and returns a scratch dir for the live
+    /// containers. Deliberately outside the checkout: Docker writes
+    /// root-owned trees into the mounted config dirs, and those must not
+    /// end up in the repository. An unreadable tree inside the workspace
+    /// can break, for example, a workflow's hashFiles over the checkout.
+    /// </summary>
     public static string ScratchDir(string name)
     {
-        var dir = Path.Combine(RepoRoot(), ".mb-live", name);
+        var dir = Path.Combine(Path.GetTempPath(), "mb-live", name);
         Directory.CreateDirectory(dir);
         return dir;
     }

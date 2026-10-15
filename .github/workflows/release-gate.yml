@@ -39,7 +39,10 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.nuget/packages
-          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj') }}
+          # A one-level glob on purpose: it matches every project file and
+          # never walks deep scratch trees that Docker can leave root-owned
+          # inside the checkout during the container fixtures.
+          key: nuget-${{ runner.os }}-${{ hashFiles('*/*.csproj') }}
           restore-keys: nuget-${{ runner.os }}-
 
       - name: Restore
