@@ -1,0 +1,138 @@
+@inject JellyfinLoginService JellyfinLogin
+@implements IDisposable
+
+<label>
+    Username
+    <input value="@Username" @onchange="OnUsernameChange" placeholder="jellyfin user" />
+</label>
+<label>
+    Password
+    <input @bind="password" type="password" placeholder="password (not stored)" />
+</label>
+<div class="flex-actions">
+    <button class="btn-modern small" disabled="@busy" @onclick="SignInAsync">
+        @(busy && quickConnectCode is null ? "Signing in…" : "Sign in")
+    </button>
+    <button class="btn-modern small" disabled="@busy" @onclick="QuickConnectAsync">
+        @(busy && quickConnectCode is not null ? "Waiting…" : "Quick Connect")
+    </button>
+</div>
+@if (quickConnectCode is not null)
+{
+    <div class="hint-box">
+        Enter this code in Jellyfin (user menu, Quick Connect):
+        <strong>@quickConnectCode</strong>
+    </div>
+}
+@if (!string.IsNullOrWhiteSpace(status))
+{
+    <div class="hint-box">@status</div>
+}
+
+@code {
+    /// <summary>The server URL to connect to, owned by the parent.</summary>
+    [Parameter] public string? ServerUrl { get; set; }
+
+    /// <summary>The username, owned by the parent so it survives renders.</summary>
+    [Parameter] public string? Username { get; set; }
+
+    [Parameter] public EventCallback<string?> UsernameChanged { get; set; }
+
+    /// <summary>Fires once with the session token and user; the parent stores them.</summary>
+    [Parameter] public EventCallback<JellyfinLoginResult> Connected { get; set; }
+
+    private string password = "";
+    private string? quickConnectCode;
+    private string? status;
+    private bool busy;
+    private CancellationTokenSource? cts;
+
+    private Task OnUsernameChange(ChangeEventArgs e)
+        => UsernameChanged.InvokeAsync(e.Value?.ToString() ?? "");
+
+    /// <summary>Username and password sign-in.</summary>
+    private async Task SignInAsync()
+    {
+        busy = true;
+        status = null;
+        StateHasChanged();
+        try
+        {
+            var result = await JellyfinLogin.LoginAsync(ServerUrl ?? "", Username ?? "", password);
+            await ApplyAsync(result);
+        }
+        finally
+        {
+            busy = false;
+            StateHasChanged();
+        }
+    }
+
+    /// <summary>
+    /// Quick Connect: ask Jellyfin for a code, show it, and poll until the
+    /// user approves it in Jellyfin (or the code expires).
+    /// </summary>
+    private async Task QuickConnectAsync()
+    {
+        busy = true;
+        status = null;
+        quickConnectCode = null;
+        cts?.Cancel();
+        cts = new CancellationTokenSource();
+        var ct = cts.Token;
+        var url = ServerUrl ?? "";
+        StateHasChanged();
+        try
+        {
+            var start = await JellyfinLogin.StartQuickConnectAsync(url, ct);
+            if (!start.Succeeded)
+            {
+                status = "Quick Connect failed: " + start.Error;
+                return;
+            }
+
+            quickConnectCode = start.Code;
+            StateHasChanged();
+
+            // Jellyfin expires the request after a few minutes; check right
+            // away, then poll at a relaxed pace while the user types the code.
+            for (var i = 0; i < 60; i++)
+            {
+                var result = await JellyfinLogin.FinishQuickConnectAsync(url, start.Secret!, ct);
+                if (result is not null)
+                {
+                    await ApplyAsync(result);
+                    return;
+                }
+                await Task.Delay(TimeSpan.FromSeconds(3), ct);
+            }
+            status = "The code expired before it was approved. Try again.";
+        }
+        catch (OperationCanceledException)
+        {
+            // The page left or a new attempt started.
+        }
+        finally
+        {
+            quickConnectCode = null;
+            busy = false;
+            StateHasChanged();
+        }
+    }
+
+    /// <summary>Hands a successful sign-in to the parent and narrates it.</summary>
+    private async Task ApplyAsync(JellyfinLoginResult result)
+    {
+        if (!result.Succeeded)
+        {
+            status = "Sign-in failed: " + result.Error;
+            return;
+        }
+        if (!string.IsNullOrWhiteSpace(result.UserName) && result.UserName != Username)
+            await UsernameChanged.InvokeAsync(result.UserName);
+        await Connected.InvokeAsync(result);
+        status = $"Signed in as {result.UserName ?? Username}.";
+    }
+
+    public void Dispose() => cts?.Cancel();
+}

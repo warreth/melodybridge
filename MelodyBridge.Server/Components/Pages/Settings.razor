@@ -17,7 +17,6 @@
 @inject NotificationService Notifications
 @inject IMediaServerDirectory JellyfinDirectory
 @inject IEnumerable<IMediaServerDirectory> Directories
-@inject JellyfinLoginService JellyfinLogin
 @inject IJSRuntime JS
 @implements IDisposable
 
@@ -266,27 +265,21 @@ else if (activeTab == "connections")
                 }
                 @if (editingProfile.Kind == "Jellyfin")
                 {
-                    <label>Username <input @bind="editingProfile.Username" placeholder="jellyfin user" /></label>
-                    <label>Password
-                        <input @bind="profilePassword" type="password" placeholder="password (not stored)" />
-                    </label>
-                    <div class="flex-actions">
-                        <button class="btn-modern small" disabled="@profileSigningIn" @onclick="SignInProfileAsync">
-                            @(profileSigningIn ? "Signing in…" : "Sign in")
-                        </button>
-                        @if (!string.IsNullOrWhiteSpace(profileLoginStatus))
-                        {
-                            <span class="text-muted">@profileLoginStatus</span>
-                        }
-                    </div>
+                    <JellyfinConnect ServerUrl="@editingProfile.BaseUrl"
+                                     Username="@editingProfile.Username"
+                                     UsernameChanged="@(name => editingProfile.Username = name ?? "")"
+                                     Connected="OnProfileConnected" />
                     <label class="hint-text">
-                        Jellyfin playlists belong to a user and an API key has none, so sign in:
-                        the session token lands below and the sync uses it.
+                        Jellyfin playlists belong to a user, so connect: the app keeps the
+                        session token and the sync uses it.
                     </label>
                 }
-                <label>@(editingProfile.Kind == "Navidrome" ? "Password" : editingProfile.Kind == "Plex" ? "Plex token" : "Session token or API key")
-                    <input @bind="editingProfile.ApiKey" type="password" placeholder="@(editingProfile.Kind == "Navidrome" ? "password" : editingProfile.Kind == "Plex" ? "X-Plex-Token" : "sign in above, or paste an API key")" />
-                </label>
+                else
+                {
+                    <label>@(editingProfile.Kind == "Navidrome" ? "Password" : "Plex token")
+                        <input @bind="editingProfile.ApiKey" type="password" placeholder="@(editingProfile.Kind == "Navidrome" ? "password" : "X-Plex-Token")" />
+                    </label>
+                }
             </div>
             <div class="flex-actions">
                 <button class="btn-modern ghost" @onclick="CancelProfileEdit">Cancel</button>
@@ -617,9 +610,6 @@ else if (activeTab == "about")
     // Connections tab
     private List<MediaServerProfile> profiles = [];
     private MediaServerProfile? editingProfile;
-    private string profilePassword = "";
-    private string? profileLoginStatus;
-    private bool profileSigningIn;
     private bool editingIsNew;
     private bool migratedFromOldSettings;
     private readonly Dictionary<string, string?> profileTestStatus = [];
@@ -953,50 +943,19 @@ else if (activeTab == "about")
     {
         editingProfile = new MediaServerProfile { Name = "", BaseUrl = "", Kind = "Jellyfin" };
         editingIsNew = true;
-        profilePassword = "";
-        profileLoginStatus = null;
     }
 
     private void EditProfile(MediaServerProfile profile)
     {
         editingProfile = profile.Clone();
         editingIsNew = false;
-        profilePassword = "";
-        profileLoginStatus = null;
     }
 
-    /// <summary>
-    /// Signs in to Jellyfin and stores the session token on the profile.
-    /// Playlists there belong to a user; an API key has none, so this is
-    /// the credential the sync needs.
-    /// </summary>
-    private async Task SignInProfileAsync()
+    /// <summary>The connect component hands over the Jellyfin session token.</summary>
+    private void OnProfileConnected(JellyfinLoginResult result)
     {
-        if (editingProfile is null) return;
-        profileSigningIn = true;
-        profileLoginStatus = null;
-        StateHasChanged();
-        try
-        {
-            var result = await JellyfinLogin.LoginAsync(
-                editingProfile.BaseUrl, editingProfile.Username, profilePassword);
-            if (result.Succeeded)
-            {
-                editingProfile.ApiKey = result.Token!;
-                if (!string.IsNullOrWhiteSpace(result.UserName))
-                    editingProfile.Username = result.UserName!;
-                profileLoginStatus = $"Signed in as {editingProfile.Username}. Save the profile to keep it.";
-            }
-            else
-            {
-                profileLoginStatus = "Sign-in failed: " + result.Error;
-            }
-        }
-        finally
-        {
-            profileSigningIn = false;
-            StateHasChanged();
-        }
+        if (editingProfile is null || !result.Succeeded) return;
+        editingProfile.ApiKey = result.Token!;
     }
 
     private async Task SaveProfile()

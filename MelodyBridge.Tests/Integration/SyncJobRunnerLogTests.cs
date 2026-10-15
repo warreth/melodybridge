@@ -261,7 +261,7 @@ public class SyncJobRunnerLogTests
         Assert.That(handler.Requests.All(r => r.Url.StartsWith("http://perjob:8096/")),
             Is.True, "every request goes to the job's URL, not the global one");
         Assert.That(handler.Requests.All(r => r.Token == "per-job-key"),
-            Is.True, "every request carries the job's API key");
+            Is.True, "every request carries the job's credential");
         Assert.That(handler.Requests.Any(r => r.Url.Contains("/Users/u2/")),
             Is.True, "the job's chosen user id is used");
     }

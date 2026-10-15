@@ -245,17 +245,22 @@ public class SyncJobsWizardUiTests
         cut.FindAll("select").First(s => s.TextContent.Contains("M3U File")).Change("JellyfinApi");
 
         cut.Find("input[placeholder='http://host.docker.internal:8096']").Change("http://jf:8096");
-        cut.Find("input[placeholder='from sign-in, or an API key']").Change("key-1");
+        cut.Find("input[placeholder='jellyfin user']").Change("mbadmin");
+        cut.Find("input[placeholder='password (not stored)']").Change("secret");
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Sign in").Click();
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("Signed in as mbadmin")), TimeSpan.FromSeconds(3));
+
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Test connection").Click();
 
         _userDirectory.Verify(
             d => d.TestConnectionAsync(
-                It.Is<MediaServerConnection>(c => c.BaseUrl == "http://jf:8096" && c.ApiKey == "key-1"),
+                It.Is<MediaServerConnection>(c => c.BaseUrl == "http://jf:8096" && c.ApiKey == "session-token"),
                 It.IsAny<CancellationToken>()),
             Times.Once);
         _userDirectory.Verify(
             d => d.GetUsersAsync(
-                It.Is<MediaServerConnection>(c => c.BaseUrl == "http://jf:8096" && c.ApiKey == "key-1"),
+                It.Is<MediaServerConnection>(c => c.BaseUrl == "http://jf:8096" && c.ApiKey == "session-token"),
                 It.IsAny<CancellationToken>()),
             Times.Once);
         navidrome.Verify(
@@ -286,10 +291,17 @@ public class SyncJobsWizardUiTests
         {
             Assert.That(login.Calls, Is.EqualTo(1), "the button runs the sign-in");
             Assert.That(cut.Markup, Does.Contain("Signed in as mbadmin"));
-            var token = cut.Find("input[placeholder='from sign-in, or an API key']");
-            Assert.That(token.GetAttribute("value"), Is.EqualTo("session-token"),
-                "the session token lands in the job's credential field");
         }, TimeSpan.FromSeconds(3));
+
+        // The credential is set, so the step accepts the connection and
+        // Next moves on instead of asking to connect first.
+        Next(cut);
+        Assert.Multiple(() =>
+        {
+            Assert.That(cut.Markup, Does.Not.Contain("Connect to Jellyfin first"));
+            Assert.That(cut.Markup, Does.Contain("Optional: fix file paths"),
+                "the wizard advanced past the output step");
+        });
     }
 
     // ── C3: multiple remap rules ────────────────────────────────────

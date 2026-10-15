@@ -110,6 +110,34 @@ public static class TestServices
             Calls++;
             return Task.FromResult(NextResult);
         }
+
+        public MelodyBridge.Infrastructure.MediaServers.JellyfinQuickConnectStart NextQuickConnectStart { get; set; } =
+            new(true, "secret-1", "ABCDEF", null);
+
+        public MelodyBridge.Infrastructure.MediaServers.JellyfinLoginResult? NextQuickConnectFinish { get; set; } =
+            new(true, "session-token", "user-1", "mbadmin", null);
+
+        /// <summary>Report pending on the first poll, like a user still typing.</summary>
+        public bool QuickConnectPendingFirst { get; set; }
+
+        public int QuickConnectStarts { get; private set; }
+        public int QuickConnectFinishes { get; private set; }
+
+        public override Task<MelodyBridge.Infrastructure.MediaServers.JellyfinQuickConnectStart> StartQuickConnectAsync(
+            string baseUrl, CancellationToken ct = default)
+        {
+            QuickConnectStarts++;
+            return Task.FromResult(NextQuickConnectStart);
+        }
+
+        public override Task<MelodyBridge.Infrastructure.MediaServers.JellyfinLoginResult?> FinishQuickConnectAsync(
+            string baseUrl, string secret, CancellationToken ct = default)
+        {
+            QuickConnectFinishes++;
+            if (QuickConnectPendingFirst && QuickConnectFinishes == 1)
+                return Task.FromResult<MelodyBridge.Infrastructure.MediaServers.JellyfinLoginResult?>(null);
+            return Task.FromResult(NextQuickConnectFinish);
+        }
     }
 
     /// <summary>Fixed connection values, exactly what the settings interfaces deliver.</summary>

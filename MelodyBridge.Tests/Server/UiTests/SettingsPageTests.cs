@@ -225,7 +225,7 @@ public class SettingsPageTests
     }
 
     [Test]
-    public void Settings_ConnectionsTab_SignIn_FillsTheSessionToken()
+    public void Settings_ConnectionsTab_SignIn_StoresTheSessionToken()
     {
         var login = new TestServices.StubJellyfinLogin();
         _ctx.Services.AddSingleton<MelodyBridge.Infrastructure.MediaServers.JellyfinLoginService>(login);
@@ -245,10 +245,50 @@ public class SettingsPageTests
         {
             Assert.That(login.Calls, Is.EqualTo(1), "the button runs the sign-in");
             Assert.That(cut.Markup, Does.Contain("Signed in as mbadmin"));
-            var token = cut.Find("input[placeholder='sign in above, or paste an API key']");
-            Assert.That(token.GetAttribute("value"), Is.EqualTo("session-token"),
-                "the session token lands in the credential field");
         }, TimeSpan.FromSeconds(3));
+
+        // Saving keeps the token on the profile, which is what the sync uses.
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Save profile").Click();
+        var profiles = _ctx.Services.GetRequiredService<MelodyBridge.Infrastructure.Services.MediaServerProfileStore>();
+        cut.WaitForAssertion(() =>
+        {
+            var all = profiles.GetAllAsync().GetAwaiter().GetResult();
+            Assert.That(all, Has.Count.EqualTo(1));
+            Assert.That(all[0].ApiKey, Is.EqualTo("session-token"));
+            Assert.That(all[0].Username, Is.EqualTo("mbadmin"));
+        }, TimeSpan.FromSeconds(3));
+    }
+
+    [Test]
+    public async Task Settings_ConnectionsTab_QuickConnect_ShowsTheCodeThenSignsIn()
+    {
+        var login = new TestServices.StubJellyfinLogin { QuickConnectPendingFirst = true };
+        _ctx.Services.AddSingleton<MelodyBridge.Infrastructure.MediaServers.JellyfinLoginService>(login);
+
+        var cut = _ctx.Render<Settings>();
+        cut.FindAll("button.tab-link").First(b => b.TextContent == "Media servers").Click();
+
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Add profile").Click();
+        cut.Find("input[placeholder='Living room Jellyfin']").Change("Main server");
+        cut.Find("input[placeholder='http://jellyfin:8096']").Change("http://media:8096");
+
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Quick Connect").Click();
+
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("ABCDEF"),
+                "the code to type into Jellyfin is shown"), TimeSpan.FromSeconds(3));
+
+        // Yield-poll: the poll continuation is scheduled on the renderer's
+        // sync context, which WaitForAssertion does not pump.
+        for (var i = 0; i < 60 && !cut.Markup.Contains("Signed in as mbadmin"); i++)
+            await Task.Delay(100);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(login.QuickConnectStarts, Is.EqualTo(1));
+            Assert.That(cut.Markup, Does.Contain("Signed in as mbadmin"),
+                "the approved request signs in");
+        });
     }
 
     [Test]

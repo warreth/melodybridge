@@ -3,7 +3,6 @@
 @using MelodyBridge.Infrastructure.MediaServers
 @inject ISyncJobRunner JobRunner
 @inject IDbContextFactory<MelodyBridgeDbContext> DbFactory
-@inject JellyfinLoginService JellyfinLogin
 @implements IDisposable
 
 <PageTitle>Sync Jobs</PageTitle>
@@ -149,27 +148,10 @@
                                     Jellyfin server URL
                                     <input @bind="draft.JellyfinServerUrl" placeholder="http://host.docker.internal:8096" />
                                 </label>
-                                <label>
-                                    Jellyfin username
-                                    <input @bind="wizardJellyfinUsername" placeholder="jellyfin user" />
-                                </label>
-                                <label>
-                                    Jellyfin password
-                                    <input @bind="wizardJellyfinPassword" type="password" placeholder="password (not stored)" />
-                                </label>
-                                <div class="flex-actions">
-                                    <button class="btn-modern small" disabled="@wizardSigningIn" @onclick="SignInWizardJellyfinAsync">
-                                        @(wizardSigningIn ? "Signing in…" : "Sign in")
-                                    </button>
-                                    @if (!string.IsNullOrWhiteSpace(wizardSignInStatus))
-                                    {
-                                        <span class="text-muted">@wizardSignInStatus</span>
-                                    }
-                                </div>
-                                <label>
-                                    Session token
-                                    <input @bind="draft.JellyfinApiKey" type="password" placeholder="from sign-in, or an API key" />
-                                </label>
+                                <JellyfinConnect ServerUrl="@draft.JellyfinServerUrl"
+                                                 Username="@wizardJellyfinUsername"
+                                                 UsernameChanged="@(name => wizardJellyfinUsername = name ?? "")"
+                                                 Connected="OnWizardConnected" />
                             }
                             else if (draft.OutputTarget == OutputTargetType.PlexApi)
                             {
@@ -447,9 +429,6 @@
     private List<RemapRule> pathRules = new();
     private List<RemapRule> extRules = new();
     private string wizardJellyfinUsername = "";
-    private string wizardJellyfinPassword = "";
-    private string? wizardSignInStatus;
-    private bool wizardSigningIn;
 
     protected override async Task OnInitializedAsync()
     {
@@ -475,44 +454,18 @@
         pathRules = new List<RemapRule>();
         extRules = new List<RemapRule>();
         wizardJellyfinUsername = "";
-        wizardJellyfinPassword = "";
-        wizardSignInStatus = null;
         currentStep = 0;
         stepError = null;
         showWizard = true;
     }
 
-    /// <summary>
-    /// Signs in to Jellyfin and fills the job's credential with the session
-    /// token. Playlists there belong to a user; an API key has none, so the
-    /// wizard signs in the way the sync needs.
-    /// </summary>
-    private async Task SignInWizardJellyfinAsync()
+    /// <summary>The connect component hands over the session token and user.</summary>
+    private void OnWizardConnected(JellyfinLoginResult result)
     {
-        wizardSigningIn = true;
-        wizardSignInStatus = null;
-        StateHasChanged();
-        try
-        {
-            var result = await JellyfinLogin.LoginAsync(
-                draft.JellyfinServerUrl, wizardJellyfinUsername, wizardJellyfinPassword);
-            if (result.Succeeded)
-            {
-                draft.JellyfinApiKey = result.Token!;
-                if (!string.IsNullOrWhiteSpace(result.UserId))
-                    draft.JellyfinUserId = result.UserId!;
-                wizardSignInStatus = $"Signed in as {result.UserName ?? wizardJellyfinUsername}.";
-            }
-            else
-            {
-                wizardSignInStatus = "Sign-in failed: " + result.Error;
-            }
-        }
-        finally
-        {
-            wizardSigningIn = false;
-            StateHasChanged();
-        }
+        if (!result.Succeeded) return;
+        draft.JellyfinApiKey = result.Token!;
+        if (!string.IsNullOrWhiteSpace(result.UserId))
+            draft.JellyfinUserId = result.UserId!;
     }
 
     private void StartEditJob(SyncJobEntity job)
@@ -605,6 +558,12 @@
             if (draft.OutputTarget != OutputTargetType.M3uFile && string.IsNullOrWhiteSpace(draft.JellyfinServerUrl))
             {
                 stepError = "Enter the server URL first.";
+                return;
+            }
+            if (draft.OutputTarget == OutputTargetType.JellyfinApi
+                && string.IsNullOrWhiteSpace(draft.JellyfinApiKey))
+            {
+                stepError = "Connect to Jellyfin first: sign in or use Quick Connect.";
                 return;
             }
             if (draft.Schedule == SyncJobSchedule.Cron && string.IsNullOrWhiteSpace(draft.CronExpression))
