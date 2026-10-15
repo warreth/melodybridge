@@ -247,6 +247,8 @@ public class QualityLadderTests
                 dir, "mel-headline", new DownloadFallback(AllowContainerChange: true));
 
             Assert.That(path, Is.Null);
+            Assert.That(calls, Does.Contain("wrong-length"),
+                "the ladder really reached the lower step before reporting");
             Assert.That(manager.LastFailure("mel-headline"), Does.Contain("no source had this track"),
                 "the headline is the requested quality's reason");
             Assert.That(manager.LastFailure("mel-headline"), Does.Not.Contain("wrong length"),

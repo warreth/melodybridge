@@ -353,16 +353,6 @@ public class MonochromeDownloader : IDownloader
     // ── Mapping helpers ──────────────────────────────────────────────────
 
     /// <summary>
-    /// Maps a download quality to the API's quality parameter. The band
-    /// matters: an unbounded request asks for hi-res lossless, a capped
-    /// lossless request drops to plain LOSSLESS, a 320-fitting band takes
-    /// the 320 kbps AAC tier, and a small-file cap takes the 96 kbps tier
-    /// instead of pulling a FLAC the post-download gate would reject.
-    /// </summary>
-    internal static string MapQuality(DownloadQuality quality)
-        => TryMapQuality(quality) ?? "HIGH";
-
-    /// <summary>
     /// The TIDAL tier that fits the requested band, or null when no tier
     /// does (a 192-256 cap, say: LOW 96 is under the floor, HIGH 320 is
     /// over the cap). Null lets the caller fail fast instead of

@@ -411,24 +411,24 @@ public class MonochromeDownloaderTests
     }
 
     [Test]
-    public void MapQuality_HonorsTheCapTiers()
+    public void TryMapQuality_HonorsTheCapTiers()
     {
         // Auto with a small-file cap must ask for the tier that fits the
         // cap: HIGH (320 kbps AAC) would be rejected by the post-download
         // probe after the bytes were already spent.
-        Assert.That(MonochromeDownloader.MapQuality(
+        Assert.That(MonochromeDownloader.TryMapQuality(
             new DownloadQuality(AudioFormat.Auto, MinKbps: null, MaxKbps: 128)), Is.EqualTo("LOW"));
-        Assert.That(MonochromeDownloader.MapQuality(
+        Assert.That(MonochromeDownloader.TryMapQuality(
             new DownloadQuality(AudioFormat.Auto, MinKbps: null, MaxKbps: 160)), Is.EqualTo("LOW"));
         // A 320 cap fits the HIGH tier exactly; above it the hi-res FLAC.
-        Assert.That(MonochromeDownloader.MapQuality(
+        Assert.That(MonochromeDownloader.TryMapQuality(
             new DownloadQuality(AudioFormat.Auto, MinKbps: null, MaxKbps: 320)), Is.EqualTo("HIGH"));
-        Assert.That(MonochromeDownloader.MapQuality(DownloadQuality.Any), Is.EqualTo("HI_RES_LOSSLESS"));
+        Assert.That(MonochromeDownloader.TryMapQuality(DownloadQuality.Any), Is.EqualTo("HI_RES_LOSSLESS"));
         // Lossless requests: uncapped asks for hi-res, a capped one for
         // plain LOSSLESS.
-        Assert.That(MonochromeDownloader.MapQuality(
+        Assert.That(MonochromeDownloader.TryMapQuality(
             new DownloadQuality(AudioFormat.Flac)), Is.EqualTo("HI_RES_LOSSLESS"));
-        Assert.That(MonochromeDownloader.MapQuality(
+        Assert.That(MonochromeDownloader.TryMapQuality(
             new DownloadQuality(AudioFormat.Flac, MinKbps: null, MaxKbps: 1411)), Is.EqualTo("LOSSLESS"));
     }
 
