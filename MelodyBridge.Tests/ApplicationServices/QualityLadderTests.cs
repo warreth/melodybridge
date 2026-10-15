@@ -101,6 +101,16 @@ public class QualityLadderTests
     }
 
     [Test]
+    public void NoFilterRequest_StaysExactlyTheRequest()
+    {
+        var targets = QualityLadder.Build(DownloadQuality.Any, allowContainerChange: true, LosslessAndLossy);
+
+        Assert.That(targets, Is.EqualTo(new[] { DownloadQuality.Any }),
+            "there is nothing below whatever-a-source-has; a container step would " +
+            "repeat the same search for the same plugins");
+    }
+
+    [Test]
     public void NothingServable_ReturnsEmpty_ForTheManagerToReportTheRequest()
     {
         var targets = QualityLadder.Build(
@@ -128,7 +138,8 @@ public class QualityLadderTests
 
     /// <summary>Spy that answers a hit and writes a file, like a plugin would.</summary>
     private sealed class LadderSpy(
-        string id, PluginCapabilities caps, List<string> calls, string ext = "mp3", bool downloadFails = false) : IDownloader
+        string id, PluginCapabilities caps, List<string> calls, string ext = "mp3",
+        bool downloadFails = false, TimeSpan? hitDuration = null) : IDownloader
     {
         public string Id => id;
         public string Name => id;
@@ -140,7 +151,8 @@ public class QualityLadderTests
         {
             calls.Add(id);
             return Task.FromResult<DownloaderSearchHit?>(
-                new DownloaderSearchHit(query.Title, query.Artist, $"https://{id}.example/1", TimeSpan.FromSeconds(1)));
+                new DownloaderSearchHit(query.Title, query.Artist, $"https://{id}.example/1",
+                    hitDuration ?? TimeSpan.FromSeconds(1)));
         }
 
         public Task<DownloaderDownloadResult> DownloadAsync(
@@ -206,6 +218,39 @@ public class QualityLadderTests
                 "the lossy plugin is excluded from a FLAC request and never tried");
             Assert.That(manager.LastFailure("mel-strict"), Is.Not.Null.And.Not.Empty,
                 "the failure carries the real reason");
+        }
+        finally
+        {
+            if (Directory.Exists(dir)) try { Directory.Delete(dir, true); } catch { }
+        }
+    }
+
+    [Test]
+    public async Task NonStrict_AllStepsFail_ReportsTheRequestedQualityReason()
+    {
+        var calls = new List<string>();
+        // The requested (lossless) step finds a plausible hit but cannot
+        // download it: its reason is "no source had this track".
+        var lossless = new LadderSpy("failing-lossless", PluginCapabilities.LosslessSources(), calls, "flac",
+            downloadFails: true, hitDuration: TimeSpan.FromSeconds(300));
+        // The lower step only has a 1-second version, so its reason is the
+        // wrong length.
+        var lossy = new LadderSpy("wrong-length", PluginCapabilities.Lossy(AudioFormat.Mp3, 128, 320), calls);
+        var dir = Path.Combine(Path.GetTempPath(), $"mb-ladder-{Guid.NewGuid():N}");
+
+        try
+        {
+            var manager = Manager(lossless, lossy);
+            var path = await manager.DownloadTrackAsync(
+                new TrackQuery("A", "T", new DownloadQuality(AudioFormat.Flac),
+                    ExpectedDuration: TimeSpan.FromSeconds(300)),
+                dir, "mel-headline", new DownloadFallback(AllowContainerChange: true));
+
+            Assert.That(path, Is.Null);
+            Assert.That(manager.LastFailure("mel-headline"), Does.Contain("no source had this track"),
+                "the headline is the requested quality's reason");
+            Assert.That(manager.LastFailure("mel-headline"), Does.Not.Contain("wrong length"),
+                "not the last ladder step's reason");
         }
         finally
         {

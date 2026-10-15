@@ -22,6 +22,11 @@ public static class QualityLadder
     {
         var targets = new List<DownloadQuality> { requested };
 
+        // Nothing to step down to: "No filter" already accepts whatever a
+        // source has, so any lower target would repeat the same search for
+        // the same plugins instead of reaching different sources.
+        if (!requested.HasConstraints) return targets;
+
         // One step down inside the requested container: drop the floor, so
         // "mp3:192-320" becomes "the best mp3 up to 320 that a source still
         // has". A cap without a floor already accepts everything below it.

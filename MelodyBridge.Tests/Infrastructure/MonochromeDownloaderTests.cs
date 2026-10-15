@@ -454,4 +454,26 @@ public class MonochromeDownloaderTests
         Assert.That(MonochromeDownloader.TryMapQuality(
             new DownloadQuality(AudioFormat.Auto, MinKbps: 400, MaxKbps: null)), Is.EqualTo("HI_RES_LOSSLESS"));
     }
+
+    [Test]
+    public void TryMapQuality_ExplicitAacHonorsTheDeclaredTiers()
+    {
+        // The manifest lists the AAC tiers 96 and 320; the mapping must
+        // pick the one that fits the requested band, or a request the
+        // router considers controlled downloads a file the band gate
+        // deletes after the bytes are spent.
+        Assert.That(MonochromeDownloader.TryMapQuality(new DownloadQuality(AudioFormat.Aac)),
+            Is.EqualTo("HIGH"), "no cap: the best AAC tier");
+        Assert.That(MonochromeDownloader.TryMapQuality(
+            new DownloadQuality(AudioFormat.Aac, MinKbps: null, MaxKbps: 160)),
+            Is.EqualTo("LOW"), "a 160 cap takes the 96 tier, not a 320 file");
+        Assert.That(MonochromeDownloader.TryMapQuality(
+            new DownloadQuality(AudioFormat.Aac, MinKbps: 96, MaxKbps: 96)),
+            Is.EqualTo("LOW"));
+        Assert.That(MonochromeDownloader.TryMapQuality(
+            new DownloadQuality(AudioFormat.Aac, MinKbps: 160, MaxKbps: 200)),
+            Is.Null, "no AAC tier sits between LOW and HIGH");
+        Assert.That(MonochromeDownloader.TryMapQuality(new DownloadQuality(AudioFormat.Mp3)),
+            Is.Null, "TIDAL serves no MP3; the manifest omits the container");
+    }
 }

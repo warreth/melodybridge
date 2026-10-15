@@ -374,8 +374,12 @@ public class MonochromeDownloader : IDownloader
         {
             case AudioFormat.Flac:
                 return quality.MaxKbps is null ? "HI_RES_LOSSLESS" : "LOSSLESS";
-            case AudioFormat.Mp3 or AudioFormat.Aac:
-                return "HIGH";
+            case AudioFormat.Aac:
+                return MapAacTier(quality);
+            case AudioFormat.Mp3:
+                // TIDAL serves no MP3; the manifest omits the container, so
+                // a direct request fails fast instead of handing back an m4a.
+                return null;
         }
 
         // Auto: pick the best tier inside the band. TIDAL tiers are
@@ -386,6 +390,23 @@ public class MonochromeDownloader : IDownloader
             return "HI_RES_LOSSLESS";
         if ((min is null || min <= 320) && max >= 320)
             return "HIGH";
+        if (min is null || min <= 96)
+            return "LOW";
+        return null;
+    }
+
+    /// <summary>
+    /// The AAC tier that fits the requested band: HIGH (320) when the band
+    /// reaches it, else LOW (96), else null. Mirrors the declared
+    /// deliverables exactly, so a tier the router considers "controlled" is
+    /// really the tier that gets downloaded.
+    /// </summary>
+    private static string? MapAacTier(DownloadQuality quality)
+    {
+        var min = quality.MinKbps;
+        var max = quality.MaxKbps;
+        if (max is null || max >= 320)
+            return min is null || min <= 320 ? "HIGH" : null;
         if (min is null || min <= 96)
             return "LOW";
         return null;
