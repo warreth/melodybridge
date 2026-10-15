@@ -39,7 +39,32 @@ public class YouTubeSourceProvider : ISourceProvider
 
         _logger.LogInformation("Fetching YouTube playlist: {Url}", url);
 
-        var (exitCode, stdout, stderr) = await YtDlpProcess.RunAsync(new[]
+        // yt-dlp talks to a third-party endpoint that hiccups; one retry
+        // turns a transient failure into a slow fetch instead of a failed
+        // sync.
+        var (exitCode, stdout, stderr) = await FetchPlaylistJsonAsync(url);
+        if (exitCode != 0 || string.IsNullOrWhiteSpace(stdout))
+        {
+            _logger.LogWarning("yt-dlp playlist fetch failed (exit {Code}): {Error}; retrying once",
+                exitCode, Truncate(stderr));
+            await Task.Delay(TimeSpan.FromSeconds(2));
+            (exitCode, stdout, stderr) = await FetchPlaylistJsonAsync(url);
+        }
+
+        if (exitCode != 0 || string.IsNullOrWhiteSpace(stdout))
+        {
+            _logger.LogError("yt-dlp failed twice (exit {Code}): {Error}", exitCode, stderr);
+            throw new InvalidOperationException($"Failed to fetch playlist after a retry: {Truncate(stderr)}");
+        }
+
+        var playlist = ParsePlaylistJson(stdout, url);
+        _logger.LogInformation("Fetched YouTube playlist '{Title}' with {Count} tracks",
+            playlist.Name, playlist.Tracks?.Count ?? 0);
+        return playlist;
+    }
+
+    private static Task<(int exit, string stdout, string stderr)> FetchPlaylistJsonAsync(string url)
+        => YtDlpProcess.RunAsync(new[]
         {
             "--flat-playlist",
             "--dump-single-json",
@@ -48,63 +73,79 @@ public class YouTubeSourceProvider : ISourceProvider
             url,
         }, TimeSpan.FromMinutes(3), CancellationToken.None);
 
-        if (exitCode != 0 || string.IsNullOrWhiteSpace(stdout))
+    /// <summary>
+    /// Maps yt-dlp's flat-playlist JSON into a Playlist: title, channel,
+    /// description, cover and one Track per usable entry. Internal so the
+    /// offline tests pin the mapping against a real response shape.
+    /// </summary>
+    internal static Playlist ParsePlaylistJson(string stdout, string url)
+    {
+        JsonDocument doc;
+        try
         {
-            _logger.LogError("yt-dlp failed (exit {Code}): {Error}", exitCode, stderr);
-            throw new InvalidOperationException($"Failed to fetch playlist: {stderr}");
+            doc = JsonDocument.Parse(stdout);
+        }
+        catch (JsonException ex)
+        {
+            throw new InvalidOperationException("yt-dlp returned unreadable JSON for the playlist", ex);
         }
 
-        using var doc = JsonDocument.Parse(stdout);
-        var root = doc.RootElement;
-
-        var title = GetString(root, "title") ?? "Unknown playlist";
-        var channel = GetString(root, "channel") ?? GetString(root, "uploader");
-        var description = GetString(root, "description");
-        var cover = PickThumbnail(root);
-
-        var tracks = new List<Track>();
-        if (root.TryGetProperty("entries", out var entries) && entries.ValueKind == JsonValueKind.Array)
+        using (doc)
         {
-            foreach (var entry in entries.EnumerateArray())
+            var root = doc.RootElement;
+            var title = GetString(root, "title") ?? "Unknown playlist";
+            var channel = GetString(root, "channel") ?? GetString(root, "uploader");
+            var description = GetString(root, "description");
+            var cover = PickThumbnail(root);
+
+            var tracks = new List<Track>();
+            if (root.TryGetProperty("entries", out var entries) && entries.ValueKind == JsonValueKind.Array)
             {
-                var id = GetString(entry, "id");
-                if (string.IsNullOrEmpty(id)) continue;
-
-                TimeSpan? duration = entry.TryGetProperty("duration", out var d) && d.ValueKind == JsonValueKind.Number
-                    ? TimeSpan.FromSeconds(d.GetDouble())
-                    : null;
-
-                tracks.Add(new Track
+                foreach (var entry in entries.EnumerateArray())
                 {
-                    Title = GetString(entry, "title") ?? "Unknown",
-                    Artist = GetString(entry, "uploader")
-                        ?? GetString(entry, "channel")
-                        ?? "Unknown",
-                    Duration = duration,
-                    SongID = new SongID(Platform.YouTubeMusic, id),
-                    PlatformSongID = new SongID(Platform.YouTubeMusic, id),
-                    SourcePlatform = Platform.YouTubeMusic,
-                    SyncStatus = SyncStatus.Pending,
-                    MediaType = MediaType.MP3,
-                    CurrentTrackLocation = new FileLocation($"https://www.youtube.com/watch?v={id}"),
-                });
+                    // Unavailable videos arrive as null stubs or without an id.
+                    if (entry.ValueKind != JsonValueKind.Object) continue;
+                    var id = GetString(entry, "id");
+                    if (string.IsNullOrEmpty(id)) continue;
+
+                    TimeSpan? duration = entry.TryGetProperty("duration", out var d) && d.ValueKind == JsonValueKind.Number
+                        ? TimeSpan.FromSeconds(d.GetDouble())
+                        : null;
+
+                    tracks.Add(new Track
+                    {
+                        Title = GetString(entry, "title") ?? "Unknown",
+                        Artist = GetString(entry, "uploader")
+                            ?? GetString(entry, "channel")
+                            ?? "Unknown",
+                        Duration = duration,
+                        SongID = new SongID(Platform.YouTubeMusic, id),
+                        PlatformSongID = new SongID(Platform.YouTubeMusic, id),
+                        SourcePlatform = Platform.YouTubeMusic,
+                        SyncStatus = SyncStatus.Pending,
+                        MediaType = MediaType.MP3,
+                        CurrentTrackLocation = new FileLocation($"https://www.youtube.com/watch?v={id}"),
+                    });
+                }
             }
+
+            return new Playlist
+            {
+                Id = GetPlaylistId(url),
+                Name = title,
+                Owner = channel,
+                Description = description,
+                CoverImageUrl = cover,
+                SourceUrl = url,
+                Tracks = tracks,
+                TrackCount = tracks.Count,
+            };
         }
-
-        _logger.LogInformation("Fetched YouTube playlist '{Title}' with {Count} tracks", title, tracks.Count);
-
-        return new Playlist
-        {
-            Id = GetPlaylistId(url),
-            Name = title,
-            Owner = channel,
-            Description = description,
-            CoverImageUrl = cover,
-            SourceUrl = url,
-            Tracks = tracks,
-            TrackCount = tracks.Count,
-        };
     }
+
+    private static string Truncate(string? text)
+        => string.IsNullOrWhiteSpace(text) ? "no error output"
+            : text.Length <= 300 ? text : text[..300] + "...";
 
     public async Task<string?> ResolveTrackUrlAsync(string query)
     {

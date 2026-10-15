@@ -277,7 +277,7 @@ public class YouTubeAccountProvider : IAccountSourceProvider
             {
                 Title = item.Snippet?.Title ?? "Unknown",
                 Artist = item.Snippet?.VideoOwnerChannelTitle ?? item.Snippet?.ChannelTitle ?? "Unknown",
-                Duration = null, // playlistItems carry no duration
+                Duration = null,
                 SongID = new SongID(Platform.YouTubeMusic, videoId),
                 PlatformSongID = new SongID(Platform.YouTubeMusic, videoId),
                 SourcePlatform = Platform.YouTubeMusic,
@@ -288,6 +288,8 @@ public class YouTubeAccountProvider : IAccountSourceProvider
                 IsLiked = true,
             });
         }
+
+        await FillDurationsAsync(service, tracks, ct);
 
         _logger.LogInformation("Fetched YouTube liked songs: {Count}", tracks.Count);
 
@@ -308,7 +310,7 @@ public class YouTubeAccountProvider : IAccountSourceProvider
     /// account owns them). Null when no account or the call fails, so the
     /// caller can fall back to the public yt-dlp path.
     /// </summary>
-    public async Task<Playlist?> TryGetPlaylistViaAccountAsync(
+    public virtual async Task<Playlist?> TryGetPlaylistViaAccountAsync(
         string playlistId, CancellationToken ct = default)
     {
         if (!await IsConnectedAsync(ct)) return null;
@@ -343,6 +345,8 @@ public class YouTubeAccountProvider : IAccountSourceProvider
                         $"https://www.youtube.com/watch?v={videoId}"),
                 });
             }
+
+            await FillDurationsAsync(service, tracks, ct);
 
             return new Playlist
             {
@@ -381,6 +385,66 @@ public class YouTubeAccountProvider : IAccountSourceProvider
                 yield return item;
             pageToken = response.NextPageToken;
         } while (pageToken is not null);
+    }
+
+    /// <summary>
+    /// playlistItems carry no duration; the videos endpoint does. One
+    /// batched call per 50 ids fills the durations in, so the waterfall's
+    /// duration matching works for account playlists too (a wrong-length
+    /// hit is what that gate exists for). Best effort: a failed batch
+    /// leaves those durations unknown instead of failing the fetch.
+    /// </summary>
+    private async Task FillDurationsAsync(YouTubeService service, List<Track> tracks, CancellationToken ct)
+    {
+        foreach (var batch in tracks.Chunk(50))
+        {
+            var ids = batch
+                .Select(t => t.PlatformSongID?.ID)
+                .Where(id => !string.IsNullOrEmpty(id))
+                .ToList();
+            if (ids.Count == 0) continue;
+
+            try
+            {
+                var request = service.Videos.List("contentDetails");
+                request.Id = string.Join(",", ids);
+                var response = await request.ExecuteAsync(ct);
+                var byId = (response.Items ?? Enumerable.Empty<Google.Apis.YouTube.v3.Data.Video>())
+                    .Where(v => !string.IsNullOrEmpty(v.Id))
+                    .ToDictionary(v => v.Id!, v => ParseIsoDuration(v.ContentDetails?.Duration));
+
+                foreach (var track in batch)
+                {
+                    if (track.PlatformSongID?.ID is { Length: > 0 } id
+                        && byId.TryGetValue(id, out var duration))
+                        track.Duration = duration;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "Could not backfill YouTube durations for a batch of {Count}; leaving them unknown", batch.Length);
+            }
+        }
+    }
+
+    /// <summary>
+    /// The Data API reports durations as ISO 8601 ("PT3M33S"). Invalid or
+    /// zero values come back as null: an unknown duration is better than a
+    /// wrong one, because the waterfall matches on it.
+    /// </summary>
+    internal static TimeSpan? ParseIsoDuration(string? iso)
+    {
+        if (string.IsNullOrWhiteSpace(iso)) return null;
+        try
+        {
+            var duration = System.Xml.XmlConvert.ToTimeSpan(iso);
+            return duration > TimeSpan.Zero ? duration : null;
+        }
+        catch (FormatException)
+        {
+            return null;
+        }
     }
 
     private Task<string?> ReadClientIdAsync(CancellationToken ct)

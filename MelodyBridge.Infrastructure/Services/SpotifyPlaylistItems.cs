@@ -45,10 +45,20 @@ internal static class SpotifyPlaylistItems
                 .Select(a => a.GetProperty("name").GetString()))
             : null;
 
+        // The album name travels with the simplified track; it lands on the
+        // file tags after the download.
+        var album = track.TryGetProperty("album", out var albumObj)
+            && albumObj.ValueKind == JsonValueKind.Object
+            && albumObj.TryGetProperty("name", out var albumName)
+            && albumName.ValueKind == JsonValueKind.String
+                ? albumName.GetString()
+                : null;
+
         return new Track
         {
             Title = track.TryGetProperty("name", out var name) ? name.GetString() : null,
             Artist = artists,
+            Album = album,
             Duration = durationMs is > 0 ? TimeSpan.FromMilliseconds(durationMs.Value) : null,
             SongID = new SongID(Platform.Spotify, id),
             PlatformSongID = new SongID(Platform.Spotify, id),

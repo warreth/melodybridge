@@ -277,7 +277,7 @@ public class SpotifyAccountProvider : IAccountSourceProvider
     /// Falls back to null when no account is connected, so the caller can
     /// try the public fetcher instead.
     /// </summary>
-    public async Task<Playlist?> TryGetPlaylistViaAccountAsync(
+    public virtual async Task<Playlist?> TryGetPlaylistViaAccountAsync(
         string playlistId, CancellationToken ct = default)
     {
         if (!await IsConnectedAsync(ct)) return null;

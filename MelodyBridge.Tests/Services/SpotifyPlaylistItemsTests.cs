@@ -99,4 +99,20 @@ public class SpotifyPlaylistItemsTests
         }");
         Assert.That(track, Is.Null);
     }
+
+    [Test]
+    public void AlbumName_IsCaptured_WhenPresent()
+    {
+        var track = Parse(@"{
+            ""item"": { ""id"": ""t1"", ""name"": ""Song"", ""duration_ms"": 1000,
+                       ""artists"": [ { ""name"": ""Artist"" } ],
+                       ""album"": { ""id"": ""al1"", ""name"": ""The Album"" } }
+        }");
+
+        Assert.That(track!.Album, Is.EqualTo("The Album"),
+            "the album arrives with the simplified track and lands in the tags");
+
+        var without = Parse(@"{ ""item"": { ""id"": ""t2"", ""name"": ""Song"", ""artists"": [] } }");
+        Assert.That(without!.Album, Is.Null, "a missing album stays null");
+    }
 }
