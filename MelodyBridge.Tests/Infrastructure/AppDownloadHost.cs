@@ -4,6 +4,7 @@ using MelodyBridge.Infrastructure.Data;
 using MelodyBridge.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace MelodyBridge.Tests.Infrastructure;
 
@@ -14,6 +15,9 @@ namespace MelodyBridge.Tests.Infrastructure;
 /// list, so what runs is exactly what every install runs. Changing the
 /// waterfall from a test is only allowed the way a user does it: through
 /// IDownloaderRegistry (enable/disable, order).
+///
+/// Every log line the app writes is captured (see Logs), so a failing
+/// test can show what the plugins reported.
 /// </summary>
 public sealed class AppDownloadHost : IDisposable
 {
@@ -22,12 +26,16 @@ public sealed class AppDownloadHost : IDisposable
     public ServiceProvider Services { get; }
     public IDbContextFactory<MelodyBridgeDbContext> DbFactory { get; }
 
+    /// <summary>The app's own log lines, for failure diagnostics.</summary>
+    public CollectingLoggerProvider Logs { get; }
+
     private AppDownloadHost(string root, ServiceProvider services,
-        IDbContextFactory<MelodyBridgeDbContext> dbFactory)
+        IDbContextFactory<MelodyBridgeDbContext> dbFactory, CollectingLoggerProvider logs)
     {
         _root = root;
         Services = services;
         DbFactory = dbFactory;
+        Logs = logs;
     }
 
     /// <summary>The app-wide waterfall engine, with the shipped plugin set.</summary>
@@ -46,8 +54,9 @@ public sealed class AppDownloadHost : IDisposable
         Directory.CreateDirectory(root);
         var database = dbPath ?? Path.Combine(root, "app.db");
 
+        var logs = new CollectingLoggerProvider();
         var services = new ServiceCollection();
-        services.AddLogging();
+        services.AddLogging(builder => builder.SetMinimumLevel(LogLevel.Debug).AddProvider(logs));
         services.AddDbContextFactory<MelodyBridgeDbContext>(
             o => o.UseSqlite($"Data Source={database};Pooling=False"));
         services.AddMelodyBridge();
@@ -57,7 +66,7 @@ public sealed class AppDownloadHost : IDisposable
         using (var db = factory.CreateDbContext())
             db.Database.EnsureCreated();
 
-        return new AppDownloadHost(root, provider, factory);
+        return new AppDownloadHost(root, provider, factory, logs);
     }
 
     public void Dispose()
