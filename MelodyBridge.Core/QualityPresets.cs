@@ -2,10 +2,10 @@ namespace MelodyBridge.Core;
 
 /// <summary>
 /// The named quality presets every quality picker offers. A preset is one
-/// bitrate rule (and, for Lossless, a fallback rule) expressed with the
-/// same DownloadQuality the waterfall already understands, so plugins and
-/// gates need no new concepts. The stored string is "preset:&lt;id&gt;";
-/// the raw "mp3:192-320" strings remain the advanced path.
+/// bitrate rule expressed with the same DownloadQuality the waterfall
+/// already understands, so plugins and gates need no new concepts. The
+/// stored string is "preset:&lt;id&gt;"; the raw "mp3:192-320" strings
+/// remain the advanced path.
 /// </summary>
 public static class QualityPresets
 {
@@ -15,7 +15,7 @@ public static class QualityPresets
         SpaceSaver,
         /// <summary>Good files: any lossy format up to 320 kbps; lossless is rejected to save space.</summary>
         HighQuality,
-        /// <summary>FLAC/ALAC/WAV when a source has it, otherwise the best lossy up to 320 kbps.</summary>
+        /// <summary>Real lossless content when a source has it; a non-strict playlist may step down.</summary>
         Lossless,
         /// <summary>Whatever the sources give, no filter at all.</summary>
         Auto,

@@ -49,7 +49,7 @@ override it on its own page.
 |---|---|
 | Space Saver | Any format up to 160 kbps. Small files, made for huge playlists |
 | High Quality | Any lossy format up to 320 kbps, no lossless sizes |
-| Lossless | FLAC when a source has it, otherwise the best lossy file |
+| Lossless | FLAC when a source really has it; a non-strict playlist may step down to the best lossy file |
 | No filter | Whatever a source gives, junk included |
 | Advanced filters | A container (MP3, FLAC, Opus or AAC) plus a bitrate floor and ceiling |
 

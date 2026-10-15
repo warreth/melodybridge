@@ -97,7 +97,7 @@ filters on this data before any network call and orders the survivors: with
 **No filter** the user's Plugins-page order is the order, and with a
 constrained request the plugins that control the quality run before the ones
 that only report what may arrive. No plugin name, no priority table and no
-magic band is involved. A non-strict playlist additionally walks
+magic band is involved. A non-strict playlist also walks
 `QualityLadder.Build`: the request first, then the best declared level per
 other container, stepping down until a source delivers (`DownloadManager`
 takes a `DownloadFallback` policy for this); the request's cap is never
@@ -162,7 +162,8 @@ Implement this to sync playlists to a media server. Built-in targets are resolve
 public interface IDownloadManager
 {
     Task<string?> DownloadAsync(string sourceUrl, string outputDirectory, string melodyId, CancellationToken ct = default);
-    Task<string?> DownloadTrackAsync(TrackQuery query, string outputDirectory, string melodyId, CancellationToken ct = default);
+    Task<string?> DownloadTrackAsync(TrackQuery query, string outputDirectory, string melodyId,
+        DownloadFallback? fallback = null, CancellationToken ct = default);
     IReadOnlyList<DownloadProgress> SnapshotProgress();
     string? LastFailure(string melodyId);
 }
