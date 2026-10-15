@@ -29,8 +29,7 @@ public class DownloadManagerQualityTests
         public string Name { get; }
         public string Description => string.Empty;
         // Honest manifest: this stub only ever writes real MP3 files.
-        public PluginCapabilities Capabilities { get; } =
-            new([AudioFormat.Mp3], null, null, SupportsLossless: false, SupportsLossy: true);
+        public PluginCapabilities Capabilities { get; } = PluginCapabilities.Lossy(AudioFormat.Mp3);
         public Task<bool> IsAvailableAsync(CancellationToken ct = default) => Task.FromResult(true);
         public Task<DownloaderSearchHit?> SearchAsync(TrackQuery query, CancellationToken ct = default)
             => Task.FromResult(_hit);
@@ -178,7 +177,11 @@ public class DownloadManagerQualityTests
         public string Name => "Lossy In Disguise";
         public string Description => "";
         public PluginCapabilities Capabilities { get; } =
-            new([AudioFormat.Flac, AudioFormat.Mp3], null, null, SupportsLossless: true, SupportsLossy: true);
+            new(
+            [
+                new QualityDeliverable(AudioFormat.Flac, Lossless: true, 900, 10000),
+                new QualityDeliverable(AudioFormat.Mp3, Lossless: false, 128, 320),
+            ]);
         public Task<bool> IsAvailableAsync(CancellationToken ct = default) => Task.FromResult(true);
         public Task<DownloaderSearchHit?> SearchAsync(TrackQuery query, CancellationToken ct = default)
             => Task.FromResult<DownloaderSearchHit?>(hit);

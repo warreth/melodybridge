@@ -63,6 +63,16 @@ public interface IMediaServerDirectory
 /// <summary>One user row of a media server, as the picker shows it.</summary>
 public record MediaServerUserOption(string Id, string? Name);
 
+/// <summary>
+/// Non-strict download policy: when the requested quality cannot be
+/// delivered, the manager walks down the quality ladder the enabled
+/// plugins declare (QualityLadder). AllowContainerChange says whether a
+/// fallback step may leave the requested container: a FLAC request may
+/// land on the best lossy file only when it is on. Leaving the policy out
+/// of the call is the strict mode: the requested quality or nothing.
+/// </summary>
+public record DownloadFallback(bool AllowContainerChange);
+
 public interface IDownloadManager
 {
     Task<string?> DownloadAsync(string sourceUrl, string outputDirectory, string melodyId, CancellationToken ct = default);
@@ -72,8 +82,11 @@ public interface IDownloadManager
     /// carries the playlist's advertised duration and the ISRC when known;
     /// both steer candidate ranking, and gross mismatches (a 30s preview
     /// for a 4-minute track) are rejected before any bytes are spent.
+    /// The fallback policy decides whether a miss may step down to a lower
+    /// quality; without it the request is strict.
     /// </summary>
-    Task<string?> DownloadTrackAsync(TrackQuery query, string outputDirectory, string melodyId, CancellationToken ct = default);
+    Task<string?> DownloadTrackAsync(TrackQuery query, string outputDirectory, string melodyId,
+        DownloadFallback? fallback = null, CancellationToken ct = default);
     /// <summary>Current in-flight download states (for UI polling).</summary>
     IReadOnlyList<DownloadProgress> SnapshotProgress();
     /// <summary>

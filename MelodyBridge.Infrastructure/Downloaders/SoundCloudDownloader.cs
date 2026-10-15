@@ -21,9 +21,13 @@ public class SoundCloudDownloader : IDownloader
 
     private const int MinimumAudioBitrateKbps = 128;
 
-    // SoundCloud source mp3: 128-320 kbps, lossy only (opus originals count as lossy too).
-    public static readonly PluginCapabilities Caps =
-        new([AudioFormat.Mp3], 128, 320, SupportsLossless: false, SupportsLossy: true);
+    // SoundCloud uploads are mp3 or opus and the plugin rejects files
+    // under 128 kbps; an explicit mp3 request transcodes via yt-dlp to any
+    // bitrate in 128-320. An Auto request hands back the original upload.
+    public static readonly PluginCapabilities Caps = new(
+    [
+        new QualityDeliverable(AudioFormat.Mp3, Lossless: false, 128, 320),
+    ]);
     public PluginCapabilities Capabilities => Caps;
 
     public string Id => "soundcloud";

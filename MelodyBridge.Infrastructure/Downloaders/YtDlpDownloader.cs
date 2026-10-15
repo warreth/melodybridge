@@ -18,9 +18,15 @@ public partial class YtDlpDownloader : IDownloader
 {
     private readonly ILogger<YtDlpDownloader> _logger;
 
-    // yt-dlp transcodes to mp3/opus/aac via -x --audio-format: lossy 64-320 kbps, no lossless.
-    public static readonly PluginCapabilities Caps =
-        new([AudioFormat.Mp3, AudioFormat.Opus, AudioFormat.Aac], 64, 320, SupportsLossless: false, SupportsLossy: true);
+    // yt-dlp transcodes with -x --audio-format to mp3, m4a (aac) and opus
+    // at any bitrate in 64-320 kbps, and hands back the source stream
+    // untouched on an Auto request. YouTube has no lossless sources.
+    public static readonly PluginCapabilities Caps = new(
+    [
+        new QualityDeliverable(AudioFormat.Mp3, Lossless: false, 64, 320),
+        new QualityDeliverable(AudioFormat.Aac, Lossless: false, 64, 320),
+        new QualityDeliverable(AudioFormat.Opus, Lossless: false, 64, 320),
+    ]);
     public PluginCapabilities Capabilities => Caps;
 
     public string Id => "ytdlp";

@@ -233,6 +233,17 @@ public class PlaylistEntity
     /// optionally with a bitrate range suffix, e.g. "mp3:192-320".
     /// </summary>
     public string PreferredFormat { get; set; } = "auto";
+    /// <summary>
+    /// Strict quality: only the requested quality may be delivered, or the
+    /// track fails with the reason. Off means the manager may step down
+    /// through the qualities the enabled plugins declare.
+    /// </summary>
+    public bool StrictQuality { get; set; } = true;
+    /// <summary>
+    /// Non-strict playlists only: whether a fallback step may leave the
+    /// requested container (a FLAC request landing on the best lossy file).
+    /// </summary>
+    public bool AllowContainerChange { get; set; } = true;
     public List<TrackEntity> Tracks { get; set; } = new();
 
     /// <summary>

@@ -36,9 +36,13 @@ public class DabMusicDownloader : IDownloader
     private readonly HttpClient _http;
     private readonly AvailabilityCache _availability = new();
 
-    // DAB serves Qobuz FLAC (lossless) and MP3 320; the API does not promise per-file bitrates.
-    public static readonly PluginCapabilities Caps =
-        new([AudioFormat.Flac, AudioFormat.Mp3], null, null, SupportsLossless: true, SupportsLossy: true);
+    // DAB serves Qobuz tiers, not arbitrary bitrates: MP3 320, CD FLAC
+    // (~900+ kbps) and hi-res FLAC (24/192). No levels between the tiers.
+    public static readonly PluginCapabilities Caps = new(
+    [
+        new QualityDeliverable(AudioFormat.Mp3, Lossless: false, 320, 320),
+        new QualityDeliverable(AudioFormat.Flac, Lossless: true, 900, 10000),
+    ]);
     public PluginCapabilities Capabilities => Caps;
 
     public string Id => "dabmusic";

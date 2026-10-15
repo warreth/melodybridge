@@ -27,9 +27,15 @@ public class DoubleDoubleDownloader : IDownloader
     private readonly ILogger<DoubleDoubleDownloader> _logger;
     private readonly HttpClient _http;
 
-    // DoubleDouble rips FLAC (lossless services) and MP3/AAC; bitrate depends on the source.
-    public static readonly PluginCapabilities Caps =
-        new([AudioFormat.Flac, AudioFormat.Mp3, AudioFormat.Aac], null, null, true, true);
+    // DoubleDouble has no quality parameter either: it submits the URL and
+    // streams back the service's own file (FLAC from Tidal/Qobuz, MP3
+    // otherwise), so both entries are honest but uncontrollable. Its
+    // SearchAsync returns null by design (captcha-gated frontend).
+    public static readonly PluginCapabilities Caps = new(
+    [
+        new QualityDeliverable(AudioFormat.Flac, Lossless: true, Controlled: false),
+        new QualityDeliverable(AudioFormat.Mp3, Lossless: false, Controlled: false),
+    ]);
     public PluginCapabilities Capabilities => Caps;
 
     public string Id => "doubledouble";

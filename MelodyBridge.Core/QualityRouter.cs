@@ -2,9 +2,12 @@ namespace MelodyBridge.Core;
 
 /// <summary>
 /// Quality-aware routing for the download waterfall: filters the enabled
-/// plugins by what they can actually serve for the requested quality, then
-/// ranks them so the most promising source is tried first. Pure — no I/O,
-/// no availability checks; the manager still probes availability per run.
+/// plugins by what they can actually serve for the requested quality and
+/// orders the survivors, purely from each plugin's declared manifest.
+/// Pure, no I/O, no availability checks; the manager still probes
+/// availability per run. The Plugins page order is the base order: with
+/// no constraints ("No filter") it is exactly the order, and with
+/// constraints the plugins that control the requested quality run first.
 /// </summary>
 public static class QualityRouter
 {
@@ -27,40 +30,38 @@ public static class QualityRouter
         return new Plan(Rank(quality, included), excluded);
     }
 
-    /// <summary>A human-readable reason, so the debug log says why a plugin never ran.</summary>
-    private static string ExcludeReason(DownloadQuality q, PluginCapabilities caps)
-    {
-        if (q.Format != AudioFormat.Auto && !caps.Containers.Contains(q.Format))
-            return $"cannot serve {q.Format}";
-        if (q.MaxKbps is { } cap && caps.MinKbps is { } min && min > cap)
-            return $"cannot serve under {cap} kbps (min {min})";
-        return $"cannot serve over {q.MinKbps} kbps (max {caps.MaxKbps})";
-    }
-
-    /// <summary>Stable ranking: user priority (incoming order) only moves when a rule says so.</summary>
+    /// <summary>
+    /// The configured order is the order. The only reordering rule is
+    /// generic: when the request has constraints, plugins that can be
+    /// *asked* for that quality run before plugins that merely might
+    /// deliver it. Which plugin that is comes from the manifests alone.
+    /// </summary>
     private static IReadOnlyList<IDownloader> Rank(DownloadQuality quality, List<IDownloader> plugins)
     {
-        // Lossless path: whoever has FLAC first, lossy-only after.
-        if (quality.Format == AudioFormat.Flac)
-            return plugins
-                .OrderBy(p => p.Capabilities.SupportsLossless ? 0 : 1)
-                .ToList();
+        if (!quality.HasConstraints) return plugins;
 
-        // Small-file cap: small-file specialists first, lossless-capable
-        // plugins last (they waste time on FLAC the band rejects).
-        if (quality.MaxKbps is { } cap && cap <= 160)
-            return plugins
-                .OrderBy(p => SmallFileRank(p, cap))
-                .ToList();
-
-        // Auto / no filters: user order unchanged.
-        return plugins;
+        // OrderBy is stable, so the user's order survives inside both groups.
+        return plugins
+            .OrderBy(p => p.Capabilities.ServesControlled(quality) ? 0 : 1)
+            .ToList();
     }
 
-    private static int SmallFileRank(IDownloader p, int cap)
+    /// <summary>A human-readable reason, so the debug log and the UI can
+    /// say why a plugin never ran for this request.</summary>
+    private static string ExcludeReason(DownloadQuality q, PluginCapabilities caps)
     {
-        if (p.Capabilities.SupportsLossless) return 2;      // FLAC producer: wrong tool for a cap
-        if (p.Capabilities.MaxKbps is { } max && max <= cap) return 0; // small-file specialist
-        return 1;
+        if (q.Format == AudioFormat.Flac && !caps.SupportsLossless)
+            return "no lossless source";
+        if (q.Format != AudioFormat.Auto && !caps.Containers.Contains(q.Format))
+            return $"cannot produce {q.Format}";
+        return $"cannot serve {DescribeBand(q)}";
     }
+
+    private static string DescribeBand(DownloadQuality q) => (q.MinKbps, q.MaxKbps) switch
+    {
+        (null, null) => "the request",
+        (null, { } max) => $"up to {max} kbps",
+        ({ } min, null) => $"{min}+ kbps",
+        ({ } min, { } max) => $"{min}-{max} kbps",
+    };
 }

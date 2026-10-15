@@ -377,7 +377,7 @@ public class PlaylistStoreDedupTests
         public string Id => "throwing";
         public string Name => "Should not be called";
         public string Description => "fails when the dedup path wrongly downloads";
-        public PluginCapabilities Capabilities => new([AudioFormat.Mp3], null, null, false, true);
+        public PluginCapabilities Capabilities => PluginCapabilities.Lossy(AudioFormat.Mp3);
         public Task<bool> IsAvailableAsync(CancellationToken ct = default) => Task.FromResult(true);
         public Task<DownloaderSearchHit?> SearchAsync(TrackQuery query, CancellationToken ct = default)
             => throw new AssertionException("dedup must not search when a link is possible");
@@ -391,7 +391,11 @@ public class PlaylistStoreDedupTests
         public string Id => "serving";
         public string Name => "Serving";
         public string Description => "copies a prepared file";
-        public PluginCapabilities Capabilities => new([AudioFormat.Flac, AudioFormat.Mp3], null, null, false, true);
+        public PluginCapabilities Capabilities => new(
+        [
+            new QualityDeliverable(AudioFormat.Flac, Lossless: true, 900, 10000),
+            new QualityDeliverable(AudioFormat.Mp3, Lossless: false, 128, 320),
+        ]);
         public Task<bool> IsAvailableAsync(CancellationToken ct = default) => Task.FromResult(true);
         public Task<DownloaderSearchHit?> SearchAsync(TrackQuery query, CancellationToken ct = default)
             => Task.FromResult(new DownloaderSearchHit(query.Title, query.Artist, "https://serve.example/1", TimeSpan.FromSeconds(200), BitrateKbps: 320));

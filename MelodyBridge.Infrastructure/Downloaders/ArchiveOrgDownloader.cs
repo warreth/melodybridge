@@ -24,9 +24,12 @@ public class ArchiveOrgDownloader : IDownloader
 
     private static readonly Uri SearchBase = new("https://archive.org/advancedsearch.php");
 
-    // Archive files are MP3 uploads, never above 320 kbps, lossy by container.
-    public static readonly PluginCapabilities Caps =
-        new([AudioFormat.Mp3], null, 320, SupportsLossless: false, SupportsLossy: true);
+    // Archive files are MP3 uploads; files under 128 kbps are rejected
+    // after the download. The band is selected from the file metadata.
+    public static readonly PluginCapabilities Caps = new(
+    [
+        new QualityDeliverable(AudioFormat.Mp3, Lossless: false, 128, 320),
+    ]);
     public PluginCapabilities Capabilities => Caps;
 
     public ArchiveOrgDownloader(HttpClient http, ILogger<ArchiveOrgDownloader> logger)

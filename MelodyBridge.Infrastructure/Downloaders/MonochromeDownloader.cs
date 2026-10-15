@@ -23,9 +23,15 @@ public class MonochromeDownloader : IDownloader
     private readonly ILogger<MonochromeDownloader> _logger;
     private readonly HttpClient _http;
 
-    // Monochrome serves TIDAL FLAC (lossless) and AAC (lossy); the API does not promise bitrates.
-    public static readonly PluginCapabilities Caps =
-        new([AudioFormat.Flac, AudioFormat.Aac], null, null, true, true);
+    // Monochrome serves TIDAL tiers, not arbitrary bitrates: LOW (~96
+    // kbps AAC), HIGH (~320 kbps AAC), LOSSLESS (~900 kbps FLAC) and
+    // HI_RES_LOSSLESS. A level between tiers does not exist.
+    public static readonly PluginCapabilities Caps = new(
+    [
+        new QualityDeliverable(AudioFormat.Flac, Lossless: true, 900, 10000),
+        new QualityDeliverable(AudioFormat.Aac, Lossless: false, 96, 96),
+        new QualityDeliverable(AudioFormat.Aac, Lossless: false, 320, 320),
+    ]);
     public PluginCapabilities Capabilities => Caps;
 
     public string Id => "monochrome";

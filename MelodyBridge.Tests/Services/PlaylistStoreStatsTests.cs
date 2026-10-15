@@ -388,10 +388,9 @@ public class PlaylistStoreStatsTests
         public string Id => "gate";
         public string Name => "Format Gate";
         public string Description => string.Empty;
-        // Serves both flavors on paper; DownloadAsync still refuses FLAC
-        // so the lossless-fallback path stays exercised.
+        // Serves real MP3 files only; the manifest says exactly that.
         public PluginCapabilities Capabilities { get; } =
-            new([AudioFormat.Mp3, AudioFormat.Flac], null, null, SupportsLossless: true, SupportsLossy: true);
+            PluginCapabilities.Lossy(AudioFormat.Mp3, 128, 320);
         public Task<bool> IsAvailableAsync(CancellationToken ct = default) => Task.FromResult(true);
         public Task<DownloaderSearchHit?> SearchAsync(TrackQuery query, CancellationToken ct = default)
             => Task.FromResult<DownloaderSearchHit?>(new DownloaderSearchHit(query.Title, query.Artist, "https://gate.example/1", null));
@@ -409,7 +408,7 @@ public class PlaylistStoreStatsTests
     }
 
     [Test]
-    public async Task LosslessPreset_FallsBackToBestLossyWhenNoLosslessExists()
+    public async Task LosslessPreset_Strict_FailsWhenNoLosslessSourceExists()
     {
         var dbPath = NewDbPath();
         var downloadDir = Path.Combine(Path.GetTempPath(), $"mb-dl-{Guid.NewGuid():N}");
@@ -424,13 +423,50 @@ public class PlaylistStoreStatsTests
 
             var (downloaded, failed) = await store.DownloadMissingAsync(playlist.Id, limit: 5);
 
+            Assert.That(downloaded, Is.EqualTo(0),
+                "strict is the default: only real lossless content satisfies the request");
+            Assert.That(failed, Is.EqualTo(2));
+
+            await using var db = factory.CreateDbContext();
+            var track = db.Tracks.First(t => t.PlaylistEntityId == playlist.Id);
+            Assert.That(track.DownloadStatus, Is.EqualTo("failed"));
+            Assert.That(track.DownloadError, Does.Contain("excluded every plugin"),
+                "the row names the quality gate, not a vague plugin failure");
+        }
+        finally
+        {
+            File.Delete(dbPath);
+            if (Directory.Exists(downloadDir))
+                try { Directory.Delete(downloadDir, true); } catch { /* best effort */ }
+        }
+    }
+
+    [Test]
+    public async Task LosslessPreset_NonStrict_StepsDownToTheBestLossyFile()
+    {
+        var dbPath = NewDbPath();
+        var downloadDir = Path.Combine(Path.GetTempPath(), $"mb-dl-{Guid.NewGuid():N}");
+        try
+        {
+            var factory = await NewDbFactory(dbPath);
+            var registry = new ListDownloaderRegistry(new FormatGateDownloader(MakeRealMp3(192)));
+            var store = NewStore(factory, registry, new StubSourceProvider());
+            var (playlist, _) = await store.AddOrRefreshDetailedAsync("stub:playlist");
+            await store.UpdateScheduleAsync(playlist.Id, null, ScanSchedule.Manual,
+                targetDirectory: downloadDir, preferredFormat: "preset:lossless",
+                strictQuality: false, allowContainerChange: true);
+
+            var (downloaded, failed) = await store.DownloadMissingAsync(playlist.Id, limit: 5);
+
             Assert.That(downloaded, Is.EqualTo(2),
-                "no lossless source exists, so the lossy fallback takes over for both tracks");
+                "non-strict: the ladder steps down to the lossy file the plugin declares");
             Assert.That(failed, Is.EqualTo(0));
 
             await using var db = factory.CreateDbContext();
             var track = db.Tracks.First(t => t.PlaylistEntityId == playlist.Id);
             Assert.That(track.DownloadStatus, Is.EqualTo("downloaded"));
+            Assert.That(Path.GetExtension(track.CurrentPath), Is.EqualTo(".mp3"),
+                "the fallback lands on the lossy container the manifest declares");
         }
         finally
         {

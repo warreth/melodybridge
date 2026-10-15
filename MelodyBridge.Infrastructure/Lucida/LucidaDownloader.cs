@@ -47,9 +47,17 @@ public class LucidaDownloader : IDownloader
     private readonly IChallengeSolver _solver;
     private readonly ILogger<LucidaDownloader> _logger;
 
-    // Lucida serves FLAC (lossless tiers) and MP3/AAC; bitrate depends on the source service.
-    public static readonly PluginCapabilities Caps =
-        new([AudioFormat.Flac, AudioFormat.Mp3, AudioFormat.Aac], null, null, true, true);
+    // Lucida's API has no quality parameter (verified against the public
+    // community clients: the load body only carries downscale "original"),
+    // so the worker hands back whatever the source service serves. Every
+    // entry is honest but uncontrollable: the router tries this plugin for
+    // the containers it can return, and the post-download check decides.
+    public static readonly PluginCapabilities Caps = new(
+    [
+        new QualityDeliverable(AudioFormat.Flac, Lossless: true, Controlled: false),
+        new QualityDeliverable(AudioFormat.Mp3, Lossless: false, Controlled: false),
+        new QualityDeliverable(AudioFormat.Aac, Lossless: false, Controlled: false),
+    ]);
     public PluginCapabilities Capabilities => Caps;
 
     public string Id => "lucida";

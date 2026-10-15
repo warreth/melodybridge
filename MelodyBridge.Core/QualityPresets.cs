@@ -52,19 +52,19 @@ public static class QualityPresets
     }
 
     /// <summary>
-    /// The download rule a preset maps to. Lossless asks for FLAC first;
-    /// the fallback (best lossy up to 320 kbps) is retried when no source
-    /// has a lossless copy.
+    /// The download rule a preset maps to. Lossless asks for real
+    /// lossless content; whether a miss may step down to a lower quality
+    /// is the playlist's strict quality setting, never the preset's.
     /// </summary>
-    public static (DownloadQuality primary, DownloadQuality? fallback) ToQuality(Id preset) => preset switch
+    public static DownloadQuality ToQuality(Id preset) => preset switch
     {
         // Cap at 160: lossless (~800+) and high-bitrate files are both
         // rejected, whatever container they come in.
-        Id.SpaceSaver => (new DownloadQuality(AudioFormat.Auto, MinKbps: null, MaxKbps: 160), null),
+        Id.SpaceSaver => new DownloadQuality(AudioFormat.Auto, MinKbps: null, MaxKbps: 160),
         // Cap at 320: keeps every good lossy rip, rejects FLAC/WAV sizes.
-        Id.HighQuality => (new DownloadQuality(AudioFormat.Auto, MinKbps: null, MaxKbps: 320), null),
-        // FLAC from whoever has it; otherwise the best lossy file.
-        Id.Lossless => (new DownloadQuality(AudioFormat.Flac), new DownloadQuality(AudioFormat.Auto, MinKbps: null, MaxKbps: 320)),
-        _ => (DownloadQuality.Any, null),
+        Id.HighQuality => new DownloadQuality(AudioFormat.Auto, MinKbps: null, MaxKbps: 320),
+        // Real lossless sources only; a non-strict playlist may step down.
+        Id.Lossless => new DownloadQuality(AudioFormat.Flac),
+        _ => DownloadQuality.Any,
     };
 }

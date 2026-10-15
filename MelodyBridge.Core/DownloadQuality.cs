@@ -29,6 +29,9 @@ public record DownloadQuality(
     /// <summary>Everything allowed: any format, no band.</summary>
     public static DownloadQuality Any { get; } = new(AudioFormat.Auto, null, null);
 
+    /// <summary>True when the request asks for more than "whatever a source has".</summary>
+    public bool HasConstraints => Format != AudioFormat.Auto || MinKbps is not null || MaxKbps is not null;
+
     /// <summary>True when the given measured bitrate satisfies the band.</summary>
     public bool IsWithinBand(int? kbps)
         => kbps is null || kbps <= 0

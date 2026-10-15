@@ -8,10 +8,12 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace MelodyBridge.Tests.ApplicationServices;
 
 /// <summary>
-/// The quality router: hard capability gate before any plugin runs, then
-/// ranking that prefers small-file specialists under a cap and lossless
-/// sources for FLAC. Excluded plugins are never searched — the spies
-/// prove it by counting calls.
+/// The quality router: the manifest is the only input. Plugins that cannot
+/// serve a request are excluded before any network call, and when a request
+/// has constraints the plugins that *control* the quality run before the
+/// ones that merely might deliver it. No plugin name, no priority table
+/// and no magic band decides anything; the spies prove exclusions by never
+/// being searched.
 /// </summary>
 [TestFixture]
 public class QualityRouterTests
@@ -45,7 +47,8 @@ public class QualityRouterTests
         string id,
         PluginCapabilities caps,
         List<string> callOrder,
-        string fileExt = "mp3") : IDownloader
+        string fileExt = "mp3",
+        bool downloadFails = false) : IDownloader
     {
         public string Id => id;
         public string Name => id;
@@ -65,6 +68,9 @@ public class QualityRouterTests
             DownloadQuality? quality = null, CancellationToken ct = default)
         {
             callOrder.Add(id + ":download");
+            if (downloadFails)
+                return Task.FromResult(new DownloaderDownloadResult(false, null, "stub refuses"));
+
             Directory.CreateDirectory(outputDirectory);
             var path = Path.Combine(outputDirectory, $"{id}.{fileExt}");
             // The manager sniffs real bytes before accepting a file, so the
@@ -76,27 +82,19 @@ public class QualityRouterTests
         }
     }
 
-    private static PluginCapabilities Mp3(int? min = null, int? max = null, bool lossless = false, bool lossy = true)
-        => new([AudioFormat.Mp3], min, max, lossless, lossy);
-
-    /// <summary>A FLAC-only source: honest bitrate floors start where lossless actually lives.</summary>
-    private static PluginCapabilities FlacOnly(int? min = 800, int? max = null, bool lossy = false)
-        => new([AudioFormat.Flac], min, max, true, lossy);
-
-    // ── 1. Space Saver (cap 160): small-file plugin first, FLAC-only plugin excluded ──
+    // ── 1. Space Saver (cap 160): the small-file plugin survives, the FLAC-only plugin is out ──
 
     [Test]
-    public void SpaceSaver_SmallFilePluginRanksFirst_LosslessOnlyExcluded()
+    public void SpaceSaver_SmallFilePluginSurvives_LosslessOnlyExcluded()
     {
-        var small = new CapabilityDownloader("small", Mp3(min: 64, max: 320));
-        var flacOnly = new CapabilityDownloader("flac-only", FlacOnly());
+        var small = new CapabilityDownloader("small", PluginCapabilities.Lossy(AudioFormat.Mp3, 64, 320));
+        var flacOnly = new CapabilityDownloader("flac-only", PluginCapabilities.LosslessSources());
         var plan = QualityRouter.Route(
             new DownloadQuality(AudioFormat.Auto, MinKbps: null, MaxKbps: 160),
             [small, flacOnly]);
 
         Assert.That(plan.Plugins.Select(p => p.Id).ToArray(), Is.EqualTo(new[] { "small" }),
-            "the small-file specialist is the only survivor under a 160 cap");
-        Assert.That(plan.Plugins[0].Id, Is.EqualTo("small"), "small-file specialist ranks first");
+            "a lossless source cannot fit under a 160 kbps cap");
         var (plugin, reason) = plan.Excluded.Single();
         Assert.That(plugin.Id, Is.EqualTo("flac-only"));
         Assert.That(reason, Does.Contain("160"),
@@ -107,7 +105,7 @@ public class QualityRouterTests
     public async Task SpaceSaver_LosslessOnlyPlugin_IsNeverSearched()
     {
         var spy = new List<string>();
-        var flacOnly = new CapabilityDownloader("flac-only", FlacOnly(), spy);
+        var flacOnly = new CapabilityDownloader("flac-only", PluginCapabilities.LosslessSources(), spy);
         var manager = new DownloadManager(
             new ListDownloaderRegistry(flacOnly),
             NullLogger<DownloadManager>.Instance);
@@ -121,24 +119,39 @@ public class QualityRouterTests
             "the failure says the filters, not the sources, were the problem");
     }
 
-    // ── 2. Lossless FLAC: lossless-capable ranks before lossy-only, both present ──
+    // ── 2. Lossless request: a lossy-only plugin is out, not merely ranked last ──
 
     [Test]
-    public void LosslessFlac_LosslessCapableRanksBeforeLossyOnly()
+    public void LosslessRequest_LossyOnlyPluginIsExcluded()
     {
-        // "lossy-only" here still carries the FLAC container (a FLAC
-        // transcoder), so the format gate passes and only the ranking
-        // decides — that is what the lossless-first rule is for.
-        var lossy = new CapabilityDownloader("lossy",
-            new PluginCapabilities([AudioFormat.Flac, AudioFormat.Mp3], null, null, false, true));
-        var lossless = new CapabilityDownloader("lossless",
-            new PluginCapabilities([AudioFormat.Flac, AudioFormat.Mp3], null, null, true, true));
+        // A FLAC container is not lossless content: whoever cannot serve a
+        // real lossless source must not waste a download on a FLAC request.
+        var lossy = new CapabilityDownloader("lossy", PluginCapabilities.Lossy(AudioFormat.Mp3, 128, 320));
+        var lossless = new CapabilityDownloader("lossless", PluginCapabilities.LosslessSources());
         var plan = QualityRouter.Route(new DownloadQuality(AudioFormat.Flac), [lossy, lossless]);
 
+        Assert.That(plan.Plugins.Select(p => p.Id).ToArray(), Is.EqualTo(new[] { "lossless" }));
+        var (plugin, reason) = plan.Excluded.Single();
+        Assert.That(plugin.Id, Is.EqualTo("lossy"));
+        Assert.That(reason, Does.Contain("lossless"),
+            "the reason says there is no lossless source behind it");
+    }
+
+    [Test]
+    public void ConstrainedRequest_ControlledPluginsRunBeforeTheMaybes()
+    {
+        // The user order says "maybe" first, but only the controlled plugin
+        // can be asked for the requested mp3 at 320; the maybe is tried
+        // after, and the request still has one class per group.
+        var maybe = new CapabilityDownloader("maybe", new PluginCapabilities(
+            [new QualityDeliverable(AudioFormat.Mp3, Lossless: false, Controlled: false)]));
+        var controlled = new CapabilityDownloader("controlled", PluginCapabilities.Lossy(AudioFormat.Mp3, 128, 320));
+        var plan = QualityRouter.Route(new DownloadQuality(AudioFormat.Mp3, MinKbps: 320, MaxKbps: 320), [maybe, controlled]);
+
         Assert.That(plan.Plugins.Select(p => p.Id).ToArray(),
-            Is.EqualTo(new[] { "lossless", "lossy" }),
-            "FLAC request: whoever can actually serve lossless runs first");
-        Assert.That(plan.Excluded, Is.Empty, "the lossy plugin still runs as a fallback");
+            Is.EqualTo(new[] { "controlled", "maybe" }),
+            "whoever controls the quality is tried before whoever might deliver it");
+        Assert.That(plan.Excluded, Is.Empty);
     }
 
     // ── 3. Strict filter (Opus, ceiling 160): mp3-only plugin excluded with reason ──
@@ -147,7 +160,7 @@ public class QualityRouterTests
     public void StrictOpusCeiling160_Mp3OnlyPluginExcludedWithReason_NeverSearched()
     {
         var spy = new List<string>();
-        var mp3Only = new CapabilityDownloader("mp3-only", Mp3(), spy);
+        var mp3Only = new CapabilityDownloader("mp3-only", PluginCapabilities.Lossy(AudioFormat.Mp3), spy);
         var plan = QualityRouter.Route(
             new DownloadQuality(AudioFormat.Opus, MinKbps: null, MaxKbps: 160),
             [mp3Only]);
@@ -166,7 +179,7 @@ public class QualityRouterTests
     public void ImpossibleBand_Ceiling96VsMin128_ExcludedBeforeNetwork()
     {
         var spy = new List<string>();
-        var fatOnly = new CapabilityDownloader("fat-only", Mp3(min: 128), spy);
+        var fatOnly = new CapabilityDownloader("fat-only", PluginCapabilities.Lossy(AudioFormat.Mp3, 128), spy);
         var plan = QualityRouter.Route(
             new DownloadQuality(AudioFormat.Auto, MinKbps: null, MaxKbps: 96),
             [fatOnly]);
@@ -186,8 +199,8 @@ public class QualityRouterTests
         var spy = new List<string>();
         var manager = new DownloadManager(
             new ListDownloaderRegistry(
-                new CapabilityDownloader("a", Mp3(min: 256), spy),
-                new CapabilityDownloader("b", FlacOnly(), spy)),
+                new CapabilityDownloader("a", PluginCapabilities.Lossy(AudioFormat.Mp3, 256), spy),
+                new CapabilityDownloader("b", PluginCapabilities.LosslessSources(), spy)),
             NullLogger<DownloadManager>.Instance);
 
         var path = await manager.DownloadTrackAsync(new TrackQuery("A", "T", new DownloadQuality(AudioFormat.Mp3, MinKbps: null, MaxKbps: 96)), Path.GetTempPath(), "mel-all");
@@ -205,9 +218,9 @@ public class QualityRouterTests
     {
         var plan = QualityRouter.Route(DownloadQuality.Any, new IDownloader[]
         {
-            new CapabilityDownloader("third", FlacOnly()),
-            new CapabilityDownloader("first", Mp3(max: 96)),
-            new CapabilityDownloader("second", Mp3(min: 256)),
+            new CapabilityDownloader("third", PluginCapabilities.LosslessSources()),
+            new CapabilityDownloader("first", PluginCapabilities.Lossy(AudioFormat.Mp3, null, 96)),
+            new CapabilityDownloader("second", PluginCapabilities.Lossy(AudioFormat.Mp3, 256)),
         });
 
         Assert.That(plan.Plugins.Select(p => p.Id).ToArray(),
@@ -223,79 +236,88 @@ public class QualityRouterTests
     {
         var plan = QualityRouter.Route(
             new DownloadQuality(AudioFormat.Flac, MinKbps: null, MaxKbps: 320),
-            [new CapabilityDownloader("flac", FlacOnly())]);
+            [new CapabilityDownloader("flac", PluginCapabilities.LosslessSources())]);
 
         Assert.That(plan.Plugins.Select(p => p.Id).ToArray(), Is.EqualTo(new[] { "flac" }),
             "lossless band is meaningless: FLAC requests ignore MaxKbps");
         Assert.That(plan.Excluded, Is.Empty);
     }
 
-    // ── 8. Manifests: the six real plugins expose the spec'd Caps ──
+    // ── 8. Manifests: every shipped plugin, including DAB, declares what it can do ──
+
+    private static void AssertLossy(PluginCapabilities caps, AudioFormat container, int? min, int? max)
+    {
+        Assert.That(caps.Deliverables.Any(d => d.Container == container && !d.Lossless
+            && d.MinKbps == min && d.MaxKbps == max && d.Controlled), Is.True,
+            $"{container} declares a controlled {min}-{max} kbps level");
+    }
 
     [Test]
-    public void YtDlpManifest_MatchesSpec()
+    public void YtDlpManifest_DeclaresItsTranscodeTargets()
     {
         Assert.That(YtDlpDownloader.Caps.Containers,
             Is.EqualTo(new[] { AudioFormat.Mp3, AudioFormat.Opus, AudioFormat.Aac }));
-        Assert.That(YtDlpDownloader.Caps.MinKbps, Is.EqualTo(64));
-        Assert.That(YtDlpDownloader.Caps.MaxKbps, Is.EqualTo(320));
-        Assert.That(YtDlpDownloader.Caps.SupportsLossless, Is.False);
+        AssertLossy(YtDlpDownloader.Caps, AudioFormat.Mp3, 64, 320);
+        Assert.That(YtDlpDownloader.Caps.SupportsLossless, Is.False,
+            "YouTube has no lossless sources");
         Assert.That(YtDlpDownloader.Caps.SupportsLossy, Is.True);
     }
 
     [Test]
-    public void SoundCloudManifest_MatchesSpec()
+    public void SoundCloudManifest_DeclaresItsFloor()
     {
         Assert.That(SoundCloudDownloader.Caps.Containers, Is.EqualTo(new[] { AudioFormat.Mp3 }));
-        Assert.That(SoundCloudDownloader.Caps.MinKbps, Is.EqualTo(128));
-        Assert.That(SoundCloudDownloader.Caps.MaxKbps, Is.EqualTo(320));
-        Assert.That(SoundCloudDownloader.Caps.SupportsLossless, Is.False,
-            "SoundCloud serves lossy originals only");
+        AssertLossy(SoundCloudDownloader.Caps, AudioFormat.Mp3, 128, 320);
+        Assert.That(SoundCloudDownloader.Caps.SupportsLossless, Is.False);
         Assert.That(SoundCloudDownloader.Caps.SupportsLossy, Is.True);
     }
 
     [Test]
-    public void MonochromeManifest_MatchesSpec()
+    public void ArchiveOrgManifest_DeclaresItsFloor()
+    {
+        Assert.That(ArchiveOrgDownloader.Caps.Containers, Is.EqualTo(new[] { AudioFormat.Mp3 }));
+        AssertLossy(ArchiveOrgDownloader.Caps, AudioFormat.Mp3, 128, 320);
+        Assert.That(ArchiveOrgDownloader.Caps.SupportsLossless, Is.False,
+            "archive.org hands back lossy MP3 uploads");
+    }
+
+    [Test]
+    public void MonochromeManifest_DeclaresItsTiers()
     {
         Assert.That(MonochromeDownloader.Caps.Containers,
             Is.EqualTo(new[] { AudioFormat.Flac, AudioFormat.Aac }));
-        Assert.That(MonochromeDownloader.Caps.MinKbps, Is.Null);
-        Assert.That(MonochromeDownloader.Caps.MaxKbps, Is.Null);
         Assert.That(MonochromeDownloader.Caps.SupportsLossless, Is.True);
-        Assert.That(MonochromeDownloader.Caps.SupportsLossy, Is.True);
+        AssertLossy(MonochromeDownloader.Caps, AudioFormat.Aac, 96, 96);
+        AssertLossy(MonochromeDownloader.Caps, AudioFormat.Aac, 320, 320);
     }
 
     [Test]
-    public void LucidaManifest_MatchesSpec()
+    public void DabMusicManifest_DeclaresItsTiers()
     {
-        Assert.That(LucidaDownloader.Caps.Containers, Is.EqualTo(
-            new[] { AudioFormat.Flac, AudioFormat.Mp3, AudioFormat.Aac }));
-        Assert.That(LucidaDownloader.Caps.MinKbps, Is.Null);
-        Assert.That(LucidaDownloader.Caps.MaxKbps, Is.Null);
+        Assert.That(DabMusicDownloader.Caps.Containers,
+            Is.EqualTo(new[] { AudioFormat.Mp3, AudioFormat.Flac }));
+        Assert.That(DabMusicDownloader.Caps.SupportsLossless, Is.True);
+        AssertLossy(DabMusicDownloader.Caps, AudioFormat.Mp3, 320, 320);
+    }
+
+    [Test]
+    public void LucidaManifest_IsHonestAboutBeingUncontrollable()
+    {
+        Assert.That(LucidaDownloader.Caps.Containers,
+            Is.EquivalentTo(new[] { AudioFormat.Flac, AudioFormat.Mp3, AudioFormat.Aac }));
         Assert.That(LucidaDownloader.Caps.SupportsLossless, Is.True);
-        Assert.That(LucidaDownloader.Caps.SupportsLossy, Is.True);
+        Assert.That(LucidaDownloader.Caps.Deliverables.All(d => !d.Controlled), Is.True,
+            "the API has no quality parameter, so nothing here is controllable");
     }
 
     [Test]
-    public void DoubleDoubleManifest_MatchesSpec()
+    public void DoubleDoubleManifest_IsHonestAboutBeingUncontrollable()
     {
-        Assert.That(DoubleDoubleDownloader.Caps.Containers, Is.EqualTo(
-            new[] { AudioFormat.Flac, AudioFormat.Mp3, AudioFormat.Aac }));
-        Assert.That(DoubleDoubleDownloader.Caps.MinKbps, Is.Null);
-        Assert.That(DoubleDoubleDownloader.Caps.MaxKbps, Is.Null);
+        Assert.That(DoubleDoubleDownloader.Caps.Containers,
+            Is.EquivalentTo(new[] { AudioFormat.Flac, AudioFormat.Mp3 }));
         Assert.That(DoubleDoubleDownloader.Caps.SupportsLossless, Is.True);
-        Assert.That(DoubleDoubleDownloader.Caps.SupportsLossy, Is.True);
-    }
-
-    [Test]
-    public void ArchiveOrgManifest_MatchesSpec()
-    {
-        Assert.That(ArchiveOrgDownloader.Caps.Containers, Is.EqualTo(new[] { AudioFormat.Mp3 }));
-        Assert.That(ArchiveOrgDownloader.Caps.MinKbps, Is.Null);
-        Assert.That(ArchiveOrgDownloader.Caps.MaxKbps, Is.EqualTo(320));
-        Assert.That(ArchiveOrgDownloader.Caps.SupportsLossless, Is.False,
-            "archive.org hands back lossy MP3 uploads");
-        Assert.That(ArchiveOrgDownloader.Caps.SupportsLossy, Is.True);
+        Assert.That(DoubleDoubleDownloader.Caps.Deliverables.All(d => !d.Controlled), Is.True,
+            "the submit API has no quality parameter either");
     }
 
     [Test]
@@ -304,14 +326,21 @@ public class QualityRouterTests
         // The manifests are routing inputs, not decoration: spot-check each
         // against a request it must accept and one it must reject.
         Assert.That(YtDlpDownloader.Caps.CanServe(new DownloadQuality(AudioFormat.Opus)), Is.True);
-        Assert.That(YtDlpDownloader.Caps.CanServe(new DownloadQuality(AudioFormat.Flac)), Is.False);
+        Assert.That(YtDlpDownloader.Caps.CanServe(new DownloadQuality(AudioFormat.Flac)), Is.False,
+            "yt-dlp transcode targets are lossy content, never a lossless source");
         Assert.That(SoundCloudDownloader.Caps.CanServe(new DownloadQuality(AudioFormat.Mp3, MaxKbps: 96)), Is.False,
             "SoundCloud's 128 kbps floor cannot fit under a 96 cap");
         Assert.That(MonochromeDownloader.Caps.CanServe(new DownloadQuality(AudioFormat.Flac)), Is.True);
+        Assert.That(MonochromeDownloader.Caps.CanServe(new DownloadQuality(AudioFormat.Aac, MinKbps: 192, MaxKbps: 192)), Is.False,
+            "Monochrome has no tier at 192: only 96 and 320 exist");
         Assert.That(LucidaDownloader.Caps.CanServe(new DownloadQuality(AudioFormat.Opus)), Is.False);
+        Assert.That(LucidaDownloader.Caps.CanServe(new DownloadQuality(AudioFormat.Flac)), Is.True,
+            "uncontrollable does not mean unusable: Lucida may hand back a FLAC");
         Assert.That(DoubleDoubleDownloader.Caps.CanServe(new DownloadQuality(AudioFormat.Flac)), Is.True);
-        Assert.That(ArchiveOrgDownloader.Caps.CanServe(new DownloadQuality(AudioFormat.Mp3, MaxKbps: 96)), Is.True,
-            "null plugin floor is unbounded: the cap alone excludes nothing");
+        Assert.That(ArchiveOrgDownloader.Caps.CanServe(new DownloadQuality(AudioFormat.Mp3, MaxKbps: 96)), Is.False,
+            "the 128 kbps floor is real, not a comment");
+        Assert.That(DabMusicDownloader.Caps.CanServe(new DownloadQuality(AudioFormat.Mp3, MaxKbps: 256)), Is.False,
+            "DAB serves MP3 320 only, so a 256 cap cannot be honoured");
     }
 
     // ── Manager-level: routing is visible in the call order ──
@@ -320,10 +349,8 @@ public class QualityRouterTests
     public async Task FlacQuality_DownloadsViaLosslessSpyFirst()
     {
         var calls = new List<string>();
-        var lossy = new OrderingSpyDownloader("lossy", Mp3(), calls);
-        var lossless = new OrderingSpyDownloader("lossless",
-            new PluginCapabilities([AudioFormat.Flac, AudioFormat.Mp3], null, null, true, true),
-            calls, fileExt: "flac");
+        var lossy = new OrderingSpyDownloader("lossy", PluginCapabilities.Lossy(AudioFormat.Mp3, 128, 320), calls);
+        var lossless = new OrderingSpyDownloader("lossless", PluginCapabilities.LosslessSources(), calls, fileExt: "flac");
         var manager = new DownloadManager(
             new ListDownloaderRegistry(lossy, lossless),
             NullLogger<DownloadManager>.Instance);
@@ -335,7 +362,7 @@ public class QualityRouterTests
 
             Assert.That(path, Does.EndWith("lossless.flac"));
             Assert.That(calls, Is.EqualTo(new[] { "lossless", "lossless:download" }),
-                "FLAC request: the lossless source is searched and used first");
+                "a strict FLAC request only ever runs the lossless source");
         }
         finally
         {
@@ -347,7 +374,7 @@ public class QualityRouterTests
     public async Task IncompatibleOnlyRegistry_SpyNeverSearched_LastFailureNamesFilters()
     {
         var calls = new List<string>();
-        var spy = new OrderingSpyDownloader("mp3-only", Mp3(), calls);
+        var spy = new OrderingSpyDownloader("mp3-only", PluginCapabilities.Lossy(AudioFormat.Mp3, 128, 320), calls);
         var manager = new DownloadManager(
             new ListDownloaderRegistry(spy),
             NullLogger<DownloadManager>.Instance);

@@ -322,17 +322,16 @@ public void ParseQuality_PresetsMapToTheirRules()
     Assert.That(high.MaxKbps, Is.EqualTo(320),
         "the cap rejects lossless sizes so files stay reasonable");
 
-    // Lossless: FLAC first, best lossy as fallback.
-    var (lossless, fallback) = PlaylistStore.ParseQualityDetailed("preset:lossless");
+    // Lossless: real lossless content; whether a miss may step down is
+    // the playlist's strict setting, never the preset's.
+    var lossless = PlaylistStore.ParseQuality("preset:lossless");
     Assert.That(lossless.Format, Is.EqualTo(AudioFormat.Flac));
-    Assert.That(fallback, Is.Not.Null, "Lossless carries a lossy fallback");
-    Assert.That(fallback!.MaxKbps, Is.EqualTo(320));
+    Assert.That(lossless.MaxKbps, Is.Null, "a lossless request ignores bitrate caps");
 
     // Plain auto still means no filter at all.
-    var auto = PlaylistStore.ParseQualityDetailed("auto");
-    Assert.That(auto.primary.Format, Is.EqualTo(AudioFormat.Auto));
-    Assert.That(auto.primary.MaxKbps, Is.Null);
-    Assert.That(auto.fallback, Is.Null);
+    var auto = PlaylistStore.ParseQuality("auto");
+    Assert.That(auto.Format, Is.EqualTo(AudioFormat.Auto));
+    Assert.That(auto.MaxKbps, Is.Null);
 }
 
 [Test]

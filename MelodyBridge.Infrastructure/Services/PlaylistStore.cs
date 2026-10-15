@@ -80,6 +80,7 @@ public class PlaylistStore
         // let go of the context. Each track below runs in its own fresh
         // context so nothing stale survives between claims.
         string dir, playlistName, preferredFormat;
+        bool strict, allowContainerChange;
         await using (var db = await _dbFactory.CreateDbContextAsync(ct))
         {
             var entity = await db.Playlists.AsNoTracking()
@@ -95,6 +96,8 @@ public class PlaylistStore
                     "No download folder configured. Set one in the playlist settings.");
             playlistName = entity.Name;
             preferredFormat = entity.PreferredFormat;
+            strict = entity.StrictQuality;
+            allowContainerChange = entity.AllowContainerChange;
         }
 
         var downloaded = 0;
@@ -111,7 +114,7 @@ public class PlaylistStore
             if (trackId is null) break; // nothing left to claim
 
             var result = await DownloadClaimedTrackAsync(
-                trackId.Value, dir, preferredFormat, spectrumMode, ct);
+                trackId.Value, dir, preferredFormat, strict, allowContainerChange, spectrumMode, ct);
             if (result == "downloaded") downloaded++;
             else if (result == "failed") failed++;
             // "needs-review" tracks are neither downloaded nor failed:
@@ -134,6 +137,7 @@ public class PlaylistStore
     {
         int id;
         string dir, preferredFormat;
+        bool strict, allowContainerChange;
         await using (var db = await _dbFactory.CreateDbContextAsync(ct))
         {
             var track = await db.Tracks.AsNoTracking()
@@ -146,6 +150,8 @@ public class PlaylistStore
             dir = playlist?.TargetDirectory
                 ?? await _settings.GetAsync("music_path", "/music", ct);
             preferredFormat = playlist?.PreferredFormat ?? "";
+            strict = playlist?.StrictQuality ?? true;
+            allowContainerChange = playlist?.AllowContainerChange ?? true;
         }
         if (string.IsNullOrWhiteSpace(dir))
             throw new InvalidOperationException(
@@ -163,7 +169,8 @@ public class PlaylistStore
             if (claimed != 1) return "claimed-by-another-run";
         }
 
-        return await DownloadClaimedTrackAsync(id, dir, preferredFormat, SpectrumVerification(), ct);
+        return await DownloadClaimedTrackAsync(
+            id, dir, preferredFormat, strict, allowContainerChange, SpectrumVerification(), ct);
     }
 
     /// <summary>
@@ -172,7 +179,8 @@ public class PlaylistStore
     /// The caller has already claimed the track.
     /// </summary>
     private async Task<string> DownloadClaimedTrackAsync(
-        int trackId, string dir, string preferredFormat, SpectrumMode spectrumMode, CancellationToken ct)
+        int trackId, string dir, string preferredFormat,
+        bool strict, bool allowContainerChange, SpectrumMode spectrumMode, CancellationToken ct)
     {
         await using var db = await _dbFactory.CreateDbContextAsync(CancellationToken.None);
         // The lookup uses CancellationToken.None: a cancel arriving between
@@ -191,7 +199,7 @@ public class PlaylistStore
 
         try
         {
-            var (primary, fallback) = ParseQualityDetailed(preferredFormat);
+            var primary = ParseQuality(preferredFormat);
             var expectedDuration = track.DurationMs is > 0
                 ? TimeSpan.FromMilliseconds(track.DurationMs.Value)
                 : (TimeSpan?)null;
@@ -214,17 +222,12 @@ public class PlaylistStore
                 return verdict;
 
             var query = new TrackQuery(track.Artist!, track.Title!, primary, expectedDuration, track.Isrc);
-            var path = await _downloadManager.DownloadTrackAsync(query, dir, track.MelodyId!, ct);
-
-            // Lossless preset: when no source delivered a lossless
-            // file, take the best lossy copy instead of nothing.
-            if (path is null && fallback is not null)
-            {
-                _logger.LogInformation(
-                    "No lossless source for '{Title}'; falling back to the best lossy file", track.Title);
-                path = await _downloadManager.DownloadTrackAsync(
-                    query with { Quality = fallback }, dir, track.MelodyId!, ct);
-            }
+            // Strict: exactly this quality or nothing. Non-strict: the
+            // manager walks the ladder the enabled plugins declare, and
+            // the playlist decides whether a step may change container.
+            var path = await _downloadManager.DownloadTrackAsync(
+                query, dir, track.MelodyId!,
+                strict ? null : new DownloadFallback(allowContainerChange), ct);
 
             if (path is null)
             {
@@ -622,16 +625,11 @@ public class PlaylistStore
     /// band, open bands "-320" / "192-") is the advanced path.
     /// </summary>
     internal static DownloadQuality ParseQuality(string? preferredFormat)
-        => ParseQualityDetailed(preferredFormat).primary;
-
-    /// <summary>Same mapping, but keeps the preset's fallback rule (Lossless retries lossy).</summary>
-    internal static (DownloadQuality primary, DownloadQuality? fallback) ParseQualityDetailed(string? preferredFormat)
     {
         if (QualityPresets.TryParse(preferredFormat, out var preset))
             return QualityPresets.ToQuality(preset);
 
-        var quality = ParseRawQuality(preferredFormat);
-        return (quality, null);
+        return ParseRawQuality(preferredFormat);
     }
 
     private static DownloadQuality ParseRawQuality(string? preferredFormat)
@@ -1173,7 +1171,8 @@ public class PlaylistStore
         string playlistId, string? name, ScanSchedule schedule,
         string? targetDirectory = null, PlaylistSyncMode? syncMode = null,
         string? preferredFormat = null, string? archiveDirectory = null,
-        string? archiveFormat = null, bool? autoDownload = null, CancellationToken ct = default)
+        string? archiveFormat = null, bool? autoDownload = null,
+        bool? strictQuality = null, bool? allowContainerChange = null, CancellationToken ct = default)
     {
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var entity = await db.Playlists.FindAsync(new object[] { playlistId }, ct)
@@ -1200,6 +1199,11 @@ public class PlaylistStore
         // that only touch the schedule never reset it.
         if (autoDownload is { } ad)
             entity.AutoDownloadEnabled = ad;
+        // Quality strictness: null leaves the stored value too.
+        if (strictQuality is { } strict)
+            entity.StrictQuality = strict;
+        if (allowContainerChange is { } change)
+            entity.AllowContainerChange = change;
         await db.SaveChangesAsync(ct);
     }
 

@@ -78,9 +78,45 @@ public class DownloadManager : IDownloadManager
     /// The main entry for playlist tracks: search through the plugin
     /// waterfall and download the first hit. The query carries the
     /// expected duration and the ISRC when known.
+    ///
+    /// Strict (no fallback policy): exactly the requested quality, or
+    /// nothing. Non-strict: walk the ladder the enabled plugins declare
+    /// (QualityLadder), stepping down until a source delivers. The reason
+    /// that is reported when nothing works is always the requested
+    /// quality's own reason.
     /// </summary>
     public async Task<string?> DownloadTrackAsync(
-        TrackQuery query, string outputDirectory, string melodyId, CancellationToken ct = default)
+        TrackQuery query, string outputDirectory, string melodyId,
+        DownloadFallback? fallback = null, CancellationToken ct = default)
+    {
+        var targets = fallback is null
+            ? new List<DownloadQuality> { query.Quality }
+            : QualityLadder.Build(query.Quality, fallback.AllowContainerChange, _registry.GetEnabled()).ToList();
+        if (targets.Count == 0) targets.Add(query.Quality);
+
+        string? requestedFailure = null;
+        for (var i = 0; i < targets.Count; i++)
+        {
+            var path = await TryDownloadQualityAsync(
+                query with { Quality = targets[i] }, outputDirectory, melodyId, ct);
+            if (path is not null) return path;
+
+            requestedFailure ??= _lastFailure.TryGetValue(melodyId, out var reason) ? reason : null;
+            if (i + 1 < targets.Count)
+                _logger.LogInformation(
+                    "No download for '{Title}' at {Quality}; stepping down to {Next}",
+                    query.Title, DescribeQuality(targets[i]), DescribeQuality(targets[i + 1]));
+        }
+
+        // The headline failure is the quality the user asked for, not the
+        // last step of the ladder.
+        if (requestedFailure is not null) _lastFailure[melodyId] = requestedFailure;
+        return null;
+    }
+
+    /// <summary>One waterfall pass for one concrete quality target.</summary>
+    private async Task<string?> TryDownloadQualityAsync(
+        TrackQuery query, string outputDirectory, string melodyId, CancellationToken ct)
     {
         var quality = query.Quality;
         _progress[melodyId] = new DownloadProgress(melodyId, query.Title, "searching", null, null);
@@ -306,5 +342,19 @@ public class DownloadManager : IDownloadManager
             pluginName, filePath);
         FileCleanup.DeleteQuietly(filePath);
         return true;
+    }
+
+    /// <summary>Short form of a quality target for the stepping log.</summary>
+    private static string DescribeQuality(DownloadQuality q)
+    {
+        var container = q.Format == AudioFormat.Auto ? "any container" : q.Format.ToString();
+        var band = (q.MinKbps, q.MaxKbps) switch
+        {
+            (null, null) => "any bitrate",
+            (null, { } max) => $"up to {max} kbps",
+            ({ } min, null) => $"{min}+ kbps",
+            ({ } min, { } max) => $"{min}-{max} kbps",
+        };
+        return $"{container}, {band}";
     }
 }

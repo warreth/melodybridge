@@ -253,14 +253,16 @@ public class PlaylistAutoSaveTests
             string playlistId, string? name, ScanSchedule schedule,
             string? targetDirectory = null, PlaylistSyncMode? syncMode = null,
             string? preferredFormat = null, string? archiveDirectory = null,
-            string? archiveFormat = null, bool? autoDownload = null, CancellationToken ct = default)
+            string? archiveFormat = null, bool? autoDownload = null,
+            bool? strictQuality = null, bool? allowContainerChange = null, CancellationToken ct = default)
         {
             if (!_failedOnce)
             {
                 _failedOnce = true;
                 throw new InvalidOperationException("simulated transient store failure");
             }
-            await base.UpdateScheduleAsync(playlistId, name, schedule, targetDirectory, syncMode, preferredFormat, archiveDirectory, archiveFormat, autoDownload, ct);
+            await base.UpdateScheduleAsync(playlistId, name, schedule, targetDirectory, syncMode, preferredFormat,
+                archiveDirectory, archiveFormat, autoDownload, strictQuality, allowContainerChange, ct);
         }
     }
 }

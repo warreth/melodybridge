@@ -38,6 +38,11 @@ public static class SchemaPatcher
         ("Tracks", "SkipDedup", "INTEGER NOT NULL DEFAULT 0"),
         // Opt-in: download new tracks right after an auto-sync refresh.
         ("Playlists", "AutoDownloadEnabled", "INTEGER NOT NULL DEFAULT 0"),
+        // Quality strictness per playlist: strict delivers the requested
+        // quality or nothing; non-strict steps down the declared ladder,
+        // optionally changing the container.
+        ("Playlists", "StrictQuality", "INTEGER NOT NULL DEFAULT 1"),
+        ("Playlists", "AllowContainerChange", "INTEGER NOT NULL DEFAULT 1"),
     };
 
     public static async Task PatchAsync(MelodyBridgeDbContext db, CancellationToken ct = default)
