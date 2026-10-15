@@ -1,27 +1,28 @@
-using MelodyBridge.Application.Services;
 using MelodyBridge.Core;
-using MelodyBridge.Infrastructure.Downloaders;
 using MelodyBridge.Infrastructure.Tagging;
-using Microsoft.Extensions.Logging.Abstractions;
+using MelodyBridge.Tests.Infrastructure;
 
 namespace MelodyBridge.Tests.Integration;
 
 /// <summary>
-/// Live waterfall test: the real DownloadManager over the real yt-dlp
-/// plugin, real network, real file validation. Proves the full path a
-/// playlist track takes: search (ranked), duration gate, download,
-/// signature check, MELODY_ID tagging.
+/// Live waterfall test: the app's own DownloadManager over the app's own
+/// composition (every shipped plugin, resolved from AddMelodyBridge), real
+/// network, real file validation. Proves the full path a playlist track
+/// takes: search (ranked), duration gate, download, signature check,
+/// MELODY_ID tagging. No test-local plugin list: if the shipped waterfall
+/// changes, this fixture follows it.
 /// </summary>
 [TestFixture]
 [Category("Live")]
-[Category("YtDlp")]
 public class DownloadManagerLiveTests
 {
+    private AppDownloadHost _app = null!;
     private string _outDir = null!;
 
     [OneTimeSetUp]
     public void Setup()
     {
+        _app = AppDownloadHost.Create();
         _outDir = Path.Combine(Path.GetTempPath(), $"mb-mgr-live-{Guid.NewGuid():N}");
         Directory.CreateDirectory(_outDir);
     }
@@ -29,17 +30,14 @@ public class DownloadManagerLiveTests
     [OneTimeTearDown]
     public void TearDown()
     {
+        _app.Dispose();
         try { Directory.Delete(_outDir, recursive: true); } catch { /* best effort */ }
     }
-
-    private static DownloadManager Manager()
-        => new(new ListDownloaderRegistry(new YtDlpDownloader(NullLogger<YtDlpDownloader>.Instance)),
-            NullLogger<DownloadManager>.Instance);
 
     [Test]
     public async Task DownloadTrack_ThroughTheRealWaterfall_WritesTaggedAudio()
     {
-        var manager = Manager();
+        var manager = _app.DownloadManager;
 
         var path = await manager.DownloadTrackAsync(
             new TrackQuery("Rick Astley", "Never Gonna Give You Up", DownloadQuality.Any,
@@ -76,7 +74,7 @@ public class DownloadManagerLiveTests
     [Test]
     public async Task DownloadTrack_WrongLengthExpectation_RejectsEveryCandidate()
     {
-        var manager = Manager();
+        var manager = _app.DownloadManager;
 
         // The playlist claims 100 seconds; every real source of this track
         // runs ~3:33. Downloading one anyway would be the wrong track.

@@ -1,17 +1,14 @@
 using System.Net.Http.Json;
 using System.Text.Json;
-using MelodyBridge.Application.Services;
 using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.Audio;
 using MelodyBridge.Infrastructure.Data;
-using MelodyBridge.Infrastructure.Downloaders;
 using MelodyBridge.Infrastructure.MediaServers;
 using MelodyBridge.Infrastructure.Playlists;
 using MelodyBridge.Infrastructure.Services;
 using MelodyBridge.Infrastructure.Tagging;
 using MelodyBridge.Tests.Infrastructure;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace MelodyBridge.Tests.Integration;
@@ -20,8 +17,8 @@ namespace MelodyBridge.Tests.Integration;
 /// The release gate's end-to-end run, one real workflow from end to end:
 ///
 ///   1. fetch a real public Spotify playlist into a real SQLite database;
-///   2. download two tracks through the shipped first-party waterfall
-///      (SoundCloud, the Internet Archive, then YouTube via yt-dlp);
+///   2. download two tracks through the app's own waterfall, booted from
+///      the real composition (every shipped plugin, availability decides);
 ///   3. check the quality facts against the files on disk;
 ///   4. check the opus archive copies the download produced;
 ///   5. write a real M3U with the real sync job runner and read it back;
@@ -32,13 +29,10 @@ namespace MelodyBridge.Tests.Integration;
 ///      Plex push needs a claimed server and PLEX_TOKEN).
 ///
 /// Nothing is stubbed. When a step fails, the release gate fails. The
-/// download leg runs the three shipped first-party plugins in the app's
-/// own order, so it exercises the waterfall every install actually has:
-/// a single-vendor run (yt-dlp alone) makes the gate fail whenever one
-/// video host throttles the runner. The community plugins (Lucida,
-/// Monochrome, DoubleDouble, DAB) stay out of the waterfall here: they
-/// are third-party services and a release gate must not depend on their
-/// uptime. Tagged ReleaseGate only, so the expensive suite runs on
+/// download leg boots the app's real composition and runs the standard
+/// waterfall: the gate never assembles a plugin list of its own, and a
+/// source being down is the app's availability handling, not a gate
+/// failure. Tagged ReleaseGate only, so the expensive suite runs on
 /// releases, not on every push. Requires network, yt-dlp and
 /// ffmpeg/ffprobe on PATH and Docker with the jellyfin, navidrome and
 /// plex images pulled.
@@ -56,7 +50,7 @@ public class ReleasePipelineLiveTests
     private string _musicDir = null!;
     private string _archiveDir = null!;
     private string _playlistDir = null!;
-    private string _dbPath = null!;
+    private AppDownloadHost _app = null!;
     private IDbContextFactory<MelodyBridgeDbContext> _factory = null!;
     private PlaylistStore _store = null!;
     private string _playlistId = null!;
@@ -75,32 +69,13 @@ public class ReleasePipelineLiveTests
         _playlistDir = Path.Combine(_root, "playlists");
         foreach (var dir in new[] { _musicDir, _archiveDir, _playlistDir })
             Directory.CreateDirectory(dir);
-        _dbPath = Path.Combine(_root, "release.db");
 
-        var services = new ServiceCollection();
-        services.AddDbContextFactory<MelodyBridgeDbContext>(
-            o => o.UseSqlite($"Data Source={_dbPath};Pooling=False"));
-        var sp = services.BuildServiceProvider();
-        _factory = sp.GetRequiredService<IDbContextFactory<MelodyBridgeDbContext>>();
-        using (var db = _factory.CreateDbContext())
-            db.Database.EnsureCreated();
-
-        // The real manager and the shipped first-party waterfall, in the
-        // app's order (SoundCloud, the Internet Archive, then YouTube):
-        // the registry's enable state and the router have their own tests,
-        // but the gate must run the same plugin order users run.
-        var archiveHttp = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
-        archiveHttp.DefaultRequestHeaders.UserAgent.ParseAdd("MelodyBridge/1.0 (+https://melodybridge.app)");
-        var manager = new DownloadManager(
-            new ListDownloaderRegistry(
-                new SoundCloudDownloader(NullLogger<SoundCloudDownloader>.Instance),
-                new ArchiveOrgDownloader(archiveHttp, NullLogger<ArchiveOrgDownloader>.Instance),
-                new YtDlpDownloader(NullLogger<YtDlpDownloader>.Instance)),
-            NullLogger<DownloadManager>.Instance);
-        _store = new PlaylistStore(_factory,
-            new ISourceProvider[] { new SpotifySourceProvider(NullLogger<SpotifySourceProvider>.Instance) },
-            manager,
-            NullLogger<PlaylistStore>.Instance);
+        // Boot the app exactly like the server does. The store, the
+        // waterfall and the source providers all come from the real
+        // composition; the gate owns no plugin list.
+        _app = AppDownloadHost.Create();
+        _factory = _app.DbFactory;
+        _store = _app.Store;
     }
 
     [OneTimeTearDown]
@@ -109,6 +84,7 @@ public class ReleasePipelineLiveTests
         _jellyfin?.Dispose();
         _navidrome?.Dispose();
         _plex?.Dispose();
+        _app?.Dispose();
         try { Directory.Delete(_root, recursive: true); } catch { /* best effort */ }
     }
 

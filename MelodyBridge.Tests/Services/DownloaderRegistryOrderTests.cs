@@ -9,7 +9,10 @@ namespace MelodyBridge.Tests.Services;
 /// <summary>
 /// Honest tests for the waterfall order persistence: a real SQLite
 /// database, real registry, real plugin state rows. No mocks on the
-/// persistence path.
+/// persistence path. The plugins here are neutral stubs on purpose: what
+/// the shipped waterfall looks like is pinned by DownloaderCompositionTests
+/// over the real app composition, so this fixture only proves the registry
+/// mechanics.
 /// </summary>
 [TestFixture]
 [Category("PlaylistStore")]
@@ -17,6 +20,13 @@ public class DownloaderRegistryOrderTests
 {
     private IDbContextFactory<MelodyBridgeDbContext> _dbFactory = null!;
     private DownloaderRegistry _registry = null!;
+
+    private static IDownloader[] Plugins() => new IDownloader[]
+    {
+        new StubDownloader("alpha", "Alpha"),
+        new StubDownloader("beta", "Beta"),
+        new StubDownloader("gamma", "Gamma"),
+    };
 
     [SetUp]
     public void Setup()
@@ -29,14 +39,7 @@ public class DownloaderRegistryOrderTests
         using var db = _dbFactory.CreateDbContext();
         db.Database.EnsureCreated();
 
-        _registry = new DownloaderRegistry(
-            new IDownloader[]
-            {
-                new StubDownloader("soundcloud", "SoundCloud"),
-                new StubDownloader("archiveorg", "Internet Archive"),
-                new StubDownloader("ytdlp", "yt-dlp (YouTube)"),
-            },
-            _dbFactory,
+        _registry = new DownloaderRegistry(Plugins(), _dbFactory,
             NullLogger<DownloaderRegistry>.Instance);
     }
 
@@ -44,30 +47,23 @@ public class DownloaderRegistryOrderTests
     public void GetEnabled_InitialOrder_FollowsRegistration()
     {
         var ids = _registry.GetEnabled().Select(d => d.Id).ToList();
-        Assert.That(ids, Is.EqualTo(new[] { "soundcloud", "archiveorg", "ytdlp" }));
+        Assert.That(ids, Is.EqualTo(new[] { "alpha", "beta", "gamma" }));
     }
 
     [Test]
     public async Task SetOrderAsync_ReordersWaterfallAndPersists()
     {
-        await _registry.SetOrderAsync(new[] { "ytdlp", "soundcloud", "archiveorg" });
+        await _registry.SetOrderAsync(new[] { "gamma", "alpha", "beta" });
 
         var ids = _registry.GetEnabled().Select(d => d.Id).ToList();
-        Assert.That(ids, Is.EqualTo(new[] { "ytdlp", "soundcloud", "archiveorg" }),
+        Assert.That(ids, Is.EqualTo(new[] { "gamma", "alpha", "beta" }),
             "SetOrderAsync must define the exact waterfall order");
 
         // Persisted: a fresh registry over the same DB reads the same order.
-        var fresh = new DownloaderRegistry(
-            new IDownloader[]
-            {
-                new StubDownloader("soundcloud", "SoundCloud"),
-                new StubDownloader("archiveorg", "Internet Archive"),
-                new StubDownloader("ytdlp", "yt-dlp (YouTube)"),
-            },
-            _dbFactory,
+        var fresh = new DownloaderRegistry(Plugins(), _dbFactory,
             NullLogger<DownloaderRegistry>.Instance);
         var persistedIds = fresh.GetEnabled().Select(d => d.Id).ToList();
-        Assert.That(persistedIds, Is.EqualTo(new[] { "ytdlp", "soundcloud", "archiveorg" }),
+        Assert.That(persistedIds, Is.EqualTo(new[] { "gamma", "alpha", "beta" }),
             "the order must survive a restart");
     }
 
@@ -76,11 +72,11 @@ public class DownloaderRegistryOrderTests
     {
         // The exact operation the Downloads page arrows perform.
         var order = _registry.GetEnabled().Select(d => d.Id).ToList();
-        (order[1], order[2]) = (order[2], order[1]); // ytdlp moves up above archiveorg
+        (order[1], order[2]) = (order[2], order[1]); // gamma moves up above beta
         await _registry.SetOrderAsync(order);
 
         var ids = _registry.GetEnabled().Select(d => d.Id).ToList();
-        Assert.That(ids, Is.EqualTo(new[] { "soundcloud", "ytdlp", "archiveorg" }));
+        Assert.That(ids, Is.EqualTo(new[] { "alpha", "gamma", "beta" }));
 
         // Priorities are dense 0..2, never drifting apart.
         var priorities = new List<int>();
@@ -92,10 +88,10 @@ public class DownloaderRegistryOrderTests
     [Test]
     public async Task SetOrderAsync_UnknownIdsAreAppended()
     {
-        await _registry.SetOrderAsync(new[] { "ytdlp", "nonexistent-plugin" });
+        await _registry.SetOrderAsync(new[] { "gamma", "nonexistent-plugin" });
 
         var ids = _registry.GetEnabled().Select(d => d.Id).ToList();
-        Assert.That(ids[0], Is.EqualTo("ytdlp"));
+        Assert.That(ids[0], Is.EqualTo("gamma"));
         Assert.That(ids, Does.Not.Contain("nonexistent-plugin"),
             "unknown ids must not appear in the waterfall");
     }
@@ -103,24 +99,23 @@ public class DownloaderRegistryOrderTests
     [Test]
     public async Task ConfigValues_PersistAndReload()
     {
-        await _registry.SetConfigAsync("ytdlp", "region", "eu");
-        Assert.That(await _registry.GetConfigAsync("ytdlp", "region"), Is.EqualTo("eu"));
+        await _registry.SetConfigAsync("gamma", "region", "eu");
+        Assert.That(await _registry.GetConfigAsync("gamma", "region"), Is.EqualTo("eu"));
 
         // Unset keys come back empty, not null: the UI binds them to inputs.
-        Assert.That(await _registry.GetConfigAsync("soundcloud", "region"), Is.EqualTo(""));
+        Assert.That(await _registry.GetConfigAsync("alpha", "region"), Is.EqualTo(""));
 
         // A fresh registry over the same DB reads the same value: persisted.
         var fresh = new DownloaderRegistry(
-            new IDownloader[] { new StubDownloader("soundcloud", "SoundCloud") },
-            _dbFactory,
-            NullLogger<DownloaderRegistry>.Instance);
-        Assert.That(await fresh.GetConfigAsync("ytdlp", "region"), Is.EqualTo("eu"),
+            new IDownloader[] { new StubDownloader("alpha", "Alpha") },
+            _dbFactory, NullLogger<DownloaderRegistry>.Instance);
+        Assert.That(await fresh.GetConfigAsync("gamma", "region"), Is.EqualTo("eu"),
             "plugin config must survive a restart");
 
         // Overwrite works and does not leak into other plugins.
-        await _registry.SetConfigAsync("ytdlp", "region", "us");
-        Assert.That(await _registry.GetConfigAsync("ytdlp", "region"), Is.EqualTo("us"));
-        Assert.That(await _registry.GetConfigAsync("soundcloud", "region"), Is.EqualTo(""));
+        await _registry.SetConfigAsync("gamma", "region", "us");
+        Assert.That(await _registry.GetConfigAsync("gamma", "region"), Is.EqualTo("us"));
+        Assert.That(await _registry.GetConfigAsync("alpha", "region"), Is.EqualTo(""));
     }
 
     private sealed class InlineFactory : IDbContextFactory<MelodyBridgeDbContext>

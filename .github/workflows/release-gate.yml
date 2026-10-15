@@ -2,9 +2,10 @@ name: Release gate
 
 # The release gate boots real Jellyfin, Plex and Navidrome containers and
 # runs the end-to-end pipeline test against them: a real Spotify playlist
-# is fetched, real tracks are downloaded through the shipped first-party
-# waterfall (SoundCloud, Internet Archive, yt-dlp), the quality and
-# archive copies are read from disk, an M3U is written and the playlist is
+# is fetched, real tracks are downloaded through the app's own waterfall
+# (booted from AddMelodyBridge, every shipped plugin, availability
+# decides), the quality and archive copies are read from disk, an M3U is
+# written and the playlist is
 # pushed into the containers and streamed back. Everything is tagged
 # Category=ReleaseGate so this only runs here (and monthly), never on a
 # plain push. The fixtures self-skip unless the images are already pulled,
