@@ -29,6 +29,9 @@ public class UpdateCheckAndNotificationTests
     [TestCase("1.2.3+build5", "1.2.3", false)]     // build metadata is ignored
     [TestCase("1.2.3-rc.2", "1.2.3-rc.10", false)] // numeric identifiers compare numerically
     [TestCase("1.2.3-rc.1", "1.2.3-beta.1", true)] // rc sorts above beta lexically
+    [TestCase("1.0-rc2", "1.0.0-rc1", true)]       // two-component tags are padded
+    [TestCase("1.0-rc2", "1.0.0-rc2", false)]      // the tag matches the stamped version
+    [TestCase("1.0", "1.0.0-rc2", true)]           // the final release beats its RC
     public void IsNewer_Orders_Semver_Correctly(string latest, string current, bool expected)
         => Assert.That(UpdateCheckService.IsNewer(latest, current), Is.EqualTo(expected));
 
