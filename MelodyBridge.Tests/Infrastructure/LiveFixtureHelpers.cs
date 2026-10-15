@@ -44,7 +44,12 @@ public static class LiveFixtureHelpers
         (byte)((value >> 7) & 0x7F), (byte)(value & 0x7F),
     };
 
-    /// <summary>Runs docker with arguments; throws with output on failure.</summary>
+    /// <summary>
+    /// Runs docker with arguments; throws with output on failure and
+    /// throws <see cref="InvalidOperationException"/> (which the fixtures'
+    /// DockerOrIgnore turns into a skip) when docker is not installed at
+    /// all, so a host without Docker never fails the suite.
+    /// </summary>
     public static string Docker(string arguments, int timeoutSeconds = 60)
     {
         var psi = new System.Diagnostics.ProcessStartInfo("docker", arguments)
@@ -53,7 +58,7 @@ public static class LiveFixtureHelpers
             RedirectStandardError = true,
             UseShellExecute = false,
         };
-        using var p = System.Diagnostics.Process.Start(psi)!;
+        using var p = StartDocker(psi);
         var stdout = p.StandardOutput.ReadToEnd();
         var stderr = p.StandardError.ReadToEnd();
         if (!p.WaitForExit(timeoutSeconds * 1000)) throw new TimeoutException($"docker {arguments}");
@@ -67,5 +72,22 @@ public static class LiveFixtureHelpers
     {
         try { return Docker($"image inspect {image}").Length > 0; }
         catch { return false; }
+    }
+
+    /// <summary>
+    /// Process.Start, but a missing docker binary becomes the same
+    /// InvalidOperationException the fixtures expect, so "cannot run here"
+    /// and "the daemon answered with an error" both end in a skip.
+    /// </summary>
+    private static System.Diagnostics.Process StartDocker(System.Diagnostics.ProcessStartInfo psi)
+    {
+        try
+        {
+            return System.Diagnostics.Process.Start(psi)!;
+        }
+        catch (System.ComponentModel.Win32Exception ex)
+        {
+            throw new InvalidOperationException("docker is not installed on this host", ex);
+        }
     }
 }
