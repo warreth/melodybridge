@@ -5,7 +5,8 @@
 services:
   # Cloudflare solver for the Lucida plugin. Only reachable on the
   # internal compose network, never published to the host. The app
-  # finds it automatically by its service name on that network.
+  # probes both of its names there: the service name and the container
+  # name below.
   flaresolverr:
     image: ghcr.io/flaresolverr/flaresolverr:latest
     container_name: mb_flaresolverr
@@ -22,7 +23,11 @@ services:
     security_opt:
       - no-new-privileges:true
     networks:
-      - melodybridge
+      melodybridge:
+        # Explicit alias so the plain service name resolves too, whatever
+        # the container is named.
+        aliases:
+          - flaresolverr
 
   melodybridge:
     image: ghcr.io/warreth/melodybridge:latest

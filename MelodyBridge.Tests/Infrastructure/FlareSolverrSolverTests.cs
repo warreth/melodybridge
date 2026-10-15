@@ -56,6 +56,7 @@ public class FlareSolverrSolverTests
     private static string[] HealthUrls =
     {
         "http://flaresolverr:8191/health",
+        "http://mb_flaresolverr:8191/health",
         "http://host.docker.internal:8191/health",
         "http://127.0.0.1:8191/health",
     };
@@ -72,6 +73,21 @@ public class FlareSolverrSolverTests
     {
         using var handler = new StubHttpMessageHandler();
         handler.Routes["http://host.docker.internal:8191/health"] = Ok;
+        var solver = Create(handler);
+        FlareSolverrSolver.Url = "auto";
+
+        Assert.That(await solver.IsAvailableAsync(), Is.True);
+        Assert.That(handler.Requests.Select(r => r.Url), Is.EqualTo(HealthUrls.Take(3)));
+    }
+
+    [Test]
+    public async Task AutoMode_FindsTheShippedContainerName()
+    {
+        // The compose ships container_name mb_flaresolverr; the service
+        // name alias can be missing in some runtimes, so the sweep must
+        // check both identities.
+        using var handler = new StubHttpMessageHandler();
+        handler.Routes["http://mb_flaresolverr:8191/health"] = Ok;
         var solver = Create(handler);
         FlareSolverrSolver.Url = "auto";
 
@@ -106,7 +122,7 @@ public class FlareSolverrSolverTests
         // No routes: every /health throws, so the sweep fails.
         Assert.That(await solver.IsAvailableAsync(), Is.False);
         Assert.That(await solver.SolveAsync("https://lucida.to"), Is.Null);
-        Assert.That(handler.Requests.Count, Is.EqualTo(3),
+        Assert.That(handler.Requests.Count, Is.EqualTo(4),
             "SolveAsync inside the negative window must not re-probe");
 
         // Second call inside the window: zero new requests.
@@ -118,7 +134,7 @@ public class FlareSolverrSolverTests
         handler.Routes["http://127.0.0.1:8191/health"] = Ok;
         FlareSolverrSolver.Clock = () => DateTimeOffset.UtcNow.AddSeconds(61);
         Assert.That(await solver.IsAvailableAsync(), Is.True);
-        Assert.That(handler.Requests.Count, Is.EqualTo(before + 3),
+        Assert.That(handler.Requests.Count, Is.EqualTo(before + 4),
             "an expired negative cache must trigger a fresh sweep");
     }
 

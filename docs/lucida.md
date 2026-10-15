@@ -9,8 +9,9 @@ needs a solver. MelodyBridge speaks the FlareSolverr protocol
 ## Setup
 
 Nothing, if you use the shipped compose file: it already starts FlareSolverr
-on the same network (service name `flaresolverr`). The solver URL defaults to
-`auto`, and the app finds the container by its Docker DNS name.
+on the same network (service name `flaresolverr`, container name
+`mb_flaresolverr`). The solver URL defaults to `auto`, and the app probes both
+names on that network.
 
 Outside Docker, or when you run your own solver, set the URL under **Settings,
 Network**: `http://127.0.0.1:8191` or wherever yours listens. The options:

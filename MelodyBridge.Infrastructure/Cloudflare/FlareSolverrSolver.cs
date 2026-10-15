@@ -21,12 +21,15 @@ public class FlareSolverrSolver : IChallengeSolver
     /// <summary>Minimum spacing between failed auto-detect sweeps.</summary>
     private static readonly TimeSpan NegativeCacheWindow = TimeSpan.FromSeconds(60);
 
-    /// <summary>Auto-detect candidates in probe order: the compose network
-    /// name first, then the host loopbacks for non-compose runs. Public so
-    /// the Settings test button reports the same sweep the solver runs.</summary>
+    /// <summary>Auto-detect candidates in probe order: the two compose
+    /// container identities (the service name and the shipped container
+    /// name) first, then the host loopbacks for non-compose runs. Public
+    /// so the Settings test button reports the same sweep the solver
+    /// runs.</summary>
     public static readonly string[] AutoDetectCandidates =
     {
         "http://flaresolverr:8191",
+        "http://mb_flaresolverr:8191",
         "http://host.docker.internal:8191",
         "http://127.0.0.1:8191",
     };
