@@ -20,10 +20,12 @@ redirect URLs and the no-Premium import routes, lives in
 
 ### Media servers
 
-Named connection profiles for Jellyfin, Plex and Navidrome: server URL plus the
-credentials each kind needs (API key, Plex token, or username and password for
-Navidrome). Every profile has a **Test** button, and one can be marked **Use as
-app default**.
+Named connection profiles for Jellyfin, Plex and Navidrome: the server URL plus
+the credentials each kind needs. Jellyfin and Navidrome take a username and
+password. Jellyfin signs in and keeps the session token, or you use **Quick
+Connect**: the app shows a code, you approve it in Jellyfin, and the sign-in
+finishes by itself. Plex takes an X-Plex-Token. Every profile has a **Test**
+button, and one can be marked **Use as app default**.
 
 Profiles are shortcuts, not shared state: a sync job carries its own connection
 fields, and the default profile is used by the liked songs sync.

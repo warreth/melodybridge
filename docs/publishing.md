@@ -29,7 +29,7 @@ checked to search every folder for matching files.
 | Output | What it needs |
 |---|---|
 | M3U File | An output path inside the container, for example `/app/playlists/summer.m3u` |
-| Jellyfin API | Server URL and an API key. **Test connection** checks the server and lets you pick the user |
+| Jellyfin API | Server URL, username and password, or **Quick Connect**. **Test connection** checks the server and lets you pick the user |
 | Plex API | Server URL and an X-Plex-Token. The token holder is the only account there is, so there is no user picker |
 | Navidrome API | Server URL, username and password. Navidrome has no API keys |
 
