@@ -48,26 +48,41 @@ window.melody = (() => {
     // centered card when it doesn't. The scroll is instant on purpose:
     // a smooth scroll makes the rect read stale and the box lands in the
     // wrong place until the next render.
-    function spotlight(selector) {
-        const el = document.querySelector(selector);
-        if (!el) return false;
-        el.scrollIntoView({ block: 'center' });
-        const r = el.getBoundingClientRect();
+    let lastSpotlightSelector = null;
+
+    function positionSpotlight() {
+        const el = lastSpotlightSelector && document.querySelector(lastSpotlightSelector);
         const box = document.getElementById('tour-spotlight');
-        if (box) {
-            box.style.left = (r.left - 8) + 'px';
-            box.style.top = (r.top - 8) + 'px';
-            box.style.width = (r.width + 16) + 'px';
-            box.style.height = (r.height + 16) + 'px';
-            box.style.display = 'block';
-        }
+        if (!el || !box) return false;
+        const r = el.getBoundingClientRect();
+        box.style.left = (r.left - 8) + 'px';
+        box.style.top = (r.top - 8) + 'px';
+        box.style.width = (r.width + 16) + 'px';
+        box.style.height = (r.height + 16) + 'px';
+        box.style.display = 'block';
         return true;
     }
 
+    function spotlight(selector) {
+        const el = document.querySelector(selector);
+        if (!el) return false;
+        lastSpotlightSelector = selector;
+        el.scrollIntoView({ block: 'center' });
+        return positionSpotlight();
+    }
+
     function hideSpotlight() {
+        lastSpotlightSelector = null;
         const box = document.getElementById('tour-spotlight');
         if (box) box.style.display = 'none';
     }
+
+    // A resized window moves the spotlit element: keep the box glued to it
+    // instead of leaving it at the pre-resize geometry.
+    window.addEventListener('resize', () => {
+        if (!document.querySelector('.tour-overlay')) return;
+        requestAnimationFrame(positionSpotlight);
+    });
 
     // Hide the framework error banner without a full reload. The banner
     // itself is toggled by Blazor; this only wires the dismiss button.

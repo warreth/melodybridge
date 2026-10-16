@@ -304,6 +304,26 @@ public class PlaylistDetailsQualityTests
     }
 
     [Test]
+    public void TrackTable_InflatedSummaryHint_NoFilterQuality_UsesTheRightWording()
+    {
+        // The playlist already runs without a quality gate: the hint must
+        // not tell the user to switch to the mode they are already on, and
+        // a single flagged track reads "Retry it".
+        var factory = _ctx.Services.GetRequiredService<IDbContextFactory<MelodyBridgeDbContext>>();
+        using (var db = factory.CreateDbContext())
+        {
+            db.Playlists.Single(p => p.Id == "pl-1").PreferredFormat = "auto";
+            db.SaveChanges();
+        }
+
+        var cut = _ctx.Render<PlaylistDetails>(p => p.Add(p => p.PlaylistId, "pl-1"));
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("Retry it with a lower quality cap.")), TimeSpan.FromSeconds(3));
+        Assert.That(cut.Markup, Does.Not.Contain("switching the playlist to No filter"),
+            "the playlist already uses No filter");
+    }
+
+    [Test]
     public void DownloadButtons_ReachTheCoordinator()
     {
         var cut = _ctx.Render<PlaylistDetails>(p => p.Add(p => p.PlaylistId, "pl-1"));

@@ -249,7 +249,9 @@ else
                 <div class="hint-box">
                     <Icon Name="alert" Size="16" Class="inline-icon" /> @badQualityCount downloaded track@(badQualityCount == 1 ? "" : "s") look@(badQualityCount == 1 ? "s" : "") inflated (the bandwidth sits below what the bitrate claims).
                     @(editQuality == "auto"
-                        ? "Retry them with a lower quality cap."
+                        ? badQualityCount == 1
+                            ? "Retry it with a lower quality cap."
+                            : "Retry them with a lower quality cap."
                         : badQualityCount == 1
                             ? "Retry it after switching the playlist to No filter, or pick a lower quality cap."
                             : "Retry them after switching the playlist to No filter, or pick a lower quality cap.")

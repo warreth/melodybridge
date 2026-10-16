@@ -59,6 +59,15 @@
     color: var(--muted);
 }
 
+/* One fact per line-fragment: a value like "last scan 2026-10-16 03:27"
+   never splits mid-value on a narrow card. */
+.location-meta span {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .location-actions {
     margin-left: auto;
     flex-shrink: 0;

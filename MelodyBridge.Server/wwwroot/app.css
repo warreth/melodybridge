@@ -1489,7 +1489,8 @@ td.file-path {
     max-width: 30rem;
     padding: 1.1rem 1.25rem;
     border-radius: var(--radius);
-    background: var(--surface);
+    /* Opaque: the translucent surface let the page ghost through the copy. */
+    background: var(--surface-2);
     border: 1px solid var(--border);
     box-shadow: var(--shadow-lg, 0 10px 30px rgba(0,0,0,.4));
     pointer-events: auto;
@@ -1693,7 +1694,7 @@ input[type="file"].btn-modern::file-selector-button {
 /* Denser cells: the row action buttons need the width more than the
    cells need the padding. */
 .track-table td, .track-table th { padding-left: .5rem; padding-right: .5rem; }
-.track-table .track-actions .btn-modern { padding: .3rem .5rem; }
+.track-table .track-actions .btn-modern { padding: .3rem .45rem; }
 
 /* Numeric columns hug their numbers, headers included. */
 .track-table th.num, .track-table td.num { text-align: right; }
