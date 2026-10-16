@@ -5,9 +5,22 @@ window.melody = (() => {
     // Palettes shipped in app.css; anything else falls back to teal.
     const ACCENTS = ['teal', 'blue', 'violet', 'rose', 'amber'];
 
-    function setTheme(theme) {
+    function applyTheme(theme) {
         document.documentElement.setAttribute('data-theme', theme);
+    }
+
+    function setTheme(theme) {
+        applyTheme(theme);
         try { localStorage.setItem(THEME_KEY, theme); } catch { /* private mode */ }
+    }
+
+    // The theme to start with when the visitor never picked one: the
+    // browser's own preference. Light stays the fallback when the media
+    // query is unavailable.
+    function preferredTheme() {
+        try {
+            return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+        } catch { return 'light'; }
     }
 
     // Swap the accent palette by setting data-accent on the html element;
@@ -24,7 +37,9 @@ window.melody = (() => {
         let savedAccent = null;
         try { saved = localStorage.getItem(THEME_KEY); } catch { /* ignore */ }
         try { savedAccent = localStorage.getItem(ACCENT_KEY); } catch { /* ignore */ }
-        setTheme(saved === 'light' ? 'light' : 'dark');
+        // A stored choice wins; otherwise follow the browser and do not
+        // store that: a visitor who never toggled keeps following it.
+        applyTheme(saved === 'light' || saved === 'dark' ? saved : preferredTheme());
         setAccent(savedAccent || 'teal');
     }
 
@@ -40,7 +55,11 @@ window.melody = (() => {
     function getTheme() {
         const attr = document.documentElement.getAttribute('data-theme');
         if (attr === 'light' || attr === 'dark') return attr;
-        try { return localStorage.getItem(THEME_KEY) === 'light' ? 'light' : 'dark'; } catch { return 'dark'; }
+        try {
+            const stored = localStorage.getItem(THEME_KEY);
+            if (stored === 'light' || stored === 'dark') return stored;
+        } catch { /* ignore */ }
+        return preferredTheme();
     }
 
     // Position the tour spotlight over an element and scroll it into view.

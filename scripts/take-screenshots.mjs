@@ -5,11 +5,11 @@
 //   node scripts/take-screenshots.mjs [base-url] [--theme=light|dark|both] [--out=dir]
 //
 // Defaults: base http://127.0.0.1:3333, both themes, docs/public/screens.
-// The app defaults to the dark theme; light is a stored choice
-// (localStorage mb-theme=light), so each theme pass seeds that storage
-// before navigating. On load the app auto-focuses the page heading,
-// which leaves a focused-outline "selected text bar" in shots; every
-// page is clicked at (10,10) first to move focus back to the body.
+// The app follows the browser's preferred scheme when nothing is stored,
+// so each theme pass seeds localStorage mb-theme before navigating. On
+// load the app auto-focuses the page heading, which leaves a
+// focused-outline "selected text bar" in shots; every page is clicked at
+// (10,10) first to move focus back to the body.
 //
 // Playwright comes from the npx cache, so no project dependency grows.
 // On a host where that cache sits elsewhere (or Playwright is installed
