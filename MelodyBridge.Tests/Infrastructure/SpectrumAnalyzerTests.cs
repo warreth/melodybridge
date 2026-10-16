@@ -244,17 +244,22 @@ public class SpectrumAnalyzerTests
     // ---- band-limited content: honest, not mislabelled -----------------
 
     [Test]
-    public void Verify_GentleRolloff_IsNotInflated()
+    public void Verify_MildLowpass_StaysAtFullClass()
     {
         RequireFfmpeg();
-        // A one-pole lowpass fades gently; that is content, not a codec.
-        var file = Make($"-f lavfi -i \"{Pink}\" -af lowpass=f=11000:poles=1 -b:a 320k", "gentle.mp3");
+        // A one-pole lowpass barely moves the measured high end: the codec's
+        // own corner near 20 kHz still dominates, so the file stays class 320
+        // and is not inflated. The gentle-fade case, where the measured high
+        // end really is low, is covered by
+        // Verify_MusicLikeSoftHighEnd_HasNoCodecCutoff.
+        var file = Make($"-f lavfi -i \"{Pink}\" -af lowpass=f=11000:poles=1 -b:a 320k", "mild-lp.mp3");
 
         var result = SpectrumAnalyzer.Verify(file, SpectrumMode.Thorough);
 
         Assert.That(result, Is.Not.Null);
-        Assert.That(result!.LooksInflated, Is.False,
-            $"a gentle fade must not be called a codec cutoff: {result.Note}");
+        Assert.That(result!.EffectiveKbpsClass, Is.EqualTo(320),
+            "a mild lowpass must not drag the measured class down");
+        Assert.That(result.LooksInflated, Is.False);
     }
 
     [Test]
