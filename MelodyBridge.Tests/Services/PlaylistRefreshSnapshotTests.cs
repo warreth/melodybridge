@@ -81,7 +81,6 @@ public class PlaylistRefreshSnapshotTests
                 TrackCount = DeclaredTrackCount,
             });
 
-        public Task<string?> ResolveTrackUrlAsync(string query) => Task.FromResult<string?>(null);
     }
 
     [Test]

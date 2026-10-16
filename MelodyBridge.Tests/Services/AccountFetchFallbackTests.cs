@@ -63,7 +63,6 @@ public class AccountFetchFallbackTests
             });
         }
 
-        public Task<string?> ResolveTrackUrlAsync(string query) => Task.FromResult<string?>(null);
     }
 
     /// <summary>Connected account that returns nothing or throws on demand.</summary>

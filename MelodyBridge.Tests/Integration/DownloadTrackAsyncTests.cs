@@ -100,7 +100,6 @@ public class DownloadTrackAsyncTests
         public Platform Platform => Platform.Spotify;
         public bool CanHandle(string sourceIdentifier) => sourceIdentifier.Contains("stub:");
         public Task<Playlist> GetPlaylistAsync(string sourceIdentifier) => throw new NotImplementedException();
-        public Task<string?> ResolveTrackUrlAsync(string query) => Task.FromResult<string?>(null);
     }
 
     private sealed class StubRegistry : IDownloaderRegistry

@@ -77,7 +77,6 @@ public class PlaylistStoreSyncModeTests
             });
         }
 
-        public Task<string?> ResolveTrackUrlAsync(string query) => Task.FromResult<string?>(null);
     }
 
     [Test]

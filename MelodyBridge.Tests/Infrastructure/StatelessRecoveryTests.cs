@@ -86,7 +86,6 @@ public class StatelessRecoveryTests
                     SourcePlatform = Platform.Spotify,
                 }).ToList(),
             });
-        public Task<string?> ResolveTrackUrlAsync(string query) => Task.FromResult<string?>(null);
     }
 
     private TestSqliteFactory NewFactory()

@@ -27,8 +27,10 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<MelodyBridge.Infrastructure.Files.HardLinkService>();
 
         // ── Downloader plugins (the waterfall) ──
-        // SoundCloud first (original uploads, often 320 kbps), then the Internet
-        // Archive (public MP3s), YouTube last as the widest fallback.
+        // The default order: the fast free sources first (SoundCloud, the
+        // Internet Archive), YouTube as the widest lossy fallback, then the
+        // quality-capable sources (Monochrome, Soulseek), and the community
+        // mirrors last (DoubleDouble best-effort, Lucida needs a solver).
         services.AddSingleton<IDownloader>(sp =>
             new SoundCloudDownloader(sp.GetRequiredService<ILogger<SoundCloudDownloader>>()));
         services.AddSingleton<IDownloader>(sp =>
@@ -44,6 +46,33 @@ public static class ServiceCollectionExtensions
             c.Timeout = TimeSpan.FromMinutes(5);
         });
 
+        // Monochrome streams lossless FLAC from its official API; the
+        // client allows long transfers, the plugin caps each call itself.
+        services.AddHttpClient("monochrome", c => c.Timeout = TimeSpan.FromMinutes(10));
+        services.AddSingleton<IDownloader>(sp =>
+            new MonochromeDownloader(
+                sp.GetRequiredService<IHttpClientFactory>().CreateClient("monochrome"),
+                sp.GetRequiredService<IPluginConfig>(),
+                sp.GetRequiredService<ILogger<MonochromeDownloader>>()));
+
+        // Soulseek through the user's own slskd instance: lossless and
+        // high-bitrate files, no cloud dependency. Unavailable (and
+        // skipped) until a URL, API key and downloads folder are set.
+        services.AddHttpClient("slskd", c => c.Timeout = TimeSpan.FromMinutes(2));
+        services.AddSingleton<IDownloader>(sp =>
+            new SlskdDownloader(
+                sp.GetRequiredService<IHttpClientFactory>().CreateClient("slskd"),
+                sp.GetRequiredService<IPluginConfig>(),
+                sp.GetRequiredService<ILogger<SlskdDownloader>>()));
+
+        // DoubleDouble rips many services by direct URL (submit + poll, no
+        // metadata search: the frontend search is captcha-gated).
+        services.AddHttpClient("doubledouble", c => c.Timeout = TimeSpan.FromMinutes(3));
+        services.AddSingleton<IDownloader>(sp =>
+            new DoubleDoubleDownloader(
+                sp.GetRequiredService<IHttpClientFactory>().CreateClient("doubledouble"),
+                sp.GetRequiredService<ILogger<DoubleDoubleDownloader>>()));
+
         // Cloudflare solver shared by challenge-gated plugins (Lucida).
         services.AddHttpClient("flaresolverr", c => c.Timeout = TimeSpan.FromMinutes(2));
         services.AddOptions<FlareSolverrOptions>();
@@ -58,44 +87,6 @@ public static class ServiceCollectionExtensions
                 sp.GetRequiredService<IHttpClientFactory>().CreateClient("lucida"),
                 sp.GetRequiredService<IChallengeSolver>(),
                 sp.GetRequiredService<ILogger<LucidaDownloader>>()));
-
-        // Community Hi-Fi rips: Monochrome mirrors TIDAL (search + manifest),
-        // DoubleDouble rips many services by direct URL (submit + poll, no
-        // metadata search: the frontend search is captcha-gated). The
-        // Monochrome client allows long manifest transfers; the plugin caps
-        // each API call with its own short timeout.
-        // Monochrome streams lossless FLAC from its official API; the
-        // client allows long transfers, the plugin caps each call itself.
-        services.AddHttpClient("monochrome", c => c.Timeout = TimeSpan.FromMinutes(10));
-        services.AddSingleton<IDownloader>(sp =>
-            new MonochromeDownloader(
-                sp.GetRequiredService<IHttpClientFactory>().CreateClient("monochrome"),
-                sp.GetRequiredService<IPluginConfig>(),
-                sp.GetRequiredService<ILogger<MonochromeDownloader>>()));
-        // Soulseek through the user's own slskd instance: lossless and
-        // high-bitrate files, no cloud dependency. Unavailable (and
-        // skipped) until a URL, API key and downloads folder are set.
-        services.AddHttpClient("slskd", c => c.Timeout = TimeSpan.FromMinutes(2));
-        services.AddSingleton<IDownloader>(sp =>
-            new SlskdDownloader(
-                sp.GetRequiredService<IHttpClientFactory>().CreateClient("slskd"),
-                sp.GetRequiredService<IPluginConfig>(),
-                sp.GetRequiredService<ILogger<SlskdDownloader>>()));
-
-        services.AddHttpClient("doubledouble", c => c.Timeout = TimeSpan.FromMinutes(3));
-        services.AddSingleton<IDownloader>(sp =>
-            new DoubleDoubleDownloader(
-                sp.GetRequiredService<IHttpClientFactory>().CreateClient("doubledouble"),
-                sp.GetRequiredService<ILogger<DoubleDoubleDownloader>>()));
-
-        // DAB Music: community Qobuz rips (dabmusic.xyz), no account
-        // needed for search or stream; flaky service, gated by a cheap
-        // availability probe.
-        services.AddHttpClient("dabmusic", c => c.Timeout = TimeSpan.FromMinutes(5));
-        services.AddSingleton<IDownloader>(sp =>
-            new DabMusicDownloader(
-                sp.GetRequiredService<IHttpClientFactory>().CreateClient("dabmusic"),
-                sp.GetRequiredService<ILogger<DabMusicDownloader>>()));
 
         // ISRC enrichment for sources that do not provide one (Spotify
         // embed scrape, YouTube, CSV imports): Deezer's public search API

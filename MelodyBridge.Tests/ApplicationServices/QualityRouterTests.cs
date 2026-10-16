@@ -294,15 +294,6 @@ public class QualityRouterTests
     }
 
     [Test]
-    public void DabMusicManifest_DeclaresItsTiers()
-    {
-        Assert.That(DabMusicDownloader.Caps.Containers,
-            Is.EqualTo(new[] { AudioFormat.Mp3, AudioFormat.Flac }));
-        Assert.That(DabMusicDownloader.Caps.SupportsLossless, Is.True);
-        AssertLossy(DabMusicDownloader.Caps, AudioFormat.Mp3, 320, 320);
-    }
-
-    [Test]
     public void LucidaManifest_IsHonestAboutBeingUncontrollable()
     {
         Assert.That(LucidaDownloader.Caps.Containers,
@@ -341,8 +332,10 @@ public class QualityRouterTests
         Assert.That(DoubleDoubleDownloader.Caps.CanServe(new DownloadQuality(AudioFormat.Flac)), Is.True);
         Assert.That(ArchiveOrgDownloader.Caps.CanServe(new DownloadQuality(AudioFormat.Mp3, MaxKbps: 96)), Is.False,
             "the 128 kbps floor is real, not a comment");
-        Assert.That(DabMusicDownloader.Caps.CanServe(new DownloadQuality(AudioFormat.Mp3, MaxKbps: 256)), Is.False,
-            "DAB serves MP3 320 only, so a 256 cap cannot be honoured");
+        Assert.That(SlskdDownloader.Caps.CanServe(new DownloadQuality(AudioFormat.Flac)), Is.True,
+            "Soulseek peers serve lossless files");
+        Assert.That(SlskdDownloader.Caps.CanServe(new DownloadQuality(AudioFormat.Opus)), Is.False,
+            "the plugin declares FLAC, MP3 and AAC, nothing else");
     }
 
     // ── Manager-level: routing is visible in the call order ──

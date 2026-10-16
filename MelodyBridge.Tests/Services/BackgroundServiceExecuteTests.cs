@@ -210,7 +210,6 @@ public class BackgroundServiceExecuteTests
             });
         }
 
-        public Task<string?> ResolveTrackUrlAsync(string query) => Task.FromResult<string?>(null);
     }
 
     /// <summary>Records what the auto-sync scheduler asks the coordinator.</summary>

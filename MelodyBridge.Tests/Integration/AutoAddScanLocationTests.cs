@@ -64,7 +64,6 @@ public class AutoAddScanLocationTests
                 },
             });
 
-        public Task<string?> ResolveTrackUrlAsync(string query) => Task.FromResult<string?>(null);
     }
 
     private sealed class EmptyRegistryStub : IDownloaderRegistry
@@ -220,6 +219,5 @@ public class AutoAddScanLocationTests
                 Tracks = new List<Track>(),
             });
 
-        public Task<string?> ResolveTrackUrlAsync(string query) => Task.FromResult<string?>(null);
     }
 }

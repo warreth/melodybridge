@@ -135,21 +135,6 @@ public partial class SpotifySourceProvider : ISourceProvider
         return playlist;
     }
 
-    public Task<string?> ResolveTrackUrlAsync(string query)
-    {
-        if (!string.IsNullOrWhiteSpace(query) &&
-            query.StartsWith("http", StringComparison.OrdinalIgnoreCase) &&
-            query.Contains("spotify.com", StringComparison.OrdinalIgnoreCase))
-        {
-            return Task.FromResult<string?>(query);
-        }
-
-        // Public page scraping cannot reliably perform Spotify search without
-        // account/API access. Downstream music providers should search by
-        // artist/title from the scraped playlist tracks instead.
-        return Task.FromResult<string?>(null);
-    }
-
     /// <summary>
     /// Basic public/user playlist URL discovery. This can optionally use
     /// Spotify:Cookie / SPOTIFY_COOKIE for accounts or pages that require a

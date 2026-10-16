@@ -334,10 +334,10 @@
     private static string? AvailabilityHint(IDownloader plugin) => plugin.Id switch
     {
         "ytdlp" or "soundcloud" => "yt-dlp is not installed or not on PATH",
-        "monochrome" => "no Monochrome mirror answered",
+        "monochrome" => "the Monochrome API did not answer",
+        "slskd" => "set the slskd URL, API key and downloads folder on this card",
         "doubledouble" => "no doubledouble.top host answered",
         "lucida" => "Cloudflare solver unavailable: set the FlareSolverr URL on the Settings page",
-        "dabmusic" => "dabmusic.xyz did not answer (community service, often down)",
         _ => null,
     };
 
@@ -377,8 +377,8 @@
         "archiveorg" => "server",
         "lucida" => "zap",
         "monochrome" => "music",
+        "slskd" => "server",
         "doubledouble" => "refresh",
-        "dabmusic" => "globe",
         _ => "music",
     };
 
@@ -433,9 +433,9 @@
         "soundcloud" => new[] { "original uploads" },
         "archiveorg" => new[] { "public-domain recordings" },
         "lucida" => new[] { "needs a FlareSolverr URL" },
-        "monochrome" => new[] { "mirror fallback" },
+        "monochrome" => new[] { "lossless", "no account" },
+        "slskd" => new[] { "lossless FLAC", "your own slskd" },
         "doubledouble" => new[] { "direct URLs only", "captcha-gated" },
-        "dabmusic" => new[] { "Qobuz HiFi", "community service" },
         _ => Array.Empty<string>(),
     };
 

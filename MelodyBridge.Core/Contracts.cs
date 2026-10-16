@@ -7,7 +7,6 @@ public interface ISourceProvider
     /// <summary>True when this provider can parse and fetch the given identifier/URL.</summary>
     bool CanHandle(string sourceIdentifier);
     Task<Playlist> GetPlaylistAsync(string sourceIdentifier);
-    Task<string?> ResolveTrackUrlAsync(string query);
 }
 
 public interface ILibraryScanner

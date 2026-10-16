@@ -23,7 +23,7 @@ public class DownloaderCompositionTests
         Assert.That(ids, Is.EqualTo(new[]
         {
             "soundcloud", "archiveorg", "ytdlp",
-            "lucida", "monochrome", "slskd", "doubledouble", "dabmusic",
+            "monochrome", "slskd", "doubledouble", "lucida",
         }), "a fresh install tries the plugins in the order AddMelodyBridge registers them");
     }
 

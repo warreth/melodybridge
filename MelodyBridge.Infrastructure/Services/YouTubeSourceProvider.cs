@@ -147,51 +147,6 @@ public class YouTubeSourceProvider : ISourceProvider
         => string.IsNullOrWhiteSpace(text) ? "no error output"
             : text.Length <= 300 ? text : text[..300] + "...";
 
-    public async Task<string?> ResolveTrackUrlAsync(string query)
-    {
-        if (query.StartsWith("http", StringComparison.OrdinalIgnoreCase))
-            return query;
-
-        // YouTube Music first (official audio uploads), plain YouTube as fallback.
-        string? stdout = null;
-        foreach (var extractor in new[] { "ytmsearch1", "ytsearch1" })
-        {
-            var (code, output, _) = await YtDlpProcess.RunAsync(new[]
-            {
-                "--flat-playlist",
-                "--dump-single-json",
-                "--no-warnings",
-                "--skip-download",
-                $"{extractor}:{query}",
-            }, TimeSpan.FromSeconds(45), CancellationToken.None);
-
-            if (code == 0 && !string.IsNullOrWhiteSpace(output))
-            {
-                stdout = output;
-                break;
-            }
-        }
-
-        if (stdout is null)
-            return null;
-
-        try
-        {
-            using var doc = JsonDocument.Parse(stdout);
-            var root = doc.RootElement;
-            var entries = root.TryGetProperty("entries", out var e) ? e : root;
-            if (entries.ValueKind == JsonValueKind.Array && entries.GetArrayLength() > 0)
-            {
-                var id = GetString(entries[0], "id");
-                if (id is not null)
-                    return $"https://www.youtube.com/watch?v={id}";
-            }
-        }
-        catch { /* malformed search result: no hit */ }
-
-        return null;
-    }
-
     /// <summary>
     /// Picks the best playlist cover from a yt-dlp --dump-single-json doc:
     /// the tallest entry of the root "thumbnails" array, else the root

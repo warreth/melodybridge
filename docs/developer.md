@@ -83,8 +83,9 @@ first choice (deleted video, geo-block) does not lose the plugin.
 
 Plugins whose catalog indexes ISRCs search by `query.Isrc` first when it
 is present and fall back to the text query when that yields no confident
-hit: Lucida (Qobuz/Amazon), DabMusic and Monochrome, whose search hits
-carry an ISRC and narrow the pool to the exact recording. YouTube,
+hit: Lucida (Qobuz/Amazon) and Monochrome, whose search hits carry an
+ISRC and narrow the pool to the exact recording, and the slskd plugin,
+which keeps files whose reference does not fit out of the race. YouTube,
 SoundCloud, Archive.org and the DoubleDouble endpoint do not index ISRCs
 and ignore the field.
 
@@ -117,7 +118,6 @@ Implement this to add a download source. Built-in plugins:
 | `DoubleDoubleDownloader` | `doubledouble` | us./eu.doubledouble.top | Submit-and-poll rips of direct track URLs (Tidal, Qobuz, Deezer, Amazon); `SearchAsync` returns null by design, the site search is captcha-gated; no quality parameter, so its manifest is uncontrollable too |
 | `SoundCloudDownloader` | `soundcloud` | SoundCloud (via yt-dlp `scsearch`) | Original uploads, often 320 kbps; top-5 ranked; rejects files under 128 kbps |
 | `ArchiveOrgDownloader` | `archiveorg` | Internet Archive (public JSON APIs) | Public-domain and community recordings; picks the matching file inside a multi-track item, not the first one; rejects files under 128 kbps |
-| `DabMusicDownloader` | `dabmusic` | dabmusic.xyz (community Qobuz rips) | FLAC up to 24/192 and MP3 320, no account needed; searches by ISRC first; community service, regularly offline, so availability is probed and cached before use |
 | `YtDlpDownloader` | `ytdlp` | YouTube (via yt-dlp) | Widest fallback; audio-only best stream, top-5 ranked by match and duration; explicit formats transcode to the requested cap |
 
 Place new implementations in `MelodyBridge.Infrastructure/Downloaders/` and register via `services.AddSingleton<IDownloader, YourPlugin>()`. Quality-gate downloads against the requested `DownloadQuality` band so bad rips never enter the library.
@@ -139,7 +139,6 @@ public interface ISourceProvider
     Platform Platform { get; }
     bool CanHandle(string sourceIdentifier);
     Task<Playlist> GetPlaylistAsync(string sourceIdentifier);
-    Task<string?> ResolveTrackUrlAsync(string query);
 }
 ```
 
@@ -201,8 +200,10 @@ Spotify's public web endpoints were checked and do not expose ISRCs:
 the embed page and the track page carry none, `get_access_token` is
 blocked (403), and the partner GraphQL API needs an internal client
 token and rotating persisted-query hashes. YouTube Music exposes no
-ISRC either (yt-dlp's info JSON has no such field), so Deezer is the
-enrichment source of record.
+ISRC either (yt-dlp's info JSON has no such field), so `IsrcResolver`
+uses Deezer's public search as the source of record, with MusicBrainz
+as a fallback when Deezer has no confident match (one request per
+second, a real User-Agent, no key).
 
 `DownloadCoordinator` runs each playlist with up to `download_max_concurrent` parallel workers (setting, default 2, clamp 1-8, Advanced page). Each run snapshots its work list (pending/failed tracks, Position order) and every track is attempted exactly once per run: a permanently failing track can no longer spin the run forever, and the visible queue plus ETA count the work still in flight. The store's claim (`DownloadTrackAsync(int)`) is still atomic, so a single-track click and a running batch never download the same track twice. Stale `in_progress` claims (crash, hard shutdown) are reset to pending at startup.
 
