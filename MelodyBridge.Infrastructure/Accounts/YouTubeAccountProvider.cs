@@ -78,13 +78,16 @@ public class YouTubeAccountProvider : IAccountSourceProvider
         var request = flow.CreateAuthorizationCodeRequest(redirectUrl);
         request.State = state;
         var url = request.Build();
-        // prompt=consent: Google then always issues a refresh token, also
-        // for repeat logins, which the quiet default would skip.
-        url = new UriBuilder(url)
-        {
-            Query = url.Query.TrimStart('?') + "&prompt=consent&access_type=offline"
-        }.Uri;
-        return url.ToString();
+        // Google's own builder already sets access_type=offline; appending
+        // it again makes Google reject the request ("OAuth 2 parameters
+        // can only have a single value: access_type"). Only prompt=consent
+        // is added: that forces a refresh token on repeat logins, which
+        // the quiet default would skip.
+        var builder = new UriBuilder(url);
+        var query = System.Web.HttpUtility.ParseQueryString(builder.Query);
+        query["prompt"] = "consent";
+        builder.Query = query.ToString();
+        return builder.Uri.ToString();
     }
 
     public virtual async Task<string> CompleteLoginAsync(

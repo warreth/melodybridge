@@ -114,8 +114,11 @@ public class AccountIndependenceTests
         Assert.That(query["response_type"], Is.EqualTo("code"));
         Assert.That(query["scope"], Is.EqualTo("https://www.googleapis.com/auth/youtube.readonly"));
         Assert.That(query["state"], Is.Not.Null.And.Length.GreaterThan(10));
-        // prompt=consent guarantees a refresh token is issued.
+        // prompt=consent guarantees a refresh token is issued, and
+        // access_type must appear once: Google answers 400 when the flow
+        // builder's offline value is appended a second time.
         Assert.That(query["prompt"], Is.EqualTo("consent"));
+        Assert.That(query["access_type"], Is.EqualTo("offline"));
     }
 
     [TearDown]

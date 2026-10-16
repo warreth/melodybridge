@@ -466,11 +466,14 @@ public class SettingsPageTests
     public async Task Settings_SaveAll_NoLongerWritesJellyfinRows()
     {
         var factory = _ctx.Services.GetRequiredService<IDbContextFactory<MelodyBridgeDbContext>>();
+        var notifications = _ctx.Services
+            .GetRequiredService<MelodyBridge.Server.Services.NotificationService>();
         var cut = _ctx.Render<Settings>();
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Save settings").Click();
 
         cut.WaitForAssertion(() =>
-            Assert.That(cut.Markup, Does.Contain("Settings saved.")), TimeSpan.FromSeconds(3));
+            Assert.That(notifications.Snapshot().Any(n => n.Message == "Settings saved."), Is.True,
+                "the save confirmation rides the shared toast stack"), TimeSpan.FromSeconds(3));
 
         using (var db = factory.CreateDbContext())
         {
@@ -482,6 +485,54 @@ public class SettingsPageTests
             Assert.That(keys, Does.Contain("music_path"),
                 "the remaining settings still save");
         }
+    }
+
+    [Test]
+    public async Task Settings_SaveAll_PersistsAccountCredentialFields()
+    {
+        var factory = _ctx.Services.GetRequiredService<IDbContextFactory<MelodyBridgeDbContext>>();
+        var cut = _ctx.Render<Settings>();
+
+        cut.Find("input[placeholder='Spotify app Client ID']").Change("zz-spotify-client");
+        cut.Find("input[placeholder='OAuth client ID']").Change("zz-youtube-client");
+        cut.Find("input[placeholder='OAuth client secret']").Change("zz-youtube-secret");
+
+        var notifications = _ctx.Services
+            .GetRequiredService<MelodyBridge.Server.Services.NotificationService>();
+        await cut.InvokeAsync(() =>
+            cut.FindAll("button").First(b => b.TextContent.Trim() == "Save settings").Click());
+
+        cut.WaitForAssertion(() =>
+            Assert.That(notifications.Snapshot().Any(n => n.Message == "Settings saved."), Is.True),
+            TimeSpan.FromSeconds(3));
+
+        using var db = factory.CreateDbContext();
+        var settings = db.DownloaderSettings.AsNoTracking().ToDictionary(s => s.Key, s => s.Value);
+        Assert.That(settings.GetValueOrDefault("account:spotify:client_id"), Is.EqualTo("zz-spotify-client"),
+            "Save settings owns every field on the page, credentials included");
+        Assert.That(settings.GetValueOrDefault("account:youtube:client_id"), Is.EqualTo("zz-youtube-client"));
+        Assert.That(settings.GetValueOrDefault("account:youtube:client_secret"), Is.EqualTo("zz-youtube-secret"));
+    }
+
+    [Test]
+    public void Settings_TabStrip_ArrowKeysMoveToTheNextTab()
+    {
+        var cut = _ctx.Render<Settings>();
+        Assert.That(cut.FindAll("button.tab-link.active").Single().TextContent.Trim(),
+            Is.EqualTo("Accounts"), "Accounts is the default tab");
+
+        cut.Find("button.tab-link.active").KeyDown(
+            new Microsoft.AspNetCore.Components.Web.KeyboardEventArgs { Key = "ArrowRight" });
+
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.FindAll("button.tab-link.active").Single().TextContent.Trim(),
+                Is.EqualTo("Media servers"), "ArrowRight selects the next tab"), TimeSpan.FromSeconds(3));
+
+        cut.Find("button.tab-link.active").KeyDown(
+            new Microsoft.AspNetCore.Components.Web.KeyboardEventArgs { Key = "ArrowLeft" });
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.FindAll("button.tab-link.active").Single().TextContent.Trim(),
+                Is.EqualTo("Accounts"), "ArrowLeft walks back"), TimeSpan.FromSeconds(3));
     }
 
     [Test]

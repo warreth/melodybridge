@@ -1764,6 +1764,47 @@ input::placeholder, textarea::placeholder { color: var(--muted-2, #8a8f98); opac
 .skeleton-cell { height: 14px; }
 .skeleton-block { display: block; }
 
+/* Profile row: name, pills and url on the left, actions right. */
+.profile-main { flex: 1; min-width: 0; }
+.profile-url {
+    display: block;
+    color: var(--muted);
+    font-size: .85rem;
+    margin-top: .15rem;
+    word-break: break-all;
+}
+
+/* Floating save bar: an edit that has not been saved follows the user. */
+.save-bar {
+    position: fixed;
+    left: calc(var(--sidebar-width) + 1.5rem);
+    bottom: 1rem;
+    z-index: 250;
+    display: flex;
+    align-items: center;
+    gap: .9rem;
+    padding: .55rem .6rem .55rem .9rem;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius);
+    background: var(--surface-2);
+    box-shadow: var(--shadow);
+}
+.save-bar .text-muted { font-size: .85rem; }
+@media (max-width: 1100px) {
+    .save-bar { left: 1rem; right: 1rem; justify-content: space-between; }
+}
+
+/* Advisory path/preset warnings: yellow, never mistaken for errors. */
+.text-warn { color: var(--warning); font-weight: 600; }
+
+/* Accounts tab pills sit inline in their card, not stretched edge to edge. */
+.account-card .pill { justify-self: start; }
+
+/* Tabs wrap on phones instead of scrolling sideways with hidden sections. */
+@media (max-width: 720px) {
+    .tab-nav { flex-wrap: wrap; }
+}
+
 /* Icon sizing inside buttons and rows keeps text alignment stable. */
 svg.icon { flex-shrink: 0; }
 

@@ -1,8 +1,12 @@
 @* Shared tab strip for pages with fragment-addressed tabs. The host
    page keeps its own tab ids and state; this component only renders
-   the strip and reports clicks. Styles live in TabStrip.razor.css so
-   the scoped bundle applies them to these buttons (a page's own
-   .razor.css cannot reach into a child component's elements). *@
+   the strip, reports clicks and moves focus with the arrow keys
+   (roving tabindex, the WAI-ARIA tabs pattern). Styles live in
+   TabStrip.razor.css so the scoped bundle applies them to these
+   buttons (a page's own .razor.css cannot reach into a child
+   component's elements). *@
+@inject IJSRuntime JS
+
 <nav class="tab-nav" role="tablist" aria-label="@AriaLabel">
     @foreach (var tab in Tabs)
     {
@@ -10,15 +14,49 @@
         <button type="button"
                 class="tab-link @(isActive ? "active" : "")"
                 role="tab"
+                tabindex="@(isActive ? 0 : -1)"
                 aria-current="@(isActive ? "tab" : null)"
                 aria-selected="@(isActive ? "true" : "false")"
-                @onclick="() => OnSelect.InvokeAsync(tab.Id)">
+                @onclick="() => OnSelect.InvokeAsync(tab.Id)"
+                @onkeydown="e => OnKeyDown(e, tab.Id)"
+                data-tab="@tab.Id">
             @tab.Label
         </button>
     }
 </nav>
 
 @code {
+    private async Task OnKeyDown(KeyboardEventArgs e, string id)
+    {
+        var index = -1;
+        for (var i = 0; i < Tabs.Count; i++)
+            if (Tabs[i].Id == id) { index = i; break; }
+        if (index < 0) return;
+
+        var next = e.Key switch
+        {
+            "ArrowRight" or "ArrowDown" => (index + 1) % Tabs.Count,
+            "ArrowLeft" or "ArrowUp" => (index - 1 + Tabs.Count) % Tabs.Count,
+            "Home" => 0,
+            "End" => Tabs.Count - 1,
+            _ => -1,
+        };
+        if (next < 0) return;
+
+        var target = Tabs[next].Id;
+        await OnSelect.InvokeAsync(target);
+        // Focus follows selection: the roving tabindex leaves the browser's
+        // focus on the old button otherwise.
+        try
+        {
+            await JS.InvokeVoidAsync("melody.focusSelector", $"[data-tab=\"{target}\"]");
+        }
+        catch (JSException)
+        {
+            // Interop unavailable (prerender, tests): selection still moves.
+        }
+    }
+
     /// <summary>One tab: a stable id (doubles as the URL fragment) and a label.</summary>
     public sealed record Tab(string Id, string Label);
 

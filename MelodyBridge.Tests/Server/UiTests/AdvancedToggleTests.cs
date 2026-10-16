@@ -127,18 +127,21 @@ public class AdvancedToggleTests
     }
 
     [Test]
-    public async Task Advanced_SavedPreview_UsesToastPreviewBox()
+    public async Task Advanced_Save_ReportsThroughTheSharedToastStack()
     {
         var cut = _ctx.Render<Advanced>();
         cut.WaitForAssertion(() =>
             Assert.That(cut.Markup, Does.Contain("Show the file column")), TimeSpan.FromSeconds(3));
 
+        var notifications = _ctx.Services
+            .GetRequiredService<MelodyBridge.Server.Services.NotificationService>();
+
         await cut.InvokeAsync(() =>
             cut.Find("section.page-title button.btn-modern").Click());
 
         cut.WaitForAssertion(() =>
-            Assert.That(cut.Find(".toast-preview"), Is.Not.Null,
-                "the save confirmation keeps its own preview box, not the global stack"),
+            Assert.That(notifications.Snapshot().Any(n => n.Message == "Settings saved."), Is.True,
+                "the save confirmation rides the shared toast stack, which dismisses itself"),
             TimeSpan.FromSeconds(3));
     }
 

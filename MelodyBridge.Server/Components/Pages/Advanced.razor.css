@@ -1,0 +1,11 @@
+/* Advanced page scoped styles: cards size to their content instead of
+   stretching to the tallest peer (which left large voids), and the
+   "SEND WHEN" block breathes like the other sections. */
+
+.advanced-grid {
+    align-items: start;
+}
+
+.ntfy-section {
+    margin-top: .9rem;
+}

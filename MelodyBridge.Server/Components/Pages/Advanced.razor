@@ -18,15 +18,18 @@
         </div>
         <p>Interface and maintenance details most people never need to touch.</p>
     </div>
-    <button class="btn-modern primary" @onclick="SaveAll">Save</button>
+    <button class="btn-modern primary" @onclick="SaveAll" disabled="@saving">@(saving ? "Saving…" : "Save")</button>
 </section>
 
-@if (!string.IsNullOrWhiteSpace(savedMessage))
+@if (dirty)
 {
-    <div class="toast-preview">@savedMessage</div>
+    <div class="save-bar">
+        <span class="text-muted">Unsaved changes</span>
+        <button class="btn-modern primary" @onclick="SaveAll" disabled="@saving">@(saving ? "Saving…" : "Save")</button>
+    </div>
 }
 
-<section class="content-grid two">
+<section class="content-grid two advanced-grid">
     <div class="panel-card">
         <div class="panel-header">
             <div>
@@ -38,14 +41,14 @@
             <div class="field-with-help">
                 <label>
                     Max simultaneous track downloads
-                    <input @bind="maxConcurrentDownloads" type="number" min="1" max="8" step="1" />
+                    <input @bind="maxConcurrentDownloads" @bind:after="MarkDirty" type="number" min="1" max="8" step="1" />
                 </label>
-                <HelpTip Path="reference#the-advanced-page" Text="How many tracks download at once. Higher finishes playlists faster but hits every source harder." />
+                <HelpTip Path="reference#the-advanced-page" Text="How many tracks download at once, between 1 and 8. Higher finishes playlists faster but hits every source harder." />
             </div>
         </div>
         <div class="toggle-with-help">
             <label class="toggle-switch wide">
-                <input type="checkbox" @bind="dedupEnabled" />
+                <input type="checkbox" @bind="dedupEnabled" @bind:after="MarkDirty" />
                 <span class="toggle-slider"></span>
                 <span>Hardlink duplicate tracks across playlists</span>
             </label>
@@ -78,7 +81,7 @@
         </div>
         <div class="toggle-with-help">
             <label class="toggle-switch wide">
-                <input type="checkbox" @bind="showFilename" />
+                <input type="checkbox" @bind="showFilename" @bind:after="MarkDirty" />
                 <span class="toggle-slider"></span>
                 <span>Show the file column on playlist tracks</span>
             </label>
@@ -98,7 +101,7 @@
             </div>
         </div>
         <label class="toggle-switch wide">
-            <input type="checkbox" @bind="logDatabaseActivity" />
+            <input type="checkbox" @bind="logDatabaseActivity" @bind:after="MarkDirty" />
             <span class="toggle-slider"></span>
             <span>Show database activity in the logs</span>
         </label>
@@ -117,12 +120,12 @@
             </div>
         </div>
         <label class="toggle-switch wide">
-            <input type="checkbox" @bind="notifyDownloads" />
+            <input type="checkbox" @bind="notifyDownloads" @bind:after="MarkDirty" />
             <span class="toggle-slider"></span>
             <span>Toast when a playlist download finishes</span>
         </label>
         <label class="toggle-switch wide">
-            <input type="checkbox" @bind="notifyFailures" />
+            <input type="checkbox" @bind="notifyFailures" @bind:after="MarkDirty" />
             <span class="toggle-slider"></span>
             <span>Toast when a track, sync job or background task fails</span>
         </label>
@@ -143,45 +146,46 @@
             </div>
         </div>
         <label class="toggle-switch wide">
-            <input type="checkbox" @bind="ntfyEnabled" />
+            <input type="checkbox" @bind="ntfyEnabled" @bind:after="MarkDirty" />
             <span class="toggle-slider"></span>
             <span>Send notifications to ntfy</span>
         </label>
         <div class="form-grid single">
             <label>
                 Topic URL
-                <input @bind="ntfyUrl" placeholder="https://ntfy.sh/melodybridge" />
+                <input @bind="ntfyUrl" @bind:after="MarkDirty" placeholder="https://ntfy.sh/melodybridge" />
             </label>
             <label>
                 Access token (optional)
-                <input type="password" @bind="ntfyToken" placeholder="tk_..." />
+                <input type="password" @bind="ntfyToken" @bind:after="MarkDirty" placeholder="tk_..." />
             </label>
         </div>
-        <span class="eyebrow">Send when</span>
+        <span class="eyebrow ntfy-section">Send when</span>
         <label class="toggle-switch wide">
-            <input type="checkbox" @bind="ntfyDownloads" />
+            <input type="checkbox" @bind="ntfyDownloads" @bind:after="MarkDirty" />
             <span class="toggle-slider"></span>
             <span>A playlist download run finishes</span>
         </label>
         <label class="toggle-switch wide">
-            <input type="checkbox" @bind="ntfyJobs" />
+            <input type="checkbox" @bind="ntfyJobs" @bind:after="MarkDirty" />
             <span class="toggle-slider"></span>
             <span>A sync job completes</span>
         </label>
         <label class="toggle-switch wide">
-            <input type="checkbox" @bind="ntfyJobFailures" />
+            <input type="checkbox" @bind="ntfyJobFailures" @bind:after="MarkDirty" />
             <span class="toggle-slider"></span>
             <span>A sync job fails</span>
         </label>
         <label class="toggle-switch wide">
-            <input type="checkbox" @bind="ntfyFailures" />
+            <input type="checkbox" @bind="ntfyFailures" @bind:after="MarkDirty" />
             <span class="toggle-slider"></span>
             <span>A background task fails (auto-sync, scan, crashed run)</span>
         </label>
         <div class="hint-box">
             The message goes to the server you enter here, including track
             names. A protected topic needs its access token. The categories
-            are independent of the toast toggles above.
+            are independent of the toast toggles above. The test button uses
+            the values as typed; press Save to keep them.
         </div>
         <div class="flex-actions">
             <button class="btn-modern" disabled="@testingNtfy" @onclick="TestNtfy">
@@ -232,7 +236,10 @@
     private string? ntfyTestResult;
     private bool logDatabaseActivity;
     private bool recomputing;
-    private string? savedMessage;
+
+    // Unsaved-changes state for the floating save bar.
+    private bool dirty;
+    private bool saving;
 
     protected override async Task OnInitializedAsync()
     {
@@ -254,18 +261,37 @@
 
     private async Task SaveAll()
     {
-        await Settings.SetAsync("download_max_concurrent", Math.Clamp(maxConcurrentDownloads, 1, 8).ToString());
-        await Settings.SetAsync("show_filename", showFilename ? "true" : "false");
-        await Settings.SetAsync(PlaylistStore.DedupSettingKey, dedupEnabled ? "true" : "false");
-        await Settings.SetAsync("notify_downloads", notifyDownloads ? "true" : "false");
-        await Settings.SetAsync("notify_failures", notifyFailures ? "true" : "false");
-        await SaveNtfyAsync();
-        await Settings.SetAsync(DatabaseLogSwitch.SettingKey, logDatabaseActivity ? "true" : "false");
-        // Applies immediately, no restart: the log pipeline reads the
-        // switch on every entry.
-        DatabaseLogSwitch.Set(logDatabaseActivity);
-        savedMessage = "Saved.";
+        saving = true;
+        try
+        {
+            // Out-of-range input is shown as stored, never silently clamped:
+            // typing 20 and reading 8 back after a reload felt like a lie.
+            var clamped = Math.Clamp(maxConcurrentDownloads, 1, 8);
+            var wasClamped = clamped != maxConcurrentDownloads;
+            maxConcurrentDownloads = clamped;
+            await Settings.SetAsync("download_max_concurrent", clamped.ToString());
+            await Settings.SetAsync("show_filename", showFilename ? "true" : "false");
+            await Settings.SetAsync(PlaylistStore.DedupSettingKey, dedupEnabled ? "true" : "false");
+            await Settings.SetAsync("notify_downloads", notifyDownloads ? "true" : "false");
+            await Settings.SetAsync("notify_failures", notifyFailures ? "true" : "false");
+            await SaveNtfyAsync();
+            await Settings.SetAsync(DatabaseLogSwitch.SettingKey, logDatabaseActivity ? "true" : "false");
+            // Applies immediately, no restart: the log pipeline reads the
+            // switch on every entry.
+            DatabaseLogSwitch.Set(logDatabaseActivity);
+            dirty = false;
+            Notifications.Success(wasClamped
+                ? $"Saved. Concurrency is limited to 1-8, so it is set to {clamped}."
+                : "Settings saved.");
+        }
+        finally
+        {
+            saving = false;
+        }
     }
+
+    /// <summary>An edit landed: the floating save bar appears.</summary>
+    private void MarkDirty() => dirty = true;
 
     /// <summary>Persists the ntfy block; a test send saves first so it tests what is on screen.</summary>
     private async Task SaveNtfyAsync()
@@ -279,15 +305,16 @@
         await Settings.SetAsync(NtfyNotifier.SettingKeyFor(NotificationCategories.Failures), ntfyFailures ? "true" : "false");
     }
 
-    /// <summary>Sends a test message with the typed values; the enable toggle is not required.</summary>
+    /// <summary>Sends a test message with the typed values; nothing is persisted
+    /// (the save bar still shows the unsaved edit), the enable toggle is not required.</summary>
     private async Task TestNtfy()
     {
         testingNtfy = true;
         ntfyTestResult = null;
         try
         {
-            await SaveNtfyAsync();
-            ntfyTestResult = await Ntfy.TestAsync(ntfyUrl.Trim(), ntfyToken.Trim()) ?? "Sent.";
+            var failure = await Ntfy.TestAsync(ntfyUrl.Trim(), ntfyToken.Trim());
+            ntfyTestResult = failure is null ? "Test sent." : $"Test failed: {failure}";
         }
         finally
         {

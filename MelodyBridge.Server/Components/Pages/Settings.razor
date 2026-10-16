@@ -37,9 +37,12 @@
 <TabStrip Tabs="TabStripTabs" ActiveId="@activeTab"
            OnSelect="SelectTab" AriaLabel="Settings sections" />
 
-@if (!string.IsNullOrWhiteSpace(savedMessage))
+@if (dirty)
 {
-    <div class="toast-preview">@savedMessage</div>
+    <div class="save-bar">
+        <span class="text-muted">Unsaved changes</span>
+        <button class="btn-modern primary" @onclick="SaveAll" disabled="@saving">@(saving ? "Saving…" : "Save settings")</button>
+    </div>
 }
 
 @if (activeTab == "accounts")
@@ -86,7 +89,10 @@
                                 <code>@SpotifyRedirectUrl</code>
                                 <div class="flex-actions">
                                     <button class="btn-modern ghost small" type="button" @onclick="CopySpotifyRedirect">Copy</button>
-                                    <span class="text-muted">@copyHint</span>
+                                    @if (copyHintFor == "spotify")
+                                    {
+                                        <span class="text-muted">@copyHint</span>
+                                    }
                                 </div>
                             </div>
                         </li>
@@ -102,7 +108,7 @@
                     </p>
                     <label>
                         Client ID (from developer.spotify.com)
-                        <input @bind="spotifyClientId" placeholder="Spotify app Client ID" />
+                        <input @bind="spotifyClientId" @bind:after="MarkDirty" placeholder="Spotify app Client ID" />
                     </label>
                     <button class="btn-modern primary" @onclick="ConnectSpotify">Connect Spotify</button>
                 }
@@ -133,7 +139,10 @@
                                 <code>@YouTubeRedirectUrl</code>
                                 <div class="flex-actions">
                                     <button class="btn-modern ghost small" type="button" @onclick="CopyYouTubeRedirect">Copy</button>
-                                    <span class="text-muted">@copyHint</span>
+                                    @if (copyHintFor == "youtube")
+                                    {
+                                        <span class="text-muted">@copyHint</span>
+                                    }
                                 </div>
                             </div>
                         </li>
@@ -150,23 +159,19 @@
                     </p>
                     <label>
                         Client ID (Google Cloud Console, OAuth Web application)
-                        <input @bind="youtubeClientId" placeholder="OAuth client ID" />
+                        <input @bind="youtubeClientId" @bind:after="MarkDirty" placeholder="OAuth client ID" />
                     </label>
                     <label>
                         Client secret
-                        <input @bind="youtubeClientSecret" type="password" placeholder="OAuth client secret" />
+                        <input @bind="youtubeClientSecret" @bind:after="MarkDirty" type="password" placeholder="OAuth client secret" />
                     </label>
                     <button class="btn-modern primary" @onclick="ConnectYouTube">Connect YouTube</button>
                 }
             </div>
         </div>
-        @if (accountMessage is not null)
-        {
-            <div class="toast-preview">@accountMessage</div>
-        }
     </section>
 }
-else if (activeTab == "connections")
+else if (activeTab == "media-servers")
 {
     <section class="panel-card">
         <div class="panel-header">
@@ -200,7 +205,7 @@ else if (activeTab == "connections")
                 @foreach (var profile in profiles)
                 {
                     <div class="profile-row">
-                        <div style="flex:1; min-width:0;">
+                        <div class="profile-main">
                             <strong>@profile.Name</strong>
                             <StatusPill Variant="neutral">@profile.Kind</StatusPill>
                             @if (IsAppDefault(profile))
@@ -211,7 +216,7 @@ else if (activeTab == "connections")
                             {
                                 <StatusPill Variant="@(st == "ok" ? "ok" : "err")">@(st == "ok" ? "connected" : "not connected")</StatusPill>
                             }
-                            <div class="text-muted" style="font-size:.85rem">@profile.BaseUrl</div>
+                            <span class="profile-url">@profile.BaseUrl</span>
                         </div>
                         <div class="flex-actions">
                             <button class="btn-modern ghost small" @onclick="() => EditProfile(profile)">Edit</button>
@@ -232,7 +237,7 @@ else if (activeTab == "connections")
         <ConfirmDialog Show="true"
                        Eyebrow="Delete profile"
                        Title=@($"Delete '{deleteProfileName}'?")
-                       Message="Sync jobs that use this profile need a new server picked in their settings."
+                       Message="Sync jobs that use this profile need a new server picked in their settings. If it is the app default, the default is cleared too."
                        ConfirmLabel="Delete profile"
                        OnConfirm=@(() => DeleteProfile(doomedProfileId))
                        OnCancel="CancelDeleteProfile" />
@@ -248,7 +253,7 @@ else if (activeTab == "connections")
                 </div>
             </div>
             <div class="form-grid single">
-                <label>Name <input @bind="editingProfile.Name" placeholder="Living room Jellyfin" /></label>
+                <label>Name (required) <input @bind="editingProfile.Name" placeholder="Living room Jellyfin" /></label>
                 <label>Kind
                     <select @bind="editingProfile.Kind">
                         <option value="Jellyfin">Jellyfin</option>
@@ -256,7 +261,7 @@ else if (activeTab == "connections")
                         <option value="Navidrome">Navidrome</option>
                     </select>
                 </label>
-                <label>Base URL <input @bind="editingProfile.BaseUrl"
+                <label>Base URL (required) <input @bind="editingProfile.BaseUrl"
                        placeholder="@(editingProfile.Kind == "Plex" ? "http://plex:32400" : editingProfile.Kind == "Navidrome" ? "http://navidrome:4533" : "http://jellyfin:8096")" /></label>
                 @if (editingProfile.Kind == "Navidrome")
                 {
@@ -284,6 +289,10 @@ else if (activeTab == "connections")
             <div class="flex-actions">
                 <button class="btn-modern ghost" @onclick="CancelProfileEdit">Cancel</button>
                 <button class="btn-modern primary" @onclick="SaveProfile">Save profile</button>
+                @if (profileError is { Length: > 0 })
+                {
+                    <span class="validation-message">@profileError</span>
+                }
             </div>
         </section>
     }
@@ -300,8 +309,22 @@ else if (activeTab == "paths")
             </div>
         </div>
         <div class="form-grid single">
-            <label>Music path <input @bind="musicPath" /></label>
-            <label>Playlist output folder <input @bind="playlistPath" /></label>
+            <label>
+                Music path
+                <input @bind="musicPath" @bind:after="ValidatePaths" />
+                @if (musicPathWarning is { Length: > 0 })
+                {
+                    <small class="text-warn">@musicPathWarning</small>
+                }
+            </label>
+            <label>
+                Playlist output folder
+                <input @bind="playlistPath" @bind:after="ValidatePaths" />
+                @if (playlistPathWarning is { Length: > 0 })
+                {
+                    <small class="text-warn">@playlistPathWarning</small>
+                }
+            </label>
         </div>
         <div class="panel-header">
             <div>
@@ -320,12 +343,16 @@ else if (activeTab == "paths")
         <div class="form-grid single">
             <label>
                 Archive path
-                <input @bind="archivePath" placeholder="/archive-music" />
+                <input @bind="archivePath" @bind:after="ValidatePaths" placeholder="/archive-music" />
+                @if (archivePathWarning is { Length: > 0 })
+                {
+                    <small class="text-warn">@archivePathWarning</small>
+                }
                 <small class="text-muted">Leave empty for no archive copy. Playlists can set their own path on their page.</small>
             </label>
             <label>
                 Archive format
-                <select @bind="archiveFormat">
+                <select @bind="archiveFormat" @bind:after="MarkDirty">
                     <option value="auto">Auto: copy the downloaded file as-is</option>
                     <option value="opus">Opus: small and efficient (128k)</option>
                     <option value="flac">FLAC: lossless (level 5)</option>
@@ -358,7 +385,7 @@ else if (activeTab == "quality")
             New playlists start with this setting. Every playlist can override
             it on its own page.
         </div>
-        <QualityPicker @bind-Value="defaultQuality" />
+        <QualityPicker @bind-Value="defaultQuality" @bind-Value:after="MarkDirty" />
         <div class="panel-header">
             <div>
                 <span class="eyebrow">Verification</span>
@@ -376,7 +403,7 @@ else if (activeTab == "quality")
         <div class="form-grid single">
             <label>
                 Spectrum check
-                <select @bind="spectrumMode">
+                <select @bind="spectrumMode" @bind:after="MarkDirty">
                     <option value="Off">Off: trust the file</option>
                     <option value="Fast">Fast: check the first minute (recommended)</option>
                     <option value="Thorough">Thorough: check the whole file</option>
@@ -396,8 +423,8 @@ else if (activeTab == "network")
                     <HelpTip Path="lucida" Text="auto finds the solver container on the Docker network; off disables the Lucida plugin." />
                 </div>
             </div>
-            <StatusPill Variant="@(flareStatus is "ok" ? "ok" : flareStatus is null ? "neutral" : "err")">
-                @(flareStatus is null ? "not tested" : flareStatus is "ok" ? "reachable" : "unreachable")
+            <StatusPill Variant="@(flareStatus is "ok" ? "ok" : flareStatus is null or "off" ? "neutral" : "err")">
+                @(flareStatus is null ? "not tested" : flareStatus is "ok" ? "reachable" : flareStatus is "off" ? "off" : "unreachable")
             </StatusPill>
         </div>
         <div class="hint-box">
@@ -410,7 +437,7 @@ else if (activeTab == "network")
         <div class="form-grid single">
             <label>
                 FlareSolverr URL
-                <input @bind="flaresolverrUrl" placeholder="auto, http://flaresolverr:8191 or off" />
+                <input @bind="flaresolverrUrl" @bind:after="MarkDirty" placeholder="auto, http://flaresolverr:8191 or off" />
             </label>
         </div>
         <div class="flex-actions">
@@ -441,7 +468,7 @@ else if (activeTab == "network")
         <div class="form-grid single">
             <label>
                 Spotify cookie (optional)
-                <input @bind="spotifyCookie" placeholder="sp_dc=..." />
+                <input @bind="spotifyCookie" @bind:after="MarkDirty" type="password" placeholder="sp_dc=..." />
             </label>
         </div>
     </section>
@@ -484,6 +511,7 @@ else if (activeTab == "about")
         </div>
         <div class="flex-actions">
             <button class="btn-modern ghost" @onclick="RestartTour">Show the guided tour again</button>
+            <button class="btn-modern ghost" @onclick="RestartChecklist">Show the setup checklist again</button>
         </div>
     </section>
 
@@ -562,7 +590,7 @@ else if (activeTab == "about")
     private static readonly (string Id, string Label)[] Tabs =
     [
         ("accounts", "Accounts"),
-        ("connections", "Media servers"),
+        ("media-servers", "Media servers"),
         ("paths", "Default paths"),
         ("quality", "Quality"),
         ("network", "Network"),
@@ -605,7 +633,15 @@ else if (activeTab == "about")
     private string? flareStatus;
     private string flareMessage = string.Empty;
     private bool testingFlare;
-    private string? savedMessage;
+
+    // Inline path checks: advisory, they never block a save.
+    private string musicPathWarning = string.Empty;
+    private string playlistPathWarning = string.Empty;
+    private string archivePathWarning = string.Empty;
+
+    // Unsaved-changes state for the floating save bar.
+    private bool dirty;
+    private bool saving;
 
     // Connections tab
     private List<MediaServerProfile> profiles = [];
@@ -631,10 +667,13 @@ else if (activeTab == "about")
 
     protected override async Task OnInitializedAsync()
     {
-        // /settings#accounts, #connections, ... opens that tab directly:
+        // /settings#accounts, #media-servers, ... opens that tab directly:
         // the auth callback and the dashboard link here with a fragment.
+        // Old links to #connections keep working.
         var fragment = Nav.ToAbsoluteUri(Nav.Uri).Fragment.TrimStart('#');
+        if (fragment == "connections") fragment = "media-servers";
         if (Tabs.Any(t => t.Id == fragment)) activeTab = fragment;
+        Nav.LocationChanged += OnLocationChanged;
 
         profiles = (await ServerProfiles.GetAllAsync()).ToList();
 
@@ -684,12 +723,17 @@ else if (activeTab == "about")
 
     private bool _spotifyConnected;
     private bool _youtubeConnected;
-    private string? accountMessage;
     private string spotifyClientId = string.Empty;
     private string spotifyCookie = string.Empty;
     private string youtubeClientId = string.Empty;
     private string youtubeClientSecret = string.Empty;
+
+    /// <summary>Which copy button last reported, so only its own hint says Copied.</summary>
+    private string? copyHintFor;
     private string copyHint = string.Empty;
+
+    /// <summary>Inline error for the profile form, next to the fields it belongs to.</summary>
+    private string? profileError;
 
     /// <summary>The redirect URI for one provider, as registered in its
     /// app settings. The provider marker tells the callback page which
@@ -714,27 +758,40 @@ else if (activeTab == "about")
         return builder.Uri.ToString();
     }
 
-    private async Task CopyRedirectToClipboard(string uri)
+    private async Task CopyRedirectToClipboard(string provider, string uri)
     {
         try
         {
             await JS.InvokeVoidAsync("navigator.clipboard.writeText", uri);
+            copyHintFor = provider;
             copyHint = "Copied";
         }
         catch (JSException)
         {
+            copyHintFor = provider;
             copyHint = "Copy failed: select it manually";
         }
+        // The hint belongs to the button that was used and fades quickly.
+        var providerAtClick = provider;
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(2500);
+            if (copyHintFor == providerAtClick)
+            {
+                copyHintFor = null;
+                copyHint = string.Empty;
+                await InvokeAsync(StateHasChanged);
+            }
+        });
     }
 
-    private Task CopySpotifyRedirect() => CopyRedirectToClipboard(SpotifyRedirectUrl);
-    private Task CopyYouTubeRedirect() => CopyRedirectToClipboard(YouTubeRedirectUrl);
+    private Task CopySpotifyRedirect() => CopyRedirectToClipboard("spotify", SpotifyRedirectUrl);
+    private Task CopyYouTubeRedirect() => CopyRedirectToClipboard("youtube", YouTubeRedirectUrl);
 
     private async Task Connect(IAccountSourceProvider provider, string redirectUrl, string? clientId = null)
     {
         try
         {
-            accountMessage = null;
             if (clientId is not null)
             {
                 // The typed client id is saved first: BeginLogin needs it.
@@ -752,7 +809,7 @@ else if (activeTab == "about")
         }
         catch (Exception ex)
         {
-            accountMessage = ex.Message;
+            Notifications.Error(ex.Message);
         }
     }
 
@@ -762,7 +819,7 @@ else if (activeTab == "about")
     {
         if (youtubeClientId.Trim().Length == 0 || youtubeClientSecret.Trim().Length == 0)
         {
-            accountMessage = "Paste both the YouTube client id and secret first.";
+            Notifications.Warn("Paste both the YouTube client id and secret first.");
             return;
         }
         await YouTubeAccount.SaveSettingAsync("client_id", youtubeClientId.Trim());
@@ -775,7 +832,7 @@ else if (activeTab == "about")
         await provider.LogoutAsync();
         _spotifyConnected = await SpotifyAccount.IsConnectedAsync();
         _youtubeConnected = await YouTubeAccount.IsConnectedAsync();
-        accountMessage = "Account disconnected";
+        Notifications.Info("Account disconnected");
     }
 
     private static string FindSetting(List<DownloaderSettingEntity> settings, string key, string fallback)
@@ -842,20 +899,67 @@ else if (activeTab == "about")
 
     private async Task SaveAll()
     {
-        await using var db = await DbFactory.CreateDbContextAsync();
-        await Upsert(db, "music_path", musicPath);
-        await Upsert(db, "playlist_path", playlistPath);
-        await Upsert(db, "archive_path", archivePath);
-        await Upsert(db, "archive_format", archiveFormat);
-        await Upsert(db, "default_quality", defaultQuality);
-        await Upsert(db, "spectrum_mode", spectrumMode);
-        await Upsert(db, "flaresolverr_url", flaresolverrUrl);
-        await Upsert(db, "spotify_cookie", spotifyCookie);
-        await db.SaveChangesAsync();
-        PlaylistStore.SpectrumVerification = () => SpectrumModeValue(spectrumMode);
-        FlareSolverrSolver.Url = flaresolverrUrl;
-        MelodyBridge.Infrastructure.Services.SpotifySourceProvider.WebCookie = spotifyCookie;
-        savedMessage = "Settings saved.";
+        saving = true;
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            await Upsert(db, "music_path", musicPath);
+            await Upsert(db, "playlist_path", playlistPath);
+            await Upsert(db, "archive_path", archivePath);
+            await Upsert(db, "archive_format", archiveFormat);
+            await Upsert(db, "default_quality", defaultQuality);
+            await Upsert(db, "spectrum_mode", spectrumMode);
+            await Upsert(db, "flaresolverr_url", flaresolverrUrl);
+            await Upsert(db, "spotify_cookie", spotifyCookie);
+            await db.SaveChangesAsync();
+            PlaylistStore.SpectrumVerification = () => SpectrumModeValue(spectrumMode);
+            FlareSolverrSolver.Url = flaresolverrUrl;
+            MelodyBridge.Infrastructure.Services.SpotifySourceProvider.WebCookie = spotifyCookie;
+
+            // The account credential fields save here too: they are as much
+            // part of the page as the paths, and losing them silently on a
+            // reload made the Connect buttons look like the only way in.
+            await SpotifyAccount.SaveSettingAsync("client_id", spotifyClientId.Trim());
+            await YouTubeAccount.SaveSettingAsync("client_id", youtubeClientId.Trim());
+            await YouTubeAccount.SaveSettingAsync("client_secret", youtubeClientSecret.Trim());
+
+            dirty = false;
+            Notifications.Success("Settings saved.");
+        }
+        finally
+        {
+            saving = false;
+        }
+    }
+
+    /// <summary>An edit landed: the floating save bar appears.</summary>
+    private void MarkDirty() => dirty = true;
+
+    /// <summary>Advisory path checks: warnings, never a blocked save.</summary>
+    private void ValidatePaths()
+    {
+        MarkDirty();
+        musicPathWarning = musicPath.Trim().Length == 0
+            ? "New downloads need a folder here."
+            : Directory.Exists(musicPath.Trim()) ? "" : "That folder does not exist from the app's point of view.";
+        playlistPathWarning = playlistPath.Trim().Length == 0
+            ? "M3U exports need a folder here."
+            : Directory.Exists(playlistPath.Trim()) ? "" : "That folder does not exist from the app's point of view.";
+        archivePathWarning = archivePath.Trim().Length == 0 || Directory.Exists(archivePath.Trim())
+            ? ""
+            : "That folder does not exist from the app's point of view.";
+    }
+
+    /// <summary>Browser back/forward moves the fragment: keep the shown tab in step.</summary>
+    private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
+    {
+        var fragment = Nav.ToAbsoluteUri(e.Location).Fragment.TrimStart('#');
+        if (fragment == "connections") fragment = "media-servers";
+        if (Tabs.Any(t => t.Id == fragment) && fragment != activeTab)
+        {
+            activeTab = fragment;
+            _ = InvokeAsync(StateHasChanged);
+        }
     }
 
     private static async Task Upsert(MelodyBridgeDbContext db, string key, string value)
@@ -943,12 +1047,14 @@ else if (activeTab == "about")
     {
         editingProfile = new MediaServerProfile { Name = "", BaseUrl = "", Kind = "Jellyfin" };
         editingIsNew = true;
+        profileError = null;
     }
 
     private void EditProfile(MediaServerProfile profile)
     {
         editingProfile = profile.Clone();
         editingIsNew = false;
+        profileError = null;
     }
 
     /// <summary>The connect component hands over the Jellyfin session token.</summary>
@@ -964,16 +1070,21 @@ else if (activeTab == "about")
         if (string.IsNullOrWhiteSpace(editingProfile.Name)
             || string.IsNullOrWhiteSpace(editingProfile.BaseUrl))
         {
-            Notifications.Warn("Profile needs at least a name and a base URL.");
+            profileError = "A profile needs a name and a base URL.";
             return;
         }
+        profileError = null;
         await ServerProfiles.SaveAsync(editingProfile);
         profiles = (await ServerProfiles.GetAllAsync()).ToList();
         editingProfile = null;
         Notifications.Success("Profile saved.");
     }
 
-    private void CancelProfileEdit() => editingProfile = null;
+    private void CancelProfileEdit()
+    {
+        editingProfile = null;
+        profileError = null;
+    }
 
     // Delete flow: the row asks, the dialog confirms.
     private string? deleteProfileId;
@@ -1001,10 +1112,27 @@ else if (activeTab == "about")
 
     private async Task DeleteProfile(string profileId)
     {
+        var profile = profiles.FirstOrDefault(p => p.Id == profileId);
+        var wasAppDefault = profile is not null && IsAppDefault(profile);
         if (await ServerProfiles.DeleteAsync(profileId))
         {
+            // A deleted profile must not stay the app default: the stale
+            // url kept pointing at a server nobody can edit anymore.
+            if (wasAppDefault && profile is not null)
+            {
+                var (urlKey, secretKey) = KindKeys(profile.Kind);
+                await TourReset.SetAsync(urlKey, "");
+                await TourReset.SetAsync(secretKey, "");
+                if (string.Equals(profile.Kind, "Navidrome", StringComparison.OrdinalIgnoreCase))
+                    await TourReset.SetAsync("navidrome_user", "");
+                await LoadInitSettingsAsync();
+                Notifications.Warn($"Deleted '{deleteProfileName}': it was the app default, which is now cleared.");
+            }
+            else
+            {
+                Notifications.Info($"Deleted profile '{deleteProfileName}'.");
+            }
             profiles = (await ServerProfiles.GetAllAsync()).ToList();
-            Notifications.Info($"Deleted profile '{deleteProfileName}'.");
         }
         deleteProfileId = null;
     }
@@ -1029,6 +1157,12 @@ else if (activeTab == "about")
     {
         await TourReset.SetAsync("tour_dismissed", "false");
         Notifications.Success("The tour shows again on the dashboard.");
+    }
+
+    private async Task RestartChecklist()
+    {
+        await TourReset.SetAsync("intro_dismissed", "false");
+        Notifications.Success("The setup checklist shows again on the dashboard.");
     }
 
     private async Task ExportDatabase()
@@ -1066,5 +1200,5 @@ else if (activeTab == "about")
         StateHasChanged();
     }
 
-    public void Dispose() { }
+    public void Dispose() => Nav.LocationChanged -= OnLocationChanged;
 }

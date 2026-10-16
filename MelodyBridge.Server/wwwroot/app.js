@@ -76,6 +76,13 @@ window.melody = (() => {
         if (banner) banner.style.display = 'none';
     }
 
+    // Move keyboard focus to an element by selector (tab strips, arrow-key
+    // navigation). Any failure is the caller's to ignore.
+    function focusSelector(selector) {
+        const el = document.querySelector(selector);
+        if (el) el.focus();
+    }
+
     return {
         setTheme,
         setAccent,
@@ -85,6 +92,7 @@ window.melody = (() => {
         spotlight,
         hideSpotlight,
         dismissErrorUi,
+        focusSelector,
         // Trigger a browser download for exported data (playlists, logs, backups).
         downloadFile(fileName, contentType, byteArray) {
             const buffer = new Uint8Array(byteArray);
