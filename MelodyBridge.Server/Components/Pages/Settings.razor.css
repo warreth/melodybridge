@@ -112,6 +112,19 @@
 :root[data-theme="light"] .accent-rose { --swatch: #e11d48; }
 :root[data-theme="light"] .accent-amber { --swatch: #b45309; }
 
+/* The redirect URI and its Copy button share one row; the URI wraps
+   inside its own space instead of pushing the button around. */
+.redirect-row {
+    display: flex;
+    align-items: center;
+    gap: .6rem;
+    flex-wrap: wrap;
+}
+
+.redirect-row code { flex: 1 1 14rem; min-width: 0; }
+
+.redirect-row .btn-modern { margin-left: auto; }
+
 /* The title row carries the Save button and the unsaved-changes pill:
    sticky, so the save action is never a scroll trip away. */
 .page-title {

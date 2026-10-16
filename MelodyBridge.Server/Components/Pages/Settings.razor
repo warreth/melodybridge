@@ -13,6 +13,7 @@
 @inject MediaServerProfileStore ServerProfiles
 @inject SettingsStore TourReset
 @inject DatabaseBackupService DbBackup
+@inject NtfyNotifier Ntfy
 @inject UpdateCheckService UpdateCheck
 @inject NotificationService Notifications
 @inject IMediaServerDirectory JellyfinDirectory
@@ -27,9 +28,9 @@
         <span class="eyebrow">Configuration</span>
         <div class="title-with-help">
             <h1>Settings</h1>
-            <HelpTip Path="reference#settings" Text="Accounts, paths, quality and network. Power knobs live on the Advanced page." />
+            <HelpTip Path="reference#settings" Text="Accounts, paths, quality, network and notifications. Power knobs live on the Advanced page." />
         </div>
-        <p>Accounts, paths and download behaviour. Power knobs live on the Advanced page.</p>
+        <p>Accounts, paths, downloads and notifications. Power knobs live on Advanced.</p>
     </div>
     <div class="topbar-actions">
         @if (dirty)
@@ -54,117 +55,137 @@
                 </div>
             </div>
         </div>
-        <div class="hint-box">
-            Connect your accounts to import private playlists and your liked
-            songs. MelodyBridge only asks for read access: it never changes
-            anything on your account.
-        </div>
-
-        <div class="account-grid">
-            <div class="account-card">
-                <strong>Spotify</strong>
-                <StatusPill Variant="@(_spotifyConnected ? "connected" : "neutral")">
-                    @(_spotifyConnected ? "connected" : "not connected")
-                </StatusPill>
-                @if (_spotifyConnected)
-                {
-                    <button class="btn-modern subtle" @onclick="() => Logout(SpotifyAccount)">Disconnect</button>
-                }
-                else
-                {
-                    <div class="oauth-steps">
-                    <ol>
-                        <li>
-                            Open <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener">developer.spotify.com/dashboard</a>
-                            and click <em>Create app</em>. Any name works. When Spotify asks
-                            <em>which APIs you are planning to use</em>, pick <strong>Web API</strong>,
-                            not Ads API, Web Playback SDK, iOS or Android. Web API is the one that
-                            can read your playlists and liked songs.
-                        </li>
-                        <li>
-                            In the app settings (top-right <em>Settings</em>), add this exact redirect URI:
-                            <div class="hint-box">
-                                <code>@SpotifyRedirectUrl</code>
-                                <div class="flex-actions">
-                                    <button class="btn-modern ghost small" type="button" @onclick="CopySpotifyRedirect">Copy</button>
-                                    @if (copyHintFor == "spotify")
-                                    {
-                                        <span class="text-muted">@copyHint</span>
-                                    }
-                                </div>
-                            </div>
-                        </li>
-                        <li>Copy the <em>Client ID</em> from the same settings page, paste it below and click Connect.</li>
-                    </ol>
-                    </div>
-                    <p class="text-muted">
-                        New Spotify apps start in <em>development mode</em>: that is fine for
-                        personal use: you are the owner. Your Spotify account must have
-                        Premium while the app stays in development mode, and the login only
-                        works for you and anyone you explicitly allowlist in the app's
-                        Settings, then Users Management.
-                    </p>
-                    <label>
-                        Client ID (from developer.spotify.com)
-                        <input @bind="spotifyClientId" @bind:after="MarkDirty" placeholder="Spotify app Client ID" />
-                    </label>
-                    <button class="btn-modern primary" @onclick="ConnectSpotify">Connect Spotify</button>
-                }
+        <div class="card-section">
+            <div class="hint-box">
+                Connect your accounts to import private playlists and your liked
+                songs. MelodyBridge only asks for read access: it never changes
+                anything on your account.
             </div>
 
-            <div class="account-card">
-                <strong>YouTube</strong>
-                <StatusPill Variant="@(_youtubeConnected ? "connected" : "neutral")">
-                    @(_youtubeConnected ? "connected" : "not connected")
-                </StatusPill>
-                @if (_youtubeConnected)
-                {
-                    <button class="btn-modern subtle" @onclick="() => Logout(YouTubeAccount)">Disconnect</button>
-                }
-                else
-                {
-                    <div class="oauth-steps">
-                    <ol>
-                        <li>
-                            Open <a href="https://console.cloud.google.com" target="_blank" rel="noopener">console.cloud.google.com</a>,
-                            create a project, enable the <em>YouTube Data API v3</em>
-                            (APIs &amp; Services, Library), then create OAuth credentials of type
-                            <em>Web application</em> (APIs &amp; Services, Credentials).
-                        </li>
-                        <li>
-                            Add this exact redirect URI to the OAuth client:
-                            <div class="hint-box">
-                                <code>@YouTubeRedirectUrl</code>
-                                <div class="flex-actions">
-                                    <button class="btn-modern ghost small" type="button" @onclick="CopyYouTubeRedirect">Copy</button>
+            <div class="account-grid">
+                <div class="account-card">
+                    <div class="account-head">
+                        <strong>Spotify</strong>
+                        <StatusPill Variant="@(_spotifyConnected ? "connected" : "neutral")">
+                            @(_spotifyConnected ? "connected" : "not connected")
+                        </StatusPill>
+                        @if (_spotifyConnected)
+                        {
+                            <button class="btn-modern subtle small" @onclick="() => Logout(SpotifyAccount)">Disconnect</button>
+                        }
+                    </div>
+                    @if (_spotifyConnected)
+                    {
+                        <p class="account-note">
+                            Private playlists and liked songs import through this
+                            login. Disconnect to revoke it.
+                        </p>
+                    }
+                    else
+                    {
+                        <div class="oauth-steps">
+                            <ol>
+                                <li>
+                                    Open <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener">developer.spotify.com/dashboard</a>
+                                    and click <em>Create app</em>. Any name works. When Spotify asks
+                                    <em>which APIs you are planning to use</em>, pick <strong>Web API</strong>,
+                                    not Ads API, Web Playback SDK, iOS or Android. Web API is the one that
+                                    can read your playlists and liked songs.
+                                </li>
+                                <li>
+                                    In the app settings (top-right <em>Settings</em>), add this exact redirect URI:
+                                    <div class="hint-box redirect-row">
+                                        <code>@SpotifyRedirectUrl</code>
+                                        <button class="btn-modern ghost small" type="button" @onclick="CopySpotifyRedirect">Copy</button>
+                                    </div>
+                                    @if (copyHintFor == "spotify")
+                                    {
+                                        <small class="text-muted">@copyHint</small>
+                                    }
+                                </li>
+                                <li>Copy the <em>Client ID</em> from the same settings page, paste it below and click Connect.</li>
+                            </ol>
+                        </div>
+                        <p class="account-note">
+                            New Spotify apps start in <em>development mode</em>: that is fine for
+                            personal use: you are the owner. Your Spotify account must have
+                            Premium while the app stays in development mode, and the login only
+                            works for you and anyone you explicitly allowlist in the app's
+                            Settings, then Users Management.
+                        </p>
+                        <div class="account-connect">
+                            <label>
+                                Client ID (from developer.spotify.com)
+                                <input @bind="spotifyClientId" @bind:after="MarkDirty" placeholder="Spotify app Client ID" />
+                            </label>
+                            <button class="btn-modern primary" @onclick="ConnectSpotify">Connect Spotify</button>
+                        </div>
+                    }
+                </div>
+
+                <div class="account-card">
+                    <div class="account-head">
+                        <strong>YouTube</strong>
+                        <StatusPill Variant="@(_youtubeConnected ? "connected" : "neutral")">
+                            @(_youtubeConnected ? "connected" : "not connected")
+                        </StatusPill>
+                        @if (_youtubeConnected)
+                        {
+                            <button class="btn-modern subtle small" @onclick="() => Logout(YouTubeAccount)">Disconnect</button>
+                        }
+                    </div>
+                    @if (_youtubeConnected)
+                    {
+                        <p class="account-note">
+                            Private playlists and liked songs import through this
+                            login. Disconnect to revoke it.
+                        </p>
+                    }
+                    else
+                    {
+                        <div class="oauth-steps">
+                            <ol>
+                                <li>
+                                    Open <a href="https://console.cloud.google.com" target="_blank" rel="noopener">console.cloud.google.com</a>,
+                                    create a project, enable the <em>YouTube Data API v3</em>
+                                    (APIs &amp; Services, Library), then create OAuth credentials of type
+                                    <em>Web application</em> (APIs &amp; Services, Credentials).
+                                </li>
+                                <li>
+                                    Add this exact redirect URI to the OAuth client:
+                                    <div class="hint-box redirect-row">
+                                        <code>@YouTubeRedirectUrl</code>
+                                        <button class="btn-modern ghost small" type="button" @onclick="CopyYouTubeRedirect">Copy</button>
+                                    </div>
                                     @if (copyHintFor == "youtube")
                                     {
-                                        <span class="text-muted">@copyHint</span>
+                                        <small class="text-muted">@copyHint</small>
                                     }
-                                </div>
-                            </div>
-                        </li>
-                        <li>Paste the client ID and secret here and click Connect.</li>
-                    </ol>
-                    </div>
-                    <p class="text-muted">
-                        Before the first login, open the OAuth consent screen
-                        (APIs &amp; Services, OAuth consent screen) and add your own Google
-                        account as a <em>Test user</em>: unverified personal apps only work
-                        for their test users. You will see an "unverified app" warning: that
-                        is expected for a self-hosted personal app; choose
-                        <em>Continue to project</em>.
-                    </p>
-                    <label>
-                        Client ID (Google Cloud Console, OAuth Web application)
-                        <input @bind="youtubeClientId" @bind:after="MarkDirty" placeholder="OAuth client ID" />
-                    </label>
-                    <label>
-                        Client secret
-                        <input @bind="youtubeClientSecret" @bind:after="MarkDirty" type="password" placeholder="OAuth client secret" />
-                    </label>
-                    <button class="btn-modern primary" @onclick="ConnectYouTube">Connect YouTube</button>
-                }
+                                </li>
+                                <li>Paste the client ID and secret here and click Connect.</li>
+                            </ol>
+                        </div>
+                        <p class="account-note">
+                            Before the first login, open the OAuth consent screen
+                            (APIs &amp; Services, OAuth consent screen) and add your own Google
+                            account as a <em>Test user</em>: unverified personal apps only work
+                            for their test users. You will see an "unverified app" warning: that
+                            is expected for a self-hosted personal app; choose
+                            <em>Continue to project</em>.
+                        </p>
+                        <div class="account-connect">
+                            <label>
+                                Client ID (Google Cloud Console, OAuth Web application)
+                                <input @bind="youtubeClientId" @bind:after="MarkDirty" placeholder="OAuth client ID" />
+                            </label>
+                            <label>
+                                Client secret
+                                <input @bind="youtubeClientSecret" @bind:after="MarkDirty" type="password" placeholder="OAuth client secret" />
+                            </label>
+                            <button class="btn-modern primary" @onclick="ConnectYouTube">Connect YouTube</button>
+                        </div>
+                    }
+                </div>
             </div>
         </div>
     </section>
@@ -182,52 +203,54 @@ else if (activeTab == "media-servers")
             </div>
             <button class="btn-modern secondary small" @onclick="StartNewProfile">Add profile</button>
         </div>
-        <div class="hint-box">
-            Named server profiles several sync jobs can share. Marking one
-            profile as the app default feeds the liked-songs sync.
-        </div>
-        @if (migratedFromOldSettings)
-        {
+        <div class="card-section">
             <div class="hint-box">
-                Your old single-server Jellyfin settings moved into a profile
-                named "Default". Edit it here from now on.
+                Named server profiles several sync jobs can share. Marking one
+                profile as the app default feeds the liked-songs sync.
             </div>
-        }
-        @if (profiles.Count == 0)
-        {
-            <div class="empty-state">No profiles yet. Add one to reuse a server across sync jobs.</div>
-        }
-        else
-        {
-            <div class="profile-list">
-                @foreach (var profile in profiles)
-                {
-                    <div class="profile-row">
-                        <div class="profile-main">
-                            <strong>@profile.Name</strong>
-                            <StatusPill Variant="neutral">@profile.Kind</StatusPill>
-                            @if (IsAppDefault(profile))
-                            {
-                                <StatusPill Variant="ok">default</StatusPill>
-                            }
-                            @if (profileTestStatus.TryGetValue(profile.Id, out var st) && st is not null)
-                            {
-                                <StatusPill Variant="@(st == "ok" ? "ok" : "err")">@(st == "ok" ? "connected" : "not connected")</StatusPill>
-                            }
-                            <span class="profile-url">@profile.BaseUrl</span>
+            @if (migratedFromOldSettings)
+            {
+                <div class="hint-box">
+                    Your old single-server Jellyfin settings moved into a profile
+                    named "Default". Edit it here from now on.
+                </div>
+            }
+            @if (profiles.Count == 0)
+            {
+                <div class="empty-state">No profiles yet. Add one to reuse a server across sync jobs.</div>
+            }
+            else
+            {
+                <div class="profile-list">
+                    @foreach (var profile in profiles)
+                    {
+                        <div class="profile-row">
+                            <div class="profile-main">
+                                <strong>@profile.Name</strong>
+                                <StatusPill Variant="neutral">@profile.Kind</StatusPill>
+                                @if (IsAppDefault(profile))
+                                {
+                                    <StatusPill Variant="ok">default</StatusPill>
+                                }
+                                @if (profileTestStatus.TryGetValue(profile.Id, out var st) && st is not null)
+                                {
+                                    <StatusPill Variant="@(st == "ok" ? "ok" : "err")">@(st == "ok" ? "connected" : "not connected")</StatusPill>
+                                }
+                                <span class="profile-url">@profile.BaseUrl</span>
+                            </div>
+                            <div class="flex-actions">
+                                <button class="btn-modern ghost small" @onclick="() => EditProfile(profile)">Edit</button>
+                                <button class="btn-modern ghost small" @onclick="() => AskDeleteProfile(profile)">Delete</button>
+                                <button class="btn-modern secondary small" @onclick="() => MakeAppDefault(profile)">Use as app default</button>
+                                <button class="btn-modern secondary small" disabled="@(testingProfile == profile.Id)" @onclick="() => TestProfile(profile)">
+                                    @(testingProfile == profile.Id ? "Testing..." : "Test")
+                                </button>
+                            </div>
                         </div>
-                        <div class="flex-actions">
-                            <button class="btn-modern ghost small" @onclick="() => EditProfile(profile)">Edit</button>
-                            <button class="btn-modern ghost small" @onclick="() => AskDeleteProfile(profile)">Delete</button>
-                            <button class="btn-modern secondary small" @onclick="() => MakeAppDefault(profile)">Use as app default</button>
-                            <button class="btn-modern secondary small" disabled="@(testingProfile == profile.Id)" @onclick="() => TestProfile(profile)">
-                                @(testingProfile == profile.Id ? "Testing..." : "Test")
-                            </button>
-                        </div>
-                    </div>
-                }
-            </div>
-        }
+                    }
+                </div>
+            }
+        </div>
     </section>
 
     @if (deleteProfileId is { } doomedProfileId)
@@ -250,47 +273,49 @@ else if (activeTab == "media-servers")
                     <h2>@(editingIsNew ? "New profile" : editingProfile.Name)</h2>
                 </div>
             </div>
-            <div class="form-grid single">
-                <label>Name (required) <input @bind="editingProfile.Name" placeholder="Living room Jellyfin" /></label>
-                <label>Kind
-                    <select @bind="editingProfile.Kind">
-                        <option value="Jellyfin">Jellyfin</option>
-                        <option value="Plex">Plex</option>
-                        <option value="Navidrome">Navidrome</option>
-                    </select>
-                </label>
-                <label>Base URL (required) <input @bind="editingProfile.BaseUrl"
-                       placeholder="@(editingProfile.Kind == "Plex" ? "http://plex:32400" : editingProfile.Kind == "Navidrome" ? "http://navidrome:4533" : "http://jellyfin:8096")" /></label>
-                @if (editingProfile.Kind == "Navidrome")
-                {
-                    <label>Username <input @bind="editingProfile.Username" placeholder="admin" /></label>
-                    <label class="hint-text">Navidrome has no API key: username and password are the credentials.</label>
-                }
-                @if (editingProfile.Kind == "Jellyfin")
-                {
-                    <JellyfinConnect ServerUrl="@editingProfile.BaseUrl"
-                                     Username="@editingProfile.Username"
-                                     UsernameChanged="@(name => editingProfile.Username = name ?? "")"
-                                     Connected="OnProfileConnected" />
-                    <label class="hint-text">
-                        Jellyfin playlists belong to a user, so connect: the app keeps the
-                        session token and the sync uses it.
+            <div class="card-section">
+                <div class="form-grid single">
+                    <label>Name (required) <input @bind="editingProfile.Name" placeholder="Living room Jellyfin" /></label>
+                    <label>Kind
+                        <select @bind="editingProfile.Kind">
+                            <option value="Jellyfin">Jellyfin</option>
+                            <option value="Plex">Plex</option>
+                            <option value="Navidrome">Navidrome</option>
+                        </select>
                     </label>
-                }
-                else
-                {
-                    <label>@(editingProfile.Kind == "Navidrome" ? "Password" : "Plex token")
-                        <input @bind="editingProfile.ApiKey" type="password" placeholder="@(editingProfile.Kind == "Navidrome" ? "password" : "X-Plex-Token")" />
-                    </label>
-                }
-            </div>
-            <div class="flex-actions">
-                <button class="btn-modern ghost" @onclick="CancelProfileEdit">Cancel</button>
-                <button class="btn-modern primary" @onclick="SaveProfile">Save profile</button>
-                @if (profileError is { Length: > 0 })
-                {
-                    <span class="validation-message">@profileError</span>
-                }
+                    <label>Base URL (required) <input @bind="editingProfile.BaseUrl"
+                           placeholder="@(editingProfile.Kind == "Plex" ? "http://plex:32400" : editingProfile.Kind == "Navidrome" ? "http://navidrome:4533" : "http://jellyfin:8096")" /></label>
+                    @if (editingProfile.Kind == "Navidrome")
+                    {
+                        <label>Username <input @bind="editingProfile.Username" placeholder="admin" /></label>
+                        <label class="hint-text">Navidrome has no API key: username and password are the credentials.</label>
+                    }
+                    @if (editingProfile.Kind == "Jellyfin")
+                    {
+                        <JellyfinConnect ServerUrl="@editingProfile.BaseUrl"
+                                         Username="@editingProfile.Username"
+                                         UsernameChanged="@(name => editingProfile.Username = name ?? "")"
+                                         Connected="OnProfileConnected" />
+                        <label class="hint-text">
+                            Jellyfin playlists belong to a user, so connect: the app keeps the
+                            session token and the sync uses it.
+                        </label>
+                    }
+                    else
+                    {
+                        <label>@(editingProfile.Kind == "Navidrome" ? "Password" : "Plex token")
+                            <input @bind="editingProfile.ApiKey" type="password" placeholder="@(editingProfile.Kind == "Navidrome" ? "password" : "X-Plex-Token")" />
+                        </label>
+                    }
+                </div>
+                <div class="flex-actions">
+                    <button class="btn-modern ghost" @onclick="CancelProfileEdit">Cancel</button>
+                    <button class="btn-modern primary" @onclick="SaveProfile">Save profile</button>
+                    @if (profileError is { Length: > 0 })
+                    {
+                        <span class="validation-message">@profileError</span>
+                    }
+                </div>
             </div>
         </section>
     }
@@ -306,70 +331,72 @@ else if (activeTab == "paths")
                 </div>
             </div>
         </div>
-        <div class="form-grid single">
-            <label>
-                Music path
-                <input @bind="musicPath" @bind:after="ValidatePaths"
-                       aria-invalid="@(musicPathWarning is { Length: > 0 } ? "true" : null)"
-                       aria-describedby="@(musicPathWarning is { Length: > 0 } ? "music-path-warning" : null)" />
-                @if (musicPathWarning is { Length: > 0 })
-                {
-                    <small class="text-warn" id="music-path-warning">@musicPathWarning</small>
-                }
-            </label>
-            <label>
-                Playlist output folder
-                <input @bind="playlistPath" @bind:after="ValidatePaths"
-                       aria-invalid="@(playlistPathWarning is { Length: > 0 } ? "true" : null)"
-                       aria-describedby="@(playlistPathWarning is { Length: > 0 } ? "playlist-path-warning" : null)" />
-                @if (playlistPathWarning is { Length: > 0 })
-                {
-                    <small class="text-warn" id="playlist-path-warning">@playlistPathWarning</small>
-                }
-            </label>
+        <div class="card-section">
+            <div class="form-grid single">
+                <label>
+                    Music path
+                    <input @bind="musicPath" @bind:after="ValidatePaths"
+                           aria-invalid="@(musicPathWarning is { Length: > 0 } ? "true" : null)"
+                           aria-describedby="@(musicPathWarning is { Length: > 0 } ? "music-path-warning" : null)" />
+                    @if (musicPathWarning is { Length: > 0 })
+                    {
+                        <small class="text-warn" id="music-path-warning">@musicPathWarning</small>
+                    }
+                </label>
+                <label>
+                    Playlist output folder
+                    <input @bind="playlistPath" @bind:after="ValidatePaths"
+                           aria-invalid="@(playlistPathWarning is { Length: > 0 } ? "true" : null)"
+                           aria-describedby="@(playlistPathWarning is { Length: > 0 } ? "playlist-path-warning" : null)" />
+                    @if (playlistPathWarning is { Length: > 0 })
+                    {
+                        <small class="text-warn" id="playlist-path-warning">@playlistPathWarning</small>
+                    }
+                </label>
+            </div>
         </div>
-        <div class="panel-header">
-            <div>
+        <div class="card-section">
+            <div class="section-head">
                 <span class="eyebrow">Archive</span>
                 <div class="title-with-help">
-                    <h2>Archive copy</h2>
+                    <h3>Archive copy</h3>
                     <HelpTip Path="concepts#archive-copies" Text="A second copy in another folder and format, converted locally from the same download." />
                 </div>
             </div>
-        </div>
-        <div class="hint-box">
-            Optional second home for every download. Each track is fetched
-            once; the archive copy is a local conversion with ffmpeg, so
-            the second library never costs another internet download.
-        </div>
-        <div class="form-grid single">
-            <label>
-                Archive path
-                <input @bind="archivePath" @bind:after="ValidatePaths" placeholder="/archive-music"
-                       aria-invalid="@(archivePathWarning is { Length: > 0 } ? "true" : null)"
-                       aria-describedby="@(archivePathWarning is { Length: > 0 } ? "archive-path-warning" : null)" />
-                @if (archivePathWarning is { Length: > 0 })
-                {
-                    <small class="text-warn" id="archive-path-warning">@archivePathWarning</small>
-                }
-                <small class="text-muted">Leave empty for no archive copy. Playlists can set their own path on their page.</small>
-            </label>
-            <label>
-                Archive format
-                <select @bind="archiveFormat" @bind:after="MarkDirty">
-                    <option value="auto">Auto: copy the downloaded file as-is</option>
-                    <option value="opus">Opus: small and efficient (128k)</option>
-                    <option value="flac">FLAC: lossless (level 5)</option>
-                    <option value="mp3">MP3: widely compatible (256k)</option>
-                    <option value="aac">AAC: small and modern (192k)</option>
-                </select>
-            </label>
-        </div>
-        <MountWarning />
-        <div class="hint-box">
-            New downloads land under the music path; M3U files go to the
-            playlist output folder. Archive copies follow the archive
-            path above.
+            <div class="hint-box">
+                Optional second home for every download. Each track is fetched
+                once; the archive copy is a local conversion with ffmpeg, so
+                the second library never costs another internet download.
+            </div>
+            <div class="form-grid single">
+                <label>
+                    Archive path
+                    <input @bind="archivePath" @bind:after="ValidatePaths" placeholder="/archive-music"
+                           aria-invalid="@(archivePathWarning is { Length: > 0 } ? "true" : null)"
+                           aria-describedby="@(archivePathWarning is { Length: > 0 } ? "archive-path-warning" : null)" />
+                    @if (archivePathWarning is { Length: > 0 })
+                    {
+                        <small class="text-warn" id="archive-path-warning">@archivePathWarning</small>
+                    }
+                    <small class="text-muted">Leave empty for no archive copy. Playlists can set their own path on their page.</small>
+                </label>
+                <label>
+                    Archive format
+                    <select @bind="archiveFormat" @bind:after="MarkDirty">
+                        <option value="auto">Auto: copy the downloaded file as-is</option>
+                        <option value="opus">Opus: small and efficient (128k)</option>
+                        <option value="flac">FLAC: lossless (level 5)</option>
+                        <option value="mp3">MP3: widely compatible (256k)</option>
+                        <option value="aac">AAC: small and modern (192k)</option>
+                    </select>
+                </label>
+            </div>
+            <MountWarning />
+            <div class="hint-box">
+                New downloads land under the music path; M3U files go to the
+                playlist output folder. Archive copies follow the archive
+                path above.
+            </div>
         </div>
     </section>
 }
@@ -385,35 +412,37 @@ else if (activeTab == "quality")
                 </div>
             </div>
         </div>
-        <div class="hint-box">
-            New playlists start with this setting. Every playlist can override
-            it on its own page.
+        <div class="card-section">
+            <div class="hint-box">
+                New playlists start with this setting. Every playlist can override
+                it on its own page.
+            </div>
+            <QualityPicker @bind-Value="defaultQuality" @bind-Value:after="MarkDirty" />
         </div>
-        <QualityPicker @bind-Value="defaultQuality" @bind-Value:after="MarkDirty" />
-        <div class="panel-header">
-            <div>
+        <div class="card-section">
+            <div class="section-head">
                 <span class="eyebrow">Verification</span>
                 <div class="title-with-help">
-                    <h2>Real quality check</h2>
+                    <h3>Real quality check</h3>
                     <HelpTip Path="concepts#the-spectrum-check" Text="Measures the file's real audio bandwidth and warns when it falls well short of the declared bitrate. It never deletes anything." />
                 </div>
             </div>
-        </div>
-        <div class="hint-box">
-            Some sites hand out files that claim 320 kbps but hold far less.
-            The spectrum check measures the file's real audio bandwidth and
-            warns you next to the track when it falls well short of the
-            declared bitrate.
-        </div>
-        <div class="form-grid single">
-            <label>
-                Spectrum check
-                <select @bind="spectrumMode" @bind:after="MarkDirty">
-                    <option value="Off">Off: trust the file</option>
-                    <option value="Fast">Fast: check the first minute (recommended)</option>
-                    <option value="Thorough">Thorough: check the whole file (up to 15 min)</option>
-                </select>
-            </label>
+            <div class="hint-box">
+                Some sites hand out files that claim 320 kbps but hold far less.
+                The spectrum check measures the file's real audio bandwidth and
+                warns you next to the track when it falls well short of the
+                declared bitrate.
+            </div>
+            <div class="form-grid single">
+                <label>
+                    Spectrum check
+                    <select @bind="spectrumMode" @bind:after="MarkDirty">
+                        <option value="Off">Off: trust the file</option>
+                        <option value="Fast">Fast: check the first minute (recommended)</option>
+                        <option value="Thorough">Thorough: check the whole file (up to 15 min)</option>
+                    </select>
+                </label>
+            </div>
         </div>
     </section>
 }
@@ -432,24 +461,26 @@ else if (activeTab == "network")
                 @(flareStatus is null ? "not tested" : flareStatus is "ok" ? "reachable" : flareStatus is "off" ? "off" : "unreachable")
             </StatusPill>
         </div>
-        <div class="hint-box">
-            Lucida sits behind a Cloudflare challenge. FlareSolverr is a small
-            companion container that solves it: the compose file ships one.
-            With "auto" the app looks for that container on the Docker network
-            by itself, so compose users leave this untouched. Enter the URL
-            yourself only outside compose, or "off" to disable.
-        </div>
-        <div class="form-grid single">
-            <label>
-                FlareSolverr URL
-                <input @bind="flaresolverrUrl" @bind:after="MarkDirty" placeholder="auto, http://flaresolverr:8191 or off" />
-            </label>
-        </div>
-        <div class="flex-actions">
-            <button class="btn-modern secondary" @onclick="TestFlareSolverr" disabled="@testingFlare">
-                @(testingFlare ? "Testing..." : "Test connection")
-            </button>
-            <span class="text-muted">@flareMessage</span>
+        <div class="card-section">
+            <div class="hint-box">
+                Lucida sits behind a Cloudflare challenge. FlareSolverr is a small
+                companion container that solves it: the compose file ships one.
+                With "auto" the app looks for that container on the Docker network
+                by itself, so compose users leave this untouched. Enter the URL
+                yourself only outside compose, or "off" to disable.
+            </div>
+            <div class="form-grid single">
+                <label>
+                    FlareSolverr URL
+                    <input @bind="flaresolverrUrl" @bind:after="MarkDirty" placeholder="auto, http://flaresolverr:8191 or off" />
+                </label>
+            </div>
+            <div class="flex-actions">
+                <button class="btn-modern secondary" @onclick="TestFlareSolverr" disabled="@testingFlare">
+                    @(testingFlare ? "Testing..." : "Test connection")
+                </button>
+                <span class="text-muted">@flareMessage</span>
+            </div>
         </div>
     </section>
 
@@ -463,21 +494,118 @@ else if (activeTab == "network")
                 </div>
             </div>
         </div>
-        <div class="hint-box">
-            Public playlists and liked songs work without this. Paste a
-            Spotify web cookie (the sp_dc value from a logged-in browser
-            session) only if public scraping starts failing for you: the
-            app then sends it along as a fallback. The cookie is stored in
-            the database, not an environment variable.
-        </div>
-        <div class="form-grid single">
-            <label>
-                Spotify cookie (optional)
-                <input @bind="spotifyCookie" @bind:after="MarkDirty" type="password" placeholder="sp_dc=..." />
-            </label>
+        <div class="card-section">
+            <div class="hint-box">
+                Public playlists and liked songs work without this. Paste a
+                Spotify web cookie (the sp_dc value from a logged-in browser
+                session) only if public scraping starts failing for you: the
+                app then sends it along as a fallback. The cookie is stored in
+                the database, not an environment variable.
+            </div>
+            <div class="form-grid single">
+                <label>
+                    Spotify cookie (optional)
+                    <input @bind="spotifyCookie" @bind:after="MarkDirty" type="password" placeholder="sp_dc=..." />
+                </label>
+            </div>
         </div>
     </section>
 
+}
+else if (activeTab == "notifications")
+{
+    <section class="panel-card">
+        <div class="panel-header">
+            <div>
+                <span class="eyebrow">Notifications</span>
+                <div class="title-with-help">
+                    <h2>Toasts</h2>
+                    <HelpTip Path="reference#notifications" Text="Toasts pop up in the corner while you use the app. Failures always reach the log, whatever these switches say." />
+                </div>
+            </div>
+        </div>
+        <div class="card-section">
+            <label class="toggle-switch wide">
+                <input type="checkbox" @bind="notifyDownloads" @bind:after="MarkDirty" />
+                <span class="toggle-slider"></span>
+                <span>Toast when a playlist download finishes</span>
+            </label>
+            <label class="toggle-switch wide">
+                <input type="checkbox" @bind="notifyFailures" @bind:after="MarkDirty" />
+                <span class="toggle-slider"></span>
+                <span>Toast when a track, sync job or background task fails</span>
+            </label>
+            <div class="hint-box">
+                Failures are always written to the log regardless of this
+                setting. Toasts only decide what pops up in the corner.
+            </div>
+        </div>
+    </section>
+
+    <section class="panel-card">
+        <div class="panel-header">
+            <div>
+                <span class="eyebrow">Notifications</span>
+                <div class="title-with-help">
+                    <h2>ntfy push</h2>
+                    <HelpTip Path="reference#notifications" Text="Push events to your own ntfy server. The categories work independently of the toast switches above." />
+                </div>
+            </div>
+        </div>
+        <div class="card-section">
+            <label class="toggle-switch wide">
+                <input type="checkbox" @bind="ntfyEnabled" @bind:after="MarkDirty" />
+                <span class="toggle-slider"></span>
+                <span>Send notifications to ntfy</span>
+            </label>
+            <div class="form-grid single">
+                <label>
+                    Topic URL
+                    <input @bind="ntfyUrl" @bind:after="MarkDirty" placeholder="https://ntfy.sh/melodybridge" />
+                </label>
+                <label>
+                    Access token (optional)
+                    <input type="password" @bind="ntfyToken" @bind:after="MarkDirty" placeholder="tk_..." />
+                </label>
+            </div>
+            <span class="eyebrow">Send when</span>
+            <label class="toggle-switch wide">
+                <input type="checkbox" @bind="ntfyDownloads" @bind:after="MarkDirty" />
+                <span class="toggle-slider"></span>
+                <span>A playlist download run finishes</span>
+            </label>
+            <label class="toggle-switch wide">
+                <input type="checkbox" @bind="ntfyJobs" @bind:after="MarkDirty" />
+                <span class="toggle-slider"></span>
+                <span>A sync job completes</span>
+            </label>
+            <label class="toggle-switch wide">
+                <input type="checkbox" @bind="ntfyJobFailures" @bind:after="MarkDirty" />
+                <span class="toggle-slider"></span>
+                <span>A sync job fails</span>
+            </label>
+            <label class="toggle-switch wide">
+                <input type="checkbox" @bind="ntfyFailures" @bind:after="MarkDirty" />
+                <span class="toggle-slider"></span>
+                <span>A background task fails (auto-sync, scan, crashed run)</span>
+            </label>
+            <div class="hint-box">
+                The message goes to the server you enter here, including track
+                names. A protected topic needs its access token. The categories
+                are independent of the toast toggles above. The test button uses
+                the values as typed; press Save to keep them.
+            </div>
+            <div class="flex-actions">
+                <button class="btn-modern" disabled="@testingNtfy" @onclick="TestNtfy">
+                    @(testingNtfy ? "Sending…" : "Send test notification")
+                </button>
+                @if (ntfyTestResult is not null)
+                {
+                    <span class="text-muted">@ntfyTestResult</span>
+                }
+            </div>
+        </div>
+    </section>
 }
 else if (activeTab == "about")
 {
@@ -488,35 +616,37 @@ else if (activeTab == "about")
                 <h2>MelodyBridge @AppInfo.Version</h2>
             </div>
         </div>
-        <div class="flex-actions">
-            <button class="btn-modern secondary" @onclick="CheckForUpdates" disabled="@checkingUpdate">
-                @(checkingUpdate ? "Checking..." : "Check for updates")
-            </button>
-            @if (updateResult is { } u)
-            {
-                @if (u.Succeeded && UpdateCheckService.IsNewer(u.LatestVersion!, AppInfo.Version))
+        <div class="card-section">
+            <div class="hint-box">
+                Self-hosted and open source. Docs live at
+                <a href="https://docs.melodybridge.app" target="_blank" rel="noopener">docs.melodybridge.app</a>:
+                quick start, accounts, Lucida and the Docker guide.
+            </div>
+            <div class="flex-actions">
+                <button class="btn-modern secondary" @onclick="CheckForUpdates" disabled="@checkingUpdate">
+                    @(checkingUpdate ? "Checking..." : "Check for updates")
+                </button>
+                @if (updateResult is { } u)
                 {
-                    <StatusPill Variant="ok">Update available: v@(u.LatestVersion)</StatusPill>
-                    <a class="hint" href="@u.ReleaseUrl" target="_blank" rel="noopener">Release notes <Icon Name="external" Size="12" /></a>
+                    @if (u.Succeeded && UpdateCheckService.IsNewer(u.LatestVersion!, AppInfo.Version))
+                    {
+                        <StatusPill Variant="ok">Update available: v@(u.LatestVersion)</StatusPill>
+                        <a class="hint" href="@u.ReleaseUrl" target="_blank" rel="noopener">Release notes <Icon Name="external" Size="12" /></a>
+                    }
+                    else if (u.Succeeded)
+                    {
+                        <StatusPill Variant="neutral">You are up to date</StatusPill>
+                    }
+                    else
+                    {
+                        <StatusPill Variant="err" Title="@u.Error">Check failed</StatusPill>
+                    }
                 }
-                else if (u.Succeeded)
-                {
-                    <StatusPill Variant="neutral">You are up to date</StatusPill>
-                }
-                else
-                {
-                    <StatusPill Variant="err" Title="@u.Error">Check failed</StatusPill>
-                }
-            }
-        </div>
-        <div class="hint-box">
-            Self-hosted and open source. Docs live at
-            <a href="https://docs.melodybridge.app" target="_blank" rel="noopener">docs.melodybridge.app</a>:
-            quick start, accounts, Lucida and the Docker guide.
-        </div>
-        <div class="flex-actions">
-            <button class="btn-modern ghost" @onclick="RestartTour">Show the guided tour again</button>
-            <button class="btn-modern ghost" @onclick="RestartChecklist">Show the setup checklist again</button>
+            </div>
+            <div class="flex-actions">
+                <button class="btn-modern ghost" @onclick="RestartTour">Show the guided tour again</button>
+                <button class="btn-modern ghost" @onclick="RestartChecklist">Show the setup checklist again</button>
+            </div>
         </div>
     </section>
 
@@ -527,23 +657,25 @@ else if (activeTab == "about")
                 <h2>Accent color</h2>
             </div>
         </div>
-        <p class="panel-description">
-            Colors the active tab, buttons and highlights across the whole
-            app, the guided tour included. Saved in this browser only.
-        </p>
-        <div class="accent-picker" role="radiogroup" aria-label="Accent color">
-            @foreach (var accent in AccentOptions)
-            {
-                var active = accent == _activeAccent;
-                <button type="button"
-                        class="accent-swatch accent-@(accent) @(active ? "active" : "")"
-                        role="radio"
-                        aria-checked="@(active ? "true" : "false")"
-                        title="@(char.ToUpperInvariant(accent[0]) + accent[1..])"
-                        @onclick="() => PickAccent(accent)">
-                    <span class="visually-hidden">@(char.ToUpperInvariant(accent[0]) + accent[1..])</span>
-                </button>
-            }
+        <div class="card-section">
+            <p class="panel-description">
+                Colors the active tab, buttons and highlights across the whole
+                app, the guided tour included. Saved in this browser only.
+            </p>
+            <div class="accent-picker" role="radiogroup" aria-label="Accent color">
+                @foreach (var accent in AccentOptions)
+                {
+                    var active = accent == _activeAccent;
+                    <button type="button"
+                            class="accent-swatch accent-@(accent) @(active ? "active" : "")"
+                            role="radio"
+                            aria-checked="@(active ? "true" : "false")"
+                            title="@(char.ToUpperInvariant(accent[0]) + accent[1..])"
+                            @onclick="() => PickAccent(accent)">
+                        <span class="visually-hidden">@(char.ToUpperInvariant(accent[0]) + accent[1..])</span>
+                    </button>
+                }
+            </div>
         </div>
     </section>
 
@@ -554,13 +686,15 @@ else if (activeTab == "about")
                 <h2>Logs</h2>
             </div>
         </div>
-        <p class="panel-description">
-            Export the most recent application logs (up to 1000 entries)
-            as a plain-text file for debugging or sharing.
-        </p>
-        <button class="btn-modern primary-outline" @onclick="ExportLogs">
-            <Icon Name="download" Size="16" Class="btn-icon" /> Export logs
-        </button>
+        <div class="card-section">
+            <p class="panel-description">
+                Export the most recent application logs (up to 1000 entries)
+                as a plain-text file for debugging or sharing.
+            </p>
+            <button class="btn-modern primary-outline" @onclick="ExportLogs">
+                <Icon Name="download" Size="16" Class="btn-icon" /> Export logs
+            </button>
+        </div>
     </section>
 
     <section class="panel-card about-card">
@@ -573,20 +707,22 @@ else if (activeTab == "about")
                 </div>
             </div>
         </div>
-        <div class="hint-box">
-            The zip contains a consistent snapshot (playlists, tracks,
-            settings). Import replaces the current database and parks the
-            old one next to it as .preimport.bak: restart after
-            importing so the app lets go of the old file.
+        <div class="card-section">
+            <div class="hint-box">
+                The zip contains a consistent snapshot (playlists, tracks,
+                settings). Import replaces the current database and parks the
+                old one next to it as .preimport.bak: restart after
+                importing so the app lets go of the old file.
+            </div>
+            <div class="flex-actions">
+                <button class="btn-modern secondary" @onclick="ExportDatabase">Export zip</button>
+                <InputFile OnChange="ImportDatabase" accept=".zip" class="btn-modern ghost" />
+            </div>
+            @if (!string.IsNullOrWhiteSpace(dbMessage))
+            {
+                <div class="hint-box">@dbMessage</div>
+            }
         </div>
-        <div class="flex-actions">
-            <button class="btn-modern secondary" @onclick="ExportDatabase">Export zip</button>
-            <InputFile OnChange="ImportDatabase" accept=".zip" class="btn-modern ghost" />
-        </div>
-        @if (!string.IsNullOrWhiteSpace(dbMessage))
-        {
-            <div class="hint-box">@dbMessage</div>
-        }
     </section>
 }
 
@@ -599,6 +735,7 @@ else if (activeTab == "about")
         ("paths", "Default paths"),
         ("quality", "Quality"),
         ("network", "Network"),
+        ("notifications", "Notifications"),
         ("about", "About"),
     ];
 
@@ -638,6 +775,19 @@ else if (activeTab == "about")
     private string? flareStatus;
     private string flareMessage = string.Empty;
     private bool testingFlare;
+
+    // Notifications tab: toast gates and the ntfy push block.
+    private bool notifyDownloads = true;
+    private bool notifyFailures = true;
+    private bool ntfyEnabled;
+    private string ntfyUrl = "";
+    private string ntfyToken = "";
+    private bool ntfyDownloads = true;
+    private bool ntfyJobs = true;
+    private bool ntfyJobFailures = true;
+    private bool ntfyFailures = true;
+    private bool testingNtfy;
+    private string? ntfyTestResult;
 
     // Inline path checks: advisory, they never block a save.
     private string musicPathWarning = string.Empty;
@@ -718,6 +868,15 @@ else if (activeTab == "about")
         spectrumMode = FindSetting(settings, "spectrum_mode", Config?["SpectrumAnalysis:Mode"] ?? "Fast");
         flaresolverrUrl = FindSetting(settings, "flaresolverr_url", Config?["FlareSolverr:Url"] ?? "auto");
         spotifyCookie = FindSetting(settings, "spotify_cookie", string.Empty);
+        notifyDownloads = await TourReset.GetBoolAsync("notify_downloads", true);
+        notifyFailures = await TourReset.GetBoolAsync("notify_failures", true);
+        ntfyEnabled = await TourReset.GetBoolAsync("ntfy_enabled", false);
+        ntfyUrl = await TourReset.GetAsync("ntfy_url", "");
+        ntfyToken = await TourReset.GetAsync("ntfy_token", "");
+        ntfyDownloads = await TourReset.GetBoolAsync(NtfyNotifier.SettingKeyFor(NotificationCategories.Downloads), true);
+        ntfyJobs = await TourReset.GetBoolAsync(NtfyNotifier.SettingKeyFor(NotificationCategories.Jobs), true);
+        ntfyJobFailures = await TourReset.GetBoolAsync(NtfyNotifier.SettingKeyFor(NotificationCategories.JobFailures), true);
+        ntfyFailures = await TourReset.GetBoolAsync(NtfyNotifier.SettingKeyFor(NotificationCategories.Failures), true);
 
         _spotifyConnected = await SpotifyAccount.IsConnectedAsync();
         _youtubeConnected = await YouTubeAccount.IsConnectedAsync();
@@ -928,6 +1087,11 @@ else if (activeTab == "about")
             await YouTubeAccount.SaveSettingAsync("client_id", youtubeClientId.Trim());
             await YouTubeAccount.SaveSettingAsync("client_secret", youtubeClientSecret.Trim());
 
+            // Notifications: the toast gates and the ntfy push block.
+            await TourReset.SetAsync("notify_downloads", notifyDownloads ? "true" : "false");
+            await TourReset.SetAsync("notify_failures", notifyFailures ? "true" : "false");
+            await SaveNtfyAsync();
+
             dirty = false;
             Notifications.Success("Settings saved.");
         }
@@ -939,6 +1103,36 @@ else if (activeTab == "about")
 
     /// <summary>An edit landed: the floating save bar appears.</summary>
     private void MarkDirty() => dirty = true;
+
+    /// <summary>Persists the ntfy block; a test send uses the typed values
+    /// without saving, so it tests exactly what is on screen.</summary>
+    private async Task SaveNtfyAsync()
+    {
+        await TourReset.SetAsync("ntfy_enabled", ntfyEnabled ? "true" : "false");
+        await TourReset.SetAsync("ntfy_url", ntfyUrl.Trim());
+        await TourReset.SetAsync("ntfy_token", ntfyToken.Trim());
+        await TourReset.SetAsync(NtfyNotifier.SettingKeyFor(NotificationCategories.Downloads), ntfyDownloads ? "true" : "false");
+        await TourReset.SetAsync(NtfyNotifier.SettingKeyFor(NotificationCategories.Jobs), ntfyJobs ? "true" : "false");
+        await TourReset.SetAsync(NtfyNotifier.SettingKeyFor(NotificationCategories.JobFailures), ntfyJobFailures ? "true" : "false");
+        await TourReset.SetAsync(NtfyNotifier.SettingKeyFor(NotificationCategories.Failures), ntfyFailures ? "true" : "false");
+    }
+
+    /// <summary>Sends a test message with the typed values; nothing is
+    /// persisted and the enable toggle is not required.</summary>
+    private async Task TestNtfy()
+    {
+        testingNtfy = true;
+        ntfyTestResult = null;
+        try
+        {
+            var failure = await Ntfy.TestAsync(ntfyUrl.Trim(), ntfyToken.Trim());
+            ntfyTestResult = failure is null ? "Test sent." : $"Test failed: {failure}";
+        }
+        finally
+        {
+            testingNtfy = false;
+        }
+    }
 
     /// <summary>Advisory path checks: warnings, never a blocked save.</summary>
     private void ValidatePaths()

@@ -333,6 +333,27 @@ h1:focus { outline: none; }
 .stat-card { padding: 1rem; }
 .stat-card { min-height: 0; }
 .panel-header { display: flex; justify-content: space-between; gap: 1rem; align-items: start; margin-bottom: 1rem; }
+
+/* A titled block inside a panel-card. The section is a grid so every
+   child (hint box, form grid, buttons, notes) keeps the same rhythm
+   instead of touching its neighbour, and a following section starts
+   after a divider instead of running into the previous one. */
+.card-section { display: grid; gap: .75rem; align-content: start; }
+.card-section + .card-section {
+    margin-top: 1.25rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--border);
+}
+.card-section > .eyebrow { margin-bottom: 0; }
+/* A button is a grid child inside a section: keep its natural width
+   instead of stretching it across the card. */
+.card-section > .btn-modern { justify-self: start; }
+/* Section heading inside a card: eyebrow, a title and an optional help
+   tip, with the section grid owning the spacing. */
+.card-section > .section-head { display: grid; gap: .15rem; }
+.card-section > .section-head h3 { margin: 0; font-size: 1rem; }
+/* Inside a section the grid owns the spacing: drop the pull-up margin. */
+.card-section .panel-description { margin: 0; }
 .stat-icon,
 .provider-icon {
     display: inline-grid;
@@ -457,6 +478,9 @@ select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-s
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; align-items: start; }
 .form-grid.single { grid-template-columns: 1fr; }
 .form-grid label { color: var(--muted); font-size: .82rem; font-weight: 700; display: grid; gap: .4rem; }
+/* Field notes under an input: muted, never bold (labels are bold, their
+   explanation is not). */
+.form-grid label small { font-weight: 400; line-height: 1.45; }
 .form-grid .wide { grid-column: 1 / -1; }
 
 .timeline-list,
@@ -490,6 +514,16 @@ select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-s
 .provider-row small { margin: 0; }
 .health-list > div { justify-content: start; }
 .account-card { display: grid; gap: .85rem; }
+/* Account card header: provider name, state pill and the optional
+   disconnect action on one line. */
+.account-head { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
+.account-head strong { font-size: 1rem; }
+.account-head .btn-modern { margin-left: auto; }
+/* Explanatory line inside an account card: muted, normal weight. */
+.account-note { color: var(--muted); font-size: .85rem; line-height: 1.5; }
+/* The credential fields and their connect button as one block. */
+.account-connect { display: grid; gap: .85rem; }
+.account-connect label { display: grid; gap: .4rem; }
 .account-meta { display: flex; justify-content: space-between; align-items: center; gap: .75rem; }
 .provider-row {
     display: grid;
@@ -578,7 +612,7 @@ select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-s
 }
 .toggle-switch input:checked + .toggle-slider { background: var(--accent-soft); border-color: var(--accent-strong); }
 .toggle-switch input:checked + .toggle-slider::before { transform: translateX(18px); background: var(--accent-strong); }
-.panel-description { font-size: .85rem; color: var(--muted); margin: -.25rem 0 .75rem; }
+.panel-description { font-size: .85rem; color: var(--muted); font-weight: 400; margin: -.25rem 0 .75rem; }
 .hint-box {
     padding: .8rem;
     border-radius: 8px;
@@ -747,6 +781,9 @@ select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-s
     overflow-y: auto;
     flex: 1;
 }
+/* Every direct block in a modal body keeps the same rhythm; children
+   with their own margin (the h3 section titles) keep that instead. */
+.wizard-body > * + * { margin-top: .85rem; }
 /* Section titles inside import/import wizards (Spotify / From a file…). */
 .wizard-body h3 {
     font-size: .8rem;
@@ -1602,6 +1639,10 @@ input[type="file"].btn-modern::file-selector-button {
    line below keeps its own space. */
 .quality-picker { align-items: end; gap: 1.25rem; }
 .quality-picker label { flex: 1 1 200px; min-width: 0; }
+/* The preset blurb always sits under the select, never beside it: a
+   half-line of text next to a dropdown reads as a second field. The
+   grid gap below owns the spacing, so drop the bottom margin. */
+.quality-picker .panel-description { flex-basis: 100%; margin-bottom: 0; }
 
 /* Auto-save state pill in the panel header: quiet by design, colored
    only while it means something (saving/saved/failed). */
@@ -1734,15 +1775,6 @@ input[type="file"].btn-modern::file-selector-button {
 }
 /* Archive group on the playlist settings panel: reads as one optional
    block, same rhythm as the quality field above it. */
-.archive-group {
-    display: grid;
-    gap: .5rem;
-    padding-top: .75rem;
-    border-top: 1px solid var(--border);
-    margin-top: .25rem;
-}
-.archive-group .eyebrow { grid-column: 1 / -1; }
-
 /* Status cells: pill plus error note stack without stretching the row. */
 .track-table .cell-status { line-height: 1.35; }
 .track-table .pill-tight { padding: .05rem .45rem; min-height: 18px; }
