@@ -98,8 +98,23 @@ docker run -d \
 ```
 
 Mount state at `/app/state`, never at `/app`: the application itself lives in
-`/app`, and mounting over it hides the entrypoint. The image already includes
-yt-dlp and ffmpeg.
+`/app`, and mounting over it hides the entrypoint.
+
+## Tools in the image
+
+The image carries everything the download plugins need, so there are no extra
+containers to run:
+
+| Tool | Used by | Notes |
+|---|---|---|
+| ffmpeg + ffprobe | all plugins | Remuxing and duration/bitrate checks |
+| yt-dlp | YouTube, SoundCloud | Self-contained binary; the Plugins page can update it in place |
+| deemix CLI | Deezer | Runs on Node; the plugin writes your ARL into its config |
+| qobuz-dlp | Qobuz | Runs on Python; the plugin writes your token into its config |
+
+The tools travel with the image: `docker compose pull` brings newer versions,
+like the yt-dlp binary does. The image runs on Alpine, which keeps it small:
+Debian's ffmpeg alone needed about 490 MB of packages, Alpine's about 130 MB.
 
 ## Running from source
 
