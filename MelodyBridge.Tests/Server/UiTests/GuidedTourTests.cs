@@ -103,6 +103,24 @@ public class GuidedTourTests
     }
 
     [Test]
+    public async Task Tour_BackButton_IsDisabledOnlyOnTheFirstStep()
+    {
+        var cut = _ctx.Render<Home>();
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("Tour 1 of 4")), TimeSpan.FromSeconds(3));
+
+        var back = cut.Find(".tour-card .btn-modern.secondary");
+        Assert.That(back.HasAttribute("disabled"), Is.True,
+            "step 1 has nothing to go back to");
+
+        await cut.InvokeAsync(() => cut.Find(".tour-card .btn-modern.primary").Click());
+
+        back = cut.Find(".tour-card .btn-modern.secondary");
+        Assert.That(back.HasAttribute("disabled"), Is.False,
+            "a literal disabled attribute (no @) left Back dead on every step");
+    }
+
+    [Test]
     public async Task Tour_BackClick_RerunsSpotlight_OfPreviousStep()
     {
         var cut = _ctx.Render<Home>();

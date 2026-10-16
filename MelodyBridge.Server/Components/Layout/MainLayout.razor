@@ -14,18 +14,13 @@
         <NavMenu />
         <div class="sidebar-footer">
             <button class="theme-toggle" @onclick="ToggleTheme" title="Toggle theme">
-                <span class="theme-icon">@(_isDark ? "☾" : "☀")</span>
+                <span class="theme-icon"><Icon Name="@(_isDark ? "moon" : "sun")" Size="18" /></span>
             </button>
             <span class="version-badge" title="MelodyBridge version">v@(AppInfo.Version)</span>
         </div>
     </aside>
     <div class="app-main">
-        <header class="app-topbar">
-            <div class="topbar-title">@PageTitleText</div>
-            <div class="topbar-actions">
-                @* The sidebar is always visible: no duplicate nav buttons here. *@
-            </div>
-        </header>
+        @* No sticky title bar: the page h1 already names the page. *@
         <main class="app-content">
             @Body
         </main>
@@ -49,20 +44,6 @@
     private bool _isDark = true;
     private List<AppNotification> _toasts = [];
 
-    private string PageTitleText
-    {
-        get
-        {
-            var path = Nav.ToBaseRelativePath(Nav.Uri).Split('?')[0].TrimEnd('/');
-            if (string.IsNullOrWhiteSpace(path)) return "Dashboard";
-            var segments = path.Split('/');
-            var last = segments[^1];
-            if (Guid.TryParse(segments[^1], out _)) last = segments.Length > 1 ? segments[^2] : last;
-            return char.ToUpperInvariant(last[0]) + last[1..].Replace('-', ' ');
-        }
-    }
-
-    [Inject] private NavigationManager Nav { get; set; } = default!;
     [Inject] private IJSRuntime JS { get; set; } = default!;
 
     protected override void OnInitialized()

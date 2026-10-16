@@ -13,6 +13,11 @@
     --accent-strong: #14b8a6;
     --accent-soft: rgba(45, 212, 191, .10);
     --accent-hover: #0d9488;
+    /* Text on an accent-filled surface, and readable accent text on the
+       page background. Dark theme accents are bright, so filled buttons
+       take near-black text (white on #14b8a6 is only 2.5:1). */
+    --accent-contrast: #09090b;
+    --accent-text: var(--accent);
     --success: #34d399;
     --success-soft: rgba(52, 211, 153, .10);
     --warning: #fbbf24;
@@ -40,6 +45,10 @@
     --accent-strong: #0f766e;
     --accent-soft: rgba(15, 118, 110, .10);
     --accent-hover: #115e59;
+    /* Light accents are dark enough for white text; accent text leans on
+       the strong shade where the palette defines a lighter accent. */
+    --accent-contrast: #ffffff;
+    --accent-text: var(--accent-strong);
     --success: #059669;
     --success-soft: rgba(5, 150, 105, .10);
     --warning: #b45309;
@@ -109,10 +118,10 @@
     --accent-hover: #d97706;
 }
 :root[data-accent="amber"][data-theme="light"] {
-    --accent: #d97706;
-    --accent-strong: #b45309;
-    --accent-soft: rgba(180, 83, 9, .10);
-    --accent-hover: #92400e;
+    --accent: #b45309;
+    --accent-strong: #92400e;
+    --accent-soft: rgba(146, 64, 14, .10);
+    --accent-hover: #78350f;
 }
 
 html, body {
@@ -133,6 +142,9 @@ h3 { font-size: .9rem; font-weight: 600; }
 p { color: var(--muted); line-height: 1.55; }
 small { color: var(--muted-2); }
 code { color: var(--accent-strong); background: var(--accent-soft); border-radius: 6px; padding: .08rem .35rem; }
+/* Navigation focuses the page heading for screen readers; the UA ring
+   around a non-interactive title reads as a glitch, so it stays off. */
+h1:focus { outline: none; }
 
 .app-shell {
     min-height: 100vh;
@@ -152,22 +164,8 @@ code { color: var(--accent-strong); background: var(--accent-soft); border-radiu
 
 .app-main { min-width: 0; }
 
-.app-topbar {
-    position: sticky;
-    top: 0;
-    z-index: 10;
-    height: 64px;
-    padding: 0 1.5rem;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
-    background: color-mix(in srgb, var(--bg) 88%, transparent);
-    border-bottom: 1px solid var(--border);
-    backdrop-filter: blur(12px);
-}
-
-.topbar-title strong { display: block; font-size: .95rem; }
+/* The topbar used to repeat the page h1; that duplication is gone, so
+   only the action-row helper remains (pages put their buttons in it). */
 .topbar-actions { display: flex; align-items: center; gap: .65rem; }
 .app-content { width: min(1180px, calc(100vw - var(--sidebar-width) - 3rem)); padding: 1.5rem; }
 
@@ -178,6 +176,7 @@ code { color: var(--accent-strong); background: var(--accent-soft); border-radiu
     padding: .35rem .25rem 1rem;
     margin-bottom: .75rem;
     border-bottom: 1px solid var(--border);
+    text-decoration: none;
 }
 
 .brand-logo {
@@ -232,8 +231,8 @@ code { color: var(--accent-strong); background: var(--accent-soft); border-radiu
 }
 
 .app-nav .nav-link:hover { background: var(--surface-2); color: var(--text); }
-.app-nav .nav-link.active { background: var(--accent-soft); color: var(--accent-strong); }
-.app-nav .nav-link.active span { color: var(--accent-strong); }
+.app-nav .nav-link.active { background: var(--accent-soft); color: var(--accent-text); }
+.app-nav .nav-link.active span { color: var(--accent-text); }
 
 .sidebar-footer {
     position: absolute;
@@ -284,10 +283,12 @@ code { color: var(--accent-strong); background: var(--accent-soft); border-radiu
     transition: border-color .15s ease;
 }
 
-.panel-card:hover,
-.stat-card:hover,
+/* Hover feedback only where a click does something: stat tiles and the
+   playlist card shell are not links (the cover and title are). */
+.panel-card:hover:not(.playlist-card),
 .account-card:hover,
 .profile-row:hover { border-color: var(--border-strong); }
+.playlist-cover:hover { box-shadow: 0 0 0 2px var(--accent-soft); }
 
 .hero-panel {
     min-height: 260px;
@@ -317,6 +318,12 @@ code { color: var(--accent-strong); background: var(--accent-soft); border-radiu
 .stat-grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .content-grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .content-grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+/* Dashboard right column: two stacked panels instead of one card that
+   ends halfway, so both columns close around the same height.
+   minmax(0, 1fr) lets the column shrink: a plain 1fr would inherit the
+   inner table's 640px floor and widen the whole page. */
+.grid-stack { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; align-content: start; min-width: 0; }
+.updated-note { font-variant-numeric: tabular-nums; }
 
 .panel-card,
 .stat-card { padding: 1rem; }
@@ -355,11 +362,11 @@ code { color: var(--accent-strong); background: var(--accent-soft); border-radiu
 .btn-modern { gap: .45rem; padding: .55rem .85rem; }
 .btn-modern.small { padding: .32rem .6rem; font-size: .82rem; min-height: 0; }
 .icon-button { width: 38px; padding: 0; font-size: 1rem; }
-.btn-modern.primary { background: var(--accent-strong); border-color: transparent; color: white; }
+.btn-modern.primary { background: var(--accent-strong); border-color: transparent; color: var(--accent-contrast); }
 .btn-modern.primary:hover { background: var(--accent-hover); }
 .btn-modern.danger { background: transparent; border-color: rgba(251, 113, 133, .25); color: var(--danger); }
 .btn-modern.danger:hover { background: rgba(159, 18, 57, .45); color: var(--danger); }
-.btn-modern.primary-outline { background: transparent; border-color: var(--accent); color: var(--accent); }
+.btn-modern.primary-outline { background: transparent; border-color: var(--accent); color: var(--accent-text); }
 .btn-modern.secondary,
 .btn-modern.subtle { background: var(--surface-2); border-color: var(--border); color: var(--text); }
 .btn-modern.secondary:hover,
@@ -372,6 +379,7 @@ code { color: var(--accent-strong); background: var(--accent-soft); border-radiu
 /* Keyboard users get a ring; mouse users keep the plain hover. */
 .btn-modern:focus-visible,
 .icon-button:focus-visible,
+.theme-toggle:focus-visible,
 .filter-chip:focus-visible,
 .tab-link:focus-visible,
 .nav-link:focus-visible,
@@ -436,7 +444,7 @@ select {
 }
 input:focus,
 select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
-.form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; align-items: start; }
 .form-grid.single { grid-template-columns: 1fr; }
 .form-grid label { color: var(--muted); font-size: .82rem; font-weight: 700; display: grid; gap: .4rem; }
 .form-grid .wide { grid-column: 1 / -1; }
@@ -580,13 +588,13 @@ select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-s
     padding: .8rem;
     border-radius: 8px;
     color: var(--text);
-    background: var(--danger-soft);
-    border: 1px solid rgba(251, 113, 133, .25);
+    background: var(--warning-soft);
+    border: 1px solid color-mix(in srgb, var(--warning) 28%, transparent);
     font-size: .85rem;
     line-height: 1.55;
 }
-.mount-warning-icon { color: var(--danger); flex-shrink: 0; margin-top: .1rem; }
-.mount-warning code { color: var(--accent); }
+.mount-warning-icon { color: var(--warning); flex-shrink: 0; margin-top: .1rem; }
+.mount-warning code { color: var(--accent-text); }
 
 /* Help tips: a question-mark button next to a feature or setting. Hover
    or keyboard focus shows the short explanation; clicking opens the
@@ -824,7 +832,7 @@ textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent
 #components-reconnect-modal button {
     border: 0;
     background: var(--accent-strong);
-    color: white;
+    color: var(--accent-contrast);
     padding: .4rem 1.5rem;
     border-radius: 8px;
     font-weight: 700;
@@ -1031,10 +1039,29 @@ td.file-path {
 
 @media (max-width: 1100px) {
     .app-shell { grid-template-columns: 1fr; }
-    .app-sidebar { position: relative; height: auto; border-right: 0; border-bottom: 1px solid var(--border); }
+    /* Below tablet the sidebar becomes a compact top strip: brand, one
+       wrapping row of nav pills, theme toggle. The old layout stacked a
+       600px column of links above the content. */
+    .app-sidebar {
+        position: relative;
+        height: auto;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: .35rem .75rem;
+        padding: .75rem 1rem;
+        border-right: 0;
+        border-bottom: 1px solid var(--border);
+    }
+    .brand-block { padding: 0; margin: 0; border-bottom: 0; flex: 0 0 auto; }
+    /* Nav gets its own full-width row; brand and theme toggle share the
+       first row. */
+    .app-nav { display: flex; flex-direction: row; flex-wrap: wrap; gap: .25rem; flex: 1 1 100%; order: 3; }
+    .nav-section { display: contents; margin: 0; }
+    .nav-section-header { display: none; }
+    .app-nav .nav-link { min-height: 34px; padding: .4rem .65rem; font-size: .85rem; }
+    .sidebar-footer { position: static; margin: 0 0 0 auto; padding: 0; border: 0; background: none; order: 2; }
     .app-content { width: 100%; }
-    .sidebar-footer { position: static; margin-top: 1rem; }
-    .app-nav { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
     .hero-panel,
     .content-grid.two,
     .content-grid.three,
@@ -1042,14 +1069,12 @@ td.file-path {
 }
 
 @media (max-width: 720px) {
-    .app-topbar { padding: 0 1rem; }
     .app-content { padding: 1rem; }
-    .app-nav { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
     .hero-panel,
     .content-grid.two,
     .content-grid.three,
     .stat-grid,
-    .form-grid { grid-template-columns: 1fr; }
+    .form-grid { grid-template-columns: minmax(0, 1fr); }
     .page-title { display: block; }
     .provider-row { grid-template-columns: 32px 1fr auto; }
     .provider-qualities { display: none; }

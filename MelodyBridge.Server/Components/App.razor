@@ -4,13 +4,16 @@
         <FocusOnNavigate RouteData="@routeData" Selector="h1" />
     </Found>
     <NotFound>
-        <PageTitle>Not found</PageTitle>
+        <PageTitle>Page not found - MelodyBridge</PageTitle>
         <LayoutView Layout="@typeof(MainLayout)">
             <section class="page-title">
                 <div>
                     <span class="eyebrow">404</span>
                     <h1>Page not found</h1>
                     <p>Sorry, there's nothing at this address.</p>
+                    <div class="topbar-actions">
+                        <a class="btn-modern primary" href="">Back to the dashboard</a>
+                    </div>
                 </div>
             </section>
         </LayoutView>

@@ -12,7 +12,7 @@
             <p>@Current.Body</p>
             <div class="flex-actions">
                 <button class="btn-modern ghost small" @onclick="Skip">Skip tour</button>
-                <button class="btn-modern secondary small" disabled="(_index == 0)" @onclick="Back">Back</button>
+                <button class="btn-modern secondary small" disabled="@(_index == 0)" @onclick="Back">Back</button>
                 <button class="btn-modern primary small" @onclick="Next">
                     @(_index == Steps.Count - 1 ? "Done" : "Next")
                 </button>

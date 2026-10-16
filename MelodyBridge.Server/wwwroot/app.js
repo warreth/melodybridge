@@ -45,11 +45,13 @@ window.melody = (() => {
 
     // Position the tour spotlight over an element and scroll it into view.
     // Returns true when the element exists; the caller falls back to a
-    // centered card when it doesn't.
+    // centered card when it doesn't. The scroll is instant on purpose:
+    // a smooth scroll makes the rect read stale and the box lands in the
+    // wrong place until the next render.
     function spotlight(selector) {
         const el = document.querySelector(selector);
         if (!el) return false;
-        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        el.scrollIntoView({ block: 'center' });
         const r = el.getBoundingClientRect();
         const box = document.getElementById('tour-spotlight');
         if (box) {

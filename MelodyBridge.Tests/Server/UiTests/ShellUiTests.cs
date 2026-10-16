@@ -37,8 +37,11 @@ public class ShellUiTests
 
         var cut = _ctx.Render<MainLayout>();
 
+        // The icon is part of the SVG set now: a stored light theme must
+        // paint the sun, never the moon (and never a font glyph).
         cut.WaitForAssertion(
-            () => Assert.That(cut.Find(".theme-icon").TextContent, Is.EqualTo("☀")),
+            () => Assert.That(
+                cut.Find(".theme-icon svg").GetAttribute("data-icon"), Is.EqualTo("sun")),
             TimeSpan.FromSeconds(3));
     }
 

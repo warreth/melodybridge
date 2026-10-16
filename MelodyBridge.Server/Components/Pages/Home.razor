@@ -124,6 +124,7 @@ else
             <p>Playlists, downloads, connections and errors at a glance.</p>
         </div>
         <div class="topbar-actions">
+            <small class="text-muted updated-note">Updated @_lastUpdated.ToString("HH:mm:ss")</small>
             <button class="btn-modern ghost" @onclick="RefreshStats">Refresh</button>
         </div>
     </section>
@@ -176,74 +177,76 @@ else
                                Enabled="flareSolverrOn" />
             </div>
         </div>
-        <div class="panel-card">
-            <div class="panel-header">
-                <div>
-                    <span class="eyebrow">Attention</span>
-                    <h2>Recent errors (@errorCount)</h2>
+        <div class="grid-stack">
+            <div class="panel-card">
+                <div class="panel-header">
+                    <div>
+                        <span class="eyebrow">Attention</span>
+                        <h2>Recent errors (@errorCount)</h2>
+                    </div>
+                    <a class="btn-modern ghost small" href="/logs">Logs</a>
                 </div>
-                <a class="btn-modern ghost small" href="/logs">Logs</a>
-            </div>
-            @if (recentErrors.Count == 0)
-            {
-                <EmptyState IconName="check-circle" Title="No errors">Everything ran clean.</EmptyState>
-            }
-            else
-            {
-                <div class="logs-list">
-                    @foreach (var entry in recentErrors)
-                    {
-                        <a class="log-row err clickable" href="/logs">
-                            <span class="log-time">@entry.Timestamp.ToLocalTime().ToString("HH:mm:ss")</span>
-                            <span class="log-category">@LogAreas.FromCategory(entry.Category)</span>
-                            <span class="log-message">@entry.Message</span>
-                        </a>
-                    }
-                </div>
-            }
-        </div>
-    </section>
-
-    <section class="panel-card">
-        <div class="panel-header">
-            <div>
-                <span class="eyebrow">Sync activity</span>
-                <h2>Recent sync runs (@recentRuns.Count)</h2>
-            </div>
-            <a class="btn-modern ghost small" href="/sync-jobs">Sync jobs</a>
-        </div>
-        @if (recentRuns.Count == 0)
-        {
-            <EmptyState IconName="clock" Title="No sync runs yet">No sync job has run yet.</EmptyState>
-        }
-        else
-        {
-            <div class="table-wrap">
-                <table class="modern-table">
-                    <thead>
-                        <tr>
-                            <th>Job</th>
-                            <th>When</th>
-                            <th>Result</th>
-                            <th>Summary</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach (var run in recentRuns)
+                @if (recentErrors.Count == 0)
+                {
+                    <EmptyState IconName="check-circle" Title="No errors">Everything ran clean.</EmptyState>
+                }
+                else
+                {
+                    <div class="logs-list">
+                        @foreach (var entry in recentErrors)
                         {
-                            <tr>
-                                <td><strong>@run.JobName</strong></td>
-                                <td class="text-muted">@run.Timestamp.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</td>
-                                <td>
-                                    <StatusPill Variant="@(run.Status == "Completed" ? "ok" : "err")">@run.Status</StatusPill>
-                                </td>
-                                <td class="text-muted">@run.Message</td>
-                            </tr>
+                            <a class="log-row err clickable" href="/logs">
+                                <span class="log-time">@entry.Timestamp.ToLocalTime().ToString("HH:mm:ss")</span>
+                                <span class="log-category">@LogAreas.FromCategory(entry.Category)</span>
+                                <span class="log-message">@entry.Message</span>
+                            </a>
                         }
-                    </tbody>
-                </table>
+                    </div>
+                }
             </div>
-        }
+
+            <div class="panel-card">
+                <div class="panel-header">
+                    <div>
+                        <span class="eyebrow">Sync activity</span>
+                        <h2>Recent sync runs (@recentRuns.Count)</h2>
+                    </div>
+                    <a class="btn-modern ghost small" href="/sync-jobs">Sync jobs</a>
+                </div>
+                @if (recentRuns.Count == 0)
+                {
+                    <EmptyState IconName="clock" Title="No sync runs yet">No sync job has run yet.</EmptyState>
+                }
+                else
+                {
+                    <div class="table-wrap">
+                        <table class="modern-table">
+                            <thead>
+                                <tr>
+                                    <th>Job</th>
+                                    <th>When</th>
+                                    <th>Result</th>
+                                    <th>Summary</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var run in recentRuns)
+                                {
+                                    <tr>
+                                        <td><strong>@run.JobName</strong></td>
+                                        <td class="text-muted">@run.Timestamp.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</td>
+                                        <td>
+                                            <StatusPill Variant="@(run.Status == "Completed" ? "ok" : "err")">@run.Status</StatusPill>
+                                        </td>
+                                        <td class="text-muted">@run.Message</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </div>
+        </div>
     </section>
 
     <section class="panel-card">
@@ -333,6 +336,7 @@ else
     private List<LogEntry> recentErrors = new();
     private List<(string JobName, DateTime Timestamp, string Status, string Message)> recentRuns = new();
     private DateTime? lastRunAt;
+    private DateTime _lastUpdated = DateTime.Now;
     private Timer? _timer;
 
     private bool step1Done => playlistsCount > 0;
@@ -395,8 +399,8 @@ else
         new("Plugins decide the download order",
             "yt-dlp, SoundCloud, Archive.org and Lucida try in order. The first one that delivers within your quality settings wins.",
             ".stat-grid .stat-card:last-child"),
-        new("Settings holds accounts and quality",
-            "Spotify or YouTube logins, default download quality and the Cloudflare solver for Lucida live here.",
+        new("Your connections",
+            "Spotify and YouTube logins plus your media servers show their status here. Connect or change them on the Settings page.",
             ".provider-list"),
         new("Publish when the music is in",
             "A sync job turns a playlist into a Jellyfin playlist or an M3U file. Checklists and tours can be restarted from Settings - About.",
@@ -467,6 +471,8 @@ else
 
             lastRunAt = recentRuns.Count > 0 ? recentRuns[0].Timestamp : (DateTime?)null;
         }
+
+        _lastUpdated = DateTime.Now;
     }
 
     public void Dispose() => _timer?.Dispose();

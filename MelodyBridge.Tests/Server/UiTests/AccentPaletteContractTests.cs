@@ -47,16 +47,41 @@ public class AccentPaletteContractTests
     }
 
     [Test]
-    public void MobileNavigation_TurnsTheColumnIntoAGrid()
+    public void MobileNavigation_CollapsesIntoAWrappingStrip()
     {
         var css = StyleSheet;
-        // A grid-template-columns on a flex container does nothing; the
-        // responsive rules must change the display too.
+        // A 600px column of links above every page was the old defect:
+        // below tablet the sidebar must become a compact strip whose nav
+        // wraps, and the section headings disappear.
         var media = Regex.Match(css, @"@media \(max-width: 1100px\) \{.*?\n\}", RegexOptions.Singleline);
 
         Assert.That(media.Success, Is.True, "the tablet media query exists");
-        Assert.That(media.Value, Does.Contain(".app-nav { display: grid;"),
-            "the responsive nav must become a real grid");
+        Assert.That(media.Value, Does.Contain(".app-nav { display: flex;"),
+            "the responsive nav must be a flex strip");
+        Assert.That(media.Value, Does.Contain("flex-wrap: wrap"),
+            "the nav must wrap instead of stacking a tall column");
+        Assert.That(media.Value, Does.Contain(".nav-section-header { display: none;"),
+            "section headings would each consume a whole row on a phone");
+        Assert.That(media.Value, Does.Contain(".app-sidebar {"),
+            "the sidebar must stop being a full-height column on tablet");
+    }
+
+    [Test]
+    public void PrimaryButton_TextUsesTheContrastToken_NotWhite()
+    {
+        var css = StyleSheet;
+
+        // White on the bright dark-theme accents fails AA (teal 2.5:1,
+        // amber 2.2:1); the text color must come from a theme token.
+        var rule = css.Split('\n').SingleOrDefault(l => l.Contains(".btn-modern.primary {"));
+        Assert.That(rule, Is.Not.Null, "the primary button rule exists");
+        Assert.That(rule, Does.Contain("color: var(--accent-contrast)"),
+            "primary text must read the accent-contrast token");
+
+        Assert.That(css, Does.Contain("--accent-contrast: #09090b"),
+            "dark theme fills bright accents, so the text is near-black there");
+        Assert.That(css, Does.Contain("--accent-contrast: #ffffff"),
+            "light theme fills dark accents, so the text stays white");
     }
 
     [Test]
