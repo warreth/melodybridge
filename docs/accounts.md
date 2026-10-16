@@ -33,7 +33,9 @@ page:
   once Spotify emails the package. This route is always manual, never
   automatic.
 
-Re-uploading a file refreshes the playlists instead of duplicating them.
+Each CSV becomes its own playlist, named after the file, so different exports
+stay apart. Re-uploading a file refreshes that playlist instead of duplicating
+it.
 
 Each provider has its own redirect URI, differing only in a `?provider=` marker
 that tells the callback which login to finish. Copy the exact URL from the

@@ -115,7 +115,7 @@ tracks** on the Advanced page to see the file names, including
 - **Refresh** fetches the playlist again and applies the sync mode.
 - **Download missing** starts a download run. While one is live, the button is
   replaced by **Pause**, **Resume** and **Cancel**.
-- **Delete playlist** removes the playlist, with an option to delete the
+- **Remove playlist** removes the playlist, with an option to delete the
   downloaded files too.
 
 ## The Plugins page
