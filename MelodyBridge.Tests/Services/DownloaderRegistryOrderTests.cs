@@ -40,6 +40,7 @@ public class DownloaderRegistryOrderTests
         db.Database.EnsureCreated();
 
         _registry = new DownloaderRegistry(Plugins(), _dbFactory,
+            new PluginConfigStore(_dbFactory),
             NullLogger<DownloaderRegistry>.Instance);
     }
 
@@ -61,6 +62,7 @@ public class DownloaderRegistryOrderTests
 
         // Persisted: a fresh registry over the same DB reads the same order.
         var fresh = new DownloaderRegistry(Plugins(), _dbFactory,
+            new PluginConfigStore(_dbFactory),
             NullLogger<DownloaderRegistry>.Instance);
         var persistedIds = fresh.GetEnabled().Select(d => d.Id).ToList();
         Assert.That(persistedIds, Is.EqualTo(new[] { "gamma", "alpha", "beta" }),
@@ -108,7 +110,7 @@ public class DownloaderRegistryOrderTests
         // A fresh registry over the same DB reads the same value: persisted.
         var fresh = new DownloaderRegistry(
             new IDownloader[] { new StubDownloader("alpha", "Alpha") },
-            _dbFactory, NullLogger<DownloaderRegistry>.Instance);
+            _dbFactory, new PluginConfigStore(_dbFactory), NullLogger<DownloaderRegistry>.Instance);
         Assert.That(await fresh.GetConfigAsync("gamma", "region"), Is.EqualTo("eu"),
             "plugin config must survive a restart");
 

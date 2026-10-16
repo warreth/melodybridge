@@ -49,6 +49,7 @@ public class PluginsInteractionTests
     private void RegisterPage(params IDownloader[] plugins)
     {
         _registry = new DownloaderRegistry(plugins, _factory,
+            new PluginConfigStore(_factory),
             NullLogger<DownloaderRegistry>.Instance);
 
         var dbFactory = TestHelpers.CreateInMemFactory();

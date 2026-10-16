@@ -13,6 +13,7 @@ public class DownloaderRegistry : IDownloaderRegistry
 {
     private readonly IEnumerable<IDownloader> _downloaders;
     private readonly IDbContextFactory<MelodyBridgeDbContext> _dbFactory;
+    private readonly IPluginConfig _config;
     private readonly ILogger<DownloaderRegistry> _logger;
 
     // plugin id -> enabled (cache, lazily loaded from DB)
@@ -23,10 +24,12 @@ public class DownloaderRegistry : IDownloaderRegistry
     public DownloaderRegistry(
         IEnumerable<IDownloader> downloaders,
         IDbContextFactory<MelodyBridgeDbContext> dbFactory,
+        IPluginConfig config,
         ILogger<DownloaderRegistry> logger)
     {
         _downloaders = downloaders;
         _dbFactory = dbFactory;
+        _config = config;
         _logger = logger;
     }
 
@@ -120,30 +123,13 @@ public class DownloaderRegistry : IDownloaderRegistry
     }
 
     // Plugin config lives in the same DownloaderSettings table as app
-    // settings, namespaced per plugin: "plugin:{id}:{key}".
-    private static string ConfigKey(string id, string key) => $"plugin:{id}:{key}";
+    // settings, namespaced per plugin: "plugin:{id}:{key}". The store is
+    // shared with the plugins themselves, which read their own knobs.
+    public Task<string> GetConfigAsync(string id, string key, CancellationToken ct = default)
+        => _config.GetAsync(id, key, ct);
 
-    public async Task<string> GetConfigAsync(string id, string key, CancellationToken ct = default)
-    {
-        await using var db = await _dbFactory.CreateDbContextAsync(ct);
-        var value = await db.DownloaderSettings.AsNoTracking()
-            .Where(s => s.Key == ConfigKey(id, key))
-            .Select(s => s.Value)
-            .FirstOrDefaultAsync(ct);
-        return value ?? "";
-    }
-
-    public async Task SetConfigAsync(string id, string key, string? value, CancellationToken ct = default)
-    {
-        await using var db = await _dbFactory.CreateDbContextAsync(ct);
-        var storageKey = ConfigKey(id, key);
-        var row = await db.DownloaderSettings.FirstOrDefaultAsync(s => s.Key == storageKey, ct);
-        if (row is null)
-            db.DownloaderSettings.Add(new DownloaderSettingEntity { Key = storageKey, Value = value ?? "" });
-        else
-            row.Value = value ?? "";
-        await db.SaveChangesAsync(ct);
-    }
+    public Task SetConfigAsync(string id, string key, string? value, CancellationToken ct = default)
+        => _config.SetAsync(id, key, value, ct);
 
     private async Task EnsureCacheLoaded(CancellationToken ct = default)
     {

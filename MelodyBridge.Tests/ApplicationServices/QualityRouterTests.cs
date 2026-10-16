@@ -282,13 +282,15 @@ public class QualityRouterTests
     }
 
     [Test]
-    public void MonochromeManifest_DeclaresItsTiers()
+    public void MonochromeManifest_DeclaresItsLosslessTier()
     {
         Assert.That(MonochromeDownloader.Caps.Containers,
-            Is.EqualTo(new[] { AudioFormat.Flac, AudioFormat.Aac }));
+            Is.EqualTo(new[] { AudioFormat.Flac }));
         Assert.That(MonochromeDownloader.Caps.SupportsLossless, Is.True);
-        AssertLossy(MonochromeDownloader.Caps, AudioFormat.Aac, 96, 96);
-        AssertLossy(MonochromeDownloader.Caps, AudioFormat.Aac, 320, 320);
+        Assert.That(MonochromeDownloader.Caps.SupportsLossy, Is.False,
+            "the official API streams lossless only");
+        Assert.That(MonochromeDownloader.Caps.Deliverables.All(d => d.Controlled), Is.True,
+            "asking for FLAC gets FLAC: the one deliverable is controllable");
     }
 
     [Test]
@@ -331,8 +333,8 @@ public class QualityRouterTests
         Assert.That(SoundCloudDownloader.Caps.CanServe(new DownloadQuality(AudioFormat.Mp3, MaxKbps: 96)), Is.False,
             "SoundCloud's 128 kbps floor cannot fit under a 96 cap");
         Assert.That(MonochromeDownloader.Caps.CanServe(new DownloadQuality(AudioFormat.Flac)), Is.True);
-        Assert.That(MonochromeDownloader.Caps.CanServe(new DownloadQuality(AudioFormat.Aac, MinKbps: 192, MaxKbps: 192)), Is.False,
-            "Monochrome has no tier at 192: only 96 and 320 exist");
+        Assert.That(MonochromeDownloader.Caps.CanServe(new DownloadQuality(AudioFormat.Aac, MinKbps: 320, MaxKbps: 320)), Is.False,
+            "the API streams lossless only: there is no lossy tier to serve");
         Assert.That(LucidaDownloader.Caps.CanServe(new DownloadQuality(AudioFormat.Opus)), Is.False);
         Assert.That(LucidaDownloader.Caps.CanServe(new DownloadQuality(AudioFormat.Flac)), Is.True,
             "uncontrollable does not mean unusable: Lucida may hand back a FLAC");

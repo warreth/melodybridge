@@ -92,12 +92,12 @@ current state, and **Refresh status** re-checks them.
 | Plugin | What it fetches |
 |---|---|
 | Lucida | High quality rips from lucida.to (Tidal, Deezer, Amazon Music, Qobuz). Needs a Cloudflare solver, see [Lucida and FlareSolverr](/lucida) |
-| Monochrome | Community TIDAL rips (FLAC or AAC), falling back between mirror instances |
+| Monochrome | Lossless FLAC from the official Monochrome API, no account needed |
 | DAB Music | Community Qobuz rips: FLAC up to 24/192 and MP3 320, no account needed |
 | DoubleDouble | Direct-URL rips from Tidal, Qobuz, Deezer, Amazon and SoundCloud. It cannot search by name, so the waterfall only uses it for track URLs it is handed |
 | SoundCloud | Original uploads by the artist, usually 128 kbps or better |
 | Internet Archive | Public recordings and digitizations from archive.org |
-| yt-dlp | YouTube Music first, plain YouTube as fallback |
+| yt-dlp | YouTube: audio-only best stream, top-5 ranked by match and duration |
 
 ### Finding the right recording
 

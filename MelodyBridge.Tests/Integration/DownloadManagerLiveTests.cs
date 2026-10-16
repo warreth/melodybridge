@@ -76,13 +76,74 @@ public class DownloadManagerLiveTests
     {
         var manager = _app.DownloadManager;
 
-        // The playlist claims 100 seconds; every real source of this track
-        // runs ~3:33. Downloading one anyway would be the wrong track.
+        // The playlist claims 60 seconds; every real source of this track
+        // runs 2:25 or longer (the API even carries a 171s edit), so every
+        // candidate is a gross mismatch. Downloading one anyway would be
+        // the wrong track. 100s would NOT be enough: 171/100 lands inside
+        // the plausible window.
         var path = await manager.DownloadTrackAsync(
             new TrackQuery("Rick Astley", "Never Gonna Give You Up", DownloadQuality.Any,
-                ExpectedDuration: TimeSpan.FromSeconds(100)), _outDir, "mb-live-mgr-2");
+                ExpectedDuration: TimeSpan.FromSeconds(60)), _outDir, "mb-live-mgr-2");
 
         Assert.That(path, Is.Null, "a gross duration mismatch must not download");
         Assert.That(manager.LastFailure("mb-live-mgr-2"), Does.Contain("wrong length"));
+    }
+
+    [Test]
+    public async Task DownloadTrack_FlacRequest_ThroughMonochromeAlone_StreamsLossless()
+    {
+        // Force the lossless path: every other plugin off, Monochrome on.
+        // The waterfall is only ever changed the way a user changes it,
+        // through the registry (enable/disable), never a test-local list.
+        var registry = _app.Registry;
+        foreach (var plugin in registry.GetAll().Where(p => p.Id != "monochrome"))
+            await registry.SetEnabledAsync(plugin.Id, false);
+
+        try
+        {
+            var manager = _app.DownloadManager;
+            var path = await manager.DownloadTrackAsync(
+                new TrackQuery("Rick Astley", "Never Gonna Give You Up",
+                    new DownloadQuality(AudioFormat.Flac),
+                    ExpectedDuration: TimeSpan.FromSeconds(214)),
+                _outDir, "mb-live-mgr-flac");
+
+            Assert.That(path, Is.Not.Null, manager.LastFailure("mb-live-mgr-flac"));
+            Assert.That(TaglibHelper.ReadMelodyId(path!), Is.EqualTo("mb-live-mgr-flac"),
+                "the manager's one tagging point wrote the id into the real file");
+
+            // Lossless, and nothing else: the file really came from the
+            // official API's FLAC stream, not an error page or a lossy rip.
+            var codec = await FfprobeAsync("-v error -show_entries stream=codec_name -of csv=p=0", path!);
+            var codecs = codec.Split(new[] { ',', '\n', '\r' },
+                StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            Assert.That(codecs, Is.All.EqualTo("flac"));
+
+            var duration = await FfprobeAsync("-v quiet -show_entries format=duration -of csv=p=0", path!);
+            Assert.That(double.TryParse(duration.Trim(), System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var seconds), Is.True);
+            Assert.That(seconds, Is.InRange(195, 235), "the 3:33 studio recording");
+        }
+        finally
+        {
+            foreach (var plugin in registry.GetAll())
+                await registry.SetEnabledAsync(plugin.Id, true);
+        }
+    }
+
+    private static async Task<string> FfprobeAsync(string arguments, string file)
+    {
+        using var ffprobe = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+        {
+            FileName = "ffprobe",
+            Arguments = $"{arguments} \"{file}\"",
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        })!;
+        var stdout = await ffprobe.StandardOutput.ReadToEndAsync();
+        await ffprobe.WaitForExitAsync();
+        return stdout;
     }
 }

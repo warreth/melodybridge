@@ -8,69 +8,71 @@ using Microsoft.Extensions.Logging;
 namespace MelodyBridge.Infrastructure.Downloaders;
 
 /// <summary>
-/// Monochrome downloader plugin: community-hosted "Hi-Fi API" instances that
-/// proxy TIDAL (monochrome.tf ecosystem). No TIDAL account needed: the
-/// instances handle auth internally. Serves FLAC (LOSSLESS / HI_RES_LOSSLESS)
-/// and AAC. Instances are tried in order until one answers, and a failing
-/// one is skipped until the next call re-runs the fallback from the top.
+/// Monochrome downloader plugin: the official Monochrome lossless API
+/// (tracks.monochrome.st). No account needed; the service sources the
+/// audio itself and streams FLAC back over a plain GET. The host is
+/// configurable (community mirror or a local proxy) through the plugin's
+/// base_url setting.
 ///
-/// API shape (v2.x, FastAPI-style):
-///   /search/?s={query}              → {"data":{"items":[track objects]}}
-///   /track/?id={id}&quality={Q}     → JSON with a manifest/stream URL
+/// API shape (their "tracks" provider, live-probed):
+///   /search/tracks?q={query}&limit={n} → {"tracks":[track objects]}
+///   /track/{id}                        → audio bytes (FLAC)
+///   /health                            → 200 when the API is up
+///
+/// Track objects carry: id/trackId (snowflake), title, artistNames[],
+/// duration (milliseconds), isrc and playable.
 /// </summary>
 public class MonochromeDownloader : IDownloader
 {
-    private readonly ILogger<MonochromeDownloader> _logger;
-    private readonly HttpClient _http;
+    public const string DefaultBaseUrl = "https://tracks.monochrome.st";
+    private const string BaseUrlKey = "base_url";
 
-    // Monochrome serves TIDAL tiers, not arbitrary bitrates: LOW (~96
-    // kbps AAC), HIGH (~320 kbps AAC), LOSSLESS (~900 kbps FLAC) and
-    // HI_RES_LOSSLESS. A level between tiers does not exist.
+    // The official API serves one lossless tier: asking for FLAC gets a
+    // real FLAC (usually ~900-1100 kbps). There is no lossy tier and no
+    // quality parameter, so no AAC/MP3 deliverables are declared.
     public static readonly PluginCapabilities Caps = new(
     [
         new QualityDeliverable(AudioFormat.Flac, Lossless: true, 900, 10000),
-        new QualityDeliverable(AudioFormat.Aac, Lossless: false, 96, 96),
-        new QualityDeliverable(AudioFormat.Aac, Lossless: false, 320, 320),
     ]);
     public PluginCapabilities Capabilities => Caps;
 
     public string Id => "monochrome";
-    public string Name => "Monochrome (TIDAL)";
-    public string Description => "Community TIDAL rips via monochrome.tf Hi-Fi API instances: FLAC/AAC, mirror fallback";
+    public string Name => "Monochrome (lossless)";
+    public string Description => "Official Monochrome lossless API: FLAC streams, no account needed";
 
-    // Official instance list (https://monochrome.tf/instances.json), tried in order.
-    private static readonly string[] Instances =
+    public IReadOnlyList<PluginConfigField> ConfigFields =>
     [
-        "https://eu-central.monochrome.tf",
-        "https://us-west.monochrome.tf",
-        "https://arran.monochrome.tf",
-        "https://api.monochrome.tf",
-        "https://monochrome-api.samidy.com",
-        "https://triton.squid.wtf",
-        "https://wolf.qqdl.site",
-        "https://maus.qqdl.site",
-        "https://vogel.qqdl.site",
-        "https://hund.qqdl.site",
-        "https://tidal.kinoplus.online",
+        new(BaseUrlKey, "API base URL", DefaultBaseUrl,
+            "Override the Monochrome API host, for example a community mirror. Empty uses the official host."),
     ];
 
-    /// <summary>Instance index that last answered; -1 = unknown, re-run fallback.</summary>
-    private int _workingInstance = -1;
+    private readonly HttpClient _http;
+    private readonly IPluginConfig _config;
+    private readonly ILogger<MonochromeDownloader> _logger;
 
-    // Availability cache: probing eleven instances on every waterfall
-    // call (once per track) is wasted work; the shared cache trusts a
-    // verdict for a short window.
+    // Availability probe cache: the waterfall asks per track and the
+    // Plugins page re-checks on a timer; the TTL keeps /health from being
+    // hammered.
     private readonly AvailabilityCache _availability = new();
 
-    /// <summary>Per-request deadlines: API calls stay short so one hanging mirror cannot stall the sweep.</summary>
+    /// <summary>Per-request deadlines so one hanging API call cannot stall the waterfall.</summary>
     private static readonly TimeSpan SearchRequestTimeout = TimeSpan.FromSeconds(10);
-    private static readonly TimeSpan TrackRequestTimeout = TimeSpan.FromSeconds(15);
-    private static readonly TimeSpan ManifestRequestTimeout = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan StreamRequestTimeout = TimeSpan.FromMinutes(8);
+    private static readonly TimeSpan HealthTimeout = TimeSpan.FromSeconds(5);
 
-    public MonochromeDownloader(HttpClient http, ILogger<MonochromeDownloader> logger)
+    public MonochromeDownloader(HttpClient http, IPluginConfig config, ILogger<MonochromeDownloader> logger)
     {
         _http = http;
+        _config = config;
         _logger = logger;
+    }
+
+    /// <summary>The configured API host, falling back to the official one.</summary>
+    private async Task<string> BaseUrlAsync(CancellationToken ct)
+    {
+        var configured = await _config.GetAsync(Id, BaseUrlKey, ct);
+        if (string.IsNullOrWhiteSpace(configured)) return DefaultBaseUrl;
+        return configured.Trim().TrimEnd('/');
     }
 
     // ── Availability ─────────────────────────────────────────────────────
@@ -80,53 +82,26 @@ public class MonochromeDownloader : IDownloader
         if (_availability.TryGet(out var cached))
             return cached;
 
-        // Cheap probe per instance (single-char search); whole sweep must
-        // stay within ~10s so the waterfall is not stalled.
-        using var sweep = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        sweep.CancelAfter(TimeSpan.FromSeconds(10));
-
-        var available = false;
-        foreach (var index in InstanceOrder())
-        {
-            if (await ProbeInstanceAsync(index, sweep.Token))
-            {
-                _workingInstance = index;
-                available = true;
-                break;
-            }
-        }
-        if (!available) _workingInstance = -1;
-
-        _availability.Store(available);
-        return available;
-    }
-
-    /// <summary>
-    /// Instance probe order: the last known working one first, then the
-    /// rest. -1 (unknown) sweeps from the top.
-    /// </summary>
-    private IEnumerable<int> InstanceOrder()
-    {
-        if (_workingInstance >= 0 && _workingInstance < Instances.Length)
-            yield return _workingInstance;
-        for (var i = 0; i < Instances.Length; i++)
-            if (i != _workingInstance)
-                yield return i;
-    }
-
-    private async Task<bool> ProbeInstanceAsync(int index, CancellationToken ct)
-    {
         try
         {
             using var probe = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            probe.CancelAfter(TimeSpan.FromSeconds(3));
-            var url = Instances[index].TrimEnd('/') + "/search/?s=a";
+            probe.CancelAfter(HealthTimeout);
+            var url = await BaseUrlAsync(ct) + "/health";
             using var resp = await _http.GetAsync(url, probe.Token);
-            return resp.IsSuccessStatusCode;
+            var available = resp.IsSuccessStatusCode;
+            if (!available)
+                _logger.LogDebug("Monochrome health probe returned {Status}", (int)resp.StatusCode);
+            _availability.Store(available);
+            return available;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "Monochrome instance {Instance} probe failed", Instances[index]);
+            _logger.LogDebug(ex, "Monochrome health probe failed");
+            _availability.Store(false);
             return false;
         }
     }
@@ -135,67 +110,122 @@ public class MonochromeDownloader : IDownloader
 
     public async Task<DownloaderSearchHit?> SearchAsync(TrackQuery query, CancellationToken ct = default)
     {
-        // Cleaned terms: the TIDAL indexes behind the instances are
-        // literal, so "(Original Mix)" suffixes and featuring tags reduce
-        // matches before the first request is even sent.
+        // Cleaned terms: the API's index is literal, so "(Original Mix)"
+        // suffixes and featuring tags reduce matches before the request is
+        // even sent.
         var searchText = query.SearchText;
         if (searchText.Length == 0) return null;
 
-        // Start at the cached instance (or the first one) and wrap around
-        // through the whole list so one dead mirror never wedges the plugin.
-        // The sweep carries its own deadline, and every request gets its
-        // own timeout, so a hanging mirror cannot push past it. The
-        // HiFi-RestAPI exposes no ISRC filter (only s/a/al/v/p), so the
-        // ISRC is not used here.
-        var sweepDeadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(30);
-        for (var attempt = 0; attempt < Instances.Length; attempt++)
+        var baseUrl = await BaseUrlAsync(ct);
+        var url = baseUrl + "/search/tracks?q=" + Uri.EscapeDataString(searchText) + "&limit=10";
+        try
         {
-            var remaining = sweepDeadline - DateTimeOffset.UtcNow;
-            if (remaining <= TimeSpan.Zero)
+            using var request = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            request.CancelAfter(SearchRequestTimeout);
+
+            using var resp = await _http.GetAsync(url, request.Token);
+            if (!resp.IsSuccessStatusCode)
             {
-                _logger.LogInformation("Monochrome search sweep gave up after the deadline");
+                _logger.LogDebug("Monochrome search returned {Status}", (int)resp.StatusCode);
                 return null;
             }
 
-            var index = _workingInstance < 0
-                ? attempt
-                : (_workingInstance + attempt) % Instances.Length;
-            try
-            {
-                using var request = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                request.CancelAfter(remaining < SearchRequestTimeout ? remaining : SearchRequestTimeout);
-
-                var url = Instances[index].TrimEnd('/') + "/search/?s=" + Uri.EscapeDataString(searchText);
-                using var resp = await _http.GetAsync(url, request.Token);
-                if (!resp.IsSuccessStatusCode)
-                {
-                    _logger.LogDebug("Monochrome instance {Instance} returned {Status} for search",
-                        Instances[index], (int)resp.StatusCode);
-                    continue;
-                }
-
-                var body = await resp.Content.ReadAsStringAsync(request.Token);
-                var hit = ParseSearchItems(body, query.Artist, query.Title, query.Quality, query.ExpectedDuration);
-                if (hit is not null)
-                {
-                    _workingInstance = index;
-                    return hit;
-                }
-            }
-            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
-            {
-                // Per-request timeout: this mirror is too slow, next one.
-                _logger.LogDebug("Monochrome instance {Instance} timed out for search", Instances[index]);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Monochrome instance {Instance} failed for search '{Query}'",
-                    Instances[index], searchText);
-            }
+            var body = await resp.Content.ReadAsStringAsync(request.Token);
+            return ParseSearchTracks(body, baseUrl, query.Artist, query.Title,
+                query.ExpectedDuration, query.Isrc);
         }
-
-        return null;
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            _logger.LogDebug("Monochrome search timed out");
+            return null;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Monochrome search '{Query}' failed", searchText);
+            return null;
+        }
     }
+
+    /// <summary>
+    /// Parses a /search/tracks response ({"tracks":[…]}) into the best hit:
+    /// every item is ranked by title/artist confidence plus duration
+    /// proximity. An exact ISRC match (when the query carries one) narrows
+    /// the pool to the recording itself, so a noisy title cannot pick a
+    /// different master. Null when there are no usable items.
+    /// </summary>
+    internal static DownloaderSearchHit? ParseSearchTracks(
+        string json, string baseUrl, string artist, string fallbackTitle,
+        TimeSpan? expectedDuration = null, string? expectedIsrc = null)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            if (!doc.RootElement.TryGetProperty("tracks", out var tracks) ||
+                tracks.ValueKind != JsonValueKind.Array ||
+                tracks.GetArrayLength() == 0)
+                return null;
+
+            // Rank every item instead of trusting the API's first row:
+            // the list routinely buries the real match under remixes.
+            var candidates = new List<(DownloaderSearchHit Hit, string? Isrc)>();
+            foreach (var item in tracks.EnumerateArray())
+            {
+                // One malformed entry must not poison the response: skip
+                // the item, keep the loop.
+                if (item.ValueKind != JsonValueKind.Object) continue;
+
+                // Unplayable entries (takedowns, region blocks) would only
+                // fail later, after a wasted download attempt.
+                if (item.TryGetProperty("playable", out var playable) &&
+                    playable.ValueKind == JsonValueKind.False)
+                    continue;
+
+                var id = GetString(item, "id") ?? GetString(item, "trackId");
+                if (string.IsNullOrEmpty(id)) continue;
+
+                var hitTitle = GetString(item, "title") ?? fallbackTitle;
+                var hitArtist = GetPrimaryArtist(item);
+
+                TimeSpan? duration = item.TryGetProperty("duration", out var d) &&
+                                     d.ValueKind == JsonValueKind.Number
+                    ? TimeSpan.FromMilliseconds(d.GetDouble())
+                    : null;
+
+                var hit = new DownloaderSearchHit(
+                    Title: hitTitle,
+                    Artist: hitArtist,
+                    SourceUrl: $"{baseUrl}/track/{id}",
+                    Duration: duration,
+                    MatchConfidence: FuzzyMatcher.Confidence(
+                        artist, fallbackTitle, hitArtist: hitArtist, hitTitle: hitTitle));
+                candidates.Add((hit, GetString(item, "isrc")));
+            }
+
+            if (candidates.Count == 0) return null;
+
+            // An exact ISRC is the recording itself, not a guess: when the
+            // query carries one and any candidate matches, the others are
+            // a different master even when their titles look closer.
+            var isrcPool = candidates.Where(c => IsrcEquals(expectedIsrc, c.Isrc)).ToList();
+            var pool = isrcPool.Count > 0 ? isrcPool : candidates;
+
+            return SearchRanker.Rank(artist, fallbackTitle, expectedDuration,
+                pool.Select(c => c.Hit));
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>True when both ISRCs are present and equal, ignoring case and padding.</summary>
+    internal static bool IsrcEquals(string? expected, string? actual)
+        => !string.IsNullOrWhiteSpace(expected) && !string.IsNullOrWhiteSpace(actual)
+           && string.Equals(expected.Trim(), actual.Trim(), StringComparison.OrdinalIgnoreCase);
 
     // ── Download ─────────────────────────────────────────────────────────
 
@@ -206,373 +236,122 @@ public class MonochromeDownloader : IDownloader
         DownloadQuality? quality = null,
         CancellationToken ct = default)
     {
+        if (!TryExtractTrackId(sourceUrl, out var trackId))
+            return new DownloaderDownloadResult(false, null, "not a Monochrome track URL or id: " + sourceUrl);
+
+        Directory.CreateDirectory(outputDirectory);
+
+        // MelodyId in the name (when present) keeps retries and concurrent
+        // downloads of the same track distinct files instead of a shared
+        // path two writers clobber.
+        var filePath = Path.Combine(outputDirectory,
+            $"monochrome_{trackId}_{(melodyId is { Length: > 0 } ? melodyId : Guid.NewGuid().ToString("N")[..8])}.flac");
+
         try
         {
-            if (!TryExtractTrackId(sourceUrl, out var trackId))
-                return new DownloaderDownloadResult(false, null, "not a TIDAL track URL: " + sourceUrl);
+            var baseUrl = await BaseUrlAsync(ct);
+            using var request = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            request.CancelAfter(StreamRequestTimeout);
 
-            quality ??= DownloadQuality.Any;
-            var qualityParam = TryMapQuality(quality);
-            if (qualityParam is null)
+            using var resp = await _http.GetAsync($"{baseUrl}/track/{trackId}",
+                HttpCompletionOption.ResponseHeadersRead, request.Token);
+            if (!resp.IsSuccessStatusCode)
+            {
+                _logger.LogDebug("Monochrome track {TrackId} returned {Status}", trackId, (int)resp.StatusCode);
                 return new DownloaderDownloadResult(false, null,
-                    "no TIDAL tier fits this quality band; skipping instead of wasting a download");
-            Directory.CreateDirectory(outputDirectory);
-
-            var deadline = DateTimeOffset.UtcNow + TimeSpan.FromMinutes(6);
-            for (var attempt = 0; attempt < Instances.Length; attempt++)
-            {
-                if (DateTimeOffset.UtcNow >= deadline)
-                    break;
-
-                var index = _workingInstance < 0
-                    ? attempt
-                    : (_workingInstance + attempt) % Instances.Length;
-                string? filePath = null;
-                try
-                {
-                    var url = Instances[index].TrimEnd('/') + $"/track/?id={trackId}&quality={qualityParam}";
-                    var body = await GetWithTimeoutAsync(url, TrackRequestTimeout, ct);
-                    if (body is null)
-                    {
-                        _logger.LogDebug("Monochrome instance {Instance} returned nothing for track {TrackId}",
-                            Instances[index], trackId);
-                        continue;
-                    }
-
-                    var manifestUrl = ExtractManifestUrl(body);
-                    if (string.IsNullOrEmpty(manifestUrl))
-                        continue; // unparseable shape: try next instance
-
-                    var ext = ExtensionFromManifest(manifestUrl, quality.Format);
-                    // MelodyId in the name (when present) makes retries and
-                    // concurrent downloads of the same track distinct files
-                    // instead of a shared path two writers clobber.
-                    filePath = Path.Combine(outputDirectory,
-                        $"tidal_{trackId}_{qualityParam}_{(melodyId is { Length: > 0 } ? melodyId : Guid.NewGuid().ToString("N")[..8])}{ext}");
-
-                    if (!await DownloadFileAsync(manifestUrl, filePath, ct))
-                        continue;
-
-                    // An error page saved under an audio name must never
-                    // pass: sniff the real bytes before accepting.
-                    var container = AudioSignature.EnsureExtension(filePath);
-                    if (container is null)
-                    {
-                        _logger.LogDebug("Monochrome manifest from {Instance} is not audio; trying next", Instances[index]);
-                        FileCleanup.DeleteQuietly(filePath);
-                        continue;
-                    }
-                    filePath = container;
-
-                    YtDlpDownloader.TagDownloadedFile(filePath, expectedTitle: null);
-                    _workingInstance = index;
-                    return new DownloaderDownloadResult(true, filePath, null);
-                }
-                catch (OperationCanceledException) when (ct.IsCancellationRequested)
-                {
-                    if (filePath is not null) FileCleanup.DeleteQuietly(filePath);
-                    throw;
-                }
-                catch (Exception ex)
-                {
-                    if (filePath is not null) FileCleanup.DeleteQuietly(filePath);
-                    _logger.LogDebug(ex, "Monochrome instance {Instance} failed for track {TrackId}",
-                        Instances[index], trackId);
-                }
+                    $"Monochrome track {trackId} returned HTTP {(int)resp.StatusCode}");
             }
 
-            return new DownloaderDownloadResult(false, null,
-                $"all Monochrome instances failed for TIDAL track {trackId}");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Monochrome download for TIDAL track {TrackId} failed", TryExtractTrackId(sourceUrl, out var id) ? id : 0);
-            return new DownloaderDownloadResult(false, null, ex.Message);
-        }
-    }
-
-    /// <summary>GET with a per-request timeout; null on any failure (dead mirror).</summary>
-    private async Task<string?> GetWithTimeoutAsync(string url, TimeSpan timeout, CancellationToken ct)
-    {
-        using var request = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        request.CancelAfter(timeout);
-        using var resp = await _http.GetAsync(url, request.Token);
-        if (!resp.IsSuccessStatusCode)
-        {
-            _logger.LogDebug("Monochrome GET {Url} returned {Status}", url, (int)resp.StatusCode);
-            return null;
-        }
-        return await resp.Content.ReadAsStringAsync(request.Token);
-    }
-
-    /// <summary>
-    /// Streams the manifest into filePath. A half-written file is deleted
-    /// before the failure propagates: never leave a corrupt file for the
-    /// scanner to find.
-    /// </summary>
-    private async Task<bool> DownloadFileAsync(string manifestUrl, string filePath, CancellationToken ct)
-    {
-        using var request = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        request.CancelAfter(ManifestRequestTimeout);
-        try
-        {
-            using var fileResp = await _http.GetAsync(manifestUrl, HttpCompletionOption.ResponseHeadersRead, request.Token);
-            if (!fileResp.IsSuccessStatusCode)
-            {
-                _logger.LogDebug("Monochrome manifest download from {Manifest} returned {Status}",
-                    manifestUrl, (int)fileResp.StatusCode);
-                return false;
-            }
-
-            await using (var src = await fileResp.Content.ReadAsStreamAsync(request.Token))
+            await using (var src = await resp.Content.ReadAsStreamAsync(request.Token))
             await using (var dst = File.Create(filePath))
             {
                 await src.CopyToAsync(dst, 81920, request.Token);
             }
-
-            if (new FileInfo(filePath).Length == 0)
-            {
-                // A zero-byte rip is a failed rip: never leave it behind.
-                FileCleanup.DeleteQuietly(filePath);
-                return false;
-            }
-            return true;
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
+            FileCleanup.DeleteQuietly(filePath);
             throw; // caller cancellation: the outer handler cleans up
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "Monochrome manifest download from {Manifest} failed", manifestUrl);
             FileCleanup.DeleteQuietly(filePath);
-            return false;
+            _logger.LogDebug(ex, "Monochrome download for track {TrackId} failed", trackId);
+            return new DownloaderDownloadResult(false, null, ex.Message);
         }
-    }
 
-    // ── Mapping helpers ──────────────────────────────────────────────────
-
-    /// <summary>
-    /// The TIDAL tier that fits the requested band, or null when no tier
-    /// does (a 192-256 cap, say: LOW 96 is under the floor, HIGH 320 is
-    /// over the cap). Null lets the caller fail fast instead of
-    /// downloading bytes the post-download gate would delete.
-    /// </summary>
-    internal static string? TryMapQuality(DownloadQuality quality)
-    {
-        switch (quality.Format)
+        if (new FileInfo(filePath).Length == 0)
         {
-            case AudioFormat.Flac:
-                return quality.MaxKbps is null ? "HI_RES_LOSSLESS" : "LOSSLESS";
-            case AudioFormat.Aac:
-                return MapAacTier(quality);
-            case AudioFormat.Mp3:
-                // TIDAL serves no MP3; the manifest omits the container, so
-                // a direct request fails fast instead of handing back an m4a.
-                return null;
+            // A zero-byte rip is a failed rip: never leave it behind.
+            FileCleanup.DeleteQuietly(filePath);
+            return new DownloaderDownloadResult(false, null, "Monochrome returned an empty stream");
         }
 
-        // Auto: pick the best tier inside the band. TIDAL tiers are
-        // roughly 96 (LOW), 320 (HIGH) and 900+ (HI_RES_LOSSLESS).
-        var min = quality.MinKbps;
-        var max = quality.MaxKbps;
-        if (max is null)
-            return "HI_RES_LOSSLESS";
-        if ((min is null || min <= 320) && max >= 320)
-            return "HIGH";
-        if (min is null || min <= 96)
-            return "LOW";
-        return null;
+        // An error page saved under an audio name must never pass: sniff
+        // the real bytes before accepting, and fix the extension to match.
+        var container = AudioSignature.EnsureExtension(filePath);
+        if (container is null)
+        {
+            _logger.LogDebug("Monochrome stream for track {TrackId} is not audio", trackId);
+            FileCleanup.DeleteQuietly(filePath);
+            return new DownloaderDownloadResult(false, null, "Monochrome stream is not audio");
+        }
+
+        YtDlpDownloader.TagDownloadedFile(container, expectedTitle: null);
+        return new DownloaderDownloadResult(true, container, null);
     }
 
     /// <summary>
-    /// The AAC tier that fits the requested band: HIGH (320) when the band
-    /// reaches it, else LOW (96), else null. Mirrors the declared
-    /// deliverables exactly, so a tier the router considers "controlled" is
-    /// really the tier that gets downloaded.
+    /// Extracts the track id from a Monochrome stream URL
+    /// ({base}/track/{id}) or a bare snowflake id. Ids stay strings:
+    /// 19-digit snowflakes can overflow a long.
     /// </summary>
-    private static string? MapAacTier(DownloadQuality quality)
+    internal static bool TryExtractTrackId(string sourceUrl, out string trackId)
     {
-        var min = quality.MinKbps;
-        var max = quality.MaxKbps;
-        if (max is null || max >= 320)
-            return min is null || min <= 320 ? "HIGH" : null;
-        if (min is null || min <= 96)
-            return "LOW";
-        return null;
-    }
-
-    /// <summary>File extension from the manifest URL path, defaulting by requested format.</summary>
-    private static string ExtensionFromManifest(string manifestUrl, AudioFormat format)
-    {
-        try
-        {
-            var ext = Path.GetExtension(new Uri(manifestUrl).AbsolutePath);
-            if (!string.IsNullOrEmpty(ext))
-                return ext.ToLowerInvariant(); // .flac / .m4a / .mp3
-        }
-        catch { /* non-absolute manifest URLs default below */ }
-        return format switch
-        {
-            AudioFormat.Flac => ".flac",
-            AudioFormat.Mp3 => ".mp3",
-            AudioFormat.Aac => ".m4a",
-            _ => ".flac",
-        };
-    }
-
-    // ── Parsers ──────────────────────────────────────────────────────────
-
-    /// <summary>
-    /// Parses a /search/?s= response ({"data":{"items":[…]}}) into the best
-    /// hit: every item is ranked by title/artist confidence plus duration
-    /// proximity, lossless availability breaks ties. Null when there are
-    /// no usable items.
-    /// </summary>
-    internal static DownloaderSearchHit? ParseSearchItems(
-        string json, string artist, string fallbackTitle, DownloadQuality quality,
-        TimeSpan? expectedDuration = null)
-    {
-        try
-        {
-            using var doc = JsonDocument.Parse(json);
-            if (!doc.RootElement.TryGetProperty("data", out var data) ||
-                !data.TryGetProperty("items", out var items) ||
-                items.ValueKind != JsonValueKind.Array ||
-                items.GetArrayLength() == 0)
-                return null;
-
-            // Rank every item instead of trusting the API's first result:
-            // the list routinely buries the real match under remixes and
-            // live versions.
-            var candidates = new List<DownloaderSearchHit>();
-            var losslessById = new Dictionary<string, bool>(StringComparer.Ordinal);
-            foreach (var item in items.EnumerateArray())
-            {
-                // One malformed entry must not poison the instance: skip
-                // the item, keep the loop. Non-object elements throw on
-                // TryGetProperty without this guard.
-                if (item.ValueKind != JsonValueKind.Object) continue;
-
-                var hitTitle = GetString(item, "title") ?? fallbackTitle;
-                var hitArtist = GetArtistName(item);
-                if (!item.TryGetProperty("id", out var idProp) ||
-                    !idProp.TryGetInt64(out var trackId))
-                    continue;
-
-                TimeSpan? duration = item.TryGetProperty("duration", out var d) && d.ValueKind == JsonValueKind.Number
-                    ? TimeSpan.FromSeconds(d.GetInt32())
-                    : null;
-
-                var lossless = IsLossless(item);
-
-                // A lossless request must not settle for a lossy best hit:
-                // the waterfall would download it and the measured-band
-                // gate would reject it after the bytes are already spent.
-                if (quality.Format == AudioFormat.Flac && !lossless)
-                    continue;
-
-                var sourceUrl = $"https://tidal.com/browse/track/{trackId}";
-                losslessById[sourceUrl] = lossless;
-                candidates.Add(new DownloaderSearchHit(
-                    Title: hitTitle,
-                    Artist: hitArtist,
-                    SourceUrl: sourceUrl,
-                    Duration: duration,
-                    MatchConfidence: FuzzyMatcher.Confidence(
-                        artist, fallbackTitle, hitArtist: hitArtist, hitTitle: hitTitle)));
-            }
-
-            return SearchRanker.Rank(artist, fallbackTitle, expectedDuration, candidates,
-                tieBreaker: hit => losslessById.GetValueOrDefault(hit.SourceUrl!) ? 1 : 0);
-        }
-        catch (JsonException)
-        {
-            return null;
-        }
-    }
-
-    /// <summary>
-    /// True when the item exposes a lossless stream, matching the Hi-Res /
-    /// Lossless flags the API reports (audioQuality or quality key).
-    /// A lossless hit satisfies every lossy band; the download step still
-    /// applies the requested cap.
-    /// </summary>
-    private static bool IsLossless(JsonElement item)
-        => (GetString(item, "audioQuality") ?? GetString(item, "quality") ?? string.Empty)
-            .Contains("LOSSLESS", StringComparison.OrdinalIgnoreCase);
-
-    /// <summary>
-    /// Extracts the manifest/stream URL from a /track/ response, covering
-    /// the observed shapes: data.data.attributes.uri (the old chain),
-    /// data.data.url / manifest / urls[0], data.manifest, data.url, and flat
-    /// root url/manifest/uri.
-    /// </summary>
-    internal static string? ExtractManifestUrl(string json)
-    {
-        try
-        {
-            using var doc = JsonDocument.Parse(json);
-            var root = doc.RootElement;
-
-            if (root.TryGetProperty("data", out var outer))
-            {
-                // Preferred chain: data.data.attributes.uri
-                if (outer.TryGetProperty("data", out var inner) &&
-                    inner.TryGetProperty("attributes", out var attrs))
-                {
-                    var uri = GetString(attrs, "uri") ?? GetString(attrs, "url");
-                    if (!string.IsNullOrEmpty(uri)) return uri;
-                }
-
-                // data.data.{url,manifest,urls[0]}
-                if (outer.TryGetProperty("data", out var playback))
-                {
-                    var url = GetString(playback, "url") ?? GetString(playback, "manifest");
-                    if (!string.IsNullOrEmpty(url)) return url;
-                    if (playback.TryGetProperty("urls", out var urls) &&
-                        urls.ValueKind == JsonValueKind.Array && urls.GetArrayLength() > 0 &&
-                        urls[0].ValueKind == JsonValueKind.String)
-                        return urls[0].GetString();
-                }
-
-                // FastAPI v2.x flat shape: data.manifest / data.url
-                var direct = GetString(outer, "manifest") ?? GetString(outer, "url");
-                if (!string.IsNullOrEmpty(direct)) return direct;
-            }
-
-            // Flat root fallback
-            return GetString(root, "url") ?? GetString(root, "manifest") ?? GetString(root, "uri");
-        }
-        catch (Exception ex) when (ex is JsonException or InvalidOperationException or KeyNotFoundException)
-        {
-            // A malformed instance response is a dead end, not a crash:
-            // TryGetProperty on a non-object throws InvalidOperationException
-            // and JsonDocument.Parse throws JsonException; both mean "no
-            // manifest here".
-            return null;
-        }
-    }
-
-    /// <summary>Extracts the numeric TIDAL track id from a URL or a bare id string.</summary>
-    internal static bool TryExtractTrackId(string sourceUrl, out long trackId)
-    {
-        trackId = 0;
+        trackId = "";
         if (string.IsNullOrWhiteSpace(sourceUrl)) return false;
 
-        // Bare numeric id
-        if (long.TryParse(sourceUrl.Trim(), out trackId) && trackId > 0)
-            return true;
+        var candidate = sourceUrl.Trim().TrimEnd('/');
 
-        // Last path segment of .../track/{id}
-        var lastSegment = sourceUrl.TrimEnd('/').Split('/')[^1];
-        return long.TryParse(lastSegment, out trackId) && trackId > 0;
+        // Bare id
+        if (IsSnowflake(candidate))
+        {
+            trackId = candidate;
+            return true;
+        }
+
+        // Last path segment of .../track/{id}; a URL must actually be a
+        // track path, so a random numeric URL tail is not mistaken for one.
+        var lastSegment = candidate.Split('/')[^1];
+        if (!IsSnowflake(lastSegment)) return false;
+        if (candidate.Contains("://", StringComparison.Ordinal) &&
+            !candidate.Contains("/track/", StringComparison.OrdinalIgnoreCase))
+            return false;
+        trackId = lastSegment;
+        return true;
     }
 
-    /// <summary>TIDAL objects carry artist {name} or artists[].name.</summary>
-    private static string? GetArtistName(JsonElement item)
+    /// <summary>A numeric id of at most 20 digits (the API's snowflake shape).</summary>
+    private static bool IsSnowflake(string value)
+        => value.Length is > 0 and <= 20 && value.All(char.IsAsciiDigit);
+
+    // ── Parsing helpers ──────────────────────────────────────────────────
+
+    /// <summary>Primary artist: artistNames[0], artists[0].name or artist.name.</summary>
+    private static string? GetPrimaryArtist(JsonElement item)
     {
-        if (item.ValueKind != JsonValueKind.Object) return null;
+        if (item.TryGetProperty("artistNames", out var names) &&
+            names.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var name in names.EnumerateArray())
+                if (name.ValueKind == JsonValueKind.String)
+                    return name.GetString();
+        }
+
+        if (item.TryGetProperty("artists", out var artists) &&
+            artists.ValueKind == JsonValueKind.Array && artists.GetArrayLength() > 0)
+            return GetString(artists[0], "name");
+
         if (item.TryGetProperty("artist", out var artist))
         {
             if (artist.ValueKind == JsonValueKind.String)
@@ -580,9 +359,7 @@ public class MonochromeDownloader : IDownloader
             var name = GetString(artist, "name");
             if (!string.IsNullOrEmpty(name)) return name;
         }
-        if (item.TryGetProperty("artists", out var artists) &&
-            artists.ValueKind == JsonValueKind.Array && artists.GetArrayLength() > 0)
-            return GetString(artists[0], "name");
+
         return null;
     }
 

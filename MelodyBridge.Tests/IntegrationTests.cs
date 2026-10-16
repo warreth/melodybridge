@@ -53,6 +53,7 @@ public class IntegrationTests
         };
 
         var registry = new DownloaderRegistry(downloaders, factory,
+            new PluginConfigStore(factory),
             NullLogger<DownloaderRegistry>.Instance);
 
         // All plugins should be registered
@@ -94,6 +95,7 @@ public class IntegrationTests
         };
 
         var registry = new DownloaderRegistry(downloaders, factory,
+            new PluginConfigStore(factory),
             NullLogger<DownloaderRegistry>.Instance);
 
         var manager = new Application.Services.DownloadManager(
@@ -122,6 +124,7 @@ public class IntegrationTests
         };
 
         var registry = new DownloaderRegistry(downloaders, factory,
+            new PluginConfigStore(factory),
             NullLogger<DownloaderRegistry>.Instance);
         var manager = new Application.Services.DownloadManager(
             registry,

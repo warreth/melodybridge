@@ -81,12 +81,12 @@ runner-ups travel along in `DownloaderSearchHit.Alternatives` so a dead
 first choice (deleted video, geo-block) does not lose the plugin.
 `DownloadManager` re-checks every candidate before spending bytes.
 
-Plugins whose catalog indexes ISRCs (the Qobuz-backed ones) search by
-`query.Isrc` first when it is present and fall back to the text query
-when that yields no confident hit. YouTube, SoundCloud, Archive.org and
-the TIDAL proxies do not index ISRCs and ignore the field (the
-HiFi-RestAPI behind Monochrome exposes only s/a/al/v/p search
-parameters, verified against its OpenAPI spec).
+Plugins whose catalog indexes ISRCs search by `query.Isrc` first when it
+is present and fall back to the text query when that yields no confident
+hit: Lucida (Qobuz/Amazon), DabMusic and Monochrome, whose search hits
+carry an ISRC and narrow the pool to the exact recording. YouTube,
+SoundCloud, Archive.org and the DoubleDouble endpoint do not index ISRCs
+and ignore the field.
 
 `PluginCapabilities` is the plugin's honest manifest: every quality level it
 can deliver (container, the bitrate band it arrives in, whether the content is
@@ -112,7 +112,7 @@ Implement this to add a download source. Built-in plugins:
 | Plugin | Id | Source | Notes |
 |---|---|---|---|
 | `LucidaDownloader` | `lucida` | lucida.to (Tidal, Qobuz, Amazon Music) | High quality rips; needs a Cloudflare solver, otherwise skipped; Qobuz/Amazon are searched by ISRC first; the load API has no quality parameter, so its manifest is honest-but-uncontrollable |
-| `MonochromeDownloader` | `monochrome` | monochrome.tf mirrors (community TIDAL API) | FLAC/AAC rips; tries each instance in order until one answers; the manifest names the real tiers (AAC 96/320, FLAC lossless), not a continuous band; the proxy has no ISRC filter |
+| `MonochromeDownloader` | `monochrome` | tracks.monochrome.st (official Monochrome API) | Lossless FLAC streams over a plain GET, no account needed; search hits carry an ISRC, which narrows the pool to the exact recording; the base URL is configurable per plugin for mirrors |
 | `DoubleDoubleDownloader` | `doubledouble` | us./eu.doubledouble.top | Submit-and-poll rips of direct track URLs (Tidal, Qobuz, Deezer, Amazon); `SearchAsync` returns null by design, the site search is captcha-gated; no quality parameter, so its manifest is uncontrollable too |
 | `SoundCloudDownloader` | `soundcloud` | SoundCloud (via yt-dlp `scsearch`) | Original uploads, often 320 kbps; top-5 ranked; rejects files under 128 kbps |
 | `ArchiveOrgDownloader` | `archiveorg` | Internet Archive (public JSON APIs) | Public-domain and community recordings; picks the matching file inside a multi-track item, not the first one; rejects files under 128 kbps |
@@ -125,7 +125,7 @@ Every plugin-produced file is sniffed with `AudioSignature` (magic bytes, never 
 
 `DownloadQuality` carries a bitrate band: `MinKbps` and `MaxKbps`, both optional, both hard. Search hits whose measured bitrate falls outside the band are skipped, and downloaded files are probed with `BitrateProbe.MeasureKbps` and rejected+deleted when outside it. Unknown bitrates pass the search gate and leave the verdict to the post-download measurement.
 
-`IDownloaderRegistry` manages the plugin waterfall: enable/disable and priority are persisted per plugin in the `ProviderStates` table. Plugin config values, declared via `IDownloader.ConfigFields` (Key, Label, Placeholder, Description) and read/written through `GetConfigAsync`/`SetConfigAsync`, persist in the `DownloaderSettings` table under `plugin:{id}:{key}` keys and are edited on the Plugins page in an expandable per-plugin panel.
+`IDownloaderRegistry` manages the plugin waterfall: enable/disable and priority are persisted per plugin in the `ProviderStates` table. Plugin config values, declared via `IDownloader.ConfigFields` (Key, Label, Placeholder, Description), persist in the `DownloaderSettings` table under `plugin:{id}:{key}` keys and are edited on the Plugins page in an expandable per-plugin panel. Plugins read their own values through `IPluginConfig` (the same DB-backed store), so a changed base URL or API key takes effect without a restart.
 
 `DownloadCoordinator` runs each playlist's downloads in parallel workers and is observable through `Snapshot()`; see `IDownloadManager` below for the per-run work-list semantics.
 

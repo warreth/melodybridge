@@ -64,10 +64,13 @@ public static class ServiceCollectionExtensions
         // metadata search: the frontend search is captcha-gated). The
         // Monochrome client allows long manifest transfers; the plugin caps
         // each API call with its own short timeout.
-        services.AddHttpClient("monochrome", c => c.Timeout = TimeSpan.FromMinutes(5));
+        // Monochrome streams lossless FLAC from its official API; the
+        // client allows long transfers, the plugin caps each call itself.
+        services.AddHttpClient("monochrome", c => c.Timeout = TimeSpan.FromMinutes(10));
         services.AddSingleton<IDownloader>(sp =>
             new MonochromeDownloader(
                 sp.GetRequiredService<IHttpClientFactory>().CreateClient("monochrome"),
+                sp.GetRequiredService<IPluginConfig>(),
                 sp.GetRequiredService<ILogger<MonochromeDownloader>>()));
         services.AddHttpClient("doubledouble", c => c.Timeout = TimeSpan.FromMinutes(3));
         services.AddSingleton<IDownloader>(sp =>
@@ -96,6 +99,7 @@ public static class ServiceCollectionExtensions
             sp.GetRequiredService<IHttpClientFactory>().CreateClient("deezer"),
             sp.GetRequiredService<ILogger<IsrcResolver>>()));
 
+        services.AddSingleton<IPluginConfig, PluginConfigStore>();
         services.AddSingleton<IDownloaderRegistry, DownloaderRegistry>();
 
         // Version read and update button for the shared yt-dlp binary

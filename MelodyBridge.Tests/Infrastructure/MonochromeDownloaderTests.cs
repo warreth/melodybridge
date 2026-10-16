@@ -9,13 +9,33 @@ namespace MelodyBridge.Tests.Infrastructure;
 
 /// <summary>
 /// Monochrome plugin against stubbed HTTP responses following the real
-/// Hi-Fi API v2.x shapes (search items array, /track/ manifest chain,
-/// mirror fallback). No live network access needed.
+/// tracks.monochrome.st shapes (tracks array, direct FLAC stream, health
+/// probe) plus the configurable base URL. No live network access needed.
 /// </summary>
 [TestFixture]
 public class MonochromeDownloaderTests
 {
-    private class StubHttpMessageHandler : HttpMessageHandler
+    private readonly List<string> _tempDirs = new();
+
+    [TearDown]
+    public void TearDown()
+    {
+        foreach (var dir in _tempDirs)
+        {
+            try { Directory.Delete(dir, recursive: true); } catch { /* best effort */ }
+        }
+        _tempDirs.Clear();
+    }
+
+    private string NewDir()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), $"mb-monochrome-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        _tempDirs.Add(dir);
+        return dir;
+    }
+
+    private sealed class StubHttpMessageHandler : HttpMessageHandler
     {
         public Func<HttpRequestMessage, HttpResponseMessage> Respond { get; set; } =
             _ => new HttpResponseMessage(HttpStatusCode.NotFound);
@@ -25,19 +45,39 @@ public class MonochromeDownloaderTests
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request, CancellationToken ct)
         {
-            RequestedUrls.Add(request.RequestUri!.ToString());
+            RequestedUrls.Add(request.RequestUri!.AbsoluteUri);
             return Task.FromResult(Respond(request));
         }
     }
 
-    private static MonochromeDownloader Create(StubHttpMessageHandler handler, out HttpClient http)
+    /// <summary>In-memory plugin config; keys are "pluginId:key".</summary>
+    private sealed class StubPluginConfig : IPluginConfig
     {
-        http = new HttpClient(handler)
+        private readonly Dictionary<string, string> _values = new(StringComparer.OrdinalIgnoreCase);
+
+        public void Set(string pluginId, string key, string value)
+            => _values[$"{pluginId}:{key}"] = value;
+
+        public Task<string> GetAsync(string pluginId, string key, CancellationToken ct = default)
+            => Task.FromResult(_values.GetValueOrDefault($"{pluginId}:{key}", ""));
+
+        public Task SetAsync(string pluginId, string key, string? value, CancellationToken ct = default)
         {
-            // Instance URLs are absolute; the base just needs to exist.
-            BaseAddress = new Uri("https://monochrome.tf"),
+            _values[$"{pluginId}:{key}"] = value ?? "";
+            return Task.CompletedTask;
+        }
+    }
+
+    private static MonochromeDownloader Create(
+        StubHttpMessageHandler handler, StubPluginConfig? config = null)
+    {
+        var http = new HttpClient(handler)
+        {
+            // Every request URL is absolute; the base only needs to exist.
+            BaseAddress = new Uri(MonochromeDownloader.DefaultBaseUrl),
         };
-        return new MonochromeDownloader(http, NullLogger<MonochromeDownloader>.Instance);
+        return new MonochromeDownloader(
+            http, config ?? new StubPluginConfig(), NullLogger<MonochromeDownloader>.Instance);
     }
 
     private static HttpResponseMessage Json(HttpStatusCode code, object body) => new(code)
@@ -50,430 +90,396 @@ public class MonochromeDownloaderTests
         Content = new ByteArrayContent(data),
     };
 
-    private static string TempDir()
+    /// <summary>Trimmed real /search/tracks entry (live-probed shape).</summary>
+    private static object Track(
+        string id, string title, string artist, double durationMs,
+        string? isrc = null, bool playable = true) => new
     {
-        var dir = Path.Combine(Path.GetTempPath(), $"mb-monochrome-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(dir);
-        return dir;
-    }
-
-    /// <summary>Trimmed real /search/?s= response entry (v2.5 shape, live probe).</summary>
-    private static object SearchBody() => new
-    {
-        version = "2.5",
-        data = new
-        {
-            limit = 25,
-            offset = 0,
-            totalNumberOfItems = 1,
-            items = new object[]
-            {
-                new
-                {
-                    id = 12336220,
-                    title = "Never Gonna Give You Up",
-                    duration = 213,
-                    artist = new { name = "Rick Astley" },
-                    album = new { title = "Whenever You Need Somebody", cover = "1234" },
-                    audioQuality = "LOSSLESS",
-                    url = "http://www.tidal.com/track/12336220",
-                },
-            },
-        },
+        id,
+        trackId = id,
+        title,
+        artistNames = new[] { artist },
+        releaseId = "155143793526444032",
+        artwork = "https://tracks.monochrome.st/proxy/mi/155143793526444032-1A01.jpg",
+        @explicit = false,
+        playable,
+        duration = durationMs,
+        isrc,
+        recordingId = "156636643187494912",
     };
 
+    private static object TracksJson(params object[] items)
+        => new { tracks = items };
+
+    private static byte[] FlacBytes(int size = 4096)
+    {
+        var bytes = new byte[size];
+        "fLaC"u8.CopyTo(bytes);
+        for (var i = 4; i < bytes.Length; i++) bytes[i] = (byte)(i % 251);
+        return bytes;
+    }
+
+    private static byte[] Mp3Bytes(int size = 2048)
+    {
+        var bytes = new byte[size];
+        "ID3"u8.CopyTo(bytes);
+        return bytes;
+    }
+
+    private const string AroundTheWorldId = "155143832910958592";
+
+    // ── Search ───────────────────────────────────────────────────────────
+
     [Test]
-    public async Task SearchAsync_ParsesItemsShape_AndBuildsTidalSourceUrl()
+    public async Task SearchAsync_ParsesTracksShape_AndBuildsStreamUrl()
     {
         var handler = new StubHttpMessageHandler();
-        handler.Respond = _ => Json(HttpStatusCode.OK, SearchBody());
-        var downloader = Create(handler, out var http);
+        handler.Respond = _ => Json(HttpStatusCode.OK, TracksJson(
+            Track(AroundTheWorldId, "Around the World", "Daft Punk", 429533, isrc: "GBDUW0600009")));
+        var downloader = Create(handler);
 
-        var hit = await downloader.SearchAsync(new TrackQuery("Rick Astley", "Never Gonna Give You Up", DownloadQuality.Any));
+        var hit = await downloader.SearchAsync(
+            new TrackQuery("Daft Punk", "Around the World", DownloadQuality.Any));
 
         Assert.Multiple(() =>
         {
             Assert.That(hit, Is.Not.Null);
-            Assert.That(hit!.SourceUrl, Is.EqualTo("https://tidal.com/browse/track/12336220"));
-            Assert.That(hit.Title, Is.EqualTo("Never Gonna Give You Up"));
-            Assert.That(hit.Artist, Is.EqualTo("Rick Astley"));
-            Assert.That(hit.Duration, Is.EqualTo(TimeSpan.FromSeconds(213)));
+            Assert.That(hit!.SourceUrl,
+                Is.EqualTo($"{MonochromeDownloader.DefaultBaseUrl}/track/{AroundTheWorldId}"));
+            Assert.That(hit.Title, Is.EqualTo("Around the World"));
+            Assert.That(hit.Artist, Is.EqualTo("Daft Punk"));
+            Assert.That(hit.Duration, Is.EqualTo(TimeSpan.FromMilliseconds(429533)));
             Assert.That(hit.MatchConfidence, Is.EqualTo(MatchConfidence.High));
         });
     }
 
     [Test]
+    public async Task SearchAsync_RequestsTheTracksEndpoint_WithALimit()
+    {
+        var handler = new StubHttpMessageHandler();
+        handler.Respond = _ => Json(HttpStatusCode.OK, TracksJson(
+            Track(AroundTheWorldId, "Around the World", "Daft Punk", 429533)));
+        var downloader = Create(handler);
+
+        await downloader.SearchAsync(new TrackQuery("Daft Punk", "Around the World", DownloadQuality.Any));
+
+        Assert.That(handler.RequestedUrls, Has.Count.EqualTo(1));
+        Assert.That(handler.RequestedUrls[0], Does.StartWith(
+            MonochromeDownloader.DefaultBaseUrl + "/search/tracks?q="));
+        Assert.That(handler.RequestedUrls[0], Does.Contain("limit=10"));
+        Assert.That(handler.RequestedUrls[0], Does.Contain("Daft%20Punk"));
+    }
+
+    [Test]
     public async Task SearchAsync_PicksTheRealMatch_NotTheFirstItem()
     {
-        // The API's first item is a remix; the real track sits further
-        // down. Ranking by confidence must find it.
         var handler = new StubHttpMessageHandler();
-        handler.Respond = _ => Json(HttpStatusCode.OK, new
-        {
-            data = new
-            {
-                items = new object[]
-                {
-                    new
-                    {
-                        id = 111,
-                        title = "Never Gonna Give You Up (Remix)",
-                        duration = 180,
-                        artist = new { name = "Rick Astley" },
-                        audioQuality = "LOSSLESS",
-                    },
-                    new
-                    {
-                        id = 12336220,
-                        title = "Never Gonna Give You Up",
-                        duration = 213,
-                        artist = new { name = "Rick Astley" },
-                        audioQuality = "LOSSLESS",
-                    },
-                },
-            },
-        });
-        var downloader = Create(handler, out _);
+        handler.Respond = _ => Json(HttpStatusCode.OK, TracksJson(
+            Track("111", "Around the World (Remix)", "Some DJ", 240000),
+            Track("222", "Around the World", "Daft Punk", 429000)));
+        var downloader = Create(handler);
 
-        var hit = await downloader.SearchAsync(new TrackQuery("Rick Astley", "Never Gonna Give You Up", DownloadQuality.Any));
+        var hit = await downloader.SearchAsync(
+            new TrackQuery("Daft Punk", "Around the World", DownloadQuality.Any));
 
         Assert.That(hit, Is.Not.Null);
-        Assert.That(hit!.SourceUrl, Is.EqualTo("https://tidal.com/browse/track/12336220"),
-            "the exact title match must beat the remix the API listed first");
-        Assert.That(hit.Title, Is.EqualTo("Never Gonna Give You Up"));
-        Assert.That(hit.MatchConfidence, Is.EqualTo(MatchConfidence.High));
+        Assert.That(hit!.SourceUrl, Is.EqualTo($"{MonochromeDownloader.DefaultBaseUrl}/track/222"));
+        Assert.That(hit.Artist, Is.EqualTo("Daft Punk"));
     }
 
     [Test]
-    public async Task SearchAsync_PrefersLossless_WhenConfidenceTies()
+    public async Task SearchAsync_SkipsUnplayableItems()
     {
-        // Two exact matches: the lossless one wins the tie.
         var handler = new StubHttpMessageHandler();
-        handler.Respond = _ => Json(HttpStatusCode.OK, new
-        {
-            data = new
-            {
-                items = new object[]
-                {
-                    new
-                    {
-                        id = 222,
-                        title = "Never Gonna Give You Up",
-                        duration = 213,
-                        artist = new { name = "Rick Astley" },
-                        audioQuality = "LOW",
-                    },
-                    new
-                    {
-                        id = 333,
-                        title = "Never Gonna Give You Up",
-                        duration = 213,
-                        artist = new { name = "Rick Astley" },
-                        audioQuality = "HI_RES_LOSSLESS",
-                    },
-                },
-            },
-        });
-        var downloader = Create(handler, out _);
+        handler.Respond = _ => Json(HttpStatusCode.OK, TracksJson(
+            Track("111", "Around the World", "Daft Punk", 429533, playable: false),
+            Track("222", "Around the World", "Daft Punk", 429533)));
+        var downloader = Create(handler);
 
-        var hit = await downloader.SearchAsync(new TrackQuery("Rick Astley", "Never Gonna Give You Up", DownloadQuality.Any));
+        var hit = await downloader.SearchAsync(
+            new TrackQuery("Daft Punk", "Around the World", DownloadQuality.Any));
 
         Assert.That(hit, Is.Not.Null);
-        Assert.That(hit!.SourceUrl, Is.EqualTo("https://tidal.com/browse/track/333"),
-            "a tie on confidence is broken by the lossless stream");
+        Assert.That(hit!.SourceUrl, Is.EqualTo($"{MonochromeDownloader.DefaultBaseUrl}/track/222"),
+            "the unplayable entry would only fail after a wasted download attempt");
     }
 
     [Test]
-    public async Task SearchAsync_FirstInstance500s_FallsBackToSecondInstance()
+    public async Task SearchAsync_OnlyUnplayable_ReturnsNull()
     {
         var handler = new StubHttpMessageHandler();
-        var answered = "";
-        handler.Respond = request =>
-        {
-            var url = request.RequestUri!.ToString();
-            if (url.Contains("eu-central.monochrome.tf"))
-                return Json(HttpStatusCode.InternalServerError,
-                    new { detail = "Upstream API error" });
-            if (url.Contains("us-west.monochrome.tf"))
-            {
-                answered = url;
-                return Json(HttpStatusCode.OK, SearchBody());
-            }
-            return new HttpResponseMessage(HttpStatusCode.NotFound);
-        };
-        var downloader = Create(handler, out var http);
+        handler.Respond = _ => Json(HttpStatusCode.OK, TracksJson(
+            Track("111", "Around the World", "Daft Punk", 429533, playable: false)));
+        var downloader = Create(handler);
 
-        var hit = await downloader.SearchAsync(new TrackQuery("Rick Astley", "Never Gonna Give You Up", DownloadQuality.Any));
+        var hit = await downloader.SearchAsync(
+            new TrackQuery("Daft Punk", "Around the World", DownloadQuality.Any));
 
-        Assert.That(hit, Is.Not.Null, "the second instance must take over when the first 500s");
-        Assert.That(answered, Does.Contain("/search/?s="),
-            "the fallback must still hit the search endpoint");
+        Assert.That(hit, Is.Null);
     }
 
     [Test]
-    public async Task SearchAsync_UsesSParameter_NotLegacyQParameter()
+    public async Task SearchAsync_ExactIsrc_WinsOverACloserTitle()
     {
+        // Two masters of the same song: the first looks like a better
+        // title match, the second is the exact recording the query named.
         var handler = new StubHttpMessageHandler();
-        handler.Respond = _ => Json(HttpStatusCode.OK, SearchBody());
-        var downloader = Create(handler, out var http);
+        handler.Respond = _ => Json(HttpStatusCode.OK, TracksJson(
+            Track("111", "Around the World", "Daft Punk", 429533, isrc: "OTHERISRC001"),
+            Track("222", "Around the World (Remastered 2007)", "Daft Punk", 430000, isrc: "GBDUW0600009")));
+        var downloader = Create(handler);
 
-        await downloader.SearchAsync(new TrackQuery("Rick Astley", "Never Gonna Give You Up", DownloadQuality.Any));
+        var hit = await downloader.SearchAsync(new TrackQuery(
+            "Daft Punk", "Around the World", DownloadQuality.Any,
+            ExpectedDuration: TimeSpan.FromSeconds(429), Isrc: "GBDUW0600009"));
 
-        var searchUrl = handler.RequestedUrls.FirstOrDefault(u => u.Contains("/search/"));
-        Assert.That(searchUrl, Is.Not.Null, "a search request must have been made");
-        Assert.That(searchUrl, Does.Contain("/search/?s="),
-            "the v2.x API answers to s=: q= now returns HTTP 400");
-        Assert.That(searchUrl, Does.Not.Contain("?q="),
-            "the legacy q= parameter must not be sent anymore");
+        Assert.That(hit, Is.Not.Null);
+        Assert.That(hit!.SourceUrl, Is.EqualTo($"{MonochromeDownloader.DefaultBaseUrl}/track/222"),
+            "an exact ISRC is the recording itself, not a guess");
     }
 
     [Test]
-    public async Task DownloadAsync_ExtractsManifestUrl_DownloadsAndTagsFile()
+    public async Task SearchAsync_WithoutIsrcMatch_UsesTheFullPool()
     {
         var handler = new StubHttpMessageHandler();
-        var dir = TempDir();
-        var manifestUrl = "https://eu-central.monochrome.tf/streams/12336220.flac";
-        var trackBody = new
+        handler.Respond = _ => Json(HttpStatusCode.OK, TracksJson(
+            Track("111", "Around the World", "Daft Punk", 429533, isrc: "OTHERISRC001"),
+            Track("222", "Around the World (Remastered 2007)", "Daft Punk", 430000, isrc: "GBDUW0600009")));
+        var downloader = Create(handler);
+
+        var hit = await downloader.SearchAsync(new TrackQuery(
+            "Daft Punk", "Around the World", DownloadQuality.Any, Isrc: "NOSUCHISRC99"));
+
+        Assert.That(hit, Is.Not.Null);
+        Assert.That(hit!.SourceUrl, Is.EqualTo($"{MonochromeDownloader.DefaultBaseUrl}/track/111"),
+            "no candidate carries the ISRC, so the best title match wins");
+    }
+
+    [Test]
+    public async Task SearchAsync_EmptyOrMalformed_ReturnsNull()
+    {
+        var handler = new StubHttpMessageHandler();
+        var downloader = Create(handler);
+
+        handler.Respond = _ => Json(HttpStatusCode.OK, new { tracks = Array.Empty<object>() });
+        Assert.That(await downloader.SearchAsync(
+            new TrackQuery("Daft Punk", "Around the World", DownloadQuality.Any)), Is.Null,
+            "an empty result list is a miss");
+
+        handler.Respond = _ => new HttpResponseMessage(HttpStatusCode.OK)
         {
-            version = "2.5",
-            data = new
-            {
-                data = new
-                {
-                    attributes = new { uri = manifestUrl },
-                },
-            },
+            Content = new StringContent("{not json", Encoding.UTF8, "application/json"),
         };
-        var audio = new byte[] { 0x66, 0x4C, 0x61, 0x43 }; // "fLaC"
-        handler.Respond = request =>
+        Assert.That(await downloader.SearchAsync(
+            new TrackQuery("Daft Punk", "Around the World", DownloadQuality.Any)), Is.Null,
+            "a malformed body is a miss, not a crash");
+
+        handler.Respond = _ => new HttpResponseMessage(HttpStatusCode.ServiceUnavailable);
+        Assert.That(await downloader.SearchAsync(
+            new TrackQuery("Daft Punk", "Around the World", DownloadQuality.Any)), Is.Null,
+            "an HTTP error is a miss, not a throw");
+    }
+
+    [Test]
+    public async Task SearchAsync_UsesConfiguredBaseUrl()
+    {
+        var config = new StubPluginConfig();
+        config.Set("monochrome", "base_url", "https://mirror.example/");
+        var handler = new StubHttpMessageHandler();
+        handler.Respond = _ => Json(HttpStatusCode.OK, TracksJson(
+            Track(AroundTheWorldId, "Around the World", "Daft Punk", 429533)));
+        var downloader = Create(handler, config);
+
+        var hit = await downloader.SearchAsync(
+            new TrackQuery("Daft Punk", "Around the World", DownloadQuality.Any));
+
+        Assert.Multiple(() =>
         {
-            var url = request.RequestUri!.ToString();
-            if (url.Contains("/track/?id="))
-                return Json(HttpStatusCode.OK, trackBody);
-            if (url == manifestUrl)
-                return Bytes(audio);
-            return new HttpResponseMessage(HttpStatusCode.NotFound);
-        };
-        var downloader = Create(handler, out var http);
+            Assert.That(handler.RequestedUrls[0], Does.StartWith("https://mirror.example/search/tracks"),
+                "the configured host replaces the official one");
+            Assert.That(hit!.SourceUrl, Is.EqualTo($"https://mirror.example/track/{AroundTheWorldId}"));
+        });
+    }
+
+    // ── Download ─────────────────────────────────────────────────────────
+
+    [Test]
+    public async Task DownloadAsync_StreamsTheFlac_IntoATaggedFile()
+    {
+        var bytes = FlacBytes();
+        var handler = new StubHttpMessageHandler();
+        handler.Respond = _ => Bytes(bytes);
+        var downloader = Create(handler);
+        var dir = NewDir();
 
         var result = await downloader.DownloadAsync(
-            "https://tidal.com/browse/track/12336220", dir, "melody-test-id",
-            new DownloadQuality(AudioFormat.Flac, MinKbps: 400, MaxKbps: 1411));
+            $"{MonochromeDownloader.DefaultBaseUrl}/track/{AroundTheWorldId}", dir, "mb-monochrome-1");
 
         Assert.Multiple(() =>
         {
             Assert.That(result.Success, Is.True, result.ErrorMessage);
-            Assert.That(result.FilePath, Does.EndWith(".flac"),
-                "the extension must come from the manifest URL");
-            Assert.That(result.FilePath, Does.Contain("tidal_12336220_LOSSLESS"),
-                "capped FLAC maps to LOSSLESS; the file name is tidal_{id}_{qualityParam}{ext}");
-            Assert.That(File.Exists(result.FilePath), Is.True, "the audio bytes must be on disk");
+            Assert.That(result.FilePath, Is.Not.Null);
+            Assert.That(File.Exists(result.FilePath), Is.True, "the reported file exists");
+            Assert.That(Path.GetExtension(result.FilePath), Is.EqualTo(".flac"));
+            Assert.That(Path.GetFileName(result.FilePath), Does.Contain("mb-monochrome-1"),
+                "the melody id keeps retries and parallel downloads distinct");
+            Assert.That(File.ReadAllBytes(result.FilePath!), Is.EqualTo(bytes),
+                "the streamed bytes are exactly what the API sent");
         });
-        Assert.That(await File.ReadAllBytesAsync(result.FilePath!), Is.EqualTo(audio),
-            "the downloaded bytes must be written verbatim");
-
-        Directory.Delete(dir, recursive: true);
+        Assert.That(handler.RequestedUrls[0],
+            Is.EqualTo($"{MonochromeDownloader.DefaultBaseUrl}/track/{AroundTheWorldId}"));
     }
 
     [Test]
-    public async Task DownloadAsync_AllInstancesFail_ReturnsFailureWithoutThrowing()
+    public async Task DownloadAsync_SniffedContainer_FixesTheExtension()
+    {
+        // The API answers with the audio bytes only; a lossy master arrives
+        // as MP3 under the .flac guess and must land as .mp3.
+        var handler = new StubHttpMessageHandler();
+        handler.Respond = _ => Bytes(Mp3Bytes());
+        var downloader = Create(handler);
+        var dir = NewDir();
+
+        var result = await downloader.DownloadAsync(AroundTheWorldId, dir, "mb-monochrome-2");
+
+        Assert.That(result.Success, Is.True, result.ErrorMessage);
+        Assert.That(Path.GetExtension(result.FilePath), Is.EqualTo(".mp3"));
+        Assert.That(Directory.GetFiles(dir), Has.Length.EqualTo(1), "no orphaned .flac file");
+    }
+
+    [Test]
+    public async Task DownloadAsync_AcceptsBareIdAndTrackUrl()
     {
         var handler = new StubHttpMessageHandler();
-        handler.Respond = _ => Json(HttpStatusCode.InternalServerError,
-            new { detail = "Upstream API error" });
-        var downloader = Create(handler, out var http);
-        var dir = TempDir();
+        handler.Respond = _ => Bytes(FlacBytes());
+        var downloader = Create(handler);
+        var dir = NewDir();
 
-        var result = await downloader.DownloadAsync(
-            "https://tidal.com/browse/track/12336220", dir, "melody-x");
+        var bare = await downloader.DownloadAsync(AroundTheWorldId, dir, "mb-bare");
+        var url = await downloader.DownloadAsync(
+            $"{MonochromeDownloader.DefaultBaseUrl}/track/{AroundTheWorldId}/", dir, "mb-url");
 
         Assert.Multiple(() =>
         {
-            Assert.That(result.Success, Is.False, "a full mirror outage must be a failure result");
-            Assert.That(result.ErrorMessage, Is.Not.Null);
-        });
-        Assert.That(Directory.GetFiles(dir), Is.Empty,
-            "no partial files may survive a failed download");
-
-        Directory.Delete(dir, recursive: true);
-    }
-
-    [Test]
-    public void TryExtractTrackId_HandlesAllObservedUrlShapes()
-    {
-        Assert.Multiple(() =>
-        {
-            Assert.That(MonochromeDownloader.TryExtractTrackId(
-                "https://tidal.com/browse/track/123", out var a), Is.True);
-            Assert.That(a, Is.EqualTo(123));
-
-            Assert.That(MonochromeDownloader.TryExtractTrackId(
-                "http://www.tidal.com/track/123", out var b), Is.True);
-            Assert.That(b, Is.EqualTo(123));
-
-            Assert.That(MonochromeDownloader.TryExtractTrackId("123", out var c), Is.True);
-            Assert.That(c, Is.EqualTo(123));
-
-            Assert.That(MonochromeDownloader.TryExtractTrackId(
-                "https://tidal.com/browse/track/not-a-number", out var _), Is.False,
-                "non-numeric last segments must not parse as track ids");
-            Assert.That(MonochromeDownloader.TryExtractTrackId("", out var _), Is.False);
+            Assert.That(bare.Success, Is.True, bare.ErrorMessage);
+            Assert.That(url.Success, Is.True, url.ErrorMessage);
         });
     }
 
-    private static string SearchJson(params object[] items)
-        => JsonSerializer.Serialize(new { data = new { items } });
-
     [Test]
-    public void ParseSearchItems_SkipsMalformedEntries_InsteadOfPoisoningTheInstance()
-    {
-        // A non-object entry in the items array used to throw on
-        // TryGetProperty and kill the whole instance attempt; it must be
-        // skipped so the usable entries around it still compete.
-        var json = JsonSerializer.Serialize(new
-        {
-            data = new
-            {
-                items = new object[]
-                {
-                    42,
-                    "noise",
-                    new
-                    {
-                        id = 12336220L,
-                        title = "Never Gonna Give You Up",
-                        artist = new { name = "Rick Astley" },
-                        duration = 211,
-                        audioQuality = "LOSSLESS",
-                        url = "http://www.tidal.com/track/12336220",
-                    },
-                },
-            },
-        });
-        var hit = MonochromeDownloader.ParseSearchItems(
-            json, "Rick Astley", "Never Gonna Give You Up", DownloadQuality.Any);
-
-        Assert.That(hit, Is.Not.Null,
-            "the malformed entries must be skipped, not the whole response");
-        Assert.That(hit!.Title, Is.EqualTo("Never Gonna Give You Up"));
-    }
-
-    [Test]
-    public void ParseSearchItems_LosslessRequest_RejectsLossyBestHit()
-    {
-        // Only lossy items are available: a FLAC request must come back
-        // empty-handed rather than settle for a file the band gate would
-        // reject after the bytes are spent.
-        var json = JsonSerializer.Serialize(new
-        {
-            data = new
-            {
-                items = new object[]
-                {
-                    new
-                    {
-                        id = 12336220L,
-                        title = "Never Gonna Give You Up",
-                        artist = new { name = "Rick Astley" },
-                        duration = 211,
-                        audioQuality = "HIGH",
-                        url = "http://www.tidal.com/track/12336220",
-                    },
-                },
-            },
-        });
-        var flacRequest = new DownloadQuality(AudioFormat.Flac);
-        var hit = MonochromeDownloader.ParseSearchItems(
-            json, "Rick Astley", "Never Gonna Give You Up", flacRequest);
-        Assert.That(hit, Is.Null,
-            "a lossless request must not accept a lossy-only result");
-
-        var relaxed = MonochromeDownloader.ParseSearchItems(
-            json, "Rick Astley", "Never Gonna Give You Up", DownloadQuality.Any);
-        Assert.That(relaxed, Is.Not.Null,
-            "an unbounded request still accepts the lossy hit");
-    }
-
-    [Test]
-    public async Task IsAvailable_CachesTheVerdict_WithinTheTtl()
+    public async Task DownloadAsync_NonAudioBody_DeletesTheFile()
     {
         var handler = new StubHttpMessageHandler();
-        handler.Respond = _ => Json(HttpStatusCode.OK, SearchBody());
-        var downloader = Create(handler, out _);
+        handler.Respond = _ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("<html>error page</html>", Encoding.UTF8, "text/html"),
+        };
+        var downloader = Create(handler);
+        var dir = NewDir();
+
+        var result = await downloader.DownloadAsync(AroundTheWorldId, dir, "mb-bad");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.False);
+            Assert.That(result.ErrorMessage, Does.Contain("not audio"));
+            Assert.That(Directory.GetFiles(dir), Is.Empty, "an error page must never be left behind");
+        });
+    }
+
+    [Test]
+    public async Task DownloadAsync_EmptyBody_Fails()
+    {
+        var handler = new StubHttpMessageHandler();
+        handler.Respond = _ => Bytes(Array.Empty<byte>());
+        var downloader = Create(handler);
+        var dir = NewDir();
+
+        var result = await downloader.DownloadAsync(AroundTheWorldId, dir, "mb-empty");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.False);
+            Assert.That(Directory.GetFiles(dir), Is.Empty, "a zero-byte rip is a failed rip");
+        });
+    }
+
+    [Test]
+    public async Task DownloadAsync_HttpError_FailsWithoutAFile()
+    {
+        var handler = new StubHttpMessageHandler();
+        handler.Respond = _ => new HttpResponseMessage(HttpStatusCode.NotFound);
+        var downloader = Create(handler);
+        var dir = NewDir();
+
+        var result = await downloader.DownloadAsync(AroundTheWorldId, dir, "mb-404");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.False);
+            Assert.That(result.ErrorMessage, Does.Contain("404"));
+            Assert.That(Directory.GetFiles(dir), Is.Empty);
+        });
+    }
+
+    [Test]
+    public async Task DownloadAsync_InvalidSource_Fails()
+    {
+        var handler = new StubHttpMessageHandler();
+        var downloader = Create(handler);
+        var dir = NewDir();
+
+        var result = await downloader.DownloadAsync("https://example.com/song.mp3", dir, "mb-nope");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.False);
+            Assert.That(result.ErrorMessage, Does.Contain("not a Monochrome track URL"));
+            Assert.That(handler.RequestedUrls, Is.Empty, "nothing is sent for a foreign URL");
+        });
+    }
+
+    // ── Availability ─────────────────────────────────────────────────────
+
+    [Test]
+    public async Task IsAvailableAsync_HealthOk_TrueAndCached()
+    {
+        var handler = new StubHttpMessageHandler();
+        handler.Respond = _ => new HttpResponseMessage(HttpStatusCode.OK);
+        var downloader = Create(handler);
 
         Assert.That(await downloader.IsAvailableAsync(), Is.True);
-        var afterFirst = handler.RequestedUrls.Count;
-        Assert.That(afterFirst, Is.GreaterThan(0), "the first check really probes");
-
         Assert.That(await downloader.IsAvailableAsync(), Is.True);
-        Assert.That(handler.RequestedUrls.Count, Is.EqualTo(afterFirst),
-            "a second check within the TTL reuses the cached verdict instead of re-sweeping");
+        Assert.That(handler.RequestedUrls, Has.Count.EqualTo(1), "the verdict is cached");
+        Assert.That(handler.RequestedUrls[0],
+            Is.EqualTo(MonochromeDownloader.DefaultBaseUrl + "/health"));
     }
 
     [Test]
-    public void TryMapQuality_HonorsTheCapTiers()
+    public async Task IsAvailableAsync_HealthFailure_False()
     {
-        // Auto with a small-file cap must ask for the tier that fits the
-        // cap: HIGH (320 kbps AAC) would be rejected by the post-download
-        // probe after the bytes were already spent.
-        Assert.That(MonochromeDownloader.TryMapQuality(
-            new DownloadQuality(AudioFormat.Auto, MinKbps: null, MaxKbps: 128)), Is.EqualTo("LOW"));
-        Assert.That(MonochromeDownloader.TryMapQuality(
-            new DownloadQuality(AudioFormat.Auto, MinKbps: null, MaxKbps: 160)), Is.EqualTo("LOW"));
-        // A 320 cap fits the HIGH tier exactly; above it the hi-res FLAC.
-        Assert.That(MonochromeDownloader.TryMapQuality(
-            new DownloadQuality(AudioFormat.Auto, MinKbps: null, MaxKbps: 320)), Is.EqualTo("HIGH"));
-        Assert.That(MonochromeDownloader.TryMapQuality(DownloadQuality.Any), Is.EqualTo("HI_RES_LOSSLESS"));
-        // Lossless requests: uncapped asks for hi-res, a capped one for
-        // plain LOSSLESS.
-        Assert.That(MonochromeDownloader.TryMapQuality(
-            new DownloadQuality(AudioFormat.Flac)), Is.EqualTo("HI_RES_LOSSLESS"));
-        Assert.That(MonochromeDownloader.TryMapQuality(
-            new DownloadQuality(AudioFormat.Flac, MinKbps: null, MaxKbps: 1411)), Is.EqualTo("LOSSLESS"));
+        var handler = new StubHttpMessageHandler();
+        handler.Respond = _ => new HttpResponseMessage(HttpStatusCode.BadGateway);
+        var downloader = Create(handler);
+
+        Assert.That(await downloader.IsAvailableAsync(), Is.False);
     }
 
-    [Test]
-    public void TryMapQuality_FailsFastWhenNoTierFits()
+    // ── Id extraction ────────────────────────────────────────────────────
+
+    [TestCase(AroundTheWorldId, true, AroundTheWorldId)]
+    [TestCase("https://tracks.monochrome.st/track/155143832910958592", true, AroundTheWorldId)]
+    [TestCase("https://tracks.monochrome.st/track/155143832910958592/", true, AroundTheWorldId)]
+    [TestCase("https://mirror.example/track/12345", true, "12345")]
+    [TestCase("https://example.com/song/155143832910958592", false, "")]
+    [TestCase("https://example.com/song.mp3", false, "")]
+    [TestCase("not-a-number", false, "")]
+    [TestCase("", false, "")]
+    [TestCase("123456789012345678901", false, "")] // 21 digits: no longer a snowflake
+    public void TryExtractTrackId_HandlesBothShapes(string input, bool expected, string expectedId)
     {
-        // TIDAL tiers are roughly 96, 320 and 900+. A 192-256 band has
-        // none: failing before the request beats downloading a 320 file
-        // the post-download gate would delete.
-        Assert.That(MonochromeDownloader.TryMapQuality(
-            new DownloadQuality(AudioFormat.Auto, MinKbps: 192, MaxKbps: 256)), Is.Null);
-
-        // The same band with a 320 ceiling is served by HIGH.
-        Assert.That(MonochromeDownloader.TryMapQuality(
-            new DownloadQuality(AudioFormat.Auto, MinKbps: 192, MaxKbps: 320)), Is.EqualTo("HIGH"));
-
-        // An uncapped floor with a 256 ceiling is served by the 96 tier.
-        Assert.That(MonochromeDownloader.TryMapQuality(
-            new DownloadQuality(AudioFormat.Auto, MinKbps: null, MaxKbps: 256)), Is.EqualTo("LOW"));
-
-        // A floor above HIGH needs the lossless tier, so an uncapped
-        // request takes it.
-        Assert.That(MonochromeDownloader.TryMapQuality(
-            new DownloadQuality(AudioFormat.Auto, MinKbps: 400, MaxKbps: null)), Is.EqualTo("HI_RES_LOSSLESS"));
-    }
-
-    [Test]
-    public void TryMapQuality_ExplicitAacHonorsTheDeclaredTiers()
-    {
-        // The manifest lists the AAC tiers 96 and 320; the mapping must
-        // pick the one that fits the requested band, or a request the
-        // router considers controlled downloads a file the band gate
-        // deletes after the bytes are spent.
-        Assert.That(MonochromeDownloader.TryMapQuality(new DownloadQuality(AudioFormat.Aac)),
-            Is.EqualTo("HIGH"), "no cap: the best AAC tier");
-        Assert.That(MonochromeDownloader.TryMapQuality(
-            new DownloadQuality(AudioFormat.Aac, MinKbps: null, MaxKbps: 160)),
-            Is.EqualTo("LOW"), "a 160 cap takes the 96 tier, not a 320 file");
-        Assert.That(MonochromeDownloader.TryMapQuality(
-            new DownloadQuality(AudioFormat.Aac, MinKbps: 96, MaxKbps: 96)),
-            Is.EqualTo("LOW"));
-        Assert.That(MonochromeDownloader.TryMapQuality(
-            new DownloadQuality(AudioFormat.Aac, MinKbps: 160, MaxKbps: 200)),
-            Is.Null, "no AAC tier sits between LOW and HIGH");
-        Assert.That(MonochromeDownloader.TryMapQuality(new DownloadQuality(AudioFormat.Mp3)),
-            Is.Null, "TIDAL serves no MP3; the manifest omits the container");
+        var ok = MonochromeDownloader.TryExtractTrackId(input, out var id);
+        Assert.That(ok, Is.EqualTo(expected));
+        Assert.That(id, Is.EqualTo(expectedId));
     }
 }
