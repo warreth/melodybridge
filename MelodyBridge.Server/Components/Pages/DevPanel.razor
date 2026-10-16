@@ -4,6 +4,7 @@
 @inject DevPanelService Dev
 @inject IDownloaderRegistry Registry
 @inject IDownloadManager DownloadMgr
+@inject MelodyBridge.Server.Services.NotificationService Notifications
 @attribute [Microsoft.AspNetCore.Authorization.AllowAnonymous]
 @implements IDisposable
 
@@ -26,12 +27,12 @@ else
         <h1>Dev panel</h1>
         <p>Interactive tools: search, download, queue, and inspect live logs.</p>
     </div>
-    <div class="flex-actions" style="gap:0.5rem">
+    <div class="flex-actions">
         <button class="btn-modern ghost" @onclick="ClearQueue" title="Clear completed downloads">
-            <span class="btn-icon">✕</span> Clear queue
+            <Icon Name="x" Size="14" Class="btn-icon" /> Clear queue
         </button>
         <button class="btn-modern ghost" @onclick="ClearAll">
-            <span class="btn-icon">🗑</span> Clear logs
+            <Icon Name="trash" Size="14" Class="btn-icon" /> Clear logs
         </button>
     </div>
 </section>
@@ -70,7 +71,7 @@ else
         @if (Dev.SearchResults.Count > 0)
         {
             <div class="search-results-count">
-                <span class="pill neutral">@Dev.SearchResults.Count results</span>
+                <span class="pill neutral">@Dev.SearchResults.Count @(Dev.SearchResults.Count == 1 ? "result" : "results")</span>
                 @if (_hasMoreProviders)
                 {
                     <span class="hint">: not all providers may have responded yet</span>
@@ -83,15 +84,15 @@ else
                         <div class="sr-artwork">
                             @if (result.SourcePlatform == Platform.YouTubeMusic)
                             {
-                                <span class="sr-artwork-icon">▶</span>
+                                <BrandIcon Name="youtube" Size="20" Class="sr-artwork-icon" />
                             }
                             else if (result.SourcePlatform == Platform.Spotify)
                             {
-                                <span class="sr-artwork-icon">⬆</span>
+                                <BrandIcon Name="spotify" Size="20" Class="sr-artwork-icon" />
                             }
                             else
                             {
-                                <span class="sr-artwork-icon">♫</span>
+                                <Icon Name="music" Size="18" Class="sr-artwork-icon" />
                             }
                         </div>
                         <div class="sr-meta">
@@ -135,6 +136,10 @@ else
             <label>
                 Track / playlist URL
                 <input @bind="Dev.DownloadUrl" placeholder="https://open.spotify.com/track/…" />
+                @if (!string.IsNullOrEmpty(_downloadUrlError))
+                {
+                    <small class="text-warn">@_downloadUrlError</small>
+                }
             </label>
             <label>
                 Provider
@@ -193,15 +198,15 @@ else
                             }
                             else if (task.Status == "Completed")
                             {
-                                <span class="qi-icon ok">✓</span>
+                                <Icon Name="check" Size="15" Class="qi-icon ok" />
                             }
                             else if (task.Status == "Failed")
                             {
-                                <span class="qi-icon err">✗</span>
+                                <Icon Name="x" Size="15" Class="qi-icon err" />
                             }
                             else
                             {
-                                <span class="qi-icon pending">○</span>
+                                <Icon Name="clock" Size="15" Class="qi-icon pending" />
                             }
                         </div>
                         <div class="qi-meta">
@@ -224,7 +229,7 @@ else
                         </div>
                         @if (task.Status is "Completed" or "Failed")
                         {
-                            <button class="btn-icon-only ghost small" @onclick="() => RemoveDownloadTask(task.Id)" title="Remove">✕</button>
+                            <button class="btn-icon-only ghost small" @onclick="() => RemoveDownloadTask(task.Id)" title="Remove"><Icon Name="x" Size="14" /></button>
                         }
                     </div>
                 }
@@ -251,7 +256,7 @@ else
     <div class="log-container">
         @if (_filteredLogs.Count == 0)
         {
-            <div class="log-empty">No log entries match the current filter.</div>
+            <div class="log-empty">@(_logs.Count == 0 ? "Nothing captured yet." : "No log entries match the current filter.")</div>
         }
         @foreach (var entry in _filteredLogs)
         {
@@ -259,10 +264,10 @@ else
                 <span class="log-time">@entry.Timestamp.ToString("HH:mm:ss.fff")</span>
                 <span class="log-level">@entry.Level</span>
                 <span class="log-cat">[@entry.Category]</span>
-                <span class="log-msg">@entry.Message</span>
+                <span class="log-msg">@MelodyBridge.Server.Services.LogRedactor.Redact(entry.Message)</span>
                 @if (!string.IsNullOrEmpty(entry.Detail))
                 {
-                    <pre class="log-detail">@entry.Detail</pre>
+                    <pre class="log-detail">@MelodyBridge.Server.Services.LogRedactor.Redact(entry.Detail)</pre>
                 }
             </div>
         }
@@ -279,6 +284,7 @@ else
     private bool _hasMoreProviders;
     private bool _directDownloading;
     private bool _directDownloadSucceeded;
+    private string? _downloadUrlError;
     private string _activeLogLevel = "All";
     private static readonly string[] _logLevels = ["All", "Info", "Warn", "Error", "Debug"];
 
@@ -363,6 +369,11 @@ else
 
             foreach (var plugin in Registry.GetEnabled())
             {
+                // The provider select narrows the sweep; "All providers"
+                // leaves it empty.
+                if (!string.IsNullOrEmpty(Dev.SearchProviderId)
+                    && plugin.Id != Dev.SearchProviderId)
+                    continue;
                 try
                 {
                     if (!await plugin.IsAvailableAsync())
@@ -395,12 +406,14 @@ else
 
             if (Dev.SearchResults.Count == 0)
             {
-                Dev.LastSearchResult = "No results found from any plugin.";
-                Dev.LogInfo("Search", "No results across all plugins");
+                Dev.LastSearchResult = string.IsNullOrEmpty(Dev.SearchProviderId)
+                    ? "No results found from any plugin."
+                    : "No results from the selected provider.";
+                Dev.LogInfo("Search", "No results across the queried plugins");
             }
             else
             {
-                Dev.LogInfo("Search", $"Total: {Dev.SearchResults.Count} result(s)");
+                Dev.LogInfo("Search", $"Total: {Dev.SearchResults.Count} result{(Dev.SearchResults.Count == 1 ? "" : "s")}");
             }
         }
         catch (Exception ex)
@@ -479,10 +492,12 @@ else
         var url = Dev.DownloadUrl;
         if (string.IsNullOrWhiteSpace(url))
         {
+            _downloadUrlError = "Paste a track or playlist URL first.";
             Dev.LogWarn("Download", "No URL provided");
             RefreshState();
             return;
         }
+        _downloadUrlError = null;
 
         _directDownloading = true;
         _directDownloadSucceeded = false;
@@ -551,7 +566,13 @@ else
 
     private void ClearQueue()
     {
+        if (Dev.DownloadQueue.Count == 0)
+        {
+            Notifications.Info("Queue is already empty.");
+            return;
+        }
         Dev.DownloadQueue.Clear();
+        Notifications.Success("Queue cleared.");
         RefreshState();
     }
 
@@ -561,6 +582,7 @@ else
         Dev.LastDownloadResult = null;
         Dev.LastSearchResult = null;
         Dev.SearchResults.Clear();
+        Notifications.Info("Log buffer cleared.");
         RefreshState();
     }
 

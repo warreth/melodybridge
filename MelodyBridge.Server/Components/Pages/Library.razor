@@ -70,7 +70,7 @@
 @if (showForm)
 {
     <div class="wizard-overlay" @onclick="CloseForm">
-        <div class="wizard-modal" style="max-width:480px;" @onclick:stopPropagation="true">
+        <div class="wizard-modal narrow" @onclick:stopPropagation="true">
             <div class="wizard-header">
                 <span class="eyebrow">@(editingId is null ? "New location" : $"Editing: {newPath}")</span>
                 <h2>@(editingId is null ? "Add scan location" : "Edit scan location")</h2>
@@ -93,7 +93,7 @@
                 </label>
                 @if (formError is { } error)
                 {
-                    <div class="hint-box" style="margin-top:0.75rem; border-color: var(--danger);">@error</div>
+                    <div class="hint-box danger form-error">@error</div>
                 }
                 <MountWarning />
             </div>
@@ -126,7 +126,7 @@
     private bool scanResultOk;
     private bool showForm;
     private int? editingId; // null = add, otherwise the row being edited
-    private string newPath = "/music";
+    private string newPath = "";
     private ScanSchedule newSchedule = ScanSchedule.Manual;
     private bool liveMonitoring = true;
     private string? formError;
@@ -186,7 +186,7 @@
             scanResult = report.MissingPaths.Count > 0
                 ? $"Scanned {report.Locations} location(s): {report.TaggedFiles} files with MELODY_ID, "
                   + $"{report.UntaggedFiles} without. Path not found: {string.Join(", ", report.MissingPaths)}. "
-                  + "In Docker, type the path as the container sees it (for example /music)."
+                  + "Edit or remove that folder in the list."
                 : $"Scanned {report.Locations} location(s): {report.TaggedFiles} files with MELODY_ID, {report.UntaggedFiles} without.";
             scanResultOk = report.MissingPaths.Count == 0;
             await LoadDataAsync();
@@ -203,7 +203,9 @@
     {
         editingId = null;
         showForm = true;
-        newPath = "/music";
+        // No prefill: the old default was /music, the one path the page
+        // already flags as missing on a host install.
+        newPath = "";
         newSchedule = ScanSchedule.Manual;
         liveMonitoring = true;
         formError = null;
@@ -266,7 +268,7 @@
         if (!Directory.Exists(path))
         {
             formError = "That folder does not exist from the app's point of view. "
-                + "In Docker, use the container path (for example /music), not the host path.";
+                + "In Docker, type the container path (the right side of the volume mapping), not the host path.";
             return;
         }
 

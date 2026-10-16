@@ -55,6 +55,7 @@ public class PluginsPageTests
         // provider per run, like the real app does.
         _ctx.Services.AddSingleton<Application.Services.DownloadCoordinator>();
         _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Services.SettingsStore(dbFactory));
+        _ctx.Services.AddSingleton(new MelodyBridge.Server.Services.NotificationService());
         _ctx.Services.AddSingleton<MelodyBridge.Infrastructure.Downloaders.YtDlpUpdater>(
             new TestServices.StubYtDlpUpdater());
     }

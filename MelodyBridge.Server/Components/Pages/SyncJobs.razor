@@ -23,15 +23,19 @@
 
 @if (showWizard)
 {
-    <div class="wizard-overlay" @onclick="CancelWizard">
+    @* No backdrop click-to-close on a five-step form: it discarded
+       everything typed with one stray click. Cancel and the X remain. *@
+    <div class="wizard-overlay">
         <div class="wizard-modal" @onclick:stopPropagation="true">
             <div class="wizard-header">
-                <span class="eyebrow">Step @(currentStep + 1) of 5</span>
-                <h2>@GetStepTitle()</h2>
-                @if (isEditing)
-                {
-                    <span class="text-muted">Editing "@draft.Name"</span>
-                }
+                <div>
+                    <span class="eyebrow">Step @(currentStep + 1) of 5</span>
+                    <h2>@GetStepTitle()</h2>
+                    @if (isEditing)
+                    {
+                        <span class="text-muted">Editing "@draft.Name"</span>
+                    }
+                </div>
                 <button class="icon-button" title="Close" @onclick="CancelWizard"><Icon Name="x" Size="18" /></button>
             </div>
             <div class="wizard-body">
@@ -140,7 +144,6 @@
                                     M3U output path
                                     <input @bind="draft.M3uOutputPath" placeholder="/app/playlists/playlist.m3u" />
                                 </label>
-                                <MountWarning />
                             }
                             else if (draft.OutputTarget == OutputTargetType.JellyfinApi)
                             {
@@ -297,10 +300,13 @@
                 }
             </div>
             <div class="wizard-footer">
-                @if (currentStep > 0)
-                {
-                    <button class="btn-modern secondary" @onclick="PrevStep">Back</button>
-                }
+                <div class="flex-actions">
+                    <button class="btn-modern ghost" @onclick="CancelWizard">Cancel</button>
+                    @if (currentStep > 0)
+                    {
+                        <button class="btn-modern secondary" @onclick="PrevStep">Back</button>
+                    }
+                </div>
                 <div class="wizard-actions">
                     @if (currentStep < 4)
                     {
@@ -370,8 +376,10 @@
     <div class="wizard-overlay" @onclick="() => showLog = false">
         <div class="wizard-modal log-modal" @onclick:stopPropagation="true">
             <div class="wizard-header">
-                <span class="eyebrow">Run history</span>
-                <h2>@logJobName</h2>
+                <div>
+                    <span class="eyebrow">Run history</span>
+                    <h2>@logJobName</h2>
+                </div>
                 <button class="icon-button" title="Close" @onclick="() => showLog = false"><Icon Name="x" Size="18" /></button>
             </div>
             <div class="wizard-body">
@@ -382,7 +390,14 @@
                 @foreach (var entry in logEntries)
                 {
                     <div class="log-entry">
-                        <StatusPill Variant="@(entry.Status == "Completed" ? "ok" : "warn")">@entry.Status</StatusPill>
+                        @{
+                            // A run that resolved nothing is not a success
+                            // story: keep green for runs that did the job.
+                            var runPill = entry.Status == "Completed"
+                                ? entry.TotalTracks > 0 && entry.ResolvedTracks == 0 ? "warn" : "ok"
+                                : "err";
+                        }
+                        <StatusPill Variant="@runPill">@entry.Status</StatusPill>
                         <div>
                             <strong>@entry.Timestamp.ToString("g")</strong>
                             <p>@entry.Message</p>
@@ -390,7 +405,7 @@
                             @if (ParseWarnings(entry.WarningDetails) is { Count: > 0 } warnings)
                             {
                                 <details>
-                                    <summary>@warnings.Count warning(s)</summary>
+                                    <summary>@warnings.Count @(warnings.Count == 1 ? "warning" : "warnings")</summary>
                                     <ul>
                                         @foreach (var w in warnings)
                                         {
@@ -409,6 +424,8 @@
 
 @code {
     private List<SyncJobEntity> jobs = new();
+    /// <summary>The card order the page shows, so a run does not re-sort it.</summary>
+    private List<string>? jobOrder;
     private List<PlaylistEntity> sources = new();
     private List<string> scanFolders = new();
     private bool showWizard;
@@ -435,10 +452,21 @@
         await LoadDataAsync();
     }
 
-    private async Task LoadDataAsync()
+    private async Task LoadDataAsync(bool preserveOrder = false)
     {
         await using var db = await DbFactory.CreateDbContextAsync();
-        jobs = await db.SyncJobs.OrderByDescending(j => j.LastRunAt).ToListAsync();
+        var loaded = await db.SyncJobs.OrderByDescending(j => j.LastRunAt).ToListAsync();
+        if (preserveOrder && jobOrder is { Count: > 0 })
+        {
+            // Running a job must not teleport its card while the user looks
+            // at it: keep the order the page had.
+            loaded = loaded
+                .OrderBy(j => jobOrder.IndexOf(j.Id) is var i && i >= 0 ? i : int.MaxValue)
+                .ThenBy(j => j.Name)
+                .ToList();
+        }
+        jobs = loaded;
+        jobOrder = jobs.Select(j => j.Id).ToList();
         sources = await db.Playlists.ToListAsync();
         scanFolders = await db.ScanLocations.Select(l => l.Path).ToListAsync();
     }
@@ -532,6 +560,10 @@
         stepError = null;
         if (currentStep == 0)
         {
+            // No blank-named jobs: prefill the source name so the card,
+            // the delete dialog and the failure toasts always have a title.
+            if (string.IsNullOrWhiteSpace(draft.Name))
+                draft.Name = SuggestedJobName();
             if (sourceType == "playlist" && string.IsNullOrWhiteSpace(selectedSourceId))
             {
                 stepError = "Choose a folder or a playlist first.";
@@ -571,11 +603,36 @@
                 stepError = "Enter a cron expression (5 fields, e.g. 0 3 * * *) first.";
                 return;
             }
+            if (draft.Schedule == SyncJobSchedule.Cron
+                && !MelodyBridge.Core.ScanSchedule.TryParse(draft.CronExpression, out _))
+            {
+                // A lenient parse would silently degrade this to Manual and
+                // the job would never run on its "schedule".
+                stepError = $"'{draft.CronExpression}' is not a valid five-field cron expression (minute hour day month weekday, e.g. 0 3 * * *).";
+                return;
+            }
         }
         if (currentStep < 4) currentStep++;
     }
 
     private void PrevStep() { if (currentStep > 0) currentStep--; stepError = null; }
+
+    /// <summary>A sensible default title from the picked source.</summary>
+    private string SuggestedJobName()
+    {
+        if (sourceType == "playlist" && !string.IsNullOrWhiteSpace(selectedSourceId))
+        {
+            var playlist = sources.FirstOrDefault(s => s.Id == selectedSourceId);
+            if (playlist?.Name is { Length: > 0 } name) return name;
+        }
+        if (sourceType == "folder" && !string.IsNullOrWhiteSpace(selectedFolder))
+        {
+            var trimmed = selectedFolder.TrimEnd('/', '\\');
+            var last = trimmed.Split('/', '\\').LastOrDefault();
+            if (!string.IsNullOrWhiteSpace(last)) return last!;
+        }
+        return "My sync job";
+    }
 
     private async Task SaveJob()
     {
@@ -662,7 +719,7 @@
             var entity = await db.SyncJobs.FindAsync(jobId);
             if (entity == null) return;
             await JobRunner.RunJobAsync(SyncJobMapping.MapToDomain(entity));
-            await LoadDataAsync();
+            await LoadDataAsync(preserveOrder: true);
         }
         finally { runningJobs.Remove(jobId); }
     }

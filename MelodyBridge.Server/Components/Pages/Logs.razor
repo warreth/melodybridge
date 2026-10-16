@@ -21,11 +21,22 @@
     <div class="topbar-actions">
         <button class="btn-modern ghost" @onclick="CopyToClipboardAsync" disabled="@FilteredEmpty">Copy</button>
         <button class="btn-modern ghost" @onclick="DownloadFileAsync" disabled="@FilteredEmpty">Export</button>
-        <button class="btn-modern secondary" @onclick="ClearLogs">Clear</button>
+        <button class="btn-modern secondary" @onclick="() => confirmClear = true">Clear</button>
     </div>
 </section>
 
-@if (errorCount > 0)
+@if (confirmClear)
+{
+    <ConfirmDialog Show="true"
+                   Eyebrow="Clear logs"
+                   Title="Clear the log buffer?"
+                   Message=@($"Removes all {totalEntries} buffered entries for every open page. Nothing on disk is touched.")
+                   ConfirmLabel="Clear logs"
+                   OnConfirm="ClearLogs"
+                   OnCancel="CancelClear" />
+}
+
+@if (errorCount > 0 && errorCount > dismissedErrorCount)
 {
     <section class="panel-card log-error-banner">
         <div class="log-error-head">
@@ -37,13 +48,14 @@
             <button class="btn-modern ghost small" @onclick="ShowOnlyErrors">
                 @(showingErrorsOnly ? "Show all" : "Show only problems")
             </button>
+            <button class="btn-modern ghost small" @onclick="DismissBanner">Hide</button>
         </div>
         @foreach (var entry in errorPreview)
         {
             <div class="log-row err clickable" @onclick="() => SelectEntry(entry)">
                 <span class="log-time">@entry.Timestamp.ToLocalTime().ToString("HH:mm:ss")</span>
                 <span class="log-category">@LogAreas.FromCategory(entry.Category)</span>
-                <span class="log-message">@entry.Message</span>
+                <span class="log-message">@LogRedactor.Redact(entry.Message)</span>
             </div>
         }
         @if (errorPreview.Count < errorCount)
@@ -95,9 +107,16 @@
 
     @if (filtered.Count == 0)
     {
-        <EmptyState IconName="search" Title="No log entries match">
-            <p>Adjust the area, level or search text.</p>
-        </EmptyState>
+        @if (totalEntries == 0)
+        {
+            <EmptyState IconName="terminal" Title="Nothing logged yet">The buffer starts filling as the app works.</EmptyState>
+        }
+        else
+        {
+            <EmptyState IconName="search" Title="No log entries match">
+                <p>Adjust the area, level or search text.</p>
+            </EmptyState>
+        }
     }
     else
     {
@@ -108,7 +127,7 @@
                     <span class="log-time">@entry.Timestamp.ToLocalTime().ToString("HH:mm:ss")</span>
                     <span class="log-level">@entry.Level.ToString().ToUpperInvariant()</span>
                     <span class="log-category">@LogAreas.FromCategory(entry.Category)</span>
-                    <span class="log-message">@entry.Message</span>
+                    <span class="log-message">@LogRedactor.Redact(entry.Message)</span>
                 </div>
             }
         </div>
@@ -134,6 +153,8 @@
     private bool newestFirst = true;
     private string searchText = string.Empty;
     private string? statusMessage;
+    private int dismissedErrorCount;
+    private bool confirmClear;
     private Timer? _timer;
 
     private sealed record LevelFilter(string Label, LogLevel[] Levels);
@@ -168,7 +189,9 @@
     }
 
     private static bool IsError(LogEntry e)
-        => e.Level is LogLevel.Error or LogLevel.Critical;    private bool Matches(LogEntry e)
+        => e.Level is LogLevel.Error or LogLevel.Critical;
+
+    private bool Matches(LogEntry e)
     {
         if (showingErrorsOnly && !IsError(e))
             return false;
@@ -208,6 +231,9 @@
         Refresh();
     }
 
+    /// <summary>Hides the banner until new problems arrive.</summary>
+    private void DismissBanner() => dismissedErrorCount = errorCount;
+
     private void SelectEntry(LogEntry entry)
     {
         // Jump into the stream: that area, only errors until cleared.
@@ -226,7 +252,7 @@
     private async Task CopyToClipboardAsync()
     {
         await JS.InvokeVoidAsync("navigator.clipboard.writeText", BuildText());
-        statusMessage = $"Copied {filtered.Count} entries to clipboard";
+        statusMessage = $"Copied {filtered.Count} {(filtered.Count == 1 ? "entry" : "entries")} to clipboard";
     }
 
     private async Task DownloadFileAsync()
@@ -234,13 +260,17 @@
         var bytes = System.Text.Encoding.UTF8.GetBytes(BuildText());
         var name = $"melodybridge-logs-{DateTime.Now:yyyyMMdd-HHmmss}.txt";
         await JS.InvokeVoidAsync("melody.downloadFile", name, "text/plain", bytes);
-        statusMessage = $"Exported {filtered.Count} entries to {name}";
+        statusMessage = $"Exported {filtered.Count} {(filtered.Count == 1 ? "entry" : "entries")} to {name}";
     }
+
+    private void CancelClear() => confirmClear = false;
 
     private void ClearLogs()
     {
         LogCollector.Clear();
         showingErrorsOnly = false;
+        confirmClear = false;
+        dismissedErrorCount = 0;
         Refresh();
         statusMessage = "Log buffer cleared";
     }
@@ -254,9 +284,10 @@
         {
             sb.Append('[').Append(e.Timestamp.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"))
               .Append("] ").Append(e.Level.ToString().ToUpperInvariant())
-              .Append(" [").Append(LogAreas.FromCategory(e.Category)).Append("] ").AppendLine(e.Message);
+              .Append(" [").Append(LogAreas.FromCategory(e.Category)).Append("] ")
+              .AppendLine(LogRedactor.Redact(e.Message));
             if (!string.IsNullOrEmpty(e.Detail))
-                sb.AppendLine($"    {e.Detail.Replace("\n", "\n    ")}");
+                sb.AppendLine($"    {LogRedactor.Redact(e.Detail).Replace("\n", "\n    ")}");
         }
         return sb.ToString();
     }

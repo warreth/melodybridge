@@ -160,6 +160,85 @@ document.addEventListener('focusout', (e) => {
     if (tip) resetHelpPopup(tip);
 });
 
+// Modal keyboard behaviour for every wizard overlay and confirm dialog:
+// focus moves into the dialog when it opens, Tab stays inside it, and
+// Escape closes it through the modal's own close path (X, Cancel, or the
+// backdrop handler as the last resort).
+function topModal() {
+    // Fixed-position overlays have no offsetParent, so visibility is
+    // checked with the computed style and the client rects.
+    const modals = [...document.querySelectorAll('.wizard-overlay')]
+        .filter((m) => m.getClientRects().length > 0
+            && getComputedStyle(m).display !== 'none'
+            && getComputedStyle(m).visibility !== 'hidden');
+    return modals.length > 0 ? modals[modals.length - 1] : null;
+}
+
+function focusFirstInModal(modal) {
+    const target =
+        modal.querySelector('.wizard-body input:not([type="hidden"]):not([disabled]), .wizard-body select:not([disabled]), .wizard-body textarea:not([disabled])') ||
+        modal.querySelector('.wizard-footer button.btn-modern.secondary') ||
+        modal.querySelector('.wizard-footer button');
+    if (target) {
+        try { target.focus(); } catch { /* focus is best effort */ }
+    } else if (modal.querySelector('.wizard-modal')) {
+        modal.querySelector('.wizard-modal').setAttribute('tabindex', '-1');
+        try { modal.querySelector('.wizard-modal').focus(); } catch { /* ignore */ }
+    }
+}
+
+function closeTopModal(overlay) {
+    const closeButton = overlay.querySelector('.wizard-header .icon-button');
+    if (closeButton) { closeButton.click(); return; }
+    const cancel = overlay.querySelector('.wizard-footer button.btn-modern.secondary');
+    if (cancel) { cancel.click(); return; }
+    overlay.click();
+}
+
+const modalObserver = new MutationObserver((mutations) => {
+    for (const mutation of mutations) {
+        for (const node of mutation.addedNodes) {
+            if (node.nodeType !== 1) continue;
+            const modal = node.classList && node.classList.contains('wizard-overlay')
+                ? node
+                : node.querySelector && node.querySelector('.wizard-overlay');
+            if (modal) requestAnimationFrame(() => focusFirstInModal(modal));
+        }
+    }
+});
+modalObserver.observe(document.documentElement, { childList: true, subtree: true });
+
+document.addEventListener('keydown', (e) => {
+    const overlay = topModal();
+    if (!overlay) return;
+
+    if (e.key === 'Escape') {
+        closeTopModal(overlay);
+        e.preventDefault();
+        return;
+    }
+    if (e.key !== 'Tab') return;
+
+    const focusables = [...overlay.querySelectorAll(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')]
+        .filter((el) => el.getClientRects().length > 0);
+    if (focusables.length === 0) return;
+
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+    const active = document.activeElement;
+    if (!overlay.contains(active)) {
+        e.preventDefault();
+        first.focus();
+    } else if (e.shiftKey && active === first) {
+        e.preventDefault();
+        last.focus();
+    } else if (!e.shiftKey && active === last) {
+        e.preventDefault();
+        first.focus();
+    }
+});
+
 document.addEventListener('DOMContentLoaded', () => {
     window.melody.init();
     const dismiss = document.querySelector('#blazor-error-ui .dismiss');

@@ -38,6 +38,7 @@ public class DevPanelTests
 
         _ctx.Services.AddSingleton<DevPanelService>(_devPanelService);
         _ctx.Services.AddSingleton<IDownloaderRegistry>(_registry.Object);
+        _ctx.Services.AddSingleton(new MelodyBridge.Server.Services.NotificationService());
         // The production download manager over the real plugin doubles:
         // queued downloads write real files, exactly like in the app.
         _ctx.Services.AddSingleton<IDownloadManager>(new Application.Services.DownloadManager(
@@ -689,7 +690,8 @@ public class DevPanelTests
             "t1", "Song", "http://ex.com", "P1", "Completed", "/tmp/s.mp3", null));
 
         var cut = _ctx.Render<DevPanel>();
-        Assert.That(cut.Markup, Does.Contain("✓"));
+        Assert.That(cut.Find(".queue-completed svg").GetAttribute("data-icon"), Is.EqualTo("check"),
+            "the shared icon set draws the state, not a font glyph");
     }
 
     [Test]
@@ -699,7 +701,7 @@ public class DevPanelTests
             "t1", "Song", "http://ex.com", "P1", "Failed", null, "err"));
 
         var cut = _ctx.Render<DevPanel>();
-        Assert.That(cut.Markup, Does.Contain("✗"));
+        Assert.That(cut.Find(".queue-failed svg").GetAttribute("data-icon"), Is.EqualTo("x"));
     }
 }
 

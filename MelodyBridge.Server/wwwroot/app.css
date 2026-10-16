@@ -576,6 +576,9 @@ select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-s
     background: var(--surface-3);
     border: 1px solid rgba(39, 39, 42, .4);
 }
+/* Error-flavoured hint box for forms that validate inline. */
+.hint-box.danger { border-color: var(--danger); }
+.form-error { margin-top: .75rem; }
 /* Partial-sync marker next to the last-synced line: warning color, no
    layout shift when absent. */
 .sync-warn {
@@ -711,6 +714,10 @@ select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-s
 /* Confirm dialogs share the wizard shell but stay compact. */
 .wizard-modal.confirm-modal {
     width: min(440px, calc(100vw - 2rem));
+}
+/* Compact form modals (scan locations) sit between confirm and wide. */
+.wizard-modal.narrow {
+    width: min(480px, calc(100vw - 2rem));
 }
 .confirm-message {
     margin: 0 0 .9rem;
@@ -996,6 +1003,9 @@ td.file-path {
 .dev-result.err { border: 1px solid var(--danger); }
 .qi-result { display: grid; gap: .5rem; }
 .qi-item { display: flex; gap: .6rem; align-items: center; padding: .5rem .6rem; border-radius: 6px; background: var(--surface-2); }
+/* The text column of a result/download row: takes the room, never
+   forces the row wider than its card. */
+.qi-grow { flex: 1; min-width: 0; }
 .qi-icon { width: 22px; text-align: center; font-size: .95rem; }
 .qi-icon.ok { color: var(--success); }
 .qi-icon.err { color: var(--danger); }
@@ -1284,6 +1294,18 @@ td.file-path {
     font-size: .72rem;
     color: var(--text-muted, #999);
     text-align: right;
+}
+
+/* On a phone the four-column log grid squeezed the message to a few
+   pixels. Time and level stay on one line, the message gets its own
+   full-width line. */
+@media (max-width: 720px) {
+    .log-row,
+    .log-row.clickable {
+        grid-template-columns: 3.6rem max-content minmax(0, 1fr);
+    }
+    .log-row .log-message { grid-column: 1 / -1; }
+    .logs-list { font-size: .8rem; }
 }
 
 /* ── Home page: three-step workflow ────────────────────────────── */
@@ -1712,6 +1734,7 @@ input::placeholder, textarea::placeholder { color: var(--muted-2, #8a8f98); opac
 /* Action rows: buttons plus adjacent description text (Settings test
    results, PlaylistDetails source link) get honest spacing. */
 .flex-actions { gap: .75rem; flex-wrap: wrap; }
+.flex-actions.spaced { margin-top: .5rem; }
 .flex-actions .text-muted,
 .flex-actions .hint {
     align-self: center;
