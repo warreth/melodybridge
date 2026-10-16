@@ -72,6 +72,16 @@ public static class ServiceCollectionExtensions
                 sp.GetRequiredService<IHttpClientFactory>().CreateClient("monochrome"),
                 sp.GetRequiredService<IPluginConfig>(),
                 sp.GetRequiredService<ILogger<MonochromeDownloader>>()));
+        // Soulseek through the user's own slskd instance: lossless and
+        // high-bitrate files, no cloud dependency. Unavailable (and
+        // skipped) until a URL, API key and downloads folder are set.
+        services.AddHttpClient("slskd", c => c.Timeout = TimeSpan.FromMinutes(2));
+        services.AddSingleton<IDownloader>(sp =>
+            new SlskdDownloader(
+                sp.GetRequiredService<IHttpClientFactory>().CreateClient("slskd"),
+                sp.GetRequiredService<IPluginConfig>(),
+                sp.GetRequiredService<ILogger<SlskdDownloader>>()));
+
         services.AddHttpClient("doubledouble", c => c.Timeout = TimeSpan.FromMinutes(3));
         services.AddSingleton<IDownloader>(sp =>
             new DoubleDoubleDownloader(

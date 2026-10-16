@@ -56,7 +56,8 @@ export default defineConfig({
         text: 'Setup',
         items: [
           { text: 'Accounts and imports', link: '/accounts' },
-          { text: 'Lucida and FlareSolverr', link: '/lucida' }
+          { text: 'Lucida and FlareSolverr', link: '/lucida' },
+          { text: 'Soulseek and slskd', link: '/slskd' }
         ]
       },
       {
