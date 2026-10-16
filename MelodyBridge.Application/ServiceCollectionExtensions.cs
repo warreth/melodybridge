@@ -105,9 +105,18 @@ public static class ServiceCollectionExtensions
             c.DefaultRequestHeaders.UserAgent.ParseAdd("MelodyBridge/1.0 (+https://melodybridge.app)");
             c.Timeout = TimeSpan.FromSeconds(15);
         });
+        // MusicBrainz is the ISRC fallback when Deezer has no confident
+        // match: it asks for a real User-Agent and at most one request per
+        // second, both handled by the resolver.
+        services.AddHttpClient("musicbrainz", c =>
+        {
+            c.DefaultRequestHeaders.UserAgent.ParseAdd("MelodyBridge/1.0 (+https://melodybridge.app)");
+            c.Timeout = TimeSpan.FromSeconds(15);
+        });
         services.AddSingleton(sp => new IsrcResolver(
             sp.GetRequiredService<IHttpClientFactory>().CreateClient("deezer"),
-            sp.GetRequiredService<ILogger<IsrcResolver>>()));
+            sp.GetRequiredService<ILogger<IsrcResolver>>(),
+            sp.GetRequiredService<IHttpClientFactory>().CreateClient("musicbrainz")));
 
         services.AddSingleton<IPluginConfig, PluginConfigStore>();
         services.AddSingleton<IDownloaderRegistry, DownloaderRegistry>();

@@ -9,7 +9,8 @@ namespace MelodyBridge.Infrastructure.Services;
 /// Resolves a track's ISRC through Deezer's public search API when the
 /// playlist source does not provide one (the Spotify embed scrape,
 /// YouTube, CSV imports). Deezer returns the ISRC of every hit and needs
-/// no account.
+/// no account. When Deezer has no confident match, MusicBrainz is asked
+/// as a fallback (one request per second, a real User-Agent, no key).
 ///
 /// Hits are ranked with the same rules the plugins use: title/artist
 /// similarity, duration proximity and no unrequested modifiers. Only a
@@ -19,20 +20,30 @@ namespace MelodyBridge.Infrastructure.Services;
 /// </summary>
 public class IsrcResolver
 {
-    private const string SearchBase = "https://api.deezer.com/search";
+    private const string DeezerSearchBase = "https://api.deezer.com/search";
+    private const string MusicBrainzSearchBase = "https://musicbrainz.org/ws/2/recording";
 
     private readonly HttpClient _http;
     private readonly ILogger<IsrcResolver> _logger;
+
+    /// <summary>The fallback client; null keeps Deezer as the only source.</summary>
+    private readonly HttpClient? _musicBrainz;
+
+    // MusicBrainz asks for at most one request per second; the fallback
+    // path is rare, but the gate keeps a burst of misses polite.
+    private readonly SemaphoreSlim _musicBrainzGate = new(1, 1);
+    private DateTimeOffset _lastMusicBrainzCall = DateTimeOffset.MinValue;
 
     // Memoized verdicts, null included: a track that resolves once keeps
     // its answer for the process lifetime, and a miss is not retried on
     // every download attempt.
     private readonly ConcurrentDictionary<string, string?> _cache = new();
 
-    public IsrcResolver(HttpClient http, ILogger<IsrcResolver> logger)
+    public IsrcResolver(HttpClient http, ILogger<IsrcResolver> logger, HttpClient? musicBrainz = null)
     {
         _http = http;
         _logger = logger;
+        _musicBrainz = musicBrainz;
     }
 
     /// <summary>
@@ -55,12 +66,22 @@ public class IsrcResolver
     private async Task<string?> ResolveUncachedAsync(
         string artist, string title, TimeSpan? duration, CancellationToken ct)
     {
+        var deezer = await TryDeezerAsync(artist, title, duration, ct);
+        if (deezer is not null) return deezer;
+
+        // Deezer missed: MusicBrainz has a wider independent catalogue.
+        return await TryMusicBrainzAsync(artist, title, duration, ct);
+    }
+
+    private async Task<string?> TryDeezerAsync(
+        string artist, string title, TimeSpan? duration, CancellationToken ct)
+    {
         try
         {
             var query = string.Join(" ",
                 new[] { artist, title }.Where(s => !string.IsNullOrWhiteSpace(s)));
             using var resp = await _http.GetAsync(
-                $"{SearchBase}?q={Uri.EscapeDataString(query)}&limit=5", ct);
+                $"{DeezerSearchBase}?q={Uri.EscapeDataString(query)}&limit=5", ct);
             if (!resp.IsSuccessStatusCode)
             {
                 _logger.LogDebug("Deezer ISRC lookup returned {Status} for '{Query}'",
@@ -71,12 +92,55 @@ public class IsrcResolver
             var body = await resp.Content.ReadAsStringAsync(ct);
             var isrc = ParseBestIsrc(body, artist, title, duration);
             if (isrc is not null)
-                _logger.LogDebug("Resolved ISRC {Isrc} for '{Artist} - {Title}'", isrc, artist, title);
+                _logger.LogDebug("Resolved ISRC {Isrc} for '{Artist} - {Title}' via Deezer", isrc, artist, title);
             return isrc;
         }
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "Deezer ISRC lookup failed for '{Artist} - {Title}'", artist, title);
+            return null;
+        }
+    }
+
+    private async Task<string?> TryMusicBrainzAsync(
+        string artist, string title, TimeSpan? duration, CancellationToken ct)
+    {
+        if (_musicBrainz is null) return null;
+
+        try
+        {
+            await _musicBrainzGate.WaitAsync(ct);
+            try
+            {
+                var wait = TimeSpan.FromSeconds(1) - (DateTimeOffset.UtcNow - _lastMusicBrainzCall);
+                if (wait > TimeSpan.Zero) await Task.Delay(wait, ct);
+                _lastMusicBrainzCall = DateTimeOffset.UtcNow;
+
+                var query = Uri.EscapeDataString($"artist:\"{artist}\" AND recording:\"{title}\"");
+                using var resp = await _musicBrainz.GetAsync(
+                    $"{MusicBrainzSearchBase}?query={query}&fmt=json&limit=5", ct);
+                if (!resp.IsSuccessStatusCode)
+                {
+                    _logger.LogDebug("MusicBrainz ISRC lookup returned {Status} for '{Artist} - {Title}'",
+                        (int)resp.StatusCode, artist, title);
+                    return null;
+                }
+
+                var body = await resp.Content.ReadAsStringAsync(ct);
+                var isrc = ParseBestMusicBrainzIsrc(body, artist, title, duration);
+                if (isrc is not null)
+                    _logger.LogDebug("Resolved ISRC {Isrc} for '{Artist} - {Title}' via MusicBrainz",
+                        isrc, artist, title);
+                return isrc;
+            }
+            finally
+            {
+                _musicBrainzGate.Release();
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "MusicBrainz ISRC lookup failed for '{Artist} - {Title}'", artist, title);
             return null;
         }
     }
@@ -135,6 +199,84 @@ public class IsrcResolver
         {
             return null;
         }
+    }
+
+    /// <summary>
+    /// Parses a MusicBrainz recording search response and returns the ISRC
+    /// of the best High-confidence candidate. Internal for tests.
+    /// </summary>
+    internal static string? ParseBestMusicBrainzIsrc(
+        string json, string artist, string title, TimeSpan? expectedDuration)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            if (!doc.RootElement.TryGetProperty("recordings", out var recordings) ||
+                recordings.ValueKind != JsonValueKind.Array)
+                return null;
+
+            var candidates = new List<DownloaderSearchHit>();
+            foreach (var item in recordings.EnumerateArray())
+            {
+                if (item.ValueKind != JsonValueKind.Object) continue;
+
+                var isrc = FirstIsrc(item);
+                if (string.IsNullOrWhiteSpace(isrc)) continue;
+
+                var hitTitle = GetString(item, "title");
+                var hitArtist = FirstArtistCredit(item);
+                var lengthMs = item.TryGetProperty("length", out var l) && l.ValueKind == JsonValueKind.Number
+                    ? l.GetDouble()
+                    : (double?)null;
+
+                candidates.Add(new DownloaderSearchHit(
+                    Title: hitTitle ?? title,
+                    Artist: hitArtist ?? artist,
+                    SourceUrl: isrc,
+                    Duration: lengthMs is > 0 ? TimeSpan.FromMilliseconds(lengthMs.Value) : null,
+                    MatchConfidence: FuzzyMatcher.Confidence(artist, title, hitArtist, hitTitle)));
+            }
+
+            var best = SearchRanker.Rank(artist, title, expectedDuration, candidates);
+            // Same rule as the Deezer path: a wrong ISRC is worse than none.
+            if (best is not { MatchConfidence: MatchConfidence.High }) return null;
+            if (!FuzzyMatcher.DurationPlausible(expectedDuration, best.Duration)) return null;
+            return best.SourceUrl;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static string? FirstIsrc(JsonElement item)
+    {
+        if (!item.TryGetProperty("isrcs", out var isrcs) || isrcs.ValueKind != JsonValueKind.Array)
+            return null;
+        foreach (var value in isrcs.EnumerateArray())
+            if (value.ValueKind == JsonValueKind.String)
+                return value.GetString();
+        return null;
+    }
+
+    private static string? FirstArtistCredit(JsonElement item)
+    {
+        if (!item.TryGetProperty("artist-credit", out var credits) ||
+            credits.ValueKind != JsonValueKind.Array)
+            return null;
+
+        foreach (var credit in credits.EnumerateArray())
+        {
+            if (credit.ValueKind != JsonValueKind.Object) continue;
+            var name = GetString(credit, "name");
+            if (!string.IsNullOrWhiteSpace(name)) return name;
+            if (credit.TryGetProperty("artist", out var artistObj))
+            {
+                var nested = GetString(artistObj, "name");
+                if (!string.IsNullOrWhiteSpace(nested)) return nested;
+            }
+        }
+        return null;
     }
 
     private static string? GetString(JsonElement element, string property)

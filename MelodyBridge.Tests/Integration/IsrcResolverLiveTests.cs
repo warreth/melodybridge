@@ -50,4 +50,25 @@ public class IsrcResolverLiveTests
 
         Assert.That(isrc, Is.Null, "no confident match must not invent a code");
     }
+
+    [Test]
+    public async Task Resolve_WithDeezerUnreachable_FallsBackToMusicBrainz()
+    {
+        // Deezer cannot answer, so the MusicBrainz fallback must resolve
+        // the recording on its own: the ISRC of this track is in
+        // MusicBrainz (live-verified).
+        var deezerDown = new HttpClient
+        {
+            BaseAddress = new Uri("http://127.0.0.1:9"),
+            Timeout = TimeSpan.FromSeconds(2),
+        };
+        var musicBrainz = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
+        musicBrainz.DefaultRequestHeaders.UserAgent.ParseAdd("MelodyBridge/1.0 (github.com/warreth/melodybridge)");
+        var resolver = new IsrcResolver(deezerDown, NullLogger<IsrcResolver>.Instance, musicBrainz);
+
+        var isrc = await resolver.ResolveAsync("Forss", "Flickermood", TimeSpan.FromSeconds(214));
+
+        Assert.That(LooksLikeAnIsrc(isrc), Is.True,
+            $"the MusicBrainz fallback must resolve, got: {isrc ?? "null"}");
+    }
 }
