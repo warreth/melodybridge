@@ -282,4 +282,63 @@ public class DoubleDoubleDownloaderTests
         });
         Directory.Delete(dir, recursive: true);
     }
+
+    [Test]
+    public async Task IsAvailable_WhileTheSiteDemandsACaptcha_ReportsFalseWithTheReason()
+    {
+        var handler = new StubHttpMessageHandler
+        {
+            Respond = _ => Json(HttpStatusCode.OK,
+                new { success = true, active = true, type = "turnstile", sitekey = "x" }),
+        };
+        var downloader = Create(handler, out var _);
+
+        var available = await downloader.IsAvailableAsync();
+        Assert.Multiple(() =>
+        {
+            Assert.That(available, Is.False,
+                "active=true means every /dl submission is rejected");
+            Assert.That(downloader.LastUnavailableReason, Does.Contain("captcha"),
+                "the card must explain why the plugin cannot run");
+        });
+    }
+
+    [Test]
+    public async Task IsAvailable_WhenTheSiteDropsTheCaptcha_ReportsTrueAgain()
+    {
+        var handler = new StubHttpMessageHandler
+        {
+            Respond = _ => Json(HttpStatusCode.OK, new { success = true, active = false }),
+        };
+        var downloader = Create(handler, out var _);
+
+        var available = await downloader.IsAvailableAsync();
+        Assert.Multiple(() =>
+        {
+            Assert.That(available, Is.True,
+                "an explicit active=false is the only ready signal");
+            Assert.That(downloader.LastUnavailableReason, Is.Null);
+        });
+    }
+
+    [Test]
+    public async Task IsAvailable_UnreadableAnswer_DoesNotPretendToBeReady()
+    {
+        var handler = new StubHttpMessageHandler
+        {
+            Respond = _ => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("<html>moved</html>", Encoding.UTF8, "text/html"),
+            },
+        };
+        var downloader = Create(handler, out var _);
+
+        var available = await downloader.IsAvailableAsync();
+        Assert.Multiple(() =>
+        {
+            Assert.That(available, Is.False,
+                "an unreadable health answer is not a promise the plugin can deliver");
+            Assert.That(downloader.LastUnavailableReason, Is.Not.Null);
+        });
+    }
 }

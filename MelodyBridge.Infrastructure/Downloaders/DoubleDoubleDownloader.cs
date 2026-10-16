@@ -18,9 +18,12 @@ namespace MelodyBridge.Infrastructure.Downloaders;
 /// SearchAsync returns null by design: the site's /search endpoint is
 /// interactive and captcha-gated, so this plugin only participates in
 /// DownloadAsync(url) flows with direct source URLs resolved elsewhere.
-/// The site is Turnstile captcha-gated: on a CAPTCHA error or HTTP 403
-/// the download fails fast with a clear message so the waterfall moves
-/// on to the next plugin.
+///
+/// The site turned Turnstile captcha-gated for every submission, so the
+/// plugin now reports itself unavailable (with the reason) and is retired
+/// from the shipped waterfall order. It stays in the codebase disabled:
+/// if the site ever drops the gate, the availability probe turns ready
+/// again and a user can move it back up by hand.
 /// </summary>
 public class DoubleDoubleDownloader : IDownloader
 {
@@ -41,6 +44,9 @@ public class DoubleDoubleDownloader : IDownloader
     public string Id => "doubledouble";
     public string Name => "DoubleDouble";
     public string Description => "doubledouble.top: Tidal, Qobuz, Deezer, Amazon Music, SoundCloud direct-URL rips";
+
+    /// <inheritdoc />
+    public string? LastUnavailableReason { get; private set; }
 
     private static readonly string[] Hosts = { "https://us.doubledouble.top", "https://eu.doubledouble.top" };
 
@@ -65,26 +71,44 @@ public class DoubleDoubleDownloader : IDownloader
         if (_availability.TryGet(out var cached))
             return cached;
 
-        // Cheap per-waterfall check: any host answering HTTP 200 counts.
+        // The site decides whether it still accepts automated rips, and its
+        // captcha config is the honest signal: active=true means every /dl
+        // submission is rejected with a CAPTCHA error. Only an explicit
+        // active=false counts as ready, so a changed or unreadable answer
+        // never presents the plugin as working when it cannot deliver.
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         cts.CancelAfter(TimeSpan.FromSeconds(10));
         var available = false;
+        string? reason = null;
         foreach (var host in Hosts)
         {
             try
             {
                 using var resp = await _http.GetAsync($"{host}/captcha/config?url=x", cts.Token);
-                if (resp.IsSuccessStatusCode)
+                if (!resp.IsSuccessStatusCode)
+                {
+                    reason = "doubledouble.top did not answer";
+                    continue;
+                }
+
+                using var doc = JsonDocument.Parse(await resp.Content.ReadAsStreamAsync(cts.Token));
+                if (doc.RootElement.TryGetProperty("active", out var active) &&
+                    active.ValueKind == JsonValueKind.False)
                 {
                     available = true;
+                    reason = null;
                     break;
                 }
+
+                reason = "doubledouble.top requires a captcha; automated downloads are not possible";
             }
             catch (Exception ex)
             {
                 _logger.LogDebug(ex, "DoubleDouble availability probe failed for {Host}", host);
+                reason ??= "doubledouble.top did not answer";
             }
         }
+        LastUnavailableReason = available ? null : reason ?? "doubledouble.top did not answer";
         _availability.Store(available);
         return available;
     }

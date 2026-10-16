@@ -166,8 +166,8 @@ public class DownloaderRegistryOrderTests
         Assert.That(fresh.GetEnabled().Select(d => d.Id), Is.EqualTo(new[]
         {
             "soundcloud", "archiveorg", "ytdlp", "qobuz", "deemix",
-            "monochrome", "slskd", "doubledouble", "lucida",
-        }), "an untouched default order follows the new default");
+            "monochrome", "slskd", "lucida", "doubledouble",
+        }), "an untouched default order follows the new default; the retired plugin trails");
     }
 
     [Test]
@@ -181,8 +181,26 @@ public class DownloaderRegistryOrderTests
         Assert.That(fresh.GetEnabled().Select(d => d.Id), Is.EqualTo(new[]
         {
             "soundcloud", "archiveorg", "ytdlp", "qobuz", "deemix",
-            "monochrome", "slskd", "doubledouble", "lucida",
+            "monochrome", "slskd", "lucida", "doubledouble",
         }), "a shipped default from before the premium plugins also migrates");
+    }
+
+    [Test]
+    public async Task UntouchedDoubleDoubleEraOrder_MigratesToTheNewDefault()
+    {
+        // The order shipped just before DoubleDouble turned captcha-gated.
+        // It must be recognized as untouched so the retired plugin drops
+        // behind the working sources instead of running in the middle.
+        await SeedOrderAsync(
+            "soundcloud", "archiveorg", "ytdlp", "qobuz", "deemix",
+            "monochrome", "slskd", "doubledouble", "lucida");
+
+        var fresh = RegistryOver(NewShippedPlugins());
+        Assert.That(fresh.GetEnabled().Select(d => d.Id), Is.EqualTo(new[]
+        {
+            "soundcloud", "archiveorg", "ytdlp", "qobuz", "deemix",
+            "monochrome", "slskd", "lucida", "doubledouble",
+        }), "the last shipped order migrates; a user's own order would not");
     }
 
     [Test]

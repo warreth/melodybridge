@@ -32,8 +32,9 @@ public static class ServiceCollectionExtensions
         // The default order: the fast free sources first (SoundCloud, the
         // Internet Archive), YouTube as the widest lossy fallback, then the
         // subscription sources (Qobuz, Deezer), the free lossless ones
-        // (Monochrome, Soulseek), and the community mirrors last
-        // (DoubleDouble best-effort, Lucida needs a solver).
+        // (Monochrome, Soulseek), and the community mirrors last (Lucida
+        // needs a solver; DoubleDouble reports itself unavailable while its
+        // captcha gate is up).
         services.AddSingleton<IDownloader>(sp =>
             new SoundCloudDownloader(sp.GetRequiredService<ILogger<SoundCloudDownloader>>()));
         services.AddSingleton<IDownloader>(sp =>
@@ -99,14 +100,6 @@ public static class ServiceCollectionExtensions
                 sp.GetRequiredService<IPluginConfig>(),
                 sp.GetRequiredService<ILogger<SlskdDownloader>>()));
 
-        // DoubleDouble rips many services by direct URL (submit + poll, no
-        // metadata search: the frontend search is captcha-gated).
-        services.AddHttpClient("doubledouble", c => c.Timeout = TimeSpan.FromMinutes(3));
-        services.AddSingleton<IDownloader>(sp =>
-            new DoubleDoubleDownloader(
-                sp.GetRequiredService<IHttpClientFactory>().CreateClient("doubledouble"),
-                sp.GetRequiredService<ILogger<DoubleDoubleDownloader>>()));
-
         // Cloudflare solver shared by challenge-gated plugins (Lucida).
         services.AddHttpClient("flaresolverr", c => c.Timeout = TimeSpan.FromMinutes(2));
         services.AddOptions<FlareSolverrOptions>();
@@ -121,6 +114,17 @@ public static class ServiceCollectionExtensions
                 sp.GetRequiredService<IHttpClientFactory>().CreateClient("lucida"),
                 sp.GetRequiredService<IChallengeSolver>(),
                 sp.GetRequiredService<ILogger<LucidaDownloader>>()));
+
+        // DoubleDouble rips many services by direct URL (submit + poll, no
+        // metadata search: the frontend search is captcha-gated). It sits
+        // last because the site is captcha-gated on every submission and
+        // the plugin reports itself unavailable; it stays registered so a
+        // working status is picked up automatically if the gate ever drops.
+        services.AddHttpClient("doubledouble", c => c.Timeout = TimeSpan.FromMinutes(3));
+        services.AddSingleton<IDownloader>(sp =>
+            new DoubleDoubleDownloader(
+                sp.GetRequiredService<IHttpClientFactory>().CreateClient("doubledouble"),
+                sp.GetRequiredService<ILogger<DoubleDoubleDownloader>>()));
 
         // ISRC enrichment for sources that do not provide one (Spotify
         // embed scrape, YouTube, CSV imports): Deezer's public search API

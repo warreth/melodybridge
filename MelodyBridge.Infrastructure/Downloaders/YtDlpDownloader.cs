@@ -33,6 +33,9 @@ public partial class YtDlpDownloader : IDownloader
     public string Name => "yt-dlp (YouTube)";
     public string Description => "YouTube: best audio as MP3";
 
+    /// <inheritdoc />
+    public string? LastUnavailableReason { get; private set; }
+
     public YtDlpDownloader(ILogger<YtDlpDownloader> logger)
     {
         _logger = logger;
@@ -41,7 +44,9 @@ public partial class YtDlpDownloader : IDownloader
     public Task<bool> IsAvailableAsync(CancellationToken ct = default)
     {
         // A missing binary fails fast here so the waterfall can skip us.
-        return Task.FromResult(YtDlpProcess.BinaryPath is not null);
+        var ready = YtDlpProcess.BinaryPath is not null;
+        LastUnavailableReason = ready ? null : "yt-dlp was not found on PATH";
+        return Task.FromResult(ready);
     }
 
     public async Task<DownloaderSearchHit?> SearchAsync(TrackQuery query, CancellationToken ct = default)

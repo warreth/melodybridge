@@ -104,7 +104,7 @@ Advanced page.
 | Soulseek | Lossless and high-bitrate files from Soulseek peers, through your own slskd instance. See [Soulseek and slskd](/slskd) |
 | Qobuz | Lossless and hi-res files from your own Qobuz subscription, through qobuz-dlp. See [Qobuz and qobuz-dlp](/qobuz) |
 | Deezer | MP3 or FLAC from your own Deezer account, through the deemix CLI. See [Deezer and deemix](/deemix) |
-| DoubleDouble | Direct-URL rips from Tidal, Qobuz, Deezer, Amazon and SoundCloud. It cannot search by name, so the waterfall only uses it for track URLs it is handed |
+| DoubleDouble | Retired: doubledouble.top now demands a captcha on every submission, so the plugin reports itself unavailable. It stays in the list (last) so an existing install can turn it off |
 | SoundCloud | Original uploads by the artist, usually 128 kbps or better |
 | Internet Archive | Public recordings and digitizations from archive.org |
 | yt-dlp | YouTube: audio-only best stream, top-5 ranked by match and duration |

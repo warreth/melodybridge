@@ -34,13 +34,20 @@ public class SoundCloudDownloader : IDownloader
     public string Name => "SoundCloud (original uploads)";
     public string Description => "SoundCloud original uploads, 128 kbps+ only";
 
+    /// <inheritdoc />
+    public string? LastUnavailableReason { get; private set; }
+
     public SoundCloudDownloader(ILogger<SoundCloudDownloader> logger)
     {
         _logger = logger;
     }
 
     public Task<bool> IsAvailableAsync(CancellationToken ct = default)
-        => Task.FromResult(YtDlpProcess.BinaryPath is not null);
+    {
+        var ready = YtDlpProcess.BinaryPath is not null;
+        LastUnavailableReason = ready ? null : "yt-dlp was not found on PATH";
+        return Task.FromResult(ready);
+    }
 
     public async Task<DownloaderSearchHit?> SearchAsync(TrackQuery query, CancellationToken ct = default)
     {

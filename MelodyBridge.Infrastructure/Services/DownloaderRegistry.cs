@@ -143,13 +143,18 @@ public class DownloaderRegistry : IDownloaderRegistry
         ["soundcloud", "archiveorg", "ytdlp", "lucida", "monochrome", "doubledouble", "dabmusic"],
         // The cleanup era, before Qobuz and Deezer.
         ["soundcloud", "archiveorg", "ytdlp", "monochrome", "slskd", "doubledouble", "lucida"],
+        // Before DoubleDouble turned captcha-gated and was retired from the
+        // shipped order. The plugin stays registered (disabled in the UI by
+        // its own honest availability), so an untouched order must still be
+        // recognized here or the migration would never fire.
+        ["soundcloud", "archiveorg", "ytdlp", "qobuz", "deemix", "monochrome", "slskd", "doubledouble", "lucida"],
     ];
 
     /// <summary>The order a fresh install gets, and the target of the migration.</summary>
     private static readonly string[] CurrentDefaultOrder =
     [
         "soundcloud", "archiveorg", "ytdlp", "qobuz", "deemix",
-        "monochrome", "slskd", "doubledouble", "lucida",
+        "monochrome", "slskd", "lucida",
     ];
 
     /// <summary>
