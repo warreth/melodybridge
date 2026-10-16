@@ -6,9 +6,9 @@ the reference.
 
 ## Settings
 
-<img src="/screens/settings.webp" alt="Settings page with its six tabs" width="800">
+<img src="/screens/settings.webp" alt="Settings page with its seven tabs" width="800">
 
-The Settings page has six tabs. Changes save with the **Save settings** button
+The Settings page has seven tabs. Changes save with the **Save settings** button
 and apply immediately, no restart needed.
 
 ### Accounts
@@ -70,6 +70,28 @@ file (capped at 15 minutes). See [How it works](/concepts) for what it measures.
 - **Spotify cookie**: optional. Only paste the `sp_dc` value from a logged-in
   browser session when public playlist scraping starts failing for you. It is
   stored in the database, not in an environment variable.
+
+### Notifications
+
+Two ways to hear about events. **Toasts** pop up in the corner when a playlist
+download finishes and when a track, sync job or background task fails; both on
+by default, and failures always reach the log regardless.
+
+**ntfy push** sends the same events to your own ntfy server. Flip **Send
+notifications to ntfy**, enter the **Topic URL** (for example
+`https://ntfy.sh/melodybridge`) and, if the topic is protected, an **Access
+token**. Then pick what goes out:
+
+- A playlist download run finishes
+- A sync job completes
+- A sync job fails
+- A background task fails: auto-sync, scan, a crashed run
+
+The four switches work independently of the toast toggles: a category can push
+without popping up, and the other way around. **Send test notification** sends
+one message with the values on screen, even with the enable toggle off. Messages
+include track names, and delivery is best effort, so a dead ntfy server never
+stalls a download or a scan.
 
 ### About
 
@@ -162,7 +184,7 @@ automatically.
 
 <img src="/screens/advanced.webp" alt="Advanced page with download, display, logging and maintenance options" width="800">
 
-The knobs most people never need, in six panels:
+The knobs most people never need, in four panels:
 
 - **Downloads**: *Max simultaneous track downloads* (1 to 8, default 2; the next
   run picks up a change) and *Hardlink duplicate tracks across playlists*, the
@@ -172,31 +194,9 @@ The knobs most people never need, in six panels:
 - **Logging**: *Show database activity in the logs*. Off by default, because
   EF Core writes a line for every SQL command. Warnings and errors show up
   either way. Applies immediately.
-- **Notifications**: toasts for finished playlist downloads and for failed
-  tracks, sync jobs or background tasks. Both on by default; failures always
-  reach the log regardless.
-- **ntfy push**: sends the same events to your own ntfy server, detailed below.
 - **Maintenance**: **Recompute audio facts** reads bitrate, sample rate and size
   straight from the files on disk, for downloads that predate the probing. Tracks
   whose file has vanished are queued for a re-download.
-
-### ntfy push
-
-ntfy is a small push service you host yourself or use hosted. Flip **Send
-notifications to ntfy**, enter the **Topic URL** (for example
-`https://ntfy.sh/melodybridge`) and, if the topic is protected, an **Access
-token**. Then pick what goes out:
-
-- A playlist download run finishes
-- A sync job completes
-- A sync job fails
-- A background task fails: auto-sync, scan, a crashed run
-
-The four switches work independently of the toast toggles above: a category can
-push without popping up, and the other way around. **Send test notification**
-sends one message with the values on screen, even with the enable toggle off.
-Messages include track names, and delivery is best effort, so a dead ntfy
-server never stalls a download or a scan.
 
 ## The Logs page
 
