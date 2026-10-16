@@ -38,3 +38,9 @@
 ::deep .cover-placeholder-icon {
     color: var(--muted-2);
 }
+
+/* The settings column is taller than the track-status card; without this
+   the card stretches to match and shows a mostly empty panel. */
+.content-grid.two {
+    align-items: start;
+}

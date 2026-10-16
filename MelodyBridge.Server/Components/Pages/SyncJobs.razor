@@ -5,7 +5,7 @@
 @inject IDbContextFactory<MelodyBridgeDbContext> DbFactory
 @implements IDisposable
 
-<PageTitle>Sync Jobs</PageTitle>
+<PageTitle>Sync jobs - MelodyBridge</PageTitle>
 
 <section class="page-title">
     <div>
@@ -62,7 +62,7 @@
                                         <option value="">Select a source...</option>
                                         @foreach (var src in sources)
                                         {
-                                            <option value="@src.Id">@src.Name (@src.SourcePlatform)</option>
+                                            <option value="@src.Id">@src.Name (@(src.IsManualImport ? "Imported" : PlatformName(src.SourcePlatform)))</option>
                                         }
                                     </select>
                                 </label>
@@ -333,7 +333,18 @@
                     <span class="eyebrow">@TargetLabel(job.OutputTarget)</span>
                     <h2>@job.Name</h2>
                 </div>
-                <StatusPill Variant="@(job.LastRunStatus == "Completed" ? "ok" : job.LastRunStatus == "Failed" ? "err" : "neutral")">
+                @{
+                    // A "Completed" run that resolved nothing is not the same
+                    // story as one that delivered; the run history shows the
+                    // same amber for it.
+                    var barren = job.LastRunStatus == "Completed"
+                        && job.LastRunTotalTracks > 0
+                        && job.LastRunResolvedTracks == 0;
+                    var pillVariant = job.LastRunStatus == "Completed" ? (barren ? "warn" : "ok")
+                        : job.LastRunStatus == "Failed" ? "err"
+                        : "neutral";
+                }
+                <StatusPill Variant="@pillVariant">
                     @(string.IsNullOrEmpty(job.LastRunStatus) ? "never run" : job.LastRunStatus)
                 </StatusPill>
             </div>
@@ -524,7 +535,7 @@
         1 => "Where your music lives",
         2 => "Choose the output",
         3 => "Optional: fix file paths",
-        4 => "Check and create",
+        4 => isEditing ? "Check and save" : "Check and create",
         _ => ""
     };
 

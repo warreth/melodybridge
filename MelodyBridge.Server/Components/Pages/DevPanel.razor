@@ -8,7 +8,7 @@
 @attribute [Microsoft.AspNetCore.Authorization.AllowAnonymous]
 @implements IDisposable
 
-<PageTitle>Dev Panel</PageTitle>
+<PageTitle>Dev panel - MelodyBridge</PageTitle>
 
 @if (!Dev.Enabled)
 {
@@ -42,8 +42,10 @@ else
     @* ── SEARCH PANEL ── *@
     <section class="panel-card dev-search-section">
         <div class="panel-header">
-            <span class="eyebrow">Step 1</span>
-            <h2>Search tracks</h2>
+            <div>
+                <span class="eyebrow">Step 1</span>
+                <h2>Search tracks</h2>
+            </div>
         </div>
         <div class="search-controls">
             <div class="search-row">
@@ -129,8 +131,10 @@ else
     @* ── DIRECT DOWNLOAD ── *@
     <section class="panel-card dev-dl-section">
         <div class="panel-header">
-            <span class="eyebrow">Step 2</span>
-            <h2>Direct download</h2>
+            <div>
+                <span class="eyebrow">Step 2</span>
+                <h2>Direct download</h2>
+            </div>
         </div>
         <div class="form-grid single">
             <label>
@@ -175,14 +179,16 @@ else
     @* ── DOWNLOAD QUEUE ── *@
     <section class="panel-card dev-queue-section">
         <div class="panel-header">
-            <span class="eyebrow">Queue</span>
-            <h2>Download queue <span class="pill neutral">@Dev.DownloadQueue.Count tasks</span></h2>
+            <div>
+                <span class="eyebrow">Queue</span>
+                <h2>Download queue <span class="pill neutral">@Dev.DownloadQueue.Count tasks</span></h2>
+            </div>
         </div>
 
         @if (Dev.DownloadQueue.Count == 0)
         {
             <div class="empty-state">
-                No queued downloads. Search for tracks above and click <strong>Download</strong>.
+                No queued downloads yet. Search for tracks above, then press Download.
             </div>
         }
         else

@@ -45,7 +45,7 @@ else
                             OnExport="ExportCsv"
                             OnDelete="AskDelete">
         <MetaLine>
-            @playlist.TrackCount tracks
+            @playlist.TrackCount @(playlist.TrackCount == 1 ? "track" : "tracks")
             @if (!string.IsNullOrEmpty(playlist.Owner))
             {
                 <span> · by @playlist.Owner</span>
@@ -268,6 +268,7 @@ else
                 {
                     <button class="filter-chip @(attentionOnly ? "active" : "")"
                             @onclick="ToggleAttentionOnly"
+                            aria-pressed="@(attentionOnly ? "true" : "false")"
                             title="Only failed tracks and tracks waiting for a dedup decision">
                         Needs attention (@attentionCount)
                     </button>
@@ -530,6 +531,9 @@ else
             await Store.UpdateScheduleAsync(PlaylistId, editName, editSchedule, target, editSyncMode,
                 editQuality, archiveDir, editArchiveFormat, editAutoDownload,
                 editStrictQuality, editAllowContainerChange);
+            // The header, the meta line and the page title read playlist.Name;
+            // a rename must show up without a reload.
+            if (playlist is not null) playlist.Name = editName;
             persisted = (editName, editTargetDirectory, editQuality, editArchiveDirectory, editArchiveFormat, editSchedule, editSyncMode, editAutoDownload, editStrictQuality, editAllowContainerChange);
             saveState = SaveState.Saved;
             ScheduleSavedPillReset();

@@ -47,7 +47,12 @@ public class NtfyNotifier(
         try
         {
             if (string.IsNullOrWhiteSpace(url)) return "No ntfy URL configured.";
-            using var request = new HttpRequestMessage(HttpMethod.Post, url.Trim())
+            // Validate here: a malformed URL otherwise surfaces as the raw
+            // "request URI must be an absolute URI" HttpClient message.
+            if (!Uri.TryCreate(url.Trim(), UriKind.Absolute, out var target)
+                || (target.Scheme != Uri.UriSchemeHttp && target.Scheme != Uri.UriSchemeHttps))
+                return "That URL is not a valid http(s) address.";
+            using var request = new HttpRequestMessage(HttpMethod.Post, target)
             {
                 Content = new StringContent(message, System.Text.Encoding.UTF8),
             };

@@ -10,7 +10,7 @@
 @inject INavidromeSettings NavidromeSettings
 @implements IDisposable
 
-<PageTitle>@(showIntro ? "Welcome" : "MelodyBridge Dashboard")</PageTitle>
+<PageTitle>@(showIntro ? "Welcome - MelodyBridge" : "Dashboard - MelodyBridge")</PageTitle>
 
 @if (!showIntro)
 {
@@ -65,7 +65,7 @@
                     <p>Paste a public Spotify or YouTube playlist link on the Playlists page.
                         MelodyBridge saves every track. With an account login you can also import
                         private playlists and liked songs.</p>
-                    <small>@(step1Done ? $"{playlistsCount} playlist(s) saved" : "Not done yet")</small>
+                    <small>@(step1Done ? $"{playlistsCount} playlist{(playlistsCount == 1 ? "" : "s")} saved" : "Not done yet")</small>
                 </div>
                 <span class="workflow-arrow"><Icon Name="chevron-right" Size="16" /></span>
             </a>
@@ -84,7 +84,7 @@
                     <strong>Download the music</strong>
                     <p>Open the playlist and click Download missing. Each track is fetched by the
                         plugin waterfall and quality-checked before it lands on your disk.</p>
-                    <small>@(step2Done ? $"{downloadedCount} track(s) downloaded" : "Nothing downloaded yet")</small>
+                    <small>@(step2Done ? $"{downloadedCount} track{(downloadedCount == 1 ? "" : "s")} downloaded" : "Nothing downloaded yet")</small>
                 </div>
                 <span class="workflow-arrow"><Icon Name="chevron-right" Size="16" /></span>
             </a>
@@ -103,7 +103,7 @@
                     <strong>Publish it</strong>
                     <p>Create a sync job that writes an M3U file or pushes the playlist to your
                         Jellyfin, Plex or Navidrome server. Jobs can run automatically on a schedule.</p>
-                    <small>@(step3Done ? $"{jobsCount} job(s) configured, last run @lastRunText" : "No sync job yet")</small>
+                    <small>@(step3Done ? $"{jobsCount} job{(jobsCount == 1 ? "" : "s")} configured, last run @lastRunText" : "No sync job yet")</small>
                 </div>
             </a>
         </div>
@@ -337,6 +337,9 @@ else
     private List<(string JobName, DateTime Timestamp, string Status, string Message)> recentRuns = new();
     private DateTime? lastRunAt;
     private DateTime _lastUpdated = DateTime.Now;
+    /// <summary>True when Settings explicitly reopened the checklist: it then
+    /// stays visible even though every step is already done.</summary>
+    private bool _introRestarted;
     private Timer? _timer;
 
     private bool step1Done => playlistsCount > 0;
@@ -361,7 +364,13 @@ else
 
     protected override async Task OnInitializedAsync()
     {
-        showIntro = !await Settings.GetBoolAsync("intro_dismissed", fallback: false);
+        // An explicit restart (Settings, About) reopens the checklist even
+        // on a finished install; the normal path only shows it while setup
+        // is incomplete.
+        var dismissed = await Settings.GetBoolAsync("intro_dismissed", fallback: false);
+        var restarted = await Settings.GetBoolAsync("intro_restarted", fallback: false);
+        _introRestarted = restarted;
+        showIntro = !dismissed || restarted;
         await RefreshStats();
 
         // Keep the dashboard current without a manual refresh.
@@ -378,6 +387,7 @@ else
     private async Task SkipIntro()
     {
         await Settings.SetAsync("intro_dismissed", "true");
+        await Settings.SetAsync("intro_restarted", "false");
         showIntro = false;
         await RefreshStats();
         _timer = new Timer(_ => InvokeAsync(async () =>
@@ -415,8 +425,10 @@ else
         libraryCount = await db.Tracks.CountAsync(t => t.CurrentPath != null && t.PlaylistSnapshotId == null);
         jobsCount = await db.SyncJobs.CountAsync();
 
-        // The intro hands over to the dashboard the moment setup is complete.
-        if (showIntro && doneSteps == 3)
+        // The intro hands over to the dashboard the moment setup is
+        // complete; a checklist reopened from Settings keeps showing until
+        // the user skips it.
+        if (showIntro && doneSteps == 3 && !_introRestarted)
         {
             await Settings.SetAsync("intro_dismissed", "true");
             showIntro = false;

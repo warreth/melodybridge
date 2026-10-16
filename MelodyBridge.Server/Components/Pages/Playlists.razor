@@ -660,7 +660,7 @@ else
 
             var (playlists, tracks) = await Store.ImportFileAsync(file, TargetOrNull());
             message = playlists > 0
-                ? $"Imported {playlists} playlist(s), {tracks} tracks."
+                ? $"Imported {playlists} {(playlists == 1 ? "playlist" : "playlists")}, {tracks} {(tracks == 1 ? "track" : "tracks")}."
                 : "Nothing new to import.";
             messageIsError = false;
             HideAccountPanel();

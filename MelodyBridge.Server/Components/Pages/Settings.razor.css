@@ -108,3 +108,18 @@
 :root[data-theme="light"] .accent-violet { --swatch: #7c3aed; }
 :root[data-theme="light"] .accent-rose { --swatch: #e11d48; }
 :root[data-theme="light"] .accent-amber { --swatch: #b45309; }
+
+/* The title row carries the Save button and the unsaved-changes pill:
+   sticky, so the save action is never a scroll trip away. */
+.page-title {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    background: var(--bg);
+    padding-block: .75rem .5rem;
+    margin-bottom: .5rem;
+}
+@media (max-width: 720px) {
+    /* Phones stack the title; a permanent sticky block would eat the screen. */
+    .page-title { position: static; padding-block: 0; margin-bottom: 1rem; }
+}

@@ -8,7 +8,7 @@
     --border-strong: #3f3f46;
     --text: #fafafa;
     --muted: #a1a1aa;
-    --muted-2: #71717a;
+    --muted-2: #8b8b96;
     --accent: #2dd4bf;
     --accent-strong: #14b8a6;
     --accent-soft: rgba(45, 212, 191, .10);
@@ -141,7 +141,7 @@ h2 { font-size: 1rem; line-height: 1.3; font-weight: 650; margin-bottom: .35rem;
 h3 { font-size: .9rem; font-weight: 600; }
 p { color: var(--muted); line-height: 1.55; }
 small { color: var(--muted-2); }
-code { color: var(--accent-strong); background: var(--accent-soft); border-radius: 6px; padding: .08rem .35rem; }
+code { color: var(--text); background: var(--accent-soft); border-radius: 6px; padding: .08rem .35rem; }
 /* Navigation focuses the page heading for screen readers; the UA ring
    around a non-interactive title reads as a glitch, so it stays off. */
 h1:focus { outline: none; }
@@ -150,6 +150,9 @@ h1:focus { outline: none; }
     min-height: 100vh;
     display: grid;
     grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+    /* Rows size to their content: on a short page the mobile nav strip
+       must not stretch to half the screen with an empty band. */
+    align-content: start;
     background: var(--bg);
 }
 
@@ -188,6 +191,7 @@ h1:focus { outline: none; }
 
 .brand-block strong { display: block; font-size: .95rem; }
 .brand-block span { display: block; color: var(--muted); font-size: .8rem; }
+.brand-block:hover .brand-text strong { color: var(--accent-text); }
 .navbar-toggler { display: none; }
 
 .app-nav {
@@ -426,6 +430,12 @@ a:focus-visible {
 .pill.neutral { color: var(--muted); background: var(--surface-2); border-color: var(--border); }
 .pill.info { color: var(--accent-strong); background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 20%, transparent); }
 :root[data-theme="light"] .pill.neutral { background: #f4f4f5; color: #52525b; border-color: #e4e4e7; }
+/* Light theme pill text: the dark-theme success/warning/danger shades sit
+   just under AA on white, so the light theme uses deeper ones. */
+:root[data-theme="light"] .pill.ok { color: #047857; border-color: rgba(4, 120, 87, .25); }
+:root[data-theme="light"] .pill.warn,
+:root[data-theme="light"] .pill.warning { color: #92400e; border-color: rgba(146, 64, 14, .25); }
+:root[data-theme="light"] .pill.err { color: #be123c; border-color: rgba(190, 18, 60, .25); }
 
 .status-dot { width: 9px; height: 9px; border-radius: 999px; display: inline-block; }
 .status-dot.online { background: var(--success); }
@@ -1470,6 +1480,7 @@ td.file-path {
     left: 50%;
     bottom: 2rem;
     transform: translateX(-50%);
+    width: min(30rem, calc(100vw - 2rem));
     max-width: 30rem;
     padding: 1.1rem 1.25rem;
     border-radius: var(--radius);
@@ -1646,6 +1657,20 @@ input[type="file"].btn-modern::file-selector-button {
 :root[data-theme="light"] .track-table td.track-actions { background: var(--surface); }
 .modern-table tbody tr:hover td.track-actions { background: var(--surface-2); }
 
+/* Narrow screens: drop the secondary audio columns and shorten the row
+   actions to their icons. The pinned column then stays small and the
+   title and artist keep readable width inside the 640px table floor. */
+@media (max-width: 720px) {
+    .track-table .col-size,
+    .track-table .col-bitrate,
+    .track-table .col-rate,
+    .track-table .col-format,
+    .track-table .col-file { display: none; }
+    .track-table .col-actions { width: 5.5rem; }
+    .track-table .track-actions .btn-label { display: none; }
+    .track-table .track-actions .btn-modern { padding: .35rem .55rem; margin-left: .25rem; }
+}
+
 /* Numeric columns hug their numbers, headers included. */
 .track-table th.num, .track-table td.num { text-align: right; }
 .track-table th.num .th-sort { justify-content: flex-end; }
@@ -1797,26 +1822,12 @@ input::placeholder, textarea::placeholder { color: var(--muted-2, #8a8f98); opac
     word-break: break-all;
 }
 
-/* Floating save bar: an edit that has not been saved follows the user. */
-.save-bar {
-    position: fixed;
-    left: calc(var(--sidebar-width) + 1.5rem);
-    bottom: 1rem;
-    z-index: 250;
-    display: flex;
-    align-items: center;
-    gap: .9rem;
-    padding: .55rem .6rem .55rem .9rem;
-    border: 1px solid var(--border-strong);
-    border-radius: var(--radius);
-    background: var(--surface-2);
-    box-shadow: var(--shadow);
-}
-.save-bar .text-muted { font-size: .85rem; }
-@media (max-width: 1100px) {
-    .save-bar { left: 1rem; right: 1rem; justify-content: space-between; }
-}
+/* Pending-edit state next to the Save button (Settings, Advanced): the
+   title row is sticky there, so the save action stays reachable. */
+.save-state.pending { color: var(--warning); border-color: color-mix(in srgb, var(--warning) 25%, transparent); background: var(--warning-soft); }
 
+/* Scrollable regions get the app's focus ring, not the UA default. */
+.table-wrap:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 /* Advisory path/preset warnings: yellow, never mistaken for errors. */
 .text-warn { color: var(--warning); font-weight: 600; }
 

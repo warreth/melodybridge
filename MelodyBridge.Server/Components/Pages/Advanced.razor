@@ -18,16 +18,14 @@
         </div>
         <p>Interface and maintenance details most people never need to touch.</p>
     </div>
-    <button class="btn-modern primary" @onclick="SaveAll" disabled="@saving">@(saving ? "Saving…" : "Save")</button>
-</section>
-
-@if (dirty)
-{
-    <div class="save-bar">
-        <span class="text-muted">Unsaved changes</span>
+    <div class="topbar-actions">
+        @if (dirty)
+        {
+            <span class="save-state pending">Unsaved changes</span>
+        }
         <button class="btn-modern primary" @onclick="SaveAll" disabled="@saving">@(saving ? "Saving…" : "Save")</button>
     </div>
-}
+</section>
 
 <section class="content-grid two advanced-grid">
     <div class="panel-card">
@@ -280,9 +278,14 @@
             // switch on every entry.
             DatabaseLogSwitch.Set(logDatabaseActivity);
             dirty = false;
-            Notifications.Success(wasClamped
-                ? $"Saved. Concurrency is limited to 1-8, so it is set to {clamped}."
-                : "Settings saved.");
+            if (wasClamped)
+            {
+                Notifications.Warn($"Saved. Concurrency is limited to 1-8, so it is set to {clamped}.");
+            }
+            else
+            {
+                Notifications.Success("Settings saved.");
+            }
         }
         finally
         {

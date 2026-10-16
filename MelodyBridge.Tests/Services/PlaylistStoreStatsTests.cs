@@ -336,6 +336,49 @@ public class PlaylistStoreStatsTests
     }
 
     [Test]
+    public async Task SchemaPatcher_OldSyncJobs_GainTheLastRunCounts()
+    {
+        var dbPath = NewDbPath();
+        try
+        {
+            var factory = await NewDbFactory(dbPath);
+
+            await using (var db = factory.CreateDbContext())
+            {
+                db.SyncJobs.Add(new SyncJobEntity
+                {
+                    Id = "old-job",
+                    Name = "Old job",
+                    Schedule = "Manual",
+                });
+                await db.SaveChangesAsync();
+
+                // Simulate the pre-column schema.
+                await db.Database.ExecuteSqlRawAsync("ALTER TABLE SyncJobs DROP COLUMN LastRunResolvedTracks");
+                await db.Database.ExecuteSqlRawAsync("ALTER TABLE SyncJobs DROP COLUMN LastRunTotalTracks");
+            }
+
+            await using (var db = factory.CreateDbContext())
+                await SchemaPatcher.PatchAsync(db);
+
+            await using (var check = factory.CreateDbContext())
+            {
+                var row = await check.SyncJobs.AsNoTracking().SingleAsync(j => j.Id == "old-job");
+                Assert.Multiple(() =>
+                {
+                    Assert.That(row.LastRunResolvedTracks, Is.EqualTo(0), "existing rows default to zero");
+                    Assert.That(row.LastRunTotalTracks, Is.EqualTo(0));
+                    Assert.That(row.Name, Is.EqualTo("Old job"), "data survives the patch");
+                });
+            }
+        }
+        finally
+        {
+            File.Delete(dbPath);
+        }
+    }
+
+    [Test]
     public async Task SchemaPatcher_OldPlaylists_GainTheStrictQualityColumns()
     {
         var dbPath = NewDbPath();

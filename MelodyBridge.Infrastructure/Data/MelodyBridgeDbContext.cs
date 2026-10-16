@@ -294,6 +294,10 @@ public class SyncJobEntity
     public string LastRunStatus { get; set; } = "Pending";
     public DateTime? LastRunAt { get; set; }
     public string? LastRunSummary { get; set; }
+    /// <summary>Counts of the last run: a "Completed" run that resolved
+    /// nothing reads amber, not green, on the card.</summary>
+    public int LastRunResolvedTracks { get; set; }
+    public int LastRunTotalTracks { get; set; }
 }
 
 public class SyncJobRunEntity

@@ -9,3 +9,17 @@
 .ntfy-section {
     margin-top: .9rem;
 }
+
+/* The title row carries the Save button and the unsaved-changes pill:
+   sticky, so the save action is never a scroll trip away. */
+.page-title {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    background: var(--bg);
+    padding-block: .75rem .5rem;
+    margin-bottom: .5rem;
+}
+@media (max-width: 720px) {
+    .page-title { position: static; padding-block: 0; margin-bottom: 1rem; }
+}

@@ -209,15 +209,29 @@ const modalObserver = new MutationObserver((mutations) => {
 modalObserver.observe(document.documentElement, { childList: true, subtree: true });
 
 document.addEventListener('keydown', (e) => {
-    const overlay = topModal();
-    if (!overlay) return;
-
     if (e.key === 'Escape') {
-        closeTopModal(overlay);
-        e.preventDefault();
+        const overlay = topModal();
+        if (overlay) {
+            closeTopModal(overlay);
+            e.preventDefault();
+            return;
+        }
+        // Escape also dismisses the guided tour (it covers the page).
+        const tour = document.querySelector('.tour-overlay');
+        if (tour) {
+            const skip = [...tour.querySelectorAll('button')]
+                .find((b) => b.textContent.includes('Skip tour'));
+            if (skip) {
+                skip.click();
+                e.preventDefault();
+            }
+        }
         return;
     }
     if (e.key !== 'Tab') return;
+
+    const overlay = topModal();
+    if (!overlay) return;
 
     const focusables = [...overlay.querySelectorAll(
         'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')]

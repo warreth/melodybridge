@@ -43,6 +43,10 @@ public static class SchemaPatcher
         // optionally changing the container.
         ("Playlists", "StrictQuality", "INTEGER NOT NULL DEFAULT 1"),
         ("Playlists", "AllowContainerChange", "INTEGER NOT NULL DEFAULT 1"),
+        // Last-run resolved counts so the job card can flag a "Completed"
+        // run that actually resolved nothing.
+        ("SyncJobs", "LastRunResolvedTracks", "INTEGER NOT NULL DEFAULT 0"),
+        ("SyncJobs", "LastRunTotalTracks", "INTEGER NOT NULL DEFAULT 0"),
     };
 
     public static async Task PatchAsync(MelodyBridgeDbContext db, CancellationToken ct = default)

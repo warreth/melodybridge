@@ -20,7 +20,7 @@
 @inject IJSRuntime JS
 @implements IDisposable
 
-<PageTitle>Settings</PageTitle>
+<PageTitle>Settings - MelodyBridge</PageTitle>
 
 <section class="page-title">
     <div>
@@ -31,19 +31,17 @@
         </div>
         <p>Accounts, paths and download behaviour. Power knobs live on the Advanced page.</p>
     </div>
-    <button class="btn-modern primary" @onclick="SaveAll">Save settings</button>
+    <div class="topbar-actions">
+        @if (dirty)
+        {
+            <span class="save-state pending">Unsaved changes</span>
+        }
+        <button class="btn-modern primary" @onclick="SaveAll" disabled="@saving">@(saving ? "Saving…" : "Save settings")</button>
+    </div>
 </section>
 
 <TabStrip Tabs="TabStripTabs" ActiveId="@activeTab"
            OnSelect="SelectTab" AriaLabel="Settings sections" />
-
-@if (dirty)
-{
-    <div class="save-bar">
-        <span class="text-muted">Unsaved changes</span>
-        <button class="btn-modern primary" @onclick="SaveAll" disabled="@saving">@(saving ? "Saving…" : "Save settings")</button>
-    </div>
-}
 
 @if (activeTab == "accounts")
 {
@@ -311,18 +309,22 @@ else if (activeTab == "paths")
         <div class="form-grid single">
             <label>
                 Music path
-                <input @bind="musicPath" @bind:after="ValidatePaths" />
+                <input @bind="musicPath" @bind:after="ValidatePaths"
+                       aria-invalid="@(musicPathWarning is { Length: > 0 } ? "true" : null)"
+                       aria-describedby="@(musicPathWarning is { Length: > 0 } ? "music-path-warning" : null)" />
                 @if (musicPathWarning is { Length: > 0 })
                 {
-                    <small class="text-warn">@musicPathWarning</small>
+                    <small class="text-warn" id="music-path-warning">@musicPathWarning</small>
                 }
             </label>
             <label>
                 Playlist output folder
-                <input @bind="playlistPath" @bind:after="ValidatePaths" />
+                <input @bind="playlistPath" @bind:after="ValidatePaths"
+                       aria-invalid="@(playlistPathWarning is { Length: > 0 } ? "true" : null)"
+                       aria-describedby="@(playlistPathWarning is { Length: > 0 } ? "playlist-path-warning" : null)" />
                 @if (playlistPathWarning is { Length: > 0 })
                 {
-                    <small class="text-warn">@playlistPathWarning</small>
+                    <small class="text-warn" id="playlist-path-warning">@playlistPathWarning</small>
                 }
             </label>
         </div>
@@ -343,10 +345,12 @@ else if (activeTab == "paths")
         <div class="form-grid single">
             <label>
                 Archive path
-                <input @bind="archivePath" @bind:after="ValidatePaths" placeholder="/archive-music" />
+                <input @bind="archivePath" @bind:after="ValidatePaths" placeholder="/archive-music"
+                       aria-invalid="@(archivePathWarning is { Length: > 0 } ? "true" : null)"
+                       aria-describedby="@(archivePathWarning is { Length: > 0 } ? "archive-path-warning" : null)" />
                 @if (archivePathWarning is { Length: > 0 })
                 {
-                    <small class="text-warn">@archivePathWarning</small>
+                    <small class="text-warn" id="archive-path-warning">@archivePathWarning</small>
                 }
                 <small class="text-muted">Leave empty for no archive copy. Playlists can set their own path on their page.</small>
             </label>
@@ -1162,6 +1166,7 @@ else if (activeTab == "about")
     private async Task RestartChecklist()
     {
         await TourReset.SetAsync("intro_dismissed", "false");
+        await TourReset.SetAsync("intro_restarted", "true");
         Notifications.Success("The setup checklist shows again on the dashboard.");
     }
 

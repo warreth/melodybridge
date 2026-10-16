@@ -9,10 +9,10 @@
             <col class="col-pos" />
             <col class="col-title" />
             <col class="col-artist" />
-            <col class="col-num" />
-            <col class="col-num" />
-            <col class="col-num" />
-            <col class="col-num" />
+            <col class="col-num col-duration" />
+            <col class="col-num col-size" />
+            <col class="col-num col-bitrate" />
+            <col class="col-num col-rate" />
             <col class="col-format" />
             <col class="col-status" />
             @if (ShowFilenameColumn)
@@ -25,7 +25,7 @@
             <tr>
                 @foreach (var column in Columns)
                 {
-                    <th class="@(column.Align == TrackColumnAlign.Right ? "num" : "")"
+                    <th class="@($"col-{column.Key.ToLowerInvariant()}{(column.Align == TrackColumnAlign.Right ? " num" : "")}")"
                         aria-sort="@(SortKey == column.Key ? (SortDescending ? "descending" : "ascending") : "none")">
                         @if (column.Sortable)
                         {
@@ -60,15 +60,15 @@
             @foreach (var track in SortedTracks)
             {
                 <tr>
-                    <td class="text-muted">@(track.Position + 1)</td>
-                    <td class="cell-title"><strong title="@(track.Title ?? "Unknown")">@(track.Title ?? "Unknown")</strong></td>
-                    <td class="cell-artist" title="@(track.Artist ?? "Unknown artist")">@(track.Artist ?? "Unknown artist")</td>
-                    <td class="text-muted num">@TrackDisplay.Duration(track.DurationMs)</td>
-                    <td class="text-muted num">@TrackDisplay.Size(track)</td>
-                    <td class="text-muted num">@(track.DownloadStatus == "downloaded" ? TrackDisplay.BitrateLabel(track.Bitrate) : "-")</td>
-                    <td class="text-muted num">@(track.DownloadStatus == "downloaded" ? TrackDisplay.RateLabel(track.SampleRateHz) : "-")</td>
-                    <td class="text-muted">@(track.DownloadStatus == "downloaded" ? TrackDisplay.FormatLabel(track.MediaType) : "-")</td>
-                    <td class="cell-status">
+                    <td class="text-muted col-position">@(track.Position + 1)</td>
+                    <td class="cell-title col-title"><strong title="@(track.Title ?? "Unknown")">@(track.Title ?? "Unknown")</strong></td>
+                    <td class="cell-artist col-artist" title="@(track.Artist ?? "Unknown artist")">@(track.Artist ?? "Unknown artist")</td>
+                    <td class="text-muted num col-duration">@TrackDisplay.Duration(track.DurationMs)</td>
+                    <td class="text-muted num col-size">@TrackDisplay.Size(track)</td>
+                    <td class="text-muted num col-bitrate">@(track.DownloadStatus == "downloaded" ? TrackDisplay.BitrateLabel(track.Bitrate) : "-")</td>
+                    <td class="text-muted num col-rate">@(track.DownloadStatus == "downloaded" ? TrackDisplay.RateLabel(track.SampleRateHz) : "-")</td>
+                    <td class="text-muted col-format">@(track.DownloadStatus == "downloaded" ? TrackDisplay.FormatLabel(track.MediaType) : "-")</td>
+                    <td class="cell-status col-status">
                         @{ var queueLabel = QueueLabel?.Invoke(track); }
                         @if (queueLabel is "downloading")
                         {
@@ -97,7 +97,7 @@
                     </td>
                     @if (ShowFilenameColumn)
                     {
-                        <td class="text-muted cell-file">
+                        <td class="text-muted cell-file col-file">
                             @if (!string.IsNullOrWhiteSpace(track.CurrentPath))
                             {
                                 <span title="@track.CurrentPath">@System.IO.Path.GetFileName(track.CurrentPath)</span>
@@ -114,31 +114,31 @@
                             }
                         </td>
                     }
-                    <td class="track-actions">
+                    <td class="track-actions col-actions">
                         <div class="btn-group">
                             @if (track.DownloadStatus == "needs-review")
                             {
                                 <button class="btn-modern small ghost" title="Download a fresh file in this playlist's quality"
                                         @onclick="() => OnResolveReview.InvokeAsync((track, false))" disabled="@Busy">
-                                    <Icon Name="download" Size="14" /> Download new
+                                    <Icon Name="download" Size="14" /> <span class="btn-label">Download new</span>
                                 </button>
                                 <button class="btn-modern small ghost" title="Link the file another playlist already has (keeps its quality)"
                                         @onclick="() => OnResolveReview.InvokeAsync((track, true))" disabled="@Busy">
-                                    <Icon Name="hard-drive" Size="14" /> Hardlink existing
+                                    <Icon Name="hard-drive" Size="14" /> <span class="btn-label">Hardlink existing</span>
                                 </button>
                             }
                             else if (track.DownloadStatus is "failed" or null or "pending")
                             {
                                 <button class="btn-modern small ghost" title="Download this track now"
                                         @onclick="() => OnRetry.InvokeAsync(track)" disabled="@Busy">
-                                    <Icon Name="refresh" Size="14" /> Download
+                                    <Icon Name="refresh" Size="14" /> <span class="btn-label">Download</span>
                                 </button>
                             }
                             @if (track.DownloadStatus is not null)
                             {
                                 <button class="btn-modern small ghost" title="Remove from playlist (deletes the file)"
                                         @onclick="() => OnRemove.InvokeAsync(track)" disabled="@Busy">
-                                    <Icon Name="x" Size="14" /> Remove
+                                    <Icon Name="x" Size="14" /> <span class="btn-label">Remove</span>
                                 </button>
                             }
                         </div>

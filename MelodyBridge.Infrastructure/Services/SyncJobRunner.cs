@@ -211,6 +211,8 @@ public class SyncJobRunner : ISyncJobRunner
                     jobEntity.LastRunStatus = errors.Count == 0 ? "Completed" : "Failed";
                     jobEntity.LastRunAt = DateTime.UtcNow;
                     jobEntity.LastRunSummary = runEntity.Message;
+                    jobEntity.LastRunResolvedTracks = resolvedTracks;
+                    jobEntity.LastRunTotalTracks = totalTracks;
                 }
 
                 // Capture message before scope exits

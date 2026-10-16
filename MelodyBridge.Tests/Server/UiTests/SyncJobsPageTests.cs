@@ -71,6 +71,51 @@ public class SyncJobsPageTests
     public void TearDown() => _ctx.Dispose();
 
     [Test]
+    public void SyncJobs_CardPill_FlagsACompletedRunThatResolvedNothing()
+    {
+        using (var db = _dbFactory.CreateDbContext())
+        {
+            db.SyncJobs.Add(new SyncJobEntity
+            {
+                Id = "j3",
+                Name = "Barren Job",
+                Schedule = "Manual",
+                OutputTarget = "M3uFile",
+                M3uOutputPath = "/app/playlists/barren.m3u",
+                LastRunStatus = "Completed",
+                LastRunResolvedTracks = 0,
+                LastRunTotalTracks = 50,
+            });
+            db.SyncJobs.Add(new SyncJobEntity
+            {
+                Id = "j4",
+                Name = "Productive Job",
+                Schedule = "Manual",
+                OutputTarget = "M3uFile",
+                M3uOutputPath = "/app/playlists/good.m3u",
+                LastRunStatus = "Completed",
+                LastRunResolvedTracks = 4,
+                LastRunTotalTracks = 5,
+            });
+            db.SaveChanges();
+        }
+
+        var cut = _ctx.Render<SyncJobs>();
+        cut.WaitForAssertion(() =>
+        {
+            var barrenCard = cut.FindAll(".panel-card")
+                .Single(c => c.TextContent.Contains("Barren Job"));
+            var goodCard = cut.FindAll(".panel-card")
+                .Single(c => c.TextContent.Contains("Productive Job"));
+
+            Assert.That(barrenCard.QuerySelector(".pill.warn"), Is.Not.Null,
+                "a Completed run that resolved nothing reads amber");
+            Assert.That(goodCard.QuerySelector(".pill.ok"), Is.Not.Null,
+                "a Completed run that delivered keeps the green pill");
+        }, TimeSpan.FromSeconds(3));
+    }
+
+    [Test]
     public void SyncJobs_Renders_Title()
     {
         var cut = _ctx.Render<SyncJobs>();
