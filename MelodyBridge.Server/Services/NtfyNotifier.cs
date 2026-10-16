@@ -6,7 +6,8 @@ namespace MelodyBridge.Server.Services;
 /// <summary>
 /// Posts notification events to an ntfy topic. The toast toggles and the
 /// ntfy categories are independent: every category has its own switch on
-/// the Advanced page. ntfy takes the message as the POST body, a title,
+/// the Settings page, Notifications tab. ntfy takes the message as the
+/// POST body, a title,
 /// priority and tags as headers, and an optional bearer token for
 /// protected topics. Delivery is best effort: a failing topic never
 /// breaks the caller's loop.

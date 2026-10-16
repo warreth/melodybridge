@@ -124,6 +124,14 @@ public class ShellUiTests
             "the reconnect dialog markup ships statically so it survives circuit loss");
         Assert.That(host, Does.Contain("components-reconnect-button"),
             "the reconnect retry button ships in the host page");
+
+        // The theme bootstrap must run inside the head, before the
+        // stylesheets paint: otherwise a fresh light-preferring visitor
+        // sees the dark default flash first.
+        var bootstrap = host.IndexOf("prefers-color-scheme", StringComparison.Ordinal);
+        var headEnd = host.IndexOf("</head>", StringComparison.Ordinal);
+        Assert.That(bootstrap, Is.GreaterThan(-1).And.LessThan(headEnd),
+            "the inline theme bootstrap sets data-theme before the stylesheets apply");
     }
 
     private static class RepoRoot

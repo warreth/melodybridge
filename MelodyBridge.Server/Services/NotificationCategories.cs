@@ -1,9 +1,9 @@
 namespace MelodyBridge.Server.Services;
 
 /// <summary>
-/// The notification categories the Advanced page exposes for ntfy. Toast
-/// toggles stay separate: a category can be pushed without popping up and
-/// the other way around.
+/// The notification categories the Notifications tab on Settings exposes
+/// for ntfy. Toast toggles stay separate: a category can be pushed
+/// without popping up and the other way around.
 /// </summary>
 public static class NotificationCategories
 {

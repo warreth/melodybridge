@@ -33,7 +33,7 @@ public sealed class NotificationService
     public void Warn(string message) => Push(new AppNotification(message, "warn", DateTime.UtcNow));
     public void Error(string message) => Push(new AppNotification(message, "error", DateTime.UtcNow));
 
-    /// <summary>Silent variant for background listeners (download finished, job failed): only shows when the user enabled it in Advanced.</summary>
+    /// <summary>Silent variant for background listeners (download finished, job failed): only shows when the user enabled it in Settings, Notifications tab.</summary>
     public void Background(string message, string level = "info") =>
         Push(new AppNotification(message, level, DateTime.UtcNow));
 

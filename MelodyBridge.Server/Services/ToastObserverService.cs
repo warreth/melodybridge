@@ -7,8 +7,8 @@ namespace MelodyBridge.Server.Services;
 
 /// <summary>
 /// Watches the download coordinator and sync jobs, and turns finished
-/// runs or failures into notifications: toasts follow the Advanced
-/// toggles, ntfy follows its own category switches. Polling is deliberate:
+/// runs or failures into notifications: toasts follow the Notifications
+/// tab on Settings, ntfy follows its own category switches. Polling is deliberate:
 /// both sources already live in the database or a singleton snapshot, so
 /// no event plumbing across layers is needed. The decision rules live in
 /// <see cref="ToastDecisions"/>, the toast gating in

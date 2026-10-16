@@ -8,6 +8,27 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <base href="/" />
+    @* Runs before the stylesheets paint: the stored theme (or the
+       browser's own preference when nothing is stored) lands on <html>
+       first, so a light-preferring visitor never sees the dark default
+       flash. app.js repeats the same resolution on load; harmless. *@
+    <script>
+        (function () {
+            var theme = null;
+            var accent = null;
+            try {
+                theme = localStorage.getItem('mb-theme');
+                accent = localStorage.getItem('mb-accent');
+            } catch (e) { /* private mode */ }
+            if (theme !== 'light' && theme !== 'dark') {
+                try {
+                    theme = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+                } catch (e) { theme = 'light'; }
+            }
+            document.documentElement.setAttribute('data-theme', theme);
+            if (accent) document.documentElement.setAttribute('data-accent', accent);
+        })();
+    </script>
     <link rel="icon" type="image/svg+xml" href="logo.svg" />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <link href="/app.css" rel="stylesheet" asp-append-version="true" />

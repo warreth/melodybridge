@@ -1773,8 +1773,6 @@ input[type="file"].btn-modern::file-selector-button {
     color: var(--muted-2);
     margin-top: .1rem;
 }
-/* Archive group on the playlist settings panel: reads as one optional
-   block, same rhythm as the quality field above it. */
 /* Status cells: pill plus error note stack without stretching the row. */
 .track-table .cell-status { line-height: 1.35; }
 .track-table .pill-tight { padding: .05rem .45rem; min-height: 18px; }
