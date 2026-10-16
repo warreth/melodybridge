@@ -125,13 +125,19 @@ public class ShellUiTests
         Assert.That(host, Does.Contain("components-reconnect-button"),
             "the reconnect retry button ships in the host page");
 
-        // The theme bootstrap must run inside the head, before the
-        // stylesheets paint: otherwise a fresh light-preferring visitor
-        // sees the dark default flash first.
+        // The theme bootstrap must be an inline, parser-blocking script in
+        // the head: a synchronous head script runs before the first paint
+        // of any content, so a fresh light-preferring visitor never sees
+        // the dark default flash. Moving it into the body is the real
+        // regression; adding async/defer (or an external file) is the
+        // other one, so both are pinned here.
         var bootstrap = host.IndexOf("prefers-color-scheme", StringComparison.Ordinal);
         var headEnd = host.IndexOf("</head>", StringComparison.Ordinal);
         Assert.That(bootstrap, Is.GreaterThan(-1).And.LessThan(headEnd),
-            "the inline theme bootstrap sets data-theme before the stylesheets apply");
+            "the theme bootstrap lives in the head, so it runs before the first paint");
+        var bareScript = host.IndexOf("<script>", StringComparison.Ordinal);
+        Assert.That(bareScript, Is.GreaterThan(-1).And.LessThan(bootstrap),
+            "the bootstrap is a bare inline script without async/defer, so parsing blocks until it ran");
     }
 
     private static class RepoRoot
