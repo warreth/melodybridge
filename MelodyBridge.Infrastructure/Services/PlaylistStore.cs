@@ -610,7 +610,7 @@ public class PlaylistStore
         {
             if (spectrum.LooksInflated)
                 warnings.Add($"bitrate looks inflated: {spectrum.Note}");
-            else if (spectrum.EffectiveKbpsClass is > 0 and < 320)
+            else if (spectrum.CodecCutoff && spectrum.EffectiveKbpsClass is > 0 and < 320)
                 warnings.Add($"quality hint: {spectrum.Note}");
         }
 

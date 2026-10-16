@@ -12,23 +12,23 @@ public enum SpectrumMode
     Off,
     /// <summary>Analyze the first 60 seconds (fast, catches obvious blow-ups).</summary>
     Fast,
-    /// <summary>Analyze the whole file (slower, also catches subtle ones).</summary>
+    /// <summary>Analyze the whole file (slower, also catches subtle ones). Very long files are capped at 15 minutes.</summary>
     Thorough,
 }
 
 /// <summary>
 /// Detects files that carry far less audio bandwidth than their declared
 /// bitrate needs: a 320 kbps header on top of a source that stopped much
-/// lower. The real bandwidth is measured from a decoded spectrum (an
-/// average of FFT frames), so it reads the codec's own lowpass instead of
-/// the music's spectral tilt. The old rolloff percentile sat at 6-10 kHz
-/// for ordinary bass-heavy music even when the file was genuine.
+/// lower. It decodes the audio, averages the spectrum with FFT frames,
+/// and looks at how the high end falls off.
 ///
-/// Two safeguards keep it honest: a file whose high end fades gently is
-/// content that is band-limited, not a mislabelled rip, and is reported
-/// inconclusive; and Opus/Vorbis stay near-fullband at low bitrates, so
-/// their bandwidth never implies a low class. The check only warns, it
-/// never deletes.
+/// A spectrum cannot tell an upscaled rip from a master that never had
+/// the high end, so the check stays deliberately narrow. Content that
+/// fades out gently is music that was mixed that way, not a mislabelled
+/// rip; Opus and Vorbis stay near full band even at low bitrates; and
+/// only a steep codec-style corner, at least two bitrate classes below
+/// the declared one, counts as inflated. A file with no such corner gets
+/// no quality verdict at all. The check only warns, it never deletes.
 /// </summary>
 public static class SpectrumAnalyzer
 {
@@ -61,9 +61,16 @@ public static class SpectrumAnalyzer
     // The bitrate classes a bandwidth can imply, low to high.
     private static readonly int[] Classes = { 96, 128, 160, 192, 256, 320 };
 
-    /// <summary>Result of one spectral verification.</summary>
+    /// <summary>
+    /// Result of one spectral verification.
+    /// <see cref="BandwidthHz"/> is the highest frequency still within the
+    /// content threshold of the midband; it is a lower bound shaped by the
+    /// music, so it is only trustworthy when <see cref="CodecCutoff"/> is
+    /// true and the value sits at a real corner.
+    /// </summary>
     public record Result(
         bool LooksInflated,
+        bool CodecCutoff,
         double BandwidthHz,
         int EffectiveKbpsClass,
         int? DeclaredKbps,
@@ -71,24 +78,27 @@ public static class SpectrumAnalyzer
         string Note);
 
     /// <summary>
-    /// Verifies a downloaded audio file's real bandwidth against its
-    /// declared bitrate. Returns null when the mode is Off, ffmpeg or
-    /// ffprobe is missing, or the file cannot be read.
+    /// Verifies a downloaded audio file against its declared bitrate.
+    /// Returns null when the mode is Off, ffmpeg or ffprobe is missing,
+    /// or the file has no readable audio facts or spectrum.
     /// </summary>
     public static Result? Verify(string filePath, SpectrumMode mode)
     {
         if (mode == SpectrumMode.Off) return null;
         var ffmpeg = FindBinary("ffmpeg");
         if (ffmpeg is null) return null;
+        // Without ffprobe there is no codec or declared bitrate to judge
+        // against, so the file skips the check instead of getting a
+        // meaningless hint.
+        if (FindFfprobe() is null) return null;
 
         try
         {
             var facts = AudioFactsProbe.Probe(filePath);
-            var samples = Decode(ffmpeg, filePath, mode);
-            if (samples is null || samples.Length < FrameSize * 2) return null;
+            if (facts.Codec is null && facts.BitrateKbps is null) return null;
 
-            var powerDb = WelchPowerDb(samples);
-            if (powerDb.Length == 0) return null;
+            var powerDb = WelchSpectrum(ffmpeg, filePath, mode);
+            if (powerDb is null || powerDb.Length == 0) return null;
 
             var (bandwidthHz, cliffDropDb) = FindBandwidth(powerDb);
             return Judge(bandwidthHz, cliffDropDb, facts);
@@ -107,11 +117,13 @@ public static class SpectrumAnalyzer
     // ---- measurement ---------------------------------------------------
 
     /// <summary>
-    /// Decodes the analysed window to mono 16-bit PCM at a fixed rate.
-    /// Fast reads the first minute, Thorough the whole file (capped, so a
-    /// very long file cannot exhaust memory).
+    /// Decodes the analysed window to mono 16-bit PCM at a fixed rate and
+    /// Welch-averages its spectrum in dB, one value per bin. The PCM is
+    /// consumed frame by frame as ffmpeg produces it, so a long file never
+    /// has to sit in memory whole. Fast reads the first minute, Thorough
+    /// the whole file (capped at 15 minutes so it cannot run away).
     /// </summary>
-    private static short[]? Decode(string ffmpeg, string filePath, SpectrumMode mode)
+    private static double[]? WelchSpectrum(string ffmpeg, string filePath, SpectrumMode mode)
     {
         var args = new List<string> { "-v", "error", "-hide_banner" };
         args.Add("-t");
@@ -126,51 +138,71 @@ public static class SpectrumAnalyzer
             "-",
         });
 
-        var result = ToolProcessRunner.RunBinary(ffmpeg, args, timeoutMs: 180000);
-        if (result.TimedOut || result.ExitCode != 0) return null;
-        if (result.Stdout.Length < 2) return null;
-
-        var samples = new short[result.Stdout.Length / 2];
-        Buffer.BlockCopy(result.Stdout, 0, samples, 0, samples.Length * 2);
-        return samples;
-    }
-
-    /// <summary>Welch average power spectrum in dB, one value per bin.</summary>
-    private static double[] WelchPowerDb(short[] samples)
-    {
         var window = HannWindow(FrameSize);
         var bins = FrameSize / 2 + 1;
         var accum = new double[bins];
         var frame = new Complex[FrameSize];
+        var samples = new short[FrameSize];
+        var bytes = new byte[FrameSize * 2];
+        var hopBytes = HopSize * 2;
         var frames = 0;
 
-        for (var start = 0; start + FrameSize <= samples.Length; start += HopSize)
+        var ok = ToolProcessRunner.RunToStream(ffmpeg, args, timeoutMs: 180000, stream =>
         {
-            double energy = 0;
-            for (var i = 0; i < FrameSize; i++)
+            // Fill one frame, then slide by half a frame (50% overlap).
+            if (ReadAtLeast(stream, bytes, 0, bytes.Length) < bytes.Length) return;
+            while (true)
             {
-                double s = samples[start + i];
-                energy += s * s;
+                Buffer.BlockCopy(bytes, 0, samples, 0, bytes.Length);
+                if (AccumulateFrame(samples, window, frame, accum)) frames++;
+                Buffer.BlockCopy(bytes, hopBytes, bytes, 0, bytes.Length - hopBytes);
+                if (ReadAtLeast(stream, bytes, bytes.Length - hopBytes, hopBytes) < hopBytes) break;
             }
-            // Skip near-silent frames (about -72 dBFS): they would only add
-            // a flat noise floor and drag the core reference down.
-            if (Math.Sqrt(energy / FrameSize) < 8) continue;
+        });
 
-            for (var i = 0; i < FrameSize; i++)
-                frame[i] = new Complex(samples[start + i] * window[i], 0);
-
-            Fft.Forward(frame);
-            for (var k = 0; k < bins; k++)
-                accum[k] += frame[k].Magnitude * frame[k].Magnitude;
-            frames++;
-        }
-
-        if (frames == 0) return Array.Empty<double>();
+        if (!ok || frames == 0) return null;
 
         var db = new double[bins];
         for (var k = 0; k < bins; k++)
             db[k] = 10 * Math.Log10(accum[k] / frames + 1e-12);
         return db;
+    }
+
+    /// <summary>
+    /// Adds one Hann-windowed frame to the running spectrum. Returns false
+    /// for a near-silent frame (about -72 dBFS): it would only add a flat
+    /// noise floor and drag the core reference down.
+    /// </summary>
+    private static bool AccumulateFrame(short[] samples, double[] window, Complex[] frame, double[] accum)
+    {
+        double energy = 0;
+        for (var i = 0; i < samples.Length; i++)
+        {
+            double s = samples[i];
+            energy += s * s;
+        }
+        if (Math.Sqrt(energy / samples.Length) < 8) return false;
+
+        for (var i = 0; i < samples.Length; i++)
+            frame[i] = new Complex(samples[i] * window[i], 0);
+
+        Fft.Forward(frame);
+        for (var k = 0; k < accum.Length; k++)
+            accum[k] += frame[k].Magnitude * frame[k].Magnitude;
+        return true;
+    }
+
+    /// <summary>Reads exactly <paramref name="count"/> bytes, or as many as the stream has before it ends.</summary>
+    private static int ReadAtLeast(Stream stream, byte[] buffer, int offset, int count)
+    {
+        var total = 0;
+        while (total < count)
+        {
+            var read = stream.Read(buffer, offset + total, count - total);
+            if (read <= 0) break;
+            total += read;
+        }
+        return total;
     }
 
     private static double[] HannWindow(int size)
@@ -257,13 +289,17 @@ public static class SpectrumAnalyzer
         var nyquist = facts.SampleRateHz is > 0 ? facts.SampleRateHz.Value / 2.0 : AnalysisRate / 2.0;
         var effective = BandwidthToKbps(bandwidthHz, codec, nyquist);
 
+        // The drop is the only evidence a spectrum can offer: without a
+        // codec-style corner there is nothing to accuse, and the measured
+        // bandwidth is just the music's own fade and must not be reported.
+        var cutoff = cliffDropDb >= CliffDropDb;
         var declaredIndex = declared is > 0 ? ClassIndex(declared.Value) : -1;
-        var inflated = declaredIndex >= ClassIndex(InflatedDeclaredFloorKbps)
-            && declaredIndex - ClassIndex(effective) >= InflatedClassGap
-            && cliffDropDb >= CliffDropDb;
+        var inflated = cutoff
+            && declaredIndex >= ClassIndex(InflatedDeclaredFloorKbps)
+            && declaredIndex - ClassIndex(effective) >= InflatedClassGap;
 
-        var note = Describe(bandwidthHz, effective, declared, inflated);
-        return new Result(inflated, bandwidthHz, effective, declared, codec, note);
+        var note = Describe(bandwidthHz, effective, declared, inflated, cutoff);
+        return new Result(inflated, cutoff, bandwidthHz, effective, declared, codec, note);
     }
 
     /// <summary>Index of the highest class at or below <paramref name="kbps"/>.</summary>
@@ -300,12 +336,14 @@ public static class SpectrumAnalyzer
         };
     }
 
-    private static string Describe(double bandwidthHz, int effective, int? declared, bool inflated)
+    private static string Describe(double bandwidthHz, int effective, int? declared, bool inflated, bool cutoff)
     {
         var khz = (bandwidthHz / 1000).ToString("F1", CultureInfo.InvariantCulture);
         if (inflated)
             return $"bandwidth stops at {khz} kHz, far below what {declared} kbps needs";
-        return $"bandwidth reaches {khz} kHz, about {effective} kbps of real detail";
+        if (cutoff)
+            return $"bandwidth drops off at {khz} kHz, about {effective} kbps of real detail";
+        return $"high end fades out around {khz} kHz with no codec cutoff to read";
     }
 
     // ---- tool discovery ------------------------------------------------

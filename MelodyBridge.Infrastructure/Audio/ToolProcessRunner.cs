@@ -22,12 +22,6 @@ internal static class ToolProcessRunner
     internal readonly record struct Result(int ExitCode, string Stdout, string Stderr, bool TimedOut);
 
     /// <summary>
-    /// Outcome of a run whose stdout is binary (a decoded PCM stream).
-    /// stdout is read as bytes, never decoded as text.
-    /// </summary>
-    internal readonly record struct BinaryResult(byte[] Stdout, string Stderr, int ExitCode, bool TimedOut);
-
-    /// <summary>
     /// Runs the binary with the given arguments and a hard timeout.
     /// Throws when the process cannot start; callers already guard that.
     /// </summary>
@@ -62,10 +56,13 @@ internal static class ToolProcessRunner
     }
 
     /// <summary>
-    /// Runs the binary and returns stdout as raw bytes, for the PCM stream
-    /// the spectrum analysis decodes. Text decoding would corrupt it.
+    /// Runs the binary and hands its stdout stream to
+    /// <paramref name="consume"/> while the process runs, so a large
+    /// decode (a whole song of PCM) never has to be buffered whole.
+    /// Returns true only on a clean exit before the timeout.
     /// </summary>
-    internal static BinaryResult RunBinary(string binary, IReadOnlyList<string> arguments, int timeoutMs)
+    internal static bool RunToStream(string binary, IReadOnlyList<string> arguments,
+        int timeoutMs, Action<Stream> consume)
     {
         var psi = new ProcessStartInfo
         {
@@ -81,21 +78,21 @@ internal static class ToolProcessRunner
         using var proc = Process.Start(psi)
             ?? throw new InvalidOperationException($"{binary} failed to start");
 
-        using var stdout = new MemoryStream();
-        // Drain both pipes while the process runs, exactly like Run: a full
-        // stdout pipe would otherwise stall the tool and the timeout.
-        var copyTask = proc.StandardOutput.BaseStream.CopyToAsync(stdout);
+        // Consume the stream off the calling thread so the timeout below is
+        // a real one even while the tool is still producing output.
+        var consumeTask = Task.Run(() => consume(proc.StandardOutput.BaseStream));
         var stderrTask = proc.StandardError.ReadToEndAsync();
 
         if (!proc.WaitForExit(timeoutMs))
         {
             try { proc.Kill(entireProcessTree: true); } catch { /* already gone */ }
             try { proc.WaitForExit(5000); } catch { /* best effort */ }
-            return new BinaryResult(Array.Empty<byte>(), string.Empty, -1, TimedOut: true);
+            try { consumeTask.Wait(5000); } catch { /* consumer sees the closed pipe */ }
+            return false;
         }
 
-        copyTask.GetAwaiter().GetResult();
-        return new BinaryResult(stdout.ToArray(), stderrTask.GetAwaiter().GetResult(),
-            proc.ExitCode, TimedOut: false);
+        consumeTask.GetAwaiter().GetResult();
+        _ = stderrTask.GetAwaiter().GetResult();
+        return proc.ExitCode == 0;
     }
 }

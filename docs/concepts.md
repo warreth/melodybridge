@@ -150,10 +150,10 @@ retries it. Nothing half-broken is left in your library.
 ### The spectrum check
 
 Some sites hand out files that claim 320 kbps but hold far less. The spectrum
-check measures the file's real audio bandwidth instead of trusting its header:
-it decodes a window of the audio, averages its spectrum, and finds the highest
-frequency that still holds real content. That bandwidth is compared with the
-bitrate the file declares.
+check does not trust the header: it decodes a window of the audio, averages its
+spectrum, and looks at how the high end falls off. It only flags a file when
+the spectrum drops off a steep codec-style corner well below what the declared
+bitrate needs.
 
 Set the mode under **Settings, Quality, Spectrum check**:
 
@@ -161,16 +161,17 @@ Set the mode under **Settings, Quality, Spectrum check**:
 |---|---|
 | Off | Trust the file |
 | Fast | Analyze the first minute (the default) |
-| Thorough | Analyze the whole file |
+| Thorough | Analyze the whole file (the first 15 minutes of very long files) |
 
 The check only warns, it never deletes. Track rows get an **!** pill with the
 reason, and a playlist whose downloads look inflated shows a hint box counting
-them. It needs ffmpeg and ffprobe on the host; without them, files simply skip
-the check. It stays honest about what a spectrum can and cannot prove: a file
-whose high end fades out gently is content that was always band-limited, not a
-mislabelled rip, and Opus files stay near full band even at low bitrates, so
-neither is ever called inflated. Only a steep codec corner, well below what the
-declared bitrate needs, counts as inflated.
+them. It needs ffmpeg and ffprobe on the host; without either, files simply
+skip the check. It stays honest about what a spectrum can and cannot prove: a
+high end that fades out gently is music that was mixed that way, not a
+mislabelled rip, and Opus files stay near full band even at low bitrates, so a
+dark mix or an Opus file is never called inflated and never gets a quality
+hint. Only a steep codec corner, well below what the declared bitrate needs,
+counts.
 
 <img src="/screens/playlist-details.webp" alt="Playlist details page with track quality columns and a download in progress" width="800">
 

@@ -59,7 +59,7 @@ happens.
 
 **Real quality check** holds the spectrum check mode: **Off** to trust files,
 **Fast** to analyze the first minute (the default), or **Thorough** for the whole
-file. See [How it works](/concepts) for what it measures.
+file (capped at 15 minutes). See [How it works](/concepts) for what it measures.
 
 ### Network
 

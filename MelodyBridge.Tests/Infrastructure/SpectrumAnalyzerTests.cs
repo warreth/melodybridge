@@ -152,7 +152,7 @@ public class SpectrumAnalyzerTests
         Assert.That(result!.Codec, Is.EqualTo("opus"));
         Assert.That(result.LooksInflated, Is.False);
         Assert.That(result.EffectiveKbpsClass, Is.EqualTo(320),
-            "opuS bandwidth must not imply a low class");
+            "Opus bandwidth must not imply a low class");
     }
 
     [Test]
@@ -209,8 +209,10 @@ public class SpectrumAnalyzerTests
         Assert.That(result, Is.Not.Null);
         Assert.That(result!.LooksInflated, Is.True,
             $"a 64 kbps source re-encoded at 320 must be flagged: {result.Note}");
+        Assert.That(result.CodecCutoff, Is.True, "the 64 kbps lowpass is a real corner");
         Assert.That(result.DeclaredKbps, Is.EqualTo(320).Within(2));
-        Assert.That(result.BandwidthHz, Is.LessThan(18000));
+        // The flagged class is 192, so the real boundary is under 17.5 kHz.
+        Assert.That(result.BandwidthHz, Is.LessThan(17500));
         Assert.That(result.Note, Does.Contain("bandwidth stops"));
     }
 
@@ -253,6 +255,27 @@ public class SpectrumAnalyzerTests
         Assert.That(result, Is.Not.Null);
         Assert.That(result!.LooksInflated, Is.False,
             $"a gentle fade must not be called a codec cutoff: {result.Note}");
+    }
+
+    [Test]
+    public void Verify_MusicLikeSoftHighEnd_HasNoCodecCutoff()
+    {
+        RequireFfmpeg();
+        // A treble shelf takes the top down like a dark mix: the measured
+        // high end sits low, but the drop is a fade, not a codec corner.
+        // This is the shape that must never be called inflated, and it is
+        // the only corpus case where the cliff guard is load-bearing: the
+        // bandwidth alone would imply 96 kbps against 320 declared.
+        var file = Make($"-f lavfi -i \"{Pink}\" -af treble=g=-20:f=4000 -b:a 320k", "soft-top.mp3");
+
+        var result = SpectrumAnalyzer.Verify(file, SpectrumMode.Thorough);
+
+        Assert.That(result, Is.Not.Null);
+        Assert.That(result!.BandwidthHz, Is.LessThan(9000),
+            "the measured high end is low, so the bandwidth rule alone cannot spare it");
+        Assert.That(result.CodecCutoff, Is.False, "a treble shelf is not a codec cutoff");
+        Assert.That(result.LooksInflated, Is.False,
+            $"a dark mix is not a mislabelled rip: {result.Note}");
     }
 
     [Test]
