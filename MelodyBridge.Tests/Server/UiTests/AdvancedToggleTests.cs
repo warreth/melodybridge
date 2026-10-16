@@ -144,4 +144,61 @@ public class AdvancedToggleTests
                 "the save confirmation rides the shared toast stack, which dismisses itself"),
             TimeSpan.FromSeconds(3));
     }
+
+    [Test]
+    public async Task Advanced_TimeBudgets_LoadDefaults_PersistThroughSave()
+    {
+        var cut = _ctx.Render<Advanced>();
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("Plugin time budget")), TimeSpan.FromSeconds(3));
+
+        // The documented defaults render as-is.
+        var pluginInput = cut.FindAll("input[type=number]")
+            .Single(i => i.ParentElement!.TextContent.Contains("Plugin time budget"));
+        var trackInput = cut.FindAll("input[type=number]")
+            .Single(i => i.ParentElement!.TextContent.Contains("Track time budget"));
+        Assert.Multiple(() =>
+        {
+            Assert.That(pluginInput.GetAttribute("value"), Is.EqualTo("240"));
+            Assert.That(trackInput.GetAttribute("value"), Is.EqualTo("1200"));
+        });
+
+        pluginInput.Change("120");
+        await cut.InvokeAsync(() =>
+            cut.FindAll("input[type=number]")
+                .Single(i => i.ParentElement!.TextContent.Contains("Track time budget"))
+                .Change("600"));
+        await cut.InvokeAsync(() => cut.Find("section.page-title button.btn-modern").Click());
+
+        var factory = _ctx.Services.GetRequiredService<IDbContextFactory<MelodyBridgeDbContext>>();
+        await using var db = await factory.CreateDbContextAsync();
+        var pluginSaved = await db.DownloaderSettings.AsNoTracking()
+            .AnyAsync(s => s.Key == "download_plugin_budget_seconds" && s.Value == "120");
+        var trackSaved = await db.DownloaderSettings.AsNoTracking()
+            .AnyAsync(s => s.Key == "download_track_budget_seconds" && s.Value == "600");
+        Assert.Multiple(() =>
+        {
+            Assert.That(pluginSaved, Is.True, "the plugin budget survives Save");
+            Assert.That(trackSaved, Is.True, "the track budget survives Save");
+        });
+    }
+
+    [Test]
+    public async Task Advanced_TimeBudgets_OutOfRange_ClampedOnSave()
+    {
+        var cut = _ctx.Render<Advanced>();
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("Plugin time budget")), TimeSpan.FromSeconds(3));
+
+        var pluginInput = cut.FindAll("input[type=number]")
+            .Single(i => i.ParentElement!.TextContent.Contains("Plugin time budget"));
+        pluginInput.Change("5"); // below the 30 second floor
+        await cut.InvokeAsync(() => cut.Find("section.page-title button.btn-modern").Click());
+
+        var factory = _ctx.Services.GetRequiredService<IDbContextFactory<MelodyBridgeDbContext>>();
+        await using var db = await factory.CreateDbContextAsync();
+        Assert.That(await db.DownloaderSettings.AsNoTracking()
+            .AnyAsync(s => s.Key == "download_plugin_budget_seconds" && s.Value == "30"), Is.True,
+            "out-of-range input is clamped, never stored as typed");
+    }
 }

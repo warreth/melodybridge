@@ -87,6 +87,14 @@ Plugins that are missing their tool or reporting a dead service mark themselves
 unavailable and get skipped automatically. The pill on their card shows the
 current state, and **Refresh status** re-checks them.
 
+MelodyBridge also watches how each plugin behaves over its recent attempts. A
+plugin whose last three attempts all failed is skipped for five minutes instead
+of costing every track a timeout, and a plugin that mostly fails lately runs
+after the healthy ones. Two time budgets keep a run moving: one plugin may
+spend at most four minutes on a single track, and a whole track gets twenty
+minutes across every plugin and quality step. Both are adjustable on the
+Advanced page.
+
 ### The plugins
 
 | Plugin | What it fetches |

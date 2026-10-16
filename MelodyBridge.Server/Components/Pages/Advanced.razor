@@ -42,6 +42,20 @@
                 </label>
                 <HelpTip Path="reference#the-advanced-page" Text="How many tracks download at once, between 1 and 8. Higher finishes playlists faster but hits every source harder." />
             </div>
+            <div class="field-with-help">
+                <label>
+                    Plugin time budget (seconds)
+                    <input @bind="pluginBudgetSeconds" @bind:after="MarkDirty" type="number" min="30" max="3600" step="10" />
+                </label>
+                <HelpTip Path="reference#the-advanced-page" Text="How long one plugin may spend on a track before the waterfall moves on, between 30 and 3600 seconds." />
+            </div>
+            <div class="field-with-help">
+                <label>
+                    Track time budget (seconds)
+                    <input @bind="trackBudgetSeconds" @bind:after="MarkDirty" type="number" min="60" max="14400" step="60" />
+                </label>
+                <HelpTip Path="reference#the-advanced-page" Text="The total time one track may take across every plugin, between 60 and 14400 seconds." />
+            </div>
         </div>
         <div class="toggle-with-help">
             <label class="toggle-switch wide">
@@ -132,6 +146,8 @@
 
 @code {
     private int maxConcurrentDownloads = 2;
+    private int pluginBudgetSeconds = 240;
+    private int trackBudgetSeconds = 1200;
     private bool showFilename;
     private bool dedupEnabled = true;
     private bool logDatabaseActivity;
@@ -145,6 +161,10 @@
     {
         if (int.TryParse(await Settings.GetAsync("download_max_concurrent", "2"), out var maxConcurrent))
             maxConcurrentDownloads = Math.Clamp(maxConcurrent, 1, 8);
+        if (int.TryParse(await Settings.GetAsync("download_plugin_budget_seconds", "240"), out var pluginBudget))
+            pluginBudgetSeconds = Math.Clamp(pluginBudget, 30, 3600);
+        if (int.TryParse(await Settings.GetAsync("download_track_budget_seconds", "1200"), out var trackBudget))
+            trackBudgetSeconds = Math.Clamp(trackBudget, 60, 14400);
         showFilename = await Settings.GetBoolAsync("show_filename", false);
         dedupEnabled = await Settings.GetBoolAsync(PlaylistStore.DedupSettingKey, true);
         logDatabaseActivity = await Settings.GetBoolAsync(DatabaseLogSwitch.SettingKey, false);
@@ -160,7 +180,14 @@
             var clamped = Math.Clamp(maxConcurrentDownloads, 1, 8);
             var wasClamped = clamped != maxConcurrentDownloads;
             maxConcurrentDownloads = clamped;
+            var clampedPluginBudget = Math.Clamp(pluginBudgetSeconds, 30, 3600);
+            var clampedTrackBudget = Math.Clamp(trackBudgetSeconds, 60, 14400);
+            var budgetsClamped = clampedPluginBudget != pluginBudgetSeconds || clampedTrackBudget != trackBudgetSeconds;
+            pluginBudgetSeconds = clampedPluginBudget;
+            trackBudgetSeconds = clampedTrackBudget;
             await Settings.SetAsync("download_max_concurrent", clamped.ToString());
+            await Settings.SetAsync("download_plugin_budget_seconds", clampedPluginBudget.ToString());
+            await Settings.SetAsync("download_track_budget_seconds", clampedTrackBudget.ToString());
             await Settings.SetAsync("show_filename", showFilename ? "true" : "false");
             await Settings.SetAsync(PlaylistStore.DedupSettingKey, dedupEnabled ? "true" : "false");
             await Settings.SetAsync(DatabaseLogSwitch.SettingKey, logDatabaseActivity ? "true" : "false");
@@ -171,6 +198,10 @@
             if (wasClamped)
             {
                 Notifications.Warn($"Saved. Concurrency is limited to 1-8, so it is set to {clamped}.");
+            }
+            else if (budgetsClamped)
+            {
+                Notifications.Warn("Saved. Time budgets are limited to 30-3600 and 60-14400 seconds.");
             }
             else
             {

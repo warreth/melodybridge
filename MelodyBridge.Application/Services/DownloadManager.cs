@@ -22,12 +22,60 @@ public class DownloadManager : IDownloadManager
 {
     private readonly IDownloaderRegistry _registry;
     private readonly ILogger<DownloadManager> _logger;
+    private readonly ProviderHealth _health;
+    private readonly SettingsStore? _settings;
 
-    public DownloadManager(IDownloaderRegistry registry, ILogger<DownloadManager> logger)
+    public DownloadManager(
+        IDownloaderRegistry registry,
+        ILogger<DownloadManager> logger,
+        ProviderHealth? health = null,
+        SettingsStore? settings = null)
     {
         _registry = registry;
         _logger = logger;
+        _health = health ?? new ProviderHealth();
+        _settings = settings;
     }
+
+    /// <summary>Plugin budget when the setting row is missing.</summary>
+    internal static readonly TimeSpan DefaultPluginBudget = TimeSpan.FromMinutes(4);
+
+    /// <summary>Whole-track budget when the setting row is missing.</summary>
+    internal static readonly TimeSpan DefaultTrackBudget = TimeSpan.FromMinutes(20);
+
+    /// <summary>
+    /// Hard wall-clock caps for one track, read from the settings table on
+    /// every run (no restart). The plugin budget bounds one plugin's whole
+    /// attempt (probe, search, candidates); the track budget bounds every
+    /// plugin and ladder step together. Values are clamped so a typo cannot
+    /// disable downloading.
+    /// </summary>
+    internal async Task<(TimeSpan Plugin, TimeSpan Track)> BudgetsAsync(CancellationToken ct)
+    {
+        if (_settings is null) return (DefaultPluginBudget, DefaultTrackBudget);
+        try
+        {
+            var plugin = await _settings.GetAsync("download_plugin_budget_seconds", "240", ct);
+            var track = await _settings.GetAsync("download_track_budget_seconds", "1200", ct);
+            return (
+                TimeSpan.FromSeconds(Math.Clamp(ParseSeconds(plugin, 240), 1, 3600)),
+                TimeSpan.FromSeconds(Math.Clamp(ParseSeconds(track, 1200), 1, 14400)));
+        }
+        catch
+        {
+            // Settings unavailable (tests without the store): sane defaults.
+            return (DefaultPluginBudget, DefaultTrackBudget);
+        }
+    }
+
+    private static int ParseSeconds(string raw, int fallback)
+        => int.TryParse(raw, out var value) ? value : fallback;
+
+    /// <summary>"4 minute" / "45 second": a budget reads naturally in the failure text.</summary>
+    private static string DescribeBudget(TimeSpan budget)
+        => budget.TotalMinutes >= 1
+            ? $"{budget.TotalMinutes:0.#} minute"
+            : $"{budget.TotalSeconds:0} second";
 
     /// <summary>Live progress reporting per melodyId, for the UI.</summary>
     private readonly ConcurrentDictionary<string, DownloadProgress> _progress = new();
@@ -44,6 +92,8 @@ public class DownloadManager : IDownloadManager
         // Direct URL case: let plugins download the URL as-is.
         foreach (var downloader in _registry.GetEnabled())
         {
+            if (_health.ShouldSkip(downloader.Id))
+                continue;
             if (!await AvailableAsync(downloader, ct))
                 continue;
 
@@ -53,13 +103,19 @@ public class DownloadManager : IDownloadManager
                 if (result.Success && result.FilePath is not null)
                 {
                     if (RejectNonAudio(result.FilePath, downloader.Name))
+                    {
+                        _health.RecordFailure(downloader.Id);
                         continue;
+                    }
+                    _health.RecordSuccess(downloader.Id);
                     return result.FilePath;
                 }
+                _health.RecordFailure(downloader.Id);
                 _logger.LogWarning("{Name} failed for {Url}: {Error}", downloader.Name, sourceUrl, result.ErrorMessage);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
+                _health.RecordFailure(downloader.Id);
                 _logger.LogWarning(ex, "{Name} threw for {Url}", downloader.Name, sourceUrl);
             }
         }
@@ -89,6 +145,34 @@ public class DownloadManager : IDownloadManager
         TrackQuery query, string outputDirectory, string melodyId,
         DownloadFallback? fallback = null, CancellationToken ct = default)
     {
+        var (pluginBudget, trackBudget) = await BudgetsAsync(ct);
+
+        // One wall-clock cap for the whole track, every plugin and ladder
+        // step together: a chain of dead sources must not hold a sync run.
+        using var trackBudgetCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        trackBudgetCts.CancelAfter(trackBudget);
+        try
+        {
+            return await DownloadTrackCoreAsync(
+                query, outputDirectory, melodyId, fallback, pluginBudget, trackBudgetCts.Token);
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            _progress[melodyId] = new DownloadProgress(melodyId, query.Title, "failed", null, null,
+                Warning: "the track budget expired");
+            _lastFailure[melodyId] =
+                $"the track took longer than its {DescribeBudget(trackBudget)} budget";
+            _logger.LogWarning("Track '{Title}' exceeded its {Budget} budget; giving up",
+                query.Title, DescribeBudget(trackBudget));
+            return null;
+        }
+    }
+
+    /// <summary>The per-quality waterfall passes, under the track budget.</summary>
+    private async Task<string?> DownloadTrackCoreAsync(
+        TrackQuery query, string outputDirectory, string melodyId,
+        DownloadFallback? fallback, TimeSpan pluginBudget, CancellationToken ct)
+    {
         var targets = fallback is null
             ? new List<DownloadQuality> { query.Quality }
             : QualityLadder.Build(query.Quality, fallback.AllowContainerChange, _registry.GetEnabled()).ToList();
@@ -98,7 +182,7 @@ public class DownloadManager : IDownloadManager
         for (var i = 0; i < targets.Count; i++)
         {
             var path = await TryDownloadQualityAsync(
-                query with { Quality = targets[i] }, outputDirectory, melodyId, ct);
+                query with { Quality = targets[i] }, outputDirectory, melodyId, pluginBudget, ct);
             if (path is not null) return path;
 
             requestedFailure ??= _lastFailure.TryGetValue(melodyId, out var reason) ? reason : null;
@@ -116,7 +200,8 @@ public class DownloadManager : IDownloadManager
 
     /// <summary>One waterfall pass for one concrete quality target.</summary>
     private async Task<string?> TryDownloadQualityAsync(
-        TrackQuery query, string outputDirectory, string melodyId, CancellationToken ct)
+        TrackQuery query, string outputDirectory, string melodyId,
+        TimeSpan pluginBudget, CancellationToken ct)
     {
         var quality = query.Quality;
         _progress[melodyId] = new DownloadProgress(melodyId, query.Title, "searching", null, null);
@@ -135,112 +220,158 @@ public class DownloadManager : IDownloadManager
             foreach (var (downloader, reason) in plan.Excluded)
                 _logger.LogDebug("Router excluded {Name}: {Reason}", downloader.Name, reason);
 
-            foreach (var downloader in plan.Plugins)
+            // The router's controlled-first rule stays; inside those groups
+            // a provider whose recent attempts mostly failed runs after the
+            // healthy ones. The user's order survives otherwise.
+            var ordered = plan.Plugins
+                .OrderBy(p => p.Capabilities.ServesControlled(quality) ? 0 : 1)
+                .ThenBy(p => _health.IsDegraded(p.Id) ? 1 : 0)
+                .ToList();
+
+            foreach (var downloader in ordered)
             {
                 ct.ThrowIfCancellationRequested();
-                if (!await AvailableAsync(downloader, ct))
-                    continue;
 
-                var hit = await SearchAsync(downloader, query, ct);
-                if (hit is null)
+                // Open circuit: skip without a call until the cooldown passed.
+                if (_health.ShouldSkip(downloader.Id))
                 {
-                    _logger.LogDebug("{Name}: no search hit for '{Artist} - {Title}'",
-                        downloader.Name, query.Artist, query.Title);
+                    _logger.LogDebug("Skipping {Name}: recent attempts kept failing (circuit open)",
+                        downloader.Name);
                     continue;
                 }
 
-                // The primary hit plus the runner-ups the plugin attached:
-                // a dead first choice (deleted video, geo-block) gets one
-                // more chance from the same plugin instead of losing it.
-                foreach (var candidate in Candidates(hit))
+                // One budget for this plugin's whole attempt: a provider
+                // that hangs must not hold the track, whatever it is doing.
+                using var pluginBudgetCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                pluginBudgetCts.CancelAfter(pluginBudget);
+                var pluginCt = pluginBudgetCts.Token;
+                try
                 {
-                    ct.ThrowIfCancellationRequested();
+                    if (!await AvailableAsync(downloader, pluginCt))
+                        continue;
 
-                    // Gross duration mismatch: a preview or an unrelated
-                    // edit is the wrong track, reject before spending bytes.
-                    if (!FuzzyMatcher.DurationPlausible(query.ExpectedDuration, candidate.Duration))
+                    var hit = await SearchAsync(downloader, query, pluginCt);
+                    if (hit is null)
                     {
-                        skippedByDuration++;
-                        _logger.LogInformation(
-                            "{Name} candidate '{Hit}' is {HitLength:0}s long, expected ~{Expected:0}s; skipping",
-                            downloader.Name, candidate.Title,
-                            candidate.Duration?.TotalSeconds ?? 0, query.ExpectedDuration?.TotalSeconds ?? 0);
+                        _logger.LogDebug("{Name}: no search hit for '{Artist} - {Title}'",
+                            downloader.Name, query.Artist, query.Title);
                         continue;
                     }
 
-                    // Quality gate: reject reported bitrates outside the requested band.
-                    if (!quality.IsWithinBand(candidate.BitrateKbps))
+                    // The primary hit plus the runner-ups the plugin attached:
+                    // a dead first choice (deleted video, geo-block) gets one
+                    // more chance from the same plugin instead of losing it.
+                    foreach (var candidate in Candidates(hit))
                     {
-                        skippedByBand++;
-                        _logger.LogInformation(
-                            "{Name} hit for '{Title}' is {Hit} kbps, outside the requested {Min}-{Max} kbps band; skipping",
-                            downloader.Name, query.Title, candidate.BitrateKbps,
-                            quality.MinKbps?.ToString() ?? "any", quality.MaxKbps?.ToString() ?? "any");
-                        continue;
-                    }
+                        pluginCt.ThrowIfCancellationRequested();
 
-                    _progress[melodyId] = new DownloadProgress(
-                        melodyId, query.Title, "downloading", downloader.Name, null, candidate.MatchConfidence);
-                    var result = await DownloadAsync(downloader, candidate.SourceUrl!, outputDirectory, melodyId, quality, ct);
-                    if (result is null || !result.Success || result.FilePath is null)
-                    {
-                        _logger.LogWarning("{Name} download failed for '{Artist} - {Title}': {Error}",
-                            downloader.Name, query.Artist, query.Title, result?.ErrorMessage ?? "no result");
-                        continue;
-                    }
-
-                    // Real bytes only: an error page saved as audio must
-                    // never pass. The check reads the file's leading bytes,
-                    // never its extension.
-                    if (RejectNonAudio(result.FilePath, downloader.Name))
-                    {
-                        skippedByInvalid++;
-                        continue;
-                    }
-
-                    // An explicit format request must be honoured by the
-                    // actual bytes: a "lossless" request that silently
-                    // accepted an MP3 would break the preset's promise and
-                    // skip the documented lossy fallback.
-                    var requestedContainer = DedupQuality.RequestedContainer(quality);
-                    if (requestedContainer is not null)
-                    {
-                        var actual = AudioSignature.DetectContainer(result.FilePath);
-                        if (actual is null || !DedupQuality.FormatEquals(actual, requestedContainer))
+                        // Gross duration mismatch: a preview or an unrelated
+                        // edit is the wrong track, reject before spending bytes.
+                        if (!FuzzyMatcher.DurationPlausible(query.ExpectedDuration, candidate.Duration))
                         {
-                            skippedByFormat++;
+                            skippedByDuration++;
                             _logger.LogInformation(
-                                "{Name} produced {Actual} for the requested {Requested} for '{Title}'; rejecting",
-                                downloader.Name, actual ?? "unknown", requestedContainer, query.Title);
+                                "{Name} candidate '{Hit}' is {HitLength:0}s long, expected ~{Expected:0}s; skipping",
+                                downloader.Name, candidate.Title,
+                                candidate.Duration?.TotalSeconds ?? 0, query.ExpectedDuration?.TotalSeconds ?? 0);
+                            continue;
+                        }
+
+                        // Quality gate: reject reported bitrates outside the requested band.
+                        if (!quality.IsWithinBand(candidate.BitrateKbps))
+                        {
+                            skippedByBand++;
+                            _logger.LogInformation(
+                                "{Name} hit for '{Title}' is {Hit} kbps, outside the requested {Min}-{Max} kbps band; skipping",
+                                downloader.Name, query.Title, candidate.BitrateKbps,
+                                quality.MinKbps?.ToString() ?? "any", quality.MaxKbps?.ToString() ?? "any");
+                            continue;
+                        }
+
+                        _progress[melodyId] = new DownloadProgress(
+                            melodyId, query.Title, "downloading", downloader.Name, null, candidate.MatchConfidence);
+                        var result = await DownloadAsync(downloader, candidate.SourceUrl!, outputDirectory, melodyId, quality, pluginCt);
+                        if (result is null || !result.Success || result.FilePath is null)
+                        {
+                            _health.RecordFailure(downloader.Id);
+                            _logger.LogWarning("{Name} download failed for '{Artist} - {Title}': {Error}",
+                                downloader.Name, query.Artist, query.Title, result?.ErrorMessage ?? "no result");
+                            continue;
+                        }
+
+                        // Real bytes only: an error page saved as audio must
+                        // never pass. The check reads the file's leading bytes,
+                        // never its extension.
+                        if (RejectNonAudio(result.FilePath, downloader.Name))
+                        {
+                            _health.RecordFailure(downloader.Id);
+                            skippedByInvalid++;
+                            continue;
+                        }
+
+                        // An explicit format request must be honoured by the
+                        // actual bytes: a "lossless" request that silently
+                        // accepted an MP3 would break the preset's promise and
+                        // skip the documented lossy fallback.
+                        var requestedContainer = DedupQuality.RequestedContainer(quality);
+                        if (requestedContainer is not null)
+                        {
+                            var actual = AudioSignature.DetectContainer(result.FilePath);
+                            if (actual is null || !DedupQuality.FormatEquals(actual, requestedContainer))
+                            {
+                                _health.RecordFailure(downloader.Id);
+                                skippedByFormat++;
+                                _logger.LogInformation(
+                                    "{Name} produced {Actual} for the requested {Requested} for '{Title}'; rejecting",
+                                    downloader.Name, actual ?? "unknown", requestedContainer, query.Title);
+                                FileCleanup.DeleteQuietly(result.FilePath);
+                                continue;
+                            }
+                        }
+
+                        // Enforce the band on the real file: plugins can over-promise,
+                        // the measurement never lies.
+                        var measured = BitrateProbe.MeasureKbps(result.FilePath);
+                        if (!quality.IsWithinBand(measured))
+                        {
+                            _health.RecordFailure(downloader.Id);
+                            skippedByBand++;
+                            _logger.LogInformation(
+                                "{Name} produced {Measured} kbps for '{Title}', outside the requested {Min}-{Max} kbps band; rejecting",
+                                downloader.Name, measured, query.Title,
+                                quality.MinKbps?.ToString() ?? "any", quality.MaxKbps?.ToString() ?? "any");
                             FileCleanup.DeleteQuietly(result.FilePath);
                             continue;
                         }
+
+                        // One tagging point for every plugin: the MELODY_ID in
+                        // the file is what survives a database wipe, so it is
+                        // written here, once, after the file passed the band
+                        // gate. Plugins never tag it themselves.
+                        TaglibHelper.WriteMelodyId(result.FilePath, melodyId);
+
+                        _health.RecordSuccess(downloader.Id);
+                        _progress[melodyId] = new DownloadProgress(
+                            melodyId, query.Title, "done", downloader.Name, result.FilePath, candidate.MatchConfidence,
+                            Warning: measured is null ? "bitrate could not be verified" : null);
+                        return result.FilePath;
                     }
-
-                    // Enforce the band on the real file: plugins can over-promise,
-                    // the measurement never lies.
-                    var measured = BitrateProbe.MeasureKbps(result.FilePath);
-                    if (!quality.IsWithinBand(measured))
-                    {
-                        skippedByBand++;
-                        _logger.LogInformation(
-                            "{Name} produced {Measured} kbps for '{Title}', outside the requested {Min}-{Max} kbps band; rejecting",
-                            downloader.Name, measured, query.Title,
-                            quality.MinKbps?.ToString() ?? "any", quality.MaxKbps?.ToString() ?? "any");
-                        FileCleanup.DeleteQuietly(result.FilePath);
-                        continue;
-                    }
-
-                    // One tagging point for every plugin: the MELODY_ID in
-                    // the file is what survives a database wipe, so it is
-                    // written here, once, after the file passed the band
-                    // gate. Plugins never tag it themselves.
-                    TaglibHelper.WriteMelodyId(result.FilePath, melodyId);
-
-                    _progress[melodyId] = new DownloadProgress(
-                        melodyId, query.Title, "done", downloader.Name, result.FilePath, candidate.MatchConfidence,
-                        Warning: measured is null ? "bitrate could not be verified" : null);
-                    return result.FilePath;
+                }
+                catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+                {
+                    // The plugin's budget expired mid-call (or the plugin
+                    // cancelled its own call): an unhealthy signal, and the
+                    // track moves on to the next plugin.
+                    _health.RecordFailure(downloader.Id);
+                    if (pluginBudgetCts.IsCancellationRequested)
+                        _logger.LogWarning(
+                            "{Name} exceeded its {Seconds:0} second budget for '{Title}'; moving on",
+                            downloader.Name, pluginBudget.TotalSeconds, query.Title);
+                    else
+                        _logger.LogWarning(
+                            "{Name} cancelled its own call for '{Title}'; moving on",
+                            downloader.Name, query.Title);
+                    continue;
                 }
             }
 
@@ -308,6 +439,7 @@ public class DownloadManager : IDownloadManager
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
+            _health.RecordFailure(downloader.Id);
             _logger.LogWarning(ex, "{Name} search threw for '{Artist} - {Title}'",
                 downloader.Name, query.Artist, query.Title);
             return null;
@@ -325,6 +457,7 @@ public class DownloadManager : IDownloadManager
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
+            _health.RecordFailure(downloader.Id);
             _logger.LogWarning(ex, "{Name} download threw for {Url}", downloader.Name, sourceUrl);
             return null;
         }

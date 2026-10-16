@@ -114,6 +114,9 @@ public static class ServiceCollectionExtensions
         // Application services. Singleton: the download progress map and
         // the coordinator's run handles must survive page navigations
         // (that is why the progress bar used to vanish between pages).
+        // Rolling health per plugin: the waterfall skips providers whose
+        // recent attempts kept failing and demotes the shaky ones.
+        services.AddSingleton<ProviderHealth>();
         services.AddSingleton<IDownloadManager, DownloadManager>();
         services.AddSingleton<DownloadCoordinator>();
         // The auto-sync scheduler starts runs through the Core trigger,

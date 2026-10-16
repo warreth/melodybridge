@@ -187,7 +187,9 @@ automatically.
 The knobs most people never need, in four panels:
 
 - **Downloads**: *Max simultaneous track downloads* (1 to 8, default 2; the next
-  run picks up a change) and *Hardlink duplicate tracks across playlists*, the
+  run picks up a change), *Plugin time budget* and *Track time budget* (in
+  seconds: how long one plugin and one whole track may take before the waterfall
+  moves on or gives up) and *Hardlink duplicate tracks across playlists*, the
   dedup toggle described in [How it works](/concepts).
 - **Display**: *Show the file column on playlist tracks*, which reveals the
   exact filename behind every track. Handy when hunting inflated downloads.
