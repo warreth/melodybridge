@@ -15,9 +15,9 @@ token on the Plugins page and it works.
 1. Log in to [play.qobuz.com](https://play.qobuz.com) in your browser.
 2. Open the developer tools, watch the Network tab for a request to
    `api.json`, and copy the `X-User-Auth-Token` request header.
-3. On the Plugins page, open the Qobuz card's **Settings** panel, paste the
-   token into **User auth token**, and pick the FLAC quality: 6 for 16/44,
-   7 for 24-bit up to 96 kHz, 27 for 24-bit above 96 kHz. MP3 requests always
+3. On the Plugins page, open the Qobuz card's **Settings** row and paste the
+   token into **Qobuz token**. Pick the FLAC quality there too: 16-bit /
+   44.1 kHz, 24-bit up to 96 kHz, or 24-bit above 96 kHz. MP3 requests always
    use the 320 tier.
 
 MelodyBridge writes the token and the app credentials (scraped from the

@@ -49,15 +49,25 @@ public record DownloadProgress(
     MatchConfidence MatchConfidence = MatchConfidence.High,
     string? Warning = null);
 
+/// <summary>One choice of a select-style plugin setting.</summary>
+public record PluginConfigChoice(string Value, string Label);
+
 /// <summary>
 /// One editable setting a plugin wants on its config panel (Plugins page).
 /// Key is the storage key; Value is loaded/saved through the registry.
+/// <paramref name="Advanced"/> fields hide behind a small toggle so the
+/// panel shows the essentials first; <paramref name="Secret"/> fields
+/// render as password inputs; <paramref name="Options"/> turns the field
+/// into a select.
 /// </summary>
 public record PluginConfigField(
     string Key,
     string Label,
     string? Placeholder = null,
-    string? Description = null);
+    string? Description = null,
+    bool Advanced = false,
+    bool Secret = false,
+    IReadOnlyList<PluginConfigChoice>? Options = null);
 
 /// <summary>
 /// One download plugin. Implementations search for a track by metadata
@@ -90,6 +100,14 @@ public interface IDownloader
 
     /// <summary>True when the plugin is operational (binary reachable, service up).</summary>
     Task<bool> IsAvailableAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Why the last availability check said no, when the plugin can tell
+    /// (a missing token, a rejected key, an unreachable service). The
+    /// Plugins page shows this instead of the generic hint. Null when the
+    /// plugin is ready or cannot explain itself.
+    /// </summary>
+    string? LastUnavailableReason => null;
 
     /// <summary>
     /// Find a downloadable source URL for the track query, honoring the

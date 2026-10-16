@@ -43,7 +43,8 @@ public class MonochromeDownloader : IDownloader
     public IReadOnlyList<PluginConfigField> ConfigFields =>
     [
         new(BaseUrlKey, "API base URL", DefaultBaseUrl,
-            "Override the Monochrome API host, for example a community mirror. Empty uses the official host."),
+            "Override the Monochrome API host, for example a community mirror. Empty uses the official host.",
+            Advanced: true),
     ];
 
     private readonly HttpClient _http;

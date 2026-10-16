@@ -151,12 +151,15 @@ declared capabilities decide) and the order here only breaks ties between
 plugins of the same kind. Use the arrows to move a plugin and the switch to
 enable or disable it.
 
-- Each plugin card shows its capability badges (formats, bitrate range) and an
-  expandable **Settings** panel when it has options. Values are remembered per
+- Each plugin card shows its capability badges (formats, bitrate range) and a
+  **Settings** row when it has options. The row opens a panel with the fields
+  that matter (a token, an API key, a quality) and hides the rarely touched
+  knobs (commands, custom folders) behind **Advanced**. Secret fields render
+  as password inputs with a reveal button, and values are remembered per
   plugin.
 - An unavailable plugin (missing binary, dead service) is skipped by the
-  waterfall. The card explains what to fix, and **Refresh status** re-checks
-  everything.
+  waterfall. The card says what is missing, in one line, and **Refresh status**
+  re-checks everything.
 - **Live downloads** shows each running playlist with its progress and the track
   it is on, plus **Pause**, **Resume** and **Cancel** buttons. Several tracks of
   a playlist download in parallel; the limit is set on the Advanced page. Every

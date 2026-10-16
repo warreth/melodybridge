@@ -1,0 +1,52 @@
+@* One plugin setting on the Plugins page: a labelled input, a select for
+   choice fields, or a password input with a reveal toggle for secrets,
+   plus the explanatory note under it. *@
+<div class="config-field">
+    <label for="@InputId">@Field.Label</label>
+    @if (Field.Options is { Count: > 0 })
+    {
+        var current = string.IsNullOrEmpty(Value) ? Field.Options[0].Value : Value;
+        <select id="@InputId" value="@current" @onchange="OnChange">
+            @foreach (var choice in Field.Options)
+            {
+                <option value="@choice.Value" selected="@(choice.Value == current)">@choice.Label</option>
+            }
+        </select>
+    }
+    else if (Field.Secret)
+    {
+        <div class="secret-input">
+            <input id="@InputId" type="@(revealed ? "text" : "password")" value="@Value"
+                   placeholder="@Field.Placeholder" autocomplete="off" @onchange="OnChange" />
+            <button type="button" class="reveal-button" title="@(revealed ? "Hide" : "Show")"
+                    aria-label="@(revealed ? "Hide value" : "Show value")"
+                    @onclick="() => revealed = !revealed">
+                <Icon Name="@(revealed ? "eye-off" : "eye")" Size="15" />
+            </button>
+        </div>
+    }
+    else
+    {
+        <input id="@InputId" value="@Value" placeholder="@Field.Placeholder" @onchange="OnChange" />
+    }
+    @if (!string.IsNullOrWhiteSpace(Field.Description))
+    {
+        <span class="config-hint">@Field.Description</span>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public PluginConfigField Field { get; set; } = null!;
+    [Parameter] public string PluginId { get; set; } = "";
+    [Parameter] public string Value { get; set; } = "";
+
+    /// <summary>Raised with the new raw value when the input changes.</summary>
+    [Parameter] public EventCallback<string> ValueChanged { get; set; }
+
+    private bool revealed;
+
+    private string InputId => $"cfg-{PluginId}-{Field.Key}";
+
+    private Task OnChange(ChangeEventArgs e)
+        => ValueChanged.InvokeAsync(e.Value?.ToString() ?? "");
+}

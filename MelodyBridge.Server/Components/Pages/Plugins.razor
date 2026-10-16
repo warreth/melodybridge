@@ -151,35 +151,63 @@
                     <span class="quality-badge">@badge</span>
                 }
             </div>
-            @if (!status.Ready && !string.IsNullOrEmpty(status.Detail))
+            @{
+                var note = status.Ready ? null : plugin.LastUnavailableReason ?? status.Detail;
+            }
+            @if (!string.IsNullOrEmpty(note))
             {
-                <div class="hint-box">@status.Detail</div>
+                <div class="plugin-note">
+                    <Icon Name="info" Size="15" />
+                    <span>@note</span>
+                </div>
             }
             @if (plugin.ConfigFields.Count > 0)
             {
-                <details class="plugin-config">
-                    <summary>Settings</summary>
-                    <div class="form-grid single">
-                        @foreach (var field in plugin.ConfigFields)
-                        {
-                            var configKey = $"{plugin.Id}:{field.Key}";
-                            var value = configValues.GetValueOrDefault(configKey, "");
-                            <label>
-                                @field.Label
-                                <input value="@value"
-                                       placeholder="@field.Placeholder"
-                                       @onchange="e => ConfigChanged(configKey, e)" />
-                            </label>
-                            @if (!string.IsNullOrEmpty(field.Description))
+                var open = openSettings.Contains(plugin.Id);
+                <div class="plugin-settings @(open ? "open" : null)">
+                    <button type="button" class="settings-toggle" aria-expanded="@open"
+                            @onclick="() => ToggleSettings(plugin.Id)">
+                        <Icon Name="sliders" Size="15" />
+                        <span>Settings</span>
+                        <Icon Name="chevron-down" Size="16" Class="settings-chevron" />
+                    </button>
+                    @if (open)
+                    {
+                        <div class="settings-body">
+                            @foreach (var field in plugin.ConfigFields.Where(f => !f.Advanced))
                             {
-                                <span class="text-muted">@field.Description</span>
+                                var key = $"{plugin.Id}:{field.Key}";
+                                <PluginConfigFieldEditor PluginId="@plugin.Id" Field="@field"
+                                    Value="@configValues.GetValueOrDefault(key, "")"
+                                    ValueChanged="@(v => ConfigChanged(key, v))" />
                             }
-                        }
-                    </div>
-                    <div class="flex-actions">
-                        <button class="btn-modern small primary" @onclick="() => SaveConfigAsync(plugin.Id)">Save settings</button>
-                    </div>
-                </details>
+                            @if (plugin.ConfigFields.Any(f => f.Advanced))
+                            {
+                                var advanced = advancedSettings.Contains(plugin.Id);
+                                <button type="button" class="advanced-toggle" aria-expanded="@advanced"
+                                        @onclick="() => ToggleAdvanced(plugin.Id)">
+                                    <Icon Name="chevron-right" Size="14" Class="advanced-chevron" />
+                                    <span>Advanced</span>
+                                </button>
+                                @if (advanced)
+                                {
+                                    <div class="advanced-fields">
+                                        @foreach (var field in plugin.ConfigFields.Where(f => f.Advanced))
+                                        {
+                                            var key = $"{plugin.Id}:{field.Key}";
+                                            <PluginConfigFieldEditor PluginId="@plugin.Id" Field="@field"
+                                                Value="@configValues.GetValueOrDefault(key, "")"
+                                                ValueChanged="@(v => ConfigChanged(key, v))" />
+                                        }
+                                    </div>
+                                }
+                            }
+                            <div class="settings-actions">
+                                <button class="btn-modern small primary" @onclick="() => SaveConfigAsync(plugin.Id)">Save settings</button>
+                            </div>
+                        </div>
+                    }
+                </div>
             }
         </article>
     }
@@ -234,8 +262,24 @@
         configValues = values;
     }
 
-    private void ConfigChanged(string key, ChangeEventArgs e)
-        => configValues[key] = e.Value?.ToString() ?? "";
+    private void ConfigChanged(string key, string value)
+        => configValues[key] = value;
+
+    /// <summary>Plugin ids whose Settings panel is expanded.</summary>
+    private readonly HashSet<string> openSettings = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Plugin ids whose Advanced fields are shown.</summary>
+    private readonly HashSet<string> advancedSettings = new(StringComparer.OrdinalIgnoreCase);
+
+    private void ToggleSettings(string id)
+    {
+        if (!openSettings.Add(id)) openSettings.Remove(id);
+    }
+
+    private void ToggleAdvanced(string id)
+    {
+        if (!advancedSettings.Add(id)) advancedSettings.Remove(id);
+    }
 
     /// <summary>Runs the yt-dlp update and shows the outcome.</summary>
     private async Task UpdateYtDlp()
@@ -330,16 +374,19 @@
         }
     }
 
-    /// <summary>The actionable reason a known plugin is down.</summary>
+    /// <summary>
+    /// The fallback reason a known plugin is down, used when the plugin
+    /// itself has nothing more specific to say.
+    /// </summary>
     private static string? AvailabilityHint(IDownloader plugin) => plugin.Id switch
     {
-        "ytdlp" or "soundcloud" => "yt-dlp is not installed or not on PATH",
-        "monochrome" => "the Monochrome API did not answer",
-        "slskd" => "set the slskd URL, API key and downloads folder on this card",
-        "qobuz" => "install qobuz-dlp and log in with a paid plan, or set a token on this card",
-        "deemix" => "the deemix CLI is not on PATH: set the command on this card (the Docker image ships it)",
-        "doubledouble" => "no doubledouble.top host answered",
-        "lucida" => "Cloudflare solver unavailable: set the FlareSolverr URL on the Settings page",
+        "ytdlp" or "soundcloud" => "yt-dlp is not installed",
+        "monochrome" => "The Monochrome API did not answer",
+        "slskd" => "Set the slskd URL and API key below",
+        "qobuz" => "Add your Qobuz token below, or log in with qobuz-dlp",
+        "deemix" => "Add your Deezer ARL below",
+        "doubledouble" => "No doubledouble.top host answered",
+        "lucida" => "Needs a Cloudflare solver: set the FlareSolverr URL in Settings",
         _ => null,
     };
 

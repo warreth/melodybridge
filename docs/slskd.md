@@ -23,11 +23,12 @@ collect the finished file.
            role: readwrite
    ```
 
-4. On the Plugins page, open the Soulseek card's **Settings** panel and fill
-   in the three fields: the slskd URL (`http://127.0.0.1:5030` by default),
-   the API key, and the downloads folder. The folder is the one slskd writes
-   finished transfers to, as MelodyBridge sees it; when both run in
-   containers, mount the same volume in both.
+4. On the Plugins page, open the Soulseek card's **Settings** row and fill in
+   the slskd URL (`http://127.0.0.1:5030` by default) and the API key.
+   MelodyBridge asks slskd where it writes finished downloads and reads the
+   file from there, so that folder must be visible to MelodyBridge too, at
+   the same path. When the paths differ (a container mount), set the path
+   MelodyBridge sees under **Advanced**.
 
 The plugin reports itself unavailable until all three fields are filled in and
 slskd is logged in to the network, so a half-finished setup never costs

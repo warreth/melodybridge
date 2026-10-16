@@ -86,3 +86,87 @@
     width: 32px;
     min-height: 32px;
 }
+
+/* Why a plugin is down: a quiet row with an icon instead of a full box,
+   so it reads as part of the card. */
+.plugin-note {
+    display: flex;
+    align-items: flex-start;
+    gap: .5rem;
+    padding: .55rem .7rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface-2);
+    color: var(--muted);
+    font-size: .85rem;
+    line-height: 1.45;
+}
+
+.plugin-note .icon { flex-shrink: 0; margin-top: .1rem; }
+
+/* The settings disclosure: a full-width row that opens into a panel,
+   instead of a native details triangle. */
+.plugin-settings {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    background: var(--surface-2);
+}
+
+.plugin-settings.open { background: transparent; }
+
+.settings-toggle {
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    width: 100%;
+    padding: .6rem .7rem;
+    border: 0;
+    background: transparent;
+    color: var(--muted);
+    font: inherit;
+    font-weight: 600;
+    text-align: left;
+    cursor: pointer;
+}
+
+.settings-toggle:hover { color: var(--foreground); }
+.settings-toggle .settings-chevron { margin-left: auto; transition: transform .15s ease; }
+.plugin-settings.open .settings-chevron { transform: rotate(180deg); }
+
+.settings-body {
+    display: grid;
+    gap: .9rem;
+    padding: .9rem .8rem 1rem;
+    border-top: 1px solid var(--border);
+    background: var(--surface-2);
+}
+
+/* Rarely touched knobs hide behind one more click. */
+.advanced-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: .35rem;
+    justify-self: start;
+    padding: .1rem 0;
+    border: 0;
+    background: transparent;
+    color: var(--muted);
+    font: inherit;
+    font-size: .85rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.advanced-toggle:hover { color: var(--foreground); }
+.advanced-toggle .advanced-chevron { transition: transform .15s ease; }
+.advanced-toggle[aria-expanded="true"] .advanced-chevron { transform: rotate(90deg); }
+
+.advanced-fields {
+    display: grid;
+    gap: .9rem;
+    padding-left: .8rem;
+    border-left: 2px solid var(--border);
+}
+
+.settings-actions { display: flex; justify-content: flex-end; }

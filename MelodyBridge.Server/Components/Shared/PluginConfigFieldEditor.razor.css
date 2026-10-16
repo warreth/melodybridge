@@ -1,0 +1,44 @@
+/* One plugin setting: label, input (or select, or secret with a reveal
+   button) and the note under it. The panel that holds these lives in
+   Plugins.razor.css. */
+
+.config-field {
+    display: grid;
+    gap: .35rem;
+}
+
+.config-field > label {
+    color: var(--muted);
+    font-size: .82rem;
+    font-weight: 700;
+}
+
+.config-hint {
+    color: var(--muted);
+    font-size: .8rem;
+    line-height: 1.45;
+    font-weight: 400;
+}
+
+.secret-input {
+    display: flex;
+    gap: .4rem;
+    align-items: center;
+}
+
+.secret-input input { flex: 1; min-width: 0; }
+
+.reveal-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    min-height: 40px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg);
+    color: var(--muted);
+    cursor: pointer;
+}
+
+.reveal-button:hover { color: var(--foreground); border-color: var(--border-strong); }

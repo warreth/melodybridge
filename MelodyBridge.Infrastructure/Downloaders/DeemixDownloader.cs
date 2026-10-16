@@ -42,12 +42,18 @@ public class DeemixDownloader : IDownloader
     public IReadOnlyList<PluginConfigField> ConfigFields =>
     [
         new(ArlKey, "Deezer ARL", null,
-            "Your Deezer ARL cookie (a paid plan gives 320 and FLAC). MelodyBridge writes it into deemix's config, so no interactive login is needed."),
+            "From deezer.com: copy the 'arl' cookie in your browser's developer tools. A paid plan gives 320 and FLAC.",
+            Secret: true),
         new(CommandKey, "deemix command", DefaultCommand,
-            "The deemix command. In Docker use \"docker exec Deemix deemix\"."),
+            "Only needed when the deemix CLI is not on PATH; the Docker image ships it.",
+            Advanced: true),
         new(DownloadsPathKey, "Downloads folder", null,
-            "The folder deemix writes to, as both deemix and MelodyBridge see it (mount it at the same path)."),
+            "Leave empty and MelodyBridge uses its own folder. Set it only when deemix runs elsewhere, for example through docker exec.",
+            Advanced: true),
     ];
+
+    /// <inheritdoc />
+    public string? LastUnavailableReason { get; private set; }
 
     // One CLI run at a time: deemix writes into a shared folder, and two
     // concurrent runs could pick each other's files.
@@ -62,16 +68,20 @@ public class DeemixDownloader : IDownloader
     /// <summary>Where the seeded ARL config lives; injectable for tests.</summary>
     private readonly string _dataDirectory;
 
+    /// <summary>Where downloads land when no folder is configured; injectable for tests.</summary>
+    private readonly string _defaultDownloadsDirectory;
+
     private readonly AvailabilityCache _availability = new();
 
     public DeemixDownloader(
         DeezerClient deezer, IPluginConfig config, ILogger<DeemixDownloader> logger,
-        string? dataDirectory = null)
+        string? dataDirectory = null, string? downloadsDirectory = null)
     {
         _deezer = deezer;
         _config = config;
         _logger = logger;
         _dataDirectory = dataDirectory ?? DefaultDataDirectory();
+        _defaultDownloadsDirectory = downloadsDirectory ?? DefaultDownloadsDirectory();
     }
 
     /// <summary>
@@ -93,11 +103,22 @@ public class DeemixDownloader : IDownloader
 
         var command = await CommandAsync(ct);
         var available = command is not null && CliRunner.Exists(command.Value.Executable);
+        LastUnavailableReason = available ? null : "The deemix command was not found";
         if (!available)
             _logger.LogDebug("deemix: the command is not configured or not on PATH");
         _availability.Store(available);
         return available;
     }
+
+    /// <summary>
+    /// Where deemix writes when the plugin has no folder configured: a
+    /// folder MelodyBridge owns, so the common Docker setup needs no
+    /// setting at all. Internal for tests.
+    /// </summary>
+    internal static string DefaultDownloadsDirectory()
+        => Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "melodybridge", "deemix-downloads");
 
     private async Task<(string Executable, IReadOnlyList<string> Arguments)?> CommandAsync(
         CancellationToken ct)
@@ -170,8 +191,7 @@ public class DeemixDownloader : IDownloader
 
         var downloadsPath = (await _config.GetAsync(Id, DownloadsPathKey, ct)).Trim();
         if (downloadsPath.Length == 0)
-            return new DownloaderDownloadResult(false, null,
-                "the deemix downloads folder is not configured");
+            downloadsPath = _defaultDownloadsDirectory;
 
         var bitrate = BitrateFor(quality ?? DownloadQuality.Any);
         if (bitrate is null)

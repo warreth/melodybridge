@@ -59,10 +59,15 @@ public class SlskdDownloader : IDownloader
         new(BaseUrlKey, "slskd URL", DefaultBaseUrl,
             "Base URL of your slskd instance, for example http://192.168.1.10:5030."),
         new(ApiKeyKey, "API key", null,
-            "A read-write API key from slskd's web.authentication.api_keys list."),
+            "A read-write API key from slskd's web.authentication.api_keys list.",
+            Secret: true),
         new(DownloadsPathKey, "Downloads folder", null,
-            "The folder slskd writes finished downloads to, as MelodyBridge sees it. Share this folder between the two."),
+            "MelodyBridge asks slskd for this folder; set it here only when the app sees it at another path.",
+            Advanced: true),
     ];
+
+    /// <inheritdoc />
+    public string? LastUnavailableReason { get; private set; }
 
     private readonly HttpClient _http;
     private readonly IPluginConfig _config;
@@ -111,8 +116,35 @@ public class SlskdDownloader : IDownloader
     private async Task<string> ApiKeyAsync(CancellationToken ct)
         => (await _config.GetAsync(Id, ApiKeyKey, ct)).Trim();
 
-    private async Task<string> DownloadsPathAsync(CancellationToken ct)
-        => (await _config.GetAsync(Id, DownloadsPathKey, ct)).Trim();
+    /// <summary>Cached folder slskd reported through its options API.</summary>
+    private string? _detectedDownloadsPath;
+
+    /// <summary>
+    /// The folder slskd writes finished downloads to: the configured
+    /// override, or the path slskd itself reports through its options
+    /// API (cached). Null when neither is available.
+    /// </summary>
+    private async Task<string?> DownloadsPathAsync(CancellationToken ct)
+    {
+        var configured = (await _config.GetAsync(Id, DownloadsPathKey, ct)).Trim();
+        if (configured.Length > 0) return configured;
+        if (_detectedDownloadsPath is not null) return _detectedDownloadsPath;
+
+        using var options = await SendJsonAsync(HttpMethod.Get, "/api/v0/options", null, ct);
+        if (options is not null &&
+            options.RootElement.TryGetProperty("directories", out var directories) &&
+            directories.ValueKind == JsonValueKind.Object)
+        {
+            var downloads = GetString(directories, "downloads");
+            if (!string.IsNullOrEmpty(downloads))
+            {
+                _detectedDownloadsPath = downloads;
+                _logger.LogDebug("slskd reports its downloads folder as {Folder}", downloads);
+                return downloads;
+            }
+        }
+        return null;
+    }
 
     // ── Availability ─────────────────────────────────────────────────────
 
@@ -123,9 +155,10 @@ public class SlskdDownloader : IDownloader
 
         // Not configured is not available, exactly like a missing binary:
         // the waterfall skips the plugin without a single request.
-        if ((await ApiKeyAsync(ct)).Length == 0 || (await DownloadsPathAsync(ct)).Length == 0)
+        if ((await ApiKeyAsync(ct)).Length == 0)
         {
-            _logger.LogDebug("slskd is not configured: set the API key and downloads folder on the Plugins page");
+            LastUnavailableReason = "Set the slskd API key";
+            _logger.LogDebug("slskd: no API key configured");
             _availability.Store(false);
             return false;
         }
@@ -135,11 +168,29 @@ public class SlskdDownloader : IDownloader
             using var probe = CancellationTokenSource.CreateLinkedTokenSource(ct);
             probe.CancelAfter(HealthTimeout);
             using var application = await SendJsonAsync(HttpMethod.Get, "/api/v0/application", null, probe.Token);
-            var available = application is not null && IsServerLoggedIn(application.RootElement);
-            if (!available)
+            if (application is null)
+            {
+                LastUnavailableReason = "slskd did not answer (check the URL and API key)";
+                _availability.Store(false);
+                return false;
+            }
+            if (!IsServerLoggedIn(application.RootElement))
+            {
+                LastUnavailableReason = "slskd is not logged in to Soulseek";
                 _logger.LogDebug("slskd is reachable but not logged in to the Soulseek network");
-            _availability.Store(available);
-            return available;
+                _availability.Store(false);
+                return false;
+            }
+            if (await DownloadsPathAsync(probe.Token) is null)
+            {
+                LastUnavailableReason = "slskd's downloads folder could not be read";
+                _availability.Store(false);
+                return false;
+            }
+
+            LastUnavailableReason = null;
+            _availability.Store(true);
+            return true;
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -147,6 +198,7 @@ public class SlskdDownloader : IDownloader
         }
         catch (Exception ex)
         {
+            LastUnavailableReason = "slskd did not answer (check the URL and API key)";
             _logger.LogDebug(ex, "slskd health probe failed");
             _availability.Store(false);
             return false;
@@ -393,8 +445,9 @@ public class SlskdDownloader : IDownloader
             return new DownloaderDownloadResult(false, null, "not a Soulseek transfer reference: " + sourceUrl);
 
         var downloadsPath = await DownloadsPathAsync(ct);
-        if (downloadsPath.Length == 0)
-            return new DownloaderDownloadResult(false, null, "the slskd downloads folder is not configured");
+        if (downloadsPath is null)
+            return new DownloaderDownloadResult(false, null,
+                "slskd's downloads folder could not be read (set it under Advanced)");
 
         try
         {

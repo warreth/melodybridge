@@ -41,13 +41,24 @@ public class QobuzDownloader : IDownloader
 
     public IReadOnlyList<PluginConfigField> ConfigFields =>
     [
+        new(TokenKey, "Qobuz token", null,
+            "From play.qobuz.com: copy the X-User-Auth-Token header of an api.json request in the Network tab. A paid plan is required to download.",
+            Secret: true),
+        new(QualityKey, "FLAC quality", null,
+            "How high lossless goes; MP3 requests always use the 320 tier.",
+            Options:
+            [
+                new("6", "16-bit / 44.1 kHz (CD quality)"),
+                new("7", "24-bit up to 96 kHz"),
+                new("27", "24-bit above 96 kHz"),
+            ]),
         new(CommandKey, "qobuz-dlp command", DefaultCommand,
-            "The qobuz-dlp command, for example a full path when it is not on PATH."),
-        new(TokenKey, "User auth token (optional)", null,
-            "Used for the search. Empty reads qobuz-dlp's own token file, so a logged-in qobuz-dlp just works."),
-        new(QualityKey, "FLAC quality", DefaultQuality,
-            "6 = 16/44 lossless, 7 = 24-bit up to 96 kHz, 27 = 24-bit above 96 kHz."),
+            "Only needed when qobuz-dlp is not on PATH; the Docker image ships it.",
+            Advanced: true),
     ];
+
+    /// <inheritdoc />
+    public string? LastUnavailableReason { get; private set; }
 
     // One CLI run at a time: qobuz-dlp keeps a small database and log in
     // its config folder, and serial runs keep that clean.
@@ -101,7 +112,15 @@ public class QobuzDownloader : IDownloader
         var command = await CommandAsync(ct);
         if (command is null || !CliRunner.Exists(command.Value.Executable))
         {
+            LastUnavailableReason = "qobuz-dlp is not installed on this system";
             _logger.LogDebug("qobuz: the qobuz-dlp command is not configured or not on PATH");
+            _availability.Store(false);
+            return false;
+        }
+
+        if (await _qobuz.GetBundleAsync(ct) is null)
+        {
+            LastUnavailableReason = "The Qobuz web player could not be reached";
             _availability.Store(false);
             return false;
         }
@@ -109,17 +128,30 @@ public class QobuzDownloader : IDownloader
         var token = await TokenAsync(ct);
         if (token is null)
         {
+            LastUnavailableReason = "No Qobuz token yet";
             _logger.LogDebug("qobuz: no token configured and qobuz-dlp has no token file");
             _availability.Store(false);
             return false;
         }
 
         var account = await _qobuz.ValidateTokenAsync(token, ct);
-        var available = account is { CanDownload: true };
-        if (account is not null && !account.CanDownload)
+        if (account is null)
+        {
+            LastUnavailableReason = "The Qobuz token was rejected";
+            _availability.Store(false);
+            return false;
+        }
+        if (!account.CanDownload)
+        {
+            LastUnavailableReason = "This Qobuz plan cannot download (a paid plan is required)";
             _logger.LogInformation("Qobuz: this account cannot download (a paid plan is required)");
-        _availability.Store(available);
-        return available;
+            _availability.Store(false);
+            return false;
+        }
+
+        LastUnavailableReason = null;
+        _availability.Store(true);
+        return true;
     }
 
     private async Task<(string Executable, IReadOnlyList<string> Arguments)?> CommandAsync(

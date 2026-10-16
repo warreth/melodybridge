@@ -130,11 +130,17 @@ public class PluginsPageTests
     }
 
     [Test]
-    public void Plugins_ConfigFields_Render_InPanel()
+    public void Plugins_ConfigFields_OpenFromTheSettingsRow()
     {
-        // Rebuild the registry with a plugin that has config fields.
+        // Rebuild the registry with a plugin that has config fields,
+        // including one advanced and one secret field.
         var configured = new TestDownloader("ytdlp", "yt-dlp (YouTube)",
-            new[] { new PluginConfigField("extractor", "Search preference", "ytmsearch1") });
+            new[]
+            {
+                new PluginConfigField("extractor", "Search preference", "ytmsearch1"),
+                new PluginConfigField("command", "Command", null, "Advanced knob", Advanced: true),
+                new PluginConfigField("key", "API key", null, null, Secret: true),
+            });
         _registry.Setup(r => r.GetAll()).Returns(new List<IDownloader> { configured });
         _registry.Setup(r => r.GetEnabled()).Returns(new List<IDownloader> { configured });
         _registry.Setup(r => r.GetConfigAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
@@ -142,16 +148,60 @@ public class PluginsPageTests
 
         var cut = _ctx.Render<Plugins>();
 
-        Assert.That(cut.Markup, Does.Contain("Settings"), "plugins with fields get an expandable panel");
-        Assert.That(cut.Markup, Does.Contain("Search preference"), "field label renders");
-        Assert.That(cut.Markup, Does.Contain("Save settings"), "panel has a save button");
+        // Collapsed: the row exists, the fields stay out of the DOM.
+        Assert.That(cut.Markup, Does.Contain("Settings"), "plugins with fields get a settings row");
+        Assert.That(cut.Markup, Does.Not.Contain("Search preference"), "fields stay hidden until opened");
+
+        cut.Find("button.settings-toggle").Click();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(cut.Markup, Does.Contain("Search preference"), "field label renders");
+            Assert.That(cut.Markup, Does.Contain("Save settings"), "panel has a save button");
+            Assert.That(cut.Markup, Does.Not.Contain("Advanced knob"),
+                "advanced fields stay behind the advanced toggle");
+            Assert.That(cut.FindAll("input[type=password]").Count, Is.EqualTo(1),
+                "secret fields render as password inputs");
+        });
+
+        cut.Find("button.advanced-toggle").Click();
+        Assert.That(cut.Markup, Does.Contain("Advanced knob"), "advanced fields appear on demand");
+    }
+
+    [Test]
+    public void Plugins_ChoiceField_RendersAsSelect()
+    {
+        var configured = new TestDownloader("qobuz", "Qobuz",
+            new[]
+            {
+                new PluginConfigField("quality", "FLAC quality", null, null,
+                    Options: new[]
+                    {
+                        new PluginConfigChoice("6", "CD quality"),
+                        new PluginConfigChoice("27", "Hi-res"),
+                    }),
+            });
+        _registry.Setup(r => r.GetAll()).Returns(new List<IDownloader> { configured });
+        _registry.Setup(r => r.GetEnabled()).Returns(new List<IDownloader> { configured });
+
+        var cut = _ctx.Render<Plugins>();
+        cut.Find("button.settings-toggle").Click();
+
+        var select = cut.Find("select");
+        Assert.Multiple(() =>
+        {
+            Assert.That(select.QuerySelectorAll("option").Length, Is.EqualTo(2),
+                "a field with options renders as a select");
+            Assert.That(select.QuerySelector("option[selected]")?.GetAttribute("value"), Is.EqualTo("6"),
+                "an unset value shows the first option");
+        });
     }
 
     [Test]
     public void Plugins_WithoutConfigFields_HaveNoPanel()
     {
         var cut = _ctx.Render<Plugins>();
-        var panels = cut.FindAll("details.plugin-config");
-        Assert.That(panels.Count, Is.EqualTo(0), "no fields declared, no panel rendered");
+        Assert.That(cut.FindAll("button.settings-toggle").Count, Is.EqualTo(0),
+            "no fields declared, no settings row rendered");
     }
 }

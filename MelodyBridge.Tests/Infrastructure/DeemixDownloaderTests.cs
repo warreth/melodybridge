@@ -40,7 +40,8 @@ public class DeemixDownloaderTests
         long id, string title, string artist, int duration, string? isrc = null)
         => new(id, title, artist, TimeSpan.FromSeconds(duration), isrc);
 
-    private static DeemixDownloader Create(StubPluginConfig? config = null, string? dataDir = null)
+    private static DeemixDownloader Create(
+        StubPluginConfig? config = null, string? dataDir = null, string? downloadsDir = null)
     {
         var http = new HttpClient(new HttpClientHandler())
         {
@@ -50,7 +51,7 @@ public class DeemixDownloaderTests
             new DeezerClient(http, NullLogger<DeezerClient>.Instance),
             config ?? new StubPluginConfig(),
             NullLogger<DeemixDownloader>.Instance,
-            dataDir);
+            dataDir, downloadsDir);
     }
 
     // ── Ranking ──────────────────────────────────────────────────────────
@@ -226,18 +227,25 @@ public class DeemixDownloaderTests
     }
 
     [Test]
-    public async Task Download_UnconfiguredDownloadsFolder_Fails()
+    public async Task Download_WithoutAConfiguredFolder_UsesThePluginsOwnFolder()
     {
-        var config = new StubPluginConfig();
-        config.Set("deemix", "command", "sh");
+        if (OperatingSystem.IsWindows()) Assert.Ignore("POSIX shell stub");
 
-        var result = await Create(config).DownloadAsync(
-            "https://www.deezer.com/track/3135556", NewDir(), "mb-nopath");
+        var toolDir = NewDir();
+        var ownFolder = Path.Combine(NewDir(), "deemix-downloads");
+        var script = CliStub.Producing(toolDir);
+        var config = new StubPluginConfig();
+        config.Set("deemix", "command", script);
+        var plugin = Create(config, dataDir: null, downloadsDir: ownFolder);
+
+        var result = await plugin.DownloadAsync(
+            "https://www.deezer.com/track/3135556", NewDir(), "mb-own");
 
         Assert.Multiple(() =>
         {
-            Assert.That(result.Success, Is.False);
-            Assert.That(result.ErrorMessage, Does.Contain("downloads folder is not configured"));
+            Assert.That(result.Success, Is.True, result.ErrorMessage);
+            Assert.That(CliStub.RecordedArguments(script), Does.Contain(ownFolder),
+                "without a configured folder the plugin uses its own");
         });
     }
 
