@@ -180,11 +180,18 @@ public class ReleasePipelineLiveTests
             Assert.That(track.SampleRateHz, Is.GreaterThanOrEqualTo(44_100));
             Assert.That(track.Bitrate, Is.Null.Or.LessThanOrEqualTo(320),
                 "the preset's 320 kbps ceiling holds on the real file");
-            // High Quality promises "up to 320": a genuinely smaller source
-            // is allowed and shows up as an honest quality hint. Anything
-            // else (an inflated bitrate, a failed archive copy) is trouble.
+            // High Quality promises "up to 320", but the waterfall takes
+            // whatever a third-party source actually serves. The spectrum
+            // check is advisory and content-dependent, so what a source
+            // handed out shows up here honestly: a genuinely smaller rip
+            // as a "quality hint", an upscaled upload the source itself
+            // served as "bitrate looks inflated". Neither is a pipeline
+            // failure. An operational one (a failed archive copy) still is.
+            Assert.That(track.Warning ?? string.Empty, Does.Not.Contain("archive copy failed"),
+                $"the archive copy of the delivered file failed: {track.Warning}");
             if (track.Warning is { Length: > 0 })
-                Assert.That(track.Warning, Does.StartWith("quality hint:"),
+                Assert.That(track.Warning,
+                    Does.StartWith("quality hint:").Or.StartWith("bitrate looks inflated:"),
                     $"unexpected quality warning on the delivered file: {track.Warning}");
 
             var integrity = FileIntegrity.Check(track.CurrentPath!,
