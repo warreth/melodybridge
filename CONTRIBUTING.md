@@ -21,8 +21,11 @@ dotnet test MelodyBridge.sln   # fast suite
 ```
 
 Live tests need yt-dlp and ffmpeg on PATH and hit the real network. The
-slskd live tests need a connected slskd instance and skip without
-`SLSKD_URL`, `SLSKD_API_KEY` and `SLSKD_DOWNLOADS_PATH`:
+slskd live tests need a connected slskd instance (`SLSKD_URL`,
+`SLSKD_API_KEY`, `SLSKD_DOWNLOADS_PATH`), the Qobuz tests a token
+(`QOBUZ_TOKEN` or qobuz-dlp's token file) plus `QOBUZ_DLP_COMMAND`, and the
+Deezer CLI tests `DEEMIX_COMMAND`, `DEEMIX_DOWNLOADS_PATH` and
+`DEEMIX_CLI_JS`. Each group skips without its setup:
 
 ```bash
 dotnet test MelodyBridge.sln --filter "Category=PlaylistStore|Category=Live"

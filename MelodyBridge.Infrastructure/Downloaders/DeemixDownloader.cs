@@ -1,3 +1,4 @@
+using System.Text.Json;
 using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.Audio;
 using MelodyBridge.Infrastructure.Deezer;
@@ -23,6 +24,7 @@ public class DeemixDownloader : IDownloader
     public const string DefaultCommand = "deemix";
     private const string CommandKey = "command";
     private const string DownloadsPathKey = "downloads_path";
+    private const string ArlKey = "arl";
 
     // deemix downloads the best available quality up to the requested
     // maximum, and falls back within the account's tier on its own.
@@ -39,6 +41,8 @@ public class DeemixDownloader : IDownloader
 
     public IReadOnlyList<PluginConfigField> ConfigFields =>
     [
+        new(ArlKey, "Deezer ARL", null,
+            "Your Deezer ARL cookie (a paid plan gives 320 and FLAC). MelodyBridge writes it into deemix's config, so no interactive login is needed."),
         new(CommandKey, "deemix command", DefaultCommand,
             "The deemix command. In Docker use \"docker exec Deemix deemix\"."),
         new(DownloadsPathKey, "Downloads folder", null,
@@ -54,15 +58,31 @@ public class DeemixDownloader : IDownloader
     private readonly DeezerClient _deezer;
     private readonly IPluginConfig _config;
     private readonly ILogger<DeemixDownloader> _logger;
+
+    /// <summary>Where the seeded ARL config lives; injectable for tests.</summary>
+    private readonly string _dataDirectory;
+
     private readonly AvailabilityCache _availability = new();
 
     public DeemixDownloader(
-        DeezerClient deezer, IPluginConfig config, ILogger<DeemixDownloader> logger)
+        DeezerClient deezer, IPluginConfig config, ILogger<DeemixDownloader> logger,
+        string? dataDirectory = null)
     {
         _deezer = deezer;
         _config = config;
         _logger = logger;
+        _dataDirectory = dataDirectory ?? DefaultDataDirectory();
     }
+
+    /// <summary>
+    /// The deemix config folder MelodyBridge manages
+    /// (<c>%LOCALAPPDATA%</c> or <c>~/.local/share</c> plus
+    /// <c>melodybridge/deemix</c>). Internal for tests.
+    /// </summary>
+    internal static string DefaultDataDirectory()
+        => Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "melodybridge", "deemix");
 
     // ── Availability ─────────────────────────────────────────────────────
 
@@ -163,6 +183,11 @@ public class DeemixDownloader : IDownloader
             $"mb-{(melodyId is { Length: > 0 } ? melodyId : Guid.NewGuid().ToString("N")[..8])}");
         Directory.CreateDirectory(downloadDir);
 
+        // With an ARL configured, MelodyBridge owns deemix's config: the
+        // login is seeded so the CLI never prompts, whatever state the
+        // container is in.
+        var environment = await SeedArlAsync(ct);
+
         await RunGate.WaitAsync(ct);
         try
         {
@@ -176,7 +201,7 @@ public class DeemixDownloader : IDownloader
                 command.Value.Executable, string.Join(" ", arguments));
 
             var result = await CliRunner.RunAsync(
-                command.Value.Executable, arguments, RunTimeout, ct);
+                command.Value.Executable, arguments, RunTimeout, ct, environment);
             if (!result.Success)
             {
                 var reason = DescribeFailure(result);
@@ -216,6 +241,23 @@ public class DeemixDownloader : IDownloader
             RunGate.Release();
             try { Directory.Delete(downloadDir, recursive: true); } catch { /* best effort */ }
         }
+    }
+
+    /// <summary>
+    /// Writes the ARL into deemix's config folder and returns the env
+    /// that points the CLI at it; null when no ARL is configured, in which
+    /// case the tool's own login is used. Internal for tests.
+    /// </summary>
+    internal async Task<IReadOnlyDictionary<string, string>?> SeedArlAsync(CancellationToken ct)
+    {
+        var arl = (await _config.GetAsync(Id, ArlKey, ct)).Trim();
+        if (arl.Length == 0) return null;
+
+        Directory.CreateDirectory(_dataDirectory);
+        await File.WriteAllTextAsync(
+            Path.Combine(_dataDirectory, "login.json"),
+            JsonSerializer.Serialize(new { arl }), ct);
+        return new Dictionary<string, string> { ["DEEMIX_DATA_DIR"] = _dataDirectory };
     }
 
     /// <summary>The deemix -b value for a quality, or null when nothing fits.</summary>

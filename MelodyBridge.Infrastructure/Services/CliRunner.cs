@@ -40,9 +40,12 @@ public static class CliRunner
     /// <summary>
     /// Runs the tool; a timeout or a missing executable comes back as a
     /// non-zero result with the reason in stderr, never an exception.
+    /// The optional environment entries are added to the child process,
+    /// which is how the plugins point the tools at their config folders.
     /// </summary>
     public static async Task<Result> RunAsync(
-        string executable, IReadOnlyList<string> arguments, TimeSpan timeout, CancellationToken ct)
+        string executable, IReadOnlyList<string> arguments, TimeSpan timeout, CancellationToken ct,
+        IReadOnlyDictionary<string, string>? environment = null)
     {
         var path = executable.Contains('/') || executable.Contains(Path.DirectorySeparatorChar)
             ? executable
@@ -60,6 +63,11 @@ public static class CliRunner
         };
         foreach (var arg in arguments)
             psi.ArgumentList.Add(arg);
+        if (environment is not null)
+        {
+            foreach (var (key, value) in environment)
+                psi.Environment[key] = value;
+        }
 
         Process? process;
         try

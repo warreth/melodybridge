@@ -60,13 +60,36 @@ public class QobuzDownloader : IDownloader
     private readonly ILogger<QobuzDownloader> _logger;
     private readonly AvailabilityCache _availability = new();
 
+    /// <summary>%APPDATA% on Windows, the home folder elsewhere; injectable for tests.</summary>
+    private readonly string _homeRoot;
+
     public QobuzDownloader(
-        QobuzClient qobuz, IPluginConfig config, ILogger<QobuzDownloader> logger)
+        QobuzClient qobuz, IPluginConfig config, ILogger<QobuzDownloader> logger,
+        string? homeRoot = null)
     {
         _qobuz = qobuz;
         _config = config;
         _logger = logger;
+        _homeRoot = homeRoot ?? DefaultHomeRoot();
     }
+
+    /// <summary>The root qobuz-dlp resolves its config folder from. Internal for tests.</summary>
+    internal static string DefaultHomeRoot()
+        => OperatingSystem.IsWindows()
+            ? Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData)
+            : Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+
+    /// <summary>qobuz-dlp's config folder as the tool computes it.</summary>
+    private string ToolConfigFolder
+        => OperatingSystem.IsWindows()
+            ? Path.Combine(_homeRoot, "qobuz-dl")
+            : Path.Combine(_homeRoot, ".config", "qobuz-dl");
+
+    /// <summary>The env that makes the CLI read exactly that config folder.</summary>
+    private IReadOnlyDictionary<string, string> ToolEnvironment()
+        => OperatingSystem.IsWindows()
+            ? new Dictionary<string, string> { ["APPDATA"] = _homeRoot }
+            : new Dictionary<string, string> { ["HOME"] = _homeRoot };
 
     // ── Availability ─────────────────────────────────────────────────────
 
@@ -114,8 +137,57 @@ public class QobuzDownloader : IDownloader
     private async Task<string?> TokenAsync(CancellationToken ct)
     {
         var configured = (await _config.GetAsync(Id, TokenKey, ct)).Trim();
-        return configured.Length > 0 ? configured : ReadQobuzDlpTokenFile();
+        return configured.Length > 0 ? configured : ReadTokenFile(ToolConfigFolder);
     }
+
+    /// <summary>
+    /// Makes sure qobuz-dlp has a config it can run with: the app id,
+    /// private key and secrets scraped from the web player, plus the user
+    /// token when the plugin has one. Without this the CLI would stop for
+    /// an interactive first-run setup. Internal for tests.
+    /// </summary>
+    internal async Task EnsureToolConfigAsync(string token, CancellationToken ct)
+    {
+        var folder = ToolConfigFolder;
+        Directory.CreateDirectory(folder);
+
+        var configPath = Path.Combine(folder, "config.ini");
+        if (!File.Exists(configPath))
+        {
+            var bundle = await _qobuz.GetBundleAsync(ct);
+            if (bundle is null)
+            {
+                _logger.LogWarning("Qobuz: could not scrape the web player bundle for the CLI config");
+                return;
+            }
+            await File.WriteAllTextAsync(configPath, BuildConfigIni(bundle), ct);
+        }
+
+        if (token.Length > 0)
+            await File.WriteAllTextAsync(Path.Combine(folder, ".qobuz_dl.oauth.txt"), token, ct);
+    }
+
+    /// <summary>The qobuz-dlp config file contents. Internal for tests.</summary>
+    internal static string BuildConfigIni(QobuzClient.BundleInfo bundle) => $$"""
+        [DEFAULT]
+        default_folder = Qobuz Downloads
+        default_quality = 6
+        default_limit = 20
+        no_m3u = false
+        albums_only = false
+        no_fallback = false
+        og_cover = false
+        embed_art = false
+        no_cover = false
+        no_database = false
+        app_id = {{bundle.AppId}}
+        private_key = {{bundle.PrivateKey}}
+        secrets = {{string.Join(",", bundle.Secrets)}}
+        folder_format = {artist} - {album} ({year})
+        track_format = {tracknumber}. {tracktitle}
+        smart_discography = false
+        booklet_only = false
+        """;
 
     /// <summary>
     /// qobuz-dlp's stored OAuth token. The tool's config folder changed
@@ -222,6 +294,12 @@ public class QobuzDownloader : IDownloader
             $".mb-qobuz-{(melodyId is { Length: > 0 } ? melodyId : Guid.NewGuid().ToString("N")[..8])}");
         Directory.CreateDirectory(tempDir);
 
+        // The CLI needs its own config (app id and secrets, scraped from
+        // the web player) and, when the plugin has one, the user token;
+        // seed both so it never stops for an interactive setup.
+        var token = await TokenAsync(ct);
+        await EnsureToolConfigAsync(token ?? "", ct);
+
         await RunGate.WaitAsync(ct);
         try
         {
@@ -239,7 +317,7 @@ public class QobuzDownloader : IDownloader
                 command.Value.Executable, string.Join(" ", arguments));
 
             var result = await CliRunner.RunAsync(
-                command.Value.Executable, arguments, RunTimeout, ct);
+                command.Value.Executable, arguments, RunTimeout, ct, ToolEnvironment());
             if (!result.Success)
             {
                 var reason = DescribeFailure(result);

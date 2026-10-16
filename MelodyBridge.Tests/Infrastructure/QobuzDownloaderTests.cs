@@ -39,16 +39,52 @@ public class QobuzDownloaderTests
         long id, string title, string artist, int duration, string? isrc = null, bool hires = false)
         => new(id, title, artist, TimeSpan.FromSeconds(duration), isrc, hires ? 24 : 16, hires);
 
-    private static QobuzDownloader Create(StubPluginConfig? config = null)
+    private sealed class StubHttpMessageHandler : HttpMessageHandler
     {
-        var http = new HttpClient
+        public Func<HttpRequestMessage, HttpResponseMessage> Respond { get; set; } =
+            _ => new HttpResponseMessage(System.Net.HttpStatusCode.NotFound);
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken ct)
+            => Task.FromResult(Respond(request));
+    }
+
+    private static HttpResponseMessage Text(string body, string type)
+        => new(System.Net.HttpStatusCode.OK)
         {
-            BaseAddress = new Uri("https://www.qobuz.com"),
+            Content = new StringContent(body, System.Text.Encoding.UTF8, type),
+        };
+
+    /// <summary>The synthetic web player bundle the config seeding reads.</summary>
+    private static HttpResponseMessage BundleRespond(HttpRequestMessage request)
+    {
+        if (request.RequestUri!.AbsolutePath.Contains("bundle.js"))
+            return Text(
+                """
+                production:{api:{appId:"798273057",appSecret:"0123456789abcdef0123456789abcdef"}
+                privateKey:"c8f4b3a2d1"
+                a.initialSeed("ZjY5YTc3MzQ2ODZjYjk0Mjc2MjkzNz",window.utimezone.london)
+                b.initialSeed("ODA2MzMxYzNiMGI2NDFkYTkyM2I4OT",window.utimezone.abidjan)
+                c.initialSeed("YWJiMjEzNjQ5NDVjMDU4MzMwOTY2N2",window.utimezone.berlin)
+                name:"app/Abidjan",info:"BhZWQwMWQwNGE=NTI2OGQwY2ZmZD",extras:"UwNGZkYzliMTRhY2YxYzI3MzExOWE="
+                name:"app/London",info:"hhNGI3YWMzODE=MTlkMTI1OWM1Nj",extras:"VkNDNlNDg2OWU2MjU1YWUxYTdmZTU="
+                name:"app/Berlin",info:"QxM2NhM2Q5M2E=ZWI4MDU5YWEyNT",extras:"RlNDZjNTkyNTAzYjdkZGMwOGI5MGQ="
+                """, "application/javascript");
+        return Text("<html><script src=\"/resources/8.2.0-b034/bundle.js\"></script></html>",
+            "text/html");
+    }
+
+    private static QobuzDownloader Create(StubPluginConfig? config = null, string? homeRoot = null)
+    {
+        var http = new HttpClient(new StubHttpMessageHandler { Respond = BundleRespond })
+        {
+            BaseAddress = new Uri("https://play.qobuz.com"),
         };
         return new QobuzDownloader(
             new QobuzClient(http, NullLogger<QobuzClient>.Instance),
             config ?? new StubPluginConfig(),
-            NullLogger<QobuzDownloader>.Instance);
+            NullLogger<QobuzDownloader>.Instance,
+            homeRoot);
     }
 
     // ── Ranking ──────────────────────────────────────────────────────────
@@ -146,7 +182,7 @@ public class QobuzDownloaderTests
         var script = CliStub.Producing(toolDir);
         var config = new StubPluginConfig();
         config.Set("qobuz", "command", script);
-        var plugin = Create(config);
+        var plugin = Create(config, NewDir());
 
         var result = await plugin.DownloadAsync(
             "https://play.qobuz.com/track/5966783", output, "mb-qobuz-1",
@@ -183,7 +219,7 @@ public class QobuzDownloaderTests
         config.Set("qobuz", "command", script);
         config.Set("qobuz", "quality", "27");
 
-        var result = await Create(config).DownloadAsync(
+        var result = await Create(config, NewDir()).DownloadAsync(
             "https://play.qobuz.com/track/5966783", NewDir(), "mb-hires",
             new DownloadQuality(AudioFormat.Flac));
 
@@ -200,7 +236,7 @@ public class QobuzDownloaderTests
         var config = new StubPluginConfig();
         config.Set("qobuz", "command",
             CliStub.Producing(toolDir, exitCode: 1, stderr: "Login expired"));
-        var plugin = Create(config);
+        var plugin = Create(config, NewDir());
 
         var result = await plugin.DownloadAsync(
             "https://play.qobuz.com/track/5966783", NewDir(), "mb-fail");
@@ -231,6 +267,54 @@ public class QobuzDownloaderTests
             Assert.That(result.Success, Is.False);
             Assert.That(result.ErrorMessage, Does.Contain("no qobuz-dlp quality fits"));
             Assert.That(CliStub.RecordedArguments(script), Is.Empty, "the CLI never ran");
+        });
+    }
+
+    [Test]
+    public async Task Download_SeedsTheQobuzDlpConfigAndToken()
+    {
+        if (OperatingSystem.IsWindows()) Assert.Ignore("POSIX shell stub");
+
+        var home = NewDir();
+        var toolDir = NewDir();
+        var script = CliStub.Custom(toolDir, "cli.sh",
+            """
+            rec="$(dirname "$0")/record.txt"
+            echo "home=$HOME" > "$rec"
+            cat "$HOME/.config/qobuz-dl/config.ini" >> "$rec"
+            echo "---token---" >> "$rec"
+            cat "$HOME/.config/qobuz-dl/.qobuz_dl.oauth.txt" >> "$rec"
+            dir=""
+            prev=""
+            for a in "$@"; do
+              if [ "$prev" = "--directory" ]; then dir="$a"; fi
+              prev="$a"
+            done
+            mkdir -p "$dir"
+            printf 'fLaC' > "$dir/Artist - Song.flac"
+            exit 0
+            """);
+        var config = new StubPluginConfig();
+        config.Set("qobuz", "command", script);
+        config.Set("qobuz", "user_auth_token", "token-xyz");
+        var plugin = Create(config, home);
+
+        var result = await plugin.DownloadAsync(
+            "https://play.qobuz.com/track/5966783", NewDir(), "mb-seed");
+
+        var record = File.ReadAllText(Path.Combine(toolDir, "record.txt"));
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.True, result.ErrorMessage);
+            Assert.That(record, Does.Contain($"home={home}"),
+                "the CLI must read the config folder the plugin manages");
+            Assert.That(record, Does.Contain("app_id = 798273057"),
+                "the scraped app id reaches the CLI config");
+            Assert.That(record, Does.Contain("private_key = c8f4b3a2d1"));
+            Assert.That(record, Does.Contain("secrets = "));
+            Assert.That(record, Does.Contain("---token---"));
+            Assert.That(record, Does.Contain("token-xyz"),
+                "the plugin token reaches the CLI's token file");
         });
     }
 

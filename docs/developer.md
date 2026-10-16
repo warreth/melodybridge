@@ -113,8 +113,8 @@ Implement this to add a download source. Built-in plugins:
 | `LucidaDownloader` | `lucida` | lucida.to (Tidal, Qobuz, Amazon Music) | High quality rips; needs a Cloudflare solver, otherwise skipped; Qobuz/Amazon are searched by ISRC first; the load API has no quality parameter, so its manifest is honest-but-uncontrollable |
 | `MonochromeDownloader` | `monochrome` | tracks.monochrome.st (official Monochrome API) | Lossless FLAC streams over a plain GET, no account needed; search hits carry an ISRC, which narrows the pool to the exact recording; the base URL is configurable per plugin for mirrors |
 | `SlskdDownloader` | `slskd` | Soulseek, through the user's own slskd instance | Lossless FLAC and high-bitrate MP3/AAC from peers; search and transfer run over slskd's REST API with an API key; locked files and undeclared containers are skipped; the finished file moves out of slskd's downloads folder; unavailable until the URL, key and downloads folder are configured |
-| `QobuzDownloader` | `qobuz` | qobuz-dlp (the user's own) | Lossless and hi-res from a paid Qobuz plan; the search runs natively (bundle scrape plus a user token), the download through the CLI into a hidden per-track folder; unavailable until the command and a valid token are found |
-| `DeemixDownloader` | `deemix` | deemix CLI (the user's own) | Deezer MP3/FLAC with the user's ARL; the search runs against Deezer's public API, the download through the CLI (local binary or `docker exec`); runs are serialized and the finished file moves out of the downloads folder |
+| `QobuzDownloader` | `qobuz` | qobuz-dlp (shipped in the Docker image) | Lossless and hi-res from a paid Qobuz plan; the search runs natively (bundle scrape plus a user token), the download through the CLI into a hidden per-track folder; the plugin seeds the CLI config (app id, private key, secrets) and its token file, so no interactive login is needed; unavailable until the command and a valid token are found |
+| `DeemixDownloader` | `deemix` | deemix CLI (shipped in the Docker image, runs on Node) | Deezer MP3/FLAC with the user's ARL; the search runs against Deezer's public API, the download through the CLI; the ARL setting is written into deemix's config (through `DEEMIX_DATA_DIR`) before every run, so the CLI never prompts; runs are serialized and the finished file moves out of the downloads folder |
 | `DoubleDoubleDownloader` | `doubledouble` | us./eu.doubledouble.top | Submit-and-poll rips of direct track URLs (Tidal, Qobuz, Deezer, Amazon); `SearchAsync` returns null by design, the site search is captcha-gated; no quality parameter, so its manifest is uncontrollable too |
 | `SoundCloudDownloader` | `soundcloud` | SoundCloud (via yt-dlp `scsearch`) | Original uploads, often 320 kbps; top-5 ranked; rejects files under 128 kbps |
 | `ArchiveOrgDownloader` | `archiveorg` | Internet Archive (public JSON APIs) | Public-domain and community recordings; picks the matching file inside a multi-track item, not the first one; rejects files under 128 kbps |
@@ -331,7 +331,10 @@ dotnet test MelodyBridge.sln --filter "FullyQualifiedName!~Tests.Integration"
 
 ```bash [Live suite]
 # needs yt-dlp on PATH + ffprobe; the slskd tests also need
-# SLSKD_URL, SLSKD_API_KEY and SLSKD_DOWNLOADS_PATH (skipped without)
+# SLSKD_URL, SLSKD_API_KEY and SLSKD_DOWNLOADS_PATH; the premium tests
+# need QOBUZ_TOKEN (or qobuz-dlp's token file) plus QOBUZ_DLP_COMMAND,
+# and DEEMIX_COMMAND, DEEMIX_DOWNLOADS_PATH and DEEMIX_CLI_JS for deemix
+# (each group is skipped without its setup)
 dotnet test MelodyBridge.sln --filter "Category=PlaylistStore|Category=Live"
 ```
 :::

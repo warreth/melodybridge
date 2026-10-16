@@ -144,6 +144,25 @@ public class CliRunnerTests
     }
 
     [Test]
+    public async Task RunAsync_PassesEnvironmentEntriesToTheChild()
+    {
+        if (OperatingSystem.IsWindows()) Assert.Ignore("POSIX shell stub");
+
+        var dir = NewDir();
+        var script = Script(dir, "env.sh", "echo \"data=$MB_TEST_DIR\"; exit 0");
+
+        var result = await CliRunner.RunAsync(script, Array.Empty<string>(),
+            TimeSpan.FromSeconds(30), CancellationToken.None,
+            new Dictionary<string, string> { ["MB_TEST_DIR"] = "/somewhere" });
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.True);
+            Assert.That(result.StdOut.Trim(), Is.EqualTo("data=/somewhere"));
+        });
+    }
+
+    [Test]
     public void FindNewestAudioFile_IgnoresArtworkAndM3u_PicksTheAudio()
     {
         var dir = NewDir();

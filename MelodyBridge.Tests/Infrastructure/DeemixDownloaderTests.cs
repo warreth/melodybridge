@@ -40,7 +40,7 @@ public class DeemixDownloaderTests
         long id, string title, string artist, int duration, string? isrc = null)
         => new(id, title, artist, TimeSpan.FromSeconds(duration), isrc);
 
-    private static DeemixDownloader Create(StubPluginConfig? config = null)
+    private static DeemixDownloader Create(StubPluginConfig? config = null, string? dataDir = null)
     {
         var http = new HttpClient(new HttpClientHandler())
         {
@@ -49,7 +49,8 @@ public class DeemixDownloaderTests
         return new DeemixDownloader(
             new DeezerClient(http, NullLogger<DeezerClient>.Instance),
             config ?? new StubPluginConfig(),
-            NullLogger<DeemixDownloader>.Instance);
+            NullLogger<DeemixDownloader>.Instance,
+            dataDir);
     }
 
     // ── Ranking ──────────────────────────────────────────────────────────
@@ -260,6 +261,85 @@ public class DeemixDownloaderTests
             Assert.That(result.Success, Is.False);
             Assert.That(result.ErrorMessage, Does.Contain("no deemix bitrate fits"));
             Assert.That(CliStub.RecordedArguments(script), Is.Empty, "the CLI never ran");
+        });
+    }
+
+    [Test]
+    public async Task Download_WithArl_SeedsDeemixLoginAndEnvironment()
+    {
+        if (OperatingSystem.IsWindows()) Assert.Ignore("POSIX shell stub");
+
+        var toolDir = NewDir();
+        var dataDir = Path.Combine(NewDir(), "deemix-data");
+        var downloads = NewDir();
+        var output = NewDir();
+        var script = CliStub.Custom(toolDir, "cli.sh",
+            """
+            echo "data=$DEEMIX_DATA_DIR" > "$(dirname "$0")/record.txt"
+            cat "$DEEMIX_DATA_DIR/login.json" >> "$(dirname "$0")/record.txt"
+            dir=""
+            prev=""
+            for a in "$@"; do
+              if [ "$prev" = "-p" ]; then dir="$a"; fi
+              prev="$a"
+            done
+            mkdir -p "$dir"
+            printf 'fLaC' > "$dir/Artist - Song.flac"
+            exit 0
+            """);
+        var config = new StubPluginConfig();
+        config.Set("deemix", "command", script);
+        config.Set("deemix", "downloads_path", downloads);
+        config.Set("deemix", "arl", "test-arl-123");
+        var plugin = Create(config, dataDir);
+
+        var result = await plugin.DownloadAsync(
+            "https://www.deezer.com/track/3135556", output, "mb-arl");
+
+        var record = File.ReadAllText(Path.Combine(toolDir, "record.txt"));
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.True, result.ErrorMessage);
+            Assert.That(record, Does.Contain($"data={dataDir}"),
+                "the CLI must be pointed at the seeded config folder");
+            Assert.That(record, Does.Contain("\"arl\":\"test-arl-123\""),
+                "the ARL must reach deemix's login file");
+        });
+    }
+
+    [Test]
+    public async Task Download_WithoutArl_LeavesTheToolsOwnLoginAlone()
+    {
+        if (OperatingSystem.IsWindows()) Assert.Ignore("POSIX shell stub");
+
+        var toolDir = NewDir();
+        var dataDir = Path.Combine(NewDir(), "deemix-data");
+        var config = new StubPluginConfig();
+        config.Set("deemix", "command", CliStub.Custom(toolDir, "cli.sh",
+            """
+            echo "data=$DEEMIX_DATA_DIR" > "$(dirname "$0")/record.txt"
+            dir=""
+            prev=""
+            for a in "$@"; do
+              if [ "$prev" = "-p" ]; then dir="$a"; fi
+              prev="$a"
+            done
+            mkdir -p "$dir"
+            printf 'fLaC' > "$dir/Artist - Song.flac"
+            exit 0
+            """));
+        config.Set("deemix", "downloads_path", NewDir());
+        var plugin = Create(config, dataDir);
+
+        var result = await plugin.DownloadAsync(
+            "https://www.deezer.com/track/3135556", NewDir(), "mb-nolar");
+
+        var record = File.ReadAllText(Path.Combine(toolDir, "record.txt"));
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.True, result.ErrorMessage);
+            Assert.That(record.Trim(), Is.EqualTo("data="), "no env override without an ARL");
+            Assert.That(Directory.Exists(dataDir), Is.False, "no config folder is created");
         });
     }
 

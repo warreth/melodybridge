@@ -50,6 +50,10 @@ public static class CliStub
     public static string Silent(string directory, string name = "silent.sh")
         => Write(directory, name, "echo \"$@\" > \"$(dirname \"$0\")/args.txt\"\nexit 0\n");
 
+    /// <summary>Writes an executable script with a custom body.</summary>
+    public static string Custom(string directory, string name, string body)
+        => Write(directory, name, body);
+
     /// <summary>The recorded arguments of the last run, or "".</summary>
     public static string RecordedArguments(string scriptPath)
     {
