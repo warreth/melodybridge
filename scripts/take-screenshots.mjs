@@ -12,6 +12,10 @@
 // page is clicked at (10,10) first to move focus back to the body.
 //
 // Playwright comes from the npx cache, so no project dependency grows.
+// On a host where that cache sits elsewhere (or Playwright is installed
+// in a scratch folder), point PLAYWRIGHT_MODULE at its package.json.
+// CHROMIUM_PATH selects a specific Chromium build (for example a musl
+// build on Alpine, where Playwright's own binary cannot run).
 // Raw 2x PNGs land in .shots/ (gitignored); dark WebP overwrites the
 // docs set, light WebP stays in .shots for side-by-side review.
 
@@ -19,7 +23,8 @@ import { createRequire } from 'node:module'
 import { mkdirSync, existsSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 
-const req = createRequire('/home/w/.npm/_npx/e41f203b7505f1fb/node_modules/playwright/package.json')
+const req = createRequire(
+  process.env.PLAYWRIGHT_MODULE || '/home/w/.npm/_npx/e41f203b7505f1fb/node_modules/playwright/package.json')
 const { chromium } = req('playwright')
 
 const args = process.argv.slice(2)
@@ -89,7 +94,10 @@ console.log(`Shooting ${baseUrl} themes: ${themes.join(', ')}`)
 mkdirSync(RAW_DIR, { recursive: true })
 mkdirSync(outArg, { recursive: true })
 
-const browser = await chromium.launch({ args: ['--no-sandbox', '--disable-dev-shm-usage'] })
+const browser = await chromium.launch({
+  executablePath: process.env.CHROMIUM_PATH || undefined,
+  args: ['--no-sandbox', '--disable-dev-shm-usage'],
+})
 for (const theme of themes) await shootTheme(browser, theme)
 await browser.close()
 
@@ -105,7 +113,17 @@ for (const theme of ['light', 'dark']) {
     const target = theme === 'dark'
       ? `${outArg}/${name}.webp`
       : `${RAW_DIR}/${theme}-${name}.webp`
+    convert(raw, target)
+  }
+}
+
+// ImageMagick when present; ffmpeg otherwise (dev hosts without magick).
+function convert(raw, target) {
+  try {
     execFileSync('magick', [raw, '-resize', '1600x', '-strip', '-quality', '88', target])
+  } catch {
+    execFileSync('ffmpeg', ['-y', '-i', raw, '-vf', 'scale=1600:-1', '-quality', '88', target],
+      { stdio: 'ignore' })
   }
 }
 console.log('Done. Docs copies in', outArg)
