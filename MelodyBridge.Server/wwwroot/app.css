@@ -432,7 +432,7 @@ a:focus-visible {
 :root[data-theme="light"] .pill.neutral { background: #f4f4f5; color: #52525b; border-color: #e4e4e7; }
 /* Light theme pill text: the dark-theme success/warning/danger shades sit
    just under AA on white, so the light theme uses deeper ones. */
-:root[data-theme="light"] .pill.ok { color: #047857; border-color: rgba(4, 120, 87, .25); }
+:root[data-theme="light"] .pill.ok { color: #065f46; border-color: rgba(6, 95, 70, .25); }
 :root[data-theme="light"] .pill.warn,
 :root[data-theme="light"] .pill.warning { color: #92400e; border-color: rgba(146, 64, 14, .25); }
 :root[data-theme="light"] .pill.err { color: #be123c; border-color: rgba(190, 18, 60, .25); }
@@ -1316,6 +1316,11 @@ td.file-path {
     }
     .log-row .log-message { grid-column: 1 / -1; }
     .logs-list { font-size: .8rem; }
+    /* The banner head stacks: icon, text, then the action buttons, so the
+       message keeps its width instead of a 70px column. */
+    .log-error-head { flex-wrap: wrap; }
+    .log-error-head > div { flex: 1 1 60%; }
+    .log-error-head button { margin-left: 0; }
 }
 
 /* ── Home page: three-step workflow ────────────────────────────── */
@@ -1640,7 +1645,7 @@ input[type="file"].btn-modern::file-selector-button {
 .track-table .col-format { width: 5.5rem; }
 .track-table .col-status { width: 9rem; }
 .track-table .col-file { width: 12rem; }
-.track-table .col-actions { width: 13.5rem; }
+.track-table .col-actions { width: 15.5rem; }
 
 /* Row actions are pinned to the right edge of the scroll container: the
    table is wider than most laptop windows, and the per-track buttons must
@@ -1666,6 +1671,10 @@ input[type="file"].btn-modern::file-selector-button {
     .track-table .col-rate,
     .track-table .col-format,
     .track-table .col-file { display: none; }
+    /* Narrower text columns so the artist cell ends inside the visible
+       window instead of disappearing under the pinned actions. */
+    .track-table .col-title { width: 20%; }
+    .track-table .col-artist { width: 12%; }
     .track-table .col-actions { width: 5.5rem; }
     .track-table .track-actions .btn-label { display: none; }
     .track-table .track-actions .btn-modern { padding: .35rem .55rem; margin-left: .25rem; }
@@ -1773,6 +1782,13 @@ input::placeholder, textarea::placeholder { color: var(--muted-2, #8a8f98); opac
 /* Wide data tables (PlaylistDetails tracks, Library, Playlists, Home):
    a floor width keeps columns readable; .table-wrap scrolls the rest. */
 .table-wrap .modern-table { min-width: 640px; }
+
+/* Compact variant (dashboard sync runs): the panel is narrow, so the
+   cells wrap and the date stays on one line instead of clipping. */
+.table-wrap .modern-table.compact { min-width: 0; }
+.modern-table.compact th,
+.modern-table.compact td { white-space: normal; padding: .5rem .55rem; }
+.modern-table.compact .nowrap { white-space: nowrap; }
 
 /* Toast preview on Advanced keeps clear of the panel edge. */
 .toast-preview { z-index: 300; max-width: min(24rem, calc(100vw - 2rem)); }

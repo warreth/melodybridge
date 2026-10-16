@@ -52,8 +52,10 @@
 }
 
 .location-meta span + span::before {
-    content: "\00b7";
-    margin-right: .5rem;
+    /* Dot plus a non-breaking space: the separator never starts a line
+       on its own when the meta wraps on a narrow card. */
+    content: "\00b7\00a0";
+    margin-right: .35rem;
     color: var(--muted);
 }
 

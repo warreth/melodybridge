@@ -299,8 +299,8 @@ public class PlaylistDetailsQualityTests
         cut.WaitForAssertion(() =>
             Assert.That(cut.Markup, Does.Contain("Fine track")), TimeSpan.FromSeconds(3));
 
-        Assert.That(cut.Markup, Does.Contain("look inflated"),
-            "the playlist summary explains how to fix inflated files");
+        Assert.That(cut.Markup, Does.Contain("1 downloaded track looks inflated"),
+            "the playlist summary explains how to fix inflated files, with honest grammar");
     }
 
     [Test]

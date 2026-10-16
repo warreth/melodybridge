@@ -415,3 +415,11 @@
     border-color: var(--accent-strong);
     color: var(--accent-contrast);
 }
+
+/* Phones: the two-column layout and the inline search row stack instead
+   of squeezing the input to a few pixels. */
+@media (max-width: 720px) {
+    .dev-layout { grid-template-columns: minmax(0, 1fr); }
+    .search-row { flex-direction: column; align-items: stretch; }
+    .search-provider-select { flex: 1 1 auto; min-width: 0; }
+}

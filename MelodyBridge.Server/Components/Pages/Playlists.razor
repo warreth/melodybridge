@@ -88,7 +88,7 @@ else
                     </CardMenu>
                 </div>
                 <div class="card-tags">
-                    <span class="quality-badge">@playlist.TrackCount tracks</span>
+                    <span class="quality-badge">@playlist.TrackCount track@(playlist.TrackCount == 1 ? "" : "s")</span>
                     @if (!string.IsNullOrEmpty(playlist.Owner))
                     {
                         <span class="quality-badge">by @playlist.Owner</span>

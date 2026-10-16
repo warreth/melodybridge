@@ -103,7 +103,7 @@
                     <strong>Publish it</strong>
                     <p>Create a sync job that writes an M3U file or pushes the playlist to your
                         Jellyfin, Plex or Navidrome server. Jobs can run automatically on a schedule.</p>
-                    <small>@(step3Done ? $"{jobsCount} job{(jobsCount == 1 ? "" : "s")} configured, last run @lastRunText" : "No sync job yet")</small>
+                    <small>@(step3Done ? $"{jobsCount} job{(jobsCount == 1 ? "" : "s")} configured, last run {lastRunText}" : "No sync job yet")</small>
                 </div>
             </a>
         </div>
@@ -220,7 +220,7 @@ else
                 else
                 {
                     <div class="table-wrap">
-                        <table class="modern-table">
+                        <table class="modern-table compact">
                             <thead>
                                 <tr>
                                     <th>Job</th>
@@ -234,7 +234,7 @@ else
                                 {
                                     <tr>
                                         <td><strong>@run.JobName</strong></td>
-                                        <td class="text-muted">@run.Timestamp.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</td>
+                                        <td class="text-muted nowrap">@run.Timestamp.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</td>
                                         <td>
                                             <StatusPill Variant="@(run.Status == "Completed" ? "ok" : "err")">@run.Status</StatusPill>
                                         </td>
@@ -259,7 +259,7 @@ else
         </div>
         @if (partialPlaylists.Count > 0)
         {
-            <div class="hint-box" style="border-color: var(--danger);">
+            <div class="hint-box danger">
                 <strong>Some playlists did not sync completely.</strong>
                 @foreach (var p in partialPlaylists)
                 {
@@ -305,7 +305,7 @@ else
                             </StatusPill>
                             <h2><a href="/playlists/@playlist.Id">@playlist.Name</a></h2>
                             <p class="panel-description">
-                                @total tracks · @downloaded downloaded
+                                @total track@(total == 1 ? "" : "s") · @downloaded downloaded
                             </p>
                         </div>
                     </div>

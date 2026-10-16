@@ -686,10 +686,10 @@
         finally { saving = false; }
     }
 
-    /// <summary>Review label for a playlist source: "Name (Platform)".</summary>
+    /// <summary>Review label for a playlist source: "Name (Imported)" or "Name (Platform)".</summary>
     private string SourceDisplay =>
         sources.FirstOrDefault(s => s.Id == selectedSourceId) is { } p
-            ? $"{p.Name} ({PlatformName(p.SourcePlatform)})"
+            ? $"{p.Name} ({(p.IsManualImport ? "Imported" : PlatformName(p.SourcePlatform))})"
             : selectedSourceId;
 
     private static string PlatformName(Platform platform) => platform switch

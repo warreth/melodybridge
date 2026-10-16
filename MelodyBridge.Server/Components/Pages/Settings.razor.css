@@ -36,6 +36,9 @@
     border: 1px solid var(--border);
     border-radius: 6px;
     padding: .1rem .35rem;
+    /* The redirect URI is long and space-free: let it break instead of
+       pushing the card wider than a phone screen. */
+    overflow-wrap: anywhere;
 }
 
 /* The redirect-URI hint inside step 2: breathing room around the code

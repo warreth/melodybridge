@@ -247,9 +247,10 @@ else
             @if (downloadedCount > 0 && badQualityCount > 0)
             {
                 <div class="hint-box">
-                    <Icon Name="alert" Size="16" Class="inline-icon" /> @badQualityCount downloaded track(s) look inflated (re-encoded from a
-                    lower-quality source). Retry them after switching the playlist to
-                    <strong>No filter</strong>, or pick a lower quality cap.
+                    <Icon Name="alert" Size="16" Class="inline-icon" /> @badQualityCount downloaded track@(badQualityCount == 1 ? "" : "s") look@(badQualityCount == 1 ? "s" : "") inflated (re-encoded from a lower-quality source).
+                    @(editQuality == "auto"
+                        ? "Retry them with a lower quality cap."
+                        : "Retry them after switching the playlist to No filter, or pick a lower quality cap.")
                 </div>
             }
         </div>
