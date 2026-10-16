@@ -131,6 +131,78 @@ public class DownloaderRegistry : IDownloaderRegistry
     public Task SetConfigAsync(string id, string key, string? value, CancellationToken ct = default)
         => _config.SetAsync(id, key, value, ct);
 
+    /// <summary>
+    /// The shipped waterfall order before the Soulseek cleanup. An install
+    /// whose stored order is exactly this was never reordered by hand, so
+    /// it is moved to the new default; a custom order is left alone.
+    /// </summary>
+    private static readonly string[] PreviousDefaultOrder =
+    [
+        "soundcloud", "archiveorg", "ytdlp", "lucida", "monochrome", "doubledouble", "dabmusic",
+    ];
+
+    /// <summary>The order a fresh install gets, and the target of the migration.</summary>
+    private static readonly string[] CurrentDefaultOrder =
+    [
+        "soundcloud", "archiveorg", "ytdlp", "monochrome", "slskd", "doubledouble", "lucida",
+    ];
+
+    /// <summary>
+    /// Moves an untouched old default order onto the new default. Only an
+    /// exact match of the previous shipped sequence qualifies (with the
+    /// removed DAB Music plugin filtered out), so a user's own order is
+    /// never rewritten.
+    /// </summary>
+    private async Task MigrateUntouchedDefaultOrderAsync(
+        MelodyBridgeDbContext db, CancellationToken ct)
+    {
+        var known = _downloaders.Select(d => d.Id).ToList();
+        var ordered = _downloaders
+            .OrderBy(d => _priority.GetValueOrDefault(d.Id, int.MaxValue))
+            .ThenBy(d => d.Name)
+            .Select(d => d.Id)
+            .ToList();
+
+        // Compare only the ids the old default knew: a plugin added after
+        // the change (Soulseek) rides at the end and must not disqualify
+        // the untouched-old-default detection. No overlap at all (a test
+        // set, an install of unknown plugins) is never a match.
+        var previous = PreviousDefaultOrder
+            .Where(id => known.Contains(id, StringComparer.OrdinalIgnoreCase))
+            .ToList();
+        if (previous.Count == 0) return;
+        var orderedOld = ordered
+            .Where(id => previous.Contains(id, StringComparer.OrdinalIgnoreCase))
+            .ToList();
+        if (!orderedOld.SequenceEqual(previous, StringComparer.OrdinalIgnoreCase))
+            return;
+
+        var rows = await db.ProviderStates.ToListAsync(ct);
+        var byId = rows.ToDictionary(r => r.ProviderId, StringComparer.OrdinalIgnoreCase);
+
+        var index = 0;
+        foreach (var id in CurrentDefaultOrder)
+        {
+            if (!byId.TryGetValue(id, out var row)) continue;
+            row.Priority = index;
+            _priority[id] = index;
+            index++;
+        }
+        // Anything the app does not know (an old plugin row) keeps a slot
+        // after the known plugins instead of colliding with them.
+        foreach (var row in rows.Where(r => !CurrentDefaultOrder.Contains(r.ProviderId, StringComparer.OrdinalIgnoreCase)))
+        {
+            row.Priority = index;
+            _priority[row.ProviderId] = index;
+            index++;
+        }
+
+        await db.SaveChangesAsync(ct);
+        _logger.LogInformation(
+            "Moved the untouched default plugin order to the new default: {Order}",
+            string.Join(" → ", CurrentDefaultOrder));
+    }
+
     private async Task EnsureCacheLoaded(CancellationToken ct = default)
     {
         if (_cacheLoaded) return;
@@ -165,6 +237,10 @@ public class DownloaderRegistry : IDownloaderRegistry
             }
 
             await db.SaveChangesAsync(ct);
+
+            // An install that never touched the old default order gets the
+            // new one; custom orders stay as they are.
+            await MigrateUntouchedDefaultOrderAsync(db, ct);
         }
         catch (Exception ex)
         {
