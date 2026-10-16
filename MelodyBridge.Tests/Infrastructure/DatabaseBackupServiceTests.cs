@@ -151,6 +151,28 @@ public class DatabaseBackupServiceTests
         Assert.ThrowsAsync<InvalidOperationException>(() => _service.ImportZipAsync(stream));
     }
 
+    [Test]
+    public async Task Import_Rejects_A_File_That_Is_Not_A_Zip_With_A_Readable_Message()
+    {
+        // A text file renamed .zip: the zip reader's own message ("End of
+        // Central Directory record could not be found") means nothing to
+        // a user, so the service says it in plain words.
+        var notZip = Path.Combine(_dir, "notes.zip");
+        await File.WriteAllTextAsync(notZip, "this is not a zip archive");
+
+        await using var stream = File.OpenRead(notZip);
+        var ex = Assert.ThrowsAsync<InvalidDataException>(() => _service.ImportZipAsync(stream));
+        Assert.That(ex!.Message, Does.Contain("not a readable zip archive"),
+            "the message says what is wrong in user language");
+
+        // And the live database survived untouched:
+        var live = new TestSqliteFactory(_dbPath);
+        using (var db = live.CreateDbContext())
+        {
+            Assert.That(db.Playlists.Count(p => p.Name == "Original"), Is.EqualTo(1));
+        }
+    }
+
     /// <summary>Fails the final replace step, after the live file is parked.</summary>
     private sealed class FailingRestoreService(
         IDbContextFactory<MelodyBridgeDbContext> factory,

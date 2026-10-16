@@ -70,7 +70,7 @@ public class DatabaseBackupService(
                 await zipStream.CopyToAsync(file, ct);
             }
 
-            using (var archive = ZipFile.OpenRead(zipPath))
+            using (var archive = OpenZipArchive(zipPath))
             {
                 // Only unpack a plain .db entry from the top level: no
                 // arbitrary extraction paths, no zip bombs beyond one file.
@@ -125,6 +125,24 @@ public class DatabaseBackupService(
         finally
         {
             TryDelete(tempDir);
+        }
+    }
+
+    /// <summary>
+    /// Opens the uploaded file as a zip, turning the reader's developer
+    /// phrasing ("End of Central Directory record could not be found")
+    /// into a sentence the settings page can show as-is.
+    /// </summary>
+    private ZipArchive OpenZipArchive(string path)
+    {
+        try
+        {
+            return ZipFile.OpenRead(path);
+        }
+        catch (InvalidDataException ex)
+        {
+            logger.LogWarning(ex, "Import rejected: the uploaded file is not a readable zip");
+            throw new InvalidDataException("That file is not a readable zip archive.", ex);
         }
     }
 
