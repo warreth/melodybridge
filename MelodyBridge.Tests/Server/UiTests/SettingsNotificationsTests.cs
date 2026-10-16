@@ -19,12 +19,18 @@ namespace MelodyBridge.Tests.Server.UiTests;
 public class SettingsNotificationsTests
 {
     private Bunit.TestContext _ctx = null!;
+    private string _dbPath = null!;
 
     [SetUp]
     public void Setup()
     {
         _ctx = new Bunit.TestContext();
-        var factory = TestHelpers.CreateInMemFactory();
+        // A real SQLite file on disk: the save test asserts persisted
+        // rows, so the EF InMemory provider would not prove anything.
+        _dbPath = Path.Combine(Path.GetTempPath(), $"mb-notif-{Guid.NewGuid():N}.db");
+        var factory = new TestSqliteFactory(_dbPath);
+        using (var db = factory.CreateDbContext())
+            db.Database.EnsureCreated();
         _ctx.Services.AddSingleton<IDbContextFactory<MelodyBridgeDbContext>>(factory);
         _ctx.Services.AddSingleton<Microsoft.Extensions.Configuration.IConfiguration>(
             new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build());
@@ -46,7 +52,14 @@ public class SettingsNotificationsTests
     }
 
     [TearDown]
-    public void TearDown() => _ctx.Dispose();
+    public void TearDown()
+    {
+        _ctx.Dispose();
+        foreach (var suffix in new[] { "", "-wal", "-shm" })
+        {
+            try { File.Delete(_dbPath + suffix); } catch { /* best effort */ }
+        }
+    }
 
     /// <summary>Renders Settings and switches to the Notifications tab.</summary>
     private IRenderedComponent<Settings> OpenNotifications()
