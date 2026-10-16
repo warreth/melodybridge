@@ -173,11 +173,12 @@ public class PlaylistDeleteUiTests
         cut.WaitForAssertion(() =>
             Assert.That(cut.Markup, Does.Contain("The end")), TimeSpan.FromSeconds(3));
 
-        cut.FindAll("button").Single(b => b.TextContent.Trim() == "Delete playlist").Click();
-        Assert.That(cut.Markup, Does.Contain("Delete 'Doomed Mix'?"),
+        cut.FindAll("button").Single(b => b.TextContent.Trim() == "Remove playlist"
+            && b.ClassList.Contains("ghost")).Click();
+        Assert.That(cut.Markup, Does.Contain("Remove 'Doomed Mix'?"),
             "the details page uses the same dialog");
 
-        cut.FindAll("button").Single(b => b.TextContent.Trim() == "Delete playlist"
+        cut.FindAll("button").Single(b => b.TextContent.Trim() == "Remove playlist"
             && b.ClassList.Contains("danger")).Click();
 
         cut.WaitForAssertion(() =>

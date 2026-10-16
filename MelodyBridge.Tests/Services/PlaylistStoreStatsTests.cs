@@ -200,6 +200,55 @@ public class PlaylistStoreStatsTests
     }
 
     [Test]
+    public async Task UpdateScheduleAsync_EmptyFolder_ClearsTheOverride()
+    {
+        var dbPath = NewDbPath();
+        try
+        {
+            var factory = await NewDbFactory(dbPath);
+            var store = NewStore(factory, new StubSourceProvider());
+            var (playlist, _) = await store.AddOrRefreshDetailedAsync("stub:playlist");
+
+            await store.UpdateScheduleAsync(playlist.Id, null, ScanSchedule.Manual,
+                targetDirectory: "/tmp/mb-clear-target", archiveDirectory: "/tmp/mb-clear-archive");
+            await using (var db = factory.CreateDbContext())
+            {
+                var stored = await db.Playlists.AsNoTracking().SingleAsync(p => p.Id == playlist.Id);
+                Assert.That(stored.TargetDirectory, Is.EqualTo("/tmp/mb-clear-target"));
+                Assert.That(stored.ArchiveDirectory, Is.EqualTo("/tmp/mb-clear-archive"));
+            }
+
+            // Empty strings clear the overrides; the UI sends them when the
+            // user empties a folder field.
+            await store.UpdateScheduleAsync(playlist.Id, null, ScanSchedule.Manual,
+                targetDirectory: "", archiveDirectory: "");
+            await using (var db = factory.CreateDbContext())
+            {
+                var cleared = await db.Playlists.AsNoTracking().SingleAsync(p => p.Id == playlist.Id);
+                Assert.That(cleared.TargetDirectory, Is.Null,
+                    "clearing the field removes the folder, it does not silently keep the old value");
+                Assert.That(cleared.ArchiveDirectory, Is.Null);
+            }
+
+            // Null still means "leave the stored value alone".
+            await store.UpdateScheduleAsync(playlist.Id, null, ScanSchedule.Manual,
+                targetDirectory: "/tmp/mb-kept", archiveDirectory: null);
+            await store.UpdateScheduleAsync(playlist.Id, null, ScanSchedule.FromCron("0 4 * * *"),
+                targetDirectory: null);
+            await using (var db = factory.CreateDbContext())
+            {
+                var kept = await db.Playlists.AsNoTracking().SingleAsync(p => p.Id == playlist.Id);
+                Assert.That(kept.TargetDirectory, Is.EqualTo("/tmp/mb-kept"),
+                    "a null parameter never wipes a stored folder");
+            }
+        }
+        finally
+        {
+            File.Delete(dbPath);
+        }
+    }
+
+    [Test]
     public async Task UpdateScheduleAsync_PersistsTheAutoDownloadToggle()
     {
         var dbPath = NewDbPath();

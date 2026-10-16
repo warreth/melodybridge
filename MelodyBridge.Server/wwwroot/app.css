@@ -741,11 +741,15 @@ select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-s
 .wizard-body h3:not(:first-child) { margin-top: 1.5rem; }
 .wizard-footer {
     display: flex;
+    flex-wrap: wrap;
     justify-content: space-between;
     gap: .75rem;
     padding: 1rem 1.25rem 1.25rem;
     border-top: 1px solid var(--border);
 }
+/* Wizard errors live outside the scrollable body, as a full-width first
+   row of the footer, so the button that produced them is always in view. */
+.wizard-footer .wizard-error { flex: 1 1 100%; margin: 0; }
 .review-list {
     display: grid;
     gap: .6rem;
@@ -924,7 +928,7 @@ textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent
 .toggle-row input[type=checkbox] { width: 18px; height: 18px; accent-color: var(--accent-strong); }
 
 /* -- Modern table ---------------------------------------- */
-.table-wrap { overflow-x: auto; }
+.table-wrap { overflow-x: auto; position: relative; }
 .modern-table { width: 100%; border-collapse: collapse; font-size: .92rem; }
 .modern-table th {
     text-align: left;
@@ -1599,11 +1603,26 @@ input[type="file"].btn-modern::file-selector-button {
 .track-table .col-pos { width: 3rem; }
 .track-table .col-title { width: 22%; }
 .track-table .col-artist { width: 17%; }
-.track-table .col-num { width: 6rem; }
+.track-table .col-num { width: 5.5rem; }
 .track-table .col-format { width: 5.5rem; }
-.track-table .col-status { width: 9.5rem; }
+.track-table .col-status { width: 9rem; }
 .track-table .col-file { width: 12rem; }
-.track-table .col-actions { width: auto; min-width: 11rem; }
+.track-table .col-actions { width: 13.5rem; }
+
+/* Row actions are pinned to the right edge of the scroll container: the
+   table is wider than most laptop windows, and the per-track buttons must
+   never need a sideways hunt. The opaque fill covers the cells that scroll
+   underneath (the card surface itself is translucent in dark theme). */
+.track-table th.col-actions,
+.track-table td.track-actions {
+    position: sticky;
+    right: 0;
+    background: var(--bg);
+    border-left: 1px solid var(--border);
+}
+:root[data-theme="light"] .track-table th.col-actions,
+:root[data-theme="light"] .track-table td.track-actions { background: var(--surface); }
+.modern-table tbody tr:hover td.track-actions { background: var(--surface-2); }
 
 /* Numeric columns hug their numbers, headers included. */
 .track-table th.num, .track-table td.num { text-align: right; }

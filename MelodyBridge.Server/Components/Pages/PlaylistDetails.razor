@@ -7,6 +7,7 @@
 @inject NavigationManager Navigation
 @inject Application.Services.DownloadCoordinator Coordinator
 @inject SettingsStore Settings
+@inject MelodyBridge.Server.Services.NotificationService Notifications
 @inject IJSRuntime JS
 @implements IDisposable
 
@@ -70,18 +71,21 @@ else
     @if (confirmDelete)
     {
         <ConfirmDialog Show="true"
-                       Eyebrow="Delete playlist"
-                       Title=@($"Delete '{playlist.Name}'?")
-                       Message="The playlist and its track list leave MelodyBridge. You will land back on the playlists overview."
-                       ConfirmLabel="Delete playlist"
+                       Eyebrow="Remove playlist"
+                       Title=@($"Remove '{playlist.Name}'?")
+                       Message="The playlist and its track list leave MelodyBridge. Your account and other playlists are not touched."
+                       ConfirmLabel="Remove playlist"
                        Busy="busy"
                        OnConfirm="ConfirmDelete"
                        OnCancel="CancelDelete">
-            <label class="toggle-switch wide">
-                <input type="checkbox" @bind="deleteFilesWithPlaylist" />
-                <span class="toggle-slider"></span>
-                <span>Delete the downloaded music files too (@downloadedCount @(downloadedCount == 1 ? "file" : "files"))</span>
-            </label>
+            @if (downloadedCount > 0)
+            {
+                <label class="toggle-switch wide">
+                    <input type="checkbox" @bind="deleteFilesWithPlaylist" />
+                    <span class="toggle-slider"></span>
+                    <span>Delete the downloaded music files too (@downloadedCount @(downloadedCount == 1 ? "file" : "files"), @TrackDisplay.Size(downloadedSizeBytes))</span>
+                </label>
+            }
         </ConfirmDialog>
     }
 
@@ -95,16 +99,16 @@ else
                         : "Downloading"):
                     @run.Done of @run.Total
                 </strong>
-                <span>@run.Failed failed · @run.Percent%</span>
+                <span>@run.Failed failed · @LivePercent%</span>
             </div>
             <div class="progress-track">
-                <div class="progress-fill" style="width:@run.Percent%"></div>
+                <div class="progress-fill" style="width:@LivePercent%"></div>
             </div>
             @if (!string.IsNullOrEmpty(run.CurrentTrack))
             {
                 <div class="qi-meta">Now: @run.CurrentTrack</div>
             }
-            @if (run.EtaUtc is { } eta)
+            @if (run.State == Application.Services.DownloadRunState.Running && run.EtaUtc is { } eta)
             {
                 <div class="qi-meta text-muted">ETA @eta.ToLocalTime().ToString("t") · @run.QueueLength in queue</div>
             }
@@ -133,10 +137,6 @@ else
                     </span>
                 }
             </div>
-            @if (!string.IsNullOrEmpty(message))
-            {
-                <div class="hint-box">@message</div>
-            }
             <div class="form-grid single">
                 <label>
                     Name
@@ -249,7 +249,7 @@ else
                 <div class="hint-box">
                     <Icon Name="alert" Size="16" Class="inline-icon" /> @badQualityCount downloaded track(s) look inflated (re-encoded from a
                     lower-quality source). Retry them after switching the playlist to
-                    <strong>Auto</strong> or a lower cap.
+                    <strong>No filter</strong>, or pick a lower quality cap.
                 </div>
             }
         </div>
@@ -297,7 +297,6 @@ else
     private PlaylistEntity? playlist;
     private bool loading = true;
     private bool busy;
-    private string message = string.Empty;
     private string trackFilter = string.Empty;
     private bool attentionOnly;
     private bool showFilenameColumn;
@@ -331,6 +330,8 @@ else
     private bool dirtyAfterSave;
 
     private int downloadedCount;
+    private long downloadedSizeBytes;
+    private readonly HashSet<int> retryingTrackIds = new();
     private int badQualityCount;
     private bool confirmDelete;
     private bool deleteFilesWithPlaylist;
@@ -413,8 +414,27 @@ else
         playlist = await Store.GetByIdAsync(PlaylistId);
         if (playlist is null) return;
         downloadedCount = playlist.Tracks.Count(t => t.DownloadStatus == "downloaded");
+        downloadedSizeBytes = playlist.Tracks
+            .Where(t => t.DownloadStatus == "downloaded")
+            .Sum(t => t.FileSizeBytes ?? 0);
         badQualityCount = playlist.Tracks.Count(t =>
             t.DownloadStatus == "downloaded" && t.Warning?.Contains("inflated") == true);
+    }
+
+    /// <summary>
+    /// The run's progress bar counts playlist tracks that are no longer in
+    /// the queue. The coordinator's own Percent adds failures to the done
+    /// count, which showed a full bar while the last track was still
+    /// downloading.
+    /// </summary>
+    private int LivePercent
+    {
+        get
+        {
+            if (run is null || run.Total <= 0) return 0;
+            var remaining = Math.Min(run.QueueLength, run.Total);
+            return Math.Clamp(100 * (run.Total - remaining) / run.Total, 0, 100);
+        }
     }
 
     private async Task Refresh()
@@ -422,7 +442,6 @@ else
         busy = true;
         try
         {
-            var target = string.IsNullOrWhiteSpace(editTargetDirectory) ? null : editTargetDirectory;
             await Store.RefreshAsync(PlaylistId);
             await Load();
         }
@@ -504,8 +523,10 @@ else
         await InvokeAsync(StateHasChanged);
         try
         {
-            var target = string.IsNullOrWhiteSpace(editTargetDirectory) ? null : editTargetDirectory;
-            var archiveDir = string.IsNullOrWhiteSpace(editArchiveDirectory) ? null : editArchiveDirectory;
+            // Empty strings clear the overrides (the defaults take over);
+            // the store keeps stored values when a parameter is null.
+            var target = editTargetDirectory.Trim();
+            var archiveDir = editArchiveDirectory.Trim();
             await Store.UpdateScheduleAsync(PlaylistId, editName, editSchedule, target, editSyncMode,
                 editQuality, archiveDir, editArchiveFormat, editAutoDownload,
                 editStrictQuality, editAllowContainerChange);
@@ -569,7 +590,12 @@ else
     private void StartDownload() => Coordinator.Start(PlaylistId);
     private void PauseDownload() => Coordinator.Pause(PlaylistId);
     private void ResumeDownload() => Coordinator.Start(PlaylistId);
-    private void CancelDownload() => Coordinator.Cancel(PlaylistId);
+
+    private void CancelDownload()
+    {
+        Coordinator.Cancel(PlaylistId);
+        Notifications.Info("Download run cancelled.");
+    }
 
     private async Task ExportCsv()
     {
@@ -580,7 +606,7 @@ else
             var bytes = await Store.ExportCsvAsync(PlaylistId);
             var safeName = string.Concat(playlist.Name.Select(c => Path.GetInvalidFileNameChars().Contains(c) ? '_' : c));
             await JS.InvokeVoidAsync("melody.downloadFile", $"{safeName}.csv", "text/csv", bytes);
-            message = "CSV exported.";
+            Notifications.Success("CSV exported.");
         }
         finally { busy = false; }
     }
@@ -588,18 +614,36 @@ else
     /// <summary>
     /// Downloads exactly this track: the full-run coordinator stays
     /// untouched, so the click never kicks off the rest of the playlist.
+    /// The row shows a live "downloading" pill while the attempt runs and
+    /// the outcome lands as a toast.
     /// </summary>
     private async Task RetryTrack(TrackEntity track)
     {
         busy = true;
+        retryingTrackIds.Add(track.Id);
+        StateHasChanged();
         try
         {
             var result = await Store.DownloadTrackAsync(track.Id);
-            if (result == "claimed-by-another-run")
-                message = "This track is already being downloaded by a running batch.";
             await Load();
+            switch (result)
+            {
+                case "downloaded":
+                    Notifications.Success($"Downloaded '{track.Title}'.");
+                    break;
+                case "claimed-by-another-run":
+                    Notifications.Info("This track is already being downloaded by a running batch.");
+                    break;
+                default:
+                    Notifications.Warn($"Download failed for '{track.Title}'.");
+                    break;
+            }
         }
-        finally { busy = false; }
+        finally
+        {
+            retryingTrackIds.Remove(track.Id);
+            busy = false;
+        }
     }
 
     /// <summary>
@@ -614,15 +658,15 @@ else
         {
             if (await Store.ResolveReviewAsync(choice.Track.Id, choice.HardlinkExisting))
             {
-                message = choice.HardlinkExisting
+                Notifications.Success(choice.HardlinkExisting
                     ? $"Linked the existing file for '{choice.Track.Title}'."
-                    : $"Queued '{choice.Track.Title}' for a fresh download.";
+                    : $"Queued '{choice.Track.Title}' for a fresh download.");
                 if (!choice.HardlinkExisting)
                     await Store.DownloadTrackAsync(choice.Track.Id);
             }
             else
             {
-                message = $"Could not resolve '{choice.Track.Title}': the other playlist's file is gone. Retry the download.";
+                Notifications.Warn($"Could not resolve '{choice.Track.Title}': the other playlist's file is gone. Retry the download.");
             }
             await Load();
         }
@@ -636,7 +680,7 @@ else
         {
             if (await Store.RemoveTrackAsync(PlaylistId, track.Id, deleteFile: true))
             {
-                message = $"Removed '{track.Title}'.";
+                Notifications.Success($"Removed '{track.Title}'.");
                 await Load();
             }
         }
@@ -699,14 +743,7 @@ else
     }
 
     /// <summary>The header's quality line: preset names read as words, raw strings as-is.</summary>
-    private static string QualityLabel(string stored)
-        => stored switch
-        {
-            "preset:saver" => "Space Saver",
-            "preset:high" => "High Quality",
-            "preset:lossless" => "Lossless",
-            _ => stored.Replace(":", " · "),
-        };
+    private static string QualityLabel(string stored) => QualityPresets.LabelFor(stored);
 
     /// <summary>
     /// Live queue label for a track while this playlist has an active run:
@@ -715,6 +752,9 @@ else
     /// </summary>
     private string? TrackQueueLabel(TrackEntity track)
     {
+        // A single-track retry shows a live pill from the click until the
+        // attempt records its outcome.
+        if (retryingTrackIds.Contains(track.Id)) return "downloading";
         if (run is null || run.State is not (Application.Services.DownloadRunState.Running
             or Application.Services.DownloadRunState.Paused)) return null;
         if (track.DownloadStatus is "downloaded" or "removed-from-source") return null;

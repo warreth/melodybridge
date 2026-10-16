@@ -174,16 +174,18 @@ else
                         </select>
                     </label>
                 </div>
-                @if (!string.IsNullOrEmpty(addError))
-                {
-                    <div class="result-box error">@addError</div>
-                }
                 <div class="hint-box">
                     Public Spotify and YouTube playlists, no account needed.
                     Quality defaults to <strong>@savedDefaultQualityLabel</strong>: change the default in Settings.
                 </div>
             </div>
             <div class="wizard-footer">
+                @if (!string.IsNullOrEmpty(addError))
+                {
+                    @* Full-width first row of the footer: the error must be
+                       visible where the button that caused it lives. *@
+                    <div class="wizard-error result-box error">@addError</div>
+                }
                 <button class="btn-modern secondary" @onclick="HideAddForm">Cancel</button>
                 <span></span>
                 <button class="btn-modern primary" @onclick="Add" disabled="@busy">@(busy ? "Fetching…" : "Fetch & save")</button>
@@ -346,11 +348,14 @@ else
                    Busy="busy"
                    OnConfirm="ConfirmDelete"
                    OnCancel="CancelDelete">
-        <label class="toggle-switch wide">
-            <input type="checkbox" @bind="deleteFilesWithPlaylist" />
-            <span class="toggle-slider"></span>
-            <span>Delete the downloaded music files too (@deleteFileCount @(deleteFileCount == 1 ? "file" : "files"), @(TrackDisplay.Size(deleteFileSizeBytes)))</span>
-        </label>
+        @if (deleteFileCount > 0)
+        {
+            <label class="toggle-switch wide">
+                <input type="checkbox" @bind="deleteFilesWithPlaylist" />
+                <span class="toggle-slider"></span>
+                <span>Delete the downloaded music files too (@deleteFileCount @(deleteFileCount == 1 ? "file" : "files"), @(TrackDisplay.Size(deleteFileSizeBytes)))</span>
+            </label>
+        }
     </ConfirmDialog>
 }
 
@@ -429,10 +434,7 @@ else
     }
 
     /// <summary>Quality presets shared with the settings page: one list, one truth.</summary>
-    private static string QualityLabel(string preferredFormat)
-        => preferredFormat.Contains(':')
-            ? preferredFormat.Replace(":", " · ")
-            : preferredFormat;
+    private static string QualityLabel(string preferredFormat) => QualityPresets.LabelFor(preferredFormat);
 
     /// <summary>The default from Settings, fixed once at load: the hint
     /// must not rewrite itself while the user changes the picker.</summary>

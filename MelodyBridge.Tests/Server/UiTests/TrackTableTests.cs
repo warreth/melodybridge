@@ -294,7 +294,7 @@ public class TrackTableTests
     public void Header_Shows_Idle_Button_Set()
     {
         var cut = RenderHeader();
-        Assert.That(ButtonLabels(cut), Is.EqualTo("Download missing|Export CSV|Delete playlist"));
+        Assert.That(ButtonLabels(cut), Is.EqualTo("Download missing|Export CSV|Remove playlist"));
     }
 
     [Test]
@@ -312,7 +312,7 @@ public class TrackTableTests
     {
         var cut = RenderHeader(showDownloadGroup: true,
             state: Application.Services.DownloadRunState.Running);
-        Assert.That(ButtonLabels(cut), Is.EqualTo("Pause|Cancel|Export CSV|Delete playlist"));
+        Assert.That(ButtonLabels(cut), Is.EqualTo("Pause|Cancel|Export CSV|Remove playlist"));
     }
 
     [Test]
@@ -320,7 +320,7 @@ public class TrackTableTests
     {
         var cut = RenderHeader(showDownloadGroup: true,
             state: Application.Services.DownloadRunState.Paused);
-        Assert.That(ButtonLabels(cut), Is.EqualTo("Resume|Cancel|Export CSV|Delete playlist"));
+        Assert.That(ButtonLabels(cut), Is.EqualTo("Resume|Cancel|Export CSV|Remove playlist"));
     }
 
     [Test]
@@ -329,6 +329,6 @@ public class TrackTableTests
         var cut = RenderHeader(showRefresh: true, busy: true);
         var disabled = cut.FindAll(".detail-actions button[disabled]")
             .Select(b => b.TextContent.Trim()).ToList();
-        Assert.That(disabled, Is.EqualTo(new[] { "Fetching…", "Export CSV", "Delete playlist" }));
+        Assert.That(disabled, Is.EqualTo(new[] { "Fetching…", "Export CSV", "Remove playlist" }));
     }
 }

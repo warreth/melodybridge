@@ -33,6 +33,19 @@ public static class QualityPresets
     public static string? BlurbFor(string stored)
         => All.FirstOrDefault(p => p.Stored == stored).Blurb;
 
+    /// <summary>
+    /// The label a stored quality string shows in the UI: a preset keeps
+    /// its picker name ("No filter", "Space Saver"), a raw advanced value
+    /// reads as words ("mp3 · 192").
+    /// </summary>
+    public static string LabelFor(string? stored)
+    {
+        var value = string.IsNullOrWhiteSpace(stored) ? "auto" : stored.Trim().ToLowerInvariant();
+        return TryParse(value, out var preset)
+            ? All.First(p => p.Id == preset).Label
+            : value.Replace(":", " · ");
+    }
+
     /// <summary>True when the stored string names a preset ("preset:*" or the plain "auto").</summary>
     public static bool IsPreset(string? stored)
         => TryParse(stored, out _);

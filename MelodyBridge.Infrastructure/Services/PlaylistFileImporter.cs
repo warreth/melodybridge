@@ -37,7 +37,7 @@ public static class PlaylistFileImporter
 
         if (trimmed.StartsWith("Track URI,", StringComparison.OrdinalIgnoreCase)
             || trimmed.StartsWith("Track Name,", StringComparison.OrdinalIgnoreCase))
-            return ParseExportifyCsv(content);
+            return ParseExportifyCsv(fileName, content);
 
         return null;
     }
@@ -99,7 +99,7 @@ public static class PlaylistFileImporter
 
     // ── Exportify CSV ───────────────────────────────────────────────────
 
-    private static ImportedFile? ParseExportifyCsv(string content)
+    private static ImportedFile? ParseExportifyCsv(string fileName, string content)
     {
         var rows = SplitCsv(content);
         if (rows.Count < 2) return null;
@@ -133,8 +133,14 @@ public static class PlaylistFileImporter
         }
         if (tracks.Count == 0) return null;
 
+        // One playlist per file: the file name is the playlist name, so
+        // two CSVs never collapse into one "Spotify export" row and a
+        // re-upload of the same file updates its own playlist.
+        var name = Path.GetFileNameWithoutExtension(fileName);
+        if (string.IsNullOrWhiteSpace(name)) name = "Spotify export";
+
         return new ImportedFile("exportify",
-            [new ImportedPlaylist("Spotify export", null, tracks)]);
+            [new ImportedPlaylist(name, null, tracks)]);
     }
 
     /// <summary>Exportify joins multi-artist cells with ';'; tags read better as ', '.</summary>

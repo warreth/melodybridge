@@ -86,6 +86,12 @@ public class PlaylistAutoSaveTests
         return db.Playlists.AsNoTracking().First(p => p.Id == "pl-1").SyncMode;
     }
 
+    private string? DbTargetDirectory()
+    {
+        using var db = _factory.CreateDbContext();
+        return db.Playlists.AsNoTracking().First(p => p.Id == "pl-1").TargetDirectory;
+    }
+
     [Test]
     public async Task TextEdit_Debounces_ThenPersists()
     {
@@ -109,6 +115,23 @@ public class PlaylistAutoSaveTests
         cut.WaitForAssertion(() =>
             Assert.That(cut.Markup, Does.Contain("save-state saved")),
             TimeSpan.FromSeconds(3));
+    }
+
+    [Test]
+    public async Task ClearingTheDownloadFolder_RemovesTheStoredOverride()
+    {
+        var cut = _ctx.Render<PlaylistDetails>(p => p.Add(x => x.PlaylistId, "pl-1"));
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("Auto save test")), TimeSpan.FromSeconds(3));
+
+        Assert.That(DbTargetDirectory(), Is.EqualTo("/tmp"), "the seeded override");
+
+        cut.Find("input[value='/tmp']").Input("");
+
+        for (var i = 0; i < 40 && DbTargetDirectory() is not null; i++)
+            await Task.Delay(100);
+        Assert.That(DbTargetDirectory(), Is.Null,
+            "an emptied field removes the override instead of claiming Saved and keeping it");
     }
 
     [Test]

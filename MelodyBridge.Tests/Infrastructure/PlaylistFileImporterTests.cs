@@ -42,6 +42,8 @@ public class PlaylistFileImporterTests
         Assert.That(parsed, Is.Not.Null);
         Assert.That(parsed!.Kind, Is.EqualTo("exportify"));
         Assert.That(parsed.Playlists, Has.Count.EqualTo(1));
+        Assert.That(parsed.Playlists[0].Name, Is.EqualTo("spotify"),
+            "the file name names the playlist, so two CSVs never merge into one row");
         Assert.That(parsed.Playlists[0].Tracks, Has.Count.EqualTo(5));
 
         var first = parsed.Playlists[0].Tracks[0];
@@ -94,6 +96,27 @@ public class PlaylistFileImporterTests
     public void ExportifyHeaderOnly_ReturnsNull()
     {
         Assert.That(PlaylistFileImporter.Parse("empty.csv", ExportifyHeader + "\n"), Is.Null);
+    }
+
+    [Test]
+    public void ExportifyWithoutAFileName_FallsBackToTheDefaultName()
+    {
+        var parsed = PlaylistFileImporter.Parse("", ExportifyFiveRows);
+
+        Assert.That(parsed, Is.Not.Null);
+        Assert.That(parsed!.Playlists[0].Name, Is.EqualTo("Spotify export"),
+            "an empty file name keeps the historical default");
+    }
+
+    [Test]
+    public void TwoCsvFiles_ProduceTwoDistinctPlaylistNames()
+    {
+        var first = PlaylistFileImporter.Parse("summer-2024.csv", ExportifyFiveRows);
+        var second = PlaylistFileImporter.Parse("winter-2024.csv", ExportifyFiveRows);
+
+        Assert.That(first!.Playlists[0].Name, Is.EqualTo("summer-2024"));
+        Assert.That(second!.Playlists[0].Name, Is.EqualTo("winter-2024"),
+            "each file imports as its own playlist instead of one merged export");
     }
 
     // ── Spotify privacy export ───────────────────────────────────────────

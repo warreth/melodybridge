@@ -101,6 +101,57 @@ window.melody = (() => {
     };
 })();
 
+// Help popovers (question-mark next to a setting): the CSS anchors them
+// under the icon, which clips inside scroll containers (wizards) and near
+// the viewport edges (mobile). Once the popup is visible, switch it to
+// fixed positioning clamped to the viewport; when it hides, the inline
+// styles are cleared so the stylesheet owns the placement again.
+function clampHelpPopup(tip) {
+    const popup = tip.querySelector('.help-tip-popup');
+    if (!popup) return;
+    requestAnimationFrame(() => {
+        if (getComputedStyle(popup).display === 'none') return;
+        const r = tip.getBoundingClientRect();
+        popup.style.position = 'fixed';
+        popup.style.left = '0px';
+        popup.style.top = '0px';
+        const p = popup.getBoundingClientRect();
+        const margin = 12;
+        let left = r.left;
+        if (left + p.width > window.innerWidth - margin) left = window.innerWidth - margin - p.width;
+        if (left < margin) left = margin;
+        let top = r.bottom + 8;
+        if (top + p.height > window.innerHeight - margin) top = Math.max(margin, r.top - p.height - 8);
+        popup.style.left = left + 'px';
+        popup.style.top = top + 'px';
+    });
+}
+
+function resetHelpPopup(tip) {
+    const popup = tip.querySelector('.help-tip-popup');
+    if (!popup) return;
+    popup.style.position = '';
+    popup.style.left = '';
+    popup.style.top = '';
+}
+
+document.addEventListener('mouseover', (e) => {
+    const tip = e.target.closest && e.target.closest('.help-tip');
+    if (tip) clampHelpPopup(tip);
+});
+document.addEventListener('mouseout', (e) => {
+    const tip = e.target.closest && e.target.closest('.help-tip');
+    if (tip && !tip.contains(e.relatedTarget)) resetHelpPopup(tip);
+});
+document.addEventListener('focusin', (e) => {
+    const tip = e.target.closest && e.target.closest('.help-tip');
+    if (tip) clampHelpPopup(tip);
+});
+document.addEventListener('focusout', (e) => {
+    const tip = e.target.closest && e.target.closest('.help-tip');
+    if (tip) resetHelpPopup(tip);
+});
+
 document.addEventListener('DOMContentLoaded', () => {
     window.melody.init();
     const dismiss = document.querySelector('#blazor-error-ui .dismiss');

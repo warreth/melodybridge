@@ -1154,7 +1154,9 @@ public class PlaylistStore
         if (name is { Length: > 0 } n) entity.Name = n;
         entity.AutoSyncEnabled = autoSync;
         entity.AutoSyncIntervalMinutes = autoSync ? intervalMinutes : null;
-        if (targetDirectory is { Length: > 0 } dir) entity.TargetDirectory = dir;
+        // Empty clears the per-playlist override, null leaves it alone.
+        if (targetDirectory is not null)
+            entity.TargetDirectory = targetDirectory.Length == 0 ? null : targetDirectory;
         if (syncMode is not null) entity.SyncMode = syncMode.Value.ToString();
         if (preferredFormat is { Length: > 0 } fmt)
             entity.PreferredFormat = PlaylistStore.IsValidFormat(fmt) ? fmt : "auto";
@@ -1183,12 +1185,16 @@ public class PlaylistStore
         entity.AutoSyncIntervalMinutes = schedule.Mode == ScanScheduleMode.Interval
             ? schedule.IntervalMinutes
             : null;
-        if (targetDirectory is { Length: > 0 } dir) entity.TargetDirectory = dir;
+        // Empty clears the per-playlist override (the default music path
+        // takes over again), null leaves the stored value.
+        if (targetDirectory is not null)
+            entity.TargetDirectory = targetDirectory.Length == 0 ? null : targetDirectory;
         if (syncMode is not null) entity.SyncMode = syncMode.Value.ToString();
         if (preferredFormat is { Length: > 0 } fmt)
             entity.PreferredFormat = PlaylistStore.IsValidFormat(fmt) ? fmt : "auto";
         // Archive copy: empty string clears the override (the global
-        // default takes over again), null leaves the stored value.
+        // default takes over again), null leaves the stored value. The
+        // same rule as targetDirectory above.
         if (archiveDirectory is not null)
             entity.ArchiveDirectory = archiveDirectory.Length == 0 ? null : archiveDirectory;
         if (archiveFormat is not null)
