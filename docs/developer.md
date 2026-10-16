@@ -330,7 +330,8 @@ dotnet test MelodyBridge.sln --filter "FullyQualifiedName!~Tests.Integration"
 ```
 
 ```bash [Live suite]
-# needs yt-dlp on PATH + ffprobe
+# needs yt-dlp on PATH + ffprobe; the slskd tests also need
+# SLSKD_URL, SLSKD_API_KEY and SLSKD_DOWNLOADS_PATH (skipped without)
 dotnet test MelodyBridge.sln --filter "Category=PlaylistStore|Category=Live"
 ```
 :::

@@ -20,7 +20,9 @@ for the dev compose file that builds from your checkout.
 dotnet test MelodyBridge.sln   # fast suite
 ```
 
-Live tests need yt-dlp and ffmpeg on PATH and hit the real network:
+Live tests need yt-dlp and ffmpeg on PATH and hit the real network. The
+slskd live tests need a connected slskd instance and skip without
+`SLSKD_URL`, `SLSKD_API_KEY` and `SLSKD_DOWNLOADS_PATH`:
 
 ```bash
 dotnet test MelodyBridge.sln --filter "Category=PlaylistStore|Category=Live"
