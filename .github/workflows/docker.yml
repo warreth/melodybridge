@@ -1,13 +1,20 @@
 name: Release Docker Image
 
-# The image publishes from a published GitHub release only: that is also
-# the moment the About update check sees the version. A plain tag push
-# or a push to main never touches the registry. Manual runs exist for
-# testing the build; they only ever tag :dev.
+# The image publishes from a published GitHub release, or from a manual
+# dispatch that names a version: both stamp that version into the About
+# update check, so a manual run can republish an image without a new
+# release. A plain tag push or a push to main never touches the registry.
+# A manual run without a version is only a build test and tags :dev.
 on:
   release:
     types: [published]
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish, for example 1.0 or 1.0-rc3. Leave empty for a :dev test build."
+        required: false
+        default: ""
+        type: string
 
 # Releases are rare and must never cancel each other: a cancelled run
 # would leave a version without its image.
@@ -93,26 +100,33 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # A prerelease tag (a hyphen after the version, like v1.0.0-beta1)
-      # must never touch :latest or the major tag: users pulling :latest
-      # get only stable releases. Prereleases move the :beta channel.
-      - name: Detect prerelease
-        id: pre
-        run: |
-          if echo "${{ github.ref_name }}" | grep -Eq '^v?[0-9.]+-'; then
-            echo "prerelease=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "prerelease=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      # The image stamps the version from the tag exactly as written (minus
-      # the v), and the tag list below is built from the same value: a
-      # v1.0-rc2 release ships 1.0-rc2 and beta, a v1.0 release ships 1.0,
-      # 1 and latest. Manual runs pass nothing.
-      - name: Version for stamping
+      # The version the image stamps and the tag list below is built from:
+      # a published release uses its tag, a manual run may pass one instead
+      # (for example 1.0). A manual run without a version is a :dev build
+      # test, never a version tag. The v prefix is optional. A prerelease
+      # (a hyphen after the version, like v1.0-rc2) must never touch
+      # :latest or the major tag: users pulling :latest get only stable
+      # releases, prereleases move the :beta channel.
+      - name: Resolve version
         id: version
+        env:
+          VERSION_INPUT: ${{ github.event.inputs.version }}
         run: |
-          ref="${GITHUB_REF_NAME#v}"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            ref="${VERSION_INPUT}"
+            if [ -n "$ref" ] && ! echo "${ref#v}" | grep -Eq '^[0-9]+\.[0-9]+'; then
+              echo "::error::'$ref' is not a version; use a value like 1.0 or 1.0-rc3"
+              exit 1
+            fi
+          else
+            ref="${GITHUB_REF_NAME}"
+          fi
+          ref="${ref#v}"
+          if [ -n "$ref" ]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          fi
           if echo "$ref" | grep -Eq '^[0-9]+\.[0-9]+'; then
             echo "value=$ref" >> "$GITHUB_OUTPUT"
             echo "major=${ref%%.*}" >> "$GITHUB_OUTPUT"
@@ -120,9 +134,14 @@ jobs:
             echo "value=" >> "$GITHUB_OUTPUT"
             echo "major=" >> "$GITHUB_OUTPUT"
           fi
+          if echo "$ref" | grep -Eq '^[0-9.]+-'; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
 
-      # One metadata step picks the tag list by event type so there is no
-      # code path where a manual run can overwrite :latest or a version tag.
+      # One metadata step picks the tag list so there is no code path where
+      # a build without a version can overwrite :latest or a version tag.
       # The values are raw (not type=semver) so a tag like v1.0-rc2 cannot
       # silently produce an empty tag list.
       - name: Extract metadata (tags, labels)
@@ -131,15 +150,15 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            # Manual dispatch: dev build, tag ONLY :dev.
-            type=raw,value=dev,enable=${{ github.event_name == 'workflow_dispatch' }}
-            # Release: the version exactly as tagged, always.
-            type=raw,value=${{ steps.version.outputs.value }},enable=${{ github.event_name != 'workflow_dispatch' && steps.version.outputs.value != '' }}
+            # No version (a bare manual run): dev build, tag ONLY :dev.
+            type=raw,value=dev,enable=${{ steps.version.outputs.publish == 'false' }}
+            # The version exactly as written.
+            type=raw,value=${{ steps.version.outputs.value }},enable=${{ steps.version.outputs.publish == 'true' && steps.version.outputs.value != '' }}
             # Stable only: the major tag and :latest.
-            type=raw,value=${{ steps.version.outputs.major }},enable=${{ github.event_name != 'workflow_dispatch' && steps.pre.outputs.prerelease == 'false' && steps.version.outputs.major != '' }}
-            type=raw,value=latest,enable=${{ github.event_name != 'workflow_dispatch' && steps.pre.outputs.prerelease == 'false' }}
+            type=raw,value=${{ steps.version.outputs.major }},enable=${{ steps.version.outputs.publish == 'true' && steps.version.outputs.prerelease == 'false' && steps.version.outputs.major != '' }}
+            type=raw,value=latest,enable=${{ steps.version.outputs.publish == 'true' && steps.version.outputs.prerelease == 'false' }}
             # Prerelease only: the moving :beta channel.
-            type=raw,value=beta,enable=${{ github.event_name != 'workflow_dispatch' && steps.pre.outputs.prerelease == 'true' }}
+            type=raw,value=beta,enable=${{ steps.version.outputs.publish == 'true' && steps.version.outputs.prerelease == 'true' }}
 
       - name: Build and push
         uses: docker/build-push-action@v6
