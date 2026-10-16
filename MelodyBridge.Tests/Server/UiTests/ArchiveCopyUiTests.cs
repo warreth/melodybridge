@@ -104,7 +104,7 @@ public class ArchiveCopyUiTests
     /// <summary>The archive folder input: the one under the Archive copy eyebrow.</summary>
     private static IElement ArchiveFolderInput(IRenderedComponent<PlaylistDetails> cut)
     {
-        var group = cut.FindAll(".archive-group").Single();
+        var group = cut.FindAll(".archive-section").Single();
         return group.QuerySelectorAll("label")
             .Single(l => l.TextContent.Contains("Archive folder"))
             .QuerySelector("input")!;
@@ -124,7 +124,7 @@ public class ArchiveCopyUiTests
         // the group still renders, the format select stays away.
         var cut = RenderPage();
 
-        Assert.That(cut.FindAll(".archive-group").Count, Is.EqualTo(1),
+        Assert.That(cut.FindAll(".archive-section").Count, Is.EqualTo(1),
             "the Archive copy group renders inside the sync configuration panel");
         Assert.That(cut.Markup, Does.Contain("Archive folder"),
             "the folder input carries its label");
@@ -146,7 +146,7 @@ public class ArchiveCopyUiTests
 
         var cut = RenderPage();
 
-        var group = cut.FindAll(".archive-group").Single();
+        var group = cut.FindAll(".archive-section").Single();
         Assert.That(group.TextContent, Does.Contain("Archive format"),
             "the global default alone reveals the format select");
         var select = group.QuerySelector("select")!;
@@ -157,7 +157,7 @@ public class ArchiveCopyUiTests
         Assert.That(cut.Markup, Does.Contain("/archive-global"),
             "the global default shows as the placeholder hint");
         cut.WaitForAssertion(() =>
-            Assert.That(cut.FindAll(".archive-group select")
+            Assert.That(cut.FindAll(".archive-section select")
                 .Single().HasAttribute("disabled"), Is.False,
                 "the global archive path keeps the select enabled"),
             TimeSpan.FromSeconds(3));
@@ -177,7 +177,7 @@ public class ArchiveCopyUiTests
         var input = ArchiveFolderInput(cut);
         Assert.That(input.GetAttribute("value"), Is.EqualTo("/playlist-archive"),
             "the playlist override prefills the folder input");
-        Assert.That(cut.FindAll(".archive-group").Single().TextContent,
+        Assert.That(cut.FindAll(".archive-section").Single().TextContent,
             Does.Contain("Archive format"),
             "the playlist's own archive folder reveals the format select");
     }

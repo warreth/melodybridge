@@ -137,19 +137,27 @@ else
                     </span>
                 }
             </div>
-            <div class="form-grid single">
-                <label>
-                    Name
-                    <input value="@editName" @oninput="OnNameInput" />
-                </label>
-                <label>
-                    Download folder
-                    <input value="@editTargetDirectory" @oninput="OnFolderInput" placeholder="@resolvedDefaultMusicPath" />
-                    <small class="text-muted">Leave empty to use the default music path (@resolvedDefaultMusicPath).</small>
-                </label>
-                <label class="quality-field wide">
-                    <QualityPicker @bind-Value="editQuality" @bind-Value:after="SaveNow" />
-                </label>
+            <div class="card-section">
+                <span class="eyebrow">Basics</span>
+                <div class="form-grid single">
+                    <label>
+                        Name
+                        <input value="@editName" @oninput="OnNameInput" />
+                    </label>
+                    <label>
+                        Download folder
+                        <input value="@editTargetDirectory" @oninput="OnFolderInput" placeholder="@resolvedDefaultMusicPath" />
+                        <small class="text-muted">Leave empty to use the default music path (@resolvedDefaultMusicPath).</small>
+                    </label>
+                </div>
+            </div>
+            <div class="card-section">
+                <span class="eyebrow">Quality</span>
+                <div class="form-grid single">
+                    <div class="quality-field">
+                        <QualityPicker @bind-Value="editQuality" @bind-Value:after="SaveNow" />
+                    </div>
+                </div>
                 <div class="toggle-with-help">
                     <label class="toggle-switch wide">
                         <input type="checkbox" @bind="editStrictQuality" @bind:after="SaveNow" />
@@ -169,8 +177,10 @@ else
                         <HelpTip Path="concepts#strict-quality" Text="Off: a fallback stays in the chosen container, so an FLAC request fails when no lossless source exists. On: it may land on the best lossy file." />
                     </div>
                 }
-                <div class="archive-group wide">
-                    <span class="eyebrow">Archive copy</span>
+            </div>
+            <div class="card-section archive-section">
+                <span class="eyebrow">Archive copy</span>
+                <div class="form-grid single">
                     <label>
                         Archive folder
                         <input value="@editArchiveDirectory" @oninput="OnArchiveFolderInput"
@@ -196,12 +206,12 @@ else
                         </label>
                     }
                 </div>
+            </div>
+            <div class="card-section">
+                <span class="eyebrow">Sync</span>
                 @if (!playlist.IsManualImport)
                 {
-                    <label class="wide">
-                        Auto-sync schedule
-                        <SchedulePicker @bind-Value="editSchedule" @bind-Value:after="SaveNow" />
-                    </label>
+                    <SchedulePicker Label="Auto-sync schedule" @bind-Value="editSchedule" @bind-Value:after="SaveNow" />
                     <div class="toggle-with-help">
                         <label class="toggle-switch wide">
                             <input type="checkbox" @bind="editAutoDownload" @bind:after="SaveNow" />
@@ -211,16 +221,18 @@ else
                         <HelpTip Path="concepts#playlists-are-snapshots" Text="After the scheduled refresh, start a download run when there is pending work; failed tracks are retried every interval." />
                     </div>
                 }
-                <label>
-                    Sync mode
-                    <select value="@editSyncMode" @onchange="OnSyncModeChanged">
-                        <option value="@PlaylistSyncMode.Additive">Additive: keep removed tracks as history</option>
-                        <option value="@PlaylistSyncMode.Mirror">Mirror: remove tracks deleted from source</option>
-                    </select>
-                </label>
+                <div class="form-grid single">
+                    <label>
+                        Sync mode
+                        <select value="@editSyncMode" @onchange="OnSyncModeChanged">
+                            <option value="@PlaylistSyncMode.Additive">Additive: keep removed tracks as history</option>
+                            <option value="@PlaylistSyncMode.Mirror">Mirror: remove tracks deleted from source</option>
+                        </select>
+                    </label>
+                </div>
                 @if (playlist.IsManualImport)
                 {
-                    <span class="text-muted wide">Imported snapshot: re-import the file to update the track list.</span>
+                    <span class="text-muted">Imported snapshot: re-import the file to update the track list.</span>
                 }
             </div>
         </div>
@@ -232,31 +244,33 @@ else
                     <h2>Track status</h2>
                 </div>
             </div>
-            <div class="stat-grid two">
-                <div class="stat-card">
-                    <Icon Name="music" Size="20" Class="stat-icon" />
-                    <label>Tracks</label>
-                    <strong>@playlist.Tracks.Count</strong>
+            <div class="card-section">
+                <div class="stat-grid two">
+                    <div class="stat-card">
+                        <Icon Name="music" Size="20" Class="stat-icon" />
+                        <label>Tracks</label>
+                        <strong>@playlist.Tracks.Count</strong>
+                    </div>
+                    <div class="stat-card">
+                        <Icon Name="download" Size="20" Class="stat-icon" />
+                        <label>Downloaded</label>
+                        <strong>@downloadedCount / @playlist.Tracks.Count</strong>
+                    </div>
                 </div>
-                <div class="stat-card">
-                    <Icon Name="download" Size="20" Class="stat-icon" />
-                    <label>Downloaded</label>
-                    <strong>@downloadedCount / @playlist.Tracks.Count</strong>
-                </div>
+                @if (downloadedCount > 0 && badQualityCount > 0)
+                {
+                    <div class="hint-box">
+                        <Icon Name="alert" Size="16" Class="inline-icon" /> @badQualityCount downloaded track@(badQualityCount == 1 ? "" : "s") look@(badQualityCount == 1 ? "s" : "") inflated (the bandwidth sits below what the bitrate claims).
+                        @(editQuality == "auto"
+                            ? badQualityCount == 1
+                                ? "Retry it with a lower quality cap."
+                                : "Retry them with a lower quality cap."
+                            : badQualityCount == 1
+                                ? "Retry it after switching the playlist to No filter, or pick a lower quality cap."
+                                : "Retry them after switching the playlist to No filter, or pick a lower quality cap.")
+                    </div>
+                }
             </div>
-            @if (downloadedCount > 0 && badQualityCount > 0)
-            {
-                <div class="hint-box">
-                    <Icon Name="alert" Size="16" Class="inline-icon" /> @badQualityCount downloaded track@(badQualityCount == 1 ? "" : "s") look@(badQualityCount == 1 ? "s" : "") inflated (the bandwidth sits below what the bitrate claims).
-                    @(editQuality == "auto"
-                        ? badQualityCount == 1
-                            ? "Retry it with a lower quality cap."
-                            : "Retry them with a lower quality cap."
-                        : badQualityCount == 1
-                            ? "Retry it after switching the playlist to No filter, or pick a lower quality cap."
-                            : "Retry them after switching the playlist to No filter, or pick a lower quality cap.")
-                </div>
-            }
         </div>
     </section>
 

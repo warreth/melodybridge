@@ -3,9 +3,9 @@
    options everywhere, the same wording the sync job wizard uses; the
    custom option is a plain five-field cron expression. Emits a
    ScanSchedule; nothing else computes when things run. *@
-<div class="form-grid">
+<div class="form-grid single">
     <label>
-        Schedule
+        @Label
         <select @bind="Kind">
             <option value="@ScheduleKind.Manual">Manual</option>
             <option value="@ScheduleKind.Hourly">Hourly</option>
@@ -40,6 +40,11 @@
     [Parameter] public ScanSchedule Value { get; set; }
 
     [Parameter] public EventCallback<ScanSchedule> ValueChanged { get; set; }
+
+    /// <summary>The field label; callers name the schedule after what it
+    /// drives ("Auto-sync schedule") without wrapping the picker in a
+    /// second label.</summary>
+    [Parameter] public string Label { get; set; } = "Schedule";
 
     private ScheduleKind Kind
     {

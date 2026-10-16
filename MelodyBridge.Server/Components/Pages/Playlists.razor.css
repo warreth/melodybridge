@@ -29,3 +29,12 @@
     aspect-ratio: 1 / 1;
     width: 100%;
 }
+
+/* Add-playlist wizard: the schedule select needs little room, while the
+   sync-mode option labels are long, so sync mode gets the wider column.
+   Phones stack them again. */
+.form-grid.sync-split { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); }
+
+@media (max-width: 720px) {
+    .form-grid.sync-split { grid-template-columns: minmax(0, 1fr); }
+}

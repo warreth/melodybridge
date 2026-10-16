@@ -130,20 +130,24 @@ else
                 <button class="icon-button" @onclick="HideAddForm"><Icon Name="x" Size="18" /></button>
             </div>
             <div class="wizard-body">
-                <div class="form-grid single">
-                    <label>
+                <div class="hint-box">
+                    Public Spotify and YouTube playlists, no account needed.
+                    Quality defaults to <strong>@savedDefaultQualityLabel</strong>: change the default in Settings.
+                </div>
+                <div class="form-grid sync-split">
+                    <label class="wide">
                         Playlist link
                         <input @bind="newUrl" placeholder="https://open.spotify.com/playlist/… or youtube.com/playlist?list=…" />
                     </label>
-                    <label>
+                    <label class="wide">
                         Download folder (optional)
                         <input @bind="newTargetDirectory" placeholder="@resolvedDefaultMusicPath" />
                         <small class="text-muted">Leave empty to use the default music path (currently @resolvedDefaultMusicPath).</small>
                     </label>
-                    <label class="quality-field wide">
+                    <div class="quality-field wide">
                         <QualityPicker @bind-Value="newQuality" />
-                    </label>
-                    <div class="toggle-with-help">
+                    </div>
+                    <div class="toggle-with-help wide">
                         <label class="toggle-switch wide">
                             <input type="checkbox" @bind="newStrictQuality" />
                             <span class="toggle-slider"></span>
@@ -153,7 +157,7 @@ else
                     </div>
                     @if (!newStrictQuality)
                     {
-                        <div class="toggle-with-help">
+                        <div class="toggle-with-help wide">
                             <label class="toggle-switch wide">
                                 <input type="checkbox" @bind="newAllowContainerChange" />
                                 <span class="toggle-slider"></span>
@@ -162,10 +166,7 @@ else
                             <HelpTip Path="concepts#strict-quality" Text="Off: a fallback stays in the chosen container, so an FLAC request fails when no lossless source exists. On: it may land on the best lossy file." />
                         </div>
                     }
-                    <label class="wide">
-                        Auto-sync schedule
-                        <SchedulePicker @bind-Value="newSchedule" />
-                    </label>
+                    <SchedulePicker Label="Auto-sync schedule" @bind-Value="newSchedule" />
                     <label>
                         Sync mode
                         <select @bind="newSyncMode">
@@ -173,10 +174,6 @@ else
                             <option value="@PlaylistSyncMode.Mirror">Mirror: remove tracks deleted from source</option>
                         </select>
                     </label>
-                </div>
-                <div class="hint-box">
-                    Public Spotify and YouTube playlists, no account needed.
-                    Quality defaults to <strong>@savedDefaultQualityLabel</strong>: change the default in Settings.
                 </div>
             </div>
             <div class="wizard-footer">
