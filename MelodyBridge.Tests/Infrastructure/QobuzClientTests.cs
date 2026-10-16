@@ -1,0 +1,216 @@
+using System.Net;
+using System.Text;
+using System.Text.Json;
+using MelodyBridge.Infrastructure.Qobuz;
+using Microsoft.Extensions.Logging.Abstractions;
+
+namespace MelodyBridge.Tests.Infrastructure;
+
+/// <summary>
+/// The Qobuz search client: the bundle scrape (with fragments captured
+/// from the live bundle, expected secrets computed independently), the
+/// token check and the search parsing. No live network access needed.
+/// </summary>
+[TestFixture]
+public class QobuzClientTests
+{
+    private sealed class StubHttpMessageHandler : HttpMessageHandler
+    {
+        public Func<HttpRequestMessage, HttpResponseMessage> Respond { get; set; } =
+            _ => new HttpResponseMessage(HttpStatusCode.NotFound);
+
+        public List<HttpRequestMessage> Requests { get; } = new();
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken ct)
+        {
+            Requests.Add(request);
+            return Task.FromResult(Respond(request));
+        }
+    }
+
+    private static QobuzClient Create(StubHttpMessageHandler handler)
+        => new(new HttpClient(handler) { BaseAddress = new Uri("https://play.qobuz.com") },
+            NullLogger<QobuzClient>.Instance);
+
+    private static HttpResponseMessage Json(object body) => new(HttpStatusCode.OK)
+    {
+        Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json"),
+    };
+
+    /// <summary>Fragments captured from the live bundle; secrets computed independently.</summary>
+    private const string BundleFixture = """
+        a.initialSeed("ZjY5YTc3MzQ2ODZjYjk0Mjc2MjkzNz",window.utimezone.london)
+        b.initialSeed("ODA2MzMxYzNiMGI2NDFkYTkyM2I4OT",window.utimezone.abidjan)
+        c.initialSeed("YWJiMjEzNjQ5NDVjMDU4MzMwOTY2N2",window.utimezone.berlin)
+        name:"app/Abidjan",info:"BhZWQwMWQwNGE=NTI2OGQwY2ZmZD",extras:"UwNGZkYzliMTRhY2YxYzI3MzExOWE="
+        name:"app/London",info:"hhNGI3YWMzODE=MTlkMTI1OWM1Nj",extras:"VkNDNlNDg2OWU2MjU1YWUxYTdmZTU="
+        name:"app/Berlin",info:"QxM2NhM2Q5M2E=ZWI4MDU5YWEyNT",extras:"RlNDZjNTkyNTAzYjdkZGMwOGI5MGQ="
+        """;
+
+    [Test]
+    public void ParseSecrets_DerivesTheLiveBundleSecrets()
+    {
+        var secrets = QobuzClient.ParseSecrets(BundleFixture);
+
+        Assert.That(secrets, Is.EqualTo(new[]
+        {
+            "806331c3b0b641da923b890aed01d04a", // abidjan, moved to the front
+            "f69a7734686cb9427629378a4b7ac381", // london
+            "abb21364945c0583309667d13ca3d93a", // berlin
+        }), "the secret derivation must match the live bundle");
+    }
+
+    [Test]
+    public void ParseSecrets_Garbage_IsEmpty() =>
+        Assert.That(QobuzClient.ParseSecrets("no seeds here"), Is.Empty);
+
+    private static HttpResponseMessage BundleResponse()
+        => new(HttpStatusCode.OK)
+        {
+            Content = new StringContent(
+                """
+                <html><script src="/resources/8.2.0-b034/bundle.js"></script></html>
+                """, Encoding.UTF8, "text/html"),
+        };
+
+    private static HttpResponseMessage BundleScriptResponse()
+        => new(HttpStatusCode.OK)
+        {
+            Content = new StringContent(
+                """
+                production:{api:{appId:"798273057",appSecret:"0123456789abcdef0123456789abcdef"}
+                privateKey:"c8f4b3a2d1"
+                """ + BundleFixture, Encoding.UTF8, "application/javascript"),
+        };
+
+    [Test]
+    public async Task GetBundle_ScrapesAppIdPrivateKeyAndSecrets()
+    {
+        var handler = new StubHttpMessageHandler();
+        handler.Respond = request => request.RequestUri!.AbsolutePath.Contains("bundle.js")
+            ? BundleScriptResponse()
+            : BundleResponse();
+        var client = Create(handler);
+
+        var bundle = await client.GetBundleAsync();
+
+        Assert.That(bundle, Is.Not.Null);
+        Assert.Multiple(() =>
+        {
+            Assert.That(bundle!.AppId, Is.EqualTo("798273057"));
+            Assert.That(bundle.PrivateKey, Is.EqualTo("c8f4b3a2d1"));
+            Assert.That(bundle.Secrets, Has.Count.EqualTo(3));
+            Assert.That(handler.Requests, Has.Count.EqualTo(2), "login page and bundle script");
+        });
+    }
+
+    [Test]
+    public async Task GetBundle_LoginPageWithoutBundleScript_IsNull()
+    {
+        var handler = new StubHttpMessageHandler();
+        handler.Respond = _ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("<html>no script here</html>", Encoding.UTF8, "text/html"),
+        };
+        var client = Create(handler);
+
+        Assert.That(await client.GetBundleAsync(), Is.Null);
+    }
+
+    [Test]
+    public async Task ValidateToken_SendsTheHeaders_AndReadsThePlan()
+    {
+        var handler = new StubHttpMessageHandler();
+        handler.Respond = request => request.RequestUri!.AbsolutePath.Contains("bundle.js")
+            ? BundleScriptResponse()
+            : request.RequestUri.AbsolutePath.Contains("login") && request.Method == HttpMethod.Post
+                ? Json(new
+                {
+                    user = new { credential = new { parameters = new { short_label = "Studio" } } },
+                })
+                : BundleResponse();
+        var client = Create(handler);
+
+        var account = await client.ValidateTokenAsync("token-123");
+
+        Assert.That(account, Is.Not.Null);
+        Assert.Multiple(() =>
+        {
+            Assert.That(account!.Label, Is.EqualTo("Studio"));
+            Assert.That(account.CanDownload, Is.True);
+
+            var post = handler.Requests.Single(r => r.Method == HttpMethod.Post);
+            Assert.That(post.Headers.GetValues("X-App-Id").Single(), Is.EqualTo("798273057"));
+            Assert.That(post.Headers.GetValues("X-User-Auth-Token").Single(), Is.EqualTo("token-123"));
+        });
+    }
+
+    [Test]
+    public async Task ValidateToken_FreePlan_CannotDownload()
+    {
+        var handler = new StubHttpMessageHandler();
+        handler.Respond = request => request.RequestUri!.AbsolutePath.Contains("bundle.js")
+            ? BundleScriptResponse()
+            : request.Method == HttpMethod.Post
+                ? Json(new { user = new { credential = new { parameters = (object?)null } } })
+                : BundleResponse();
+        var client = Create(handler);
+
+        var account = await client.ValidateTokenAsync("token-123");
+
+        Assert.That(account, Is.Not.Null);
+        Assert.That(account!.CanDownload, Is.False, "a free plan has no parameters block");
+    }
+
+    [Test]
+    public async Task Search_ParsesTheTrackShape_AndSendsTheToken()
+    {
+        var handler = new StubHttpMessageHandler();
+        handler.Respond = request =>
+        {
+            var path = request.RequestUri!.AbsolutePath;
+            if (path.Contains("bundle.js")) return BundleScriptResponse();
+            if (path.Contains("login")) return BundleResponse();
+            if (path.Contains("track/search"))
+                return Json(new
+                {
+                    tracks = new
+                    {
+                        items = new object[]
+                        {
+                            new
+                            {
+                                id = 5966783,
+                                title = "Around the World",
+                                duration = 429,
+                                isrc = "GBDUW0600009",
+                                maximum_bit_depth = 24,
+                                hires_streamable = true,
+                                performer = new { name = "Daft Punk" },
+                            },
+                        },
+                    },
+                });
+            return new HttpResponseMessage(HttpStatusCode.NotFound);
+        };
+        var client = Create(handler);
+
+        var tracks = await client.SearchTracksAsync("Daft Punk Around the World", 5, "token-123");
+
+        Assert.That(tracks, Has.Count.EqualTo(1));
+        Assert.Multiple(() =>
+        {
+            Assert.That(tracks[0].Id, Is.EqualTo(5966783));
+            Assert.That(tracks[0].Title, Is.EqualTo("Around the World"));
+            Assert.That(tracks[0].Artist, Is.EqualTo("Daft Punk"));
+            Assert.That(tracks[0].Duration, Is.EqualTo(TimeSpan.FromSeconds(429)));
+            Assert.That(tracks[0].Isrc, Is.EqualTo("GBDUW0600009"));
+            Assert.That(tracks[0].MaximumBitDepth, Is.EqualTo(24));
+            Assert.That(tracks[0].HiresStreamable, Is.True);
+
+            var search = handler.Requests.Single(r => r.RequestUri!.AbsolutePath.Contains("track/search"));
+            Assert.That(search.Headers.GetValues("X-User-Auth-Token").Single(), Is.EqualTo("token-123"));
+        });
+    }
+}

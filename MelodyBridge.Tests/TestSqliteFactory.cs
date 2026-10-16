@@ -54,3 +54,21 @@ public sealed class ListDownloaderRegistry(params IDownloader[] downloaders) : I
     public Task<string> GetConfigAsync(string id, string key, CancellationToken ct = default) => Task.FromResult("");
     public Task SetConfigAsync(string id, string key, string? value, CancellationToken ct = default) => Task.CompletedTask;
 }
+
+/// <summary>In-memory plugin config for tests; keys are "pluginId:key".</summary>
+public sealed class StubPluginConfig : IPluginConfig
+{
+    private readonly Dictionary<string, string> _values = new(StringComparer.OrdinalIgnoreCase);
+
+    public void Set(string pluginId, string key, string value)
+        => _values[$"{pluginId}:{key}"] = value;
+
+    public Task<string> GetAsync(string pluginId, string key, CancellationToken ct = default)
+        => Task.FromResult(_values.GetValueOrDefault($"{pluginId}:{key}", ""));
+
+    public Task SetAsync(string pluginId, string key, string? value, CancellationToken ct = default)
+    {
+        _values[$"{pluginId}:{key}"] = value ?? "";
+        return Task.CompletedTask;
+    }
+}

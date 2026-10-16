@@ -1,0 +1,278 @@
+using System.Net;
+using MelodyBridge.Core;
+using MelodyBridge.Infrastructure.Deezer;
+using MelodyBridge.Infrastructure.Downloaders;
+using MelodyBridge.Infrastructure.Services;
+using Microsoft.Extensions.Logging.Abstractions;
+
+namespace MelodyBridge.Tests.Infrastructure;
+
+/// <summary>
+/// The deemix plugin: Deezer's public search for the ranking, and the
+/// user's own deemix CLI for the download. The CLI is a POSIX shell stub
+/// that writes a real (sniffable) audio file, so the whole path runs
+/// without deemix, Docker or a Deezer account.
+/// </summary>
+[TestFixture]
+public class DeemixDownloaderTests
+{
+    private readonly List<string> _tempDirs = new();
+
+    [TearDown]
+    public void TearDown()
+    {
+        foreach (var dir in _tempDirs)
+        {
+            try { Directory.Delete(dir, recursive: true); } catch { /* best effort */ }
+        }
+        _tempDirs.Clear();
+    }
+
+    private string NewDir()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), $"mb-deemix-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        _tempDirs.Add(dir);
+        return dir;
+    }
+
+    private static DeezerClient.DeezerTrack Track(
+        long id, string title, string artist, int duration, string? isrc = null)
+        => new(id, title, artist, TimeSpan.FromSeconds(duration), isrc);
+
+    private static DeemixDownloader Create(StubPluginConfig? config = null)
+    {
+        var http = new HttpClient(new HttpClientHandler())
+        {
+            BaseAddress = new Uri("https://api.deezer.com"),
+        };
+        return new DeemixDownloader(
+            new DeezerClient(http, NullLogger<DeezerClient>.Instance),
+            config ?? new StubPluginConfig(),
+            NullLogger<DeemixDownloader>.Instance);
+    }
+
+    // ── Ranking ──────────────────────────────────────────────────────────
+
+    [Test]
+    public void Rank_PicksTheRealMatch_NotTheFirstItem()
+    {
+        var hit = DeemixDownloader.Rank(new[]
+        {
+            Track(111, "Never Gonna Give You Up (Cake Mix)", "Rick Astley", 347),
+            Track(222, "Never Gonna Give You Up", "Rick Astley", 213, "GBARL0600786"),
+        }, new TrackQuery("Rick Astley", "Never Gonna Give You Up", DownloadQuality.Any));
+
+        Assert.That(hit, Is.Not.Null);
+        Assert.That(hit!.SourceUrl, Is.EqualTo("https://www.deezer.com/track/222"));
+    }
+
+    [Test]
+    public void Rank_ExactIsrc_WinsOverACloserTitle()
+    {
+        var hit = DeemixDownloader.Rank(new[]
+        {
+            Track(111, "Never Gonna Give You Up", "Rick Astley", 213, "OTHERISRC001"),
+            Track(222, "Never Gonna Give You Up (Remastered 2007)", "Rick Astley", 214, "GBARL0600786"),
+        }, new TrackQuery("Rick Astley", "Never Gonna Give You Up", DownloadQuality.Any,
+            ExpectedDuration: TimeSpan.FromSeconds(213), Isrc: "GBARL0600786"));
+
+        Assert.That(hit, Is.Not.Null);
+        Assert.That(hit!.SourceUrl, Is.EqualTo("https://www.deezer.com/track/222"),
+            "an exact ISRC is the recording itself");
+    }
+
+    [Test]
+    public void Rank_Empty_IsNull()
+        => Assert.That(DeemixDownloader.Rank(Array.Empty<DeezerClient.DeezerTrack>(),
+            new TrackQuery("A", "T", DownloadQuality.Any)), Is.Null);
+
+    // ── Mapping helpers ──────────────────────────────────────────────────
+
+    [TestCase(AudioFormat.Flac, null, null, "flac")]
+    [TestCase(AudioFormat.Mp3, null, null, "320")]
+    [TestCase(AudioFormat.Mp3, null, 160, "128")]
+    [TestCase(AudioFormat.Mp3, 192, 256, null)]
+    [TestCase(AudioFormat.Aac, null, null, null)]
+    [TestCase(AudioFormat.Auto, null, null, "flac")]
+    public void BitrateFor_MapsTheQualityBands(
+        AudioFormat format, int? min, int? max, string? expected)
+        => Assert.That(DeemixDownloader.BitrateFor(new DownloadQuality(format, min, max)),
+            Is.EqualTo(expected));
+
+    [TestCase("https://www.deezer.com/track/3135556", true, 3135556)]
+    [TestCase("https://www.deezer.com/track/3135556?utm=1", true, 3135556)]
+    [TestCase("3135556", true, 3135556)]
+    [TestCase("https://open.spotify.com/track/abc", false, 0)]
+    [TestCase("", false, 0)]
+    public void TryExtractTrackId_HandlesUrlsAndIds(string input, bool expected, long expectedId)
+    {
+        var ok = DeemixDownloader.TryExtractTrackId(input, out var id);
+        Assert.Multiple(() =>
+        {
+            Assert.That(ok, Is.EqualTo(expected));
+            Assert.That(id, Is.EqualTo(expectedId));
+        });
+    }
+
+    [Test]
+    public void DescribeFailure_TakesTheLastMeaningfulLine()
+    {
+        var reason = DeemixDownloader.DescribeFailure(
+            new CliRunner.Result(1, "some noise\n", "\nfirst line\nInvalid ARL\n"));
+
+        Assert.That(reason, Is.EqualTo("deemix failed (exit 1): Invalid ARL"));
+    }
+
+    // ── Availability ─────────────────────────────────────────────────────
+
+    [Test]
+    public async Task IsAvailable_MissingCommand_False()
+    {
+        var config = new StubPluginConfig();
+        config.Set("deemix", "command", "definitely-not-a-real-command-xyz");
+        Assert.That(await Create(config).IsAvailableAsync(), Is.False);
+    }
+
+    [Test]
+    public async Task IsAvailable_ConfiguredCommand_True()
+    {
+        if (OperatingSystem.IsWindows()) Assert.Ignore("POSIX shell stub");
+
+        var dir = NewDir();
+        var config = new StubPluginConfig();
+        config.Set("deemix", "command", CliStub.Producing(dir));
+        Assert.That(await Create(config).IsAvailableAsync(), Is.True);
+    }
+
+    // ── Download ─────────────────────────────────────────────────────────
+
+    [Test]
+    public async Task Download_RunsTheCli_MovesAndTagsTheFile()
+    {
+        if (OperatingSystem.IsWindows()) Assert.Ignore("POSIX shell stub");
+
+        var toolDir = NewDir();
+        var downloads = NewDir();
+        var output = NewDir();
+        var script = CliStub.Producing(toolDir);
+        var config = new StubPluginConfig();
+        config.Set("deemix", "command", script);
+        config.Set("deemix", "downloads_path", downloads);
+        var plugin = Create(config);
+
+        var result = await plugin.DownloadAsync(
+            "https://www.deezer.com/track/3135556", output, "mb-deemix-1",
+            new DownloadQuality(AudioFormat.Flac));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.True, result.ErrorMessage);
+            Assert.That(result.FilePath, Is.Not.Null);
+            Assert.That(File.Exists(result.FilePath), Is.True);
+            Assert.That(Path.GetExtension(result.FilePath), Is.EqualTo(".flac"));
+            Assert.That(Path.GetFileName(result.FilePath), Is.EqualTo("Artist - Song.flac"));
+
+            var args = CliStub.RecordedArguments(script);
+            Assert.That(args, Does.Contain("-b flac"));
+            Assert.That(args, Does.Contain("-p "));
+            Assert.That(args, Does.Contain("https://www.deezer.com/track/3135556"));
+            Assert.That(args, Does.Contain("mb-deemix-1"), "the per-track download folder");
+
+            Assert.That(Directory.GetDirectories(downloads), Is.Empty,
+                "the per-track folder is cleaned up");
+        });
+    }
+
+    [Test]
+    public async Task Download_CliFails_ReportsTheStderr()
+    {
+        if (OperatingSystem.IsWindows()) Assert.Ignore("POSIX shell stub");
+
+        var toolDir = NewDir();
+        var config = new StubPluginConfig();
+        config.Set("deemix", "command", CliStub.Producing(toolDir, exitCode: 1, stderr: "Invalid ARL"));
+        config.Set("deemix", "downloads_path", NewDir());
+
+        var result = await Create(config).DownloadAsync(
+            "https://www.deezer.com/track/3135556", NewDir(), "mb-fail");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.False);
+            Assert.That(result.ErrorMessage, Does.Contain("Invalid ARL"));
+        });
+    }
+
+    [Test]
+    public async Task Download_SuccessWithoutAFile_Fails()
+    {
+        if (OperatingSystem.IsWindows()) Assert.Ignore("POSIX shell stub");
+
+        var toolDir = NewDir();
+        var config = new StubPluginConfig();
+        config.Set("deemix", "command", CliStub.Silent(toolDir));
+        config.Set("deemix", "downloads_path", NewDir());
+
+        var result = await Create(config).DownloadAsync(
+            "https://www.deezer.com/track/3135556", NewDir(), "mb-empty");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.False);
+            Assert.That(result.ErrorMessage, Does.Contain("no audio file"));
+        });
+    }
+
+    [Test]
+    public async Task Download_UnconfiguredDownloadsFolder_Fails()
+    {
+        var config = new StubPluginConfig();
+        config.Set("deemix", "command", "sh");
+
+        var result = await Create(config).DownloadAsync(
+            "https://www.deezer.com/track/3135556", NewDir(), "mb-nopath");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.False);
+            Assert.That(result.ErrorMessage, Does.Contain("downloads folder is not configured"));
+        });
+    }
+
+    [Test]
+    public async Task Download_NoBitrateFits_FailsWithoutRunningTheCli()
+    {
+        if (OperatingSystem.IsWindows()) Assert.Ignore("POSIX shell stub");
+
+        var toolDir = NewDir();
+        var script = CliStub.Producing(toolDir);
+        var config = new StubPluginConfig();
+        config.Set("deemix", "command", script);
+        config.Set("deemix", "downloads_path", NewDir());
+
+        var result = await Create(config).DownloadAsync(
+            "https://www.deezer.com/track/3135556", NewDir(), "mb-band",
+            new DownloadQuality(AudioFormat.Aac));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.False);
+            Assert.That(result.ErrorMessage, Does.Contain("no deemix bitrate fits"));
+            Assert.That(CliStub.RecordedArguments(script), Is.Empty, "the CLI never ran");
+        });
+    }
+
+    [Test]
+    public async Task Download_InvalidUrl_Fails()
+    {
+        var result = await Create().DownloadAsync(
+            "https://example.com/not-a-track", NewDir(), "mb-bad");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.False);
+            Assert.That(result.ErrorMessage, Does.Contain("not a Deezer track URL"));
+        });
+    }
+}

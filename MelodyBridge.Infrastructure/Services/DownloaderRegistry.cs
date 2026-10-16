@@ -132,24 +132,29 @@ public class DownloaderRegistry : IDownloaderRegistry
         => _config.SetAsync(id, key, value, ct);
 
     /// <summary>
-    /// The shipped waterfall order before the Soulseek cleanup. An install
-    /// whose stored order is exactly this was never reordered by hand, so
-    /// it is moved to the new default; a custom order is left alone.
+    /// The shipped waterfall orders before the premium plugins existed.
+    /// An install whose stored order is exactly one of these was never
+    /// reordered by hand, so it is moved to the new default; a custom
+    /// order is left alone.
     /// </summary>
-    private static readonly string[] PreviousDefaultOrder =
+    private static readonly string[][] PreviousDefaultOrders =
     [
-        "soundcloud", "archiveorg", "ytdlp", "lucida", "monochrome", "doubledouble", "dabmusic",
+        // The DAB Music era.
+        ["soundcloud", "archiveorg", "ytdlp", "lucida", "monochrome", "doubledouble", "dabmusic"],
+        // The cleanup era, before Qobuz and Deezer.
+        ["soundcloud", "archiveorg", "ytdlp", "monochrome", "slskd", "doubledouble", "lucida"],
     ];
 
     /// <summary>The order a fresh install gets, and the target of the migration.</summary>
     private static readonly string[] CurrentDefaultOrder =
     [
-        "soundcloud", "archiveorg", "ytdlp", "monochrome", "slskd", "doubledouble", "lucida",
+        "soundcloud", "archiveorg", "ytdlp", "qobuz", "deemix",
+        "monochrome", "slskd", "doubledouble", "lucida",
     ];
 
     /// <summary>
-    /// Moves an untouched old default order onto the new default. Only an
-    /// exact match of the previous shipped sequence qualifies (with the
+    /// Moves an untouched shipped order onto the new default. Only an
+    /// exact match of a previous shipped sequence qualifies (with the
     /// removed DAB Music plugin filtered out), so a user's own order is
     /// never rewritten.
     /// </summary>
@@ -163,19 +168,22 @@ public class DownloaderRegistry : IDownloaderRegistry
             .Select(d => d.Id)
             .ToList();
 
-        // Compare only the ids the old default knew: a plugin added after
-        // the change (Soulseek) rides at the end and must not disqualify
-        // the untouched-old-default detection. No overlap at all (a test
-        // set, an install of unknown plugins) is never a match.
-        var previous = PreviousDefaultOrder
-            .Where(id => known.Contains(id, StringComparer.OrdinalIgnoreCase))
-            .ToList();
-        if (previous.Count == 0) return;
-        var orderedOld = ordered
-            .Where(id => previous.Contains(id, StringComparer.OrdinalIgnoreCase))
-            .ToList();
-        if (!orderedOld.SequenceEqual(previous, StringComparer.OrdinalIgnoreCase))
-            return;
+        // Compare only the ids the shipped order knew: a plugin added
+        // after the change rides at the end and must not disqualify the
+        // untouched-old-default detection. No overlap at all (a test set)
+        // is never a match.
+        var untouched = PreviousDefaultOrders.Any(pattern =>
+        {
+            var previous = pattern
+                .Where(id => known.Contains(id, StringComparer.OrdinalIgnoreCase))
+                .ToList();
+            if (previous.Count == 0) return false;
+            var orderedOld = ordered
+                .Where(id => previous.Contains(id, StringComparer.OrdinalIgnoreCase))
+                .ToList();
+            return orderedOld.SequenceEqual(previous, StringComparer.OrdinalIgnoreCase);
+        });
+        if (!untouched) return;
 
         var rows = await db.ProviderStates.ToListAsync(ct);
         var byId = rows.ToDictionary(r => r.ProviderId, StringComparer.OrdinalIgnoreCase);

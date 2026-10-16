@@ -336,6 +336,8 @@
         "ytdlp" or "soundcloud" => "yt-dlp is not installed or not on PATH",
         "monochrome" => "the Monochrome API did not answer",
         "slskd" => "set the slskd URL, API key and downloads folder on this card",
+        "qobuz" => "install qobuz-dlp and log in with a paid plan, or set a token on this card",
+        "deemix" => "install the deemix CLI and log in with your ARL, then set the command on this card",
         "doubledouble" => "no doubledouble.top host answered",
         "lucida" => "Cloudflare solver unavailable: set the FlareSolverr URL on the Settings page",
         _ => null,
@@ -378,6 +380,8 @@
         "lucida" => "zap",
         "monochrome" => "music",
         "slskd" => "server",
+        "qobuz" => "music",
+        "deemix" => "music",
         "doubledouble" => "refresh",
         _ => "music",
     };
@@ -435,6 +439,8 @@
         "lucida" => new[] { "needs a FlareSolverr URL" },
         "monochrome" => new[] { "lossless", "no account" },
         "slskd" => new[] { "lossless FLAC", "your own slskd" },
+        "qobuz" => new[] { "your subscription", "hi-res" },
+        "deemix" => new[] { "your ARL", "FLAC with HiFi" },
         "doubledouble" => new[] { "direct URLs only", "captcha-gated" },
         _ => Array.Empty<string>(),
     };

@@ -422,8 +422,8 @@ public class SlskdDownloader : IDownloader
                 return new DownloaderDownloadResult(false, null,
                     "slskd reported success but the file is not in the downloads folder");
 
-            var target = UniqueTarget(outputDirectory, Path.GetFileName(downloaded));
-            MoveFile(downloaded, target);
+            var target = FileMove.UniqueTarget(outputDirectory, Path.GetFileName(downloaded));
+            FileMove.MoveAcrossDevices(downloaded, target);
 
             // An error page saved under an audio name must never pass: sniff
             // the real bytes before accepting, and fix the extension.
@@ -536,35 +536,6 @@ public class SlskdDownloader : IDownloader
         catch (Exception)
         {
             return null;
-        }
-    }
-
-    /// <summary>A target path that never overwrites an existing file.</summary>
-    private static string UniqueTarget(string outputDirectory, string basename)
-    {
-        var target = Path.Combine(outputDirectory, basename);
-        if (!File.Exists(target)) return target;
-
-        var name = Path.GetFileNameWithoutExtension(basename);
-        var ext = Path.GetExtension(basename);
-        for (var i = 2; ; i++)
-        {
-            target = Path.Combine(outputDirectory, $"{name} ({i}){ext}");
-            if (!File.Exists(target)) return target;
-        }
-    }
-
-    /// <summary>Moves across devices by copying and deleting.</summary>
-    private static void MoveFile(string source, string target)
-    {
-        try
-        {
-            File.Move(source, target);
-        }
-        catch (IOException)
-        {
-            File.Copy(source, target, overwrite: true);
-            File.Delete(source);
         }
     }
 

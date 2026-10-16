@@ -2,10 +2,12 @@ using MelodyBridge.Application.Services;
 using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.Accounts;
 using MelodyBridge.Infrastructure.Cloudflare;
+using MelodyBridge.Infrastructure.Deezer;
 using MelodyBridge.Infrastructure.Downloaders;
 using MelodyBridge.Infrastructure.Lucida;
 using MelodyBridge.Infrastructure.MediaServers;
 using MelodyBridge.Infrastructure.Playlists;
+using MelodyBridge.Infrastructure.Qobuz;
 using MelodyBridge.Infrastructure.Scanning;
 using MelodyBridge.Infrastructure.Services;
 using Microsoft.Extensions.DependencyInjection;
@@ -29,8 +31,9 @@ public static class ServiceCollectionExtensions
         // ── Downloader plugins (the waterfall) ──
         // The default order: the fast free sources first (SoundCloud, the
         // Internet Archive), YouTube as the widest lossy fallback, then the
-        // quality-capable sources (Monochrome, Soulseek), and the community
-        // mirrors last (DoubleDouble best-effort, Lucida needs a solver).
+        // subscription sources (Qobuz, Deezer), the free lossless ones
+        // (Monochrome, Soulseek), and the community mirrors last
+        // (DoubleDouble best-effort, Lucida needs a solver).
         services.AddSingleton<IDownloader>(sp =>
             new SoundCloudDownloader(sp.GetRequiredService<ILogger<SoundCloudDownloader>>()));
         services.AddSingleton<IDownloader>(sp =>
@@ -45,6 +48,37 @@ public static class ServiceCollectionExtensions
             c.DefaultRequestHeaders.UserAgent.ParseAdd("MelodyBridge/1.0 (+https://melodybridge.app)");
             c.Timeout = TimeSpan.FromMinutes(5);
         });
+
+        // Qobuz and Deezer run through the user's own tools (qobuz-dlp,
+        // deemix): the tools own the login and the download, the app only
+        // searches. Both stay unavailable until the tools and credentials
+        // are configured.
+        services.AddSingleton<QobuzClient>(sp =>
+            new QobuzClient(
+                sp.GetRequiredService<IHttpClientFactory>().CreateClient("qobuz"),
+                sp.GetRequiredService<ILogger<QobuzClient>>()));
+        services.AddHttpClient("qobuz", c =>
+        {
+            // The web player bundle fetch expects a browser-ish client.
+            c.DefaultRequestHeaders.UserAgent.ParseAdd(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:83.0) Gecko/20100101 Firefox/83.0");
+            c.Timeout = TimeSpan.FromSeconds(30);
+        });
+        services.AddSingleton<IDownloader>(sp =>
+            new QobuzDownloader(
+                sp.GetRequiredService<QobuzClient>(),
+                sp.GetRequiredService<IPluginConfig>(),
+                sp.GetRequiredService<ILogger<QobuzDownloader>>()));
+
+        services.AddSingleton<DeezerClient>(sp =>
+            new DeezerClient(
+                sp.GetRequiredService<IHttpClientFactory>().CreateClient("deezer"),
+                sp.GetRequiredService<ILogger<DeezerClient>>()));
+        services.AddSingleton<IDownloader>(sp =>
+            new DeemixDownloader(
+                sp.GetRequiredService<DeezerClient>(),
+                sp.GetRequiredService<IPluginConfig>(),
+                sp.GetRequiredService<ILogger<DeemixDownloader>>()));
 
         // Monochrome streams lossless FLAC from its official API; the
         // client allows long transfers, the plugin caps each call itself.

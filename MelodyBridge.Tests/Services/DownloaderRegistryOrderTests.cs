@@ -126,6 +126,8 @@ public class DownloaderRegistryOrderTests
         new StubDownloader("soundcloud", "SoundCloud"),
         new StubDownloader("archiveorg", "Internet Archive"),
         new StubDownloader("ytdlp", "yt-dlp"),
+        new StubDownloader("qobuz", "Qobuz"),
+        new StubDownloader("deemix", "Deezer (deemix)"),
         new StubDownloader("monochrome", "Monochrome"),
         new StubDownloader("slskd", "Soulseek"),
         new StubDownloader("doubledouble", "DoubleDouble"),
@@ -136,62 +138,66 @@ public class DownloaderRegistryOrderTests
         => new(plugins, _dbFactory, new PluginConfigStore(_dbFactory),
             NullLogger<DownloaderRegistry>.Instance);
 
+    private async Task SeedOrderAsync(params string[] ids)
+    {
+        await using var db = _dbFactory.CreateDbContext();
+        for (var i = 0; i < ids.Length; i++)
+            db.ProviderStates.Add(new ProviderStateRow
+            {
+                ProviderId = ids[i],
+                IsEnabled = true,
+                Priority = i,
+            });
+        await db.SaveChangesAsync();
+    }
+
     [Test]
     public async Task UntouchedOldDefaultOrder_MigratesToTheNewDefault()
     {
-        // An existing install that never reordered: the old shipped order
-        // sits in the database, seeded directly the way the old version
-        // left it, DAB Music row included.
-        await using (var db = _dbFactory.CreateDbContext())
-        {
-            var old = new[]
-            {
-                "soundcloud", "archiveorg", "ytdlp", "lucida", "monochrome", "doubledouble", "dabmusic",
-            };
-            for (var i = 0; i < old.Length; i++)
-                db.ProviderStates.Add(new ProviderStateRow
-                {
-                    ProviderId = old[i],
-                    IsEnabled = true,
-                    Priority = i,
-                });
-            await db.SaveChangesAsync();
-        }
+        // An existing install that never reordered: the DAB Music era
+        // order sits in the database, seeded directly the way the old
+        // version left it.
+        await SeedOrderAsync(
+            "soundcloud", "archiveorg", "ytdlp", "lucida", "monochrome", "doubledouble", "dabmusic");
 
         // The next start, with the new plugin set, moves it to the new
         // default instead of leaving Lucida in front of everything.
         var fresh = RegistryOver(NewShippedPlugins());
         Assert.That(fresh.GetEnabled().Select(d => d.Id), Is.EqualTo(new[]
         {
-            "soundcloud", "archiveorg", "ytdlp", "monochrome", "slskd", "doubledouble", "lucida",
+            "soundcloud", "archiveorg", "ytdlp", "qobuz", "deemix",
+            "monochrome", "slskd", "doubledouble", "lucida",
         }), "an untouched default order follows the new default");
+    }
+
+    [Test]
+    public async Task UntouchedCleanupEraOrder_AlsoMigrates()
+    {
+        // The order the cleanup commit shipped, before Qobuz and Deezer.
+        await SeedOrderAsync(
+            "soundcloud", "archiveorg", "ytdlp", "monochrome", "slskd", "doubledouble", "lucida");
+
+        var fresh = RegistryOver(NewShippedPlugins());
+        Assert.That(fresh.GetEnabled().Select(d => d.Id), Is.EqualTo(new[]
+        {
+            "soundcloud", "archiveorg", "ytdlp", "qobuz", "deemix",
+            "monochrome", "slskd", "doubledouble", "lucida",
+        }), "a shipped default from before the premium plugins also migrates");
     }
 
     [Test]
     public async Task CustomOrder_IsNeverRewrittenByTheMigration()
     {
         // A user's own order, seeded the way the old version left it.
-        await using (var db = _dbFactory.CreateDbContext())
-        {
-            var custom = new[]
-            {
-                "lucida", "soundcloud", "archiveorg", "ytdlp", "monochrome", "doubledouble", "dabmusic",
-            };
-            for (var i = 0; i < custom.Length; i++)
-                db.ProviderStates.Add(new ProviderStateRow
-                {
-                    ProviderId = custom[i],
-                    IsEnabled = true,
-                    Priority = i,
-                });
-            await db.SaveChangesAsync();
-        }
+        await SeedOrderAsync(
+            "lucida", "soundcloud", "archiveorg", "ytdlp", "monochrome", "doubledouble", "dabmusic");
 
         var fresh = RegistryOver(NewShippedPlugins());
         Assert.That(fresh.GetEnabled().Select(d => d.Id), Is.EqualTo(new[]
         {
-            "lucida", "soundcloud", "archiveorg", "ytdlp", "monochrome", "doubledouble", "slskd",
-        }), "a user's own order is left alone; the new plugin rides at the end");
+            "lucida", "soundcloud", "archiveorg", "ytdlp", "monochrome", "doubledouble",
+            "qobuz", "deemix", "slskd",
+        }), "a user's own order is left alone; the new plugins ride at the end");
     }
 
     private sealed class InlineFactory : IDbContextFactory<MelodyBridgeDbContext>

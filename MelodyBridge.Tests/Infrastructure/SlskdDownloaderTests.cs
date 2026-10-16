@@ -55,24 +55,6 @@ public class SlskdDownloaderTests
         }
     }
 
-    /// <summary>In-memory plugin config; keys are "pluginId:key".</summary>
-    private sealed class StubPluginConfig : IPluginConfig
-    {
-        private readonly Dictionary<string, string> _values = new(StringComparer.OrdinalIgnoreCase);
-
-        public void Set(string pluginId, string key, string value)
-            => _values[$"{pluginId}:{key}"] = value;
-
-        public Task<string> GetAsync(string pluginId, string key, CancellationToken ct = default)
-            => Task.FromResult(_values.GetValueOrDefault($"{pluginId}:{key}", ""));
-
-        public Task SetAsync(string pluginId, string key, string? value, CancellationToken ct = default)
-        {
-            _values[$"{pluginId}:{key}"] = value ?? "";
-            return Task.CompletedTask;
-        }
-    }
-
     /// <summary>A configured plugin with fast poll intervals for tests.</summary>
     private static SlskdDownloader Create(
         StubHttpMessageHandler handler, string? downloadsPath = null, StubPluginConfig? config = null)
