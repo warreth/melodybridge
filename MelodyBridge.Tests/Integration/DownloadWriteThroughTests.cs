@@ -266,9 +266,11 @@ public class DownloadWriteThroughTests
             nameof(Download_InflatedFile_GetsInflationWarning),
             () => PlaylistStore.SpectrumVerification = () => MelodyBridge.Infrastructure.Audio.SpectrumMode.Thorough);
 
-        // Replace the source with the inflated variant: 64 kbps MP3
-        // re-encoded to 320, the classic blow-up file.
-        var fake = Path.Combine(dir, "fake-source.flac");
+        // Replace the source with the inflated variant: a 64 kbps MP3
+        // re-encoded to 320, the classic blow-up file. It must stay an
+        // MP3: a lossless container of the same content is not inflated,
+        // only a high-bitrate header on a source that stopped low is.
+        var fake = Path.Combine(dir, "fake-source.mp3");
         var mid = Path.Combine(dir, "base64.mp3");
         Assert.That(RunFfmpeg(
             $"-y -f lavfi -i \"anoisesrc=color=white:duration=3\" -b:a 64k \"{mid}\""), Is.Empty);
@@ -282,9 +284,10 @@ public class DownloadWriteThroughTests
         await using var db = await factory.CreateDbContextAsync();
         var track = await db.Tracks.FirstAsync(t => t.MelodyId == "mel-wt-1");
 
-        // White noise at 64k cuts near 13.7 kHz: the analyzer must say so.
+        // The 64 kbps source's lowpass under a 320 kbps header: the
+        // analyzer must say so.
         Assert.That(track.Warning, Is.Not.Null, "the inflated file must produce a warning");
-        Assert.That(track.Warning, Does.Contain("inflated").Or.Contain("128 kbps"),
+        Assert.That(track.Warning, Does.Contain("inflated"),
             $"unexpected warning text: {track.Warning}");
 
         Directory.Delete(dir, recursive: true);

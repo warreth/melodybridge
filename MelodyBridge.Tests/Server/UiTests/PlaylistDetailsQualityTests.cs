@@ -61,7 +61,7 @@ public class PlaylistDetailsQualityTests
                         Artist = "Artist",
                         Position = 1,
                         DownloadStatus = "downloaded",
-                        Warning = "bitrate looks inflated: spectral ceiling 12.2 kHz: matches a 128 kbps source",
+                        Warning = "bitrate looks inflated: bandwidth stops at 11.0 kHz, far below what 320 kbps needs",
                     },
                 },
             });

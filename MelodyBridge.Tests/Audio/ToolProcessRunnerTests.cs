@@ -56,4 +56,54 @@ public class ToolProcessRunnerTests
                 "a synchronous pipe read would hang until the tool finishes");
         });
     }
+
+    [Test]
+    public void RunBinary_ReturnsRawPcmBytes()
+    {
+        var ffmpeg = Ffmpeg();
+        if (ffmpeg is null) Assert.Ignore("ffmpeg is not installed on this machine");
+
+        var result = ToolProcessRunner.RunBinary(ffmpeg, new[]
+        {
+            "-v", "error", "-f", "lavfi", "-i", "sine=frequency=440:duration=1",
+            "-ac", "1", "-ar", "44100", "-f", "s16le", "-",
+        }, timeoutMs: 30000);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.TimedOut, Is.False);
+            Assert.That(result.ExitCode, Is.EqualTo(0));
+            // One second of mono 16-bit PCM at 44.1 kHz.
+            Assert.That(result.Stdout.Length,
+                Is.InRange(44100 * 2 - 4000, 44100 * 2 + 4000),
+                "the decode must come back as raw bytes");
+            Assert.That(result.Stdout, Does.Contain((byte)0x00),
+                "text decoding would have corrupted the PCM stream");
+        });
+    }
+
+    [Test]
+    public void RunBinary_HungTool_IsKilledWhenTheTimeoutExpires()
+    {
+        var ffmpeg = Ffmpeg();
+        if (ffmpeg is null) Assert.Ignore("ffmpeg is not installed on this machine");
+
+        var args = new[]
+        {
+            "-hide_banner", "-loglevel", "error",
+            "-f", "lavfi", "-i", "sine=frequency=440:duration=3600",
+            "-f", "s16le", "-",
+        };
+        var watch = Stopwatch.StartNew();
+        var result = ToolProcessRunner.RunBinary(ffmpeg, args, timeoutMs: 1500);
+        watch.Stop();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.TimedOut, Is.True, "the timeout must fire");
+            Assert.That(result.Stdout, Is.Empty);
+            Assert.That(watch.ElapsedMilliseconds, Is.LessThan(30000),
+                "a synchronous pipe read would hang until the tool finishes");
+        });
+    }
 }
