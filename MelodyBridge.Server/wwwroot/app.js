@@ -195,6 +195,9 @@ function closeTopModal(overlay) {
     overlay.click();
 }
 
+// The control that opened the current dialog, so focus can return to it.
+let modalTrigger = null;
+
 const modalObserver = new MutationObserver((mutations) => {
     for (const mutation of mutations) {
         for (const node of mutation.addedNodes) {
@@ -202,7 +205,23 @@ const modalObserver = new MutationObserver((mutations) => {
             const modal = node.classList && node.classList.contains('wizard-overlay')
                 ? node
                 : node.querySelector && node.querySelector('.wizard-overlay');
-            if (modal) requestAnimationFrame(() => focusFirstInModal(modal));
+            if (modal) {
+                if (!modalTrigger) modalTrigger = document.activeElement;
+                requestAnimationFrame(() => focusFirstInModal(modal));
+            }
+        }
+        for (const node of mutation.removedNodes) {
+            if (node.nodeType !== 1) continue;
+            const removedModal = node.classList && node.classList.contains('wizard-overlay')
+                ? node
+                : node.querySelector && node.querySelector('.wizard-overlay');
+            if (removedModal && !document.querySelector('.wizard-overlay')) {
+                // Focus returns to the control that opened the dialog.
+                if (modalTrigger && document.contains(modalTrigger)) {
+                    try { modalTrigger.focus(); } catch { /* best effort */ }
+                }
+                modalTrigger = null;
+            }
         }
     }
 });

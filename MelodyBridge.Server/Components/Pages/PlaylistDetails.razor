@@ -250,7 +250,9 @@ else
                     <Icon Name="alert" Size="16" Class="inline-icon" /> @badQualityCount downloaded track@(badQualityCount == 1 ? "" : "s") look@(badQualityCount == 1 ? "s" : "") inflated (re-encoded from a lower-quality source).
                     @(editQuality == "auto"
                         ? "Retry them with a lower quality cap."
-                        : "Retry them after switching the playlist to No filter, or pick a lower quality cap.")
+                        : badQualityCount == 1
+                            ? "Retry it after switching the playlist to No filter, or pick a lower quality cap."
+                            : "Retry them after switching the playlist to No filter, or pick a lower quality cap.")
                 </div>
             }
         </div>

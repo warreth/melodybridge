@@ -88,7 +88,7 @@ public class TrackTableTests
         // Alpha and Delta carry no duration; the tiebreak keeps their
         // playlist order, then Bravo (100s), then Charlie (200s).
         var cut = Render();
-        SortButton(cut, "Duration").Click();
+        SortButton(cut, "Length").Click();
         Assert.That(TitleCells(cut), Is.EqualTo(new[] { "Alpha", "Delta", "Bravo", "Charlie" }));
     }
 
@@ -123,7 +123,7 @@ public class TrackTableTests
     {
         var cut = Render();
         var sortable = cut.FindAll(".th-sort").Select(b => b.TextContent.Replace("▴", "").Replace("▾", "").Trim()).ToList();
-        Assert.That(sortable, Is.EqualTo(new[] { "#", "Title", "Artist", "Duration", "Size", "Status" }));
+        Assert.That(sortable, Is.EqualTo(new[] { "#", "Title", "Artist", "Length", "Size", "Status" }));
         Assert.That(cut.Markup, Does.Not.Contain("Sort by bitrate"), "Bitrate, Rate and Format headers stay plain");
     }
 

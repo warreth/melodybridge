@@ -26,7 +26,9 @@
             <p>MelodyBridge saves the tracks of a Spotify or YouTube playlist locally, downloads the
                 music through a plugin waterfall, and publishes the result to Jellyfin, Plex, Navidrome
                 or an M3U file.
-                Work through the checklist below. It disappears once everything is set up.</p>
+                @(doneSteps == 3
+                    ? "Everything is set up already. Skip this, or keep it as a reference for what lives where."
+                    : "Work through the checklist below. It disappears once everything is set up.")</p>
             <div class="hero-actions">
                 <a class="btn-modern primary" href="/playlists">Start with a playlist</a>
                 <button class="btn-modern ghost" @onclick="SkipIntro">Skip intro</button>
@@ -136,7 +138,7 @@ else
         <StatCard IconName="package" Label="Plugins" Value="@($"{enabledPlugins} / {totalPlugins}")" Caption="Enabled in the waterfall" />
     </section>
 
-    <section class="content-grid two">
+    <section class="content-grid two dashboard-grid">
         <div class="panel-card">
             <div class="panel-header">
                 <div>
@@ -224,7 +226,7 @@ else
                             <thead>
                                 <tr>
                                     <th>Job</th>
-                                    <th>When</th>
+                                    <th class="col-when">When</th>
                                     <th>Result</th>
                                     <th>Summary</th>
                                 </tr>
@@ -234,7 +236,7 @@ else
                                 {
                                     <tr>
                                         <td><strong>@run.JobName</strong></td>
-                                        <td class="text-muted nowrap">@run.Timestamp.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</td>
+                                        <td class="text-muted nowrap col-when">@run.Timestamp.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</td>
                                         <td>
                                             <StatusPill Variant="@(run.Status == "Completed" ? "ok" : "err")">@run.Status</StatusPill>
                                         </td>
@@ -299,7 +301,7 @@ else
                             }
                         </a>
                         <div>
-                            <span class="eyebrow">@playlist.SourcePlatform</span>
+                            <span class="eyebrow">@(playlist.IsManualImport ? "Imported" : playlist.SourcePlatform.ToString())</span>
                             <StatusPill Variant="@(playlist.LastSyncStatus == SyncStatus.Failed ? "err" : playlist.SyncWarning is { Length: > 0 } ? "warn" : "neutral")">
                                 @(playlist.SyncWarning is { Length: > 0 } ? "partial" : playlist.LastSyncStatus.ToString().ToLowerInvariant())
                             </StatusPill>
@@ -481,8 +483,14 @@ else
                 .Select(x => (x.JobName, x.Timestamp, x.Status, x.Message ?? ""))
                 .ToList();
 
-            lastRunAt = recentRuns.Count > 0 ? recentRuns[0].Timestamp : (DateTime?)null;
         }
+
+        // The checklist also shows the last-run date, so this one small
+        // query runs in both modes.
+        lastRunAt = await db.SyncJobRuns
+            .OrderByDescending(r => r.Timestamp)
+            .Select(r => (DateTime?)r.Timestamp)
+            .FirstOrDefaultAsync();
 
         _lastUpdated = DateTime.Now;
     }

@@ -44,3 +44,11 @@
 .content-grid.two {
     align-items: start;
 }
+
+/* Phones: the track filter wraps under its heading instead of squeezing
+   the placeholder to a few pixels. */
+@media (max-width: 720px) {
+    .panel-header { flex-wrap: wrap; }
+    .track-filters { width: 100%; }
+    .track-filters .search-input { max-width: none; }
+}

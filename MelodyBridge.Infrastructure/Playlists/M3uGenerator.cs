@@ -72,15 +72,15 @@ public class M3uGenerator
         }
 
         if (skipped > 0)
-            _logger.LogWarning("M3U {Output}: skipped {Skipped} track(s) without a file",
-                options.OutputPath, skipped);
+            _logger.LogWarning("M3U {Output}: skipped {Skipped} {TrackWord} without a file",
+                options.OutputPath, skipped, skipped == 1 ? "track" : "tracks");
 
         Directory.CreateDirectory(Path.GetDirectoryName(options.OutputPath) ?? ".");
         File.WriteAllLines(options.OutputPath, lines);
 
         if (skipped > 0 || lines.Count <= 1)
-            _logger.LogInformation("M3U {Output}: {Tracks} track(s), {Skipped} skipped",
-                options.OutputPath, lines.Count / 2, skipped);
+            _logger.LogInformation("M3U {Output}: {Tracks} {TrackWord}, {Skipped} skipped",
+                options.OutputPath, lines.Count / 2, lines.Count / 2 == 1 ? "track" : "tracks", skipped);
 
         return Task.FromResult(options.OutputPath);
     }

@@ -128,8 +128,9 @@ public partial class SpotifySourceProvider : ISourceProvider
         }
 
         _logger.LogInformation(
-            "Scraped Spotify playlist '{Name}' ({PlaylistId}) with {TrackCount} tracks",
-            playlist.Name, playlist.Id, playlist.Tracks.Count);
+            "Scraped Spotify playlist '{Name}' ({PlaylistId}) with {TrackCount} {TrackWord}",
+            playlist.Name, playlist.Id, playlist.Tracks.Count,
+            playlist.Tracks.Count == 1 ? "track" : "tracks");
 
         return playlist;
     }

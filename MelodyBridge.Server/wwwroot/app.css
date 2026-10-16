@@ -1638,14 +1638,14 @@ input[type="file"].btn-modern::file-selector-button {
 /* Fixed layout plus explicit col widths: rows cannot wobble, borders
    line up, and the actions column never gets squeezed off screen. */
 .track-table { table-layout: fixed; }
-.track-table .col-pos { width: 3rem; }
-.track-table .col-title { width: 22%; }
-.track-table .col-artist { width: 17%; }
-.track-table .col-num { width: 5.5rem; }
-.track-table .col-format { width: 5.5rem; }
-.track-table .col-status { width: 9rem; }
+.track-table .col-pos { width: 2.25rem; }
+.track-table .col-title { width: 19%; }
+.track-table .col-artist { width: 15%; }
+.track-table .col-num { width: 4.5rem; }
+.track-table .col-format { width: 4.5rem; }
+.track-table .col-status { width: 8rem; }
 .track-table .col-file { width: 12rem; }
-.track-table .col-actions { width: 15.5rem; }
+.track-table .col-actions { width: 13.5rem; }
 
 /* Row actions are pinned to the right edge of the scroll container: the
    table is wider than most laptop windows, and the per-track buttons must
@@ -1662,23 +1662,38 @@ input[type="file"].btn-modern::file-selector-button {
 :root[data-theme="light"] .track-table td.track-actions { background: var(--surface); }
 .modern-table tbody tr:hover td.track-actions { background: var(--surface-2); }
 
+/* Mid-size windows: the percentage columns would collapse once the fixed
+   columns outgrow the table, so the text columns get real pixel widths
+   and the table scrolls under the pinned actions instead. */
+@media (max-width: 1300px) {
+    .track-table .col-title { width: 11rem; }
+    .track-table .col-artist { width: 8rem; }
+}
+
 /* Narrow screens: drop the secondary audio columns and shorten the row
    actions to their icons. The pinned column then stays small and the
    title and artist keep readable width inside the 640px table floor. */
 @media (max-width: 720px) {
+    /* The table is as wide as its columns: no leftover space is spread
+       over the text columns, so the px widths below hold exactly. The
+       extra element in the selector beats the shared 640px floor. */
+    .table-wrap table.track-table { min-width: 0; }
     .track-table .col-size,
     .track-table .col-bitrate,
     .track-table .col-rate,
     .track-table .col-format,
     .track-table .col-file { display: none; }
-    /* Narrower text columns so the artist cell ends inside the visible
-       window instead of disappearing under the pinned actions. */
-    .track-table .col-title { width: 20%; }
-    .track-table .col-artist { width: 12%; }
+    .track-table .col-title { width: 7.5rem; }
+    .track-table .col-artist { width: 5rem; }
     .track-table .col-actions { width: 5.5rem; }
     .track-table .track-actions .btn-label { display: none; }
     .track-table .track-actions .btn-modern { padding: .35rem .55rem; margin-left: .25rem; }
 }
+
+/* Denser cells: the row action buttons need the width more than the
+   cells need the padding. */
+.track-table td, .track-table th { padding-left: .5rem; padding-right: .5rem; }
+.track-table .track-actions .btn-modern { padding: .3rem .5rem; }
 
 /* Numeric columns hug their numbers, headers included. */
 .track-table th.num, .track-table td.num { text-align: right; }
@@ -1789,6 +1804,11 @@ input::placeholder, textarea::placeholder { color: var(--muted-2, #8a8f98); opac
 .modern-table.compact th,
 .modern-table.compact td { white-space: normal; padding: .5rem .55rem; }
 .modern-table.compact .nowrap { white-space: nowrap; }
+@media (max-width: 720px) {
+    /* The date column is the first to go when space runs out; the sync
+       jobs page keeps the full run history. */
+    .modern-table.compact .col-when { display: none; }
+}
 
 /* Toast preview on Advanced keeps clear of the panel edge. */
 .toast-preview { z-index: 300; max-width: min(24rem, calc(100vw - 2rem)); }

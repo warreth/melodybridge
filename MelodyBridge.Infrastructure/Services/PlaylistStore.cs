@@ -877,8 +877,9 @@ public class PlaylistStore
             totalTracks += incoming.Tracks.Count;
         }
 
-        _logger.LogInformation("File import ({Kind}): {Playlists} playlists, {Tracks} tracks",
-            file.Kind, imported, totalTracks);
+        _logger.LogInformation("File import ({Kind}): {Playlists} {PlaylistWord}, {Tracks} {TrackWord}",
+            file.Kind, imported, imported == 1 ? "playlist" : "playlists",
+            totalTracks, totalTracks == 1 ? "track" : "tracks");
         return (imported, totalTracks);
     }
 
@@ -1053,8 +1054,11 @@ public class PlaylistStore
         if (isNew) db.Playlists.Add(entity);
         await db.SaveChangesAsync(ct);
 
-        _logger.LogInformation("{Action} playlist '{Name}' ({Platform}) with {Count} tracks",
-            isNew ? "Added" : "Refreshed", entity.Name, providerPlatform, entity.Tracks.Count);
+        var trackCount = entity.Tracks.Count;
+        var platformLabel = providerPlatform == Platform.Unknown ? "Imported" : providerPlatform.ToString();
+        _logger.LogInformation("{Action} playlist '{Name}' ({Platform}) with {Count} {TrackWord}",
+            isNew ? "Added" : "Refreshed", entity.Name, platformLabel, trackCount,
+            trackCount == 1 ? "track" : "tracks");
 
         return (entity, isNew);
     }

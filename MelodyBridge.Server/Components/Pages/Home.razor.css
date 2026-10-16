@@ -22,3 +22,11 @@
 .workflow-number .workflow-check {
     display: block;
 }
+
+/* Tablet and below: one column, so the narrow sync-runs and errors cards
+   get the full width instead of clipping their tables. */
+@media (max-width: 1100px) {
+    .dashboard-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
