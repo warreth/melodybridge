@@ -66,6 +66,34 @@ public class SlskdLiveTests
             TransferTimeout = TimeSpan.FromMinutes(5),
         };
 
+    /// <summary>The plugin config with only the connection, no folder.</summary>
+    private sealed class ConnectionOnlyConfig : IPluginConfig
+    {
+        public Task<string> GetAsync(string pluginId, string key, CancellationToken ct = default)
+            => Task.FromResult(key switch
+            {
+                "base_url" => Url ?? "",
+                "api_key" => ApiKey ?? "",
+                _ => "",
+            });
+
+        public Task SetAsync(string pluginId, string key, string? value, CancellationToken ct = default)
+            => Task.CompletedTask;
+    }
+
+    [Test]
+    public async Task IsAvailable_ReadsTheDownloadsFolderFromTheInstance()
+    {
+        RequireInstance();
+        var downloader = new SlskdDownloader(new HttpClient { Timeout = TimeSpan.FromMinutes(2) },
+            new ConnectionOnlyConfig(), NullLogger<SlskdDownloader>.Instance);
+
+        Assert.That(await downloader.IsAvailableAsync(), Is.True,
+            "without a configured folder the plugin must read slskd's own options");
+        Assert.That(downloader.DetectedDownloadsPath, Is.EqualTo(DownloadsPath),
+            "the detected folder must be the one slskd reports");
+    }
+
     [Test]
     public async Task IsAvailable_ConnectedInstance_True()
     {
@@ -98,8 +126,23 @@ public class SlskdLiveTests
             ExpectedDuration: TimeSpan.FromSeconds(429)));
         Assert.That(hit, Is.Not.Null, "precondition: the search finds a source");
 
-        var result = await downloader.DownloadAsync(hit!.SourceUrl!, _outDir, "mb-slskd-live");
-        Assert.That(result.Success, Is.True, $"download failed: {result.ErrorMessage}");
+        // Peers come and go between the search and the transfer, exactly
+        // as they do in the app, so walk the ranked candidates until one
+        // really delivers instead of failing on the first dead peer.
+        var candidates = new List<DownloaderSearchHit> { hit! };
+        candidates.AddRange(hit!.Alternatives ?? Array.Empty<DownloaderSearchHit>());
+
+        DownloaderDownloadResult? result = null;
+        foreach (var candidate in candidates.Take(4))
+        {
+            if (string.IsNullOrEmpty(candidate.SourceUrl)) continue;
+            result = await downloader.DownloadAsync(candidate.SourceUrl, _outDir, "mb-slskd-live");
+            if (result.Success) break;
+            TestContext.Out.WriteLine($"candidate failed: {result.ErrorMessage}");
+        }
+
+        Assert.That(result, Is.Not.Null, "at least one candidate must be attempted");
+        Assert.That(result!.Success, Is.True, $"download failed: {result.ErrorMessage}");
         Assert.That(result.FilePath, Is.Not.Null);
         Assert.That(File.Exists(result.FilePath), Is.True, "reported file must exist");
         Assert.That(new FileInfo(result.FilePath!).Length, Is.GreaterThan(1024 * 1024),

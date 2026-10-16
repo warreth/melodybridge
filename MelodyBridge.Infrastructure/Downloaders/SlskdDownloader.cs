@@ -120,6 +120,12 @@ public class SlskdDownloader : IDownloader
     private string? _detectedDownloadsPath;
 
     /// <summary>
+    /// The folder slskd itself reported, for tests and diagnostics. Null
+    /// until an availability check or a download read it.
+    /// </summary>
+    internal string? DetectedDownloadsPath => _detectedDownloadsPath;
+
+    /// <summary>
     /// The folder slskd writes finished downloads to: the configured
     /// override, or the path slskd itself reports through its options
     /// API (cached). Null when neither is available.
