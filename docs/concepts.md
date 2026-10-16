@@ -150,9 +150,10 @@ retries it. Nothing half-broken is left in your library.
 ### The spectrum check
 
 Some sites hand out files that claim 320 kbps but hold far less. The spectrum
-check measures what a file actually contains instead of trusting its header: it
-reads the file's spectral rolloff (the highest frequency with real content) and
-compares that ceiling against the bitrate the file declares.
+check measures the file's real audio bandwidth instead of trusting its header:
+it decodes a window of the audio, averages its spectrum, and finds the highest
+frequency that still holds real content. That bandwidth is compared with the
+bitrate the file declares.
 
 Set the mode under **Settings, Quality, Spectrum check**:
 
@@ -164,9 +165,12 @@ Set the mode under **Settings, Quality, Spectrum check**:
 
 The check only warns, it never deletes. Track rows get an **!** pill with the
 reason, and a playlist whose downloads look inflated shows a hint box counting
-them. It needs ffmpeg on the host; without it, files simply skip the check. If
-audio is very quiet, the rolloff can be inconclusive, and the check says so
-instead of guessing.
+them. It needs ffmpeg and ffprobe on the host; without them, files simply skip
+the check. It stays honest about what a spectrum can and cannot prove: a file
+whose high end fades out gently is content that was always band-limited, not a
+mislabelled rip, and Opus files stay near full band even at low bitrates, so
+neither is ever called inflated. Only a steep codec corner, well below what the
+declared bitrate needs, counts as inflated.
 
 <img src="/screens/playlist-details.webp" alt="Playlist details page with track quality columns and a download in progress" width="800">
 

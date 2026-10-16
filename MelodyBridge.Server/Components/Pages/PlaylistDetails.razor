@@ -247,7 +247,7 @@ else
             @if (downloadedCount > 0 && badQualityCount > 0)
             {
                 <div class="hint-box">
-                    <Icon Name="alert" Size="16" Class="inline-icon" /> @badQualityCount downloaded track@(badQualityCount == 1 ? "" : "s") look@(badQualityCount == 1 ? "s" : "") inflated (re-encoded from a lower-quality source).
+                    <Icon Name="alert" Size="16" Class="inline-icon" /> @badQualityCount downloaded track@(badQualityCount == 1 ? "" : "s") look@(badQualityCount == 1 ? "s" : "") inflated (the bandwidth sits below what the bitrate claims).
                     @(editQuality == "auto"
                         ? "Retry them with a lower quality cap."
                         : badQualityCount == 1
