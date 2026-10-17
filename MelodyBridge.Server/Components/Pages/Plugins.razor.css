@@ -105,22 +105,31 @@
 .plugin-note .icon { flex-shrink: 0; margin-top: .1rem; }
 
 /* The settings disclosure: a full-width row that opens into a panel,
-   instead of a native details triangle. */
+   instead of a native details triangle. Closed it is a quiet inset row;
+   opened it becomes the shared raised settings surface, so the panel
+   reads as its own block inside the card. */
 .plugin-settings {
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: var(--radius);
     overflow: hidden;
     background: var(--surface-2);
+    transition: border-color .15s ease;
 }
 
-.plugin-settings.open { background: transparent; }
+.plugin-settings:hover { border-color: var(--border-strong); }
+
+.plugin-settings.open {
+    background: var(--surface-raised);
+    border-color: var(--border-strong);
+    box-shadow: var(--shadow-raised);
+}
 
 .settings-toggle {
     display: flex;
     align-items: center;
     gap: .5rem;
     width: 100%;
-    padding: .6rem .7rem;
+    padding: .6rem .75rem;
     border: 0;
     background: transparent;
     color: var(--muted);
@@ -130,16 +139,15 @@
     cursor: pointer;
 }
 
-.settings-toggle:hover { color: var(--foreground); }
+.settings-toggle:hover { color: var(--text); }
 .settings-toggle .settings-chevron { margin-left: auto; transition: transform .15s ease; }
 .plugin-settings.open .settings-chevron { transform: rotate(180deg); }
 
 .settings-body {
     display: grid;
     gap: .9rem;
-    padding: .9rem .8rem 1rem;
+    padding: .9rem .85rem 1rem;
     border-top: 1px solid var(--border);
-    background: var(--surface-2);
 }
 
 /* Rarely touched knobs hide behind one more click. */
@@ -158,7 +166,7 @@
     cursor: pointer;
 }
 
-.advanced-toggle:hover { color: var(--foreground); }
+.advanced-toggle:hover { color: var(--text); }
 .advanced-toggle .advanced-chevron { transition: transform .15s ease; }
 .advanced-toggle[aria-expanded="true"] .advanced-chevron { transform: rotate(90deg); }
 
@@ -168,5 +176,3 @@
     padding-left: .8rem;
     border-left: 2px solid var(--border);
 }
-
-.settings-actions { display: flex; justify-content: flex-end; }

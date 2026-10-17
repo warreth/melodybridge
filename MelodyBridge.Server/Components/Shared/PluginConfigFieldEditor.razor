@@ -1,7 +1,7 @@
 @* One plugin setting on the Plugins page: a labelled input, a select for
    choice fields, or a password input with a reveal toggle for secrets,
    plus the explanatory note under it. *@
-<div class="config-field">
+<div class="field">
     <label for="@InputId">@Field.Label</label>
     @if (Field.Options is { Count: > 0 })
     {
@@ -31,7 +31,7 @@
     }
     @if (!string.IsNullOrWhiteSpace(Field.Description))
     {
-        <span class="config-hint">@Field.Description</span>
+        <span class="field-hint">@Field.Description</span>
     }
 </div>
 

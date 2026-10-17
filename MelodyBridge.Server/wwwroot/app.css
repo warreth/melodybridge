@@ -4,6 +4,11 @@
     --surface: rgba(24, 24, 27, .55);
     --surface-2: #131318;
     --surface-3: #1a1a20;
+    /* Settings surfaces sit above the page: a touch lighter than the
+       background, with a soft shadow so a settings card reads as its own
+       block instead of blending into the page. */
+    --surface-raised: #17171c;
+    --shadow-raised: inset 0 1px 0 rgba(255, 255, 255, .03), 0 12px 28px rgba(0, 0, 0, .35);
     --border: rgba(39, 39, 42, .6);
     --border-strong: #3f3f46;
     --text: #fafafa;
@@ -36,6 +41,8 @@
     --surface: #ffffff;
     --surface-2: #f4f4f5;
     --surface-3: #ebebeb;
+    --surface-raised: #ffffff;
+    --shadow-raised: 0 1px 3px rgba(16, 24, 40, .08), 0 12px 28px rgba(16, 24, 40, .10);
     --border: #e4e4e7;
     --border-strong: #d4d4d8;
     --text: #18181b;
@@ -333,27 +340,31 @@ h1:focus { outline: none; }
 .stat-card { padding: 1rem; }
 .stat-card { min-height: 0; }
 .panel-header { display: flex; justify-content: space-between; gap: 1rem; align-items: start; margin-bottom: 1rem; }
+/* A card that holds one short message (the error page, the OAuth
+   callback): the same surface, capped to a readable measure and
+   optionally centered. */
+.narrow-card { max-width: 480px; }
+.narrow-card.centered { margin-inline: auto; }
 
-/* A titled block inside a panel-card. The section is a grid so every
-   child (hint box, form grid, buttons, notes) keeps the same rhythm
-   instead of touching its neighbour, and a following section starts
-   after a divider instead of running into the previous one. */
-.card-section { display: grid; gap: .75rem; align-content: start; }
-.card-section + .card-section {
-    margin-top: 1.25rem;
-    padding-top: 1.25rem;
+/* A titled block inside a card: the rhythm every settings and panel card
+   shares, so a section never depends on which surface holds it. The
+   divider gives a following section its own start instead of running
+   into the previous one. */
+.settings-section { display: grid; gap: .75rem; align-content: start; }
+.settings-section + .settings-section {
+    padding-top: 1rem;
     border-top: 1px solid var(--border);
 }
-.card-section > .eyebrow { margin-bottom: 0; }
+.settings-section > .eyebrow { margin-bottom: 0; }
 /* A button is a grid child inside a section: keep its natural width
    instead of stretching it across the card. */
-.card-section > .btn-modern { justify-self: start; }
+.settings-section > .btn-modern { justify-self: start; }
 /* Section heading inside a card: eyebrow, a title and an optional help
    tip, with the section grid owning the spacing. */
-.card-section > .section-head { display: grid; gap: .15rem; }
-.card-section > .section-head h3 { margin: 0; font-size: 1rem; }
+.settings-section > .section-head { display: grid; gap: .15rem; }
+.settings-section > .section-head h3 { margin: 0; font-size: 1rem; }
 /* Inside a section the grid owns the spacing: drop the pull-up margin. */
-.card-section .panel-description { margin: 0; }
+.settings-section .panel-description { margin: 0; }
 .stat-icon,
 .provider-icon {
     display: inline-grid;
@@ -475,13 +486,63 @@ select {
 }
 input:focus,
 select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+
+/* ── Fields ───────────────────────────────────────────────────────── */
+/* One field is a label, its control and an optional note. The label can
+   wrap the control (label > input, the compact form) or stand alone
+   (label[for] + input); both keep the same rhythm, so settings markup
+   may pick whichever fits and still look identical. */
+.field,
+.form-grid label { display: grid; gap: .4rem; align-content: start; }
+.field > label,
+.field-label,
+.form-grid label { color: var(--muted); font-size: .82rem; font-weight: 700; }
+/* Notes under a field: muted, never bold (labels are bold, their
+   explanation is not). */
+.field-hint,
+.form-grid label small { color: var(--muted); font-size: .8rem; font-weight: 400; line-height: 1.45; }
+
+/* The two-column field layout; .single stacks, .wide spans. */
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; align-items: start; }
 .form-grid.single { grid-template-columns: 1fr; }
-.form-grid label { color: var(--muted); font-size: .82rem; font-weight: 700; display: grid; gap: .4rem; }
-/* Field notes under an input: muted, never bold (labels are bold, their
-   explanation is not). */
-.form-grid label small { font-weight: 400; line-height: 1.45; }
 .form-grid .wide { grid-column: 1 / -1; }
+
+/* ── Settings surfaces ────────────────────────────────────────────── */
+/* One surface for every block that holds settings: the Settings tabs, the
+   plugin panel, the playlist settings, the Advanced page and the job
+   forms. The card is raised (--surface-raised plus --shadow-raised) so it
+   reads as separate from the page instead of blending into it, and the
+   head, the sections and the actions keep the same rhythm everywhere.
+   Page styles only add their own layout on top of this, never a second
+   surface. The blocks inside a card come from the shared vocabulary:
+   fields use .field or the .form-grid label pattern, notes use
+   .hint-box, toggle rows use .toggle-row or .toggle-switch.wide, and
+   action rows use .flex-actions. */
+.settings-card {
+    display: grid;
+    gap: 1rem;
+    padding: 1.15rem 1.25rem 1.25rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface-raised);
+    box-shadow: var(--shadow-raised);
+}
+/* Head: eyebrow, title and an optional right-side state or action. Same
+   block as a panel head, minus the bottom margin: inside a settings card
+   the card grid owns the rhythm. */
+.settings-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    align-items: start;
+}
+.settings-head > div { display: grid; gap: .2rem; }
+.settings-head h2,
+.settings-head h3 { margin: 0; font-size: 1.05rem; letter-spacing: -.01em; }
+.settings-head .panel-description,
+.settings-head > p { margin: 0; }
+/* Sections inside the card keep the shared .settings-section rhythm
+   defined next to the card rules above. */
 
 .timeline-list,
 .health-list,
@@ -617,8 +678,8 @@ select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-s
     padding: .8rem;
     border-radius: 8px;
     color: var(--muted);
-    background: var(--surface-3);
-    border: 1px solid rgba(39, 39, 42, .4);
+    background: var(--surface-2);
+    border: 1px solid var(--border);
 }
 /* Error-flavoured hint box for forms that validate inline. */
 .hint-box.danger { border-color: var(--danger); }
@@ -747,8 +808,8 @@ select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-s
     flex-direction: column;
     border: 1px solid var(--border);
     border-radius: 14px;
-    background: var(--surface);
-    box-shadow: 0 24px 48px rgba(0, 0, 0, .3);
+    background: var(--surface-raised);
+    box-shadow: var(--shadow-raised), 0 24px 48px rgba(0, 0, 0, .3);
 }
 /* Modals that carry a table (account playlists): room for the action
    column instead of a squeezed scroll area. */
@@ -1009,7 +1070,7 @@ td.file-path {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-family: var(--mono, monospace);
+    font-family: var(--font-mono);
     font-size: .78rem;
 }
 
@@ -1023,6 +1084,9 @@ td.file-path {
 /* -- Dev panel ------------------------------------------- */
 .dev-layout { display: grid; gap: 1.25rem; }
 .flex-actions { display: flex; gap: .5rem; align-items: center; }
+/* Action rows that close a form or a card: the primary action sits at the
+   right edge, where the eye ends up after reading the fields. */
+.flex-actions.end { justify-content: flex-end; }
 .search-controls { display: flex; flex-direction: column; gap: .6rem; }
 .search-row { display: flex; gap: .6rem; }
 .search-input,
@@ -1148,7 +1212,7 @@ td.file-path {
     width: 26px;
     height: 26px;
     border-radius: 8px;
-    background: color-mix(in srgb, var(--accent, #7F5AF0) 14%, transparent);
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
     color: var(--accent-strong, #7F5AF0);
     font-size: .78rem;
     font-weight: 700;
@@ -1162,7 +1226,7 @@ td.file-path {
     padding: .9rem 1rem;
     border: 1px solid var(--border, rgba(128, 128, 128, .25));
     border-radius: 12px;
-    background: color-mix(in srgb, var(--accent, #7F5AF0) 6%, transparent);
+    background: color-mix(in srgb, var(--accent) 6%, transparent);
 }
 
 .download-live-head {
@@ -1175,7 +1239,7 @@ td.file-path {
 }
 
 .download-live-head span {
-    color: var(--text-muted, #999);
+    color: var(--muted-2);
     font-variant-numeric: tabular-nums;
 }
 
@@ -1189,14 +1253,14 @@ td.file-path {
 .progress-fill {
     height: 100%;
     border-radius: 99px;
-    background: linear-gradient(90deg, var(--accent, #7F5AF0), var(--success, #2CB67D));
+    background: linear-gradient(90deg, var(--accent), var(--success, #2CB67D));
     transition: width .5s ease;
 }
 
 .download-live .qi-meta {
     margin-top: .5rem;
     font-size: .75rem;
-    color: var(--text-muted, #999);
+    color: var(--muted-2);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -1213,7 +1277,7 @@ td.file-path {
 .filter-chip {
     border: 1px solid var(--border, rgba(128, 128, 128, .3));
     background: transparent;
-    color: var(--text-muted, #999);
+    color: var(--muted-2);
     border-radius: 99px;
     padding: .22rem .8rem;
     font-size: .74rem;
@@ -1223,13 +1287,13 @@ td.file-path {
 
 .filter-chip:hover {
     color: var(--text, #eee);
-    border-color: var(--accent, #7F5AF0);
+    border-color: var(--accent);
 }
 
 .filter-chip.active {
-    background: color-mix(in srgb, var(--accent, #7F5AF0) 18%, transparent);
+    background: color-mix(in srgb, var(--accent) 18%, transparent);
     color: var(--accent-strong, #7F5AF0);
-    border-color: var(--accent, #7F5AF0);
+    border-color: var(--accent);
     font-weight: 600;
 }
 
@@ -1257,7 +1321,7 @@ td.file-path {
 .log-error-head p {
     margin: 0;
     font-size: .78rem;
-    color: var(--text-muted, #999);
+    color: var(--muted-2);
 }
 
 .log-error-head button {
@@ -1304,7 +1368,7 @@ td.file-path {
 }
 
 .log-time {
-    color: var(--text-muted, #999);
+    color: var(--muted-2);
     font-variant-numeric: tabular-nums;
 }
 
@@ -1325,7 +1389,7 @@ td.file-path {
 }
 
 .log-category {
-    color: var(--text-muted, #999);
+    color: var(--muted-2);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -1339,7 +1403,7 @@ td.file-path {
 .logs-count {
     margin-top: .5rem;
     font-size: .72rem;
-    color: var(--text-muted, #999);
+    color: var(--muted-2);
     text-align: right;
 }
 
@@ -1381,8 +1445,8 @@ td.file-path {
 }
 
 .workflow-step:hover {
-    border-color: var(--accent, #7F5AF0);
-    background: color-mix(in srgb, var(--accent, #7F5AF0) 5%, transparent);
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 5%, transparent);
 }
 
 .workflow-step.done {
@@ -1396,7 +1460,7 @@ td.file-path {
     width: 30px;
     height: 30px;
     border-radius: 9px;
-    background: color-mix(in srgb, var(--accent, #7F5AF0) 14%, transparent);
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
     color: var(--accent-strong, #7F5AF0);
     font-weight: 700;
     flex: none;
@@ -1415,7 +1479,7 @@ td.file-path {
 .workflow-step p {
     margin: 0;
     font-size: .82rem;
-    color: var(--text-muted, #999);
+    color: var(--muted-2);
 }
 
 .workflow-step small {
@@ -1429,7 +1493,7 @@ td.file-path {
 
 .workflow-arrow {
     margin-left: auto;
-    color: var(--text-muted, #999);
+    color: var(--muted-2);
     flex: none;
 }
 
@@ -1529,7 +1593,7 @@ td.file-path {
     /* Opaque: the translucent surface let the page ghost through the copy. */
     background: var(--surface-2);
     border: 1px solid var(--border);
-    box-shadow: var(--shadow-lg, 0 10px 30px rgba(0,0,0,.4));
+    box-shadow: var(--shadow);
     pointer-events: auto;
 }
 .tour-card h3 { margin: .2rem 0 .4rem; }
@@ -1652,7 +1716,7 @@ input[type="file"].btn-modern::file-selector-button {
     padding: .15rem .6rem;
     border-radius: 999px;
     border: 1px solid transparent;
-    color: var(--text-muted, #8a8f98);
+    color: var(--muted-2);
     white-space: nowrap;
 }
 .save-state.saving { color: var(--accent); border-color: var(--accent-soft); background: var(--accent-soft); }
@@ -1666,15 +1730,15 @@ input[type="file"].btn-modern::file-selector-button {
     flex-basis: 100%;
     margin: .25rem 0 0 1.25rem;
     padding: .75rem .9rem;
-    border-left: 3px solid var(--accent, #4f7cff);
-    background: var(--bg-2, rgba(127, 127, 127, .06));
+    border-left: 3px solid var(--accent);
+    background: var(--surface-2);
     border-radius: 0 .5rem .5rem 0;
 }
 .advanced-quality .hint-box { margin-bottom: .75rem; font-size: .82rem; }
 
 /* Why a track failed, in small quiet text under the status pill; the
    full story stays available on the pill's hover. */
-.fail-note { font-size: .75rem; color: var(--text-muted, #888); margin-top: .15rem; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fail-note { font-size: .75rem; color: var(--muted-2); margin-top: .15rem; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ── Track table: stable columns, sortable headers, pill status cells ── */
 /* Fixed layout plus explicit col widths: rows cannot wobble, borders

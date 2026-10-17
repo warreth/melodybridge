@@ -46,8 +46,8 @@
 
 @if (activeTab == "accounts")
 {
-    <section class="panel-card">
-        <div class="panel-header">
+    <section class="settings-card">
+        <div class="settings-head">
             <div><span class="eyebrow">Accounts</span>
                 <div class="title-with-help">
                     <h2>Spotify &amp; YouTube</h2>
@@ -55,7 +55,7 @@
                 </div>
             </div>
         </div>
-        <div class="card-section">
+        <div class="settings-section">
             <div class="hint-box">
                 Connect your accounts to import private playlists and your liked
                 songs. MelodyBridge only asks for read access: it never changes
@@ -192,8 +192,8 @@
 }
 else if (activeTab == "media-servers")
 {
-    <section class="panel-card">
-        <div class="panel-header">
+    <section class="settings-card">
+        <div class="settings-head">
             <div>
                 <span class="eyebrow">Connections</span>
                 <div class="title-with-help">
@@ -203,7 +203,7 @@ else if (activeTab == "media-servers")
             </div>
             <button class="btn-modern secondary small" @onclick="StartNewProfile">Add profile</button>
         </div>
-        <div class="card-section">
+        <div class="settings-section">
             <div class="hint-box">
                 Named server profiles several sync jobs can share. Marking one
                 profile as the app default feeds the liked-songs sync.
@@ -266,14 +266,14 @@ else if (activeTab == "media-servers")
 
     @if (editingProfile is not null)
     {
-        <section class="panel-card">
-            <div class="panel-header">
+        <section class="settings-card">
+            <div class="settings-head">
                 <div>
                     <span class="eyebrow">Edit</span>
                     <h2>@(editingIsNew ? "New profile" : editingProfile.Name)</h2>
                 </div>
             </div>
-            <div class="card-section">
+            <div class="settings-section">
                 <div class="form-grid single">
                     <label>Name (required) <input @bind="editingProfile.Name" placeholder="Living room Jellyfin" /></label>
                     <label>Kind
@@ -322,8 +322,8 @@ else if (activeTab == "media-servers")
 }
 else if (activeTab == "paths")
 {
-    <section class="panel-card">
-        <div class="panel-header">
+    <section class="settings-card">
+        <div class="settings-head">
             <div><span class="eyebrow">Library</span>
                 <div class="title-with-help">
                     <h2>Default paths</h2>
@@ -331,7 +331,7 @@ else if (activeTab == "paths")
                 </div>
             </div>
         </div>
-        <div class="card-section">
+        <div class="settings-section">
             <div class="form-grid single">
                 <label>
                     Music path
@@ -355,7 +355,7 @@ else if (activeTab == "paths")
                 </label>
             </div>
         </div>
-        <div class="card-section">
+        <div class="settings-section">
             <div class="section-head">
                 <span class="eyebrow">Archive</span>
                 <div class="title-with-help">
@@ -402,8 +402,8 @@ else if (activeTab == "paths")
 }
 else if (activeTab == "quality")
 {
-    <section class="panel-card">
-        <div class="panel-header">
+    <section class="settings-card">
+        <div class="settings-head">
             <div>
                 <span class="eyebrow">Quality</span>
                 <div class="title-with-help">
@@ -412,14 +412,14 @@ else if (activeTab == "quality")
                 </div>
             </div>
         </div>
-        <div class="card-section">
+        <div class="settings-section">
             <div class="hint-box">
                 New playlists start with this setting. Every playlist can override
                 it on its own page.
             </div>
             <QualityPicker @bind-Value="defaultQuality" @bind-Value:after="MarkDirty" />
         </div>
-        <div class="card-section">
+        <div class="settings-section">
             <div class="section-head">
                 <span class="eyebrow">Verification</span>
                 <div class="title-with-help">
@@ -448,8 +448,8 @@ else if (activeTab == "quality")
 }
 else if (activeTab == "network")
 {
-    <section class="panel-card">
-        <div class="panel-header">
+    <section class="settings-card">
+        <div class="settings-head">
             <div>
                 <span class="eyebrow">Network</span>
                 <div class="title-with-help">
@@ -461,7 +461,7 @@ else if (activeTab == "network")
                 @(flareStatus is null ? "not tested" : flareStatus is "ok" ? "reachable" : flareStatus is "off" ? "off" : "unreachable")
             </StatusPill>
         </div>
-        <div class="card-section">
+        <div class="settings-section">
             <div class="hint-box">
                 Lucida sits behind a Cloudflare challenge. FlareSolverr is a small
                 companion container that solves it: the compose file ships one.
@@ -484,8 +484,8 @@ else if (activeTab == "network")
         </div>
     </section>
 
-    <section class="panel-card">
-        <div class="panel-header">
+    <section class="settings-card">
+        <div class="settings-head">
             <div>
                 <span class="eyebrow">Network</span>
                 <div class="title-with-help">
@@ -494,7 +494,7 @@ else if (activeTab == "network")
                 </div>
             </div>
         </div>
-        <div class="card-section">
+        <div class="settings-section">
             <div class="hint-box">
                 Public playlists and liked songs work without this. Paste a
                 Spotify web cookie (the sp_dc value from a logged-in browser
@@ -514,8 +514,8 @@ else if (activeTab == "network")
 }
 else if (activeTab == "notifications")
 {
-    <section class="panel-card">
-        <div class="panel-header">
+    <section class="settings-card">
+        <div class="settings-head">
             <div>
                 <span class="eyebrow">Notifications</span>
                 <div class="title-with-help">
@@ -524,7 +524,7 @@ else if (activeTab == "notifications")
                 </div>
             </div>
         </div>
-        <div class="card-section">
+        <div class="settings-section">
             <label class="toggle-switch wide">
                 <input type="checkbox" @bind="notifyDownloads" @bind:after="MarkDirty" />
                 <span class="toggle-slider"></span>
@@ -542,8 +542,8 @@ else if (activeTab == "notifications")
         </div>
     </section>
 
-    <section class="panel-card">
-        <div class="panel-header">
+    <section class="settings-card">
+        <div class="settings-head">
             <div>
                 <span class="eyebrow">Notifications</span>
                 <div class="title-with-help">
@@ -552,7 +552,7 @@ else if (activeTab == "notifications")
                 </div>
             </div>
         </div>
-        <div class="card-section">
+        <div class="settings-section">
             <label class="toggle-switch wide">
                 <input type="checkbox" @bind="ntfyEnabled" @bind:after="MarkDirty" />
                 <span class="toggle-slider"></span>
@@ -609,14 +609,14 @@ else if (activeTab == "notifications")
 }
 else if (activeTab == "about")
 {
-    <section class="panel-card about-card">
-        <div class="panel-header">
+    <section class="settings-card about-card">
+        <div class="settings-head">
             <div>
                 <span class="eyebrow">About</span>
                 <h2>MelodyBridge @AppInfo.Version</h2>
             </div>
         </div>
-        <div class="card-section">
+        <div class="settings-section">
             <div class="hint-box">
                 Self-hosted and open source. Docs live at
                 <a href="https://docs.melodybridge.app" target="_blank" rel="noopener">docs.melodybridge.app</a>:
@@ -650,14 +650,14 @@ else if (activeTab == "about")
         </div>
     </section>
 
-    <section class="panel-card about-card">
-        <div class="panel-header">
+    <section class="settings-card about-card">
+        <div class="settings-head">
             <div>
                 <span class="eyebrow">Appearance</span>
                 <h2>Accent color</h2>
             </div>
         </div>
-        <div class="card-section">
+        <div class="settings-section">
             <p class="panel-description">
                 Colors the active tab, buttons and highlights across the whole
                 app, the guided tour included. Saved in this browser only.
@@ -679,14 +679,14 @@ else if (activeTab == "about")
         </div>
     </section>
 
-    <section class="panel-card about-card">
-        <div class="panel-header">
+    <section class="settings-card about-card">
+        <div class="settings-head">
             <div>
                 <span class="eyebrow">Diagnostics</span>
                 <h2>Logs</h2>
             </div>
         </div>
-        <div class="card-section">
+        <div class="settings-section">
             <p class="panel-description">
                 Export the most recent application logs (up to 1000 entries)
                 as a plain-text file for debugging or sharing.
@@ -697,8 +697,8 @@ else if (activeTab == "about")
         </div>
     </section>
 
-    <section class="panel-card about-card">
-        <div class="panel-header">
+    <section class="settings-card about-card">
+        <div class="settings-head">
             <div>
                 <span class="eyebrow">Backup</span>
                 <div class="title-with-help">
@@ -707,7 +707,7 @@ else if (activeTab == "about")
                 </div>
             </div>
         </div>
-        <div class="card-section">
+        <div class="settings-section">
             <div class="hint-box">
                 The zip contains a consistent snapshot (playlists, tracks,
                 settings). Import replaces the current database and parks the

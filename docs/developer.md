@@ -34,6 +34,29 @@ The optional Photino desktop wrapper lives in
 [warreth/melodybridge-desktop](https://github.com/warreth/melodybridge-desktop),
 outside this solution.
 
+### Styling the UI
+
+The whole UI draws from one stylesheet, `MelodyBridge.Server/wwwroot/app.css`, plus
+a small `.razor.css` file next to a component for its own layout. That sheet is
+modular: every block sits under a section comment and holds one concern.
+
+- **Tokens** in `:root` (and the light theme override) carry every color, radius
+  and shadow. Use them, never a raw color, so theme and accent switching keep
+  working.
+- **Cards**: `.panel-card` is a flat card for content and status, `.settings-card`
+  is the raised surface for anything that holds settings (the Settings tabs, the
+  plugin panel, the playlist options, the Advanced page, the job wizard). A
+  settings card sits above the page and carries `--shadow-raised`, so it reads as
+  its own block instead of blending into the background.
+- **Inside a card**: `.settings-section` groups related fields behind an eyebrow,
+  `.field` or the `.form-grid label` pattern lays out one field (label, control,
+  `.field-hint` note), `.hint-box` is a note, `.toggle-row` and
+  `.toggle-switch.wide` are switch rows, `.flex-actions` (with `.end` when it
+  closes a form) holds buttons.
+- **Page styles stay small**: a `.razor.css` may place its own blocks, but a
+  surface, a field or a button always comes from the shared sheet. Inline styles
+  are only for values the server computes, like a progress width.
+
 ### The data flow
 
 ```
