@@ -30,9 +30,9 @@ collect the finished file.
    the same path. When the paths differ (a container mount), set the path
    MelodyBridge sees under **Advanced**.
 
-The plugin reports itself unavailable until all three fields are filled in and
-slskd is logged in to the network, so a half-finished setup never costs
-waterfall time.
+The plugin reports itself unavailable until the URL and API key are set,
+slskd is logged in to the network, and its downloads folder can be read, so a
+half-finished setup never costs waterfall time.
 
 ## How a download runs
 

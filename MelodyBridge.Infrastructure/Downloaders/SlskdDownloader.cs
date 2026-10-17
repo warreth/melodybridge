@@ -17,10 +17,12 @@ namespace MelodyBridge.Infrastructure.Downloaders;
 /// downloads folder into the playlist folder.
 ///
 /// Setup: run slskd, give it a Soulseek account, create a read-write API
-/// key, and point this plugin at its URL, key and downloads folder. That
-/// folder must be the directory MelodyBridge sees (a shared volume when
-/// both run in containers). Sharing some music in slskd is expected on
-/// the network; peers regularly refuse downloads from empty shares.
+/// key, and point this plugin at its URL and key. The plugin asks slskd
+/// where it writes finished downloads and reads the file from there, so
+/// that folder must be visible to MelodyBridge at the same path; the
+/// downloads folder field is the override for when it is not (a container
+/// mount). Sharing some music in slskd is expected on the network; peers
+/// regularly refuse downloads from empty shares.
 ///
 /// API shape (slskd v0.x, live-probed):
 ///   GET  /api/v0/application                    → {"server":{"isConnected","isLoggedIn"}}
@@ -119,11 +121,26 @@ public class SlskdDownloader : IDownloader
     /// <summary>Cached folder slskd reported through its options API.</summary>
     private string? _detectedDownloadsPath;
 
+    /// <summary>The instance that reported the cached folder.</summary>
+    private string? _detectedForBaseUrl;
+
     /// <summary>
     /// The folder slskd itself reported, for tests and diagnostics. Null
     /// until an availability check or a download read it.
     /// </summary>
     internal string? DetectedDownloadsPath => _detectedDownloadsPath;
+
+    /// <summary>
+    /// Forgets the folder slskd reported, so the next lookup asks again.
+    /// The cache is per instance and per answer: it must not survive a
+    /// changed base URL or a file that was not where slskd said it would
+    /// be.
+    /// </summary>
+    private void ForgetDetectedDownloadsPath()
+    {
+        _detectedDownloadsPath = null;
+        _detectedForBaseUrl = null;
+    }
 
     /// <summary>
     /// The folder slskd writes finished downloads to: the configured
@@ -134,7 +151,13 @@ public class SlskdDownloader : IDownloader
     {
         var configured = (await _config.GetAsync(Id, DownloadsPathKey, ct)).Trim();
         if (configured.Length > 0) return configured;
-        if (_detectedDownloadsPath is not null) return _detectedDownloadsPath;
+
+        // The cached answer belongs to one instance: after a base URL
+        // change the previous slskd's folder is wrong, so ask the new one.
+        var baseUrl = await BaseUrlAsync(ct);
+        if (_detectedDownloadsPath is not null && _detectedForBaseUrl == baseUrl)
+            return _detectedDownloadsPath;
+        ForgetDetectedDownloadsPath();
 
         using var options = await SendJsonAsync(HttpMethod.Get, "/api/v0/options", null, ct);
         if (options is not null &&
@@ -145,6 +168,7 @@ public class SlskdDownloader : IDownloader
             if (!string.IsNullOrEmpty(downloads))
             {
                 _detectedDownloadsPath = downloads;
+                _detectedForBaseUrl = baseUrl;
                 _logger.LogDebug("slskd reports its downloads folder as {Folder}", downloads);
                 return downloads;
             }
@@ -478,8 +502,14 @@ public class SlskdDownloader : IDownloader
 
             var downloaded = FindDownloadedFile(downloadsPath, filename);
             if (downloaded is null)
+            {
+                // slskd's answer may be stale (it moved its downloads
+                // folder, or a second instance took over the URL): drop it
+                // so the next attempt asks again instead of failing forever.
+                ForgetDetectedDownloadsPath();
                 return new DownloaderDownloadResult(false, null,
                     "slskd reported success but the file is not in the downloads folder");
+            }
 
             var target = FileMove.UniqueTarget(outputDirectory, Path.GetFileName(downloaded));
             FileMove.MoveAcrossDevices(downloaded, target);

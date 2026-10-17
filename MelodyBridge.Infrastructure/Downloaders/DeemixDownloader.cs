@@ -15,9 +15,10 @@ namespace MelodyBridge.Infrastructure.Downloaders;
 /// hands over a track URL. Works with a local `deemix` binary or the
 /// Docker image ("docker exec Deemix deemix").
 ///
-/// Downloads land in a per-track folder under the configured downloads
-/// path, so parallel tracks never pick each other's files, and CLI runs
-/// are serialized anyway because deemix writes into a shared folder.
+/// Downloads land in a per-track folder under the downloads folder: the
+/// plugin's own by default, or the one configured on the Plugins page, so
+/// parallel tracks never pick each other's files. CLI runs are serialized
+/// anyway because deemix writes into a shared folder.
 /// </summary>
 public class DeemixDownloader : IDownloader
 {

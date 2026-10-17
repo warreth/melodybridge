@@ -91,7 +91,8 @@ public static class ServiceCollectionExtensions
 
         // Soulseek through the user's own slskd instance: lossless and
         // high-bitrate files, no cloud dependency. Unavailable (and
-        // skipped) until a URL, API key and downloads folder are set.
+        // skipped) until the URL and API key are set and slskd is logged
+        // in; the downloads folder is read from slskd's own options.
         services.AddHttpClient("slskd", c => c.Timeout = TimeSpan.FromMinutes(2));
         services.AddSingleton<IDownloader>(sp =>
             new SlskdDownloader(

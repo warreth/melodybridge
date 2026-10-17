@@ -210,6 +210,142 @@ public class SlskdDownloaderTests
     }
 
     [Test]
+    public async Task Download_AfterABaseUrlChange_UsesTheNewInstancesFolder()
+    {
+        var folderOne = NewDir();
+        var folderTwo = NewDir();
+        var bytes = FlacBytes();
+        var handler = new StubHttpMessageHandler();
+        handler.Respond = request =>
+        {
+            var path = request.RequestUri!.AbsolutePath;
+            var downloads = request.RequestUri.Host == "slskd-two.local" ? folderTwo : folderOne;
+            if (path.EndsWith("/api/v0/options"))
+                return Ok(new { directories = new { downloads } });
+            if (request.Method == HttpMethod.Post && path.Contains("/transfers/downloads/"))
+                return Ok(new { enqueued = new object[] { new { id = "t1" } } });
+            if (path.Contains("/transfers/downloads/"))
+            {
+                if (!Directory.EnumerateFiles(downloads, "*", SearchOption.AllDirectories).Any())
+                    File.WriteAllBytes(Path.Combine(downloads, "Artist - Song.flac"), bytes);
+                return Ok(new
+                {
+                    username = "peer",
+                    directories = new object[]
+                    {
+                        new
+                        {
+                            directory = "",
+                            fileCount = 1,
+                            files = new object[]
+                            {
+                                new { filename = "Music\\Artist - Song.flac", state = "Completed, Succeeded" },
+                            },
+                        },
+                    },
+                });
+            }
+            return new HttpResponseMessage(HttpStatusCode.NotFound);
+        };
+        var config = new StubPluginConfig();
+        config.Set("slskd", "api_key", "test-key-0123456789");
+        config.Set("slskd", "base_url", "http://slskd-one.local:5030");
+        var http = new HttpClient(handler) { BaseAddress = new Uri("http://127.0.0.1:5030") };
+        var downloader = new SlskdDownloader(http, config, NullLogger<SlskdDownloader>.Instance)
+        {
+            TransferPollInterval = TimeSpan.FromMilliseconds(10),
+            TransferTimeout = TimeSpan.FromSeconds(2),
+        };
+        var sourceUrl = SlskdDownloader.BuildSourceUrl(
+            "peer", "Music\\Artist - Song.flac", bytes.Length);
+
+        var first = await downloader.DownloadAsync(sourceUrl, NewDir(), "mb-one");
+        Assert.That(first.Success, Is.True, first.ErrorMessage);
+        Assert.That(downloader.DetectedDownloadsPath, Is.EqualTo(folderOne));
+
+        // The user points the plugin at another slskd instance: the folder
+        // of the previous one must not stick.
+        config.Set("slskd", "base_url", "http://slskd-two.local:5030");
+
+        var second = await downloader.DownloadAsync(sourceUrl, NewDir(), "mb-two");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(second.Success, Is.True, second.ErrorMessage);
+            Assert.That(downloader.DetectedDownloadsPath, Is.EqualTo(folderTwo),
+                "the folder cache belongs to the instance that reported it");
+        });
+    }
+
+    [Test]
+    public async Task Download_WhenTheFileIsNotWhereSlskdSaid_ForgetsTheFolder()
+    {
+        var staleFolder = NewDir();
+        var realFolder = NewDir();
+        var reported = staleFolder;
+        var bytes = FlacBytes();
+        var handler = new StubHttpMessageHandler();
+        handler.Respond = request =>
+        {
+            var path = request.RequestUri!.AbsolutePath;
+            if (path.EndsWith("/api/v0/options"))
+                return Ok(new { directories = new { downloads = reported } });
+            if (request.Method == HttpMethod.Post && path.Contains("/transfers/downloads/"))
+                return Ok(new { enqueued = new object[] { new { id = "t1" } } });
+            if (path.Contains("/transfers/downloads/"))
+            {
+                // slskd moved its downloads folder: the file lands where the
+                // plugin is not looking.
+                if (!Directory.EnumerateFiles(realFolder, "*", SearchOption.AllDirectories).Any())
+                    File.WriteAllBytes(Path.Combine(realFolder, "Artist - Song.flac"), bytes);
+                return Ok(new
+                {
+                    username = "peer",
+                    directories = new object[]
+                    {
+                        new
+                        {
+                            directory = "",
+                            fileCount = 1,
+                            files = new object[]
+                            {
+                                new { filename = "Music\\Artist - Song.flac", state = "Completed, Succeeded" },
+                            },
+                        },
+                    },
+                });
+            }
+            return new HttpResponseMessage(HttpStatusCode.NotFound);
+        };
+        var config = new StubPluginConfig();
+        config.Set("slskd", "api_key", "test-key-0123456789");
+        var http = new HttpClient(handler) { BaseAddress = new Uri("http://127.0.0.1:5030") };
+        var downloader = new SlskdDownloader(http, config, NullLogger<SlskdDownloader>.Instance)
+        {
+            TransferPollInterval = TimeSpan.FromMilliseconds(10),
+            TransferTimeout = TimeSpan.FromSeconds(2),
+        };
+        var sourceUrl = SlskdDownloader.BuildSourceUrl(
+            "peer", "Music\\Artist - Song.flac", bytes.Length);
+
+        var first = await downloader.DownloadAsync(sourceUrl, NewDir(), "mb-stale");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(first.Success, Is.False, "the file is not in the folder slskd reported");
+            Assert.That(first.ErrorMessage, Does.Contain("not in the downloads folder"));
+            Assert.That(downloader.DetectedDownloadsPath, Is.Null,
+                "a folder that did not hold the file must not stay cached");
+        });
+
+        // With the fresh answer the same download works.
+        reported = realFolder;
+        var second = await downloader.DownloadAsync(sourceUrl, NewDir(), "mb-fresh");
+
+        Assert.That(second.Success, Is.True, second.ErrorMessage);
+    }
+
+    [Test]
     public async Task IsAvailable_LoggedIn_TrueAndCached()
     {
         var handler = new StubHttpMessageHandler();
