@@ -36,9 +36,9 @@ public class QobuzDownloader : CliToolDownloader
 
     public override string Id => "qobuz";
     public override string Name => "Qobuz";
-    public string Description => "Lossless and hi-res downloads through your own qobuz-dlp";
+    public override string Description => "Lossless and hi-res downloads through your own qobuz-dlp";
 
-    public IReadOnlyList<PluginConfigField> ConfigFields =>
+    public override IReadOnlyList<PluginConfigField> ConfigFields =>
     [
         new(TokenKey, "Qobuz token", null,
             "From play.qobuz.com: copy the X-User-Auth-Token header of an api.json request in the Network tab. A paid plan is required to download.",
@@ -55,9 +55,6 @@ public class QobuzDownloader : CliToolDownloader
             "Only needed when qobuz-dlp is not on PATH; the Docker image ships it.",
             Advanced: true),
     ];
-
-    /// <inheritdoc />
-    public string? LastUnavailableReason { get; private set; }
 
     private readonly QobuzClient _qobuz;
 

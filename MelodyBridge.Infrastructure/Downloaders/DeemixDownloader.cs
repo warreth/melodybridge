@@ -40,9 +40,9 @@ public class DeemixDownloader : CliToolDownloader
 
     public override string Id => "deemix";
     public override string Name => "Deezer (deemix)";
-    public string Description => "Deezer downloads through your own deemix CLI: MP3 or FLAC with your ARL";
+    public override string Description => "Deezer downloads through your own deemix CLI: MP3 or FLAC with your ARL";
 
-    public IReadOnlyList<PluginConfigField> ConfigFields =>
+    public override IReadOnlyList<PluginConfigField> ConfigFields =>
     [
         new(ArlKey, "Deezer ARL", null,
             "From deezer.com: copy the 'arl' cookie in your browser's developer tools. A paid plan gives 320 and FLAC.",
@@ -54,9 +54,6 @@ public class DeemixDownloader : CliToolDownloader
             "Leave empty and MelodyBridge uses its own folder. Set it only when deemix runs elsewhere, for example through docker exec.",
             Advanced: true),
     ];
-
-    /// <inheritdoc />
-    public string? LastUnavailableReason { get; private set; }
 
     private readonly DeezerClient _deezer;
 

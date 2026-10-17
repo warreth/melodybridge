@@ -36,9 +36,9 @@ public class TidalDownloader : CliToolDownloader
 
     public override string Id => "tidal";
     public override string Name => "Tidal";
-    public string Description => "Lossless and hi-res downloads through your own tiddl";
+    public override string Description => "Lossless and hi-res downloads through your own tiddl";
 
-    public IReadOnlyList<PluginConfigField> ConfigFields =>
+    public override IReadOnlyList<PluginConfigField> ConfigFields =>
     [
         new(QualityKey, "FLAC quality", null,
             "How high lossless goes; AAC requests use the 320 or 96 kbps tier.",
@@ -54,9 +54,6 @@ public class TidalDownloader : CliToolDownloader
             "Only needed when tiddl is not on PATH; the Docker image ships it.",
             Advanced: true),
     ];
-
-    /// <inheritdoc />
-    public string? LastUnavailableReason { get; private set; }
 
     private readonly TidalClient _tidal;
 

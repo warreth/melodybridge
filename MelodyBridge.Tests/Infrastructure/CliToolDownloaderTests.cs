@@ -1,6 +1,9 @@
 using MelodyBridge.Core;
+using MelodyBridge.Infrastructure.Deezer;
 using MelodyBridge.Infrastructure.Downloaders;
+using MelodyBridge.Infrastructure.Qobuz;
 using MelodyBridge.Infrastructure.Services;
+using MelodyBridge.Infrastructure.Tidal;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace MelodyBridge.Tests.Infrastructure;
@@ -31,6 +34,8 @@ public class CliToolDownloaderTests
 
         public override string Id => "stubtool";
         public override string Name => "Stub tool";
+        public override string Description => "A stub tool";
+        public override IReadOnlyList<PluginConfigField> ConfigFields => Array.Empty<PluginConfigField>();
         public override PluginCapabilities Capabilities => PluginCapabilities.Any;
 
         protected override string ToolLabel => "stubtool";
@@ -261,6 +266,70 @@ public class CliToolDownloaderTests
             Assert.That(slowResult.Success, Is.True, slowResult.ErrorMessage);
             Assert.That(elapsed, Is.LessThan(TimeSpan.FromSeconds(2)),
                 "a second instance must not wait on the first instance's gate");
+        });
+    }
+
+    // ── The IDownloader contract ─────────────────────────────────────────
+
+    /// <summary>
+    /// IDownloader's Description, ConfigFields and LastUnavailableReason
+    /// have default implementations, and the compiler maps those defaults
+    /// only for the class that lists the interface. A plugin that inherits
+    /// the interface from a base and declares these members in the
+    /// subclass alone silently reads the defaults: no card text, no
+    /// settings panel and no failure hint. This test caught exactly that
+    /// for the CLI plugins.
+    /// </summary>
+    [Test]
+    public void EveryShippedPlugin_MapsItsOwnMembersOntoIDownloader()
+    {
+        var pluginTypes = typeof(QobuzDownloader).Assembly.GetTypes()
+            .Where(t => !t.IsAbstract && typeof(IDownloader).IsAssignableFrom(t))
+            .ToList();
+
+        Assert.That(pluginTypes, Is.Not.Empty, "no plugins found to check");
+        foreach (var type in pluginTypes)
+        {
+            var map = type.GetInterfaceMap(typeof(IDownloader));
+            foreach (var name in new[] { "Description", "ConfigFields", "LastUnavailableReason" })
+            {
+                // A plugin without its own member may read the default
+                // (Lucida has no settings); one that declares the member
+                // must not.
+                var declared = type.GetProperty(name);
+                if (declared is null) continue;
+
+                var index = Array.FindIndex(map.InterfaceMethods, m => m.Name == "get_" + name);
+                Assert.That(index, Is.GreaterThanOrEqualTo(0), $"{type.Name} does not surface {name}");
+                Assert.That(map.TargetMethods[index].DeclaringType, Is.Not.EqualTo(typeof(IDownloader)),
+                    $"{type.Name}.{name} is declared but IDownloader's default is read instead");
+            }
+        }
+    }
+
+    [Test]
+    public void CliPlugins_AdvertiseTheirSettingsThroughIDownloader()
+    {
+        var qobuz = (IDownloader)new QobuzDownloader(
+            new QobuzClient(new HttpClient(), NullLogger<QobuzClient>.Instance),
+            new StubPluginConfig(), NullLogger<QobuzDownloader>.Instance);
+        var deemix = (IDownloader)new DeemixDownloader(
+            new DeezerClient(new HttpClient(), NullLogger<DeezerClient>.Instance),
+            new StubPluginConfig(), NullLogger<DeemixDownloader>.Instance);
+        var tidal = (IDownloader)new TidalDownloader(
+            new TidalClient(new HttpClient(), NullLogger<TidalClient>.Instance),
+            new StubPluginConfig(), NullLogger<TidalDownloader>.Instance);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(qobuz.ConfigFields.Select(f => f.Key), Does.Contain("user_auth_token"),
+                "the Qobuz token field must reach the settings panel");
+            Assert.That(deemix.ConfigFields.Select(f => f.Key), Does.Contain("arl"),
+                "the Deezer ARL field must reach the settings panel");
+            Assert.That(tidal.ConfigFields.Select(f => f.Key), Does.Contain("quality"),
+                "the Tidal quality field must reach the settings panel");
+            Assert.That(new[] { qobuz.Description, deemix.Description, tidal.Description }, Is.All.Not.Empty,
+                "the Plugins card text must survive the interface");
         });
     }
 }

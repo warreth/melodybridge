@@ -40,7 +40,29 @@ public abstract class CliToolDownloader : IDownloader
 
     public abstract string Id { get; }
     public abstract string Name { get; }
+
+    /// <summary>
+    /// The plugin's plain-language description for the Plugins card.
+    /// Abstract here on purpose: IDownloader's default members map only
+    /// for the class that lists the interface, so a member declared in a
+    /// subclass alone would silently read as the empty default, hiding
+    /// the card text, the settings panel and the failure hint.
+    /// </summary>
+    public abstract string Description { get; }
+
+    /// <summary>The plugin's own settings fields; abstract for the same mapping reason.</summary>
+    public abstract IReadOnlyList<PluginConfigField> ConfigFields { get; }
+
     public abstract PluginCapabilities Capabilities { get; }
+
+    /// <summary>
+    /// Why the last availability check said no, shown on the card instead
+    /// of the generic hint. Stored on the base for the same mapping
+    /// reason: subclasses write it, readers (the Plugins page) go through
+    /// IDownloader.
+    /// </summary>
+    public string? LastUnavailableReason { get; protected set; }
+
     public abstract Task<bool> IsAvailableAsync(CancellationToken ct = default);
     public abstract Task<DownloaderSearchHit?> SearchAsync(TrackQuery query, CancellationToken ct = default);
 
