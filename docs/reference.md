@@ -28,23 +28,30 @@ Connect**: the app shows a code, you approve it in Jellyfin, and the sign-in
 finishes by itself. Plex takes an X-Plex-Token. Every profile has a **Test**
 button, and one can be marked **Use as app default**.
 
-Profiles are shortcuts, not shared state: a sync job carries its own connection
-fields, and the default profile is used by the liked songs sync.
+Profiles are what sync jobs pick: the wizard lists the profiles of the chosen
+kind, and a job stores the profile, not a copy of its credentials. Edit a
+profile once and every job that uses it follows. The profile marked as app
+default feeds the app-wide fallback the sync clients use when no profile is
+picked.
 
 ### Default paths
 
-- **Music path** (`/music` in the Docker image): where downloads land.
+- **Music path** (`/music` in the Docker image): the root for downloads. Each
+  playlist gets its own folder below it, named after the playlist, so one
+  playlist's files never mix with another's.
 - **Playlist output folder** (`/app/playlists`): where M3U files are written.
 - **Archive path** and **Archive format**: the defaults for archive copies.
-  Leave the path empty for no archive. Per-playlist values override these.
+  Leave the path empty for no archive. Per-playlist values override these, and
+  the playlist page shows what the app default currently is.
 
 Remember that these are paths inside the container, not on your host. The page
 shows a reminder next to the fields.
 
 ### Quality
 
-**Default audio quality** is what new playlists start with; each playlist can
-override it on its own page.
+**Default audio quality** is what every new playlist starts with, whichever route
+created it: the add form, an account import, liked songs or a file import. Each
+playlist can override it on its own page.
 
 | Preset | What it accepts |
 |---|---|
@@ -118,12 +125,12 @@ Open a playlist card and the left panel holds everything specific to it:
 
 | Option | Notes |
 |---|---|
-| Name | Shown everywhere in the app |
-| Download folder | Empty means the default music path |
+| Name | Shown everywhere in the app. The playlist's folder is named after it (or after the folder you type) |
+| Download folder | Empty means the default music path, with a subfolder named after the playlist. A folder typed here is used as it is |
 | Audio quality | One of the presets above, or advanced filters |
 | Strict quality | On: only the exact quality is accepted. Off: the download steps down to the best lower quality the enabled plugins declare. See [strict quality](/concepts#strict-quality) |
 | Allow container changes | Shown when strict is off: whether a fallback step may leave the chosen container |
-| Archive copy | Archive folder and format; empty folder means no archive |
+| Archive copy | The switch turns the second copy on or off for this playlist. When it is off the folder and format fields disappear, and no copy is made, even when the app-wide archive path is set. When it is on, an empty folder means the default archive path plus a folder named after the playlist, and the format select says what the app default currently does |
 | Auto-sync schedule | Manual, hourly, daily, weekly, monthly or cron |
 | Download new tracks after auto-sync | Off by default. After a successful auto-sync refresh, a download run starts when there is pending work; failed tracks are retried every interval. Hidden for file imports |
 | Sync mode | Additive keeps removed tracks as history, Mirror matches the source |
@@ -139,7 +146,10 @@ them means re-importing the file.
 ### The track list
 
 Each track row shows its state and, once downloaded, the real quality: bitrate,
-sample rate, format and file size. Enable **Show the file column on playlist
+sample rate, format and file size. Next to the status pill sits a small archive
+check: a green check when this track's archive copy exists, a quiet dash when
+this playlist has no archive path, and a warning when the recorded copy is gone
+from disk. Enable **Show the file column on playlist
 tracks** on the Advanced page to see the file names, including
 `archive: <name>` chips for archive copies.
 
@@ -150,6 +160,9 @@ tracks** on the Advanced page to see the file names, including
   while skipping the provider that delivered the flagged file. The file stays
   in the library until you decide. See
   [the quality review](/concepts#the-quality-review).
+- **Remove** takes a row out of the playlist. For a downloaded track the dialog
+  asks what happens to the files: keep them on disk, or delete the download
+  and its archive copy too. Tracks without a file leave right away.
 - **Export CSV** downloads the whole track list as a spreadsheet.
 - **Refresh** fetches the playlist again and applies the sync mode.
 - **Download missing** starts a download run. While one is live, the button is

@@ -274,6 +274,19 @@ at startup and after every scan, so a fresh database over an existing music
 folder heals by itself. Playlists imported from a CSV file or your liked songs
 need the import repeated before their rows exist again.
 
+## Playlist folders
+
+Every playlist downloads into its own folder named after it, under the music
+path: `/music/My Summer Hits/...`, liked songs included (`/music/Liked songs
+(Spotify)/...`). An archive copy mirrors that layout under the archive path, so
+two libraries never mix one playlist's files with another's. That separation is
+what makes the duplicate handling below possible: a linked file lands in the
+playlist's own folder, never somewhere shared.
+
+Type a folder on the playlist page to override the location. A folder you type
+is used as it is; leave the field empty and the default music path plus the
+playlist folder applies.
+
 ## Duplicate tracks <Badge type="tip" text="Optional" />
 
 The same track often sits in more than one playlist. Downloading identical bytes
@@ -293,8 +306,10 @@ the same `MELODY_ID` is already sitting in another playlist folder:
 Removing a track from one playlist removes only that playlist's name for it.
 The bytes stay as long as any other playlist still links them. The whole feature
 can be turned off with **Hardlink duplicate tracks across playlists** on the
-Advanced page, and a track that was linked rather than downloaded does not
-produce an archive copy, because no download happened.
+Advanced page. A linked track reuses the original's archive copy too: when the
+other playlist already has one, its bytes are linked into this playlist's archive
+folder, so both playlists get a copy without a second download or a second
+transcode.
 
 ## Archive copies <Badge type="tip" text="Optional" />
 
@@ -303,11 +318,15 @@ FLAC archive for the long term, and let your media server stream smaller Opus or
 AAC files. Or the other way around, your call.
 
 Set an archive folder and format on the playlist page (**Archive copy**), or set
-the defaults under **Settings, Default paths**. Leave the path empty and no
-archive is made.
+the defaults under **Settings, Default paths**. Each playlist has its own folder
+under the archive path (`/archive/My Summer Hits/...`), and the playlist's format
+select says what the app default currently does. The switch on the playlist page
+turns the copy off for that playlist: the folder and format fields disappear, and
+no copy is made, even when an app-wide archive path is set.
 
 | Format | Result |
 |---|---|
+| App default | Whatever the archive format under Settings says |
 | Auto | A plain copy of the downloaded file |
 | Opus | 128 kbps, small and efficient |
 | FLAC | Lossless, level 5 compression |
@@ -319,4 +338,6 @@ from that file with ffmpeg, so a second library never costs a second internet
 download. If ffmpeg is missing, the download still succeeds and the track gets
 an **archive copy failed** warning instead. The file column on the playlist
 tracks (enable it on the Advanced page) shows an `archive: <filename>` chip on
-tracks that have an archive copy.
+tracks that have an archive copy, and a small check next to the status column
+tells you at a glance whether the copy exists, is missing from disk, or was never
+made.

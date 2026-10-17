@@ -29,13 +29,15 @@ checked to search every folder for matching files.
 | Output | What it needs |
 |---|---|
 | M3U File | An output path inside the container, for example `/app/playlists/summer.m3u` |
-| Jellyfin API | Server URL, username and password, or **Quick Connect**. **Test connection** checks the server and lets you pick the user |
-| Plex API | Server URL and an X-Plex-Token. The token holder is the only account there is, so there is no user picker |
-| Subsonic API | Server URL, username and password. Navidrome, gonic, Airsonic, Ampache, Funkwhale and Nextcloud Music all speak this API; there are no API keys |
+| Jellyfin API | A Jellyfin profile from **Settings, Media servers**. **Test connection** checks it and lets you pick the user |
+| Plex API | A Plex profile. The token holder is the only account there is, so there is no user picker |
+| Subsonic API | A Subsonic or Navidrome profile. Navidrome, gonic, Airsonic, Ampache, Funkwhale and Nextcloud Music all speak this API; there are no API keys |
 
-The connection values are stored with the job, so two jobs can point at two
-different servers. Named profiles under **Settings, Media servers** are the app
-defaults; the liked songs sync uses the profile marked as default.
+The job stores the profile you pick, not a copy of its credentials: edit the
+profile once and every job that uses it follows. No profile yet? The wizard links
+straight to the media servers tab, where you create one (Jellyfin sign-in and
+Quick Connect included), then reload the list here. A job created before profiles
+existed keeps the connection it carries until you pick a profile for it.
 
 ### Step 4: Optional: fix file paths
 

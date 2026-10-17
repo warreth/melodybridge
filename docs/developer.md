@@ -190,7 +190,7 @@ public interface IMediaServerSync
 }
 ```
 
-Implement this to sync playlists to a media server. Built-in targets are resolved by `Name` (`"Jellyfin"`, `"Plex"`, `"Subsonic"`): place implementations in `MelodyBridge.Infrastructure/MediaServers/`: `JellyfinSync.cs`, `PlexSync.cs`, `SubsonicSync.cs`. Each has a settings pair (`JellyfinSettings.cs`, `PlexSettings.cs`, `NavidromeSettings.cs`, the Subsonic values keep their historical navidrome_* keys) reading connection values from the settings table, and `IMediaServerDirectory` (`JellyfinUserDirectory.cs`, `PlexSubsonicDirectories.cs`) supplies the wizard's Test connection and user picker. Kind-based lookups go through `IMediaServerDirectoryFactory` (`MediaServerDirectoryFactory.cs`), which knows the aliases ("Navidrome" is Subsonic). Per-job connection overrides travel in `PlaylistOutputOptions.MediaServerConnection` (base URL, credential, optional user id).
+Implement this to sync playlists to a media server. Built-in targets are resolved by `Name` (`"Jellyfin"`, `"Plex"`, `"Subsonic"`): place implementations in `MelodyBridge.Infrastructure/MediaServers/`: `JellyfinSync.cs`, `PlexSync.cs`, `SubsonicSync.cs`. Each has a settings pair (`JellyfinSettings.cs`, `PlexSettings.cs`, `NavidromeSettings.cs`, the Subsonic values keep their historical navidrome_* keys) reading connection values from the settings table, and `IMediaServerDirectory` (`JellyfinUserDirectory.cs`, `PlexSubsonicDirectories.cs`) supplies the wizard's Test connection and user picker. Kind-based lookups go through `IMediaServerDirectoryFactory` (`MediaServerDirectoryFactory.cs`), which knows the aliases ("Navidrome" is Subsonic). Sync jobs pick a named profile from `MediaServerProfileStore` (stored as one JSON list under the `media_server_profiles` settings key) by `SyncJobs.MediaServerProfileId`; `SyncJobRunner` resolves that profile fresh on every run into the per-call `PlaylistOutputOptions.MediaServerConnection` (base URL, credential, optional user id), so editing a profile applies to every job. Jobs created before profiles existed keep their inline `JellyfinServerUrl`/`JellyfinApiKey` values; with neither, the app-wide settings fall back in.
 
 ### `IDownloadManager`: the waterfall
 
@@ -296,7 +296,16 @@ deterministic id only for rows that have an ExternalId and no MelodyId.
 
 ## Hardlink deduplication
 
-The identity tag also powers deduplication. Before any download,
+Playlist folders are the unit of storage: `PlaylistRules.ResolvePlaylistFolder`
+turns a playlist's `TargetDirectory` (plus the `music_path` setting for the
+default) into the folder downloads land in. An explicit folder is used as it is;
+the app-wide default counts as "no choice" and gets a subfolder named after the
+playlist, so every playlist owns its folder, liked songs included.
+`ResolveArchiveFolder` applies the same rule under the archive path, and the
+playlist row carries an `ArchiveEnabled` switch that skips the copy entirely when
+off.
+
+The identity tag powers deduplication. Before any download,
 `PlaylistStore` looks for another playlist's row with the same MelodyId
 and a downloaded file, and compares that file's measured quality with
 the requested band:
@@ -305,6 +314,9 @@ the requested band:
   `CreateHardLinkW` on Windows; `File.CreateHardLink` arrives in
   .NET 11) places a second name for the same bytes into this
   playlist's folder. `IsHardLink` marks the row, no network call runs.
+  An archive copy the original owns is linked into this playlist's own
+  archive folder the same way; only a cross-device link falls back to
+  producing this playlist's copy locally.
 - Quality difference: the row pauses as `needs-review` with a warning;
   the UI offers "Download new version" and "Hardlink existing version"
   (`ResolveReviewAsync`). The store never picks for the user. "Download
@@ -318,7 +330,10 @@ the requested band:
 Deletion is name-wise by hard link semantics: removing one playlist's
 row removes that playlist's file name only, and both `RemoveTrackAsync`
 and `DeleteAsync` additionally keep any path another row still
-references. No central pool exists; playlist folders stay standard.
+references (primary and archive paths both count). The per-track remove
+dialog on the playlist page picks between "remove from the playlist" and
+"delete the files too"; the latter takes the primary download and its
+archive copy. No central pool exists; playlist folders stay standard.
 
 The setting `dedup_enabled` (default on) toggles the whole feature from
 the Advanced page. `Tracks.MelodyId` carries a plain (non-unique) index:
