@@ -121,6 +121,15 @@ The image listens on port 80 by default, so a plain `docker run -p 3333:80`
 works without extra environment variables, and it carries a `HEALTHCHECK`
 against the home page, so `docker ps` shows whether the app finished starting.
 
+The app itself runs as the unprivileged user `melodybridge` (UID/GID 1000).
+On startup the entrypoint hands the three mounted data roots (`/app/state`,
+`/app/playlists`, `/music`) to that user and then drops root, so Docker's
+root-owned, auto-created mount folders do not block the database or the
+downloads. The chown is not recursive: existing files keep their owner, and
+everything the app creates is owned by UID 1000. If you start the container
+with `--user`, the entrypoint steps aside and that user must own the mounts
+itself.
+
 ## Running from source
 
 For development, run the server directly:
