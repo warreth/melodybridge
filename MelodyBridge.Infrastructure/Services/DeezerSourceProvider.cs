@@ -138,11 +138,21 @@ public class DeezerSourceProvider : ISourceProvider
             ? duration.GetInt32()
             : 0;
 
+        var artistName = track.TryGetProperty("artist", out var artist) ? ReadString(artist, "name") : null;
+        var albumNode = track.TryGetProperty("album", out var albumElement) ? albumElement : default;
+        var coverUrl = ReadString(albumNode, "cover_xl")
+            ?? ReadString(albumNode, "cover_big")
+            ?? ReadString(albumNode, "cover");
+
         return new Track
         {
             Title = title,
-            Artist = track.TryGetProperty("artist", out var artist) ? ReadString(artist, "name") : null,
-            Album = track.TryGetProperty("album", out var album) ? ReadString(album, "title") : null,
+            Artist = artistName,
+            Album = ReadString(albumNode, "title"),
+            // The payload's album object carries no artist, so the track
+            // artist is the best release credit Deezer can offer here.
+            AlbumArtist = artistName,
+            CoverUrl = coverUrl,
             Isrc = ReadString(track, "isrc"),
             Duration = seconds > 0 ? TimeSpan.FromSeconds(seconds) : null,
             SongID = new SongID(Platform.Deezer, id),

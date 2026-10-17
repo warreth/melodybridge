@@ -113,6 +113,7 @@ public class ListenBrainzSourceProvider : ISourceProvider
         var recordingId = FindRecordingId(item);
         var artist = ReadString(item, "creator");
         var album = ReadString(item, "album");
+        var coverUrl = FindCover(item);
 
         // The recording MBID has no platform of its own; the id keeps the
         // mb: prefix so it can never collide with a platform id.
@@ -122,6 +123,7 @@ public class ListenBrainzSourceProvider : ISourceProvider
             Title = title,
             Artist = artist,
             Album = album,
+            CoverUrl = coverUrl,
             Duration = milliseconds > 0 ? TimeSpan.FromMilliseconds(milliseconds) : null,
             SongID = songId,
             PlatformSongID = songId,
@@ -151,7 +153,11 @@ public class ListenBrainzSourceProvider : ISourceProvider
         return null;
     }
 
-    /// <summary>Cover art when the JSPF extension carries a Cover Art Archive id.</summary>
+    /// <summary>
+    /// Cover art when the JSPF extension carries a Cover Art Archive id.
+    /// Works for a playlist node and for one track node: both keep the id
+    /// under their module's additional_metadata.
+    /// </summary>
     private static string? FindCover(JsonElement playlist)
     {
         if (!playlist.TryGetProperty("extension", out var extension)

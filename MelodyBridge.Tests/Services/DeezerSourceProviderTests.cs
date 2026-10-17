@@ -52,7 +52,9 @@ public class DeezerSourceProviderTests
             "duration": 429,
             "isrc": "GBDUW0600009",
             "artist": { "id": 27, "name": "Daft Punk" },
-            "album": { "id": 99, "title": "Homework" }
+            "album": { "id": 99, "title": "Homework",
+                       "cover_big": "https://cdn-images.dzcdn.net/images/cover/abc/500x500.jpg",
+                       "cover_xl": "https://cdn-images.dzcdn.net/images/cover/abc/1000x1000.jpg" }
           },
           {
             "id": 7654321,
@@ -105,6 +107,10 @@ public class DeezerSourceProviderTests
             Assert.That(first.Album, Is.EqualTo("Homework"));
             Assert.That(first.Isrc, Is.EqualTo("GBDUW0600009"),
                 "Deezer's public payload carries the ISRC, the strongest matching signal");
+            Assert.That(first.AlbumArtist, Is.EqualTo("Daft Punk"),
+                "the payload's album object has no artist, so the track artist is the credit");
+            Assert.That(first.CoverUrl, Does.EndWith("1000x1000.jpg"),
+                "cover_xl wins over cover_big");
             Assert.That(first.Duration, Is.EqualTo(TimeSpan.FromSeconds(429)));
             Assert.That(first.SongID, Is.EqualTo(new SongID(Platform.Deezer, "1234567")));
             Assert.That(MelodyIds.For(first.SongID!), Is.EqualTo("deezer:1234567"),

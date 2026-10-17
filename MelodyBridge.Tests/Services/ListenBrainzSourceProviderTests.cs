@@ -47,6 +47,11 @@ public class ListenBrainzSourceProviderTests
             "creator": "Esbjorn Svensson Trio",
             "duration": 267173,
             "identifier": [ "https://musicbrainz.org/recording/d1312a5d-e811-4f14-97bb-d5663ff6ef89" ],
+            "extension": {
+              "https://musicbrainz.org/doc/jspf#track": {
+                "additional_metadata": { "caa_release_mbid": "ec7c1ab2-df55-4b1e-811d-d79ba5427c1a" }
+              }
+            },
             "title": "Where We Used to Live"
           }
         ]
@@ -92,6 +97,9 @@ public class ListenBrainzSourceProviderTests
             Assert.That(track.Album, Is.EqualTo("Tuesday Wonderland"));
             Assert.That(track.Duration, Is.EqualTo(TimeSpan.FromMilliseconds(267173)),
                 "JSPF durations are milliseconds");
+            Assert.That(track.CoverUrl, Is.EqualTo(
+                "https://coverartarchive.org/release/ec7c1ab2-df55-4b1e-811d-d79ba5427c1a/front-500"),
+                "the track's Cover Art Archive id becomes a cover URL");
             Assert.That(track.SongID!.ID, Is.EqualTo("mb:d1312a5d-e811-4f14-97bb-d5663ff6ef89"),
                 "the recording MBID becomes a namespaced id");
             Assert.That(MelodyIds.For(track.SongID!), Does.StartWith("unknown:mb:"));
