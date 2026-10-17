@@ -67,7 +67,7 @@ Spotify playlist URL
    → MP3 file + title/artist tags + MELODY_ID written by the manager
    → post-download verification: broken files fail, doubtful files flag
    → LibraryScanner (reads tags, keeps DB current as files move)
-   → SyncJobRunner → M3uGenerator (#EXTINF) or IMediaServerSync (Jellyfin, Plex, Navidrome)
+   → SyncJobRunner → M3uGenerator (#EXTINF) or IMediaServerSync (Jellyfin, Plex, Subsonic)
 
 The MELODY_ID in the file is the source of truth and the database is a
 cache over it: see Track identity below. ISRC is the matching signal:
@@ -130,6 +130,14 @@ Plugins do not write the MELODY_ID tag themselves. `DownloadManager`
 writes it once for every plugin after the file passes the quality band;
 a plugin's tagging code only handles its own metadata.
 
+The store itself is a facade. The implementation lives in four services next to
+it: `PlaylistQueries` (reads, lifecycle, settings and the two maintenance
+passes), `PlaylistSnapshots` (source fetching, snapshot reconciliation, refresh,
+imports), `DownloadPipeline` (claim, dedup, waterfall, tagging, integrity,
+archive) and `PlaylistTransfer` (JSON and CSV export/import). `PlaylistRules`
+holds the pure rules they share. New behaviour belongs in the service that owns
+it; the facade keeps its public surface so pages and tests do not move.
+
 Implement this to add a download source. Built-in plugins:
 
 | Plugin | Id | Source | Notes |
@@ -138,14 +146,17 @@ Implement this to add a download source. Built-in plugins:
 | `MonochromeDownloader` | `monochrome` | tracks.monochrome.st (official Monochrome API) | Lossless FLAC streams over a plain GET, no account needed; search hits carry an ISRC, which narrows the pool to the exact recording; the base URL is configurable per plugin for mirrors |
 | `SlskdDownloader` | `slskd` | Soulseek, through the user's own slskd instance | Lossless FLAC and high-bitrate MP3/AAC from peers; search and transfer run over slskd's REST API with an API key; locked files and undeclared containers are skipped; the finished file moves out of slskd's downloads folder, whose path the plugin reads from slskd's own options; unavailable until the URL and key are set and slskd is logged in |
 | `QobuzDownloader` | `qobuz` | qobuz-dlp (shipped in the Docker image) | Lossless and hi-res from a paid Qobuz plan; the search runs natively (bundle scrape plus a user token), the download through the CLI into a hidden per-track folder; the plugin seeds the CLI config (app id, private key, secrets) and its token file, so no interactive login is needed; unavailable until the command and a valid token are found |
+| `TidalDownloader` | `tidal` | tiddl (shipped in the Docker image) | Lossless and hi-res from the user's own Tidal session; the search runs against Tidal's v1 API with the token out of tiddl's `auth.json` (ISRC-first, like Qobuz), the download through `tiddl download url` with the tier mapped onto the requested band; unavailable until the command and a logged-in tiddl session are found, or when that session expired |
 | `DeemixDownloader` | `deemix` | deemix CLI (shipped in the Docker image, runs on Node) | Deezer MP3/FLAC with the user's ARL; the search runs against Deezer's public API, the download through the CLI; the ARL setting is written into deemix's config (through `DEEMIX_DATA_DIR`) before every run, so the CLI never prompts; runs are serialized and the finished file moves out of the downloads folder |
-| `DoubleDoubleDownloader` | `doubledouble` | us./eu.doubledouble.top | Submit-and-poll rips of direct track URLs (Tidal, Qobuz, Deezer, Amazon); `SearchAsync` returns null by design, the site search is captcha-gated; no quality parameter, so its manifest is uncontrollable too |
 | `JumoDownloader` | `jumo` | jumo-dl.pages.dev (community Qobuz front-end) | No account needed; search and stream descriptors come from the service's guarded API (request-context headers plus ECDH/AES-GCM encrypted responses), the audio comes direct from the signed Qobuz CDN URLs and is AES-CTR decrypted locally; lossless lands as native FLAC, MP3 320 as plain MP3; the service rate limits (429) and can refuse some networks (403), so the plugin reports unavailability instead of hammering it |
+| `DoubleDoubleDownloader` | `doubledouble` | us./eu.doubledouble.top | Retired from the shipped order: the site is captcha-gated on every submission, so `IsAvailableAsync` only reports ready when its captcha config says `active: false`. Submit-and-poll rips of direct track URLs; `SearchAsync` returns null by design |
 | `SoundCloudDownloader` | `soundcloud` | SoundCloud (via yt-dlp `scsearch`) | Original uploads, often 320 kbps; top-5 ranked; rejects files under 128 kbps |
 | `ArchiveOrgDownloader` | `archiveorg` | Internet Archive (public JSON APIs) | Public-domain and community recordings; picks the matching file inside a multi-track item, not the first one; rejects files under 128 kbps |
 | `YtDlpDownloader` | `ytdlp` | YouTube (via yt-dlp) | Widest fallback; audio-only best stream, top-5 ranked by match and duration; explicit formats transcode to the requested cap |
 
 Place new implementations in `MelodyBridge.Infrastructure/Downloaders/` and register via `services.AddSingleton<IDownloader, YourPlugin>()`. A plugin that ships its own protocol client or byte-level helpers lives in its own folder next to it instead (`Infrastructure/Lucida/`, `Infrastructure/Jumo/`) and registers the same way. Quality-gate downloads against the requested `DownloadQuality` band so bad rips never enter the library.
+
+Plugins that wrap a command line tool should derive from `CliToolDownloader` (`CliToolDownloader.cs`): it owns command resolution, the private per-track work folder, one serialized process run, picking the produced file up, moving, sniffing, tagging and cleanup. A subclass supplies its id, capabilities, config fields, the work folder, the tool arguments (`BuildRequestAsync`), the tool-specific availability check and, when the tool needs a login or config file, `PrepareEnvironmentAsync`. Qobuz, Deezer and Tidal are built this way; a new CLI source is normally one small file plus a settings entry.
 
 Every plugin-produced file is sniffed with `AudioSignature` (magic bytes, never the extension) before `DownloadManager` accepts it: an HTML error page or JSON body served under a 200 status is deleted and the waterfall moves on. Plugins that save files themselves delete partial output on failure and cancellation; the yt-dlp-backed plugins keep yt-dlp's resumable `.part` fragments (never final output, and the next attempt resumes from them).
 
@@ -167,7 +178,7 @@ public interface ISourceProvider
 }
 ```
 
-Implement this to support a new playlist platform. `PlaylistStore` picks the provider whose `CanHandle` accepts the URL.
+Implement this to support a new playlist platform. `PlaylistStore` picks the provider whose `CanHandle` accepts the URL. Built-in: `SpotifySourceProvider`, `YouTubeSourceProvider`, `DeezerSourceProvider`, `SoundCloudSourceProvider` and `ListenBrainzSourceProvider` (all registered in `AddMelodyBridge`).
 
 ### `IMediaServerSync`: media server targets
 
@@ -179,7 +190,7 @@ public interface IMediaServerSync
 }
 ```
 
-Implement this to sync playlists to a media server. Built-in targets are resolved by `Name` (`"Jellyfin"`, `"Plex"`, `"Navidrome"`): place implementations in `MelodyBridge.Infrastructure/MediaServers/`: `JellyfinSync.cs`, `PlexSync.cs`, `NavidromeSync.cs`. Each has a settings pair (`JellyfinSettings.cs`, `PlexSettings.cs`, `NavidromeSettings.cs`) reading connection values from the settings table, and `IMediaServerDirectory` (`JellyfinUserDirectory.cs`, `PlexNavidromeDirectories.cs`) supplies the wizard's Test connection and user picker. Per-job connection overrides travel in `PlaylistOutputOptions.MediaServerConnection` (base URL, credential, optional user id).
+Implement this to sync playlists to a media server. Built-in targets are resolved by `Name` (`"Jellyfin"`, `"Plex"`, `"Subsonic"`): place implementations in `MelodyBridge.Infrastructure/MediaServers/`: `JellyfinSync.cs`, `PlexSync.cs`, `SubsonicSync.cs`. Each has a settings pair (`JellyfinSettings.cs`, `PlexSettings.cs`, `NavidromeSettings.cs`, the Subsonic values keep their historical navidrome_* keys) reading connection values from the settings table, and `IMediaServerDirectory` (`JellyfinUserDirectory.cs`, `PlexSubsonicDirectories.cs`) supplies the wizard's Test connection and user picker. Kind-based lookups go through `IMediaServerDirectoryFactory` (`MediaServerDirectoryFactory.cs`), which knows the aliases ("Navidrome" is Subsonic). Per-job connection overrides travel in `PlaylistOutputOptions.MediaServerConnection` (base URL, credential, optional user id).
 
 ### `IDownloadManager`: the waterfall
 
@@ -331,7 +342,7 @@ Registers core services: `DownloadManager`, `SyncEngine`, library scanner, M3U g
 
 ### `AddMediaServerSyncs()`
 
-Registers every media server sync plugin (Jellyfin, Plex, Navidrome), their settings and user directories, each with its own `HttpClient` via `AddHttpClient`.
+Registers every media server sync plugin (Jellyfin, Plex, Subsonic) plus the kind-based directory factory, their settings and user directories, each with its own `HttpClient` via `AddHttpClient`.
 
 ### Usage in `Program.cs`
 
@@ -370,7 +381,8 @@ dotnet test MelodyBridge.sln --filter "FullyQualifiedName!~Tests.Integration"
 # needs yt-dlp on PATH + ffprobe; the slskd tests also need
 # SLSKD_URL, SLSKD_API_KEY and SLSKD_DOWNLOADS_PATH; the premium tests
 # need QOBUZ_TOKEN (or qobuz-dlp's token file) plus QOBUZ_DLP_COMMAND,
-# and DEEMIX_COMMAND, DEEMIX_DOWNLOADS_PATH and DEEMIX_CLI_JS for deemix
+# DEEMIX_COMMAND, DEEMIX_DOWNLOADS_PATH and DEEMIX_CLI_JS for deemix,
+# and a logged-in tiddl (TIDDL_COMMAND, TIDDL_PATH) for Tidal
 # (each group is skipped without its setup)
 dotnet test MelodyBridge.sln --filter "Category=PlaylistStore|Category=Live"
 ```
@@ -385,8 +397,8 @@ MelodyBridge.Tests/
 │   ├── LibraryScannerTests.cs       # Real tagged MP3s: register + move/update identity
 │   ├── M3uGeneratorTests.cs         # Read-back of produced .m3u files
 │   ├── JellyfinSyncTests.cs         # Media-server sync clients: Jellyfin,
-│   ├── PlexSyncTests.cs             # Plex, Navidrome. Unit tests run against
-│   ├── NavidromeSyncTests.cs        # ScriptedHandler, a shared scripted HTTP
+│   ├── PlexSyncTests.cs             # Plex, Subsonic. Unit tests run against
+│   ├── SubsonicSyncTests.cs         # ScriptedHandler, a shared scripted HTTP
 │   ├── MediaServerDirectoryTests.cs # boundary; Live tests boot real docker
 │   │                                # containers (Category=Live, images must
 │   │                                # be pulled; the Plex one reads PLEX_TOKEN)

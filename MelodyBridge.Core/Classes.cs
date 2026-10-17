@@ -6,6 +6,12 @@ public class Track
     public string? Artist { get; set; }
     /// <summary>Album name, when the source knows it (used for tags).</summary>
     public string? Album { get; set; }
+    /// <summary>Album artist (the release-level credit), when the source knows it.</summary>
+    public string? AlbumArtist { get; set; }
+    /// <summary>Cover art URL, when the source knows one; embedded after download.</summary>
+    public string? CoverUrl { get; set; }
+    /// <summary>Plain lyrics, filled by the lyrics resolver when one is configured.</summary>
+    public string? Lyrics { get; set; }
     /// <summary>
     /// International Standard Recording Code, when the source or the
     /// resolver knows it. Plugins that serve ISRC-indexed catalogs

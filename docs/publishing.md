@@ -1,7 +1,7 @@
 # Publishing playlists
 
 A sync job turns a saved playlist into something your players can use: an M3U
-file, or a real playlist inside Jellyfin, Plex or Navidrome. Jobs run by hand or
+file, or a real playlist inside Jellyfin, Plex or a Subsonic server. Jobs run by hand or
 on a schedule, so your "New releases" playlist can show up on the media server
 without you touching anything.
 
@@ -31,7 +31,7 @@ checked to search every folder for matching files.
 | M3U File | An output path inside the container, for example `/app/playlists/summer.m3u` |
 | Jellyfin API | Server URL, username and password, or **Quick Connect**. **Test connection** checks the server and lets you pick the user |
 | Plex API | Server URL and an X-Plex-Token. The token holder is the only account there is, so there is no user picker |
-| Navidrome API | Server URL, username and password. Navidrome has no API keys |
+| Subsonic API | Server URL, username and password. Navidrome, gonic, Airsonic, Ampache, Funkwhale and Nextcloud Music all speak this API; there are no API keys |
 
 The connection values are stored with the job, so two jobs can point at two
 different servers. Named profiles under **Settings, Media servers** are the app
@@ -87,5 +87,5 @@ the job and its run history without touching playlists or music files.
 
 Tracks that came in through **Import liked songs** are flagged, and every sync
 job marks them as favorites on the target: per user in Jellyfin, a top rating on
-the Plex token-holder's account, and a star in Navidrome. See
+the Plex token-holder's account, and a star on the Subsonic side. See
 [Accounts and imports](/accounts) for the import side.

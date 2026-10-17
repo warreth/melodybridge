@@ -1,10 +1,10 @@
 @* Media-server Test connection button (+ user dropdown for servers that
    have a user list). Tests the connection entered in the wizard: not the
    global settings: so a job can target a different server than the default.
-   Servers without a user list (Plex, Navidrome) show the test result only.
-   The directory is chosen by Kind: three are registered (Jellyfin, Plex,
-   Navidrome) and a single-service resolve would always pick the last one. *@
-@inject IEnumerable<IMediaServerDirectory> UserDirectories
+   Servers without a user list (Plex, Subsonic) show the test result only.
+   The directory is resolved by kind through the factory: several are
+   registered and a single-service resolve would always pick the last. *@
+@inject IMediaServerDirectoryFactory DirectoryFactory
 
 <div class="media-server-user-picker">
     @if (ShowUserList)
@@ -44,7 +44,7 @@
     [Parameter] public string? ServerUrl { get; set; } = "";
     /// <summary>API key / token / password, depending on the server kind.</summary>
     [Parameter] public string? ApiKey { get; set; } = "";
-    /// <summary>Username (Navidrome) or user id (Jellyfin) if the kind needs one.</summary>
+    /// <summary>Username (Subsonic) or user id (Jellyfin) if the kind needs one.</summary>
     [Parameter] public string? Username { get; set; } = "";
     /// <summary>Selected user id; empty means "(server default)".</summary>
     [Parameter] public string? UserId { get; set; } = "";
@@ -54,7 +54,7 @@
     [Parameter] public bool ShowUserList { get; set; }
     /// <summary>Label above the user dropdown.</summary>
     [Parameter] public string UserLabel { get; set; } = "Jellyfin user";
-    /// <summary>Server kind to test with ("Jellyfin", "Plex", "Navidrome").</summary>
+    /// <summary>Server kind to test with ("Jellyfin", "Plex", "Subsonic").</summary>
     [Parameter] public string? Kind { get; set; }
 
     private List<MediaServerUserOption> users = new();
@@ -64,19 +64,11 @@
 
     /// <summary>
     /// The directory that speaks this picker's kind. Without a kind the
-    /// component falls back to the single registration, so it also works
-    /// in trimmed-down compositions and component tests.
+    /// factory falls back to the single registration, so the component also
+    /// works in trimmed-down compositions and component tests.
     /// </summary>
     private IMediaServerDirectory? ResolveDirectory()
-    {
-        var all = UserDirectories.ToList();
-        if (!string.IsNullOrWhiteSpace(Kind))
-        {
-            return all.FirstOrDefault(d =>
-                string.Equals(d.Kind, Kind, StringComparison.OrdinalIgnoreCase));
-        }
-        return all.Count == 1 ? all[0] : null;
-    }
+        => DirectoryFactory.For(Kind);
 
     /// <summary>Tests the connection and loads the user list when reachable.</summary>
     private async Task TestConnectionAsync()

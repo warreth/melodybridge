@@ -29,11 +29,14 @@ public static partial class SearchTerms
     /// <summary>
     /// Clean artist text: featuring tags ("A ft. B", "A feat. B", "A x B")
     /// keep only the first credited artist, since most providers index
-    /// the primary artist. Diacritics folded, whitespace collapsed.
+    /// the primary artist. A comma is kept: it is just as often part of
+    /// the name ("Earth, Wind &amp; Fire", "Tyler, The Creator") as a
+    /// credit separator, and truncating at it produced "Earth".
+    /// Diacritics folded, whitespace collapsed.
     /// </summary>
     public static string CleanArtist(string artist)
     {
-        var cleaned = FoldDiacritics(FirstArtist(artist));
+        var cleaned = FoldDiacritics(DropCreditTags(artist));
         cleaned = CollapseWhitespace(cleaned).Trim();
         return cleaned.Length == 0 ? CollapseWhitespace(FoldDiacritics(artist)).Trim() : cleaned;
     }
@@ -64,12 +67,14 @@ public static partial class SearchTerms
         return without.Trim().Length == 0 ? title : without;
     }
 
-    /// <summary>"A ft. B, A feat B, A x B" -> "A": the first credited artist.</summary>
-    private static string FirstArtist(string artist)
+    /// <summary>
+    /// "A ft. B" / "A feat B" / "A x B" -> "A". Commas stay: a comma is
+    /// part of many artist names, not only a credit separator.
+    /// </summary>
+    private static string DropCreditTags(string artist)
     {
         var without = FeaturingRegex().Replace(artist, " ");
-        var first = without.Split(',', 2)[0];
-        return first.Trim().Length == 0 ? artist : first;
+        return without.Trim().Length == 0 ? artist : without;
     }
 
     /// <summary>

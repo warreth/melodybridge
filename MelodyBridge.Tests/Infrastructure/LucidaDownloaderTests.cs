@@ -72,8 +72,26 @@ public class LucidaDownloaderTests
     {
         var downloader = Create(new StubSolver { Available = false },
             new StubHttpMessageHandler(), out var http);
-        Assert.That(await downloader.IsAvailableAsync(), Is.False,
-            "Lucida behind Cloudflare must not join the waterfall without a solver");
+        var available = await downloader.IsAvailableAsync();
+        Assert.Multiple(() =>
+        {
+            Assert.That(available, Is.False,
+                "Lucida behind Cloudflare must not join the waterfall without a solver");
+            Assert.That(downloader.LastUnavailableReason, Does.Contain("FlareSolverr"),
+                "the card must say what to configure, not just fail");
+        });
+    }
+
+    [Test]
+    public async Task IsAvailable_WithSolver_ReportsReadyAndClearsTheReason()
+    {
+        var downloader = Create(new StubSolver(), new StubHttpMessageHandler(), out var http);
+        var available = await downloader.IsAvailableAsync();
+        Assert.Multiple(() =>
+        {
+            Assert.That(available, Is.True);
+            Assert.That(downloader.LastUnavailableReason, Is.Null);
+        });
     }
 
     [Test]

@@ -12,9 +12,9 @@
         <span class="eyebrow">Automation</span>
         <div class="title-with-help">
             <h1>Sync jobs</h1>
-            <HelpTip Path="publishing#create-a-sync-job" Text="A sync job writes an M3U file or pushes a playlist to Jellyfin, Plex or Navidrome, by hand or on a schedule." />
+            <HelpTip Path="publishing#create-a-sync-job" Text="A sync job writes an M3U file or pushes a playlist to Jellyfin, Plex or a Subsonic server (Navidrome, gonic, Airsonic, ...), by hand or on a schedule." />
         </div>
-        <p>A sync job turns a saved playlist into an M3U file for your music player, or pushes it to Jellyfin, Plex or Navidrome.</p>
+        <p>A sync job turns a saved playlist into an M3U file for your music player, or pushes it to Jellyfin, Plex or a Subsonic server.</p>
     </div>
     <div class="topbar-actions">
         <button class="btn-modern primary" @onclick="StartNewJob"><Icon Name="plus" Size="16" /> New sync job</button>
@@ -135,7 +135,7 @@
                                     <option value="@OutputTargetType.M3uFile">M3U File</option>
                                     <option value="@OutputTargetType.JellyfinApi">Jellyfin API</option>
                                     <option value="@OutputTargetType.PlexApi">Plex API</option>
-                                    <option value="@OutputTargetType.NavidromeApi">Navidrome API</option>
+                                    <option value="@OutputTargetType.SubsonicApi">Subsonic API</option>
                                 </select>
                             </label>
                             @if (draft.OutputTarget == OutputTargetType.M3uFile)
@@ -167,19 +167,22 @@
                                     <input @bind="draft.JellyfinApiKey" type="password" placeholder="X-Plex-Token" />
                                 </label>
                             }
-                            else if (draft.OutputTarget == OutputTargetType.NavidromeApi)
+                            else if (draft.OutputTarget == OutputTargetType.SubsonicApi)
                             {
                                 <label>
-                                    Navidrome server URL
+                                    Subsonic server URL
                                     <input @bind="draft.JellyfinServerUrl" placeholder="http://host.docker.internal:4533" />
                                 </label>
                                 <label>
-                                    Navidrome username
+                                    Subsonic username
                                     <input @bind="draft.JellyfinUserId" placeholder="admin" />
                                 </label>
                                 <label>
-                                    Navidrome password
+                                    Subsonic password
                                     <input @bind="draft.JellyfinApiKey" type="password" placeholder="password" />
+                                </label>
+                                <label class="hint-text">
+                                    Navidrome, gonic, Airsonic, Ampache, Funkwhale and Nextcloud Music all speak this API.
                                 </label>
                             }
                             <label>
@@ -208,10 +211,10 @@
                                                 Kind="@(draft.OutputTarget switch
                                                 {
                                                     OutputTargetType.PlexApi => "Plex",
-                                                    OutputTargetType.NavidromeApi => "Navidrome",
+                                                    OutputTargetType.SubsonicApi => "Subsonic",
                                                     _ => "Jellyfin",
                                                 })"
-                                                Username="@(draft.OutputTarget == OutputTargetType.NavidromeApi ? draft.JellyfinUserId : null)"
+                                                Username="@(draft.OutputTarget == OutputTargetType.SubsonicApi ? draft.JellyfinUserId : null)"
                                                 ShowUserList="@(draft.OutputTarget == OutputTargetType.JellyfinApi)"
                                                 UserLabel="Jellyfin user"
                                                 @bind-UserId="draft.JellyfinUserId" />
@@ -261,7 +264,7 @@
                             else
                             {
                                 <div><strong>Server:</strong> @draft.JellyfinServerUrl</div>
-                                @if (draft.OutputTarget == OutputTargetType.NavidromeApi)
+                                @if (draft.OutputTarget == OutputTargetType.SubsonicApi)
                                 {
                                     <div><strong>User:</strong> @draft.JellyfinUserId</div>
                                 }
@@ -545,7 +548,7 @@
         nameof(OutputTargetType.M3uFile) => "M3U file",
         nameof(OutputTargetType.JellyfinApi) => "Jellyfin",
         nameof(OutputTargetType.PlexApi) => "Plex",
-        nameof(OutputTargetType.NavidromeApi) => "Navidrome",
+        nameof(OutputTargetType.SubsonicApi) => "Subsonic",
         _ => target,
     };
 

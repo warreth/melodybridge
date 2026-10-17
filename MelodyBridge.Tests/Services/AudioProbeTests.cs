@@ -149,4 +149,60 @@ public class AudioProbeTests
             Assert.Pass("patched twice without error");
         }
     }
+
+    [Test]
+    public async Task SchemaPatcher_OldTracks_GainTheMetadataColumns()
+    {
+        var dbPath = Path.Combine(_dir, "old-metadata.db");
+
+        var services = new ServiceCollection();
+        services.AddDbContextFactory<MelodyBridgeDbContext>(o => o.UseSqlite($"Data Source={dbPath};Pooling=False"));
+        var sp = services.BuildServiceProvider();
+        var factory = sp.GetRequiredService<IDbContextFactory<MelodyBridgeDbContext>>();
+
+        await using (var db = factory.CreateDbContext())
+        {
+            await db.Database.EnsureCreatedAsync();
+            db.Tracks.Add(new TrackEntity
+            {
+                MelodyId = "keep-me",
+                Title = "Survivor",
+                DownloadStatus = "downloaded",
+            });
+            await db.SaveChangesAsync();
+
+            var connection = db.Database.GetDbConnection();
+            if (connection.State != System.Data.ConnectionState.Open) await connection.OpenAsync();
+            foreach (var column in new[] { "AlbumArtist", "CoverUrl", "Lyrics" })
+            {
+                using var cmd = connection.CreateCommand();
+                cmd.CommandText = $"ALTER TABLE Tracks DROP COLUMN {column}";
+                await cmd.ExecuteNonQueryAsync();
+            }
+        }
+
+        await using (var db = factory.CreateDbContext())
+        {
+            await SchemaPatcher.PatchAsync(db);
+        }
+
+        await using (var db = factory.CreateDbContext())
+        {
+            var survivor = db.Tracks.Single(t => t.MelodyId == "keep-me");
+            Assert.Multiple(() =>
+            {
+                Assert.That(survivor.Title, Is.EqualTo("Survivor"), "existing rows survive");
+                Assert.That(survivor.AlbumArtist, Is.Null, "added columns start empty");
+                Assert.That(survivor.CoverUrl, Is.Null);
+                Assert.That(survivor.Lyrics, Is.Null);
+            });
+        }
+
+        // Idempotent on the second startup.
+        await using (var db = factory.CreateDbContext())
+        {
+            await SchemaPatcher.PatchAsync(db);
+            Assert.Pass("patched twice without error");
+        }
+    }
 }

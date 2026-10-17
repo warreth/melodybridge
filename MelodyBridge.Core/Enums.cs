@@ -54,7 +54,7 @@ public enum OutputTargetType
     M3uFile,
     JellyfinApi,
     PlexApi,
-    NavidromeApi
+    SubsonicApi
 }
 
 public enum MediaType

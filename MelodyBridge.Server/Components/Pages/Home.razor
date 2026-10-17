@@ -24,7 +24,7 @@
             <span class="eyebrow">Welcome to MelodyBridge</span>
             <h1>Three steps, from playlist link to your own music library.</h1>
             <p>MelodyBridge saves the tracks of a Spotify or YouTube playlist locally, downloads the
-                music through a plugin waterfall, and publishes the result to Jellyfin, Plex, Navidrome
+                music through a plugin waterfall, and publishes the result to Jellyfin, Plex or a Subsonic server
                 or an M3U file.
                 @(doneSteps == 3
                     ? "Everything is set up already. Skip this, or keep it as a reference for what lives where."
@@ -104,7 +104,7 @@
                 <div>
                     <strong>Publish it</strong>
                     <p>Create a sync job that writes an M3U file or pushes the playlist to your
-                        Jellyfin, Plex or Navidrome server. Jobs can run automatically on a schedule.</p>
+                        Jellyfin, Plex or Subsonic server. Jobs can run automatically on a schedule.</p>
                     <small>@(step3Done ? $"{jobsCount} job{(jobsCount == 1 ? "" : "s")} configured, last run {lastRunText}" : "No sync job yet")</small>
                 </div>
             </a>
@@ -167,7 +167,7 @@ else
                                PillVariant="@(plexConfigured ? "ready" : "neutral")"
                                PillText="@(plexConfigured ? "ready" : "off")"
                                Enabled="plexConfigured" />
-                <ConnectionRow IconName="navidrome" Title="Navidrome"
+                <ConnectionRow IconName="navidrome" Title="Subsonic"
                                Detail="@(navidromeConfigured ? navidromeUrl : "not configured")"
                                PillVariant="@(navidromeConfigured ? "ready" : "neutral")"
                                PillText="@(navidromeConfigured ? "ready" : "off")"

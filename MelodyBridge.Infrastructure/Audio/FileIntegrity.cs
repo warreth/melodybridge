@@ -20,7 +20,12 @@ public enum IntegrityIssue
 /// <param name="Issue">The problem class, so the caller can tell a broken
 /// file (delete it) from a wrong-length one (flag it and let the user
 /// decide).</param>
-public record IntegrityResult(bool Ok, string? Reason, IntegrityIssue Issue = IntegrityIssue.None);
+/// <param name="ToolMissing">True when the check could not run because
+/// ffprobe is not installed. That is not proof of corruption: the caller
+/// keeps the file and flags it as unverified.</param>
+public record IntegrityResult(
+    bool Ok, string? Reason, IntegrityIssue Issue = IntegrityIssue.None,
+    bool ToolMissing = false);
 
 /// <summary>
 /// Fast post-download integrity check: parses the file with ffprobe and
@@ -46,7 +51,9 @@ public static class FileIntegrity
     public static IntegrityResult Check(
         string path, TimeSpan? expectedDuration = null, TimeSpan? tolerance = null)
     {
-        var (seconds, failure) = ProbeDuration(path);
+        var (seconds, failure, toolMissing) = ProbeDuration(path);
+        if (toolMissing)
+            return new(false, failure, IntegrityIssue.None, ToolMissing: true);
         if (failure is not null)
             return new(false, failure, IntegrityIssue.Corrupt);
         if (seconds is not > 0)
@@ -80,11 +87,11 @@ public static class FileIntegrity
     /// One ffprobe run: the parsed duration in seconds, or the terse
     /// failure that explains why there is none.
     /// </summary>
-    private static (double? Seconds, string? Failure) ProbeDuration(string path)
+    private static (double? Seconds, string? Failure, bool ToolMissing) ProbeDuration(string path)
     {
         var ffprobe = SpectrumAnalyzer.FindFfprobe();
         if (ffprobe is null)
-            return (null, "ffprobe not found");
+            return (null, "ffprobe not found", true);
 
         try
         {
@@ -96,13 +103,13 @@ public static class FileIntegrity
                 "-of", "json",
                 path,
             }, timeoutMs: 15000);
-            if (result.TimedOut) return (null, "ffprobe timed out");
-            if (result.ExitCode != 0) return (null, "ffprobe failed");
-            return (ParseDuration(result.Stdout), null);
+            if (result.TimedOut) return (null, "ffprobe timed out", false);
+            if (result.ExitCode != 0) return (null, "ffprobe failed", false);
+            return (ParseDuration(result.Stdout), null, false);
         }
         catch
         {
-            return (null, "ffprobe failed");
+            return (null, "ffprobe failed", false);
         }
     }
 

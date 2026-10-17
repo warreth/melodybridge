@@ -20,8 +20,10 @@ The short version of the pipeline:
 
 ## Playlists are snapshots
 
-When you add a public Spotify or YouTube link, MelodyBridge reads the playlist
-(page scraping for Spotify, yt-dlp for YouTube) and saves the whole track list
+When you add a public Spotify, YouTube, Deezer, SoundCloud or ListenBrainz
+link, MelodyBridge reads the playlist (page scraping or the public API for
+Spotify, yt-dlp for YouTube and SoundCloud, the public Deezer and ListenBrainz
+APIs for those) and saves the whole track list
 locally. No API key or account is needed for public playlists. You also get the
 cover art, the track count and each track's duration.
 
@@ -104,7 +106,8 @@ Advanced page.
 | Soulseek | Lossless and high-bitrate files from Soulseek peers, through your own slskd instance. See [Soulseek and slskd](/slskd) |
 | Qobuz | Lossless and hi-res files from your own Qobuz subscription, through qobuz-dlp. See [Qobuz and qobuz-dlp](/qobuz) |
 | Deezer | MP3 or FLAC from your own Deezer account, through the deemix CLI. See [Deezer and deemix](/deemix) |
-| DoubleDouble | Direct-URL rips from Tidal, Qobuz, Deezer, Amazon and SoundCloud. It cannot search by name, so the waterfall only uses it for track URLs it is handed |
+| Tidal | Lossless and hi-res files from your own Tidal session, through tiddl. See [Tidal and tiddl](/tidal) |
+| DoubleDouble | Retired: doubledouble.top now demands a captcha on every submission, so the plugin reports itself unavailable. It stays in the list (last) so an existing install can turn it off |
 | Jumo | Qobuz rips through the community front-end jumo-dl.pages.dev, no account needed. See [Jumo (Qobuz rips)](/jumo) |
 | SoundCloud | Original uploads by the artist, usually 128 kbps or better |
 | Internet Archive | Public recordings and digitizations from archive.org |
@@ -127,6 +130,16 @@ ones) search by that code first, which is how messy titles still land on the
 exact recording.
 
 <img src="/screens/plugins.webp" alt="Plugins page with the waterfall order, capability badges and live downloads" width="800">
+
+### Cover art and lyrics
+
+A downloaded file gets what the source really knows. Spotify accounts, Deezer
+playlists and ListenBrainz playlists carry a cover URL, so the artwork is
+embedded after the download unless the plugin already wrote its own. Lyrics
+come from LRCLIB, one lookup per track, stored on the row and written as the
+lyrics tag. Both are best effort: a dead cover URL or a missed lyric leaves the
+file exactly as it was, and neither can fail a download. The Advanced page can
+fill the same fields on files that were downloaded before this existed.
 
 ## Quality checks
 

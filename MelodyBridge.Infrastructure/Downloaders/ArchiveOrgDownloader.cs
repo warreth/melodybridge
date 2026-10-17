@@ -22,6 +22,13 @@ public class ArchiveOrgDownloader : IDownloader
     public string Name => "Internet Archive";
     public string Description => "archive.org public recordings and digitizations, MP3";
 
+    /// <inheritdoc />
+    public string? LastUnavailableReason { get; private set; }
+
+    // The waterfall probes every enabled plugin per track; the archive is
+    // not hammered by a status sweep.
+    private readonly AvailabilityCache _availability = new();
+
     private static readonly Uri SearchBase = new("https://archive.org/advancedsearch.php");
 
     // Archive files are MP3 uploads; files under 128 kbps are rejected
@@ -38,8 +45,31 @@ public class ArchiveOrgDownloader : IDownloader
         _logger = logger;
     }
 
-    public Task<bool> IsAvailableAsync(CancellationToken ct = default)
-        => Task.FromResult(true); // public API, always up unless the network is down
+    public async Task<bool> IsAvailableAsync(CancellationToken ct = default)
+    {
+        if (_availability.TryGet(out var cached))
+            return cached;
+
+        // A real probe, not an unconditional true: the archive answers 5xx
+        // under load and claiming ready while it is down costs every track
+        // an attempt. One tiny search request is cheap enough to cache.
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(TimeSpan.FromSeconds(5));
+        var available = false;
+        try
+        {
+            using var resp = await _http.GetAsync(
+                new Uri($"{SearchBase}?q=melodybridge&fl[]=identifier&rows=1&output=json"), cts.Token);
+            available = resp.IsSuccessStatusCode;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "archive.org availability probe failed");
+        }
+        LastUnavailableReason = available ? null : "archive.org did not answer";
+        _availability.Store(available);
+        return available;
+    }
 
     public async Task<DownloaderSearchHit?> SearchAsync(TrackQuery query, CancellationToken ct = default)
     {
@@ -114,7 +144,14 @@ public class ArchiveOrgDownloader : IDownloader
                 target = Path.Combine(outputDirectory,
                     $"{Path.GetFileNameWithoutExtension(target)}_{ShortHash(sourceUrl)}{Path.GetExtension(target)}");
 
-            using var resp = await _http.GetAsync(sourceUrl, HttpCompletionOption.ResponseHeadersRead, ct);
+            // A 5xx from the archive is usually transient load; retry it
+            // briefly instead of losing the track (the live suite sees
+            // these sporadically). 4xx stays a hard verdict.
+            using var resp = await HttpRetry.SendAsync(
+                token => _http.GetAsync(sourceUrl, HttpCompletionOption.ResponseHeadersRead, token),
+                attempts: 3,
+                initialDelay: TimeSpan.FromMilliseconds(500),
+                ct: ct);
             if (!resp.IsSuccessStatusCode)
                 return new DownloaderDownloadResult(false, null, $"archive.org returned {(int)resp.StatusCode}");
 

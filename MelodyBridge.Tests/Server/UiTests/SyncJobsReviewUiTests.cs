@@ -31,6 +31,10 @@ public class SyncJobsReviewUiTests
         _dbFactory = new InMemFactory(options);
         _ctx.Services.AddSingleton<ISyncJobRunner>(new Mock<ISyncJobRunner>().Object);
         _ctx.Services.AddSingleton<IMediaServerDirectory>(new Mock<IMediaServerDirectory>().Object);
+        // Kind-based lookup through the factory, like the real app.
+        _ctx.Services.AddSingleton<IMediaServerDirectoryFactory>(sp =>
+            new MelodyBridge.Infrastructure.MediaServers.MediaServerDirectoryFactory(
+                sp.GetServices<IMediaServerDirectory>()));
         _ctx.Services.AddSingleton<IDbContextFactory<MelodyBridgeDbContext>>(_dbFactory);
         _ctx.Services.AddSingleton<MelodyBridge.Infrastructure.MediaServers.JellyfinLoginService>(
             new TestServices.StubJellyfinLogin());

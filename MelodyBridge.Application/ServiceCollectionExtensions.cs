@@ -11,6 +11,7 @@ using MelodyBridge.Infrastructure.Playlists;
 using MelodyBridge.Infrastructure.Qobuz;
 using MelodyBridge.Infrastructure.Scanning;
 using MelodyBridge.Infrastructure.Services;
+using MelodyBridge.Infrastructure.Tidal;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -33,8 +34,9 @@ public static class ServiceCollectionExtensions
         // The default order: the fast free sources first (SoundCloud, the
         // Internet Archive), YouTube as the widest lossy fallback, then the
         // subscription sources (Qobuz, Deezer), the free lossless ones
-        // (Monochrome, Soulseek), and the community mirrors last
-        // (DoubleDouble best-effort, Lucida needs a solver).
+        // (Monochrome, Soulseek), and the community mirrors last (Lucida
+        // needs a solver; DoubleDouble reports itself unavailable while its
+        // captcha gate is up).
         services.AddSingleton<IDownloader>(sp =>
             new SoundCloudDownloader(sp.GetRequiredService<ILogger<SoundCloudDownloader>>()));
         services.AddSingleton<IDownloader>(sp =>
@@ -81,6 +83,24 @@ public static class ServiceCollectionExtensions
                 sp.GetRequiredService<IPluginConfig>(),
                 sp.GetRequiredService<ILogger<DeemixDownloader>>()));
 
+        // Tidal through the user's own tiddl: the tool owns the login
+        // (tiddl auth login), the plugin searches with that same session
+        // and hands the track URL over.
+        services.AddHttpClient("tidal", c =>
+        {
+            c.DefaultRequestHeaders.UserAgent.ParseAdd("MelodyBridge/1.0 (+https://melodybridge.app)");
+            c.Timeout = TimeSpan.FromSeconds(20);
+        });
+        services.AddSingleton<TidalClient>(sp =>
+            new TidalClient(
+                sp.GetRequiredService<IHttpClientFactory>().CreateClient("tidal"),
+                sp.GetRequiredService<ILogger<TidalClient>>()));
+        services.AddSingleton<IDownloader>(sp =>
+            new TidalDownloader(
+                sp.GetRequiredService<TidalClient>(),
+                sp.GetRequiredService<IPluginConfig>(),
+                sp.GetRequiredService<ILogger<TidalDownloader>>()));
+
         // Monochrome streams lossless FLAC from its official API; the
         // client allows long transfers, the plugin caps each call itself.
         services.AddHttpClient("monochrome", c => c.Timeout = TimeSpan.FromMinutes(10));
@@ -100,14 +120,6 @@ public static class ServiceCollectionExtensions
                 sp.GetRequiredService<IHttpClientFactory>().CreateClient("slskd"),
                 sp.GetRequiredService<IPluginConfig>(),
                 sp.GetRequiredService<ILogger<SlskdDownloader>>()));
-
-        // DoubleDouble rips many services by direct URL (submit + poll, no
-        // metadata search: the frontend search is captcha-gated).
-        services.AddHttpClient("doubledouble", c => c.Timeout = TimeSpan.FromMinutes(3));
-        services.AddSingleton<IDownloader>(sp =>
-            new DoubleDoubleDownloader(
-                sp.GetRequiredService<IHttpClientFactory>().CreateClient("doubledouble"),
-                sp.GetRequiredService<ILogger<DoubleDoubleDownloader>>()));
 
         // Cloudflare solver shared by challenge-gated plugins (Lucida).
         services.AddHttpClient("flaresolverr", c => c.Timeout = TimeSpan.FromMinutes(2));
@@ -137,6 +149,17 @@ public static class ServiceCollectionExtensions
                 sp.GetRequiredService<IPluginConfig>(),
                 sp.GetRequiredService<ILogger<JumoDownloader>>()));
 
+        // DoubleDouble rips many services by direct URL (submit + poll, no
+        // metadata search: the frontend search is captcha-gated). It sits
+        // last because the site is captcha-gated on every submission and
+        // the plugin reports itself unavailable; it stays registered so a
+        // working status is picked up automatically if the gate ever drops.
+        services.AddHttpClient("doubledouble", c => c.Timeout = TimeSpan.FromMinutes(3));
+        services.AddSingleton<IDownloader>(sp =>
+            new DoubleDoubleDownloader(
+                sp.GetRequiredService<IHttpClientFactory>().CreateClient("doubledouble"),
+                sp.GetRequiredService<ILogger<DoubleDoubleDownloader>>()));
+
         // ISRC enrichment for sources that do not provide one (Spotify
         // embed scrape, YouTube, CSV imports): Deezer's public search API
         // needs no account and returns the ISRC of every hit.
@@ -144,6 +167,12 @@ public static class ServiceCollectionExtensions
         {
             c.DefaultRequestHeaders.UserAgent.ParseAdd("MelodyBridge/1.0 (+https://melodybridge.app)");
             c.Timeout = TimeSpan.FromSeconds(15);
+        });
+        // ListenBrainz asks clients to identify themselves too.
+        services.AddHttpClient("listenbrainz", c =>
+        {
+            c.DefaultRequestHeaders.UserAgent.ParseAdd("MelodyBridge/1.0 (+https://melodybridge.app)");
+            c.Timeout = TimeSpan.FromSeconds(20);
         });
         // MusicBrainz is the ISRC fallback when Deezer has no confident
         // match: it asks for a real User-Agent and at most one request per
@@ -158,6 +187,27 @@ public static class ServiceCollectionExtensions
             sp.GetRequiredService<ILogger<IsrcResolver>>(),
             sp.GetRequiredService<IHttpClientFactory>().CreateClient("musicbrainz")));
 
+        // Download metadata: the cover art on a source payload and the
+        // lyrics from LRCLIB. Both are best effort enrichment; a missing
+        // answer never fails a download.
+        services.AddHttpClient("coverart", c =>
+        {
+            c.DefaultRequestHeaders.UserAgent.ParseAdd("MelodyBridge/1.0 (+https://melodybridge.app)");
+            c.Timeout = TimeSpan.FromSeconds(15);
+        });
+        services.AddSingleton(sp => new CoverArtFetcher(
+            sp.GetRequiredService<IHttpClientFactory>().CreateClient("coverart"),
+            sp.GetRequiredService<ILogger<CoverArtFetcher>>()));
+        services.AddHttpClient("lrclib", c =>
+        {
+            // LRCLIB asks clients to identify themselves.
+            c.DefaultRequestHeaders.UserAgent.ParseAdd("MelodyBridge/1.0 (+https://melodybridge.app)");
+            c.Timeout = TimeSpan.FromSeconds(15);
+        });
+        services.AddSingleton(sp => new LyricsResolver(
+            sp.GetRequiredService<IHttpClientFactory>().CreateClient("lrclib"),
+            sp.GetRequiredService<ILogger<LyricsResolver>>()));
+
         services.AddSingleton<IPluginConfig, PluginConfigStore>();
         services.AddSingleton<IDownloaderRegistry, DownloaderRegistry>();
 
@@ -169,6 +219,18 @@ public static class ServiceCollectionExtensions
         // Source providers (playlists)
         services.AddSingleton<ISourceProvider, YouTubeSourceProvider>();
         services.AddSingleton<ISourceProvider, SpotifySourceProvider>();
+        // Public playlist sources: Deezer, SoundCloud sets and
+        // ListenBrainz need no account.
+        services.AddSingleton<ISourceProvider>(sp =>
+            new DeezerSourceProvider(
+                sp.GetRequiredService<IHttpClientFactory>().CreateClient("deezer"),
+                sp.GetRequiredService<ILogger<DeezerSourceProvider>>()));
+        services.AddSingleton<ISourceProvider>(sp =>
+            new SoundCloudSourceProvider(sp.GetRequiredService<ILogger<SoundCloudSourceProvider>>()));
+        services.AddSingleton<ISourceProvider>(sp =>
+            new ListenBrainzSourceProvider(
+                sp.GetRequiredService<IHttpClientFactory>().CreateClient("listenbrainz"),
+                sp.GetRequiredService<ILogger<ListenBrainzSourceProvider>>()));
 
         // Application services. Singleton: the download progress map and
         // the coordinator's run handles must survive page navigations
@@ -254,18 +316,27 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IMediaServerSync>(sp => sp.GetRequiredService<PlexSync>());
         services.AddSingleton<IMediaServerDirectory, PlexDirectory>();
 
-        // Navidrome: Subsonic salted-md5 auth, search3 lookup, star favorites.
-        services.AddHttpClient(nameof(NavidromeSync));
+        // Subsonic (Navidrome, gonic, Airsonic, Ampache, Funkwhale and
+        // Nextcloud Music all speak this API): salted-md5 auth, search3
+        // lookup, star favorites. The settings keep their historical
+        // navidrome_* keys so existing installs stay configured.
+        services.AddHttpClient(nameof(SubsonicSync));
         services.AddSingleton<ConfigNavidromeSettings>();
         services.AddSingleton<INavidromeSettings, DbNavidromeSettings>();
         services.AddSingleton(sp =>
         {
-            var http = sp.GetRequiredService<IHttpClientFactory>().CreateClient(nameof(NavidromeSync));
-            return new NavidromeSync(http, sp.GetRequiredService<ILogger<NavidromeSync>>(),
+            var http = sp.GetRequiredService<IHttpClientFactory>().CreateClient(nameof(SubsonicSync));
+            return new SubsonicSync(http, sp.GetRequiredService<ILogger<SubsonicSync>>(),
                 sp.GetRequiredService<INavidromeSettings>());
         });
-        services.AddSingleton<IMediaServerSync>(sp => sp.GetRequiredService<NavidromeSync>());
-        services.AddSingleton<IMediaServerDirectory, NavidromeDirectory>();
+        services.AddSingleton<IMediaServerSync>(sp => sp.GetRequiredService<SubsonicSync>());
+        services.AddSingleton<IMediaServerDirectory, SubsonicDirectory>();
+
+        // Kind-based directory lookup: three directories are registered and
+        // a single IMediaServerDirectory resolve would silently return the
+        // last one, so every kind-based lookup goes through this factory.
+        services.AddSingleton<IMediaServerDirectoryFactory>(sp =>
+            new MediaServerDirectoryFactory(sp.GetServices<IMediaServerDirectory>()));
         return services;
     }
 }

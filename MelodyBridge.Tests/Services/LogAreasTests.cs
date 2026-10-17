@@ -20,6 +20,9 @@ public class LogAreasTests
     [TestCase("MelodyBridge.Infrastructure.Accounts.SpotifyAccountProvider", "Sources")]
     [TestCase("MelodyBridge.Infrastructure.Accounts.YouTubeAccountProvider", "Sources")]
     [TestCase("MelodyBridge.Infrastructure.Accounts.AccountTokenStore", "Sources")]
+    [TestCase("MelodyBridge.Infrastructure.Services.IsrcResolver", "Sources")]
+    [TestCase("MelodyBridge.Infrastructure.Services.ListenBrainzSourceProvider", "Sources")]
+    [TestCase("MelodyBridge.Infrastructure.Services.DeezerSourceProvider", "Sources")]
 
     // Downloads: manager, coordinator, registry, every plugin, probes
     [TestCase("MelodyBridge.Application.Services.DownloadManager", "Downloads")]
@@ -31,6 +34,9 @@ public class LogAreasTests
     [TestCase("MelodyBridge.Infrastructure.Lucida.LucidaDownloader", "Downloads")]
     [TestCase("MelodyBridge.Infrastructure.Audio.BitrateProbe", "Downloads")]
     [TestCase("MelodyBridge.Infrastructure.Audio.SpectrumAnalyzer", "Downloads")]
+    [TestCase("MelodyBridge.Infrastructure.Cloudflare.FlareSolverrSolver", "Downloads")]
+    [TestCase("MelodyBridge.Infrastructure.Qobuz.QobuzClient", "Downloads")]
+    [TestCase("MelodyBridge.Infrastructure.Tidal.TidalClient", "Downloads")]
 
     // Library: scanning, reconciliation, folder watching, scheduling
     [TestCase("MelodyBridge.Infrastructure.Scanning.LibraryScanner", "Library")]
@@ -45,6 +51,8 @@ public class LogAreasTests
     [TestCase("MelodyBridge.Server.Controllers.SyncController", "Sync")]
     [TestCase("MelodyBridge.Infrastructure.Services.AutoSyncBackgroundService", "Sync")]
     [TestCase("MelodyBridge.Infrastructure.MediaServers.JellyfinSync", "Sync")]
+    [TestCase("MelodyBridge.Infrastructure.MediaServers.PlexSync", "Sync")]
+    [TestCase("MelodyBridge.Infrastructure.MediaServers.SubsonicSync", "Sync")]
     [TestCase("MelodyBridge.Infrastructure.Playlists.M3uGenerator", "Sync")]
 
     // Database: EF Core internals and our context

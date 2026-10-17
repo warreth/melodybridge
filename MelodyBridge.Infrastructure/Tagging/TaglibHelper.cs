@@ -73,7 +73,7 @@ public static class TaglibHelper
     public static void WriteTags(
         string filePath, string? title = null, string? artist = null,
         string? album = null, string? albumArtist = null, uint? track = null,
-        uint? year = null, byte[]? coverArt = null)
+        uint? year = null, byte[]? coverArt = null, string? lyrics = null)
     {
         try
         {
@@ -86,11 +86,32 @@ public static class TaglibHelper
             if (year is > 0) file.Tag.Year = year.Value;
             if (coverArt is { Length: > 0 })
                 file.Tag.Pictures = new[] { new TagLib.Picture(coverArt) };
+            if (!string.IsNullOrWhiteSpace(lyrics))
+                file.Tag.Lyrics = lyrics;
             file.Save();
         }
         catch
         {
             // Non-fatal: tagging failure
+        }
+    }
+
+    /// <summary>
+    /// True when the file already carries embedded cover art, so a fetched
+    /// cover never overwrites art a plugin already wrote.
+    /// </summary>
+    public static bool HasPictures(string filePath)
+    {
+        try
+        {
+            var file = TagLib.File.Create(filePath);
+            return file.Tag.Pictures.Length > 0;
+        }
+        catch
+        {
+            // Unreadable file: report "no art" is wrong, but the caller only
+            // uses this to decide whether to embed; embedding is harmless.
+            return false;
         }
     }
 

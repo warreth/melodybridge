@@ -36,10 +36,11 @@ RUN npm install -g pnpm@11.23.0 && \
 # Runtime on Alpine: the Debian image needed 234 packages (about 490 MB
 # installed) for ffmpeg alone, Alpine needs 113 (about 130 MB). The tools
 # ship in the image so the plugins work without sidecars: yt-dlp as its
-# self-contained musllinux binary (per architecture), qobuz-dlp through pip
-# (Python stays for it), and the deemix CLI on Node.
+# self-contained musllinux binary (per architecture), qobuz-dlp and tiddl
+# through pip (Python stays for them), and the deemix CLI on Node.
 FROM mcr.microsoft.com/dotnet/aspnet:8.0-alpine AS runtime
 ARG YTDLP_VERSION=2026.08.19
+ARG TIDDL_VERSION=3.4.4
 ARG TARGETARCH
 RUN set -eux; \
     case "${TARGETARCH}" in \
@@ -54,17 +55,37 @@ RUN set -eux; \
         nodejs \
         python3 \
         py3-pip \
+        su-exec \
         tzdata; \
     curl -fsSL -o /usr/local/bin/yt-dlp \
         "https://github.com/yt-dlp/yt-dlp/releases/download/${YTDLP_VERSION}/${ytdlp_asset}"; \
     chmod +x /usr/local/bin/yt-dlp; \
     pip3 install --no-cache-dir --break-system-packages qobuz-dlp; \
+    pip3 install --no-cache-dir --break-system-packages "tiddl==${TIDDL_VERSION}"; \
     apk del py3-pip; \
     rm -rf /root/.cache
+# The app runs unprivileged. The entrypoint fixes the ownership of the
+# mounted data roots before dropping root; the tools above need no root.
+RUN addgroup -S -g 1000 melodybridge && \
+    adduser -S -D -u 1000 -G melodybridge -h /home/melodybridge melodybridge && \
+    mkdir -p /app/state /app/playlists /music && \
+    chown melodybridge:melodybridge /app/state /app/playlists /music
 COPY --from=deemix /deemix/packages/cli/dist/main.cjs /opt/deemix/main.cjs
 RUN printf '#!/bin/sh\nexec node /opt/deemix/main.cjs "$@"\n' > /usr/local/bin/deemix && \
     chmod +x /usr/local/bin/deemix
 WORKDIR /app
-COPY --from=build /app/publish ./
+COPY --from=build --chown=melodybridge:melodybridge /app/publish ./
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+# Listen on 80 by default, so a plain `docker run -p 3333:80` works
+# without extra environment variables (the compose files set it too).
+ENV ASPNETCORE_URLS=http://+:80
 EXPOSE 80
-ENTRYPOINT ["dotnet", "MelodyBridge.Server.dll"]
+
+# The app is healthy when its own home page answers. curl is installed
+# above; the start period covers the first schema migration.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+    CMD curl -fsS http://127.0.0.1/ >/dev/null || exit 1
+
+ENTRYPOINT ["docker-entrypoint.sh"]

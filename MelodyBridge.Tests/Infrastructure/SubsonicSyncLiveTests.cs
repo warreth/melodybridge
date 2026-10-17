@@ -5,8 +5,8 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace MelodyBridge.Tests.Infrastructure;
 
 /// <summary>
-/// Live Navidrome end-to-end: a real container with the admin password
-/// bootstrap env, a scanned music folder, then NavidromeSync resolves the
+/// Live Subsonic end-to-end: a real Navidrome container with the admin password
+/// bootstrap env, a scanned music folder, then SubsonicSync resolves the
 /// tagged files by title+artist (paths are metadata-built in Navidrome and
 /// cannot be matched), creates and re-creates a playlist without
 /// duplicates, and stars the liked track. Docker is required; the test
@@ -15,7 +15,7 @@ namespace MelodyBridge.Tests.Infrastructure;
 [TestFixture]
 [Category("Live")]
 [Category("ReleaseGate")]
-public class NavidromeSyncLiveTests
+public class SubsonicSyncLiveTests
 {
     private NavidromeLiveServer _server = null!;
     private string _music = null!;
@@ -65,8 +65,8 @@ public class NavidromeSyncLiveTests
 
     // ── the sync under test ──────────────────────────────────────────
 
-    private NavidromeSync NewSync()
-        => new(_syncClient, NullLogger<NavidromeSync>.Instance, new FixedSettings());
+    private SubsonicSync NewSync()
+        => new(_syncClient, NullLogger<SubsonicSync>.Instance, new FixedSettings());
 
     private static Playlist PlaylistOf(params (string title, string artist, bool liked)[] tracks) => new()
     {
@@ -102,6 +102,15 @@ public class NavidromeSyncLiveTests
         var names = playlists.GetProperty("playlists").GetProperty("playlist").EnumerateArray()
             .Select(p => p.GetProperty("name").GetString());
         Assert.That(names, Does.Contain("MB Live Mix"));
+
+        // Membership, not just existence: read the playlist's own songs
+        // back from the server. An empty or half-filled playlist must fail.
+        var detail = await _server.GetSubsonicAsync(
+            "getPlaylist", "&id=" + sync.LastReport.PlaylistId);
+        var titles = detail.GetProperty("playlist").GetProperty("entry").EnumerateArray()
+            .Select(s => s.GetProperty("title").GetString()).ToList();
+        Assert.That(titles, Is.EquivalentTo(new[] { "Alpha Song", "Beta Song" }),
+            "the created playlist must really contain both tracks");
     }
 
     [Test]
@@ -134,7 +143,7 @@ public class NavidromeSyncLiveTests
     [Test]
     public async Task Sync_WrongPassword_ReportsErrorNotCrash()
     {
-        var sync = new NavidromeSync(_syncClient, NullLogger<NavidromeSync>.Instance,
+        var sync = new SubsonicSync(_syncClient, NullLogger<SubsonicSync>.Instance,
             new BadPasswordSettings());
         await sync.SyncPlaylistAsync(PlaylistOf(("Alpha Song", "Alice", false)), Options());
 

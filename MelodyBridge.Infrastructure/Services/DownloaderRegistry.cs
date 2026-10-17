@@ -40,7 +40,7 @@ public class DownloaderRegistry : IDownloaderRegistry
 
     public IReadOnlyList<IDownloader> GetEnabled()
     {
-        EnsureCacheLoaded().GetAwaiter().GetResult();
+        EnsureCacheLoaded();
         return _downloaders
             .Where(d => _enabled.TryGetValue(d.Id, out var on) && on)
             .OrderBy(d => _priority.GetValueOrDefault(d.Id, int.MaxValue))
@@ -50,7 +50,7 @@ public class DownloaderRegistry : IDownloaderRegistry
 
     public bool IsEnabled(string id)
     {
-        EnsureCacheLoaded().GetAwaiter().GetResult();
+        EnsureCacheLoaded();
         return _enabled.TryGetValue(id, out var on) && on;
     }
 
@@ -70,10 +70,10 @@ public class DownloaderRegistry : IDownloaderRegistry
         _logger.LogInformation("Downloader {Id} {State}", id, enabled ? "enabled" : "disabled");
     }
 
-    public async Task<int> GetPriorityAsync(string id, CancellationToken ct = default)
+    public Task<int> GetPriorityAsync(string id, CancellationToken ct = default)
     {
-        await EnsureCacheLoaded(ct);
-        return _priority.GetValueOrDefault(id, int.MaxValue);
+        EnsureCacheLoaded();
+        return Task.FromResult(_priority.GetValueOrDefault(id, int.MaxValue));
     }
 
     public async Task SetPriorityAsync(string id, int priority, CancellationToken ct = default)
@@ -97,7 +97,7 @@ public class DownloaderRegistry : IDownloaderRegistry
         if (orderedIds.Count == 0) return;
 
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
-        var rows = await db.ProviderStates.ToListAsync(ct);
+        var rows = db.ProviderStates.ToList();
         var byId = rows.ToDictionary(r => r.ProviderId, StringComparer.OrdinalIgnoreCase);
 
         for (var i = 0; i < orderedIds.Count; i++)
@@ -143,15 +143,19 @@ public class DownloaderRegistry : IDownloaderRegistry
         ["soundcloud", "archiveorg", "ytdlp", "lucida", "monochrome", "doubledouble", "dabmusic"],
         // The cleanup era, before Qobuz and Deezer.
         ["soundcloud", "archiveorg", "ytdlp", "monochrome", "slskd", "doubledouble", "lucida"],
-        // The era before Jumo.
+        // The era before Jumo: DoubleDouble still sat before Lucida.
         ["soundcloud", "archiveorg", "ytdlp", "qobuz", "deemix", "monochrome", "slskd", "doubledouble", "lucida"],
+        // The Jumo era, before DoubleDouble was retired and Tidal joined.
+        ["soundcloud", "archiveorg", "ytdlp", "qobuz", "deemix", "monochrome", "slskd", "doubledouble", "lucida", "jumo"],
+        // The DoubleDouble retirement, before Tidal.
+        ["soundcloud", "archiveorg", "ytdlp", "qobuz", "deemix", "monochrome", "slskd", "lucida", "doubledouble"],
     ];
 
     /// <summary>The order a fresh install gets, and the target of the migration.</summary>
     private static readonly string[] CurrentDefaultOrder =
     [
-        "soundcloud", "archiveorg", "ytdlp", "qobuz", "deemix",
-        "monochrome", "slskd", "doubledouble", "lucida", "jumo",
+        "soundcloud", "archiveorg", "ytdlp", "qobuz", "deemix", "tidal",
+        "monochrome", "slskd", "lucida", "jumo", "doubledouble",
     ];
 
     /// <summary>
@@ -160,8 +164,7 @@ public class DownloaderRegistry : IDownloaderRegistry
     /// removed DAB Music plugin filtered out), so a user's own order is
     /// never rewritten.
     /// </summary>
-    private async Task MigrateUntouchedDefaultOrderAsync(
-        MelodyBridgeDbContext db, CancellationToken ct)
+    private void MigrateUntouchedDefaultOrder(MelodyBridgeDbContext db)
     {
         var known = _downloaders.Select(d => d.Id).ToList();
         var ordered = _downloaders
@@ -187,7 +190,7 @@ public class DownloaderRegistry : IDownloaderRegistry
         });
         if (!untouched) return;
 
-        var rows = await db.ProviderStates.ToListAsync(ct);
+        var rows = db.ProviderStates.ToList();
         var byId = rows.ToDictionary(r => r.ProviderId, StringComparer.OrdinalIgnoreCase);
 
         var index = 0;
@@ -207,20 +210,25 @@ public class DownloaderRegistry : IDownloaderRegistry
             index++;
         }
 
-        await db.SaveChangesAsync(ct);
+        db.SaveChanges();
         _logger.LogInformation(
             "Moved the untouched default plugin order to the new default: {Order}",
             string.Join(" → ", CurrentDefaultOrder));
     }
 
-    private async Task EnsureCacheLoaded(CancellationToken ct = default)
+    private void EnsureCacheLoaded()
     {
         if (_cacheLoaded) return;
 
         try
         {
-            await using var db = await _dbFactory.CreateDbContextAsync(ct);
-            var rows = await db.ProviderStates.AsNoTracking().ToListAsync(ct);
+            // This is a tiny one-time read of a table with one row per
+            // plugin. It runs synchronously on purpose: GetEnabled and
+            // IsEnabled are synchronous by contract (the waterfall calls
+            // them per track), and blocking a thread on the async EF API
+            // here was the old sync-over-async hazard.
+            using var db = _dbFactory.CreateDbContext();
+            var rows = db.ProviderStates.AsNoTracking().ToList();
 
             var nextPriority = rows.Count;
             foreach (var downloader in _downloaders)
@@ -246,11 +254,11 @@ public class DownloaderRegistry : IDownloaderRegistry
                 }
             }
 
-            await db.SaveChangesAsync(ct);
+            db.SaveChanges();
 
             // An install that never touched the old default order gets the
             // new one; custom orders stay as they are.
-            await MigrateUntouchedDefaultOrderAsync(db, ct);
+            MigrateUntouchedDefaultOrder(db);
         }
         catch (Exception ex)
         {

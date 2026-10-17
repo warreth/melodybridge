@@ -65,6 +65,9 @@ public class LucidaDownloader : IDownloader
     public string Description =>
         "High-quality rips from Tidal, Deezer, Amazon and Qobuz via lucida.to. Needs a Cloudflare solver (FlareSolverr) in the settings.";
 
+    /// <inheritdoc />
+    public string? LastUnavailableReason { get; private set; }
+
     public LucidaDownloader(HttpClient http, IChallengeSolver solver, ILogger<LucidaDownloader> logger)
     {
         _http = http;
@@ -75,8 +78,14 @@ public class LucidaDownloader : IDownloader
     public async Task<bool> IsAvailableAsync(CancellationToken ct = default)
     {
         // Without a solver every request hits the challenge page and fails;
-        // being honest about it keeps the waterfall clean.
-        return await _solver.IsAvailableAsync(ct);
+        // being honest about it keeps the waterfall clean. lucida.to itself
+        // answers 403 to unsolved requests even when a solver is configured,
+        // so the solver is the only signal that can be probed cheaply.
+        var solverReady = await _solver.IsAvailableAsync(ct);
+        LastUnavailableReason = solverReady
+            ? null
+            : "A FlareSolverr URL is required (see the Lucida and FlareSolverr docs)";
+        return solverReady;
     }
 
     public async Task<DownloaderSearchHit?> SearchAsync(TrackQuery query, CancellationToken ct = default)
@@ -93,9 +102,14 @@ public class LucidaDownloader : IDownloader
         catch (Exception ex)
         {
             _logger.LogDebug("Lucida solver failed for search: {Message}", ex.Message);
+            LastUnavailableReason = "The FlareSolverr solver did not answer";
             return null;
         }
-        if (credentials is null) return null;
+        if (credentials is null)
+        {
+            LastUnavailableReason = "lucida.to answered a Cloudflare challenge the solver could not solve";
+            return null;
+        }
 
         // ISRC first when the playlist (or the resolver) knows one: Qobuz
         // and Amazon index ISRCs, so the code finds the exact recording
@@ -185,7 +199,13 @@ public class LucidaDownloader : IDownloader
             // directly gets a service page with no SvelteKit blob at all.
             var credentials = await _solver.SolveAsync(BaseUrl, ct);
             if (credentials is null)
+            {
+                LastUnavailableReason = "lucida.to answered a Cloudflare challenge the solver could not solve";
                 return new DownloaderDownloadResult(false, null, "Cloudflare solver unavailable");
+            }
+
+            // A solved challenge clears the earlier failure note.
+            LastUnavailableReason = null;
 
             var pageDataUrl = sourceUrl.StartsWith(BaseUrl, StringComparison.OrdinalIgnoreCase)
                 ? sourceUrl

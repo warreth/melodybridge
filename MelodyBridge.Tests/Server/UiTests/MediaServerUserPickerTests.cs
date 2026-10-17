@@ -28,6 +28,10 @@ public class MediaServerUserPickerTests
         _ctx = new TestContext();
         _directory = new Mock<IMediaServerDirectory>();
         _ctx.Services.AddSingleton<IMediaServerDirectory>(_directory.Object);
+        // Kind-based lookup through the factory, like the real app.
+        _ctx.Services.AddSingleton<IMediaServerDirectoryFactory>(sp =>
+            new MelodyBridge.Infrastructure.MediaServers.MediaServerDirectoryFactory(
+                sp.GetServices<IMediaServerDirectory>()));
     }
 
     [TearDown]

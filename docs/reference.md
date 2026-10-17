@@ -20,8 +20,9 @@ redirect URLs and the no-Premium import routes, lives in
 
 ### Media servers
 
-Named connection profiles for Jellyfin, Plex and Navidrome: the server URL plus
-the credentials each kind needs. Jellyfin and Navidrome take a username and
+Named connection profiles for Jellyfin, Plex and Subsonic (Navidrome, gonic,
+Airsonic and friends): the server URL plus the credentials each kind needs.
+Jellyfin and Subsonic take a username and
 password. Jellyfin signs in and keeps the session token, or you use **Quick
 Connect**: the app shows a code, you approve it in Jellyfin, and the sign-in
 finishes by itself. Plex takes an X-Plex-Token. Every profile has a **Test**
@@ -218,6 +219,10 @@ The knobs most people never need, in four panels:
 - **Maintenance**: **Recompute audio facts** reads bitrate, sample rate and size
   straight from the files on disk, for downloads that predate the probing. Tracks
   whose file has vanished are queued for a re-download.
+  **Re-tag library** fills what a downloaded file is missing: cover art from the
+  source, lyrics, the release credit and the album name. Only missing fields are
+  written, so artwork a plugin embedded is left alone. It reports how many files
+  changed, how many were already complete and how many could not be read.
 
 ## The Logs page
 

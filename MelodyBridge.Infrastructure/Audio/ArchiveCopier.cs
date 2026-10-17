@@ -98,7 +98,8 @@ public static class ArchiveCopier
                 ? TimeSpan.FromSeconds(Math.Max(2, source.TotalSeconds * 0.02))
                 : (TimeSpan?)null;
             var integrity = FileIntegrity.Check(targetPath, primaryDuration, tolerance);
-            if (!integrity.Ok)
+            // A missing ffprobe is not proof that the copy is broken: keep it.
+            if (!integrity.Ok && !integrity.ToolMissing)
             {
                 TryDelete(targetPath);
                 return new(false, targetPath,

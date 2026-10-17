@@ -32,7 +32,15 @@ public class SpotifyPlaylistItemsTests
                 ""duration_ms"": 231000,
                 ""type"": ""track"",
                 ""episode"": false,
-                ""artists"": [ { ""name"": ""R. City"" }, { ""name"": ""Adam Levine"" } ]
+                ""artists"": [ { ""name"": ""R. City"" }, { ""name"": ""Adam Levine"" } ],
+                ""album"": {
+                    ""name"": ""What Dreams Are Made Of"",
+                    ""artists"": [ { ""name"": ""R. City"" } ],
+                    ""images"": [
+                        { ""url"": ""https://i.scdn.co/image/small"", ""width"": 64 },
+                        { ""url"": ""https://i.scdn.co/image/large"", ""width"": 640 }
+                    ]
+                }
             }
         }");
 
@@ -43,6 +51,11 @@ public class SpotifyPlaylistItemsTests
         Assert.That(track.Duration, Is.EqualTo(TimeSpan.FromMilliseconds(231000)));
         Assert.That(track.SongID!.ID, Is.EqualTo("7Io8bTH8K1RvTWGNdI5fsi"));
         Assert.That(track.SourcePlatform, Is.EqualTo(Platform.Spotify));
+        Assert.That(track.Album, Is.EqualTo("What Dreams Are Made Of"));
+        Assert.That(track.AlbumArtist, Is.EqualTo("R. City"),
+            "the album's own artist credit is the release credit");
+        Assert.That(track.CoverUrl, Is.EqualTo("https://i.scdn.co/image/small"),
+            "Spotify lists the smallest image first; the URL is what matters");
     }
 
     [Test]

@@ -45,20 +45,48 @@ internal static class SpotifyPlaylistItems
                 .Select(a => a.GetProperty("name").GetString()))
             : null;
 
-        // The album name travels with the simplified track; it lands on the
-        // file tags after the download.
-        var album = track.TryGetProperty("album", out var albumObj)
-            && albumObj.ValueKind == JsonValueKind.Object
-            && albumObj.TryGetProperty("name", out var albumName)
-            && albumName.ValueKind == JsonValueKind.String
-                ? albumName.GetString()
-                : null;
+        // The album object travels with the simplified track: its name, the
+        // release credit and the cover art, all of which land on the file
+        // tags after the download.
+        var album = (string?)null;
+        var albumArtist = (string?)null;
+        var coverUrl = (string?)null;
+        if (track.TryGetProperty("album", out var albumObj) && albumObj.ValueKind == JsonValueKind.Object)
+        {
+            if (albumObj.TryGetProperty("name", out var albumName) && albumName.ValueKind == JsonValueKind.String)
+                album = albumName.GetString();
+
+            if (albumObj.TryGetProperty("artists", out var albumArtists)
+                && albumArtists.ValueKind == JsonValueKind.Array)
+            {
+                var names = albumArtists.EnumerateArray()
+                    .Where(a => a.TryGetProperty("name", out var n) && n.ValueKind == JsonValueKind.String)
+                    .Select(a => a.GetProperty("name").GetString())
+                    .Where(n => !string.IsNullOrWhiteSpace(n))
+                    .ToList();
+                if (names.Count > 0) albumArtist = string.Join(", ", names);
+            }
+
+            if (albumObj.TryGetProperty("images", out var images) && images.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var image in images.EnumerateArray())
+                {
+                    if (image.TryGetProperty("url", out var url) && url.ValueKind == JsonValueKind.String)
+                    {
+                        coverUrl = url.GetString();
+                        break;
+                    }
+                }
+            }
+        }
 
         return new Track
         {
             Title = track.TryGetProperty("name", out var name) ? name.GetString() : null,
             Artist = artists,
             Album = album,
+            AlbumArtist = albumArtist,
+            CoverUrl = coverUrl,
             Duration = durationMs is > 0 ? TimeSpan.FromMilliseconds(durationMs.Value) : null,
             SongID = new SongID(Platform.Spotify, id),
             PlatformSongID = new SongID(Platform.Spotify, id),

@@ -1,6 +1,4 @@
 using MelodyBridge.Core;
-using MelodyBridge.Infrastructure.Audio;
-using MelodyBridge.Infrastructure.Files;
 using MelodyBridge.Infrastructure.Qobuz;
 using MelodyBridge.Infrastructure.Services;
 using Microsoft.Extensions.Logging;
@@ -16,9 +14,10 @@ namespace MelodyBridge.Infrastructure.Downloaders;
 /// The search needs a user token; the plugin takes it from its settings
 /// or, when empty, from qobuz-dlp's own token file, so a logged-in
 /// qobuz-dlp just works. Downloads run into a hidden per-track folder
-/// under the output directory and the finished file moves out.
+/// under the output directory and the finished file moves out; the shared
+/// CLI plumbing lives in <see cref="CliToolDownloader"/>.
 /// </summary>
-public class QobuzDownloader : IDownloader
+public class QobuzDownloader : CliToolDownloader
 {
     public const string DefaultCommand = "qobuz-dlp";
     public const string DefaultQuality = "6";
@@ -33,10 +32,10 @@ public class QobuzDownloader : IDownloader
         new QualityDeliverable(AudioFormat.Flac, Lossless: true, 900, 10000),
         new QualityDeliverable(AudioFormat.Mp3, Lossless: false, 320, 320),
     ]);
-    public PluginCapabilities Capabilities => Caps;
+    public override PluginCapabilities Capabilities => Caps;
 
-    public string Id => "qobuz";
-    public string Name => "Qobuz";
+    public override string Id => "qobuz";
+    public override string Name => "Qobuz";
     public string Description => "Lossless and hi-res downloads through your own qobuz-dlp";
 
     public IReadOnlyList<PluginConfigField> ConfigFields =>
@@ -60,16 +59,7 @@ public class QobuzDownloader : IDownloader
     /// <inheritdoc />
     public string? LastUnavailableReason { get; private set; }
 
-    // One CLI run at a time: qobuz-dlp keeps a small database and log in
-    // its config folder, and serial runs keep that clean.
-    private static readonly SemaphoreSlim RunGate = new(1, 1);
-
-    private static readonly TimeSpan RunTimeout = TimeSpan.FromMinutes(20);
-
     private readonly QobuzClient _qobuz;
-    private readonly IPluginConfig _config;
-    private readonly ILogger<QobuzDownloader> _logger;
-    private readonly AvailabilityCache _availability = new();
 
     /// <summary>%APPDATA% on Windows, the home folder elsewhere; injectable for tests.</summary>
     private readonly string _homeRoot;
@@ -77,12 +67,16 @@ public class QobuzDownloader : IDownloader
     public QobuzDownloader(
         QobuzClient qobuz, IPluginConfig config, ILogger<QobuzDownloader> logger,
         string? homeRoot = null)
+        : base(config, logger)
     {
         _qobuz = qobuz;
-        _config = config;
-        _logger = logger;
         _homeRoot = homeRoot ?? DefaultHomeRoot();
     }
+
+    protected override string ToolLabel => "qobuz-dlp";
+    protected override string DefaultCommandLine => DefaultCommand;
+    protected override string CommandConfigKey => CommandKey;
+    protected override TimeSpan RunTimeout => TimeSpan.FromMinutes(20);
 
     /// <summary>The root qobuz-dlp resolves its config folder from. Internal for tests.</summary>
     internal static string DefaultHomeRoot()
@@ -104,24 +98,23 @@ public class QobuzDownloader : IDownloader
 
     // ── Availability ─────────────────────────────────────────────────────
 
-    public async Task<bool> IsAvailableAsync(CancellationToken ct = default)
+    public override async Task<bool> IsAvailableAsync(CancellationToken ct = default)
     {
-        if (_availability.TryGet(out var cached))
+        if (TryGetCachedAvailability(out var cached))
             return cached;
 
-        var command = await CommandAsync(ct);
-        if (command is null || !CliRunner.Exists(command.Value.Executable))
+        if (!await CommandExistsAsync(ct))
         {
             LastUnavailableReason = "qobuz-dlp is not installed on this system";
-            _logger.LogDebug("qobuz: the qobuz-dlp command is not configured or not on PATH");
-            _availability.Store(false);
+            Logger.LogDebug("qobuz: the qobuz-dlp command is not configured or not on PATH");
+            StoreAvailability(false);
             return false;
         }
 
         if (await _qobuz.GetBundleAsync(ct) is null)
         {
             LastUnavailableReason = "The Qobuz web player could not be reached";
-            _availability.Store(false);
+            StoreAvailability(false);
             return false;
         }
 
@@ -129,8 +122,8 @@ public class QobuzDownloader : IDownloader
         if (token is null)
         {
             LastUnavailableReason = "No Qobuz token yet";
-            _logger.LogDebug("qobuz: no token configured and qobuz-dlp has no token file");
-            _availability.Store(false);
+            Logger.LogDebug("qobuz: no token configured and qobuz-dlp has no token file");
+            StoreAvailability(false);
             return false;
         }
 
@@ -138,34 +131,26 @@ public class QobuzDownloader : IDownloader
         if (check.Status == QobuzClient.QobuzTokenStatus.Unreachable)
         {
             LastUnavailableReason = "The Qobuz token could not be checked (the API did not answer)";
-            _availability.Store(false);
+            StoreAvailability(false);
             return false;
         }
         if (check.Account is null)
         {
             LastUnavailableReason = "The Qobuz token was rejected";
-            _availability.Store(false);
+            StoreAvailability(false);
             return false;
         }
         if (!check.Account.CanDownload)
         {
             LastUnavailableReason = "This Qobuz plan cannot download (a paid plan is required)";
-            _logger.LogInformation("Qobuz: this account cannot download (a paid plan is required)");
-            _availability.Store(false);
+            Logger.LogInformation("Qobuz: this account cannot download (a paid plan is required)");
+            StoreAvailability(false);
             return false;
         }
 
         LastUnavailableReason = null;
-        _availability.Store(true);
+        StoreAvailability(true);
         return true;
-    }
-
-    private async Task<(string Executable, IReadOnlyList<string> Arguments)?> CommandAsync(
-        CancellationToken ct)
-    {
-        var configured = await _config.GetAsync(Id, CommandKey, ct);
-        var line = string.IsNullOrWhiteSpace(configured) ? DefaultCommand : configured.Trim();
-        return CliRunner.SplitCommand(line);
     }
 
     /// <summary>
@@ -174,7 +159,7 @@ public class QobuzDownloader : IDownloader
     /// </summary>
     private async Task<string?> TokenAsync(CancellationToken ct)
     {
-        var configured = (await _config.GetAsync(Id, TokenKey, ct)).Trim();
+        var configured = await ConfigValueAsync(TokenKey, ct);
         return configured.Length > 0 ? configured : ReadTokenFile(ToolConfigFolder);
     }
 
@@ -195,7 +180,7 @@ public class QobuzDownloader : IDownloader
             var bundle = await _qobuz.GetBundleAsync(ct);
             if (bundle is null)
             {
-                _logger.LogWarning("Qobuz: could not scrape the web player bundle for the CLI config");
+                Logger.LogWarning("Qobuz: could not scrape the web player bundle for the CLI config");
                 return;
             }
             await File.WriteAllTextAsync(configPath, BuildConfigIni(bundle), ct);
@@ -260,7 +245,7 @@ public class QobuzDownloader : IDownloader
 
     // ── Search ───────────────────────────────────────────────────────────
 
-    public async Task<DownloaderSearchHit?> SearchAsync(
+    public override async Task<DownloaderSearchHit?> SearchAsync(
         TrackQuery query, CancellationToken ct = default)
     {
         var searchText = query.SearchText;
@@ -306,95 +291,46 @@ public class QobuzDownloader : IDownloader
 
     // ── Download ─────────────────────────────────────────────────────────
 
-    public async Task<DownloaderDownloadResult> DownloadAsync(
-        string sourceUrl,
-        string outputDirectory,
-        string? melodyId,
-        DownloadQuality? quality = null,
-        CancellationToken ct = default)
+    /// <summary>The hidden per-track folder under the output directory.</summary>
+    protected override Task<string> WorkDirectoryAsync(
+        string outputDirectory, string? melodyId, CancellationToken ct)
+        => Task.FromResult(Path.Combine(outputDirectory,
+            $".mb-qobuz-{(melodyId is { Length: > 0 } ? melodyId : Guid.NewGuid().ToString("N")[..8])}"));
+
+    protected override async Task<CliToolRequest> BuildRequestAsync(
+        string sourceUrl, DownloadQuality quality, string workDirectory, CancellationToken ct)
     {
         if (!TryExtractTrackId(sourceUrl, out var trackId))
-            return new DownloaderDownloadResult(false, null, "not a Qobuz track URL: " + sourceUrl);
+            return new CliToolRequest([], "not a Qobuz track URL: " + sourceUrl);
 
-        var command = await CommandAsync(ct);
-        if (command is null || !CliRunner.Exists(command.Value.Executable))
-            return new DownloaderDownloadResult(false, null,
-                "the qobuz-dlp command is not configured or not on PATH");
-
-        var configuredQuality = (await _config.GetAsync(Id, QualityKey, ct)).Trim();
-        var qualityId = QualityFor(quality ?? DownloadQuality.Any, configuredQuality);
+        var configuredQuality = await ConfigValueAsync(QualityKey, ct);
+        var qualityId = QualityFor(quality, configuredQuality);
         if (qualityId is null)
-            return new DownloaderDownloadResult(false, null,
+            return new CliToolRequest([],
                 "no qobuz-dlp quality fits this quality band; skipping instead of wasting a download");
 
-        Directory.CreateDirectory(outputDirectory);
-        var tempDir = Path.Combine(outputDirectory,
-            $".mb-qobuz-{(melodyId is { Length: > 0 } ? melodyId : Guid.NewGuid().ToString("N")[..8])}");
-        Directory.CreateDirectory(tempDir);
+        return new CliToolRequest(
+        [
+            "dl",
+            "--directory", workDirectory,
+            "--quality", qualityId,
+            "--no-m3u",
+            "--no-db",
+            "--embed-art",
+            $"https://play.qobuz.com/track/{trackId}",
+        ]);
+    }
 
-        // The CLI needs its own config (app id and secrets, scraped from
-        // the web player) and, when the plugin has one, the user token;
-        // seed both so it never stops for an interactive setup.
+    /// <summary>
+    /// Seeds the CLI config (app id, secrets, token) so qobuz-dlp never
+    /// stops for an interactive setup, and points it at that folder.
+    /// </summary>
+    protected override async Task<IReadOnlyDictionary<string, string>?> PrepareEnvironmentAsync(
+        CancellationToken ct)
+    {
         var token = await TokenAsync(ct);
         await EnsureToolConfigAsync(token ?? "", ct);
-
-        await RunGate.WaitAsync(ct);
-        try
-        {
-            var arguments = new List<string>(command.Value.Arguments)
-            {
-                "dl",
-                "--directory", tempDir,
-                "--quality", qualityId,
-                "--no-m3u",
-                "--no-db",
-                "--embed-art",
-                $"https://play.qobuz.com/track/{trackId}",
-            };
-            _logger.LogDebug("qobuz: running {Command} {Args}",
-                command.Value.Executable, string.Join(" ", arguments));
-
-            var result = await CliRunner.RunAsync(
-                command.Value.Executable, arguments, RunTimeout, ct, ToolEnvironment());
-            if (!result.Success)
-            {
-                var reason = DescribeFailure(result);
-                _logger.LogWarning("qobuz-dlp failed for track {TrackId}: {Reason}", trackId, reason);
-                return new DownloaderDownloadResult(false, null, reason);
-            }
-
-            var produced = CliRunner.FindNewestAudioFile(tempDir);
-            if (produced is null)
-                return new DownloaderDownloadResult(false, null,
-                    "qobuz-dlp reported success but produced no audio file");
-
-            var target = FileMove.UniqueTarget(outputDirectory, Path.GetFileName(produced));
-            FileMove.MoveAcrossDevices(produced, target);
-
-            var container = AudioSignature.EnsureExtension(target);
-            if (container is null)
-            {
-                FileCleanup.DeleteQuietly(target);
-                return new DownloaderDownloadResult(false, null, "the qobuz-dlp file is not audio");
-            }
-
-            YtDlpDownloader.TagDownloadedFile(container, expectedTitle: null);
-            return new DownloaderDownloadResult(true, container, null);
-        }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "qobuz-dlp download for track {TrackId} failed", trackId);
-            return new DownloaderDownloadResult(false, null, ex.Message);
-        }
-        finally
-        {
-            RunGate.Release();
-            try { Directory.Delete(tempDir, recursive: true); } catch { /* best effort */ }
-        }
+        return ToolEnvironment();
     }
 
     /// <summary>
@@ -422,16 +358,6 @@ public class QobuzDownloader : IDownloader
     /// <summary>A valid quality id, or the CD-quality default.</summary>
     internal static string NormalizeQuality(string configured)
         => configured.Trim() is "5" or "6" or "7" or "27" ? configured.Trim() : DefaultQuality;
-
-    /// <summary>The last meaningful line of a failed CLI run.</summary>
-    internal static string DescribeFailure(CliRunner.Result result)
-    {
-        var text = string.IsNullOrWhiteSpace(result.StdErr) ? result.StdOut : result.StdErr;
-        var lines = text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        var last = lines.Length > 0 ? lines[^1] : "no output";
-        if (last.Length > 300) last = last[..300] + "...";
-        return $"qobuz-dlp failed (exit {result.ExitCode}): {last}";
-    }
 
     internal static bool TryExtractTrackId(string sourceUrl, out long trackId)
     {

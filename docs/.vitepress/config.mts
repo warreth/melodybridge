@@ -60,7 +60,8 @@ export default defineConfig({
           { text: 'Jumo Qobuz rips', link: '/jumo' },
           { text: 'Soulseek and slskd', link: '/slskd' },
           { text: 'Qobuz and qobuz-dlp', link: '/qobuz' },
-          { text: 'Deezer and deemix', link: '/deemix' }
+          { text: 'Deezer and deemix', link: '/deemix' },
+          { text: 'Tidal and tiddl', link: '/tidal' }
         ]
       },
       {

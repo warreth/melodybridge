@@ -112,6 +112,9 @@ public class PlaylistRefreshSnapshotTests
                 track.ReviewText = "duration mismatch: 345.2s vs expected 300s; bitrate looks inflated";
                 track.SourcePluginId = "ytdlp";
                 track.AvoidPluginId = "archiveorg";
+                track.AlbumArtist = "Various Artists";
+                track.CoverUrl = "https://cdn.example/cover.jpg";
+                track.Lyrics = "first line\nsecond line";
                 await db.SaveChangesAsync();
             }
 
@@ -144,6 +147,12 @@ public class PlaylistRefreshSnapshotTests
                         "Retry still needs to know who delivered the flagged file");
                     Assert.That(track.AvoidPluginId, Is.EqualTo("archiveorg"),
                         "a retry hint set before the rebuild must still steer that attempt");
+                    Assert.That(track.AlbumArtist, Is.EqualTo("Various Artists"),
+                        "the release credit survives the rebuild");
+                    Assert.That(track.CoverUrl, Is.EqualTo("https://cdn.example/cover.jpg"),
+                        "the cover URL survives the rebuild");
+                    Assert.That(track.Lyrics, Is.EqualTo("first line\nsecond line"),
+                        "resolved lyrics survive the rebuild");
                 });
             }
         }

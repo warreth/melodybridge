@@ -1,8 +1,6 @@
 using System.Text.Json;
 using MelodyBridge.Core;
-using MelodyBridge.Infrastructure.Audio;
 using MelodyBridge.Infrastructure.Deezer;
-using MelodyBridge.Infrastructure.Files;
 using MelodyBridge.Infrastructure.Services;
 using Microsoft.Extensions.Logging;
 
@@ -10,17 +8,21 @@ namespace MelodyBridge.Infrastructure.Downloaders;
 
 /// <summary>
 /// Deezer downloader plugin driven by the user's own deemix CLI
-/// (https://github.com/bambanah/deemix), the yt-dlp model: the tool owns
-/// the login (ARL) and the download, MelodyBridge only searches and
-/// hands over a track URL. Works with a local `deemix` binary or the
-/// Docker image ("docker exec Deemix deemix").
+/// (https://github.com/bambanah/deemix). MelodyBridge searches Deezer's
+/// public API and hands the track URL to the tool; deemix owns the login
+/// (the ARL) and the download, and falls back within the account's tier on
+/// its own. Works with a local `deemix` binary or the Docker image
+/// ("docker exec Deemix deemix").
 ///
-/// Downloads land in a per-track folder under the downloads folder: the
-/// plugin's own by default, or the one configured on the Plugins page, so
-/// parallel tracks never pick each other's files. CLI runs are serialized
-/// anyway because deemix writes into a shared folder.
+/// The shared CLI plumbing lives in <see cref="CliToolDownloader"/>; this
+/// class only adds Deezer's search, the bitrate mapping and the ARL
+/// seeding. Downloads land in a per-track folder under the downloads
+/// folder (the plugin's own by default, or the one configured on the
+/// Plugins page), and runs are serialized, so parallel tracks never pick
+/// each other's files. Without an ARL the tool's own login is used, so a
+/// deemix that is logged in elsewhere keeps working.
 /// </summary>
-public class DeemixDownloader : IDownloader
+public class DeemixDownloader : CliToolDownloader
 {
     public const string DefaultCommand = "deemix";
     private const string CommandKey = "command";
@@ -34,10 +36,10 @@ public class DeemixDownloader : IDownloader
         new QualityDeliverable(AudioFormat.Flac, Lossless: true, 900, 10000),
         new QualityDeliverable(AudioFormat.Mp3, Lossless: false, 128, 320),
     ]);
-    public PluginCapabilities Capabilities => Caps;
+    public override PluginCapabilities Capabilities => Caps;
 
-    public string Id => "deemix";
-    public string Name => "Deezer (deemix)";
+    public override string Id => "deemix";
+    public override string Name => "Deezer (deemix)";
     public string Description => "Deezer downloads through your own deemix CLI: MP3 or FLAC with your ARL";
 
     public IReadOnlyList<PluginConfigField> ConfigFields =>
@@ -56,15 +58,7 @@ public class DeemixDownloader : IDownloader
     /// <inheritdoc />
     public string? LastUnavailableReason { get; private set; }
 
-    // One CLI run at a time: deemix writes into a shared folder, and two
-    // concurrent runs could pick each other's files.
-    private static readonly SemaphoreSlim RunGate = new(1, 1);
-
-    private static readonly TimeSpan RunTimeout = TimeSpan.FromMinutes(15);
-
     private readonly DeezerClient _deezer;
-    private readonly IPluginConfig _config;
-    private readonly ILogger<DeemixDownloader> _logger;
 
     /// <summary>Where the seeded ARL config lives; injectable for tests.</summary>
     private readonly string _dataDirectory;
@@ -72,18 +66,23 @@ public class DeemixDownloader : IDownloader
     /// <summary>Where downloads land when no folder is configured; injectable for tests.</summary>
     private readonly string _defaultDownloadsDirectory;
 
-    private readonly AvailabilityCache _availability = new();
-
     public DeemixDownloader(
         DeezerClient deezer, IPluginConfig config, ILogger<DeemixDownloader> logger,
         string? dataDirectory = null, string? downloadsDirectory = null)
+        : base(config, logger)
     {
         _deezer = deezer;
-        _config = config;
-        _logger = logger;
         _dataDirectory = dataDirectory ?? DefaultDataDirectory();
         _defaultDownloadsDirectory = downloadsDirectory ?? DefaultDownloadsDirectory();
     }
+
+    protected override string ToolLabel => "deemix";
+    protected override string DefaultCommandLine => DefaultCommand;
+    protected override string CommandConfigKey => CommandKey;
+    protected override TimeSpan RunTimeout => TimeSpan.FromMinutes(15);
+
+    protected override string NoFileMessage =>
+        "deemix reported success but produced no audio file (is the downloads folder shared with deemix?)";
 
     /// <summary>
     /// The deemix config folder MelodyBridge manages
@@ -95,22 +94,6 @@ public class DeemixDownloader : IDownloader
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "melodybridge", "deemix");
 
-    // ── Availability ─────────────────────────────────────────────────────
-
-    public async Task<bool> IsAvailableAsync(CancellationToken ct = default)
-    {
-        if (_availability.TryGet(out var cached))
-            return cached;
-
-        var command = await CommandAsync(ct);
-        var available = command is not null && CliRunner.Exists(command.Value.Executable);
-        LastUnavailableReason = available ? null : "The deemix command was not found";
-        if (!available)
-            _logger.LogDebug("deemix: the command is not configured or not on PATH");
-        _availability.Store(available);
-        return available;
-    }
-
     /// <summary>
     /// Where deemix writes when the plugin has no folder configured: a
     /// folder MelodyBridge owns, so the common Docker setup needs no
@@ -121,17 +104,24 @@ public class DeemixDownloader : IDownloader
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "melodybridge", "deemix-downloads");
 
-    private async Task<(string Executable, IReadOnlyList<string> Arguments)?> CommandAsync(
-        CancellationToken ct)
+    // ── Availability ─────────────────────────────────────────────────────
+
+    public override async Task<bool> IsAvailableAsync(CancellationToken ct = default)
     {
-        var configured = await _config.GetAsync(Id, CommandKey, ct);
-        var line = string.IsNullOrWhiteSpace(configured) ? DefaultCommand : configured.Trim();
-        return CliRunner.SplitCommand(line);
+        if (TryGetCachedAvailability(out var cached))
+            return cached;
+
+        var available = await CommandExistsAsync(ct);
+        LastUnavailableReason = available ? null : "The deemix command was not found";
+        if (!available)
+            Logger.LogDebug("deemix: the command is not configured or not on PATH");
+        StoreAvailability(available);
+        return available;
     }
 
     // ── Search ───────────────────────────────────────────────────────────
 
-    public async Task<DownloaderSearchHit?> SearchAsync(
+    public override async Task<DownloaderSearchHit?> SearchAsync(
         TrackQuery query, CancellationToken ct = default)
     {
         var searchText = query.SearchText;
@@ -175,94 +165,48 @@ public class DeemixDownloader : IDownloader
 
     // ── Download ─────────────────────────────────────────────────────────
 
-    public async Task<DownloaderDownloadResult> DownloadAsync(
-        string sourceUrl,
-        string outputDirectory,
-        string? melodyId,
-        DownloadQuality? quality = null,
-        CancellationToken ct = default)
+    /// <summary>
+    /// The per-track folder deemix writes into: under the configured
+    /// downloads folder, or the plugin's own folder when none is set.
+    /// </summary>
+    protected override async Task<string> WorkDirectoryAsync(
+        string outputDirectory, string? melodyId, CancellationToken ct)
     {
-        if (!TryExtractTrackId(sourceUrl, out var trackId))
-            return new DownloaderDownloadResult(false, null, "not a Deezer track URL: " + sourceUrl);
-
-        var command = await CommandAsync(ct);
-        if (command is null || !CliRunner.Exists(command.Value.Executable))
-            return new DownloaderDownloadResult(false, null,
-                "the deemix command is not configured or not on PATH");
-
-        var downloadsPath = (await _config.GetAsync(Id, DownloadsPathKey, ct)).Trim();
+        var downloadsPath = await ConfigValueAsync(DownloadsPathKey, ct);
         if (downloadsPath.Length == 0)
             downloadsPath = _defaultDownloadsDirectory;
 
-        var bitrate = BitrateFor(quality ?? DownloadQuality.Any);
-        if (bitrate is null)
-            return new DownloaderDownloadResult(false, null,
-                "no deemix bitrate fits this quality band; skipping instead of wasting a download");
-
-        Directory.CreateDirectory(outputDirectory);
-        var downloadDir = Path.Combine(downloadsPath,
+        return Path.Combine(downloadsPath,
             $"mb-{(melodyId is { Length: > 0 } ? melodyId : Guid.NewGuid().ToString("N")[..8])}");
-        Directory.CreateDirectory(downloadDir);
-
-        // With an ARL configured, MelodyBridge owns deemix's config: the
-        // login is seeded so the CLI never prompts, whatever state the
-        // container is in.
-        var environment = await SeedArlAsync(ct);
-
-        await RunGate.WaitAsync(ct);
-        try
-        {
-            var arguments = new List<string>(command.Value.Arguments)
-            {
-                "-b", bitrate,
-                "-p", downloadDir,
-                $"https://www.deezer.com/track/{trackId}",
-            };
-            _logger.LogDebug("deemix: running {Command} {Args}",
-                command.Value.Executable, string.Join(" ", arguments));
-
-            var result = await CliRunner.RunAsync(
-                command.Value.Executable, arguments, RunTimeout, ct, environment);
-            if (!result.Success)
-            {
-                var reason = DescribeFailure(result);
-                _logger.LogWarning("deemix failed for track {TrackId}: {Reason}", trackId, reason);
-                return new DownloaderDownloadResult(false, null, reason);
-            }
-
-            var produced = CliRunner.FindNewestAudioFile(downloadDir);
-            if (produced is null)
-                return new DownloaderDownloadResult(false, null,
-                    "deemix reported success but produced no audio file (is the downloads folder shared with deemix?)");
-
-            var target = FileMove.UniqueTarget(outputDirectory, Path.GetFileName(produced));
-            FileMove.MoveAcrossDevices(produced, target);
-
-            var container = AudioSignature.EnsureExtension(target);
-            if (container is null)
-            {
-                FileCleanup.DeleteQuietly(target);
-                return new DownloaderDownloadResult(false, null, "the deemix file is not audio");
-            }
-
-            YtDlpDownloader.TagDownloadedFile(container, expectedTitle: null);
-            return new DownloaderDownloadResult(true, container, null);
-        }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "deemix download for track {TrackId} failed", trackId);
-            return new DownloaderDownloadResult(false, null, ex.Message);
-        }
-        finally
-        {
-            RunGate.Release();
-            try { Directory.Delete(downloadDir, recursive: true); } catch { /* best effort */ }
-        }
     }
+
+    protected override Task<CliToolRequest> BuildRequestAsync(
+        string sourceUrl, DownloadQuality quality, string workDirectory, CancellationToken ct)
+    {
+        if (!TryExtractTrackId(sourceUrl, out var trackId))
+            return Task.FromResult(new CliToolRequest([], "not a Deezer track URL: " + sourceUrl));
+
+        var bitrate = BitrateFor(quality);
+        if (bitrate is null)
+            return Task.FromResult(new CliToolRequest([],
+                "no deemix bitrate fits this quality band; skipping instead of wasting a download"));
+
+        return Task.FromResult(new CliToolRequest(
+        [
+            "-b", bitrate,
+            "-p", workDirectory,
+            $"https://www.deezer.com/track/{trackId}",
+        ]));
+    }
+
+    /// <summary>
+    /// With an ARL configured, MelodyBridge owns deemix's config: the
+    /// login is seeded so the CLI never prompts, whatever state the
+    /// container is in. Without one the tool's own login is left alone.
+    /// </summary>
+    protected override Task<IReadOnlyDictionary<string, string>?> PrepareEnvironmentAsync(
+        CancellationToken ct)
+        => SeedArlAsync(ct);
 
     /// <summary>
     /// Writes the ARL into deemix's config folder and returns the env
@@ -271,7 +215,7 @@ public class DeemixDownloader : IDownloader
     /// </summary>
     internal async Task<IReadOnlyDictionary<string, string>?> SeedArlAsync(CancellationToken ct)
     {
-        var arl = (await _config.GetAsync(Id, ArlKey, ct)).Trim();
+        var arl = await ConfigValueAsync(ArlKey, ct);
         if (arl.Length == 0) return null;
 
         Directory.CreateDirectory(_dataDirectory);
@@ -299,16 +243,6 @@ public class DeemixDownloader : IDownloader
 
         // Auto: the best the account allows; deemix falls back on its own.
         return "flac";
-    }
-
-    /// <summary>The last meaningful line of a failed CLI run.</summary>
-    internal static string DescribeFailure(CliRunner.Result result)
-    {
-        var text = string.IsNullOrWhiteSpace(result.StdErr) ? result.StdOut : result.StdErr;
-        var lines = text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        var last = lines.Length > 0 ? lines[^1] : "no output";
-        if (last.Length > 300) last = last[..300] + "...";
-        return $"deemix failed (exit {result.ExitCode}): {last}";
     }
 
     internal static bool TryExtractTrackId(string sourceUrl, out long trackId)

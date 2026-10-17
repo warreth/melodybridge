@@ -118,6 +118,12 @@ public class TrackEntity
     public string? Title { get; set; }
     public string? Artist { get; set; }
     public string? Album { get; set; }
+    /// <summary>Release-level credit, written as the album-artist tag.</summary>
+    public string? AlbumArtist { get; set; }
+    /// <summary>Cover art URL; fetched and embedded once, after download.</summary>
+    public string? CoverUrl { get; set; }
+    /// <summary>Plain lyrics, resolved once and embedded as the lyrics tag.</summary>
+    public string? Lyrics { get; set; }
     /// <summary>
     /// International Standard Recording Code when known (Spotify account
     /// batch fetch or the Deezer-backed resolver). Plugins that serve
