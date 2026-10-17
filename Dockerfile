@@ -36,8 +36,9 @@ RUN npm install -g pnpm@11.23.0 && \
 # Runtime on Alpine: the Debian image needed 234 packages (about 490 MB
 # installed) for ffmpeg alone, Alpine needs 113 (about 130 MB). The tools
 # ship in the image so the plugins work without sidecars: yt-dlp as its
-# self-contained musllinux binary (per architecture), qobuz-dlp and tiddl
-# through pip (Python stays for them), and the deemix CLI on Node.
+# self-contained musllinux binary (per architecture, in its own writable
+# folder so the Plugins page can update it), qobuz-dlp and tiddl through
+# pip (Python stays for them), and the deemix CLI on Node.
 FROM mcr.microsoft.com/dotnet/aspnet:8.0-alpine AS runtime
 ARG YTDLP_VERSION=2026.08.19
 ARG TIDDL_VERSION=3.4.4
@@ -57,19 +58,20 @@ RUN set -eux; \
         py3-pip \
         su-exec \
         tzdata; \
-    curl -fsSL -o /usr/local/bin/yt-dlp \
+    mkdir -p /app/tools; \
+    curl -fsSL -o /app/tools/yt-dlp \
         "https://github.com/yt-dlp/yt-dlp/releases/download/${YTDLP_VERSION}/${ytdlp_asset}"; \
-    chmod +x /usr/local/bin/yt-dlp; \
+    chmod +x /app/tools/yt-dlp; \
     pip3 install --no-cache-dir --break-system-packages qobuz-dlp; \
     pip3 install --no-cache-dir --break-system-packages "tiddl==${TIDDL_VERSION}"; \
     apk del py3-pip; \
     rm -rf /root/.cache
-# The app runs unprivileged. The entrypoint fixes the ownership of the
-# mounted data roots before dropping root; the tools above need no root.
+# The app runs unprivileged. The entrypoint hands the mounted data roots
+# to the app user before dropping root; the tools above need no root.
 RUN addgroup -S -g 1000 melodybridge && \
     adduser -S -D -u 1000 -G melodybridge -h /home/melodybridge melodybridge && \
     mkdir -p /app/state /app/playlists /music && \
-    chown melodybridge:melodybridge /app/state /app/playlists /music
+    chown -R melodybridge:melodybridge /app/state /app/playlists /music /app/tools
 COPY --from=deemix /deemix/packages/cli/dist/main.cjs /opt/deemix/main.cjs
 RUN printf '#!/bin/sh\nexec node /opt/deemix/main.cjs "$@"\n' > /usr/local/bin/deemix && \
     chmod +x /usr/local/bin/deemix
@@ -77,6 +79,16 @@ WORKDIR /app
 COPY --from=build --chown=melodybridge:melodybridge /app/publish ./
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+# yt-dlp is updated from the Plugins page: the app user owns its folder and
+# finds it before any other copy on PATH.
+ENV PATH=/app/tools:$PATH
+
+# Tool logins and caches live on the state mount. The app user's home must
+# be writable and must survive image updates, so HOME points there instead
+# of the image's /root (tiddl, qobuz-dlp and deemix keep their sessions
+# under it).
+ENV HOME=/app/state/home
 
 # Listen on 80 by default, so a plain `docker run -p 3333:80` works
 # without extra environment variables (the compose files set it too).

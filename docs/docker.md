@@ -45,23 +45,27 @@ reminder next to every path input.
 
 ## Upgrading from 1.0
 
-Images before v1.1 ran the whole container as root, so everything they
-created in `./data` (the database, the M3U files, the downloads) belongs to
-root. v1.1 runs the app as UID 1000 and hands the three mount folders
-themselves to that user on startup, but it leaves the files inside them
-alone, so an upgraded install cannot write its own database until those
-files change owner. Stop the stack and fix it once:
+Images before v1.1 ran the whole container as root, so an existing
+`./data` (the database, the M3U files, the downloads) belongs to root.
+The image hands those files to the app user on its first start, so an
+upgrade is just a pull and up: nothing to do by hand.
+
+The first start after the update walks the music folder once to give it
+to the app user, which takes a little longer on a large library; later
+starts skip it (the marker `./data/app/.music-handover-done`). Pointing
+`/music` at a different folder later runs that one walk again. A v1.1
+image could stop with `attempt to write a readonly database` after an
+upgrade from 1.0; the current image fixes that on its next start.
+
+If the container runs as your own user (`user:`, see Tools in the image),
+there is no root to do the handover, so give the folders to that user
+once:
 
 ```bash
 docker compose down
 sudo chown -R 1000:1000 ./data
 docker compose up -d
 ```
-
-Fresh installs need nothing: `./data` is still empty. If your own user is
-not 1000, the app's files show as UID 1000 on the host from then on; give
-the folders to the app user as above, or start the container as your own
-user (see Tools in the image).
 
 ## Media servers next to it
 
@@ -131,22 +135,35 @@ containers to run:
 | yt-dlp | YouTube, SoundCloud | Self-contained binary; the Plugins page can update it in place |
 | deemix CLI | Deezer | Runs on Node; the plugin writes your ARL into its config |
 | qobuz-dlp | Qobuz | Runs on Python; the plugin writes your token into its config |
-| tiddl | Tidal | Runs on Python; log in once with `tiddl auth login` inside the container |
+| tiddl | Tidal | Runs on Python; log in once as the app user, see below |
 
 The tools travel with the image: `docker compose pull` brings newer versions,
 like the yt-dlp binary does. The image runs on Alpine, which keeps it small:
 Debian's ffmpeg alone needed about 490 MB of packages, Alpine's about 130 MB.
+
+Log a tool in as the app user, so it stores the session where MelodyBridge
+reads it:
+
+```bash
+docker exec -u melodybridge -it melodybridge tiddl auth login
+```
+
+Logins and caches live in `./data/app` (`/app/state/home` inside the
+container) and survive image updates. The Plugins page can update yt-dlp in
+the running container; that binary lives in its own folder, owned by the app.
 
 The image listens on port 80 by default, so a plain `docker run -p 3333:80`
 works without extra environment variables, and it carries a `HEALTHCHECK`
 against the home page, so `docker ps` shows whether the app finished starting.
 
 The app itself runs as the unprivileged user `melodybridge` (UID/GID 1000).
-On startup the entrypoint hands the three mounted data roots (`/app/state`,
+On startup the entrypoint hands the mounted data roots (`/app/state`,
 `/app/playlists`, `/music`) to that user and then drops root, so Docker's
 root-owned, auto-created mount folders do not block the database or the
-downloads. The chown is not recursive: existing files keep their owner (see
-Upgrading from 1.0), and everything the app creates is owned by UID 1000.
+downloads. State and playlists are handed over on every start, the music
+folder once (see Upgrading from 1.0); everything the app creates is owned
+by UID 1000. The app's home, where the tools keep their logins and caches,
+is `/app/state/home` on the state mount.
 
 The entrypoint is the only thing that runs as root, and only for that
 handover: the app process itself is never root. To keep even that brief

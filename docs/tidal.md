@@ -14,15 +14,17 @@ it works.
    FLAC quality: 16-bit / 44.1 kHz (CD quality) or up to 24-bit / 192 kHz
    (hi-res). AAC requests use the 320 or 96 kbps tier.
 2. Log in to tiddl with your Tidal account:
-   - Docker: `docker exec -it melodybridge tiddl auth login` and follow the
-     device-code prompt.
+   - Docker: `docker exec -u melodybridge -it melodybridge tiddl auth login`
+     and follow the device-code prompt.
    - From source: run `tiddl auth login` in a terminal.
 
 The plugin never owns the Tidal account: it reads the session tiddl stores in
 `~/.tiddl/auth.json` (or the folder in `TIDDL_PATH`) and reports itself
 unavailable while that session is missing or expired. Running any tiddl
 command refreshes the session; when it has been idle long enough, run
-`tiddl auth login` again.
+`tiddl auth login` again. In Docker the session lives on the state mount
+(`./data/app/home/.tiddl/auth.json` on the host), so it survives image
+updates.
 
 ## How a download runs
 
