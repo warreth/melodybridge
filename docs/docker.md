@@ -43,6 +43,26 @@ probably not mounted, or the host path was used instead. The app repeats this
 reminder next to every path input.
 :::
 
+## Upgrading from 1.0
+
+Images before v1.1 ran the whole container as root, so everything they
+created in `./data` (the database, the M3U files, the downloads) belongs to
+root. v1.1 runs the app as UID 1000 and hands the three mount folders
+themselves to that user on startup, but it leaves the files inside them
+alone, so an upgraded install cannot write its own database until those
+files change owner. Stop the stack and fix it once:
+
+```bash
+docker compose down
+sudo chown -R 1000:1000 ./data
+docker compose up -d
+```
+
+Fresh installs need nothing: `./data` is still empty. If your own user is
+not 1000, the app's files show as UID 1000 on the host from then on; give
+the folders to the app user as above, or start the container as your own
+user (see Tools in the image).
+
 ## Media servers next to it
 
 When Jellyfin, Plex or Navidrome runs as a container on the same compose
@@ -125,10 +145,24 @@ The app itself runs as the unprivileged user `melodybridge` (UID/GID 1000).
 On startup the entrypoint hands the three mounted data roots (`/app/state`,
 `/app/playlists`, `/music`) to that user and then drops root, so Docker's
 root-owned, auto-created mount folders do not block the database or the
-downloads. The chown is not recursive: existing files keep their owner, and
-everything the app creates is owned by UID 1000. If you start the container
-with `--user`, the entrypoint steps aside and that user must own the mounts
-itself.
+downloads. The chown is not recursive: existing files keep their owner (see
+Upgrading from 1.0), and everything the app creates is owned by UID 1000.
+
+The entrypoint is the only thing that runs as root, and only for that
+handover: the app process itself is never root. To keep even that brief
+root step out, start the container as the app user instead:
+
+```yaml
+services:
+  melodybridge:
+    user: "1000:1000"
+```
+
+The entrypoint then steps aside and runs the app directly. The data folders
+must already be writable by that user before the first start: create them
+yourself (`mkdir -p data/music data/playlists data/app`), or chown them once
+as in Upgrading from 1.0. On a host where your own user is not 1000, put
+your own UID and GID there instead, so the files stay yours.
 
 ## Running from source
 
