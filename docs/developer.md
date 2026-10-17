@@ -106,6 +106,14 @@ Plugins do not write the MELODY_ID tag themselves. `DownloadManager`
 writes it once for every plugin after the file passes the quality band;
 a plugin's tagging code only handles its own metadata.
 
+The store itself is a facade. The implementation lives in four services next to
+it: `PlaylistQueries` (reads, lifecycle, settings and the two maintenance
+passes), `PlaylistSnapshots` (source fetching, snapshot reconciliation, refresh,
+imports), `DownloadPipeline` (claim, dedup, waterfall, tagging, integrity,
+archive) and `PlaylistTransfer` (JSON and CSV export/import). `PlaylistRules`
+holds the pure rules they share. New behaviour belongs in the service that owns
+it; the facade keeps its public surface so pages and tests do not move.
+
 Implement this to add a download source. Built-in plugins:
 
 | Plugin | Id | Source | Notes |

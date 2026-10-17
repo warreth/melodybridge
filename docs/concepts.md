@@ -130,6 +130,16 @@ exact recording.
 
 <img src="/screens/plugins.webp" alt="Plugins page with the waterfall order, capability badges and live downloads" width="800">
 
+### Cover art and lyrics
+
+A downloaded file gets what the source really knows. Spotify accounts, Deezer
+playlists and ListenBrainz playlists carry a cover URL, so the artwork is
+embedded after the download unless the plugin already wrote its own. Lyrics
+come from LRCLIB, one lookup per track, stored on the row and written as the
+lyrics tag. Both are best effort: a dead cover URL or a missed lyric leaves the
+file exactly as it was, and neither can fail a download. The Advanced page can
+fill the same fields on files that were downloaded before this existed.
+
 ## Quality checks
 
 ### The band is a filter, not a suggestion

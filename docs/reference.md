@@ -203,6 +203,10 @@ The knobs most people never need, in four panels:
 - **Maintenance**: **Recompute audio facts** reads bitrate, sample rate and size
   straight from the files on disk, for downloads that predate the probing. Tracks
   whose file has vanished are queued for a re-download.
+  **Re-tag library** fills what a downloaded file is missing: cover art from the
+  source, lyrics, the release credit and the album name. Only missing fields are
+  written, so artwork a plugin embedded is left alone. It reports how many files
+  changed, how many were already complete and how many could not be read.
 
 ## The Logs page
 
