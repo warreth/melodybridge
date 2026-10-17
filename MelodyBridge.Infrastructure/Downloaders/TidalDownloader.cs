@@ -24,6 +24,10 @@ public class TidalDownloader : CliToolDownloader
     private const string CommandKey = "command";
     private const string QualityKey = "quality";
     private const string AppPathKey = "app_path";
+    private const string TokenKey = "token";
+    private const string RefreshTokenKey = "refresh_token";
+    private const string UserIdKey = "user_id";
+    private const string CountryKey = "country_code";
 
     // Tidal has no MP3: it serves AAC (LOW/NORMAL) and FLAC (HIGH/MAX).
     // The lossless tier depends on the configured quality.
@@ -40,6 +44,9 @@ public class TidalDownloader : CliToolDownloader
 
     public override IReadOnlyList<PluginConfigField> ConfigFields =>
     [
+        new(TokenKey, "Tidal token", null,
+            "Paste the token from your provider, or tiddl's auth.json. The user id, country and expiry are read from it and written to tiddl's auth.json, so no tiddl auth login is needed. Without a refresh token the token works until it expires.",
+            Secret: true),
         new(QualityKey, "FLAC quality", null,
             "How high lossless goes; AAC requests use the 320 or 96 kbps tier.",
             Options:
@@ -47,6 +54,15 @@ public class TidalDownloader : CliToolDownloader
                 new("high", "16-bit / 44.1 kHz (CD quality)"),
                 new("max", "Up to 24-bit / 192 kHz (hi-res)"),
             ]),
+        new(RefreshTokenKey, "Tidal refresh token", null,
+            "Only when your provider gave one separately. With it, tiddl renews the session by itself.",
+            Advanced: true, Secret: true),
+        new(UserIdKey, "Tidal user id", null,
+            "Read from the token when possible; tiddl refuses to download without it.",
+            Advanced: true),
+        new(CountryKey, "Tidal country code", null,
+            "Two letters, for example NL. Read from the token when possible; the catalogue follows it.",
+            Advanced: true),
         new(AppPathKey, "tiddl app folder", null,
             "Only needed when tiddl runs with a custom TIDDL_PATH. The login comes from the tiddl session, see the Tidal docs.",
             Advanced: true),
@@ -73,6 +89,55 @@ public class TidalDownloader : CliToolDownloader
     private async Task<string> AppPathAsync(CancellationToken ct)
         => TidalAuth.ResolveAppPath(await ConfigValueAsync(AppPathKey, ct));
 
+    // ── Auth seeding ─────────────────────────────────────────────────────
+
+    /// <summary>How seeding the pasted token ended.</summary>
+    private enum SeedState
+    {
+        /// <summary>No token in the settings: tiddl's own login is used.</summary>
+        NotConfigured,
+
+        /// <summary>The settings were readable; the auth file is up to date.</summary>
+        Done,
+
+        /// <summary>The pasted value could not be read at all.</summary>
+        Unreadable,
+
+        /// <summary>The auth file could not be written.</summary>
+        Failed,
+    }
+
+    /// <summary>
+    /// Writes a pasted token (or full auth.json) into tiddl's app folder
+    /// before anything reads the session. Settings that did not change
+    /// since the last seed leave the file alone, so a session tiddl
+    /// renewed itself is never overwritten.
+    /// </summary>
+    private async Task<SeedState> EnsureAuthSeededAsync(CancellationToken ct)
+    {
+        var raw = await ConfigValueAsync(TokenKey, ct);
+        if (raw.Length == 0) return SeedState.NotConfigured;
+
+        var data = TidalAuth.ParseSettings(
+            raw,
+            await ConfigValueAsync(RefreshTokenKey, ct),
+            await ConfigValueAsync(UserIdKey, ct),
+            await ConfigValueAsync(CountryKey, ct));
+        if (data is null) return SeedState.Unreadable;
+
+        try
+        {
+            TidalAuth.Seed(await AppPathAsync(ct), data);
+            return SeedState.Done;
+        }
+        catch (Exception ex)
+        {
+            LastUnavailableReason = "The tiddl app folder could not be written: " + ex.Message;
+            Logger.LogDebug(ex, "tidal: seeding auth.json failed");
+            return SeedState.Failed;
+        }
+    }
+
     // ── Availability ─────────────────────────────────────────────────────
 
     public override async Task<bool> IsAvailableAsync(CancellationToken ct = default)
@@ -88,18 +153,54 @@ public class TidalDownloader : CliToolDownloader
             return false;
         }
 
+        var seed = await EnsureAuthSeededAsync(ct);
+        if (seed == SeedState.Failed)
+        {
+            StoreAvailability(false);
+            return false;
+        }
+        if (seed == SeedState.Unreadable)
+        {
+            LastUnavailableReason = "The Tidal token is not readable; paste the token or auth.json again";
+            StoreAvailability(false);
+            return false;
+        }
+
         var session = TidalAuth.Read(await AppPathAsync(ct));
         if (session is null)
         {
-            LastUnavailableReason = "Run tiddl auth login to connect Tidal";
+            LastUnavailableReason = "Run tiddl auth login to connect Tidal, or paste a token in the settings";
             Logger.LogDebug("tidal: tiddl has no stored session in its app folder");
             StoreAvailability(false);
             return false;
         }
         if (session.Expired)
         {
-            LastUnavailableReason = "The tiddl session expired; run tiddl auth login again";
+            LastUnavailableReason =
+                $"The Tidal token expired on {DateTimeOffset.FromUnixTimeSeconds(session.ExpiresAtUnix).ToLocalTime():yyyy-MM-dd HH:mm}; paste a fresh one";
             Logger.LogDebug("tidal: the stored tiddl session is past its expiry");
+            StoreAvailability(false);
+            return false;
+        }
+        if (string.IsNullOrWhiteSpace(session.UserId) || string.IsNullOrWhiteSpace(session.CountryCode))
+        {
+            LastUnavailableReason =
+                "The token did not carry the user id and country code; fill them under Advanced, or paste a full auth.json";
+            Logger.LogDebug("tidal: the session misses the user id or country");
+            StoreAvailability(false);
+            return false;
+        }
+
+        var check = await _tidal.ValidateTokenAsync(session.Token, session.CountryCode, ct);
+        if (check == TidalClient.TidalTokenStatus.Rejected)
+        {
+            LastUnavailableReason = "Tidal rejected the token; paste a fresh one";
+            StoreAvailability(false);
+            return false;
+        }
+        if (check == TidalClient.TidalTokenStatus.Unreachable)
+        {
+            LastUnavailableReason = "The Tidal API did not answer";
             StoreAvailability(false);
             return false;
         }
@@ -117,6 +218,7 @@ public class TidalDownloader : CliToolDownloader
         var searchText = query.SearchText;
         if (searchText.Length == 0) return null;
 
+        await EnsureAuthSeededAsync(ct);
         var session = TidalAuth.Read(await AppPathAsync(ct));
         if (session is null || session.Expired || string.IsNullOrWhiteSpace(session.Token))
             return null;
@@ -193,12 +295,15 @@ public class TidalDownloader : CliToolDownloader
     }
 
     /// <summary>
-    /// Points tiddl at the configured app folder (its login and cache live
-    /// there). The default folder needs no environment override.
+    /// Seeds a pasted token first, then points tiddl at the configured
+    /// app folder (its login and cache live there). The default folder
+    /// needs no environment override.
     /// </summary>
     protected override async Task<IReadOnlyDictionary<string, string>?> PrepareEnvironmentAsync(
         CancellationToken ct)
     {
+        await EnsureAuthSeededAsync(ct);
+
         var configured = await ConfigValueAsync(AppPathKey, ct);
         if (configured.Length == 0) return null;
 

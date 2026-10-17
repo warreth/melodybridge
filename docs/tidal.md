@@ -13,17 +13,30 @@ it works.
 1. On the Plugins page, open the Tidal card's **Settings** row and pick the
    FLAC quality: 16-bit / 44.1 kHz (CD quality) or up to 24-bit / 192 kHz
    (hi-res). AAC requests use the 320 or 96 kbps tier.
-2. Log in to tiddl with your Tidal account:
-   - Docker: `docker exec -u melodybridge -it melodybridge tiddl auth login`
-     and follow the device-code prompt.
-   - From source: run `tiddl auth login` in a terminal.
+2. Give the plugin a Tidal session. Either way works and both survive image
+   updates, because the session lives on the state mount.
+   - **Paste a token**, no terminal needed. Put either a token from your
+     account provider or tiddl's whole `auth.json` into **Tidal token**. A
+     browser token works too: open tidal.com, find a request to
+     `api.tidal.com` in the developer tools, and copy the
+     `Authorization: Bearer ...` value. MelodyBridge reads the user id,
+     country and expiry from the token and writes tiddl's own auth file,
+     so the CLI sees the same login. A token without a refresh token works
+     until it expires; the card then says so and a fresh paste fixes it. If
+     your provider gives a refresh token, paste it under **Advanced** and
+     tiddl renews the session by itself. The user id and country code are
+     read from the token when possible; the card says which one is missing
+     and the Advanced fields take them.
+   - **Or log in with tiddl**: run
+     `docker exec -u melodybridge -it melodybridge tiddl auth login`
+     (Docker) or `tiddl auth login` from source, and follow the device-code
+     prompt. That session carries a refresh token, so it renews itself.
 
-The plugin never owns the Tidal account: it reads the session tiddl stores in
-`~/.tiddl/auth.json` (or the folder in `TIDDL_PATH`) and reports itself
+The plugin never owns the Tidal account: it reads the session tiddl stores
+in `~/.tiddl/auth.json` (or the folder in `TIDDL_PATH`) and reports itself
 unavailable while that session is missing or expired. Running any tiddl
-command refreshes the session; when it has been idle long enough, run
-`tiddl auth login` again. In Docker the session lives on the state mount
-(`./data/app/home/.tiddl/auth.json` on the host), so it survives image
+command refreshes the session. In Docker the session lives on the state
+mount (`./data/app/home/.tiddl/auth.json` on the host), so it survives image
 updates.
 
 ## How a download runs

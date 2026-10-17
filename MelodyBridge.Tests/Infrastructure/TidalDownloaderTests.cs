@@ -93,6 +93,8 @@ public class TidalDownloaderTests
             Assert.That(session, Is.Not.Null);
             Assert.That(session!.Token, Is.EqualTo("tidal-token-abc"));
             Assert.That(session.CountryCode, Is.EqualTo("NL"));
+            Assert.That(session.UserId, Is.EqualTo("12345"));
+            Assert.That(session.HasRefreshToken, Is.True);
             Assert.That(session.Expired, Is.False);
         });
     }
@@ -332,7 +334,14 @@ public class TidalDownloaderTests
         config.Set("tidal", "command", CliStub.Silent(toolDir));
         config.Set("tidal", "app_path", NewAppPath());
 
-        var downloader = Create(config);
+        var handler = new StubHttpMessageHandler
+        {
+            Respond = _ => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("{\"tracks\":{\"items\":[]}}"),
+            },
+        };
+        var downloader = Create(config, handler);
         var available = await downloader.IsAvailableAsync();
 
         Assert.Multiple(() =>
@@ -526,6 +535,305 @@ public class TidalDownloaderTests
         {
             Assert.That(result.Success, Is.False);
             Assert.That(result.ErrorMessage, Does.Contain("not a Tidal track URL"));
+        });
+    }
+
+    // ── Pasted tokens ────────────────────────────────────────────────────
+
+    private static string MakeJwt(Dictionary<string, object> claims)
+    {
+        static string Part(byte[] bytes)
+            => Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+        var header = Part(JsonSerializer.SerializeToUtf8Bytes(new { alg = "HS256", typ = "JWT" }));
+        var payload = Part(JsonSerializer.SerializeToUtf8Bytes(claims));
+        return $"{header}.{payload}.signature";
+    }
+
+    [Test]
+    public void ParseSettings_RawJwt_DerivesTheClaims()
+    {
+        var jwt = MakeJwt(new Dictionary<string, object>
+        {
+            ["exp"] = 1893456000L,
+            ["userId"] = 777,
+            ["countryCode"] = "nl",
+        });
+
+        var data = TidalAuth.ParseSettings(jwt, "", "", "");
+
+        Assert.That(data, Is.Not.Null);
+        Assert.Multiple(() =>
+        {
+            Assert.That(data!.Token, Is.EqualTo(jwt));
+            Assert.That(data.ExpiresAt, Is.EqualTo(1893456000));
+            Assert.That(data.UserId, Is.EqualTo("777"));
+            Assert.That(data.CountryCode, Is.EqualTo("NL"));
+            Assert.That(data.RefreshToken, Is.Null, "a browser token carries no refresh token");
+        });
+    }
+
+    [Test]
+    public void ParseSettings_FullAuthFile_ReadsEveryField()
+    {
+        var data = TidalAuth.ParseSettings(
+            """{"token":"tok-1","refresh_token":"ref-1","expires_at":1234,"user_id":42,"country_code":"de"}""",
+            "", "", "");
+
+        Assert.That(data, Is.Not.Null);
+        Assert.Multiple(() =>
+        {
+            Assert.That(data!.Token, Is.EqualTo("tok-1"));
+            Assert.That(data.RefreshToken, Is.EqualTo("ref-1"));
+            Assert.That(data.ExpiresAt, Is.EqualTo(1234));
+            Assert.That(data.UserId, Is.EqualTo("42"));
+            Assert.That(data.CountryCode, Is.EqualTo("DE"));
+        });
+    }
+
+    [Test]
+    public void ParseSettings_AdvancedFieldsWinOverTheToken()
+    {
+        var jwt = MakeJwt(new Dictionary<string, object>
+        {
+            ["exp"] = 111,
+            ["uid"] = "from-jwt",
+            ["country"] = "FR",
+        });
+
+        var data = TidalAuth.ParseSettings(jwt, "plain-refresh", "advanced-user", "be");
+
+        Assert.That(data, Is.Not.Null);
+        Assert.Multiple(() =>
+        {
+            Assert.That(data!.RefreshToken, Is.EqualTo("plain-refresh"));
+            Assert.That(data.UserId, Is.EqualTo("advanced-user"));
+            Assert.That(data.CountryCode, Is.EqualTo("BE"));
+            Assert.That(data.ExpiresAt, Is.EqualTo(111));
+        });
+    }
+
+    [Test]
+    public void ParseSettings_UnknownShapes_AreNull()
+    {
+        Assert.Multiple(() =>
+        {
+            Assert.That(TidalAuth.ParseSettings("{not json", "", "", ""), Is.Null);
+            Assert.That(TidalAuth.ParseSettings("   ", "", "", ""), Is.Null);
+            Assert.That(TidalAuth.ParseSettings("""{"refresh_token":"ref"}""", "", "", ""), Is.Null,
+                "a JSON without a token is not a session");
+        });
+    }
+
+    [Test]
+    public void TidalAuth_Seed_WritesTheAuthFile()
+    {
+        var appPath = NewDir();
+
+        var written = TidalAuth.Seed(appPath, new TidalAuth.AuthData(
+            "tok-1", null, 1893456000, "42", "NL"));
+
+        using var doc = JsonDocument.Parse(File.ReadAllText(Path.Combine(appPath, "auth.json")));
+        var root = doc.RootElement;
+        Assert.Multiple(() =>
+        {
+            Assert.That(written, Is.True);
+            Assert.That(root.GetProperty("token").GetString(), Is.EqualTo("tok-1"));
+            Assert.That(root.GetProperty("refresh_token").GetString(),
+                Is.EqualTo(TidalAuth.NoRefreshPlaceholder), "tiddl refuses to run without one");
+            Assert.That(root.GetProperty("expires_at").GetInt64(), Is.EqualTo(1893456000));
+            Assert.That(root.GetProperty("user_id").GetString(), Is.EqualTo("42"));
+            Assert.That(root.GetProperty("country_code").GetString(), Is.EqualTo("NL"));
+        });
+    }
+
+    [Test]
+    public void TidalAuth_Seed_SameSettings_LeavesTiddlsRenewalAlone()
+    {
+        var appPath = NewDir();
+        var data = new TidalAuth.AuthData("tok-1", "ref-1", 123, "42", "NL");
+        Assert.That(TidalAuth.Seed(appPath, data), Is.True);
+
+        // tiddl refreshed the session itself: same refresh token, new access token.
+        File.WriteAllText(Path.Combine(appPath, "auth.json"),
+            """{"token":"renewed-by-tiddl","refresh_token":"ref-1","expires_at":999,"user_id":"42","country_code":"NL"}""");
+
+        Assert.That(TidalAuth.Seed(appPath, data), Is.False,
+            "the same settings must not overwrite a session tiddl renewed");
+        Assert.That(TidalAuth.Read(appPath)!.Token, Is.EqualTo("renewed-by-tiddl"));
+    }
+
+    [Test]
+    public void TidalAuth_Seed_KeepsWhatTheFileAlreadyHas()
+    {
+        var appPath = NewDir();
+        TidalAuth.Seed(appPath, new TidalAuth.AuthData("old-token", "real-refresh", 111, "42", "NL"));
+
+        TidalAuth.Seed(appPath, new TidalAuth.AuthData("new-token", null, 222));
+
+        using var doc = JsonDocument.Parse(File.ReadAllText(Path.Combine(appPath, "auth.json")));
+        var root = doc.RootElement;
+        Assert.Multiple(() =>
+        {
+            Assert.That(root.GetProperty("token").GetString(), Is.EqualTo("new-token"));
+            Assert.That(root.GetProperty("refresh_token").GetString(), Is.EqualTo("real-refresh"),
+                "a real refresh token survives a token-only paste");
+            Assert.That(root.GetProperty("user_id").GetString(), Is.EqualTo("42"));
+            Assert.That(root.GetProperty("country_code").GetString(), Is.EqualTo("NL"));
+        });
+    }
+
+    [Test]
+    public async Task IsAvailable_PastedToken_IsReadyWithoutTiddlLogin()
+    {
+        if (OperatingSystem.IsWindows()) Assert.Ignore("POSIX shell stub");
+
+        var toolDir = NewDir();
+        var appPath = NewDir();
+        var jwt = MakeJwt(new Dictionary<string, object>
+        {
+            ["exp"] = DateTimeOffset.UtcNow.AddHours(10).ToUnixTimeSeconds(),
+            ["userId"] = 777,
+            ["countryCode"] = "NL",
+        });
+        var config = new StubPluginConfig();
+        config.Set("tidal", "command", CliStub.Silent(toolDir));
+        config.Set("tidal", "app_path", appPath);
+        config.Set("tidal", "token", jwt);
+
+        var handler = new StubHttpMessageHandler
+        {
+            Respond = request =>
+            {
+                Assert.That(request.Headers.GetValues("Authorization").Single(),
+                    Is.EqualTo($"Bearer {jwt}"));
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("{\"tracks\":{\"items\":[]}}"),
+                };
+            },
+        };
+        var downloader = Create(config, handler);
+
+        var available = await downloader.IsAvailableAsync();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(available, Is.True, downloader.LastUnavailableReason);
+            Assert.That(File.Exists(Path.Combine(appPath, "auth.json")), Is.True,
+                "the pasted token must reach tiddl's own auth file");
+        });
+    }
+
+    [Test]
+    public async Task IsAvailable_RejectedToken_Explains()
+    {
+        if (OperatingSystem.IsWindows()) Assert.Ignore("POSIX shell stub");
+
+        var toolDir = NewDir();
+        var config = new StubPluginConfig();
+        config.Set("tidal", "command", CliStub.Silent(toolDir));
+        config.Set("tidal", "app_path", NewDir());
+        config.Set("tidal", "token", MakeJwt(new Dictionary<string, object>
+        {
+            ["exp"] = DateTimeOffset.UtcNow.AddHours(10).ToUnixTimeSeconds(),
+            ["userId"] = 777,
+            ["countryCode"] = "NL",
+        }));
+
+        var handler = new StubHttpMessageHandler
+        {
+            Respond = _ => new HttpResponseMessage(HttpStatusCode.Unauthorized),
+        };
+        var downloader = Create(config, handler);
+
+        var available = await downloader.IsAvailableAsync();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(available, Is.False);
+            Assert.That(downloader.LastUnavailableReason, Does.Contain("rejected"));
+        });
+    }
+
+    [Test]
+    public async Task IsAvailable_TokenWithoutUserOrCountry_Explains()
+    {
+        if (OperatingSystem.IsWindows()) Assert.Ignore("POSIX shell stub");
+
+        var toolDir = NewDir();
+        var config = new StubPluginConfig();
+        config.Set("tidal", "command", CliStub.Silent(toolDir));
+        config.Set("tidal", "app_path", NewDir());
+        config.Set("tidal", "token", MakeJwt(new Dictionary<string, object>
+        {
+            ["exp"] = DateTimeOffset.UtcNow.AddHours(10).ToUnixTimeSeconds(),
+        }));
+
+        var downloader = Create(config);
+        var available = await downloader.IsAvailableAsync();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(available, Is.False);
+            Assert.That(downloader.LastUnavailableReason, Does.Contain("user id"));
+        });
+    }
+
+    [Test]
+    public async Task IsAvailable_UnreadableToken_Explains()
+    {
+        if (OperatingSystem.IsWindows()) Assert.Ignore("POSIX shell stub");
+
+        var toolDir = NewDir();
+        var config = new StubPluginConfig();
+        config.Set("tidal", "command", CliStub.Silent(toolDir));
+        config.Set("tidal", "app_path", NewDir());
+        config.Set("tidal", "token", "{half a json");
+
+        var downloader = Create(config);
+        var available = await downloader.IsAvailableAsync();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(available, Is.False);
+            Assert.That(downloader.LastUnavailableReason, Does.Contain("not readable"));
+        });
+    }
+
+    [Test]
+    public async Task Download_PastedToken_SeedsTiddlsAuthFile()
+    {
+        if (OperatingSystem.IsWindows()) Assert.Ignore("POSIX shell stub");
+
+        var toolDir = NewDir();
+        var appPath = NewDir();
+        var expiry = DateTimeOffset.UtcNow.AddHours(10).ToUnixTimeSeconds();
+        var jwt = MakeJwt(new Dictionary<string, object>
+        {
+            ["exp"] = expiry,
+            ["uid"] = 777,
+            ["countryCode"] = "NL",
+        });
+        var config = new StubPluginConfig();
+        config.Set("tidal", "command", CliStub.Producing(toolDir));
+        config.Set("tidal", "app_path", appPath);
+        config.Set("tidal", "token", jwt);
+
+        var result = await Create(config).DownloadAsync(
+            "https://tidal.com/browse/track/12345", NewDir(), "mb-pasted-token",
+            new DownloadQuality(AudioFormat.Flac));
+
+        Assert.That(result.Success, Is.True, result.ErrorMessage);
+        using var doc = JsonDocument.Parse(File.ReadAllText(Path.Combine(appPath, "auth.json")));
+        var root = doc.RootElement;
+        Assert.Multiple(() =>
+        {
+            Assert.That(root.GetProperty("token").GetString(), Is.EqualTo(jwt));
+            Assert.That(root.GetProperty("user_id").GetString(), Is.EqualTo("777"));
+            Assert.That(root.GetProperty("country_code").GetString(), Is.EqualTo("NL"));
+            Assert.That(root.GetProperty("expires_at").GetInt64(), Is.EqualTo(expiry));
+            Assert.That(root.GetProperty("refresh_token").GetString(),
+                Is.EqualTo(TidalAuth.NoRefreshPlaceholder));
         });
     }
 }
