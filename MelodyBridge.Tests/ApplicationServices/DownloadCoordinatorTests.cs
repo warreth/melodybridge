@@ -28,6 +28,8 @@ public class DownloadCoordinatorTests
         public string Name => "Slow (test)";
         public string Description => "";
         public int Downloads;
+        /// <summary>Attempts that entered DownloadAsync, finished or not.</summary>
+        public int Started;
         public PluginCapabilities Capabilities => PluginCapabilities.Any;
         public Task<bool> IsAvailableAsync(CancellationToken ct = default) => Task.FromResult(true);
 
@@ -38,6 +40,7 @@ public class DownloadCoordinatorTests
             string sourceUrl, string outputDirectory, string? melodyId,
             DownloadQuality? quality = null, CancellationToken ct = default)
         {
+            Interlocked.Increment(ref Started);
             try { await Task.Delay(150, ct); } catch (TaskCanceledException) { }
             Interlocked.Increment(ref Downloads);
             Directory.CreateDirectory(outputDirectory);
@@ -230,11 +233,14 @@ public class DownloadCoordinatorTests
         var run = coordinator.RunFor(id)!;
         Assert.That(run.State, Is.EqualTo(DownloadRunState.Paused));
 
-        // The in-flight track may finish (by design: pause is cooperative).
-        await Task.Delay(400);
-        var settledAt = downloader.Downloads;
+        // The in-flight track may finish (by design: pause is cooperative),
+        // but no new attempt may start. Waiting for the start count to stop
+        // moving is deterministic; a fixed delay raced the slow downloader
+        // under full-suite load.
+        var started = await WaitForStableAsync(() => downloader.Started,
+            TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(20));
         await Task.Delay(600);
-        Assert.That(downloader.Downloads, Is.EqualTo(settledAt), "no new downloads while paused");
+        Assert.That(downloader.Started, Is.EqualTo(started), "no new downloads while paused");
 
         coordinator.Start(id); // resume path
         await WaitForAsync(() => coordinator.RunFor(id)?.State == DownloadRunState.Finished, TimeSpan.FromSeconds(20));
@@ -446,5 +452,31 @@ public class DownloadCoordinatorTests
             if (condition()) return;
             await Task.Delay(50);
         }
+    }
+
+    /// <summary>
+    /// Waits until the observed count has not moved for <paramref name="stableFor"/>,
+    /// then returns it. Deterministic where a fixed delay is not: the caller
+    /// asserts that the count stays put afterwards.
+    /// </summary>
+    private static async Task<int> WaitForStableAsync(
+        Func<int> value, TimeSpan stableFor, TimeSpan timeout)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+        var current = value();
+        var stableSince = DateTime.UtcNow;
+        while (DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(50);
+            var next = value();
+            if (next != current)
+            {
+                current = next;
+                stableSince = DateTime.UtcNow;
+                continue;
+            }
+            if (DateTime.UtcNow - stableSince >= stableFor) return current;
+        }
+        return current;
     }
 }
