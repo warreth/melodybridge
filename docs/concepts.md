@@ -221,7 +221,9 @@ and Opus files stay near full band even at low bitrates, so a dark mix or an
 Opus file is never called inflated and never gets a quality hint. Only a steep
 codec corner, well below what the declared bitrate needs, counts.
 
-<img src="/screens/playlist-details.webp" alt="Playlist details page with track quality columns and a download in progress" width="800">
+<img src="/screens/playlist-details.webp" alt="Playlist details page with a hint box counting two open quality decisions" width="800">
+
+<img src="/screens/playlist-tracks.webp" alt="Track rows with a length review and a spectrum review, each offering Keep and Retry" width="800">
 
 ## Track identity
 

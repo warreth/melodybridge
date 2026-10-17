@@ -245,7 +245,7 @@ The error on a track row is the reason the waterfall gave up:
 | *sources only had versions with the wrong length* | Nothing matched the expected duration, likely a different edit of the track |
 | *sources returned files that are not audio* | The plugin got junk; it was deleted. Retry, the waterfall may pick another source next run |
 | *no source had this track* | Nothing matched at all. Check the spelling in the source playlist |
-| *no other provider is available: X delivered the flagged file and was skipped* | You chose Retry on X, and no other enabled plugin can serve this quality. Let a later attempt use X again, or settle the file with Keep before retrying |
+| *no other provider is available: X delivered the flagged file and was skipped* | You chose Retry and X was the only enabled plugin left, so there was nothing else to try. Enable another plugin; a later Download attempt may use X again |
 | *corrupt download: ffprobe failed* | The file could not be read at all, so it was deleted and the track marked failed; the next run retries |
 | *archive copy failed: ffmpeg not found on this host* | The download itself is fine; install ffmpeg if you want archive copies |
 
