@@ -111,6 +111,7 @@ containers to run:
 | yt-dlp | YouTube, SoundCloud | Self-contained binary; the Plugins page can update it in place |
 | deemix CLI | Deezer | Runs on Node; the plugin writes your ARL into its config |
 | qobuz-dlp | Qobuz | Runs on Python; the plugin writes your token into its config |
+| tiddl | Tidal | Runs on Python; log in once with `tiddl auth login` inside the container |
 
 The tools travel with the image: `docker compose pull` brings newer versions,
 like the yt-dlp binary does. The image runs on Alpine, which keeps it small:

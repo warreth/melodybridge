@@ -19,7 +19,7 @@ hero:
 features:
   - icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16l-6 7v5l-4 2v-7L4 5z"/></svg>'
     title: Multi-source downloads
-    details: "Qobuz, Deezer, Soulseek, Monochrome, Lucida, SoundCloud, Internet Archive and yt-dlp. Each track goes down the waterfall and stops at the first file that passes your quality bar."
+    details: "Qobuz, Tidal, Deezer, Soulseek, Monochrome, Lucida, SoundCloud, Internet Archive and yt-dlp. Each track goes down the waterfall and stops at the first file that passes your quality bar."
     link: /concepts#the-waterfall
   - icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z"/><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5"/></svg>'
     title: Self-hosted with Docker

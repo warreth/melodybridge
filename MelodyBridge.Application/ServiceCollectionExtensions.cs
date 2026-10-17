@@ -10,6 +10,7 @@ using MelodyBridge.Infrastructure.Playlists;
 using MelodyBridge.Infrastructure.Qobuz;
 using MelodyBridge.Infrastructure.Scanning;
 using MelodyBridge.Infrastructure.Services;
+using MelodyBridge.Infrastructure.Tidal;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -80,6 +81,24 @@ public static class ServiceCollectionExtensions
                 sp.GetRequiredService<DeezerClient>(),
                 sp.GetRequiredService<IPluginConfig>(),
                 sp.GetRequiredService<ILogger<DeemixDownloader>>()));
+
+        // Tidal through the user's own tiddl: the tool owns the login
+        // (tiddl auth login), the plugin searches with that same session
+        // and hands the track URL over.
+        services.AddHttpClient("tidal", c =>
+        {
+            c.DefaultRequestHeaders.UserAgent.ParseAdd("MelodyBridge/1.0 (+https://melodybridge.app)");
+            c.Timeout = TimeSpan.FromSeconds(20);
+        });
+        services.AddSingleton<TidalClient>(sp =>
+            new TidalClient(
+                sp.GetRequiredService<IHttpClientFactory>().CreateClient("tidal"),
+                sp.GetRequiredService<ILogger<TidalClient>>()));
+        services.AddSingleton<IDownloader>(sp =>
+            new TidalDownloader(
+                sp.GetRequiredService<TidalClient>(),
+                sp.GetRequiredService<IPluginConfig>(),
+                sp.GetRequiredService<ILogger<TidalDownloader>>()));
 
         // Monochrome streams lossless FLAC from its official API; the
         // client allows long transfers, the plugin caps each call itself.

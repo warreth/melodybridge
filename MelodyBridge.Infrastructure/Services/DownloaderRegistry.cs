@@ -148,12 +148,14 @@ public class DownloaderRegistry : IDownloaderRegistry
         // its own honest availability), so an untouched order must still be
         // recognized here or the migration would never fire.
         ["soundcloud", "archiveorg", "ytdlp", "qobuz", "deemix", "monochrome", "slskd", "doubledouble", "lucida"],
+        // The DoubleDouble retirement, before Tidal.
+        ["soundcloud", "archiveorg", "ytdlp", "qobuz", "deemix", "monochrome", "slskd", "lucida", "doubledouble"],
     ];
 
     /// <summary>The order a fresh install gets, and the target of the migration.</summary>
     private static readonly string[] CurrentDefaultOrder =
     [
-        "soundcloud", "archiveorg", "ytdlp", "qobuz", "deemix",
+        "soundcloud", "archiveorg", "ytdlp", "qobuz", "deemix", "tidal",
         "monochrome", "slskd", "lucida",
     ];
 

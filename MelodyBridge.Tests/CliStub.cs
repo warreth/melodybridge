@@ -25,7 +25,7 @@ public static class CliStub
         body.AppendLine("prev=\"\"");
         body.AppendLine("for a in \"$@\"; do");
         body.AppendLine("  case \"$prev\" in");
-        body.AppendLine("    -p|--directory) dir=\"$a\";;");
+        body.AppendLine("    -p|--directory|--path) dir=\"$a\";;");
         body.AppendLine("  esac");
         body.AppendLine("  prev=\"$a\"");
         body.AppendLine("done");

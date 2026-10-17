@@ -22,7 +22,7 @@ public class DownloaderCompositionTests
 
         Assert.That(ids, Is.EqualTo(new[]
         {
-            "soundcloud", "archiveorg", "ytdlp", "qobuz", "deemix",
+            "soundcloud", "archiveorg", "ytdlp", "qobuz", "deemix", "tidal",
             "monochrome", "slskd", "lucida", "doubledouble",
         }), "a fresh install tries the plugins in the order AddMelodyBridge registers them");
         // DoubleDouble trails on purpose: it reports itself unavailable

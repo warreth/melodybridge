@@ -114,6 +114,7 @@ Implement this to add a download source. Built-in plugins:
 | `MonochromeDownloader` | `monochrome` | tracks.monochrome.st (official Monochrome API) | Lossless FLAC streams over a plain GET, no account needed; search hits carry an ISRC, which narrows the pool to the exact recording; the base URL is configurable per plugin for mirrors |
 | `SlskdDownloader` | `slskd` | Soulseek, through the user's own slskd instance | Lossless FLAC and high-bitrate MP3/AAC from peers; search and transfer run over slskd's REST API with an API key; locked files and undeclared containers are skipped; the finished file moves out of slskd's downloads folder, whose path the plugin reads from slskd's own options; unavailable until the URL and key are set and slskd is logged in |
 | `QobuzDownloader` | `qobuz` | qobuz-dlp (shipped in the Docker image) | Lossless and hi-res from a paid Qobuz plan; the search runs natively (bundle scrape plus a user token), the download through the CLI into a hidden per-track folder; the plugin seeds the CLI config (app id, private key, secrets) and its token file, so no interactive login is needed; unavailable until the command and a valid token are found |
+| `TidalDownloader` | `tidal` | tiddl (shipped in the Docker image) | Lossless and hi-res from the user's own Tidal session; the search runs against Tidal's v1 API with the token out of tiddl's `auth.json` (ISRC-first, like Qobuz), the download through `tiddl download url` with the tier mapped onto the requested band; unavailable until the command and a logged-in tiddl session are found, or when that session expired |
 | `DeemixDownloader` | `deemix` | deemix CLI (shipped in the Docker image, runs on Node) | Deezer MP3/FLAC with the user's ARL; the search runs against Deezer's public API, the download through the CLI; the ARL setting is written into deemix's config (through `DEEMIX_DATA_DIR`) before every run, so the CLI never prompts; runs are serialized and the finished file moves out of the downloads folder |
 | `DoubleDoubleDownloader` | `doubledouble` | us./eu.doubledouble.top | Retired from the shipped order: the site is captcha-gated on every submission, so `IsAvailableAsync` only reports ready when its captcha config says `active: false`. Submit-and-poll rips of direct track URLs; `SearchAsync` returns null by design |
 | `SoundCloudDownloader` | `soundcloud` | SoundCloud (via yt-dlp `scsearch`) | Original uploads, often 320 kbps; top-5 ranked; rejects files under 128 kbps |
@@ -333,7 +334,8 @@ dotnet test MelodyBridge.sln --filter "FullyQualifiedName!~Tests.Integration"
 # needs yt-dlp on PATH + ffprobe; the slskd tests also need
 # SLSKD_URL, SLSKD_API_KEY and SLSKD_DOWNLOADS_PATH; the premium tests
 # need QOBUZ_TOKEN (or qobuz-dlp's token file) plus QOBUZ_DLP_COMMAND,
-# and DEEMIX_COMMAND, DEEMIX_DOWNLOADS_PATH and DEEMIX_CLI_JS for deemix
+# DEEMIX_COMMAND, DEEMIX_DOWNLOADS_PATH and DEEMIX_CLI_JS for deemix,
+# and a logged-in tiddl (TIDDL_COMMAND, TIDDL_PATH) for Tidal
 # (each group is skipped without its setup)
 dotnet test MelodyBridge.sln --filter "Category=PlaylistStore|Category=Live"
 ```
