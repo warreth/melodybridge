@@ -1,5 +1,6 @@
 using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.Downloaders;
+using MelodyBridge.Infrastructure.Services;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace MelodyBridge.Tests.Infrastructure;
@@ -148,6 +149,46 @@ public class CliToolDownloaderTests
                 "the work folder is cleaned up after a failure");
         });
     }
+
+    [Test]
+    public async Task DownloadAsync_SuccessWithoutAFile_ReportsTheToolsOwnLastOutput()
+    {
+        if (OperatingSystem.IsWindows()) Assert.Ignore("POSIX shell stub");
+
+        var toolDir = NewDir();
+        var config = new StubPluginConfig();
+        config.Set("stubtool", "command", CliStub.Custom(toolDir, "say.sh",
+            "echo '[Track] Track not found at desired bitrate and no alternative found!'\n"
+            + "echo '[Track] Download complete'\n"
+            + "exit 0\n"));
+        var tool = new StubTool(config, ".mb-stub");
+
+        var result = await tool.DownloadAsync("https://example.com/x", NewDir(), "mb-say");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.False);
+            Assert.That(result.ErrorMessage, Does.Contain("no audio file"));
+            Assert.That(result.ErrorMessage, Does.Contain("Track not found at desired bitrate"),
+                "the tool's own refusal must reach the caller");
+            Assert.That(result.ErrorMessage, Does.Not.Contain("Download complete"),
+                "chatter is not the reason");
+        });
+    }
+
+    [Test]
+    public void LastOutputLine_SkipsProgressAndDownloadComplete()
+    {
+        var result = new CliRunner.Result(0,
+            "[Track] Downloading: 42%\nwhat really happened\n[Track] Download complete\n", "");
+
+        Assert.That(CliToolDownloader.LastOutputLine(result), Is.EqualTo("what really happened"));
+    }
+
+    [Test]
+    public void LastOutputLine_NoOutput_Empty()
+        => Assert.That(CliToolDownloader.LastOutputLine(new CliRunner.Result(0, "", "")),
+            Is.Empty);
 
     [Test]
     public async Task DownloadAsync_Success_MovesSniffsAndTagsTheFile()

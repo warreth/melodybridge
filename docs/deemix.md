@@ -34,6 +34,11 @@ best quality your account allows, up to the requested maximum, and the plugin
 moves the file into the playlist folder. Runs are serialized, so parallel
 tracks never pick each other's files.
 
+When a track has no file at the requested tier (an older release without
+FLAC, or an account without lossless), deemix stops without writing anything
+and the plugin reports deemix's own message. The waterfall then moves on to
+the next enabled plugin.
+
 ## Other setups
 
 The command field takes any deemix invocation, so the plugin also works with a

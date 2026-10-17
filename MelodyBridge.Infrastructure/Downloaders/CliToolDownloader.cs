@@ -131,6 +131,26 @@ public abstract class CliToolDownloader : IDownloader
         return $"{toolLabel} failed (exit {result.ExitCode}): {last}";
     }
 
+    /// <summary>
+    /// The tool's last meaningful output line, so a run that exits 0
+    /// without a file still says why: deemix reports "Track not found at
+    /// desired bitrate" that way. Progress lines and deemix's per-track
+    /// "Download complete" line are skipped. Internal for tests.
+    /// </summary>
+    internal static string LastOutputLine(CliRunner.Result result)
+    {
+        var text = string.IsNullOrWhiteSpace(result.StdErr) ? result.StdOut : result.StdErr;
+        var lines = text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        for (var i = lines.Length - 1; i >= 0; i--)
+        {
+            var line = lines[i];
+            if (line.EndsWith('%')) continue; // download progress
+            if (line.EndsWith("Download complete", StringComparison.OrdinalIgnoreCase)) continue;
+            return line.Length > 300 ? line[..300] + "..." : line;
+        }
+        return "";
+    }
+
     // ── The shared download flow ─────────────────────────────────────────
 
     public async Task<DownloaderDownloadResult> DownloadAsync(
@@ -179,7 +199,15 @@ public abstract class CliToolDownloader : IDownloader
 
             var produced = CliRunner.FindNewestAudioFile(workDirectory);
             if (produced is null)
-                return Fail(NoFileMessage);
+            {
+                // A tool can exit 0 and still write nothing (deemix stops on
+                // a track with no file at the requested tier). Its own last
+                // line says more than the generic message.
+                var said = LastOutputLine(result);
+                return Fail(said.Length > 0
+                    ? $"{NoFileMessage}. {ToolLabel} said: {said}"
+                    : NoFileMessage);
+            }
 
             var target = FileMove.UniqueTarget(outputDirectory, Path.GetFileName(produced));
             FileMove.MoveAcrossDevices(produced, target);
