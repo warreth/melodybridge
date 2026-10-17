@@ -105,6 +105,7 @@ Advanced page.
 | Qobuz | Lossless and hi-res files from your own Qobuz subscription, through qobuz-dlp. See [Qobuz and qobuz-dlp](/qobuz) |
 | Deezer | MP3 or FLAC from your own Deezer account, through the deemix CLI. See [Deezer and deemix](/deemix) |
 | DoubleDouble | Direct-URL rips from Tidal, Qobuz, Deezer, Amazon and SoundCloud. It cannot search by name, so the waterfall only uses it for track URLs it is handed |
+| Jumo | Qobuz rips through the community front-end jumo-dl.pages.dev, no account needed. See [Jumo (Qobuz rips)](/jumo) |
 | SoundCloud | Original uploads by the artist, usually 128 kbps or better |
 | Internet Archive | Public recordings and digitizations from archive.org |
 | yt-dlp | YouTube: audio-only best stream, top-5 ranked by match and duration |
@@ -144,18 +145,52 @@ converted after the fact from the file you already have.
 
 ### Real files only
 
-A track counts as downloaded only after it survives three checks:
+A track first has to be real audio, and only genuinely broken files are thrown
+away:
 
 1. The file's bytes are sniffed for a real audio signature. An HTML error page
    or a JSON body served with a 200 status is deleted, and the waterfall
    continues.
-2. ffprobe parses the file. The duration must roughly match what the playlist
-   promised; the same check runs on search hits before a download even starts,
-   so previews and wrong edits are usually stopped earlier.
-3. The measured bitrate must land inside your band.
+2. ffprobe parses the file. A file it cannot read at all (truncated mid-frame,
+   junk under an audio header) is deleted and the track is marked failed, so a
+   later run retries it. A wrong length is not a broken file: see the review
+   below.
+3. The measured bitrate must land inside your band. A file outside the band is
+   rejected and deleted, and the waterfall moves on.
 
-Anything corrupt is deleted and marked failed with the reason, and the next run
-retries it. Nothing half-broken is left in your library.
+The duration and band are also checked against search hits before any bytes are
+spent, so previews and wrong edits are usually stopped earlier.
+
+Nothing broken is left in your library. Files that are playable but doubtful
+take the path below instead.
+
+### The quality review
+
+Two checks flag instead of delete. A file whose length differs from what the
+playlist promised, and a file whose bandwidth says the declared bitrate is
+inflated, both stay in the library. The track row gets a **!** pill explaining
+the doubt and two buttons:
+
+- **Keep** settles it: the file stays exactly as it is and the flag is cleared.
+- **Retry** settles it the other way: the flagged file is deleted and
+  downloaded again, with the provider that delivered it skipped for that
+  attempt, so another source gets its turn. The skipped provider is only out
+  of this one attempt; when nothing else can deliver, a later try may use it
+  again.
+
+A playlist with open flags shows a hint box counting them, and **Needs
+attention** in the track filter lists flagged rows next to failed ones.
+
+The windows are configured under **Settings, Quality**:
+
+| Setting | Default | What it decides |
+|---|---|---|
+| Length tolerance (seconds) | 30 | The absolute part of the allowed length difference |
+| Length tolerance (percent) | 10 | The relative part; the larger of the two wins |
+| Spectrum strictness | Balanced (two classes below) | How far the measured bandwidth may sit below the declared bitrate before a file counts as inflated |
+
+A 5:05 version of a 5:00 track passes with the defaults; a 5:45 extended mix
+does not and waits for your call.
 
 ### The spectrum check
 
@@ -173,15 +208,18 @@ Set the mode under **Settings, Quality, Spectrum check**:
 | Fast | Analyze the first minute (the default) |
 | Thorough | Analyze the whole file (the first 15 minutes of very long files) |
 
-The check only warns, it never deletes. Track rows get an **!** pill with the
-reason, and a playlist whose downloads look inflated shows a hint box counting
-them. It needs ffmpeg and ffprobe on the host; without either, files simply
-skip the check. It stays honest about what a spectrum can and cannot prove: a
-high end that fades out gently is music that was mixed that way, not a
-mislabelled rip, and Opus files stay near full band even at low bitrates, so a
-dark mix or an Opus file is never called inflated and never gets a quality
-hint. Only a steep codec corner, well below what the declared bitrate needs,
-counts.
+**Spectrum strictness** is the line in the sand: with the default, a 320 kbps
+header over 192 kbps of real bandwidth is flagged and one class below is not.
+An inflated file joins the quality review, so it stays on disk and you pick
+Keep or Retry. A gentle low end that is not a codec corner gets an advisory
+**quality hint** on the row instead, and there is nothing to decide.
+
+It needs ffmpeg and ffprobe on the host; without either, files simply skip the
+check. It stays honest about what a spectrum can and cannot prove: a high end
+that fades out gently is music that was mixed that way, not a mislabelled rip,
+and Opus files stay near full band even at low bitrates, so a dark mix or an
+Opus file is never called inflated and never gets a quality hint. Only a steep
+codec corner, well below what the declared bitrate needs, counts.
 
 <img src="/screens/playlist-details.webp" alt="Playlist details page with track quality columns and a download in progress" width="800">
 

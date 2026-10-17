@@ -57,9 +57,20 @@ The primary download is never re-encoded, so a strict filter can make a track
 fail when no source can serve that exact format. The track row says so when it
 happens.
 
-**Real quality check** holds the spectrum check mode: **Off** to trust files,
-**Fast** to analyze the first minute (the default), or **Thorough** for the whole
-file (capped at 15 minutes). See [How it works](/concepts) for what it measures.
+**Real quality check** verifies every download after the fact. A file whose
+length differs from the playlist, or whose bandwidth says the declared bitrate
+is inflated, is kept and flagged on its track row for a **Keep** or **Retry**
+decision; see [the quality review](/concepts#the-quality-review). Three knobs
+set how strict the checks are:
+
+| Setting | Default | What it decides |
+|---|---|---|
+| Spectrum check | Fast | Off trusts files, Fast analyzes the first minute, Thorough the whole file (capped at 15 minutes) |
+| Spectrum strictness | Balanced | How many bitrate classes (96/128/160/192/256/320) below the declared bitrate the measured bandwidth may sit before a file counts as inflated. Strict flags one class, Lenient three |
+| Length tolerance (seconds / percent) | 30 / 10 | The allowed length difference, the larger of the two wins. A file outside the window is flagged for a decision, not deleted |
+
+Broken bytes (a file ffprobe cannot read at all) are still deleted and the
+track marked failed, and the next run retries it.
 
 ### Network
 
@@ -132,7 +143,12 @@ tracks** on the Advanced page to see the file names, including
 `archive: <name>` chips for archive copies.
 
 - The filter box narrows the list; **Needs attention** shows only failed tracks
-  and tracks waiting for a dedup decision.
+  and tracks waiting for a dedup or quality decision.
+- A flagged track row (wrong length or inflated bitrate) shows a **!** pill and
+  two buttons: **Keep** accepts the file as it is, **Retry** downloads it again
+  while skipping the provider that delivered the flagged file. The file stays
+  in the library until you decide. See
+  [the quality review](/concepts#the-quality-review).
 - **Export CSV** downloads the whole track list as a spreadsheet.
 - **Refresh** fetches the playlist again and applies the sync mode.
 - **Download missing** starts a download run. While one is live, the button is
@@ -229,11 +245,13 @@ The error on a track row is the reason the waterfall gave up:
 | *sources only had versions with the wrong length* | Nothing matched the expected duration, likely a different edit of the track |
 | *sources returned files that are not audio* | The plugin got junk; it was deleted. Retry, the waterfall may pick another source next run |
 | *no source had this track* | Nothing matched at all. Check the spelling in the source playlist |
-| *corrupt download: duration mismatch* | The file was deleted and the track marked failed; the next run retries |
+| *no other provider is available: X delivered the flagged file and was skipped* | You chose Retry on X, and no other enabled plugin can serve this quality. Let a later attempt use X again, or settle the file with Keep before retrying |
+| *corrupt download: ffprobe failed* | The file could not be read at all, so it was deleted and the track marked failed; the next run retries |
 | *archive copy failed: ffmpeg not found on this host* | The download itself is fine; install ffmpeg if you want archive copies |
 
-A **needs review** state is not a failure: it means two playlists disagree about
-a track's quality and you get to pick, see [How it works](/concepts).
+A **needs review** state is not a failure either: it means two playlists
+disagree about a track's quality and you get to pick, see
+[How it works](/concepts).
 
 One more place to look: the **Connections** panel on the dashboard shows the
 state of Spotify, YouTube, your media servers and FlareSolverr at a glance.

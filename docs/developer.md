@@ -65,6 +65,7 @@ Spotify playlist URL
    → PlaylistStore (SQLite snapshot, deterministic MelodyIds, sync modes)
    → DownloadMissingAsync → IsrcResolver (Deezer) → DownloadManager waterfall
    → MP3 file + title/artist tags + MELODY_ID written by the manager
+   → post-download verification: broken files fail, doubtful files flag
    → LibraryScanner (reads tags, keeps DB current as files move)
    → SyncJobRunner → M3uGenerator (#EXTINF) or IMediaServerSync (Jellyfin, Plex, Navidrome)
 
@@ -139,6 +140,7 @@ Implement this to add a download source. Built-in plugins:
 | `QobuzDownloader` | `qobuz` | qobuz-dlp (shipped in the Docker image) | Lossless and hi-res from a paid Qobuz plan; the search runs natively (bundle scrape plus a user token), the download through the CLI into a hidden per-track folder; the plugin seeds the CLI config (app id, private key, secrets) and its token file, so no interactive login is needed; unavailable until the command and a valid token are found |
 | `DeemixDownloader` | `deemix` | deemix CLI (shipped in the Docker image, runs on Node) | Deezer MP3/FLAC with the user's ARL; the search runs against Deezer's public API, the download through the CLI; the ARL setting is written into deemix's config (through `DEEMIX_DATA_DIR`) before every run, so the CLI never prompts; runs are serialized and the finished file moves out of the downloads folder |
 | `DoubleDoubleDownloader` | `doubledouble` | us./eu.doubledouble.top | Submit-and-poll rips of direct track URLs (Tidal, Qobuz, Deezer, Amazon); `SearchAsync` returns null by design, the site search is captcha-gated; no quality parameter, so its manifest is uncontrollable too |
+| `JumoDownloader` | `jumo` | jumo-dl.pages.dev (community Qobuz front-end) | No account needed; search and stream descriptors come from the service's guarded API (request-context headers plus ECDH/AES-GCM encrypted responses), the audio comes direct from the signed Qobuz CDN URLs and is AES-CTR decrypted locally; lossless lands as native FLAC, MP3 320 as plain MP3; the service rate limits (429) and can refuse some networks (403), so the plugin reports unavailability instead of hammering it |
 | `SoundCloudDownloader` | `soundcloud` | SoundCloud (via yt-dlp `scsearch`) | Original uploads, often 320 kbps; top-5 ranked; rejects files under 128 kbps |
 | `ArchiveOrgDownloader` | `archiveorg` | Internet Archive (public JSON APIs) | Public-domain and community recordings; picks the matching file inside a multi-track item, not the first one; rejects files under 128 kbps |
 | `YtDlpDownloader` | `ytdlp` | YouTube (via yt-dlp) | Widest fallback; audio-only best stream, top-5 ranked by match and duration; explicit formats transcode to the requested cap |
@@ -186,13 +188,25 @@ public interface IDownloadManager
 {
     Task<string?> DownloadAsync(string sourceUrl, string outputDirectory, string melodyId, CancellationToken ct = default);
     Task<string?> DownloadTrackAsync(TrackQuery query, string outputDirectory, string melodyId,
-        DownloadFallback? fallback = null, CancellationToken ct = default);
+        DownloadFallback? fallback = null, string? avoidPluginId = null, CancellationToken ct = default);
     IReadOnlyList<DownloadProgress> SnapshotProgress();
+    string? LastPluginId(string melodyId);
     string? LastFailure(string melodyId);
 }
 ```
 
-`DownloadTrackAsync` routes the enabled plugins through `QualityRouter` first: incompatible plugins are excluded before any network call, survivors are ranked for the request, and the first successful download wins. Without a fallback policy the request is strict: exactly the requested quality or nothing. With a `DownloadFallback` (a non-strict playlist) a miss walks the `QualityLadder`, stepping down through the levels the enabled plugins declare. Every plugin call is individually guarded (a plugin that throws on availability, search or download is skipped, never fatal), each hit is duration-checked before any bytes are spent, and each produced file must sniff as real audio. When every plugin is excluded the track fails fast with "your quality filters excluded every plugin". On success the manager writes the MELODY_ID tag. `DownloadAsync` passes a direct URL to the plugins that can handle it.
+`DownloadTrackAsync` routes the enabled plugins through `QualityRouter` first: incompatible plugins are excluded before any network call, survivors are ranked for the request, and the first successful download wins. Without a fallback policy the request is strict: exactly the requested quality or nothing. With a `DownloadFallback` (a non-strict playlist) a miss walks the `QualityLadder`, stepping down through the levels the enabled plugins declare. Every plugin call is individually guarded (a plugin that throws on availability, search or download is skipped, never fatal), each hit is duration-checked before any bytes are spent, and each produced file must sniff as real audio. When every plugin is excluded the track fails fast with "your quality filters excluded every plugin". On success the manager writes the MELODY_ID tag and records `LastPluginId` for the retry path. `DownloadAsync` passes a direct URL to the plugins that can handle it.
+
+`avoidPluginId` drops one plugin from the whole call, ladder steps included. The quality review uses it when the user picks Retry: the flagged file's `Tracks.SourcePluginId` becomes the next attempt's avoid hint, so the provider that delivered the flagged file gets no second chance at the same track. The hint is one-shot (the store clears it when the attempt starts), and when nothing else can serve the request `LastFailure` says exactly that instead of "no source had this track".
+
+### The post-download verdicts
+
+`PlaylistStore` verifies every downloaded file twice before it counts as done:
+
+- `FileIntegrity.Check` reads the real duration with ffprobe and classifies the file as OK, `Corrupt` (unreadable or truncated: deleted, track failed, retried later) or `DurationMismatch` (the file stays and is flagged).
+- `SpectrumAnalyzer.Verify` measures the real bandwidth. An inflated result flags the file; a low but honest bandwidth leaves an advisory `Warning`.
+
+A flag writes `Tracks.ReviewKind` (`length`, `spectrum`, or both joined by `+`, see `TrackReview`) and `ReviewText`. `ResolveQualityReviewAsync` settles it: Keep clears the columns, Retry deletes the primary and archive files, sets `DownloadStatus = "pending"` and copies `SourcePluginId` into the one-shot `AvoidPluginId`. `PlaylistStore.Verification` carries the live `VerificationOptions` (spectrum mode and class gap, length tolerances); the Server seeds it from the settings table at startup and the Settings page replaces it on save, so a change applies without a restart.
 
 ## ISRC: exact matching
 
