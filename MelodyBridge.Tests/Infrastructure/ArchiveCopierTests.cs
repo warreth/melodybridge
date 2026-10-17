@@ -145,6 +145,37 @@ public class ArchiveCopierTests
     }
 
     [Test]
+    public void LengthMismatchedPrimary_StillGetsItsArchiveCopy()
+    {
+        if (!MediaToolsAvailable()) Assert.Ignore("ffmpeg or ffprobe not installed on this host");
+
+        // The playlist expects 60s but the file is 2s: exactly the state a
+        // length review flags. The archive check must compare against the
+        // primary's own duration, not the (wrong) expectation, so the
+        // flagged file still gets its archive copy.
+        var primary = MakeSilentWav(2);
+        var archiveDir = FreshArchiveDir();
+
+        var result = ArchiveCopier.Copy(primary, archiveDir, "opus",
+            melodyId: "mel-review-archive", title: "Short", artist: "No One",
+            album: null, trackNumber: null,
+            expectedDuration: TimeSpan.FromSeconds(60));
+
+        Assert.That(result.Ok, Is.True,
+            $"a flagged primary keeps its archive copy; reason: {result.Reason}");
+        Assert.That(File.Exists(result.ArchivePath), Is.True);
+
+        var primaryDuration = FileIntegrity.MeasureDuration(primary);
+        var archiveDuration = FileIntegrity.MeasureDuration(result.ArchivePath);
+        Assert.That(primaryDuration, Is.Not.Null);
+        Assert.That(archiveDuration, Is.Not.Null);
+        Assert.That(
+            Math.Abs((archiveDuration!.Value - primaryDuration!.Value).TotalSeconds),
+            Is.LessThan(2.0),
+            "the archive mirrors the primary's own length, not the playlist expectation");
+    }
+
+    [Test]
     public void MissingPrimary_ReturnsFailureInsteadOfThrowing()
     {
         var archiveDir = FreshArchiveDir();

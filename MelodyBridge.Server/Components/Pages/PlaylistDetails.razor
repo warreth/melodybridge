@@ -684,7 +684,7 @@ else
             }
             else
             {
-                Notifications.Warn($"Could not resolve '{choice.Track.Title}': the other playlist's file is gone. Retry the download.");
+                Notifications.Warn($"Could not resolve '{choice.Track.Title}': the other playlist's file is gone, or it is still waiting for a quality decision. Retry the download.");
             }
             await Load();
         }

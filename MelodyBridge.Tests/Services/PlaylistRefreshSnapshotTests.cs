@@ -108,6 +108,10 @@ public class PlaylistRefreshSnapshotTests
                 track.Warning = "low match confidence";
                 track.LastSeenAt = seenAt;
                 track.SkipDedup = true;
+                track.ReviewKind = "length+spectrum";
+                track.ReviewText = "duration mismatch: 345.2s vs expected 300s; bitrate looks inflated";
+                track.SourcePluginId = "ytdlp";
+                track.AvoidPluginId = "archiveorg";
                 await db.SaveChangesAsync();
             }
 
@@ -133,6 +137,13 @@ public class PlaylistRefreshSnapshotTests
                     Assert.That(track.LastSeenAt, Is.EqualTo(seenAt));
                     Assert.That(track.SkipDedup, Is.True,
                         "a pending Download new decision must not be lost in the rebuild");
+                    Assert.That(track.ReviewKind, Is.EqualTo("length+spectrum"),
+                        "an open Keep or Retry review must survive the rebuild");
+                    Assert.That(track.ReviewText, Does.Contain("duration mismatch"));
+                    Assert.That(track.SourcePluginId, Is.EqualTo("ytdlp"),
+                        "Retry still needs to know who delivered the flagged file");
+                    Assert.That(track.AvoidPluginId, Is.EqualTo("archiveorg"),
+                        "a retry hint set before the rebuild must still steer that attempt");
                 });
             }
         }

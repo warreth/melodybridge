@@ -87,11 +87,24 @@ public static class ArchiveCopier
             if (!File.Exists(targetPath) || new FileInfo(targetPath).Length == 0)
                 return new(false, targetPath, "ffmpeg produced no output");
 
-            var integrity = FileIntegrity.Check(targetPath, expectedDuration);
+            // The archive mirrors the primary, so the primary's own
+            // measured length is the yardstick, never the playlist's
+            // expectation: a flagged wrong-length file must still get its
+            // archive copy, while a silently truncated transcode is
+            // caught. The tight window allows codec padding; only
+            // unreadable output counts as corrupt.
+            var primaryDuration = FileIntegrity.MeasureDuration(primaryPath);
+            var tolerance = primaryDuration is { } source
+                ? TimeSpan.FromSeconds(Math.Max(2, source.TotalSeconds * 0.02))
+                : (TimeSpan?)null;
+            var integrity = FileIntegrity.Check(targetPath, primaryDuration, tolerance);
             if (!integrity.Ok)
             {
                 TryDelete(targetPath);
-                return new(false, targetPath, $"archive transcode looks corrupt: {integrity.Reason}");
+                return new(false, targetPath,
+                    integrity.Issue == IntegrityIssue.Corrupt
+                        ? $"archive transcode looks corrupt: {integrity.Reason}"
+                        : $"archive transcode does not match the source: {integrity.Reason}");
             }
 
             // Metadata handover: ffmpeg keeps Vorbis and ID3 tags in most

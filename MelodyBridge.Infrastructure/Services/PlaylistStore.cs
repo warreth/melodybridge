@@ -412,8 +412,11 @@ public class PlaylistStore
     /// <summary>
     /// Best existing file for the melody id: a downloaded row in another
     /// playlist (or a non-hardlink original in this one), whose file is
-    /// still on disk. Originals win over hardlinks so the link target is
-    /// the primary copy, and newer rows win over stale ones.
+    /// still on disk. Rows with an open quality review are not candidates:
+    /// linking one would carry a file the other playlist has not accepted
+    /// yet into this playlist as if the user approved it. Originals win
+    /// over hardlinks so the link target is the primary copy, and newer
+    /// rows win over stale ones.
     /// </summary>
     public async Task<DedupMatch?> FindDedupCandidateAsync(
         string melodyId, int excludingTrackId, CancellationToken ct = default)
@@ -423,6 +426,7 @@ public class PlaylistStore
             .Where(t => t.MelodyId == melodyId
                 && t.Id != excludingTrackId
                 && t.DownloadStatus == "downloaded"
+                && t.ReviewKind == null
                 && t.CurrentPath != null)
             .OrderByDescending(t => t.IsHardLink == false)
             .ThenByDescending(t => t.LastSeenAt ?? DateTime.MinValue)
@@ -1139,6 +1143,14 @@ public class PlaylistStore
                     mapped.Warning = prior.Warning;
                     mapped.LastSeenAt = prior.LastSeenAt;
                     mapped.SkipDedup = prior.SkipDedup;
+                    // An open quality review and its retry hint describe
+                    // the file and the provider, not the source metadata:
+                    // a refresh must not silently drop the Keep/Retry
+                    // decision or the one-shot avoid hint.
+                    mapped.ReviewKind = prior.ReviewKind;
+                    mapped.ReviewText = prior.ReviewText;
+                    mapped.SourcePluginId = prior.SourcePluginId;
+                    mapped.AvoidPluginId = prior.AvoidPluginId;
                     if (!string.IsNullOrEmpty(prior.MediaType))
                         mapped.MediaType = prior.MediaType;
                 }

@@ -189,6 +189,39 @@ public class PlaylistStoreDedupTests
     }
 
     [Test]
+    public async Task FlaggedFile_IsNotOfferedForDedup_UntilItsReviewIsSettled()
+    {
+        var (dirA, dirB, sourceFile) = SetupTwoPlaylists();
+        var (trackAId, trackBId) = await SeedSharedTrack(dirA, dirB, sourceFile);
+        var store = NewStore(new ThrowingDownloader());
+
+        Assert.That(await store.FindDedupCandidateAsync("spotify:shared-1", trackBId), Is.Not.Null,
+            "a settled file is the normal dedup candidate");
+
+        await using (var db = _factory.CreateDbContext())
+        {
+            var a = db.Tracks.Single(t => t.Id == trackAId);
+            a.ReviewKind = TrackReview.Length;
+            a.ReviewText = "duration mismatch: 345.2s vs expected 300s";
+            await db.SaveChangesAsync();
+        }
+
+        Assert.That(await store.FindDedupCandidateAsync("spotify:shared-1", trackBId), Is.Null,
+            "linking a file with an open review would fake a user approval that never happened");
+
+        // Settling the review (Keep) makes the file a candidate again.
+        await using (var db = _factory.CreateDbContext())
+        {
+            var a = db.Tracks.Single(t => t.Id == trackAId);
+            a.ReviewKind = null;
+            a.ReviewText = null;
+            await db.SaveChangesAsync();
+        }
+        Assert.That(await store.FindDedupCandidateAsync("spotify:shared-1", trackBId), Is.Not.Null,
+            "an accepted file links like any other");
+    }
+
+    [Test]
     public async Task ResolveReview_HardlinkExisting_LinksAndMarksTheRow()
     {
         var (dirA, dirB, sourceFile) = SetupTwoPlaylists();

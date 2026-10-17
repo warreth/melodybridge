@@ -194,6 +194,26 @@ public class CorruptionCheckTests
             $"unparseable bytes are broken, not just short ({result.Reason})");
     }
 
+    [Test]
+    public void MeasureDuration_ReadsTheRealLength_AndNullForJunk()
+    {
+        if (!FfmpegAvailable()) Assert.Ignore("ffmpeg not installed");
+
+        var path = Path.Combine(_dir, "measure.mp3");
+        Assert.That(RunFfmpeg(
+            $"-y -f lavfi -i anullsrc=r=44100:cl=stereo -t 10 -c:a libmp3lame -b:a 128k \"{path}\""), Is.Empty);
+
+        var measured = FileIntegrity.MeasureDuration(path);
+        Assert.That(measured, Is.Not.Null);
+        Assert.That(measured!.Value.TotalSeconds, Is.EqualTo(10).Within(0.5),
+            "the measured length is the real file's");
+
+        var junk = Path.Combine(_dir, "junk.mp3");
+        System.IO.File.WriteAllBytes(junk, RandomBytes(4096));
+        Assert.That(FileIntegrity.MeasureDuration(junk), Is.Null,
+            "unmeasurable bytes report null instead of a bogus length");
+    }
+
     private static byte[] RandomBytes(int length)
     {
         var bytes = new byte[length];

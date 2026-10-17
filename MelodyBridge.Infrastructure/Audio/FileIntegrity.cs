@@ -46,9 +46,45 @@ public static class FileIntegrity
     public static IntegrityResult Check(
         string path, TimeSpan? expectedDuration = null, TimeSpan? tolerance = null)
     {
+        var (seconds, failure) = ProbeDuration(path);
+        if (failure is not null)
+            return new(false, failure, IntegrityIssue.Corrupt);
+        if (seconds is not > 0)
+            return new(false, "no duration", IntegrityIssue.Corrupt);
+
+        if (expectedDuration is { } expected)
+        {
+            var allowed = tolerance ?? TimeSpan.FromSeconds(
+                Math.Max(DefaultTolerance.TotalSeconds, expected.TotalSeconds * 0.1));
+            if (Math.Abs(seconds.Value - expected.TotalSeconds) > allowed.TotalSeconds)
+                return new(false,
+                    $"duration mismatch: {seconds.Value:0.##}s vs expected {expected.TotalSeconds:0.##}s",
+                    IntegrityIssue.DurationMismatch);
+        }
+
+        return new(true, null);
+    }
+
+    /// <summary>
+    /// ffprobe duration of a local file, or null when it cannot be
+    /// measured. The archive copier compares a transcode against its
+    /// primary with this, so a flagged wrong-length primary does not
+    /// block its own archive copy.
+    /// </summary>
+    public static TimeSpan? MeasureDuration(string path)
+        => ProbeDuration(path).Seconds is { } seconds and > 0
+            ? TimeSpan.FromSeconds(seconds)
+            : null;
+
+    /// <summary>
+    /// One ffprobe run: the parsed duration in seconds, or the terse
+    /// failure that explains why there is none.
+    /// </summary>
+    private static (double? Seconds, string? Failure) ProbeDuration(string path)
+    {
         var ffprobe = SpectrumAnalyzer.FindFfprobe();
         if (ffprobe is null)
-            return new(false, "ffprobe not found", IntegrityIssue.Corrupt);
+            return (null, "ffprobe not found");
 
         try
         {
@@ -60,30 +96,13 @@ public static class FileIntegrity
                 "-of", "json",
                 path,
             }, timeoutMs: 15000);
-            if (result.TimedOut)
-                return new(false, "ffprobe timed out", IntegrityIssue.Corrupt);
-            if (result.ExitCode != 0)
-                return new(false, "ffprobe failed", IntegrityIssue.Corrupt);
-
-            var duration = ParseDuration(result.Stdout);
-            if (duration is null or <= 0)
-                return new(false, "no duration", IntegrityIssue.Corrupt);
-
-            if (expectedDuration is { } expected)
-            {
-                var allowed = tolerance ?? TimeSpan.FromSeconds(
-                    Math.Max(DefaultTolerance.TotalSeconds, expected.TotalSeconds * 0.1));
-                if (Math.Abs(duration.Value - expected.TotalSeconds) > allowed.TotalSeconds)
-                    return new(false,
-                        $"duration mismatch: {duration.Value:0.##}s vs expected {expected.TotalSeconds:0.##}s",
-                        IntegrityIssue.DurationMismatch);
-            }
-
-            return new(true, null);
+            if (result.TimedOut) return (null, "ffprobe timed out");
+            if (result.ExitCode != 0) return (null, "ffprobe failed");
+            return (ParseDuration(result.Stdout), null);
         }
         catch
         {
-            return new(false, "ffprobe failed", IntegrityIssue.Corrupt);
+            return (null, "ffprobe failed");
         }
     }
 
