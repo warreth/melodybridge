@@ -423,6 +423,57 @@ public class PlaylistStoreStatsTests
     }
 
     [Test]
+    public async Task SchemaPatcher_OldTracks_GainTheQualityReviewColumns()
+    {
+        var dbPath = NewDbPath();
+        try
+        {
+            var factory = await NewDbFactory(dbPath);
+
+            await using (var db = factory.CreateDbContext())
+            {
+                db.Playlists.Add(new PlaylistEntity
+                {
+                    Id = "old-pl-review",
+                    Name = "Old reviews",
+                    SourceUrl = "stub:old-review",
+                    Tracks = new List<TrackEntity>
+                    {
+                        new() { MelodyId = "old-m-review", Title = "Old Song", Artist = "Artist" },
+                    },
+                });
+                await db.SaveChangesAsync();
+
+                // Simulate the pre-column schema.
+                await db.Database.ExecuteSqlRawAsync("ALTER TABLE Tracks DROP COLUMN SourcePluginId");
+                await db.Database.ExecuteSqlRawAsync("ALTER TABLE Tracks DROP COLUMN ReviewKind");
+                await db.Database.ExecuteSqlRawAsync("ALTER TABLE Tracks DROP COLUMN ReviewText");
+                await db.Database.ExecuteSqlRawAsync("ALTER TABLE Tracks DROP COLUMN AvoidPluginId");
+            }
+
+            await using (var db = factory.CreateDbContext())
+                await SchemaPatcher.PatchAsync(db);
+
+            await using (var check = factory.CreateDbContext())
+            {
+                var row = await check.Tracks.AsNoTracking().SingleAsync(t => t.MelodyId == "old-m-review");
+                Assert.Multiple(() =>
+                {
+                    Assert.That(row.Title, Is.EqualTo("Old Song"), "data survives the patch");
+                    Assert.That(row.ReviewKind, Is.Null, "existing tracks start without an open review");
+                    Assert.That(row.ReviewText, Is.Null);
+                    Assert.That(row.SourcePluginId, Is.Null);
+                    Assert.That(row.AvoidPluginId, Is.Null);
+                });
+            }
+        }
+        finally
+        {
+            File.Delete(dbPath);
+        }
+    }
+
+    [Test]
     public async Task DueForAutoSync_FollowsTheCronSchedule()
     {
         var dbPath = NewDbPath();

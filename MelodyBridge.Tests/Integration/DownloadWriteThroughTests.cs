@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using MelodyBridge.Core;
+using MelodyBridge.Infrastructure.Audio;
 using MelodyBridge.Infrastructure.Data;
 using MelodyBridge.Infrastructure.Services;
 
@@ -10,8 +11,8 @@ namespace MelodyBridge.Tests.Integration;
 
 /// <summary>
 /// The full post-download pipeline against a REAL audio file: write-through
-/// tagging (title/artist/album/track), MELODY_ID, and the spectral
-/// verification that fills the track's warning column.
+/// tagging (title/artist/album/track), MELODY_ID, and the quality verdicts
+/// that fill the track's review and warning columns.
 /// The audio is a real ffmpeg-generated file; spectrum assertions skip
 /// honestly when ffmpeg is missing.
 /// </summary>
@@ -114,7 +115,7 @@ public class DownloadWriteThroughTests
             NullLogger<PlaylistStore>.Instance);
 
     private static async Task<(PlaylistStore store, IDbContextFactory<MelodyBridgeDbContext> factory, PlaylistEntity playlist, string dir)>
-        SetupAsync(string test, Action? configure = null)
+        SetupAsync(string test)
     {
         var dbPath = NewDbPath(test);
         var dir = Path.Combine(Path.GetTempPath(), $"mb-wt-dir-{Guid.NewGuid():N}");
@@ -155,7 +156,6 @@ public class DownloadWriteThroughTests
         if (ffmpegError.Length > 0) Assert.Ignore($"ffmpeg unavailable: {ffmpegError}");
 
         var store = NewStoreWithSource(factory, sourceFlac, dir);
-        configure?.Invoke();
 
         await using (var db = await factory.CreateDbContextAsync())
         {
@@ -242,29 +242,32 @@ public class DownloadWriteThroughTests
         if (!FfmpegAvailable()) Assert.Ignore("ffmpeg not installed");
 
         var (store, factory, playlist, dir) = await SetupAsync(
-            nameof(Download_WhiteNoise_GetsNoInflationWarning),
-            () => PlaylistStore.SpectrumVerification = () => MelodyBridge.Infrastructure.Audio.SpectrumMode.Thorough);
+            nameof(Download_WhiteNoise_GetsNoInflationWarning));
 
-        await store.DownloadMissingAsync(playlist.Id);
+        await WithVerification(new VerificationOptions(SpectrumMode.Thorough), async () =>
+        {
+            await store.DownloadMissingAsync(playlist.Id);
+        });
 
         await using var db = await factory.CreateDbContextAsync();
         var track = await db.Tracks.FirstAsync(t => t.MelodyId == "mel-wt-1");
 
-        Assert.That(track.Warning, Is.Null.Or.Contains("conclusive"),
-            "a genuine full-spectrum file must not be flagged as inflated; got: " + track.Warning);
+        Assert.That(track.ReviewKind, Is.Null,
+            "a genuine full-spectrum file must not be flagged as inflated");
+        Assert.That(track.Warning, Is.Null,
+            "and it must not carry a phantom quality hint either; got: " + track.Warning);
 
         Directory.Delete(dir, recursive: true);
     }
 
     [Test]
-    public async Task Download_InflatedFile_GetsInflationWarning()
+    public async Task Download_InflatedFile_GetsFlaggedForReview()
     {
         if (!FfmpegAvailable()) Assert.Ignore("ffmpeg not installed");
 
         // 64 kbps MP3 base re-encoded to 320: the classic blow-up.
         var (store, factory, playlist, dir) = await SetupAsync(
-            nameof(Download_InflatedFile_GetsInflationWarning),
-            () => PlaylistStore.SpectrumVerification = () => MelodyBridge.Infrastructure.Audio.SpectrumMode.Thorough);
+            nameof(Download_InflatedFile_GetsFlaggedForReview));
 
         // Replace the source with the inflated variant: a 64 kbps MP3
         // re-encoded to 320, the classic blow-up file. It must stay an
@@ -279,17 +282,37 @@ public class DownloadWriteThroughTests
         // regenerate the store pointing at the fake source.
         store = NewStoreWithSource(factory, fake, dir);
 
-        await store.DownloadMissingAsync(playlist.Id);
+        await WithVerification(new VerificationOptions(SpectrumMode.Thorough), async () =>
+        {
+            await store.DownloadMissingAsync(playlist.Id);
+        });
 
         await using var db = await factory.CreateDbContextAsync();
         var track = await db.Tracks.FirstAsync(t => t.MelodyId == "mel-wt-1");
 
         // The 64 kbps source's lowpass under a 320 kbps header: the
-        // analyzer must say so.
-        Assert.That(track.Warning, Is.Not.Null, "the inflated file must produce a warning");
-        Assert.That(track.Warning, Does.Contain("inflated"),
-            $"unexpected warning text: {track.Warning}");
+        // analyzer must flag it, and the file must stay on disk for the
+        // user's Keep or Retry decision.
+        Assert.That(track.DownloadStatus, Is.EqualTo("downloaded"),
+            "a quality flag keeps the file, it does not fail the track");
+        Assert.That(track.ReviewKind, Does.Contain("spectrum"),
+            "the flag must record the spectrum kind");
+        Assert.That(track.ReviewText, Does.Contain("inflated"),
+            $"unexpected review text: {track.ReviewText}");
+        Assert.That(File.Exists(track.CurrentPath), Is.True,
+            "the flagged file stays in the library until the user decides");
+        Assert.That(track.SourcePluginId, Is.EqualTo("real-file"),
+            "the producing plugin is remembered for a provider-avoiding retry");
 
         Directory.Delete(dir, recursive: true);
+    }
+
+    /// <summary>Runs the body with the app-wide verification replaced, restoring it after.</summary>
+    private static async Task WithVerification(VerificationOptions options, Func<Task> body)
+    {
+        var saved = PlaylistStore.Verification;
+        PlaylistStore.Verification = () => options;
+        try { await body(); }
+        finally { PlaylistStore.Verification = saved; }
     }
 }

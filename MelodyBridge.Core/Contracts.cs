@@ -83,11 +83,20 @@ public interface IDownloadManager
     /// for a 4-minute track) are rejected before any bytes are spent.
     /// The fallback policy decides whether a miss may step down to a lower
     /// quality; without it the request is strict.
+    /// <paramref name="avoidPluginId"/> skips one plugin for this attempt
+    /// (a retry after a flagged file, so another provider gets its turn).
     /// </summary>
     Task<string?> DownloadTrackAsync(TrackQuery query, string outputDirectory, string melodyId,
-        DownloadFallback? fallback = null, CancellationToken ct = default);
+        DownloadFallback? fallback = null, string? avoidPluginId = null, CancellationToken ct = default);
     /// <summary>Current in-flight download states (for UI polling).</summary>
     IReadOnlyList<DownloadProgress> SnapshotProgress();
+    /// <summary>
+    /// Id of the plugin that produced the last successful DownloadTrackAsync
+    /// for this melodyId, or null when the last attempt produced nothing.
+    /// The store records it on the track row so a later Retry can avoid
+    /// the provider that delivered a flagged file.
+    /// </summary>
+    string? LastPluginId(string melodyId);
     /// <summary>
     /// Why the last DownloadTrackAsync for this melodyId produced nothing:
     /// files outside the quality filters, or no hit at all. Null when the

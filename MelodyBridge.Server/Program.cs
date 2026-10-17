@@ -113,13 +113,13 @@ using (var db = app.Services.GetRequiredService<IDbContextFactory<MelodyBridgeDb
            .CreateDbContext())
 {
     var savedSpectrum = db.DownloaderSettings.FirstOrDefault(s => s.Key == "spectrum_mode")?.Value
-                        ?? app.Configuration["SpectrumAnalysis:Mode"] ?? "Fast";
-    PlaylistStore.SpectrumVerification = () => savedSpectrum.ToLowerInvariant() switch
-    {
-        "off" => MelodyBridge.Infrastructure.Audio.SpectrumMode.Off,
-        "thorough" => MelodyBridge.Infrastructure.Audio.SpectrumMode.Thorough,
-        _ => MelodyBridge.Infrastructure.Audio.SpectrumMode.Fast,
-    };
+                        ?? app.Configuration["SpectrumAnalysis:Mode"];
+    var savedGap = db.DownloaderSettings.FirstOrDefault(s => s.Key == "spectrum_class_gap")?.Value;
+    var savedToleranceSeconds = db.DownloaderSettings.FirstOrDefault(s => s.Key == "quality_length_tolerance_seconds")?.Value;
+    var savedTolerancePercent = db.DownloaderSettings.FirstOrDefault(s => s.Key == "quality_length_tolerance_percent")?.Value;
+    var verification = MelodyBridge.Infrastructure.Audio.VerificationOptions.FromSettings(
+        savedSpectrum, savedGap, savedToleranceSeconds, savedTolerancePercent);
+    PlaylistStore.Verification = () => verification;
 
     FlareSolverrSolver.Url = db.DownloaderSettings.FirstOrDefault(s => s.Key == "flaresolverr_url")?.Value
                              ?? app.Configuration["FlareSolverr:Url"] ?? "auto";

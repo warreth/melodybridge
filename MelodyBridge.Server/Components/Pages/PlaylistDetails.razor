@@ -257,17 +257,11 @@ else
                         <strong>@downloadedCount / @playlist.Tracks.Count</strong>
                     </div>
                 </div>
-                @if (downloadedCount > 0 && badQualityCount > 0)
+                @if (downloadedCount > 0 && reviewCount > 0)
                 {
                     <div class="hint-box">
-                        <Icon Name="alert" Size="16" Class="inline-icon" /> @badQualityCount downloaded track@(badQualityCount == 1 ? "" : "s") look@(badQualityCount == 1 ? "s" : "") inflated (the bandwidth sits below what the bitrate claims).
-                        @(editQuality == "auto"
-                            ? badQualityCount == 1
-                                ? "Retry it with a lower quality cap."
-                                : "Retry them with a lower quality cap."
-                            : badQualityCount == 1
-                                ? "Retry it after switching the playlist to No filter, or pick a lower quality cap."
-                                : "Retry them after switching the playlist to No filter, or pick a lower quality cap.")
+                        <Icon Name="alert" Size="16" Class="inline-icon" />
+                        @reviewSummaryLead a quality decision: the length differs from the playlist, or the bitrate looks inflated. Use <strong>Keep</strong> on the row to accept the file, or <strong>Retry</strong> to download it from another provider.
                     </div>
                 }
             </div>
@@ -288,7 +282,7 @@ else
                     <button class="filter-chip @(attentionOnly ? "active" : "")"
                             @onclick="ToggleAttentionOnly"
                             aria-pressed="@(attentionOnly ? "true" : "false")"
-                            title="Only failed tracks and tracks waiting for a dedup decision">
+                            title="Only failed tracks and tracks waiting for a quality or dedup decision">
                         Needs attention (@attentionCount)
                     </button>
                 }
@@ -306,6 +300,7 @@ else
                         QueueLabel="@TrackQueueLabel"
                         OnRetry="RetryTrack"
                         OnResolveReview="ResolveDedupReview"
+                        OnQualityReview="ResolveQualityReview"
                         OnRemove="RemoveTrack" />
         }
     </section>
@@ -352,7 +347,7 @@ else
     private int downloadedCount;
     private long downloadedSizeBytes;
     private readonly HashSet<int> retryingTrackIds = new();
-    private int badQualityCount;
+    private int reviewCount;
     private bool confirmDelete;
     private bool deleteFilesWithPlaylist;
     private string resolvedDefaultMusicPath = "/music";
@@ -437,8 +432,8 @@ else
         downloadedSizeBytes = playlist.Tracks
             .Where(t => t.DownloadStatus == "downloaded")
             .Sum(t => t.FileSizeBytes ?? 0);
-        badQualityCount = playlist.Tracks.Count(t =>
-            t.DownloadStatus == "downloaded" && t.Warning?.Contains("inflated") == true);
+        reviewCount = playlist.Tracks.Count(t =>
+            t.DownloadStatus == "downloaded" && t.ReviewKind is not null);
     }
 
     /// <summary>
@@ -710,6 +705,57 @@ else
         finally { busy = false; }
     }
 
+    /// <summary>
+    /// Settles a flagged quality review for one track. Keep clears the
+    /// flag and leaves the file alone. Retry replaces the file through
+    /// the waterfall, with the provider that delivered the flagged file
+    /// skipped for this attempt, and lands the outcome as a toast.
+    /// </summary>
+    private async Task ResolveQualityReview((TrackEntity Track, QualityReviewAction Action) choice)
+    {
+        busy = true;
+        try
+        {
+            if (!await Store.ResolveQualityReviewAsync(choice.Track.Id, choice.Action))
+            {
+                Notifications.Warn($"Could not settle '{choice.Track.Title}': the track changed. Reload the page.");
+                await Load();
+                return;
+            }
+
+            if (choice.Action == QualityReviewAction.Keep)
+            {
+                Notifications.Success($"Kept '{choice.Track.Title}' as it is.");
+                await Load();
+                return;
+            }
+
+            Notifications.Info($"Retrying '{choice.Track.Title}' at another provider…");
+            retryingTrackIds.Add(choice.Track.Id);
+            await Load();
+            StateHasChanged();
+            var result = await Store.DownloadTrackAsync(choice.Track.Id);
+            switch (result)
+            {
+                case "downloaded":
+                    Notifications.Success($"Downloaded '{choice.Track.Title}'.");
+                    break;
+                case "claimed-by-another-run":
+                    Notifications.Info("This track is already being downloaded by a running batch.");
+                    break;
+                default:
+                    Notifications.Warn($"Retry failed for '{choice.Track.Title}'.");
+                    break;
+            }
+            await Load();
+        }
+        finally
+        {
+            retryingTrackIds.Remove(choice.Track.Id);
+            busy = false;
+        }
+    }
+
     private void OnFilterChanged(ChangeEventArgs e) => trackFilter = e.Value?.ToString() ?? string.Empty;
 
     // Delete flow: the topbar asks, the dialog confirms, files optional.
@@ -748,9 +794,14 @@ else
             (t.Artist ?? "").Contains(trackFilter, StringComparison.OrdinalIgnoreCase));
     }
 
-    /// <summary>Failed tracks and dedup conflicts: the rows that need a human.</summary>
+    /// <summary>Failed tracks, dedup conflicts and open quality reviews: the rows that need a human.</summary>
     private static bool NeedsAttention(TrackEntity t)
-        => t.DownloadStatus is "failed" or "needs-review";
+        => t.DownloadStatus is "failed" or "needs-review"
+           || (t.DownloadStatus == "downloaded" && t.ReviewKind is not null);
+
+    /// <summary>The sentence lead of the review hint box, singular or plural.</summary>
+    private string reviewSummaryLead
+        => reviewCount == 1 ? "1 downloaded track needs" : $"{reviewCount} downloaded tracks need";
 
     private int attentionCount => (playlist?.Tracks ?? new List<TrackEntity>()).Count(NeedsAttention);
 

@@ -161,9 +161,35 @@ public class TrackEntity
     public bool SkipDedup { get; set; }
     /// <summary>
     /// Warning shown next to the track in the UI: low match confidence,
-    /// spectral quality doubts. Null when everything is fine.
+    /// archive problems. Null when everything is fine.
     /// </summary>
     public string? Warning { get; set; }
+
+    /// <summary>
+    /// Id of the plugin that produced CurrentPath. Used by "Retry" on a
+    /// flagged track to avoid the provider that delivered the flagged
+    /// file. Null for hardlinks and rows from before the column existed.
+    /// </summary>
+    public string? SourcePluginId { get; set; }
+
+    /// <summary>
+    /// Pending quality review kinds, joined with "+" (see
+    /// <see cref="Core.TrackReview"/>): "length", "spectrum" or both.
+    /// Null when nothing waits for a decision. The file stays in the
+    /// library while the review is open.
+    /// </summary>
+    public string? ReviewKind { get; set; }
+
+    /// <summary>Why the quality review was raised, shown in the track row.</summary>
+    public string? ReviewText { get; set; }
+
+    /// <summary>
+    /// One-shot: the next download attempt for this track skips this
+    /// plugin. Set by Retry on a flagged track (from SourcePluginId) and
+    /// consumed when the attempt starts, so a failed retry never traps
+    /// the track away from that provider forever.
+    /// </summary>
+    public string? AvoidPluginId { get; set; }
 
     /// <summary>True when this track is one of the user's liked songs.</summary>
     public bool IsLiked { get; set; }

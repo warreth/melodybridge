@@ -20,7 +20,7 @@ public class PlaylistStoreTrackNumberTests
 {
     private string _root = null!;
     private TestSqliteFactory _factory = null!;
-    private Func<SpectrumMode> _savedSpectrum = null!;
+    private Func<VerificationOptions> _savedVerification = null!;
     private string? _sourceFlac;
     private string _downloadDir = null!;
 
@@ -37,8 +37,8 @@ public class PlaylistStoreTrackNumberTests
 
         // Keep this test fast and deterministic: the spectrum check is a
         // separate feature with its own coverage.
-        _savedSpectrum = PlaylistStore.SpectrumVerification;
-        PlaylistStore.SpectrumVerification = () => SpectrumMode.Off;
+        _savedVerification = PlaylistStore.Verification;
+        PlaylistStore.Verification = () => new VerificationOptions(SpectrumMode.Off);
 
         _sourceFlac = TryMakeFlac(Path.Combine(_root, "source.flac"));
     }
@@ -46,7 +46,7 @@ public class PlaylistStoreTrackNumberTests
     [TearDown]
     public void TearDown()
     {
-        PlaylistStore.SpectrumVerification = _savedSpectrum;
+        PlaylistStore.Verification = _savedVerification;
         try { Directory.Delete(_root, recursive: true); } catch { /* best effort */ }
     }
 

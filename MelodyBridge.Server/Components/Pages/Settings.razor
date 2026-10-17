@@ -424,16 +424,18 @@ else if (activeTab == "quality")
                 <span class="eyebrow">Verification</span>
                 <div class="title-with-help">
                     <h3>Real quality check</h3>
-                    <HelpTip Path="concepts#the-spectrum-check" Text="Measures the file's real audio bandwidth and warns when it falls well short of the declared bitrate. It never deletes anything." />
+                    <HelpTip Path="concepts#the-quality-review" Text="Downloaded files are measured: a wrong length or an inflated bitrate is kept and flagged on the track row, and you choose Keep or Retry for each one. This panel sets how strict the checks are." />
                 </div>
             </div>
             <div class="hint-box">
-                Some sites hand out files that claim 320 kbps but hold far less.
-                The spectrum check measures the file's real audio bandwidth and
-                warns you next to the track when it falls well short of the
-                declared bitrate.
+                A download whose length differs from the source playlist, or whose
+                bandwidth says the declared bitrate is inflated, stays in your
+                library and gets flagged. You then choose <strong>Keep</strong> (it is
+                fine) or <strong>Retry</strong> (download again, avoiding the provider
+                that delivered it). Broken, unreadable bytes are still deleted and
+                retried automatically.
             </div>
-            <div class="form-grid single">
+            <div class="form-grid">
                 <label>
                     Spectrum check
                     <select @bind="spectrumMode" @bind:after="MarkDirty">
@@ -442,7 +444,32 @@ else if (activeTab == "quality")
                         <option value="Thorough">Thorough: check the whole file (up to 15 min)</option>
                     </select>
                 </label>
+                <label>
+                    Spectrum strictness
+                    <select @bind="spectrumClassGap" @bind:after="MarkDirty" disabled="@(spectrumMode == "Off")">
+                        <option value="1">Strict: flag one class below</option>
+                        <option value="2">Balanced: flag two classes below (recommended)</option>
+                        <option value="3">Lenient: flag three classes below</option>
+                    </select>
+                    <small class="text-muted">A file counts as inflated when its real bandwidth sits this many bitrate classes (96/128/160/192/256/320) below the declared one.</small>
+                </label>
             </div>
+            <div class="form-grid">
+                <label>
+                    Length tolerance (seconds)
+                    <input @bind="lengthToleranceSeconds" @bind:after="MarkDirty" type="number" min="0" max="600" step="5" />
+                </label>
+                <label>
+                    Length tolerance (percent)
+                    <input @bind="lengthTolerancePercent" @bind:after="MarkDirty" type="number" min="0" max="100" step="1" />
+                </label>
+            </div>
+            <small class="text-muted">
+                A file whose length is off by more than the larger of the two
+                tolerances is flagged for your decision, not deleted. The default
+                (30 seconds, 10%) catches a radio edit without nagging about a
+                slightly different cut.
+            </small>
         </div>
     </section>
 }
@@ -771,6 +798,9 @@ else if (activeTab == "about")
     private string archiveFormat = "auto";
     private string defaultQuality = "auto";
     private string spectrumMode = "Fast";
+    private string spectrumClassGap = "2";
+    private string lengthToleranceSeconds = "30";
+    private string lengthTolerancePercent = "10";
     private string flaresolverrUrl = "off";
     private string? flareStatus;
     private string flareMessage = string.Empty;
@@ -812,13 +842,6 @@ else if (activeTab == "about")
     private string? dbMessage;
 
     [Inject] private IConfiguration Config { get; set; } = default!;
-
-    private static SpectrumMode SpectrumModeValue(string mode) => mode switch
-    {
-        "Off" => SpectrumMode.Off,
-        "Thorough" => SpectrumMode.Thorough,
-        _ => SpectrumMode.Fast,
-    };
 
     protected override async Task OnInitializedAsync()
     {
@@ -866,6 +889,9 @@ else if (activeTab == "about")
         defaultQuality = FindSetting(settings, "default_quality", "auto");
         if (!PlaylistStore.IsValidFormat(defaultQuality)) defaultQuality = "auto";
         spectrumMode = FindSetting(settings, "spectrum_mode", Config?["SpectrumAnalysis:Mode"] ?? "Fast");
+        spectrumClassGap = FindSetting(settings, "spectrum_class_gap", "2");
+        lengthToleranceSeconds = FindSetting(settings, "quality_length_tolerance_seconds", "30");
+        lengthTolerancePercent = FindSetting(settings, "quality_length_tolerance_percent", "10");
         flaresolverrUrl = FindSetting(settings, "flaresolverr_url", Config?["FlareSolverr:Url"] ?? "auto");
         spotifyCookie = FindSetting(settings, "spotify_cookie", string.Empty);
         notifyDownloads = await TourReset.GetBoolAsync("notify_downloads", true);
@@ -1073,10 +1099,14 @@ else if (activeTab == "about")
             await Upsert(db, "archive_format", archiveFormat);
             await Upsert(db, "default_quality", defaultQuality);
             await Upsert(db, "spectrum_mode", spectrumMode);
+            await Upsert(db, "spectrum_class_gap", spectrumClassGap);
+            await Upsert(db, "quality_length_tolerance_seconds", lengthToleranceSeconds);
+            await Upsert(db, "quality_length_tolerance_percent", lengthTolerancePercent);
             await Upsert(db, "flaresolverr_url", flaresolverrUrl);
             await Upsert(db, "spotify_cookie", spotifyCookie);
             await db.SaveChangesAsync();
-            PlaylistStore.SpectrumVerification = () => SpectrumModeValue(spectrumMode);
+            PlaylistStore.Verification = () => VerificationOptions.FromSettings(
+                spectrumMode, spectrumClassGap, lengthToleranceSeconds, lengthTolerancePercent);
             FlareSolverrSolver.Url = flaresolverrUrl;
             MelodyBridge.Infrastructure.Services.SpotifySourceProvider.WebCookie = spotifyCookie;
 

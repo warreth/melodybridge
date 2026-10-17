@@ -70,12 +70,16 @@ public class LibraryReconciler
                     continue;
                 }
 
-                // Nothing on disk: schedule a re-download.
+                // Nothing on disk: schedule a re-download. Any open quality
+                // review described the vanished file, so it goes with it.
                 if (track.DownloadStatus == "downloaded")
                 {
                     track.DownloadStatus = "pending";
                     track.CurrentPath = null;
                     track.Warning = "file missing on disk, will re-download";
+                    track.ReviewKind = null;
+                    track.ReviewText = null;
+                    track.SourcePluginId = null;
                     lost++;
                 }
             }

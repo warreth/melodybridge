@@ -151,6 +151,47 @@ public class CorruptionCheckTests
 
         Assert.That(result.Ok, Is.False);
         Assert.That(result.Reason, Does.Contain("duration mismatch"));
+        Assert.That(result.Issue, Is.EqualTo(IntegrityIssue.DurationMismatch),
+            "a wrong length is a flag-worthy mismatch, not a broken file");
+    }
+
+    [Test]
+    public void Check_ExplicitTolerance_DecidesTheVerdict()
+    {
+        if (!FfmpegAvailable()) Assert.Ignore("ffmpeg not installed");
+
+        var path = Path.Combine(_dir, "ten.mp3");
+        Assert.That(RunFfmpeg(
+            $"-y -f lavfi -i anullsrc=r=44100:cl=stereo -t 10 -c:a libmp3lame -b:a 128k \"{path}\""), Is.Empty);
+
+        // The same file, two configured tolerances: the window decides.
+        var wide = FileIntegrity.Check(path, TimeSpan.FromSeconds(300), TimeSpan.FromSeconds(600));
+        var narrow = FileIntegrity.Check(path, TimeSpan.FromSeconds(300), TimeSpan.FromSeconds(5));
+
+        Assert.That(wide.Ok, Is.True, "a 10 minute window accepts a 10s file against 300s");
+        Assert.That(narrow.Ok, Is.False, "a 5 second window does not");
+        Assert.That(narrow.Issue, Is.EqualTo(IntegrityIssue.DurationMismatch));
+    }
+
+    [Test]
+    public void Check_Id3PrefixedGarbage_IsCorrupt_NotAWrongLength()
+    {
+        if (!FfmpegAvailable()) Assert.Ignore("ffmpeg not installed");
+
+        // Audio magic bytes on top of junk: the signature sniff lets it
+        // through, ffprobe cannot parse it. That must classify as corrupt
+        // (delete) and never as a wrong-length review (keep).
+        var path = Path.Combine(_dir, "fake.mp3");
+        var bytes = new byte[4096];
+        bytes[0] = (byte)'I'; bytes[1] = (byte)'D'; bytes[2] = (byte)'3';
+        new Random(7).NextBytes(bytes.AsSpan(3));
+        System.IO.File.WriteAllBytes(path, bytes);
+
+        var result = FileIntegrity.Check(path, TimeSpan.FromSeconds(180));
+
+        Assert.That(result.Ok, Is.False);
+        Assert.That(result.Issue, Is.EqualTo(IntegrityIssue.Corrupt),
+            $"unparseable bytes are broken, not just short ({result.Reason})");
     }
 
     private static byte[] RandomBytes(int length)

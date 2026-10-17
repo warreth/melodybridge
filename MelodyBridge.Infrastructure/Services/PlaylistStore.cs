@@ -28,11 +28,12 @@ public class PlaylistStore
     private readonly IsrcResolver? _isrcResolver;
 
     /// <summary>
-    /// Post-download spectral verification strictness. Static: one app-wide
-    /// setting that the Server sets at startup and the Settings page can
-    /// flip without touching DI lifetimes.
+    /// Post-download verification settings: spectral mode and class gap,
+    /// length tolerances. Static: one app-wide value that the Server sets
+    /// at startup and the Settings page can replace without touching DI
+    /// lifetimes.
     /// </summary>
-    public static Func<SpectrumMode> SpectrumVerification { get; set; } = () => SpectrumMode.Fast;
+    public static Func<VerificationOptions> Verification { get; set; } = () => new();
 
     /// <summary>Settings key for the dedup toggle; default on.</summary>
     public const string DedupSettingKey = "dedup_enabled";
@@ -102,7 +103,7 @@ public class PlaylistStore
 
         var downloaded = 0;
         var failed = 0;
-        var spectrumMode = SpectrumVerification();
+        var verification = Verification();
         // Tracks already attempted in this call: failed tracks stay
         // claimable (so later runs retry them), but never twice in one call.
         var attempted = new HashSet<int>();
@@ -114,7 +115,7 @@ public class PlaylistStore
             if (trackId is null) break; // nothing left to claim
 
             var result = await DownloadClaimedTrackAsync(
-                trackId.Value, dir, preferredFormat, strict, allowContainerChange, spectrumMode, ct);
+                trackId.Value, dir, preferredFormat, strict, allowContainerChange, verification, ct);
             if (result == "downloaded") downloaded++;
             else if (result == "failed") failed++;
             // "needs-review" tracks are neither downloaded nor failed:
@@ -170,17 +171,21 @@ public class PlaylistStore
         }
 
         return await DownloadClaimedTrackAsync(
-            id, dir, preferredFormat, strict, allowContainerChange, SpectrumVerification(), ct);
+            id, dir, preferredFormat, strict, allowContainerChange, Verification(), ct);
     }
 
     /// <summary>
     /// The per-track pipeline shared by the full run and the single-track
-    /// button: search, download, tag, integrity-check, write status.
-    /// The caller has already claimed the track.
+    /// button: search, download, tag, verify, write status. The caller has
+    /// already claimed the track.
+    ///
+    /// The post-download verdicts follow one rule: broken bytes fail the
+    /// track (deleted, retried on a later run), quality doubts flag it
+    /// (the file stays, the row waits for the user's Keep or Retry).
     /// </summary>
     private async Task<string> DownloadClaimedTrackAsync(
         int trackId, string dir, string preferredFormat,
-        bool strict, bool allowContainerChange, SpectrumMode spectrumMode, CancellationToken ct)
+        bool strict, bool allowContainerChange, VerificationOptions verification, CancellationToken ct)
     {
         await using var db = await _dbFactory.CreateDbContextAsync(CancellationToken.None);
         // The lookup uses CancellationToken.None: a cancel arriving between
@@ -188,6 +193,11 @@ public class PlaylistStore
         // otherwise the claimed row stays in_progress forever.
         var track = await db.Tracks.FindAsync(new object[] { trackId }, CancellationToken.None);
         if (track is null) return "skipped";
+
+        // The retry hint is one-shot: consume it now, whatever happens
+        // next, so a failed attempt never locks the provider out forever.
+        var avoidPluginId = track.AvoidPluginId;
+        track.AvoidPluginId = null;
 
         if (string.IsNullOrWhiteSpace(track.Artist) || string.IsNullOrWhiteSpace(track.Title))
         {
@@ -225,9 +235,11 @@ public class PlaylistStore
             // Strict: exactly this quality or nothing. Non-strict: the
             // manager walks the ladder the enabled plugins declare, and
             // the playlist decides whether a step may change container.
+            // A "Retry" review left one provider out: the attempt honors
+            // it and the provider may come back on a later plain attempt.
             var path = await _downloadManager.DownloadTrackAsync(
                 query, dir, track.MelodyId!,
-                strict ? null : new DownloadFallback(allowContainerChange), ct);
+                strict ? null : new DownloadFallback(allowContainerChange), avoidPluginId, ct);
 
             if (path is null)
             {
@@ -249,13 +261,15 @@ public class PlaylistStore
                 // Position is 0-based; the tag and the UI are 1-based.
                 track: (uint?)(track.Position + 1));
 
-            // Fast integrity gate: a truncated or corrupt download
-            // must not survive as "downloaded": delete it and fail the
-            // track so the next run retries it. DurationMs is what the
-            // source platform advertised for the track.
+            // Verification, not rejection: broken bytes fail the track
+            // (deleted, retried on a later run), a wrong length or an
+            // inflated bitrate flags the file and keeps it, so the user
+            // can keep it or retry it at another provider. DurationMs is
+            // what the source platform advertised for the track.
             var integrity = Audio.FileIntegrity.Check(
-                path, track.DurationMs is > 0 ? TimeSpan.FromMilliseconds(track.DurationMs.Value) : null);
-            if (!integrity.Ok)
+                path, expectedDuration,
+                expectedDuration is { } expected ? verification.ToleranceFor(expected) : null);
+            if (integrity.Issue == Audio.IntegrityIssue.Corrupt)
             {
                 try { System.IO.File.Delete(path); } catch { /* best effort */ }
                 track.DownloadStatus = "failed";
@@ -268,7 +282,8 @@ public class PlaylistStore
             track.LastSeenAt = DateTime.UtcNow;
             track.Bitrate = Audio.BitrateProbe.MeasureKbps(path);
             AudioProbe.Fill(track, path);
-            track.Warning = BuildWarning(track, path, spectrumMode);
+            track.SourcePluginId = _downloadManager.LastPluginId(track.MelodyId!);
+            ApplyQualityReview(track, path, integrity, verification);
             await ArchiveDownloadedTrackAsync(track, db, ct);
             return "downloaded";
         }
@@ -479,6 +494,11 @@ public class PlaylistStore
             track.Bitrate = candidate.ExistingBitrateKbps;
             track.MediaType = candidate.ExistingFormat;
             AudioProbe.Fill(track, linkPath);
+            // The linked file was verified where it came from; no review
+            // carries over, and there is no provider to avoid.
+            track.ReviewKind = null;
+            track.ReviewText = null;
+            track.SourcePluginId = null;
             track.Warning = $"hardlinked from {candidate.SourcePlaylistId}: "
                 + $"{candidate.Describe()} (user accepted the quality difference)";
             await db.SaveChangesAsync(ct);
@@ -490,6 +510,64 @@ public class PlaylistStore
                 "Hard link for review '{Title}' failed ({Reason}); leaving the track in review", track.Title, ex.Message);
             return false;
         }
+    }
+
+    /// <summary>
+    /// Settles a flagged quality review (length mismatch, inflated
+    /// bitrate) for one track the way the user picked. Keep: the file
+    /// stays and the flag is cleared. Retry: the flagged primary and its
+    /// archive copy are deleted, the track goes back to pending with a
+    /// one-shot hint to avoid the plugin that delivered the flagged file,
+    /// and the caller runs the download. Returns false when the track is
+    /// not in a flagged state.
+    /// </summary>
+    public async Task<bool> ResolveQualityReviewAsync(
+        int trackId, QualityReviewAction action, CancellationToken ct = default)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var track = await db.Tracks.FindAsync(new object[] { trackId }, ct);
+        if (track is null || track.DownloadStatus != "downloaded" || track.ReviewKind is null)
+            return false;
+
+        if (action == QualityReviewAction.Keep)
+        {
+            _logger.LogInformation(
+                "Quality review for '{Title}': file kept as it is ({Reason})", track.Title, track.ReviewText);
+            track.ReviewKind = null;
+            track.ReviewText = null;
+            await db.SaveChangesAsync(ct);
+            return true;
+        }
+
+        // Retry: replace the flagged file. The archive copy mirrors it, so
+        // it goes too; the next download produces a fresh one. Deleting
+        // first keeps the folder clean and stops plugins that refuse to
+        // overwrite an existing file.
+        if (track.CurrentPath is not null)
+            FileCleanup.DeleteQuietly(track.CurrentPath);
+        if (track.ArchivePath is not null)
+            FileCleanup.DeleteQuietly(track.ArchivePath);
+
+        var avoid = track.SourcePluginId;
+        track.DownloadStatus = "pending";
+        track.DownloadError = null;
+        track.CurrentPath = null;
+        track.ArchivePath = null;
+        track.IsHardLink = false;
+        track.Warning = null;
+        track.ReviewKind = null;
+        track.ReviewText = null;
+        track.Bitrate = null;
+        track.SampleRateHz = null;
+        track.FileSizeBytes = null;
+        track.MediaType = null;
+        track.AvoidPluginId = string.IsNullOrEmpty(avoid) ? null : avoid;
+        await db.SaveChangesAsync(ct);
+        _logger.LogInformation(
+            "Quality review for '{Title}': retrying{Elsewhere}",
+            track.Title,
+            avoid is null ? "" : $", avoiding provider {avoid}");
+        return true;
     }
 
     /// <summary>Human form of a quality request for warnings and logs.</summary>
@@ -599,22 +677,41 @@ public class PlaylistStore
     }
 
     /// <summary>
-    /// Builds the warning shown next to a downloaded track: low search
-    /// confidence and spectral doubts from the post-download verification.
+    /// Fills the review and warning columns of a just-downloaded file from
+    /// the post-download verdicts: a wrong length and an inflated bitrate
+    /// become one review the user settles (Keep or Retry), a low but
+    /// honest bandwidth stays a plain informational warning. The file
+    /// itself always stays; only broken bytes are deleted one gate above.
     /// </summary>
-    private static string? BuildWarning(TrackEntity track, string path, SpectrumMode spectrumMode)
+    private static void ApplyQualityReview(
+        TrackEntity track, string path, Audio.IntegrityResult integrity, VerificationOptions verification)
     {
-        var warnings = new List<string>();
+        var kinds = new List<string>();
+        var texts = new List<string>();
+        string? warning = null;
 
-        if (SpectrumAnalyzer.Verify(path, spectrumMode) is { } spectrum)
+        if (integrity.Issue == Audio.IntegrityIssue.DurationMismatch && integrity.Reason is { } lengthReason)
         {
-            if (spectrum.LooksInflated)
-                warnings.Add($"bitrate looks inflated: {spectrum.Note}");
-            else if (spectrum.CodecCutoff && spectrum.EffectiveKbpsClass is > 0 and < 320)
-                warnings.Add($"quality hint: {spectrum.Note}");
+            kinds.Add(TrackReview.Length);
+            texts.Add(lengthReason);
         }
 
-        return warnings.Count == 0 ? null : string.Join("; ", warnings);
+        if (SpectrumAnalyzer.Verify(path, verification.Spectrum, verification.SpectrumClassGap) is { } spectrum)
+        {
+            if (spectrum.LooksInflated)
+            {
+                kinds.Add(TrackReview.Spectrum);
+                texts.Add($"bitrate looks inflated: {spectrum.Note}");
+            }
+            else if (spectrum.CodecCutoff && spectrum.EffectiveKbpsClass is > 0 and < 320)
+            {
+                warning = $"quality hint: {spectrum.Note}";
+            }
+        }
+
+        track.ReviewKind = kinds.Count == 0 ? null : TrackReview.Join(kinds);
+        track.ReviewText = texts.Count == 0 ? null : string.Join("; ", texts);
+        track.Warning = warning;
     }
 
     /// <summary>
@@ -1311,6 +1408,9 @@ public class PlaylistStore
                 // Same wording LibraryReconciler uses: the UI explains it once.
                 track.DownloadStatus = "pending";
                 track.Warning = "file missing on disk, will re-download";
+                track.ReviewKind = null;
+                track.ReviewText = null;
+                track.SourcePluginId = null;
                 missing++;
                 continue;
             }

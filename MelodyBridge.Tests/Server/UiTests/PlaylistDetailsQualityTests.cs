@@ -61,7 +61,9 @@ public class PlaylistDetailsQualityTests
                         Artist = "Artist",
                         Position = 1,
                         DownloadStatus = "downloaded",
-                        Warning = "bitrate looks inflated: bandwidth stops at 11.0 kHz, far below what 320 kbps needs",
+                        ReviewKind = TrackReview.Spectrum,
+                        ReviewText = "bitrate looks inflated: bandwidth stops at 11.0 kHz, far below what 320 kbps needs",
+                        SourcePluginId = "yt-dlp",
                     },
                 },
             });
@@ -299,28 +301,126 @@ public class PlaylistDetailsQualityTests
         cut.WaitForAssertion(() =>
             Assert.That(cut.Markup, Does.Contain("Fine track")), TimeSpan.FromSeconds(3));
 
-        Assert.That(cut.Markup, Does.Contain("1 downloaded track looks inflated"),
-            "the playlist summary explains how to fix inflated files, with honest grammar");
+        Assert.That(cut.Markup, Does.Contain("1 downloaded track needs a quality decision"),
+            "the playlist summary explains the open review, with honest grammar");
+        Assert.That(cut.Markup, Does.Contain("Keep"),
+            "and names the two ways to settle it");
     }
 
     [Test]
-    public void TrackTable_InflatedSummaryHint_NoFilterQuality_UsesTheRightWording()
+    public void TrackTable_ReviewSummaryHint_CountsEveryKindButNotInformationalWarnings()
     {
-        // The playlist already runs without a quality gate: the hint must
-        // not tell the user to switch to the mode they are already on, and
-        // a single flagged track reads "Retry it".
         var factory = _ctx.Services.GetRequiredService<IDbContextFactory<MelodyBridgeDbContext>>();
         using (var db = factory.CreateDbContext())
         {
-            db.Playlists.Single(p => p.Id == "pl-1").PreferredFormat = "auto";
+            // The doubtful track is flagged for its length.
+            var doubtful = db.Tracks.Single(t => t.MelodyId == "m2");
+            doubtful.ReviewKind = TrackReview.Length;
+            doubtful.ReviewText = "duration mismatch: 345.2s vs expected 300s";
+            // A third track carries a spectrum review.
+            db.Tracks.Add(new TrackEntity
+            {
+                MelodyId = "m3",
+                Title = "Inflated track",
+                Artist = "Artist",
+                Position = 2,
+                PlaylistEntityId = "pl-1",
+                DownloadStatus = "downloaded",
+                ReviewKind = TrackReview.Spectrum,
+                ReviewText = "bitrate looks inflated: bandwidth stops at 11.0 kHz",
+            });
+            // The first track carries only an advisory quality hint.
+            var fine = db.Tracks.Single(t => t.MelodyId == "m1");
+            fine.Warning = "quality hint: bandwidth drops off at 15.0 kHz, about 160 kbps of real detail";
             db.SaveChanges();
         }
 
         var cut = _ctx.Render<PlaylistDetails>(p => p.Add(p => p.PlaylistId, "pl-1"));
         cut.WaitForAssertion(() =>
-            Assert.That(cut.Markup, Does.Contain("Retry it with a lower quality cap.")), TimeSpan.FromSeconds(3));
-        Assert.That(cut.Markup, Does.Not.Contain("switching the playlist to No filter"),
-            "the playlist already uses No filter");
+            Assert.That(cut.Markup, Does.Contain("2 downloaded tracks need a quality decision")),
+            TimeSpan.FromSeconds(3));
+        Assert.That(cut.Markup, Does.Contain("quality hint"),
+            "the advisory hint still shows in the row, it just does not count as a decision");
+    }
+
+    [Test]
+    public void TrackTable_ReviewSummaryHint_DisappearsWhenAllAreSettled()
+    {
+        var factory = _ctx.Services.GetRequiredService<IDbContextFactory<MelodyBridgeDbContext>>();
+        using (var db = factory.CreateDbContext())
+        {
+            var doubtful = db.Tracks.Single(t => t.MelodyId == "m2");
+            doubtful.ReviewKind = null;
+            doubtful.ReviewText = null;
+            db.SaveChanges();
+        }
+
+        var cut = _ctx.Render<PlaylistDetails>(p => p.Add(p => p.PlaylistId, "pl-1"));
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("Fine track")), TimeSpan.FromSeconds(3));
+
+        Assert.That(cut.Markup, Does.Not.Contain("quality decision"),
+            "a playlist without open reviews shows no decision hint");
+    }
+
+    [Test]
+    public void Keep_OnTheTrackRow_ClearsTheReviewInTheDatabase()
+    {
+        var cut = _ctx.Render<PlaylistDetails>(p => p.Add(p => p.PlaylistId, "pl-1"));
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("Doubtful track")), TimeSpan.FromSeconds(3));
+
+        var row = RowFor(cut, "Doubtful track");
+        row.QuerySelectorAll("button").Single(b => b.TextContent.Trim() == "Keep").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            using var db = new TestSqliteFactory(_dbPath).CreateDbContext();
+            var settled = db.Tracks.Single(t => t.MelodyId == "m2");
+            Assert.That(settled.ReviewKind, Is.Null, "Keep settles the review on the row");
+            Assert.That(settled.DownloadStatus, Is.EqualTo("downloaded"),
+                "and the file stays in the library");
+        }, TimeSpan.FromSeconds(3));
+    }
+
+    [Test]
+    public void Retry_OnTheTrackRow_RequeuesTheDownload()
+    {
+        // Seed a real path so the retry has a file to replace.
+        var flaggedPath = Path.Combine(Path.GetTempPath(), $"mb-ui-review-{Guid.NewGuid():N}.mp3");
+        File.WriteAllBytes(flaggedPath, new byte[64]);
+        var factory = _ctx.Services.GetRequiredService<IDbContextFactory<MelodyBridgeDbContext>>();
+        using (var db = factory.CreateDbContext())
+        {
+            var doubtful = db.Tracks.Single(t => t.MelodyId == "m2");
+            doubtful.CurrentPath = flaggedPath;
+            db.SaveChanges();
+        }
+
+        try
+        {
+            var cut = _ctx.Render<PlaylistDetails>(p => p.Add(p => p.PlaylistId, "pl-1"));
+            cut.WaitForAssertion(() =>
+                Assert.That(cut.Markup, Does.Contain("Doubtful track")), TimeSpan.FromSeconds(3));
+
+            var row = RowFor(cut, "Doubtful track");
+            row.QuerySelectorAll("button").Single(b => b.TextContent.Trim() == "Retry").Click();
+
+            cut.WaitForAssertion(() =>
+            {
+                using var db = new TestSqliteFactory(_dbPath).CreateDbContext();
+                var retried = db.Tracks.Single(t => t.MelodyId == "m2");
+                Assert.That(retried.ReviewKind, Is.Null, "the decision settled the review");
+                Assert.That(retried.AvoidPluginId, Is.Null,
+                    "the attempt ran and consumed the one-shot avoid hint");
+            }, TimeSpan.FromSeconds(5));
+            Assert.That(File.Exists(flaggedPath), Is.False,
+                "Retry replaces the flagged file");
+        }
+        finally
+        {
+            try { File.Delete(flaggedPath); } catch { /* best effort */ }
+        }
     }
 
     [Test]

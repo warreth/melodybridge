@@ -1,33 +1,54 @@
-using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
 
 namespace MelodyBridge.Infrastructure.Audio;
 
+/// <summary>What kind of problem a <see cref="FileIntegrity"/> check found.</summary>
+public enum IntegrityIssue
+{
+    /// <summary>Everything checks out.</summary>
+    None,
+    /// <summary>Unreadable or truncated bytes: the file is broken, not just different.</summary>
+    Corrupt,
+    /// <summary>The file parses fine but its length does not match the expectation.</summary>
+    DurationMismatch,
+}
+
 /// <summary>Verdict of a <see cref="FileIntegrity"/> check.</summary>
 /// <param name="Ok">True when ffprobe can parse the file and its duration is sane.</param>
 /// <param name="Reason">Terse failure reason; null when <paramref name="Ok"/> is true.</param>
-public record IntegrityResult(bool Ok, string? Reason);
+/// <param name="Issue">The problem class, so the caller can tell a broken
+/// file (delete it) from a wrong-length one (flag it and let the user
+/// decide).</param>
+public record IntegrityResult(bool Ok, string? Reason, IntegrityIssue Issue = IntegrityIssue.None);
 
 /// <summary>
 /// Fast post-download integrity check: parses the file with ffprobe and
 /// compares its duration against the expected one (what the source
 /// platform advertised for the track). Truncated or corrupt downloads
 /// either fail to parse at all or report a duration far below the
-/// expectation, and are deleted by the caller so the next run retries.
+/// expectation. The caller deletes broken files; a mere length mismatch
+/// stays on disk and becomes a review the user settles.
 /// </summary>
 public static class FileIntegrity
 {
+    /// <summary>Default absolute tolerance when the caller passes none.</summary>
+    public static readonly TimeSpan DefaultTolerance = TimeSpan.FromSeconds(30);
+
     /// <summary>
     /// Checks a downloaded audio file. Ok when ffprobe exits 0, the
     /// duration parses to a positive value, and it is within
-    /// max(30s, 10% of the expected duration) when one is given.
+    /// <paramref name="tolerance"/> of the expected duration. Without an
+    /// explicit tolerance the window is max(30s, 10% of the expectation).
+    /// A mismatch reports <see cref="IntegrityIssue.DurationMismatch"/> so
+    /// the caller can flag the file instead of deleting it.
     /// </summary>
-    public static IntegrityResult Check(string path, TimeSpan? expectedDuration = null)
+    public static IntegrityResult Check(
+        string path, TimeSpan? expectedDuration = null, TimeSpan? tolerance = null)
     {
         var ffprobe = SpectrumAnalyzer.FindFfprobe();
         if (ffprobe is null)
-            return new(false, "ffprobe not found");
+            return new(false, "ffprobe not found", IntegrityIssue.Corrupt);
 
         try
         {
@@ -40,27 +61,29 @@ public static class FileIntegrity
                 path,
             }, timeoutMs: 15000);
             if (result.TimedOut)
-                return new(false, "ffprobe timed out");
+                return new(false, "ffprobe timed out", IntegrityIssue.Corrupt);
             if (result.ExitCode != 0)
-                return new(false, "ffprobe failed");
+                return new(false, "ffprobe failed", IntegrityIssue.Corrupt);
 
             var duration = ParseDuration(result.Stdout);
             if (duration is null or <= 0)
-                return new(false, "no duration");
+                return new(false, "no duration", IntegrityIssue.Corrupt);
 
             if (expectedDuration is { } expected)
             {
-                var toleranceSeconds = Math.Max(30, expected.TotalSeconds * 0.1);
-                if (Math.Abs(duration.Value - expected.TotalSeconds) > toleranceSeconds)
+                var allowed = tolerance ?? TimeSpan.FromSeconds(
+                    Math.Max(DefaultTolerance.TotalSeconds, expected.TotalSeconds * 0.1));
+                if (Math.Abs(duration.Value - expected.TotalSeconds) > allowed.TotalSeconds)
                     return new(false,
-                        $"duration mismatch: {duration.Value:0.##}s vs expected {expected.TotalSeconds:0.##}s");
+                        $"duration mismatch: {duration.Value:0.##}s vs expected {expected.TotalSeconds:0.##}s",
+                        IntegrityIssue.DurationMismatch);
             }
 
             return new(true, null);
         }
         catch
         {
-            return new(false, "ffprobe failed");
+            return new(false, "ffprobe failed", IntegrityIssue.Corrupt);
         }
     }
 

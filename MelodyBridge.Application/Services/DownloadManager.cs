@@ -83,8 +83,15 @@ public class DownloadManager : IDownloadManager
     /// <summary>Why the last waterfall run for a melodyId produced nothing, for honest error messages.</summary>
     private readonly ConcurrentDictionary<string, string> _lastFailure = new();
 
+    /// <summary>Which plugin produced the last successful file per melodyId.</summary>
+    private readonly ConcurrentDictionary<string, string> _lastPlugin = new();
+
     public IReadOnlyList<DownloadProgress> SnapshotProgress()
         => _progress.Values.ToList();
+
+    /// <inheritdoc />
+    public string? LastPluginId(string melodyId)
+        => _lastPlugin.TryGetValue(melodyId, out var id) ? id : null;
 
     /// <inheritdoc />
     public async Task<string?> DownloadAsync(string sourceUrl, string outputDirectory, string melodyId, CancellationToken ct = default)
@@ -108,6 +115,7 @@ public class DownloadManager : IDownloadManager
                         continue;
                     }
                     _health.RecordSuccess(downloader.Id);
+                    _lastPlugin[melodyId] = downloader.Id;
                     return result.FilePath;
                 }
                 _health.RecordFailure(downloader.Id);
@@ -140,10 +148,15 @@ public class DownloadManager : IDownloadManager
     /// (QualityLadder), stepping down until a source delivers. The reason
     /// that is reported when nothing works is always the requested
     /// quality's own reason.
+    ///
+    /// <paramref name="avoidPluginId"/> drops one plugin from this whole
+    /// call, ladder steps included: the retry path of a flagged file uses
+    /// it so the provider that delivered the flagged file gets no second
+    /// chance at the same track.
     /// </summary>
     public async Task<string?> DownloadTrackAsync(
         TrackQuery query, string outputDirectory, string melodyId,
-        DownloadFallback? fallback = null, CancellationToken ct = default)
+        DownloadFallback? fallback = null, string? avoidPluginId = null, CancellationToken ct = default)
     {
         var (pluginBudget, trackBudget) = await BudgetsAsync(ct);
 
@@ -151,10 +164,11 @@ public class DownloadManager : IDownloadManager
         // step together: a chain of dead sources must not hold a sync run.
         using var trackBudgetCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         trackBudgetCts.CancelAfter(trackBudget);
+        _lastPlugin.TryRemove(melodyId, out _);
         try
         {
             return await DownloadTrackCoreAsync(
-                query, outputDirectory, melodyId, fallback, pluginBudget, trackBudgetCts.Token);
+                query, outputDirectory, melodyId, fallback, avoidPluginId, pluginBudget, trackBudgetCts.Token);
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
@@ -171,18 +185,37 @@ public class DownloadManager : IDownloadManager
     /// <summary>The per-quality waterfall passes, under the track budget.</summary>
     private async Task<string?> DownloadTrackCoreAsync(
         TrackQuery query, string outputDirectory, string melodyId,
-        DownloadFallback? fallback, TimeSpan pluginBudget, CancellationToken ct)
+        DownloadFallback? fallback, string? avoidPluginId, TimeSpan pluginBudget, CancellationToken ct)
     {
+        // The retry hint filters the plugin list before routing and before
+        // the ladder is built: a step that only the avoided plugin could
+        // serve drops out, and the routing reasons stay honest.
+        var enabled = _registry.GetEnabled();
+        if (avoidPluginId is { Length: > 0 })
+        {
+            var avoided = enabled.Where(p => string.Equals(p.Id, avoidPluginId, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            if (avoided.Count > 0)
+            {
+                enabled = enabled
+                    .Where(p => !string.Equals(p.Id, avoidPluginId, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+                _logger.LogInformation(
+                    "Avoiding {Name} for '{Title}': it delivered a flagged file; retrying elsewhere",
+                    avoided[0].Name, query.Title);
+            }
+        }
+
         var targets = fallback is null
             ? new List<DownloadQuality> { query.Quality }
-            : QualityLadder.Build(query.Quality, fallback.AllowContainerChange, _registry.GetEnabled()).ToList();
+            : QualityLadder.Build(query.Quality, fallback.AllowContainerChange, enabled).ToList();
         if (targets.Count == 0) targets.Add(query.Quality);
 
         string? requestedFailure = null;
         for (var i = 0; i < targets.Count; i++)
         {
             var path = await TryDownloadQualityAsync(
-                query with { Quality = targets[i] }, outputDirectory, melodyId, pluginBudget, ct);
+                query with { Quality = targets[i] }, outputDirectory, melodyId, enabled, pluginBudget, ct);
             if (path is not null) return path;
 
             requestedFailure ??= _lastFailure.TryGetValue(melodyId, out var reason) ? reason : null;
@@ -190,6 +223,19 @@ public class DownloadManager : IDownloadManager
                 _logger.LogInformation(
                     "No download for '{Title}' at {Quality}; stepping down to {Next}",
                     query.Title, DescribeQuality(targets[i]), DescribeQuality(targets[i + 1]));
+        }
+
+        // Nothing worked with the avoided plugin out. Say exactly that
+        // instead of pretending no source has the track: the user can
+        // settle the review with Keep, or take the flagged provider back.
+        if (enabled.Count == 0 && avoidPluginId is { Length: > 0 })
+        {
+            var name = _registry.Get(avoidPluginId)?.Name ?? avoidPluginId;
+            _lastFailure[melodyId] =
+                $"no other provider is available: {name} delivered the flagged file and was skipped";
+            _progress[melodyId] = new DownloadProgress(melodyId, query.Title, "failed", null, null,
+                Warning: "No other provider left to retry");
+            return null;
         }
 
         // The headline failure is the quality the user asked for, not the
@@ -201,7 +247,7 @@ public class DownloadManager : IDownloadManager
     /// <summary>One waterfall pass for one concrete quality target.</summary>
     private async Task<string?> TryDownloadQualityAsync(
         TrackQuery query, string outputDirectory, string melodyId,
-        TimeSpan pluginBudget, CancellationToken ct)
+        IReadOnlyList<IDownloader> enabled, TimeSpan pluginBudget, CancellationToken ct)
     {
         var quality = query.Quality;
         _progress[melodyId] = new DownloadProgress(melodyId, query.Title, "searching", null, null);
@@ -216,7 +262,7 @@ public class DownloadManager : IDownloadManager
             // Quality-aware routing: plugins that cannot serve this request
             // are excluded before any network call, survivors ranked so the
             // most promising source runs first.
-            var plan = QualityRouter.Route(quality, _registry.GetEnabled());
+            var plan = QualityRouter.Route(quality, enabled);
             foreach (var (downloader, reason) in plan.Excluded)
                 _logger.LogDebug("Router excluded {Name}: {Reason}", downloader.Name, reason);
 
@@ -350,6 +396,7 @@ public class DownloadManager : IDownloadManager
                         // gate. Plugins never tag it themselves.
                         TaglibHelper.WriteMelodyId(result.FilePath, melodyId);
 
+                        _lastPlugin[melodyId] = downloader.Id;
                         _health.RecordSuccess(downloader.Id);
                         _progress[melodyId] = new DownloadProgress(
                             melodyId, query.Title, "done", downloader.Name, result.FilePath, candidate.MatchConfidence,

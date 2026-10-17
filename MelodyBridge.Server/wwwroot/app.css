@@ -1544,6 +1544,9 @@ td.file-path {
 /* ── Track row actions ──────────────────────────────────────────── */
 .track-actions { white-space: nowrap; text-align: right; }
 .track-actions .btn-modern { margin-left: .3rem; }
+/* A row with more decision buttons than fit (a dedup pair plus Remove)
+   wraps cleanly instead of clipping the last button. */
+.track-actions .btn-group { flex-wrap: wrap; justify-content: flex-end; row-gap: .3rem; }
 
 /* ── Quality picker (two selects side by side) ───────────────────── */
 .quality-picker { display: flex; gap: 1rem; flex-wrap: wrap; }
@@ -1751,7 +1754,9 @@ input[type="file"].btn-modern::file-selector-button {
 .track-table .col-format { width: 4.5rem; }
 .track-table .col-status { width: 8rem; }
 .track-table .col-file { width: 12rem; }
-.track-table .col-actions { width: 13.5rem; }
+/* Wide enough for a three-button row (Keep / Retry / Remove); the dedup
+   pair wraps onto a second line instead of getting clipped. */
+.track-table .col-actions { width: 17rem; }
 
 /* Row actions are pinned to the right edge of the scroll container: the
    table is wider than most laptop windows, and the per-track buttons must
@@ -1791,9 +1796,11 @@ input[type="file"].btn-modern::file-selector-button {
     .track-table .col-file { display: none; }
     .track-table .col-title { width: 7.5rem; }
     .track-table .col-artist { width: 5rem; }
-    .track-table .col-actions { width: 5.5rem; }
+    /* Room for two icon buttons per line, so a three-button row wraps to
+       two lines instead of stacking one per line. */
+    .track-table .col-actions { width: 6.5rem; }
     .track-table .track-actions .btn-label { display: none; }
-    .track-table .track-actions .btn-modern { padding: .35rem .55rem; margin-left: .25rem; }
+    .track-table .track-actions .btn-modern { padding: .35rem .4rem; margin-left: .25rem; }
 }
 
 /* Denser cells: the row action buttons need the width more than the

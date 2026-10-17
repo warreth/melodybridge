@@ -27,8 +27,10 @@ public enum SpectrumMode
 /// fades out gently is music that was mixed that way, not a mislabelled
 /// rip; Opus and Vorbis stay near full band even at low bitrates; and
 /// only a steep codec-style corner, at least two bitrate classes below
-/// the declared one, counts as inflated. A file with no such corner gets
-/// no quality verdict at all. The check only warns, it never deletes.
+/// the declared one (the gap is configurable), counts as inflated. A file
+/// with no such corner gets no quality verdict at all. The check only
+/// flags, it never deletes; the flagged file becomes a review the user
+/// settles with Keep or Retry.
 /// </summary>
 public static class SpectrumAnalyzer
 {
@@ -56,7 +58,8 @@ public static class SpectrumAnalyzer
     // The measured bandwidth must imply a class at least this many steps
     // below the declared one before it is called inflated. One step is
     // within the noise of real rips; two is a corner that should not exist.
-    private const int InflatedClassGap = 2;
+    // The Settings page can lower or raise it (1..4); this is the default.
+    public const int DefaultClassGap = 2;
 
     // The bitrate classes a bandwidth can imply, low to high.
     private static readonly int[] Classes = { 96, 128, 160, 192, 256, 320 };
@@ -79,10 +82,13 @@ public static class SpectrumAnalyzer
 
     /// <summary>
     /// Verifies a downloaded audio file against its declared bitrate.
-    /// Returns null when the mode is Off, ffmpeg or ffprobe is missing,
-    /// or the file has no readable audio facts or spectrum.
+    /// <paramref name="classGap"/> is how many bitrate classes the measured
+    /// bandwidth may sit below the declared one before the file counts as
+    /// inflated (1 strict .. 4 forgiving). Returns null when the mode is
+    /// Off, ffmpeg or ffprobe is missing, or the file has no readable
+    /// audio facts or spectrum.
     /// </summary>
-    public static Result? Verify(string filePath, SpectrumMode mode)
+    public static Result? Verify(string filePath, SpectrumMode mode, int classGap = DefaultClassGap)
     {
         if (mode == SpectrumMode.Off) return null;
         var ffmpeg = FindBinary("ffmpeg");
@@ -101,7 +107,7 @@ public static class SpectrumAnalyzer
             if (powerDb is null || powerDb.Length == 0) return null;
 
             var (bandwidthHz, cliffDropDb) = FindBandwidth(powerDb);
-            return Judge(bandwidthHz, cliffDropDb, facts);
+            return Judge(bandwidthHz, cliffDropDb, facts, classGap);
         }
         catch
         {
@@ -282,7 +288,7 @@ public static class SpectrumAnalyzer
 
     // ---- verdict -------------------------------------------------------
 
-    private static Result Judge(double bandwidthHz, double cliffDropDb, AudioFacts facts)
+    private static Result Judge(double bandwidthHz, double cliffDropDb, AudioFacts facts, int classGap)
     {
         var declared = facts.BitrateKbps;
         var codec = facts.Codec?.ToLowerInvariant();
@@ -296,7 +302,7 @@ public static class SpectrumAnalyzer
         var declaredIndex = declared is > 0 ? ClassIndex(declared.Value) : -1;
         var inflated = cutoff
             && declaredIndex >= ClassIndex(InflatedDeclaredFloorKbps)
-            && declaredIndex - ClassIndex(effective) >= InflatedClassGap;
+            && declaredIndex - ClassIndex(effective) >= Math.Clamp(classGap, 1, 4);
 
         var note = Describe(bandwidthHz, effective, declared, inflated, cutoff);
         return new Result(inflated, cutoff, bandwidthHz, effective, declared, codec, note);

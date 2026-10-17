@@ -137,6 +137,60 @@ public class SettingsPageTests
     }
 
     [Test]
+    public void Settings_QualityTab_ShowsVerificationToleranceKnobs()
+    {
+        var cut = _ctx.Render<Settings>();
+        cut.FindAll("button.tab-link").First(b => b.TextContent == "Quality").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.Markup, Does.Contain("Spectrum strictness"),
+                "the class gap is configurable");
+            Assert.That(cut.Markup, Does.Contain("Length tolerance (seconds)"));
+            Assert.That(cut.Markup, Does.Contain("Length tolerance (percent)"));
+        }, TimeSpan.FromSeconds(3));
+    }
+
+    [Test]
+    public void Settings_SaveAll_PersistsVerificationKnobs_AndWiresTheStore()
+    {
+        var factory = _ctx.Services.GetRequiredService<IDbContextFactory<MelodyBridgeDbContext>>();
+        var saved = MelodyBridge.Infrastructure.Services.PlaylistStore.Verification;
+        try
+        {
+            var cut = _ctx.Render<Settings>();
+            cut.FindAll("button.tab-link").First(b => b.TextContent == "Quality").Click();
+            cut.WaitForAssertion(() =>
+                Assert.That(cut.Markup, Does.Contain("Length tolerance (seconds)")), TimeSpan.FromSeconds(3));
+
+            var seconds = cut.FindAll("input[type=number]")
+                .First(i => i.ParentElement!.TextContent.Contains("Length tolerance (seconds)"));
+            seconds.Change("45");
+            var strictness = cut.FindAll("select")
+                .First(s => s.TextContent.Contains("Balanced"));
+            strictness.Change("1");
+
+            cut.FindAll("button").First(b => b.TextContent.Trim() == "Save settings").Click();
+            cut.WaitForAssertion(() =>
+            {
+                using var db = factory.CreateDbContext();
+                var settings = db.DownloaderSettings.AsNoTracking().ToDictionary(s => s.Key, s => s.Value);
+                Assert.That(settings.GetValueOrDefault("quality_length_tolerance_seconds"), Is.EqualTo("45"));
+                Assert.That(settings.GetValueOrDefault("spectrum_class_gap"), Is.EqualTo("1"));
+
+                var live = MelodyBridge.Infrastructure.Services.PlaylistStore.Verification();
+                Assert.That(live.LengthToleranceSeconds, Is.EqualTo(45),
+                    "the stored value is live without a restart");
+                Assert.That(live.SpectrumClassGap, Is.EqualTo(1));
+            }, TimeSpan.FromSeconds(3));
+        }
+        finally
+        {
+            MelodyBridge.Infrastructure.Services.PlaylistStore.Verification = saved;
+        }
+    }
+
+    [Test]
     public void Settings_NetworkTab_ShowsFlareSolverrTester()
     {
         var cut = _ctx.Render<Settings>();

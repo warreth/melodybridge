@@ -241,6 +241,26 @@ public class SpectrumAnalyzerTests
         Assert.That(SpectrumAnalyzer.Verify(file, SpectrumMode.Thorough)!.LooksInflated, Is.True);
     }
 
+    [Test]
+    public void Verify_ClassGap_ChangesTheVerdict()
+    {
+        RequireFfmpeg();
+        // The 64 kbps lowpass under a 320 header lands in class 192,
+        // two classes below 320. The configured gap is the line.
+        var source = Make($"-f lavfi -i \"{Pink}\" -b:a 64k", "srcgap.mp3");
+        var file = From(source, "-b:a 320k", "upgap.mp3");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(SpectrumAnalyzer.Verify(file, SpectrumMode.Thorough, classGap: 1)!.LooksInflated,
+                Is.True, "gap 1 flags the drop");
+            Assert.That(SpectrumAnalyzer.Verify(file, SpectrumMode.Thorough, classGap: 2)!.LooksInflated,
+                Is.True, "the default gap of 2 still flags it");
+            Assert.That(SpectrumAnalyzer.Verify(file, SpectrumMode.Thorough, classGap: 3)!.LooksInflated,
+                Is.False, "a lenient gap of 3 accepts a two-class drop");
+        });
+    }
+
     // ---- band-limited content: honest, not mislabelled -----------------
 
     [Test]

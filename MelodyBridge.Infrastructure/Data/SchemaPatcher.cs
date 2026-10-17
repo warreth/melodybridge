@@ -47,6 +47,14 @@ public static class SchemaPatcher
         // run that actually resolved nothing.
         ("SyncJobs", "LastRunResolvedTracks", "INTEGER NOT NULL DEFAULT 0"),
         ("SyncJobs", "LastRunTotalTracks", "INTEGER NOT NULL DEFAULT 0"),
+        // Flagged quality reviews: a file that failed the post-download
+        // length or spectrum check stays in the library and waits for the
+        // user's Keep or Retry. SourcePluginId remembers who delivered it;
+        // AvoidPluginId is the one-shot "not from here" hint of Retry.
+        ("Tracks", "SourcePluginId", "TEXT NULL"),
+        ("Tracks", "ReviewKind", "TEXT NULL"),
+        ("Tracks", "ReviewText", "TEXT NULL"),
+        ("Tracks", "AvoidPluginId", "TEXT NULL"),
     };
 
     public static async Task PatchAsync(MelodyBridgeDbContext db, CancellationToken ct = default)

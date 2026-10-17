@@ -181,18 +181,27 @@ public class ReleasePipelineLiveTests
             Assert.That(track.Bitrate, Is.Null.Or.LessThanOrEqualTo(320),
                 "the preset's 320 kbps ceiling holds on the real file");
             // High Quality promises "up to 320", but the waterfall takes
-            // whatever a third-party source actually serves. The spectrum
-            // check is advisory and content-dependent, so what a source
-            // handed out shows up here honestly: a genuinely smaller rip
-            // as a "quality hint", an upscaled upload the source itself
-            // served as "bitrate looks inflated". Neither is a pipeline
-            // failure. An operational one (a failed archive copy) still is.
+            // whatever a third-party source actually serves. The checks are
+            // content-dependent, so what a source handed out shows up here
+            // honestly: a genuinely smaller rip as a "quality hint", an
+            // upscaled upload the source itself served as an open spectrum
+            // review. Neither is a pipeline failure. An operational one (a
+            // failed archive copy) still is.
             Assert.That(track.Warning ?? string.Empty, Does.Not.Contain("archive copy failed"),
                 $"the archive copy of the delivered file failed: {track.Warning}");
             if (track.Warning is { Length: > 0 })
                 Assert.That(track.Warning,
-                    Does.StartWith("quality hint:").Or.StartWith("bitrate looks inflated:"),
+                    Does.StartWith("quality hint:"),
                     $"unexpected quality warning on the delivered file: {track.Warning}");
+            if (track.ReviewKind is { Length: > 0 })
+            {
+                Assert.That(track.ReviewKind,
+                    Does.Contain("length").Or.Contain("spectrum"));
+                Assert.That(track.ReviewText, Is.Not.Null.And.Not.Empty,
+                    "an open review always explains itself");
+                Assert.That(File.Exists(track.CurrentPath!), Is.True,
+                    "a flagged file stays on disk for Keep or Retry");
+            }
 
             var integrity = FileIntegrity.Check(track.CurrentPath!,
                 TimeSpan.FromMilliseconds(track.DurationMs!.Value));
