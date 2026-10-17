@@ -134,14 +134,20 @@ public class QobuzDownloader : IDownloader
             return false;
         }
 
-        var account = await _qobuz.ValidateTokenAsync(token, ct);
-        if (account is null)
+        var check = await _qobuz.ValidateTokenAsync(token, ct);
+        if (check.Status == QobuzClient.QobuzTokenStatus.Unreachable)
+        {
+            LastUnavailableReason = "The Qobuz token could not be checked (the API did not answer)";
+            _availability.Store(false);
+            return false;
+        }
+        if (check.Account is null)
         {
             LastUnavailableReason = "The Qobuz token was rejected";
             _availability.Store(false);
             return false;
         }
-        if (!account.CanDownload)
+        if (!check.Account.CanDownload)
         {
             LastUnavailableReason = "This Qobuz plan cannot download (a paid plan is required)";
             _logger.LogInformation("Qobuz: this account cannot download (a paid plan is required)");

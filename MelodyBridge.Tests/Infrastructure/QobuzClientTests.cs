@@ -132,12 +132,14 @@ public class QobuzClientTests
                 : BundleResponse();
         var client = Create(handler);
 
-        var account = await client.ValidateTokenAsync("token-123");
+        var check = await client.ValidateTokenAsync("token-123");
 
-        Assert.That(account, Is.Not.Null);
+        Assert.That(check.Account, Is.Not.Null);
+        var account = check.Account!;
         Assert.Multiple(() =>
         {
-            Assert.That(account!.Label, Is.EqualTo("Studio"));
+            Assert.That(check.Status, Is.EqualTo(QobuzClient.QobuzTokenStatus.Valid));
+            Assert.That(account.Label, Is.EqualTo("Studio"));
             Assert.That(account.CanDownload, Is.True);
 
             var post = handler.Requests.Single(r => r.Method == HttpMethod.Post);
@@ -157,10 +159,48 @@ public class QobuzClientTests
                 : BundleResponse();
         var client = Create(handler);
 
-        var account = await client.ValidateTokenAsync("token-123");
+        var check = await client.ValidateTokenAsync("token-123");
 
-        Assert.That(account, Is.Not.Null);
-        Assert.That(account!.CanDownload, Is.False, "a free plan has no parameters block");
+        Assert.That(check.Account, Is.Not.Null);
+        Assert.That(check.Account!.CanDownload, Is.False, "a free plan has no parameters block");
+    }
+
+    [Test]
+    public async Task ValidateToken_RefusedToken_IsRejected()
+    {
+        var handler = new StubHttpMessageHandler();
+        handler.Respond = request => request.RequestUri!.AbsolutePath.Contains("bundle.js")
+            ? BundleScriptResponse()
+            : request.Method == HttpMethod.Post
+                ? new HttpResponseMessage(HttpStatusCode.Unauthorized)
+                : BundleResponse();
+        var client = Create(handler);
+
+        var check = await client.ValidateTokenAsync("stale-token");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(check.Status, Is.EqualTo(QobuzClient.QobuzTokenStatus.Rejected),
+                "401 is the token being refused, not a network problem");
+            Assert.That(check.Account, Is.Null);
+        });
+    }
+
+    [Test]
+    public async Task ValidateToken_ServerError_IsUnreachable_NotRejected()
+    {
+        var handler = new StubHttpMessageHandler();
+        handler.Respond = request => request.RequestUri!.AbsolutePath.Contains("bundle.js")
+            ? BundleScriptResponse()
+            : request.Method == HttpMethod.Post
+                ? new HttpResponseMessage(HttpStatusCode.InternalServerError)
+                : BundleResponse();
+        var client = Create(handler);
+
+        var check = await client.ValidateTokenAsync("token-123");
+
+        Assert.That(check.Status, Is.EqualTo(QobuzClient.QobuzTokenStatus.Unreachable),
+            "a 500 says nothing about the token, so the UI must not call it stale");
     }
 
     [Test]

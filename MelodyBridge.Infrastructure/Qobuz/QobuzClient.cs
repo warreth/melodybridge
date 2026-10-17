@@ -66,6 +66,35 @@ public class QobuzClient
     /// <summary>The account behind a token.</summary>
     public record QobuzAccount(string Token, string? Label, bool CanDownload);
 
+    /// <summary>How a token check ended.</summary>
+    public enum QobuzTokenStatus
+    {
+        /// <summary>The token works; the account travels along.</summary>
+        Valid,
+
+        /// <summary>Qobuz refused the token itself (401 or 403).</summary>
+        Rejected,
+
+        /// <summary>
+        /// The check could not run: the web player was unreachable, the
+        /// API answered with a server error, or the request timed out.
+        /// The token may well be fine, so the UI must not call it stale.
+        /// </summary>
+        Unreachable,
+    }
+
+    /// <summary>The outcome of a token check.</summary>
+    public record QobuzTokenCheck(QobuzTokenStatus Status, QobuzAccount? Account)
+    {
+        public static readonly QobuzTokenCheck Unreachable =
+            new(QobuzTokenStatus.Unreachable, null);
+        public static readonly QobuzTokenCheck Rejected =
+            new(QobuzTokenStatus.Rejected, null);
+
+        public static QobuzTokenCheck Valid(QobuzAccount account) =>
+            new(QobuzTokenStatus.Valid, account);
+    }
+
     // ── Bundle (app id, private key) ─────────────────────────────────────
 
     /// <summary>
@@ -176,14 +205,15 @@ public class QobuzClient
     // ── Token ────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Validates a user token with the partner login call; null when the
-    /// token is stale.
+    /// Validates a user token with the partner login call. A rejected
+    /// token is told apart from a check that could not run, so the UI
+    /// never sends someone hunting for a new token over a server error.
     /// </summary>
-    public async Task<QobuzAccount?> ValidateTokenAsync(
+    public async Task<QobuzTokenCheck> ValidateTokenAsync(
         string token, CancellationToken ct = default)
     {
         var bundle = await GetBundleAsync(ct);
-        if (bundle is null) return null;
+        if (bundle is null) return QobuzTokenCheck.Unreachable;
 
         try
         {
@@ -195,10 +225,16 @@ public class QobuzClient
             request.Headers.Add("X-User-Auth-Token", token);
 
             using var response = await _http.SendAsync(request, ct);
+            if (response.StatusCode is System.Net.HttpStatusCode.Unauthorized
+                or System.Net.HttpStatusCode.Forbidden)
+            {
+                _logger.LogDebug("Qobuz rejected the token ({Status})", (int)response.StatusCode);
+                return QobuzTokenCheck.Rejected;
+            }
             if (!response.IsSuccessStatusCode)
             {
                 _logger.LogDebug("Qobuz token check returned {Status}", (int)response.StatusCode);
-                return null;
+                return QobuzTokenCheck.Unreachable;
             }
 
             using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
@@ -214,7 +250,7 @@ public class QobuzClient
                     canDownload = false; // free plans have no parameters block
             }
 
-            return new QobuzAccount(token, label, canDownload);
+            return QobuzTokenCheck.Valid(new QobuzAccount(token, label, canDownload));
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -223,7 +259,7 @@ public class QobuzClient
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "Qobuz token check failed");
-            return null;
+            return QobuzTokenCheck.Unreachable;
         }
     }
 

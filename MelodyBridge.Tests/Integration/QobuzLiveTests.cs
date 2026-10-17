@@ -76,8 +76,8 @@ public class QobuzLiveTests
         config.Set("qobuz", "user_auth_token", token);
         var plugin = new QobuzDownloader(Client(), config, NullLogger<QobuzDownloader>.Instance);
 
-        var account = await Client().ValidateTokenAsync(token);
-        if (account is not null && !account.CanDownload)
+        var check = await Client().ValidateTokenAsync(token);
+        if (check.Account is { CanDownload: false })
             Assert.Ignore("the Qobuz account cannot download (a paid plan is required)");
 
         Assert.That(await plugin.IsAvailableAsync(), Is.True,
@@ -116,9 +116,9 @@ public class QobuzLiveTests
         if (string.IsNullOrWhiteSpace(token) || string.IsNullOrWhiteSpace(command))
             Assert.Ignore("QOBUZ_TOKEN (or the token file) and QOBUZ_DLP_COMMAND are required");
 
-        var account = await Client().ValidateTokenAsync(token);
-        if (account is null) Assert.Ignore("the Qobuz token is stale");
-        if (account.CanDownload)
+        var check = await Client().ValidateTokenAsync(token);
+        if (check.Account is null) Assert.Ignore("the Qobuz token is stale");
+        if (check.Account.CanDownload)
             Assert.Ignore("a paid plan can download: covered by the download test");
 
         var config = new StubPluginConfig();
