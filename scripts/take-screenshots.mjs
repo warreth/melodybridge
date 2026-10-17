@@ -2,14 +2,16 @@
 // and writes optimized WebP copies into docs/public/screens.
 //
 // Usage:
-//   node scripts/take-screenshots.mjs [base-url] [--theme=light|dark|both] [--out=dir]
+//   node scripts/take-screenshots.mjs [base-url] [--theme=light|dark|both] [--out=dir] [--playlist=/playlists/<id>]
 //
 // Defaults: base http://127.0.0.1:3333, both themes, docs/public/screens.
 // The app follows the browser's preferred scheme when nothing is stored,
 // so each theme pass seeds localStorage mb-theme before navigating. On
 // load the app auto-focuses the page heading, which leaves a
 // focused-outline "selected text bar" in shots; every page is clicked at
-// (10,10) first to move focus back to the body.
+// (10,10) first to move focus back to the body. --playlist picks the
+// playlist for the playlist-details and playlist-tracks shots; without it
+// the script uses the first playlist card it finds.
 //
 // Playwright comes from the npx cache, so no project dependency grows.
 // On a host where that cache sits elsewhere (or Playwright is installed
@@ -31,15 +33,20 @@ const args = process.argv.slice(2)
 const baseUrl = args.find(a => !a.startsWith('--')) || 'http://127.0.0.1:3333'
 const themeArg = (args.find(a => a.startsWith('--theme=')) || '--theme=both').split('=')[1]
 const outArg = (args.find(a => a.startsWith('--out=')) || '--out=docs/public/screens').split('=')[1]
+const playlistPath = args.find(a => a.startsWith('--playlist='))?.split('=')[1] ?? null
 const themes = themeArg === 'both' ? ['light', 'dark'] : [themeArg]
 
 // Every route worth showing. playlist-details needs a real playlist id;
-// it is discovered from the rendered playlists page, never hardcoded,
-// so the script works against any database.
+// it is discovered from the rendered playlists page (or given with
+// --playlist), never hardcoded, so the script works against any
+// database. playlist-tracks shows the same page scrolled to the track
+// table, where the status pills and row actions live. An entry may carry
+// an optional third element with a selector to scroll into view.
 const ROUTES = [
   ['/', 'home'],
   ['/playlists', 'playlists'],
   [null, 'playlist-details'],
+  [null, 'playlist-tracks', { scrollTo: 'table.track-table' }],
   ['/library', 'library'],
   ['/plugins', 'plugins'],
   ['/sync-jobs', 'sync'],
@@ -61,10 +68,10 @@ async function shootTheme(browser, theme) {
     document.documentElement.setAttribute('data-theme', t)
   }, theme)
 
-  for (const [route, name] of ROUTES) {
+  for (const [route, name, opts] of ROUTES) {
     let path = route
     if (path === null) {
-      path = await page.evaluate(() =>
+      path = playlistPath ?? await page.evaluate(() =>
         document.querySelector('a[href^="/playlists/"]')?.getAttribute('href') ?? null)
       if (!path) { console.log('SKIP', theme, name, '(no playlist on this instance)'); continue }
     }
@@ -81,6 +88,11 @@ async function shootTheme(browser, theme) {
       await page.waitForTimeout(300)
       await page.evaluate(() => window.scrollTo(0, 0))
       await page.waitForTimeout(200)
+      if (opts?.scrollTo) {
+        await page.evaluate(selector =>
+          document.querySelector(selector)?.scrollIntoView({ block: 'start' }), opts.scrollTo)
+        await page.waitForTimeout(250)
+      }
       await page.screenshot({ path: `${RAW_DIR}/${theme}-${name}.png` })
       console.log('OK', theme, name)
     } catch (e) {
