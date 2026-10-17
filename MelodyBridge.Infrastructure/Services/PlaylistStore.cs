@@ -1391,6 +1391,129 @@ public class PlaylistStore
     }
 
     /// <summary>
+    /// Fills missing tags on already-downloaded files: the cover art from the
+    /// row's CoverUrl, the lyrics (resolved from LRCLIB and stored when the
+    /// row has none), the release credit and the album name. Only missing
+    /// fields are written, so art and lyrics a plugin embedded are never
+    /// overwritten. One unreadable or vanished file counts as failed and never
+    /// stops the run. Returns (updated, skipped, failed).
+    /// </summary>
+    public virtual async Task<(int updated, int skipped, int failed)> RetagLibraryAsync(CancellationToken ct = default)
+    {
+        List<TrackEntity> rows;
+        await using (var db = await _dbFactory.CreateDbContextAsync(ct))
+        {
+            rows = await db.Tracks.AsNoTracking()
+                .Where(t => t.DownloadStatus == "downloaded"
+                    && t.CurrentPath != null
+                    && (t.CoverUrl != null || t.Album != null || t.AlbumArtist != null
+                        || (t.Lyrics == null && t.Title != null)))
+                .ToListAsync(ct);
+        }
+
+        var updated = 0;
+        var skipped = 0;
+        var failed = 0;
+        // Bounded parallelism: the lyrics resolver paces its own requests and
+        // cover art is cached per album, so a handful of workers is plenty and
+        // keeps a large library from opening hundreds of file handles.
+        await Parallel.ForEachAsync(rows,
+            new ParallelOptions { MaxDegreeOfParallelism = 4, CancellationToken = ct },
+            async (row, token) =>
+            {
+                try
+                {
+                    if (!File.Exists(row.CurrentPath))
+                    {
+                        Interlocked.Increment(ref failed);
+                        return;
+                    }
+
+                    if (await RetagRowAsync(row, token))
+                        Interlocked.Increment(ref updated);
+                    else
+                        Interlocked.Increment(ref skipped);
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Re-tag failed for '{Title}'", row.Title);
+                    Interlocked.Increment(ref failed);
+                }
+            });
+
+        _logger.LogInformation(
+            "Re-tag: {Updated} file(s) updated, {Skipped} already complete, {Failed} failed",
+            updated, skipped, failed);
+        return (updated, skipped, failed);
+    }
+
+    /// <summary>
+    /// One row's re-tag: what the file is missing decides what is fetched.
+    /// Returns true when the file changed.
+    /// </summary>
+    private async Task<bool> RetagRowAsync(TrackEntity row, CancellationToken ct)
+    {
+        var path = row.CurrentPath!;
+        var (needsAlbum, needsAlbumArtist, needsLyrics, needsCover) = MissingTags(path);
+
+        var cover = needsCover && _coverArt is not null && !string.IsNullOrWhiteSpace(row.CoverUrl)
+            ? await _coverArt.FetchAsync(row.CoverUrl, ct)
+            : null;
+
+        var lyrics = row.Lyrics;
+        if (needsLyrics && string.IsNullOrWhiteSpace(lyrics) && _lyrics is not null
+            && !string.IsNullOrWhiteSpace(row.Title))
+        {
+            lyrics = await _lyrics.ResolveAsync(
+                row.Artist, row.Title, row.Album,
+                row.DurationMs is > 0 ? TimeSpan.FromMilliseconds(row.DurationMs.Value) : null,
+                ct);
+            if (!string.IsNullOrWhiteSpace(lyrics))
+                await StoreLyricsAsync(row.Id, lyrics, ct);
+        }
+
+        var changeAlbum = needsAlbum && !string.IsNullOrWhiteSpace(row.Album);
+        var changeAlbumArtist = needsAlbumArtist && !string.IsNullOrWhiteSpace(row.AlbumArtist);
+        var changeLyrics = needsLyrics && !string.IsNullOrWhiteSpace(lyrics);
+        var changeCover = needsCover && cover is { Length: > 0 };
+        if (!changeAlbum && !changeAlbumArtist && !changeLyrics && !changeCover)
+            return false;
+
+        Tagging.TaglibHelper.WriteTags(path,
+            album: changeAlbum ? row.Album : null,
+            albumArtist: changeAlbumArtist ? row.AlbumArtist : null,
+            coverArt: changeCover ? cover : null,
+            lyrics: changeLyrics ? lyrics : null);
+        return true;
+    }
+
+    /// <summary>
+    /// Which of the tags this action fills are not on the file yet. An
+    /// unreadable file throws and the caller counts it as failed.
+    /// </summary>
+    private static (bool Album, bool AlbumArtist, bool Lyrics, bool Cover) MissingTags(string path)
+    {
+        var file = TagLib.File.Create(path);
+        return (string.IsNullOrWhiteSpace(file.Tag.Album),
+            file.Tag.AlbumArtists.Length == 0,
+            string.IsNullOrWhiteSpace(file.Tag.Lyrics),
+            file.Tag.Pictures.Length == 0);
+    }
+
+    /// <summary>Persists a resolved lyrics text on the row, without a shared context.</summary>
+    private async Task StoreLyricsAsync(int trackId, string lyrics, CancellationToken ct)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        await db.Tracks
+            .Where(t => t.Id == trackId)
+            .ExecuteUpdateAsync(s => s.SetProperty(t => t.Lyrics, lyrics), ct);
+    }
+
+    /// <summary>
     /// Backfills audio facts (bitrate, sample rate, file size) on downloaded
     /// tracks from before those columns existed, and flags downloaded tracks
     /// whose file vanished as pending so the next download run picks them up.

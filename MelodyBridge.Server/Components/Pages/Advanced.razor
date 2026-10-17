@@ -136,11 +136,23 @@
             disk; tracks whose file has vanished are queued for a
             re-download.
         </p>
+        <p>
+            Re-tag fills what a downloaded file is missing: cover art from the
+            source, lyrics, the release credit and the album name. Tags that are
+            already there, including artwork a plugin embedded, are left alone.
+        </p>
         <div class="flex-actions">
             <button class="btn-modern primary" disabled="@recomputing" @onclick="RecomputeFacts">
                 @(recomputing ? "Recomputing…" : "Recompute audio facts")
             </button>
+            <button class="btn-modern" disabled="@retagging" @onclick="RetagLibrary">
+                @(retagging ? "Re-tagging…" : "Re-tag library")
+            </button>
         </div>
+        @if (retagResult is not null)
+        {
+            <p class="text-muted">@retagResult</p>
+        }
     </div>
 </section>
 
@@ -152,6 +164,8 @@
     private bool dedupEnabled = true;
     private bool logDatabaseActivity;
     private bool recomputing;
+    private bool retagging;
+    private string? retagResult;
 
     // Unsaved-changes state for the floating save bar.
     private bool dirty;
@@ -216,6 +230,31 @@
 
     /// <summary>An edit landed: the floating save bar appears.</summary>
     private void MarkDirty() => dirty = true;
+
+    /// <summary>
+    /// Fills missing tags (cover, lyrics, release credit, album) on already
+    /// downloaded files. Only missing fields are written; the counts are
+    /// shown next to the buttons and in a toast.
+    /// </summary>
+    private async Task RetagLibrary()
+    {
+        retagging = true;
+        try
+        {
+            var (updated, skipped, failed) = await PlaylistStore.RetagLibraryAsync();
+            retagResult = $"Re-tagged {updated} file(s); {skipped} already complete, {failed} could not be read.";
+            Notifications.Success(
+                $"Re-tagged {updated} file(s), {skipped} already complete, {failed} failed");
+        }
+        catch (Exception ex)
+        {
+            Notifications.Error($"Re-tag failed: {ex.Message}");
+        }
+        finally
+        {
+            retagging = false;
+        }
+    }
 
     private async Task RecomputeFacts()
     {
