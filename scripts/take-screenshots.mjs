@@ -11,7 +11,8 @@
 // focused-outline "selected text bar" in shots; every page is clicked at
 // (10,10) first to move focus back to the body. --playlist picks the
 // playlist for the playlist-details and playlist-tracks shots; without it
-// the script uses the first playlist card it finds.
+// the script reads the first playlist card on the playlists page and
+// reuses that path for both shots.
 //
 // Playwright comes from the npx cache, so no project dependency grows.
 // On a host where that cache sits elsewhere (or Playwright is installed
@@ -57,6 +58,21 @@ const ROUTES = [
 
 const RAW_DIR = '.shots'
 
+// The playlist card links only exist on the playlists page (the sidebar
+// links to /playlists itself, exactly), so the first null route discovers
+// the path there and every later null route reuses it. --playlist skips
+// the discovery entirely.
+let cachedPlaylistPath = null
+
+async function playlistPathFor(page) {
+  if (playlistPath) return playlistPath
+  if (cachedPlaylistPath) return cachedPlaylistPath
+  await page.goto(baseUrl + '/playlists', { waitUntil: 'networkidle', timeout: 30000 })
+  cachedPlaylistPath = await page.evaluate(() =>
+    document.querySelector('a[href^="/playlists/"]')?.getAttribute('href') ?? null)
+  return cachedPlaylistPath
+}
+
 async function shootTheme(browser, theme) {
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2 })
   const page = await ctx.newPage()
@@ -71,8 +87,7 @@ async function shootTheme(browser, theme) {
   for (const [route, name, opts] of ROUTES) {
     let path = route
     if (path === null) {
-      path = playlistPath ?? await page.evaluate(() =>
-        document.querySelector('a[href^="/playlists/"]')?.getAttribute('href') ?? null)
+      path = await playlistPathFor(page)
       if (!path) { console.log('SKIP', theme, name, '(no playlist on this instance)'); continue }
     }
     try {
