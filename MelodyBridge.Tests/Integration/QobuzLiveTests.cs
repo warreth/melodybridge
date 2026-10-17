@@ -97,9 +97,15 @@ public class QobuzLiveTests
         Assert.That(new FileInfo(result.FilePath!).Length, Is.GreaterThan(1024 * 1024),
             "a lossless track is megabytes, not a stub");
 
-        var codec = await FfprobeAsync("-v error -show_entries stream=codec_name -of csv=p=0",
+        // The audio stream only: the embedded cover art shows up as an
+        // extra mjpeg stream on the same file, and ffprobe's csv writer
+        // adds a trailing comma for some streams.
+        var codec = await FfprobeAsync(
+            "-v error -select_streams a:0 -show_entries stream=codec_name -of csv=p=0",
             result.FilePath!);
-        Assert.That(codec.Trim(), Is.EqualTo("flac"), "qobuz-dlp must deliver lossless audio");
+        var codecs = codec.Split(new[] { ',', '\n', '\r' },
+            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        Assert.That(codecs, Is.EqualTo(new[] { "flac" }), "qobuz-dlp must deliver lossless audio");
 
         var duration = await FfprobeAsync("-v quiet -show_entries format=duration -of csv=p=0",
             result.FilePath!);
