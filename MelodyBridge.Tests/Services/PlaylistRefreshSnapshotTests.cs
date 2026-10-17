@@ -108,6 +108,9 @@ public class PlaylistRefreshSnapshotTests
                 track.Warning = "low match confidence";
                 track.LastSeenAt = seenAt;
                 track.SkipDedup = true;
+                track.AlbumArtist = "Various Artists";
+                track.CoverUrl = "https://cdn.example/cover.jpg";
+                track.Lyrics = "first line\nsecond line";
                 await db.SaveChangesAsync();
             }
 
@@ -133,6 +136,12 @@ public class PlaylistRefreshSnapshotTests
                     Assert.That(track.LastSeenAt, Is.EqualTo(seenAt));
                     Assert.That(track.SkipDedup, Is.True,
                         "a pending Download new decision must not be lost in the rebuild");
+                    Assert.That(track.AlbumArtist, Is.EqualTo("Various Artists"),
+                        "the release credit survives the rebuild");
+                    Assert.That(track.CoverUrl, Is.EqualTo("https://cdn.example/cover.jpg"),
+                        "the cover URL survives the rebuild");
+                    Assert.That(track.Lyrics, Is.EqualTo("first line\nsecond line"),
+                        "resolved lyrics survive the rebuild");
                 });
             }
         }

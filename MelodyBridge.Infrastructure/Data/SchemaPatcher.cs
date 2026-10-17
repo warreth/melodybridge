@@ -36,6 +36,11 @@ public static class SchemaPatcher
         ("Tracks", "Isrc", "TEXT NULL"),
         // One-shot "Download new" decision from a dedup review.
         ("Tracks", "SkipDedup", "INTEGER NOT NULL DEFAULT 0"),
+        // Download metadata that makes the file usable in a media server:
+        // the release credit, the cover to embed and the resolved lyrics.
+        ("Tracks", "AlbumArtist", "TEXT NULL"),
+        ("Tracks", "CoverUrl", "TEXT NULL"),
+        ("Tracks", "Lyrics", "TEXT NULL"),
         // Opt-in: download new tracks right after an auto-sync refresh.
         ("Playlists", "AutoDownloadEnabled", "INTEGER NOT NULL DEFAULT 0"),
         // Quality strictness per playlist: strict delivers the requested

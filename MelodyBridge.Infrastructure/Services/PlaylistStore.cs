@@ -1057,6 +1057,12 @@ public class PlaylistStore
                     // A resolved ISRC survives a refresh that does not
                     // carry one (embed scrape, YouTube).
                     mapped.Isrc ??= prior.Isrc;
+                    // Download metadata survives too: a refresh must not
+                    // lose the cover, the release credit or the lyrics the
+                    // pipeline already paid for.
+                    mapped.AlbumArtist ??= prior.AlbumArtist;
+                    mapped.CoverUrl ??= prior.CoverUrl;
+                    mapped.Lyrics ??= prior.Lyrics;
                     // The audio facts and flags measure the file on disk:
                     // a refresh must not lose them, or the track table
                     // goes blank and dedup can no longer verify an
@@ -1437,6 +1443,9 @@ public class PlaylistStore
             Title = track.Title,
             Artist = track.Artist,
             Album = track.Album,
+            AlbumArtist = track.AlbumArtist,
+            CoverUrl = track.CoverUrl,
+            Lyrics = track.Lyrics,
             Isrc = track.Isrc,
             DurationMs = (long?)track.Duration?.TotalMilliseconds,
             MediaType = track.MediaType.ToString(),
