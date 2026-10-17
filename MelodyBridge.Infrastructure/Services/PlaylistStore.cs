@@ -39,6 +39,12 @@ public class PlaylistStore
     /// <summary>Settings key for the dedup toggle; default on.</summary>
     public const string DedupSettingKey = "dedup_enabled";
 
+    /// <summary>Base format values shown in the UI dropdown.</summary>
+    public static readonly string[] FormatOptions = PlaylistRules.FormatOptions;
+
+    /// <summary>Validates a PreferredFormat string; the rules live in <see cref="PlaylistRules"/>.</summary>
+    public static bool IsValidFormat(string value) => PlaylistRules.IsValidFormat(value);
+
     public PlaylistStore(
         IDbContextFactory<MelodyBridgeDbContext> dbFactory,
         IEnumerable<ISourceProvider> providers,
@@ -283,7 +289,7 @@ public class PlaylistStore
             track.LastSeenAt = DateTime.UtcNow;
             track.Bitrate = Audio.BitrateProbe.MeasureKbps(path);
             AudioProbe.Fill(track, path);
-            var warning = BuildWarning(track, path, spectrumMode);
+            var warning = PlaylistRules.BuildWarning(track, path, spectrumMode);
             // No ffprobe means the check could not run at all. The file is
             // kept (deleting a good download because a tool is missing is
             // worse), and the row says it was not verified.
@@ -432,11 +438,11 @@ public class PlaylistStore
             // for the UI; nothing is guessed, nothing is overwritten.
             track.DownloadStatus = "needs-review";
             track.DownloadError = null;
-            track.Warning = $"dedup conflict: playlist wants {DescribeQuality(quality)}, "
+            track.Warning = $"dedup conflict: playlist wants {PlaylistRules.DescribeQuality(quality)}, "
                 + $"existing file is {candidate.Describe()}. Choose hardlink existing or download new.";
             _logger.LogInformation(
                 "Dedup conflict for '{Title}': existing {Existing} vs requested {Requested}; paused for review",
-                track.Title, candidate.Describe(), DescribeQuality(quality));
+                track.Title, candidate.Describe(), PlaylistRules.DescribeQuality(quality));
             return "needs-review";
         }
 
@@ -589,19 +595,6 @@ public class PlaylistStore
         }
     }
 
-    /// <summary>Human form of a quality request for warnings and logs.</summary>
-    private static string DescribeQuality(DownloadQuality q)
-    {
-        var container = DedupQuality.RequestedContainer(q);
-        var band = (q.MinKbps, q.MaxKbps) switch
-        {
-            (null, null) => "any bitrate",
-            (null, { } max) => $"up to {max} kbps",
-            ({ } min, null) => $"{min}+ kbps",
-            ({ } min, { } max) => $"{min}-{max} kbps",
-        };
-        return container is null ? band : $"{container}, {band}";
-    }
 
     /// <summary>
     /// Atomically claims the next pending track of a playlist (status
@@ -695,62 +688,16 @@ public class PlaylistStore
         }
     }
 
-    /// <summary>
-    /// Builds the warning shown next to a downloaded track: low search
-    /// confidence and spectral doubts from the post-download verification.
-    /// </summary>
-    private static string? BuildWarning(TrackEntity track, string path, SpectrumMode spectrumMode)
-    {
-        var warnings = new List<string>();
 
-        if (SpectrumAnalyzer.Verify(path, spectrumMode) is { } spectrum)
-        {
-            if (spectrum.LooksInflated)
-                warnings.Add($"bitrate looks inflated: {spectrum.Note}");
-            else if (spectrum.CodecCutoff && spectrum.EffectiveKbpsClass is > 0 and < 320)
-                warnings.Add($"quality hint: {spectrum.Note}");
-        }
 
-        return warnings.Count == 0 ? null : string.Join("; ", warnings);
-    }
 
     /// <summary>
-    /// Maps a playlist's PreferredFormat to the waterfall quality.
-    /// "preset:saver" | "preset:high" | "preset:lossless" | "auto" name
-    /// the shared presets; a raw container ("mp3", "flac", "opus", "aac")
-    /// optionally suffixed with a bitrate ("mp3:192" cap, "mp3:192-320"
-    /// band, open bands "-320" / "192-") is the advanced path.
+    /// Maps a playlist's PreferredFormat to the waterfall quality. The rules
+    /// live in <see cref="PlaylistRules"/>; this keeps the name the pages
+    /// and tests call.
     /// </summary>
     internal static DownloadQuality ParseQuality(string? preferredFormat)
-    {
-        if (QualityPresets.TryParse(preferredFormat, out var preset))
-            return QualityPresets.ToQuality(preset);
-
-        return ParseRawQuality(preferredFormat);
-    }
-
-    private static DownloadQuality ParseRawQuality(string? preferredFormat)
-    {
-        preferredFormat ??= "auto";
-        var parts = preferredFormat.Split(':', 2);
-        var format = parts[0].ToLowerInvariant() switch
-        {
-            "mp3" => AudioFormat.Mp3,
-            "flac" => AudioFormat.Flac,
-            "opus" => AudioFormat.Opus,
-            "aac" => AudioFormat.Aac,
-            _ => AudioFormat.Auto,
-        };
-
-        if (parts.Length < 2)
-            return new DownloadQuality(format);
-
-        // "192" is a cap; "min-max", "-max" and "min-" are bands.
-        var range = parts[1].Split('-', 2);
-        var min = range.Length == 2 && int.TryParse(range[0], out var lo) && lo > 0 ? lo : (int?)null;
-        var max = int.TryParse(range.Length == 2 ? range[1] : range[0], out var hi) && hi > 0 ? hi : (int?)null;
-        return new DownloadQuality(format, min, max);
-    }
+        => PlaylistRules.ParseQuality(preferredFormat);
 
     /// <summary>All persisted playlists (without tracks), newest sync first.</summary>
     public async Task<List<PlaylistEntity>> GetAllAsync(CancellationToken ct = default)
@@ -957,7 +904,7 @@ public class PlaylistStore
             // OAuth spotify:liked). Manual imports have no live source
             // to pull from, so they count as Unknown platform: the cards
             // say Imported, and refresh/auto-sync leave them alone.
-            var slug = Slugify(incoming.Name);
+            var slug = PlaylistRules.Slugify(incoming.Name);
             await SaveSnapshotAsync(
                 providerPlatform: Platform.Unknown,
                 playlist: new Playlist
@@ -980,14 +927,6 @@ public class PlaylistStore
         return (imported, totalTracks);
     }
 
-    /// <summary>Filename-stable slug: lowercase letters/digits, rest to '-'.</summary>
-    private static string Slugify(string name)
-    {
-        var slug = new StringBuilder();
-        foreach (var ch in name.ToLowerInvariant())
-            slug.Append(char.IsAsciiLetterOrDigit(ch) ? ch : '-');
-        return slug.ToString().Trim('-') is { Length: > 0 } s ? s : "import";
-    }
 
     private async Task<(PlaylistEntity Entity, bool NewlySaved)> SaveSnapshotAsync(
         Platform providerPlatform, Playlist playlist, string? sourceUrl,
@@ -1050,7 +989,7 @@ public class PlaylistStore
         // Reconcile the snapshot according to the playlist's SyncMode:
         //  Additive: removed-from-source tracks are kept but flagged.
         //  Mirror   : removed-from-source tracks are deleted entirely.
-        var mode = ParseSyncMode(entity.SyncMode);
+        var mode = PlaylistRules.ParseSyncMode(entity.SyncMode);
         var incoming = playlist.Tracks ?? [];
         var incomingIds = incoming
             .Select(t => t.PlatformSongID?.ID ?? t.SongID?.ID)
@@ -1116,7 +1055,7 @@ public class PlaylistStore
                 {
                     prior = priors.Dequeue();
                 }
-                var mapped = MapTrack(t, providerPlatform, entity.Id, i);
+                var mapped = PlaylistRules.MapTrack(t, providerPlatform, entity.Id, i);
                 mapped.IsLiked = t.IsLiked;
                 if (prior is not null)
                 {
@@ -1320,23 +1259,7 @@ public class PlaylistStore
         await db.SaveChangesAsync(ct);
     }
 
-    /// <summary>Base format values shown in the UI dropdown.</summary>
-    public static readonly string[] FormatOptions = { "auto", "mp3", "flac", "opus", "aac" };
 
-    /// <summary>Validates a PreferredFormat string ("auto", "preset:saver", "mp3:192", legacy "mp3:192-320").</summary>
-    public static bool IsValidFormat(string value)
-    {
-        if (QualityPresets.IsPreset(value)) return true;
-        var parts = value.Split(':', 2);
-        if (!FormatOptions.Contains(parts[0].ToLowerInvariant())) return false;
-        if (parts.Length == 1) return true;
-
-        var range = parts[1].Split('-', 2);
-        foreach (var side in range)
-            if (side.Length > 0 && (!int.TryParse(side, out var n) || n <= 0))
-                return false;
-        return true;
-    }
 
     /// <summary>
     /// All playlists whose auto-sync schedule is due. The schedule is the
@@ -1458,7 +1381,7 @@ public class PlaylistStore
     private async Task<bool> RetagRowAsync(TrackEntity row, CancellationToken ct)
     {
         var path = row.CurrentPath!;
-        var (needsAlbum, needsAlbumArtist, needsLyrics, needsCover) = MissingTags(path);
+        var (needsAlbum, needsAlbumArtist, needsLyrics, needsCover) = PlaylistRules.MissingTags(path);
 
         var cover = needsCover && _coverArt is not null && !string.IsNullOrWhiteSpace(row.CoverUrl)
             ? await _coverArt.FetchAsync(row.CoverUrl, ct)
@@ -1491,18 +1414,6 @@ public class PlaylistStore
         return true;
     }
 
-    /// <summary>
-    /// Which of the tags this action fills are not on the file yet. An
-    /// unreadable file throws and the caller counts it as failed.
-    /// </summary>
-    private static (bool Album, bool AlbumArtist, bool Lyrics, bool Cover) MissingTags(string path)
-    {
-        var file = TagLib.File.Create(path);
-        return (string.IsNullOrWhiteSpace(file.Tag.Album),
-            file.Tag.AlbumArtists.Length == 0,
-            string.IsNullOrWhiteSpace(file.Tag.Lyrics),
-            file.Tag.Pictures.Length == 0);
-    }
 
     /// <summary>Persists a resolved lyrics text on the row, without a shared context.</summary>
     private async Task StoreLyricsAsync(int trackId, string lyrics, CancellationToken ct)
@@ -1551,8 +1462,6 @@ public class PlaylistStore
         return (recomputed, missing);
     }
 
-    private static PlaylistSyncMode ParseSyncMode(string? raw)
-        => Enum.TryParse<PlaylistSyncMode>(raw, true, out var mode) ? mode : PlaylistSyncMode.Additive;
 
     /// <summary>Export persisted playlists (with tracks) as JSON for backup.</summary>
     public async Task<string> ExportAsync(IEnumerable<string>? playlistIds = null, CancellationToken ct = default)
@@ -1615,41 +1524,6 @@ public class PlaylistStore
         return _providers.FirstOrDefault(p => p.CanHandle(sourceUrl));
     }
 
-    private static TrackEntity MapTrack(Track track, Platform platform, string playlistId, int position)
-    {
-        var externalId = track.PlatformSongID?.ID ?? track.SongID?.ID;
-        var songId = track.PlatformSongID ?? track.SongID;
-        return new TrackEntity
-        {
-            // Deterministic per source track: wiping the database and
-            // re-adding the same playlist yields the same ids, so the
-            // files already on disk keep matching and nothing re-downloads.
-            // No native id: import rows hash their metadata (csv:), any
-            // other row falls back to the mbh: hash.
-            MelodyId = songId is not null
-                ? MelodyIds.For(songId)
-                : platform == Platform.Unknown
-                    ? MelodyIds.ForCsv(track.Artist, track.Title, track.Duration)
-                    : MelodyIds.ForUnknown(track.Artist, track.Title, track.Duration),
-            ExternalId = externalId,
-            ExternalPlatform = platform.ToString(),
-            Title = track.Title,
-            Artist = track.Artist,
-            Album = track.Album,
-            AlbumArtist = track.AlbumArtist,
-            CoverUrl = track.CoverUrl,
-            Lyrics = track.Lyrics,
-            Isrc = track.Isrc,
-            DurationMs = (long?)track.Duration?.TotalMilliseconds,
-            MediaType = track.MediaType.ToString(),
-            SourceUrl = track.CurrentTrackLocation?.Path,
-            Platform = platform.ToString(),
-            Position = position,
-            DownloadStatus = "pending",
-            PlaylistSnapshotId = null,
-            CurrentPath = null,
-        };
-    }
 }
 
 // csv export helpers: cell quoting and download filename sanitizing
