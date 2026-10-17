@@ -26,6 +26,8 @@ public class PlaylistStore
     private readonly SettingsStore _settings;
     private readonly HardLinkService _hardLinks;
     private readonly IsrcResolver? _isrcResolver;
+    private readonly CoverArtFetcher? _coverArt;
+    private readonly LyricsResolver? _lyrics;
 
     /// <summary>
     /// Post-download spectral verification strictness. Static: one app-wide
@@ -45,7 +47,9 @@ public class PlaylistStore
         IEnumerable<IAccountSourceProvider>? accountProviders = null,
         SettingsStore? settings = null,
         HardLinkService? hardLinks = null,
-        IsrcResolver? isrcResolver = null)
+        IsrcResolver? isrcResolver = null,
+        CoverArtFetcher? coverArt = null,
+        LyricsResolver? lyrics = null)
     {
         _dbFactory = dbFactory;
         _providers = providers.ToArray();
@@ -61,6 +65,10 @@ public class PlaylistStore
         // Optional: without a resolver, tracks simply download without an
         // ISRC like before.
         _isrcResolver = isrcResolver;
+        // Optional download metadata: a cover to embed and lyrics to resolve.
+        // Without them the file is tagged exactly as before.
+        _coverArt = coverArt;
+        _lyrics = lyrics;
     }
 
     /// <summary>
@@ -265,6 +273,11 @@ public class PlaylistStore
                 return "failed";
             }
 
+            // Media-server metadata: cover art and lyrics, both optional and
+            // both isolated. They run after the integrity gate so a corrupt
+            // file never costs a network call.
+            await EnrichMetadataAsync(track, path, ct);
+
             track.DownloadStatus = "downloaded";
             track.CurrentPath = path;
             track.LastSeenAt = DateTime.UtcNow;
@@ -304,6 +317,61 @@ public class PlaylistStore
             // A cancelled token must not swallow the status write: the
             // claimed row has to leave "in_progress" whatever happened.
             await SaveQuietlyAsync(db);
+        }
+    }
+
+    /// <summary>
+    /// Fills the two metadata extras a downloaded file can carry: the cover
+    /// art and the lyrics. Both are best effort: a missing fetcher, a
+    /// missing URL, a timeout or a miss leaves the file exactly as it was,
+    /// and nothing here can fail the track.
+    /// </summary>
+    private async Task EnrichMetadataAsync(TrackEntity track, string path, CancellationToken ct)
+    {
+        try
+        {
+            if (_coverArt is not null
+                && !string.IsNullOrWhiteSpace(track.CoverUrl)
+                && !Tagging.TaglibHelper.HasPictures(path))
+            {
+                var cover = await _coverArt.FetchAsync(track.CoverUrl, ct);
+                if (cover is { Length: > 0 })
+                    Tagging.TaglibHelper.WriteTags(path, coverArt: cover);
+            }
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Cover embed failed for '{Title}'", track.Title);
+        }
+
+        try
+        {
+            if (_lyrics is not null
+                && string.IsNullOrWhiteSpace(track.Lyrics)
+                && !string.IsNullOrWhiteSpace(track.Title))
+            {
+                var lyrics = await _lyrics.ResolveAsync(
+                    track.Artist, track.Title, track.Album,
+                    track.DurationMs is > 0 ? TimeSpan.FromMilliseconds(track.DurationMs.Value) : null,
+                    ct);
+                if (!string.IsNullOrWhiteSpace(lyrics))
+                {
+                    track.Lyrics = lyrics;
+                    Tagging.TaglibHelper.WriteTags(path, lyrics: lyrics);
+                }
+            }
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Lyrics embed failed for '{Title}'", track.Title);
         }
     }
 

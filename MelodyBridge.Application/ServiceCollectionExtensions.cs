@@ -172,6 +172,27 @@ public static class ServiceCollectionExtensions
             sp.GetRequiredService<ILogger<IsrcResolver>>(),
             sp.GetRequiredService<IHttpClientFactory>().CreateClient("musicbrainz")));
 
+        // Download metadata: the cover art on a source payload and the
+        // lyrics from LRCLIB. Both are best effort enrichment; a missing
+        // answer never fails a download.
+        services.AddHttpClient("coverart", c =>
+        {
+            c.DefaultRequestHeaders.UserAgent.ParseAdd("MelodyBridge/1.0 (+https://melodybridge.app)");
+            c.Timeout = TimeSpan.FromSeconds(15);
+        });
+        services.AddSingleton(sp => new CoverArtFetcher(
+            sp.GetRequiredService<IHttpClientFactory>().CreateClient("coverart"),
+            sp.GetRequiredService<ILogger<CoverArtFetcher>>()));
+        services.AddHttpClient("lrclib", c =>
+        {
+            // LRCLIB asks clients to identify themselves.
+            c.DefaultRequestHeaders.UserAgent.ParseAdd("MelodyBridge/1.0 (+https://melodybridge.app)");
+            c.Timeout = TimeSpan.FromSeconds(15);
+        });
+        services.AddSingleton(sp => new LyricsResolver(
+            sp.GetRequiredService<IHttpClientFactory>().CreateClient("lrclib"),
+            sp.GetRequiredService<ILogger<LyricsResolver>>()));
+
         services.AddSingleton<IPluginConfig, PluginConfigStore>();
         services.AddSingleton<IDownloaderRegistry, DownloaderRegistry>();
 
