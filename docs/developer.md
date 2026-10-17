@@ -123,6 +123,8 @@ Implement this to add a download source. Built-in plugins:
 
 Place new implementations in `MelodyBridge.Infrastructure/Downloaders/` and register via `services.AddSingleton<IDownloader, YourPlugin>()`. Quality-gate downloads against the requested `DownloadQuality` band so bad rips never enter the library.
 
+Plugins that wrap a command line tool should derive from `CliToolDownloader` (`CliToolDownloader.cs`): it owns command resolution, the private per-track work folder, one serialized process run, picking the produced file up, moving, sniffing, tagging and cleanup. A subclass supplies its id, capabilities, config fields, the work folder, the tool arguments (`BuildRequestAsync`), the tool-specific availability check and, when the tool needs a login or config file, `PrepareEnvironmentAsync`. Qobuz, Deezer and Tidal are built this way; a new CLI source is normally one small file plus a settings entry.
+
 Every plugin-produced file is sniffed with `AudioSignature` (magic bytes, never the extension) before `DownloadManager` accepts it: an HTML error page or JSON body served under a 200 status is deleted and the waterfall moves on. Plugins that save files themselves delete partial output on failure and cancellation; the yt-dlp-backed plugins keep yt-dlp's resumable `.part` fragments (never final output, and the next attempt resumes from them).
 
 `DownloadQuality` carries a bitrate band: `MinKbps` and `MaxKbps`, both optional, both hard. Search hits whose measured bitrate falls outside the band are skipped, and downloaded files are probed with `BitrateProbe.MeasureKbps` and rejected+deleted when outside it. Unknown bitrates pass the search gate and leave the verdict to the post-download measurement.

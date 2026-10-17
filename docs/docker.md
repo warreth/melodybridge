@@ -117,6 +117,10 @@ The tools travel with the image: `docker compose pull` brings newer versions,
 like the yt-dlp binary does. The image runs on Alpine, which keeps it small:
 Debian's ffmpeg alone needed about 490 MB of packages, Alpine's about 130 MB.
 
+The image listens on port 80 by default, so a plain `docker run -p 3333:80`
+works without extra environment variables, and it carries a `HEALTHCHECK`
+against the home page, so `docker ps` shows whether the app finished starting.
+
 ## Running from source
 
 For development, run the server directly:
