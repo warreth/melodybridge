@@ -150,17 +150,25 @@ public class PlaylistsPageTests
     }
 
     [Test]
-    public void Playlists_ImportModal_OpensWithAllThreeRoutes()
+    public void Playlists_ImportModal_OpensOnAccounts_WithTheFilesTabNextToIt()
     {
         var cut = _ctx.Render<Playlists>();
         cut.Find("div.topbar-actions button.ghost").Click();
 
         Assert.That(cut.Markup, Does.Contain("Import your music"));
-        Assert.That(cut.Markup, Does.Contain("Exportify CSV"), "file route 1");
-        Assert.That(cut.Markup, Does.Contain("Spotify data export"), "file route 2");
+        Assert.That(cut.FindAll("button[data-tab]").Select(b => b.TextContent.Trim()),
+            Is.EqualTo(new[] { "Accounts", "Files" }),
+            "the modal splits accounts from files instead of stacking everything");
         // No account is connected in the test context, so the account
         // route shows its connect hint instead of its import buttons.
         Assert.That(cut.Markup, Does.Contain("Connect it in Settings"), "account route");
+
+        cut.Find("button[data-tab='files']").Click();
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.Markup, Does.Contain("Exportify CSV"), "file route 1");
+            Assert.That(cut.Markup, Does.Contain("Spotify data export"), "file route 2");
+        });
     }
 
     [Test]
@@ -173,20 +181,26 @@ public class PlaylistsPageTests
             "the account route must say it needs Premium");
         Assert.That(cut.Markup, Does.Contain("works with a free account"),
             "the file routes must say they work without Premium");
-        Assert.That(cut.Markup, Does.Contain("exportify.net"),
-            "the recommended tool must be linked");
+
+        cut.Find("button[data-tab='files']").Click();
+        cut.WaitForAssertion(() => Assert.That(cut.Markup, Does.Contain("exportify.net"),
+            "the recommended tool must be linked"));
     }
 
     [Test]
-    public void Playlists_ImportModal_TakeoutCard_SaysAlwaysManual()
+    public void Playlists_ImportModal_TakeoutRow_SaysManual_AndNamesTheFile()
     {
         var cut = _ctx.Render<Playlists>();
         cut.Find("div.topbar-actions button.ghost").Click();
+        cut.Find("button[data-tab='files']").Click();
 
-        Assert.That(cut.Markup, Does.Contain("Always manual, never automatic"),
-            "the Spotify data export must be labelled as manual");
-        Assert.That(cut.Markup, Does.Contain("YourLibrary.json"),
-            "must name the file the user should upload");
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.Markup, Does.Contain("manual"),
+                "the Spotify data export must be labelled as manual");
+            Assert.That(cut.Markup, Does.Contain("YourLibrary.json"),
+                "must name the file the user should upload");
+        });
     }
 
     [Test]
@@ -194,11 +208,15 @@ public class PlaylistsPageTests
     {
         var cut = _ctx.Render<Playlists>();
         cut.Find("div.topbar-actions button.ghost").Click();
+        cut.Find("button[data-tab='files']").Click();
 
-        var recommended = cut.FindAll("span.pill.ok")
-            .Any(p => p.TextContent.Trim() == "recommended");
-        Assert.That(recommended, Is.True,
-            "the Exportify card carries the recommended pill");
+        cut.WaitForAssertion(() =>
+        {
+            var recommended = cut.FindAll("span.pill.ok")
+                .Any(p => p.TextContent.Trim() == "recommended");
+            Assert.That(recommended, Is.True,
+                "the Exportify row carries the recommended pill");
+        });
     }
 
     [Test]

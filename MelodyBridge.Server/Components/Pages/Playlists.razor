@@ -206,129 +206,152 @@ else
                 <button class="icon-button" @onclick="HideAccountPanel"><Icon Name="x" Size="18" /></button>
             </div>
             <div class="wizard-body">
-                <h3>Spotify</h3>
-                <div class="account-grid">
-                    @foreach (var entry in accountPanels)
+                <TabStrip Tabs="ImportTabs" ActiveId="@importTab"
+                           OnSelect="id => importTab = id" AriaLabel="Where the music comes from" />
+
+                @if (importTab == "accounts")
+                {
+                    <div class="account-grid">
+                        @foreach (var entry in accountPanels)
+                        {
+                            <div class="account-card">
+                                <div class="account-head">
+                                    <strong>@entry.Name</strong>
+                                    <StatusPill Variant="@(entry.Connected ? "ok" : "neutral")">
+                                        @(entry.Connected ? "connected" : "not connected")
+                                    </StatusPill>
+                                </div>
+                                @if (entry.Connected)
+                                {
+                                    <div class="flex-actions">
+                                        <button class="btn-modern secondary" @onclick="() => ImportLiked(entry.Name)" disabled="@busy">
+                                            @(LikedAlreadySaved(entry.Name) ? "Update liked songs" : "Import liked songs")
+                                        </button>
+                                        <button class="btn-modern secondary" @onclick="() => LoadAccountPlaylists(entry.Name)" disabled="@busy">
+                                            Show my playlists
+                                        </button>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <p class="account-note">
+                                        Not connected. <a href="/settings#accounts">Connect it in Settings</a>
+                                        to import your private playlists and liked songs.
+                                    </p>
+                                }
+                            </div>
+                        }
+                    </div>
+                    <p class="account-note">
+                        Account imports use Spotify's official API and need
+                        <strong>Spotify Premium</strong>: Spotify requires it from the owner of
+                        the developer app. The <em>Files</em> tab works with a free account.
+                    </p>
+
+                    @if (accountPlaylists is not null)
                     {
-                        <div class="account-card">
-                            <strong>@entry.Name</strong>
-                            @if (entry.Connected)
-                            {
-                                <StatusPill Variant="ok">connected</StatusPill>
-                                <button class="btn-modern secondary" @onclick="() => ImportLiked(entry.Name)" disabled="@busy">
-                                    @(LikedAlreadySaved(entry.Name) ? "Update liked songs" : "Import liked songs")
-                                </button>
-                                <button class="btn-modern secondary" @onclick="() => LoadAccountPlaylists(entry.Name)" disabled="@busy">
-                                    Show my playlists
-                                </button>
-                            }
-                            else
-                            {
-                                <StatusPill Variant="neutral">not connected</StatusPill>
-                                <span class="text-muted">Connect it in Settings, Accounts.</span>
-                            }
+                        <div class="table-wrap">
+                            <table class="modern-table">
+                                <thead>
+                                    <tr>
+                                        <th>Playlist</th>
+                                        <th>Owner</th>
+                                        <th>Tracks</th>
+                                        <th>Status</th>
+                                        <th></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var pl in accountPlaylists)
+                                    {
+                                        var saved = savedAccountIds.Contains(pl.Id);
+                                        <tr>
+                                            <td><strong>@pl.Name</strong></td>
+                                            <td class="text-muted">@(pl.Owner ?? "-")</td>
+                                            <td class="text-muted">@pl.TrackCount</td>
+                                            <td>
+                                                @if (saved)
+                                                {
+                                                    <StatusPill Variant="ok" Title="Already saved locally; importing again updates it">saved</StatusPill>
+                                                }
+                                                else
+                                                {
+                                                    <StatusPill Variant="neutral">new</StatusPill>
+                                                }
+                                            </td>
+                                            <td>
+                                                <button class="btn-modern secondary" @onclick="() => ImportAccountPlaylist(pl)" disabled="@busy">
+                                                    @(busy && importingId == pl.Id
+                                                        ? "Importing…"
+                                                        : saved ? "Update" : "Import")
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
                         </div>
                     }
-                </div>
-                <p class="text-muted">
-                    The account method uses Spotify's official API and needs a
-                    <strong>Spotify Premium</strong> account: Spotify requires Premium from
-                    the owner of a developer app. No Premium? Use one of the file imports
-                    below instead: they work with a free account.
-                </p>
-
-                <h3>From a file: works with a free account</h3>
-                <div class="account-grid">
-                    <div class="account-card">
-                        <strong>Exportify CSV</strong>
-                        <StatusPill Variant="ok">recommended</StatusPill>
-                        <p class="text-muted">
-                            The easiest way to get your liked songs out of Spotify.
-                            Go to <a href="https://exportify.net" target="_blank" rel="noopener">exportify.net</a>,
-                            log in, click <em>Export Liked Songs</em> (or any playlist),
-                            and upload the downloaded CSV here.
-                        </p>
-                        @if (busy && uploadingRoute == "exportify")
-                        {
-                            <StatusPill Variant="warn">reading file…</StatusPill>
-                        }
-                        else
-                        {
-                            <InputFile OnChange="ImportExportifyFile" accept=".csv,text/csv" class="btn-modern secondary" disabled="@busy" />
-                        }
-                    </div>
-                    <div class="account-card">
-                        <strong>Spotify data export</strong>
-                        <StatusPill Variant="neutral">manual, no API</StatusPill>
-                        <p class="text-muted">
-                            Always manual, never automatic: request <em>Download your data</em>
-                            at <a href="https://www.spotify.com/account/privacy" target="_blank" rel="noopener">spotify.com/account/privacy</a>,
-                            wait for Spotify's email (up to a few days), unzip it and upload
-                            <code>YourLibrary.json</code> (liked songs) or
-                            <code>Playlist1.json</code> (all playlists) here.
-                        </p>
-                        @if (busy && uploadingRoute == "takeout")
-                        {
-                            <StatusPill Variant="warn">reading file…</StatusPill>
-                        }
-                        else
-                        {
-                            <InputFile OnChange="ImportTakeoutFile" accept=".json,application/json" class="btn-modern secondary" disabled="@busy" />
-                        }
-                    </div>
-                </div>
-                @if (fileImportError is not null)
-                {
-                    <div class="result-box error">@fileImportError</div>
+                    @if (accountError is not null)
+                    {
+                        <div class="result-box error">@accountError</div>
+                    }
                 }
-
-                @if (accountPlaylists is not null)
+                else
                 {
-                    <div class="table-wrap">
-                        <table class="modern-table">
-                            <thead>
-                                <tr>
-                                    <th>Playlist</th>
-                                    <th>Owner</th>
-                                    <th>Tracks</th>
-                                    <th>Status</th>
-                                    <th></th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @foreach (var pl in accountPlaylists)
+                    <div class="import-options">
+                        <div class="import-option">
+                            <div class="import-option-main">
+                                <strong>Exportify CSV</strong>
+                                <StatusPill Variant="ok">recommended</StatusPill>
+                                <p>
+                                    Liked songs or any playlist, exported at
+                                    <a href="https://exportify.net" target="_blank" rel="noopener">exportify.net</a>.
+                                    Log in there and click <em>Export Liked Songs</em> (or a playlist).
+                                </p>
+                            </div>
+                            <div class="import-option-action">
+                                @if (busy && uploadingRoute == "exportify")
                                 {
-                                    var saved = savedAccountIds.Contains(pl.Id);
-                                    <tr>
-                                        <td><strong>@pl.Name</strong></td>
-                                        <td class="text-muted">@(pl.Owner ?? "-")</td>
-                                        <td class="text-muted">@pl.TrackCount</td>
-                                        <td>
-                                            @if (saved)
-                                            {
-                                                <StatusPill Variant="ok" Title="Already saved locally; importing again updates it">saved</StatusPill>
-                                            }
-                                            else
-                                            {
-                                                <StatusPill Variant="neutral">new</StatusPill>
-                                            }
-                                        </td>
-                                        <td>
-                                            <button class="btn-modern secondary" @onclick="() => ImportAccountPlaylist(pl)" disabled="@busy">
-                                                @(busy && importingId == pl.Id
-                                                    ? "Importing…"
-                                                    : saved ? "Update" : "Import")
-                                            </button>
-                                        </td>
-                                    </tr>
+                                    <StatusPill Variant="warn">reading file…</StatusPill>
                                 }
-                            </tbody>
-                        </table>
+                                else
+                                {
+                                    <InputFile OnChange="ImportExportifyFile" accept=".csv,text/csv" class="btn-modern secondary" disabled="@busy" />
+                                }
+                            </div>
+                        </div>
+                        <div class="import-option">
+                            <div class="import-option-main">
+                                <strong>Spotify data export</strong>
+                                <StatusPill Variant="neutral">manual</StatusPill>
+                                <p>
+                                    Request <em>Download your data</em> at
+                                    <a href="https://www.spotify.com/account/privacy" target="_blank" rel="noopener">spotify.com/account/privacy</a>.
+                                    Spotify emails the file within a few days.
+                                </p>
+                            </div>
+                            <div class="import-option-action">
+                                @if (busy && uploadingRoute == "takeout")
+                                {
+                                    <StatusPill Variant="warn">reading file…</StatusPill>
+                                }
+                                else
+                                {
+                                    <InputFile OnChange="ImportTakeoutFile" accept=".json,application/json" class="btn-modern secondary" disabled="@busy" />
+                                }
+                            </div>
+                        </div>
                     </div>
-                }
-                @if (accountError is not null)
-                {
-                    <div class="result-box error">@accountError</div>
+                    <div class="hint-box">
+                        Unzip the data export and upload <code>YourLibrary.json</code> for your liked
+                        songs, or <code>Playlist1.json</code> for every playlist. Uploaded files are read
+                        once; re-uploading the same file updates instead of duplicating.
+                    </div>
+                    @if (fileImportError is not null)
+                    {
+                        <div class="result-box error">@fileImportError</div>
+                    }
                 }
             </div>
         </div>
@@ -382,6 +405,14 @@ else
     private string? importingId;
     private string? accountError;
     private string? fileImportError;
+
+    /// <summary>The import modal's two halves: connected accounts, or files.</summary>
+    private static readonly TabStrip.Tab[] ImportTabs =
+    [
+        new("accounts", "Accounts"),
+        new("files", "Files"),
+    ];
+    private string importTab = "accounts";
     private List<(string Name, bool Connected)> accountPanels = new();
     private HashSet<string> savedAccountIds = new();
     private HashSet<string> savedSpotifyIds = new();
@@ -489,6 +520,7 @@ else
         showAccountPanel = true;
         accountError = null;
         accountPlaylists = null;
+        importTab = "accounts";
         _ = LoadAccountStatusAsync();
     }
 
