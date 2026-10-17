@@ -174,14 +174,21 @@
                     @if (open)
                     {
                         <div class="settings-body">
-                            @foreach (var field in plugin.ConfigFields.Where(f => !f.Advanced))
+                            @{
+                                // When every field sits behind Advanced (a
+                                // single base URL, say), the panel would open
+                                // on a lone toggle: show those fields straight
+                                // away instead.
+                                var advancedOnly = plugin.ConfigFields.All(f => f.Advanced);
+                            }
+                            @foreach (var field in plugin.ConfigFields.Where(f => advancedOnly || !f.Advanced))
                             {
                                 var key = $"{plugin.Id}:{field.Key}";
                                 <PluginConfigFieldEditor PluginId="@plugin.Id" Field="@field"
                                     Value="@configValues.GetValueOrDefault(key, "")"
                                     ValueChanged="@(v => ConfigChanged(key, v))" />
                             }
-                            @if (plugin.ConfigFields.Any(f => f.Advanced))
+                            @if (!advancedOnly && plugin.ConfigFields.Any(f => f.Advanced))
                             {
                                 var advanced = advancedSettings.Contains(plugin.Id);
                                 <button type="button" class="advanced-toggle" aria-expanded="@advanced"

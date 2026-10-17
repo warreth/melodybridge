@@ -198,6 +198,31 @@ public class PluginsPageTests
     }
 
     [Test]
+    public void Plugins_AdvancedOnlyFields_ShowWithoutTheToggle()
+    {
+        // Monochrome ships one field and it is advanced: a lone Advanced
+        // toggle would be a pointless extra click.
+        var configured = new TestDownloader("monochrome", "Monochrome",
+            new[]
+            {
+                new PluginConfigField("base_url", "API base URL", null, null, Advanced: true),
+            });
+        _registry.Setup(r => r.GetAll()).Returns(new List<IDownloader> { configured });
+        _registry.Setup(r => r.GetEnabled()).Returns(new List<IDownloader> { configured });
+
+        var cut = _ctx.Render<Plugins>();
+        cut.Find("button.settings-toggle").Click();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(cut.Markup, Does.Contain("API base URL"),
+                "all-advanced fields render straight away");
+            Assert.That(cut.FindAll("button.advanced-toggle").Count, Is.EqualTo(0),
+                "no Advanced toggle when there is nothing behind it");
+        });
+    }
+
+    [Test]
     public void Plugins_WithoutConfigFields_HaveNoPanel()
     {
         var cut = _ctx.Render<Plugins>();
