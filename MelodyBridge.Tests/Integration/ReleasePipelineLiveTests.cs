@@ -212,10 +212,11 @@ public class ReleasePipelineLiveTests
                 "the downloaded track matches the playlist's own duration");
 
             // ffprobe must agree on the container and see one audio stream.
-            var codec = (await FfprobeAsync(
-                "-v error -select_streams a:0 -show_entries stream=codec_name -of csv=p=0", track.CurrentPath!)).Trim();
+            var codecOutput = await FfprobeAsync(
+                "-v error -select_streams a:0 -show_entries stream=codec_name -of csv=p=0", track.CurrentPath!);
+            var codec = FirstCodecValue(codecOutput);
             Assert.That(new[] { "mp3", "aac", "opus" }, Does.Contain(codec),
-                $"a real lossy container, not a stub or a lossless file ({codec})");
+                $"a real lossy container, not a stub or a lossless file (ffprobe said '{codecOutput.Trim()}')");
         }
     }
 
@@ -240,9 +241,10 @@ public class ReleasePipelineLiveTests
                 TimeSpan.FromMilliseconds(track.DurationMs!.Value));
             Assert.That(integrity.Ok, Is.True, integrity.Reason);
 
-            var codec = await FfprobeAsync(
+            var codecOutput = await FfprobeAsync(
                 "-v error -select_streams a:0 -show_entries stream=codec_name -of csv=p=0", track.ArchivePath!);
-            Assert.That(codec.Trim(), Is.EqualTo("opus"), "a real opus transcode, not a renamed file");
+            Assert.That(FirstCodecValue(codecOutput), Is.EqualTo("opus"),
+                $"a real opus transcode, not a renamed file (ffprobe said '{codecOutput.Trim()}')");
 
             Assert.That(File.ReadAllBytes(track.ArchivePath!),
                 Is.Not.EqualTo(File.ReadAllBytes(track.CurrentPath!)),
@@ -496,6 +498,18 @@ public class ReleasePipelineLiveTests
                 || (bytes[0] == 0x66 && bytes[1] == 0x4C && bytes[2] == 0x61 && bytes[3] == 0x43)  // "fLaC"
                 || (bytes[0] == 0x52 && bytes[1] == 0x49 && bytes[2] == 0x46 && bytes[3] == 0x46)  // "RIFF"
                 || (bytes.Length >= 8 && bytes[4] == 0x66 && bytes[5] == 0x74 && bytes[6] == 0x79 && bytes[7] == 0x70)); // "ftyp"
+
+    /// <summary>
+    /// The codec name out of ffprobe's csv output. Different ffprobe builds
+    /// put a second, empty column or a trailing separator on the line, so
+    /// the first real value is the codec; the raw text stays in the failure
+    /// message when it is neither.
+    /// </summary>
+    private static string FirstCodecValue(string ffprobeOutput)
+        => ffprobeOutput
+            .Split(new[] { ',', '\n', '\r' },
+                StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .FirstOrDefault() ?? string.Empty;
 
     private static async Task<string> FfprobeAsync(string arguments, string file)
     {
