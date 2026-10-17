@@ -120,8 +120,8 @@ public class DeemixDownloaderTests
     [Test]
     public void DescribeFailure_TakesTheLastMeaningfulLine()
     {
-        var reason = DeemixDownloader.DescribeFailure(
-            new CliRunner.Result(1, "some noise\n", "\nfirst line\nInvalid ARL\n"));
+        var reason = CliToolDownloader.DescribeFailure(
+            new CliRunner.Result(1, "some noise\n", "\nfirst line\nInvalid ARL\n"), "deemix");
 
         Assert.That(reason, Is.EqualTo("deemix failed (exit 1): Invalid ARL"));
     }
