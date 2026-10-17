@@ -205,7 +205,20 @@ public class ReleasePipelineLiveTests
 
             var integrity = FileIntegrity.Check(track.CurrentPath!,
                 TimeSpan.FromMilliseconds(track.DurationMs!.Value));
-            Assert.That(integrity.Ok, Is.True, integrity.Reason);
+            if (track.ReviewKind?.Contains("length") == true)
+            {
+                // The pipeline flagged this length as a review and kept the
+                // file for Keep or Retry, so a strict match against the
+                // playlist's duration is not required here. The file must
+                // still parse and hold audio, which a duration mismatch
+                // rather than corrupt bytes proves.
+                Assert.That(integrity.Issue, Is.EqualTo(IntegrityIssue.DurationMismatch),
+                    $"a length review must come from a real duration mismatch ({integrity.Reason})");
+            }
+            else
+            {
+                Assert.That(integrity.Ok, Is.True, integrity.Reason);
+            }
 
             // The probed duration must sit near what Spotify said.
             Assert.That(track.DurationMs!.Value, Is.EqualTo(_expectedDurations[track.Id]).Within(10_000),
@@ -237,8 +250,15 @@ public class ReleasePipelineLiveTests
                 "the archive format decides the extension");
             Assert.That(new FileInfo(track.ArchivePath!).Length, Is.GreaterThan(10 * 1024));
 
-            var integrity = FileIntegrity.Check(track.ArchivePath!,
-                TimeSpan.FromMilliseconds(track.DurationMs!.Value));
+            // The archive mirrors the delivered primary, so the primary's
+            // own measured length is the yardstick: a flagged length must
+            // not block its archive copy, and a truncated transcode still
+            // fails. Same rule the copier itself applies.
+            var primaryDuration = FileIntegrity.MeasureDuration(track.CurrentPath!);
+            var tolerance = primaryDuration is { } source
+                ? TimeSpan.FromSeconds(Math.Max(2, source.TotalSeconds * 0.02))
+                : (TimeSpan?)null;
+            var integrity = FileIntegrity.Check(track.ArchivePath!, primaryDuration, tolerance);
             Assert.That(integrity.Ok, Is.True, integrity.Reason);
 
             var codecOutput = await FfprobeAsync(
