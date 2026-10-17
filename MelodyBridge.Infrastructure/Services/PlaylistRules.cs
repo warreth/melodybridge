@@ -76,6 +76,74 @@ internal static class PlaylistRules
         return slug.ToString().Trim('-') is { Length: > 0 } s ? s : "import";
     }
 
+    /// <summary>
+    /// Folder name for a playlist's own directory under the music path.
+    /// Readable (keeps case and spaces), only characters a filesystem
+    /// rejects are replaced, and Windows' reserved device names get a
+    /// prefix so a playlist called "aux" cannot break a library scan.
+    /// </summary>
+    internal static string FolderNameFor(string? playlistName)
+    {
+        var raw = playlistName?.Trim() ?? "";
+        if (raw.Length == 0) return "playlist";
+
+        var invalid = Path.GetInvalidFileNameChars();
+        var name = new StringBuilder(raw.Length);
+        foreach (var ch in raw)
+            name.Append(invalid.Contains(ch) ? '_' : ch);
+        var safe = name.ToString().Trim().Trim(' ', '.');
+        if (safe.Length == 0) return "playlist";
+        if (safe.Length > 100) safe = safe[..100].TrimEnd(' ', '.');
+        return ReservedDeviceNames.Contains(safe) ? "_" + safe : safe;
+    }
+
+    private static readonly HashSet<string> ReservedDeviceNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "CON", "PRN", "AUX", "NUL",
+        "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+        "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+    };
+
+    /// <summary>
+    /// The folder a playlist's downloads actually land in. An explicit
+    /// folder (anything other than the app-wide music path) is used as it
+    /// is; the app-wide default counts as "no choice" and gets a
+    /// subfolder named after the playlist, so every playlist owns its
+    /// folder and its dedup links. Empty when nothing is configured.
+    /// </summary>
+    internal static string ResolvePlaylistFolder(string? targetDirectory, string defaultMusicPath, string? playlistName)
+        => ResolveWithPlaylistFolder(targetDirectory, defaultMusicPath, playlistName);
+
+    /// <summary>
+    /// The playlist's effective archive folder, same rule as the download
+    /// folder: an explicit folder wins, the app-wide archive path gets a
+    /// subfolder per playlist. Empty when no archive path is configured.
+    /// </summary>
+    internal static string ResolveArchiveFolder(string? archiveDirectory, string defaultArchivePath, string? playlistName)
+        => ResolveWithPlaylistFolder(archiveDirectory, defaultArchivePath, playlistName);
+
+    private static string ResolveWithPlaylistFolder(string? explicitFolder, string defaultRoot, string? playlistName)
+    {
+        if (!string.IsNullOrWhiteSpace(explicitFolder) && !PathEquals(explicitFolder, defaultRoot))
+            return explicitFolder.Trim();
+        var root = !string.IsNullOrWhiteSpace(explicitFolder) ? explicitFolder.Trim()
+            : defaultRoot?.Trim() ?? "";
+        if (root.Length == 0) return string.Empty;
+        return Path.Combine(root, FolderNameFor(playlistName));
+    }
+
+    /// <summary>Path equality ignoring a trailing separator; case-insensitive on Windows/macOS.</summary>
+    private static bool PathEquals(string? first, string? second)
+    {
+        if (string.IsNullOrWhiteSpace(first) || string.IsNullOrWhiteSpace(second)) return false;
+        var a = first.Trim().TrimEnd('/', '\\');
+        var b = second.Trim().TrimEnd('/', '\\');
+        return string.Equals(a, b,
+            OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
+                ? StringComparison.OrdinalIgnoreCase
+                : StringComparison.Ordinal);
+    }
+
     /// <summary>Base format values shown in the UI dropdown.</summary>
     public static readonly string[] FormatOptions = { "auto", "mp3", "flac", "opus", "aac" };
 

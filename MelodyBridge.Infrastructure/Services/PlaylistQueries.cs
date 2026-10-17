@@ -85,7 +85,8 @@ internal sealed class PlaylistQueries
     }
 
     /// <summary>
-    /// Removes one track from a playlist snapshot and deletes its file.
+    /// Removes one track from a playlist snapshot and, when asked,
+    /// deletes its files (the primary download and its archive copy).
     /// Hard link aware: a dedup file is one name of possibly several,
     /// so the delete removes this playlist's name only; another playlist
     /// still holding the same bytes (its own name, its own row) keeps a
@@ -100,21 +101,37 @@ internal sealed class PlaylistQueries
             .FirstOrDefaultAsync(t => t.Id == trackId && t.PlaylistEntityId == playlistId, ct);
         if (track is null) return false;
 
-        if (deleteFile && track.CurrentPath is not null)
+        if (deleteFile)
         {
-            // Another row on the same path means the name is shared: the
-            // file must survive for that row, only this row disappears.
-            var pathInUse = await db.Tracks.AsNoTracking()
-                .AnyAsync(t => t.Id != track.Id && t.CurrentPath == track.CurrentPath, ct);
-            if (!pathInUse)
+            foreach (var path in OwnPaths([track]))
             {
-                try { System.IO.File.Delete(track.CurrentPath); } catch { /* best effort */ }
+                // Another row on the same path (primary or archive) means
+                // the name is shared: the file must survive for that row,
+                // only this row disappears.
+                if (await PathReferencedByOthersAsync(db, track.Id, path, ct)) continue;
+                try { System.IO.File.Delete(path); } catch { /* best effort */ }
             }
         }
         db.Tracks.Remove(track);
         await db.SaveChangesAsync(ct);
         return true;
     }
+
+    /// <summary>The distinct, non-empty file paths a set of rows points at.</summary>
+    private static IEnumerable<string> OwnPaths(IEnumerable<TrackEntity> tracks)
+        => tracks
+            .SelectMany(t => new[] { t.CurrentPath, t.ArchivePath })
+            .Where(p => !string.IsNullOrWhiteSpace(p))
+            .Select(p => p!)
+            .Distinct(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>True when any other row still references the exact path,
+    /// as its primary file or as its archive copy.</summary>
+    private static async Task<bool> PathReferencedByOthersAsync(
+        MelodyBridgeDbContext db, int trackId, string path, CancellationToken ct)
+        => await db.Tracks.AsNoTracking()
+            .AnyAsync(t => t.Id != trackId
+                && (t.CurrentPath == path || t.ArchivePath == path), ct);
 
     /// <summary>One persisted playlist including its current track snapshot.</summary>
     public async Task<PlaylistEntity?> GetByIdAsync(string id, CancellationToken ct = default)
@@ -128,7 +145,8 @@ internal sealed class PlaylistQueries
 
     /// <summary>
     /// Removes a playlist and its snapshot. When deleteFiles is set, the
-    /// music files on disk go too; otherwise only the database rows change.
+    /// music files on disk go too (each track's primary download and its
+    /// archive copy); otherwise only the database rows change.
     /// Hard link aware like RemoveTrackAsync: a path another playlist's
     /// row still references is a shared name and survives, keeping that
     /// playlist's file and database entry intact.
@@ -143,19 +161,21 @@ internal sealed class PlaylistQueries
 
         if (deleteFiles)
         {
-            // Paths other rows (in any playlist) still reference are
-            // shared names: only this playlist's rows disappear.
+            // Paths other rows (in any playlist) still reference, as
+            // primary or archive file, are shared names: only this
+            // playlist's rows disappear.
             var ownIds = entity.Tracks.Select(t => t.Id).ToHashSet();
-            var stillUsed = await db.Tracks.AsNoTracking()
-                .Where(t => t.CurrentPath != null && !ownIds.Contains(t.Id))
-                .Select(t => t.CurrentPath!)
-                .ToListAsync(ct);
-            var shared = stillUsed.ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var shared = (await db.Tracks.AsNoTracking()
+                    .Where(t => !ownIds.Contains(t.Id)
+                        && (t.CurrentPath != null || t.ArchivePath != null))
+                    .Select(t => new { t.CurrentPath, t.ArchivePath })
+                    .ToListAsync(ct))
+                .SelectMany(t => new[] { t.CurrentPath, t.ArchivePath })
+                .Where(p => !string.IsNullOrWhiteSpace(p))
+                .Select(p => p!)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-            foreach (var path in entity.Tracks
-                .Where(t => t.CurrentPath is { Length: > 0 })
-                .Select(t => t.CurrentPath!)
-                .Distinct(StringComparer.OrdinalIgnoreCase))
+            foreach (var path in OwnPaths(entity.Tracks))
             {
                 if (shared.Contains(path)) continue; // another playlist still holds this name
                 try { System.IO.File.Delete(path); } catch { /* best effort */ }
@@ -199,7 +219,8 @@ internal sealed class PlaylistQueries
         string? targetDirectory = null, PlaylistSyncMode? syncMode = null,
         string? preferredFormat = null, string? archiveDirectory = null,
         string? archiveFormat = null, bool? autoDownload = null,
-        bool? strictQuality = null, bool? allowContainerChange = null, CancellationToken ct = default)
+        bool? strictQuality = null, bool? allowContainerChange = null,
+        bool? archiveEnabled = null, CancellationToken ct = default)
     {
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var entity = await db.Playlists.FindAsync(new object[] { playlistId }, ct)
@@ -219,13 +240,17 @@ internal sealed class PlaylistQueries
             entity.PreferredFormat = PlaylistStore.IsValidFormat(fmt) ? fmt : "auto";
         // Archive copy: empty string clears the override (the global
         // default takes over again), null leaves the stored value. The
-        // same rule as targetDirectory above.
+        // same rule as targetDirectory above. "default" is the explicit
+        // UI form of clearing; "auto" means copy as-is for this playlist.
         if (archiveDirectory is not null)
             entity.ArchiveDirectory = archiveDirectory.Length == 0 ? null : archiveDirectory;
         if (archiveFormat is not null)
-            entity.ArchiveFormat = archiveFormat.Length == 0 || archiveFormat == "auto"
+            entity.ArchiveFormat = archiveFormat.Length == 0 || archiveFormat == "default"
                 ? null
                 : archiveFormat;
+        // Per-playlist archive switch: null leaves the stored value.
+        if (archiveEnabled is { } archiveOn)
+            entity.ArchiveEnabled = archiveOn;
         // Auto-download toggle: null leaves the stored value, so callers
         // that only touch the schedule never reset it.
         if (autoDownload is { } ad)

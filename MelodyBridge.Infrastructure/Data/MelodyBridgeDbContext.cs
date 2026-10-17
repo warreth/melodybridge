@@ -80,6 +80,7 @@ public class MelodyBridgeDbContext : DbContext
             e.Property(s => s.JellyfinServerUrl).HasMaxLength(1024);
             e.Property(s => s.JellyfinApiKey).HasMaxLength(512);
             e.Property(s => s.JellyfinUserId).HasMaxLength(128);
+            e.Property(s => s.MediaServerProfileId).HasMaxLength(64);
             e.Property(s => s.CronExpression).HasMaxLength(256);
         });
 
@@ -256,9 +257,17 @@ public class PlaylistEntity
     /// <summary>
     /// Container for the archive copy: "auto" copies the primary file
     /// byte for byte; "opus"/"flac"/"mp3"/"aac" transcode locally with
-    /// ffmpeg (one internet download, two library files).
+    /// ffmpeg (one internet download, two library files). Null means the
+    /// app-wide archive format default applies.
     /// </summary>
     public string? ArchiveFormat { get; set; }
+    /// <summary>
+    /// Per-playlist archive switch. Off skips the archive copy entirely,
+    /// even when the app-wide archive path is configured; the playlist's
+    /// folder and format fields disappear from its page. On (default)
+    /// keeps the copy in the playlist's archive folder.
+    /// </summary>
+    public bool ArchiveEnabled { get; set; } = true;
     /// <summary>
     /// Audio format this playlist downloads as:
     /// "auto" | "mp3" | "flac" | "opus" | "aac",
@@ -318,6 +327,13 @@ public class SyncJobEntity
     public string? JellyfinServerUrl { get; set; }
     public string? JellyfinApiKey { get; set; }
     public string? JellyfinUserId { get; set; }
+    /// <summary>
+    /// Media server profile this job syncs against (Settings, Media
+    /// servers). The connection is resolved fresh on every run, so
+    /// editing the profile updates the job. Null for legacy jobs that
+    /// still carry inline JellyfinServerUrl/ApiKey values.
+    /// </summary>
+    public string? MediaServerProfileId { get; set; }
     public string? M3uOutputPath { get; set; }
     public string PathRemapRules { get; set; } = "{}";
     public string ExtensionRemapRules { get; set; } = "{}";

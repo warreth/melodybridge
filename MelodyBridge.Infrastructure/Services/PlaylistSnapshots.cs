@@ -221,6 +221,15 @@ internal sealed class PlaylistSnapshots
             // download: a new playlist knows its folder from day one.
             entity.TargetDirectory = await _settings.GetAsync("music_path", "/music", ct);
 
+        // Same for the quality: the app-wide default seeds every new
+        // playlist (account import, liked songs, file import), and the
+        // playlist page can change it afterwards.
+        if (isNew)
+        {
+            var defaultQuality = await _settings.GetAsync("default_quality", "auto", ct);
+            entity.PreferredFormat = PlaylistRules.IsValidFormat(defaultQuality) ? defaultQuality : "auto";
+        }
+
         // A playlist folder the Library can see: every NEW folder becomes a
         // scan location so freshly downloaded files show up in the library.
         if (isNew && !string.IsNullOrWhiteSpace(entity.TargetDirectory))

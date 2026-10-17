@@ -52,6 +52,20 @@ public class PlaylistStore
     /// <summary>Validates a PreferredFormat string; the rules live in <see cref="PlaylistRules"/>.</summary>
     public static bool IsValidFormat(string value) => PlaylistRules.IsValidFormat(value);
 
+    /// <summary>The folder name a playlist's own directory uses (UI hint).</summary>
+    public static string FolderNameFor(string? playlistName) => PlaylistRules.FolderNameFor(playlistName);
+
+    /// <summary>
+    /// The folder a playlist's downloads land in: the explicit folder, or
+    /// the music path with a subfolder named after the playlist (UI hint).
+    /// </summary>
+    public static string EffectivePlaylistFolder(string? targetDirectory, string musicPath, string? playlistName)
+        => PlaylistRules.ResolvePlaylistFolder(targetDirectory, musicPath, playlistName);
+
+    /// <summary>The playlist's effective archive folder (UI hint).</summary>
+    public static string EffectiveArchiveFolder(string? archiveDirectory, string archivePath, string? playlistName)
+        => PlaylistRules.ResolveArchiveFolder(archiveDirectory, archivePath, playlistName);
+
     public PlaylistStore(
         IDbContextFactory<MelodyBridgeDbContext> dbFactory,
         IEnumerable<ISourceProvider> providers,
@@ -165,8 +179,9 @@ public class PlaylistStore
         string? targetDirectory = null, PlaylistSyncMode? syncMode = null,
         string? preferredFormat = null, string? archiveDirectory = null,
         string? archiveFormat = null, bool? autoDownload = null,
-        bool? strictQuality = null, bool? allowContainerChange = null, CancellationToken ct = default)
-        => _queries.UpdateScheduleAsync(playlistId, name, schedule, targetDirectory, syncMode, preferredFormat, archiveDirectory, archiveFormat, autoDownload, strictQuality, allowContainerChange, ct);
+        bool? strictQuality = null, bool? allowContainerChange = null,
+        bool? archiveEnabled = null, CancellationToken ct = default)
+        => _queries.UpdateScheduleAsync(playlistId, name, schedule, targetDirectory, syncMode, preferredFormat, archiveDirectory, archiveFormat, autoDownload, strictQuality, allowContainerChange, archiveEnabled, ct);
 
     public Task<List<PlaylistEntity>> GetDueForAutoSyncAsync(CancellationToken ct = default)
         => _queries.GetDueForAutoSyncAsync(ct);

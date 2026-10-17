@@ -70,15 +70,21 @@ internal sealed class DownloadPipeline
                 .FirstOrDefaultAsync(p => p.Id == playlistId, ct)
                 ?? throw new InvalidOperationException($"Playlist '{playlistId}' not found");
 
-            // Folder precedence: an explicit override, the playlist's own
-            // folder, then the app-wide music_path default.
-            dir = outputDirectoryOverride ?? entity.TargetDirectory
-                ?? await _settings.GetAsync("music_path", "/music", ct);
+            // Folder precedence: an explicit override wins outright;
+            // otherwise the playlist's own folder under the default music
+            // path (one subfolder per playlist, so dedup links and archive
+            // copies stay separated per playlist).
+            var musicPath = await _settings.GetAsync("music_path", "/music", ct);
+            dir = outputDirectoryOverride is not null
+                ? outputDirectoryOverride
+                : PlaylistRules.ResolvePlaylistFolder(entity.TargetDirectory, musicPath, entity.Name);
             if (string.IsNullOrWhiteSpace(dir))
                 throw new InvalidOperationException(
                     "No download folder configured. Set one in the playlist settings.");
             playlistName = entity.Name;
             preferredFormat = entity.PreferredFormat;
+            if (string.IsNullOrWhiteSpace(preferredFormat))
+                preferredFormat = await _settings.GetAsync("default_quality", "auto", ct);
             strict = entity.StrictQuality;
             allowContainerChange = entity.AllowContainerChange;
         }
@@ -130,9 +136,11 @@ internal sealed class DownloadPipeline
 
             var playlist = await db.Playlists.AsNoTracking()
                 .FirstOrDefaultAsync(p => p.Id == track.PlaylistEntityId, ct);
-            dir = playlist?.TargetDirectory
-                ?? await _settings.GetAsync("music_path", "/music", ct);
+            var musicPath = await _settings.GetAsync("music_path", "/music", ct);
+            dir = PlaylistRules.ResolvePlaylistFolder(playlist?.TargetDirectory, musicPath, playlist?.Name);
             preferredFormat = playlist?.PreferredFormat ?? "";
+            if (string.IsNullOrWhiteSpace(preferredFormat))
+                preferredFormat = await _settings.GetAsync("default_quality", "auto", ct);
             strict = playlist?.StrictQuality ?? true;
             allowContainerChange = playlist?.AllowContainerChange ?? true;
         }
@@ -459,15 +467,31 @@ internal sealed class DownloadPipeline
         track.ReviewText = null;
         track.SourcePluginId = null;
 
-        // The archive copy belongs to the track, not to one playlist row:
-        // when the original already has one, share that path instead of
-        // writing the same bytes a second time. Without one, make it now
-        // so a deduplicated track is not the only one missing from the
-        // archive.
-        if (!string.IsNullOrWhiteSpace(candidate.ExistingArchivePath)
+        // The archive copy belongs to the track, but each playlist keeps
+        // its own archive folder: when the original already has one, its
+        // bytes are linked under this playlist's archive name instead of
+        // writing a second copy. Without one (or when this playlist
+        // switched the archive off), the normal archive pass runs.
+        var archiveTarget = await ResolveArchiveTargetAsync(track.PlaylistEntityId, db, ct);
+        if (!archiveTarget.Enabled || archiveTarget.Folder is null)
+        {
+            track.ArchivePath = null;
+        }
+        else if (!string.IsNullOrWhiteSpace(candidate.ExistingArchivePath)
             && File.Exists(candidate.ExistingArchivePath))
         {
-            track.ArchivePath = candidate.ExistingArchivePath;
+            var archiveFileName = Path.GetFileName(candidate.ExistingArchivePath);
+            var archiveLink = Path.Combine(archiveTarget.Folder, archiveFileName);
+            if (PathsEqual(archiveLink, candidate.ExistingArchivePath)
+                || TryHardLink(archiveLink, candidate.ExistingArchivePath!))
+            {
+                track.ArchivePath = archiveLink;
+            }
+            else
+            {
+                // Cross-device link: make this playlist's own copy instead.
+                await ArchiveDownloadedTrackAsync(track, db, ct);
+            }
         }
         else
         {
@@ -548,8 +572,8 @@ internal sealed class DownloadPipeline
 
         var playlist = await db.Playlists.AsNoTracking()
             .FirstOrDefaultAsync(p => p.Id == track.PlaylistEntityId, ct);
-        var dir = playlist?.TargetDirectory
-            ?? await _settings.GetAsync("music_path", "/music", ct);
+        var musicPath = await _settings.GetAsync("music_path", "/music", ct);
+        var dir = PlaylistRules.ResolvePlaylistFolder(playlist?.TargetDirectory, musicPath, playlist?.Name);
         if (string.IsNullOrWhiteSpace(dir)) return false;
 
         try
@@ -612,43 +636,31 @@ internal sealed class DownloadPipeline
 
     /// <summary>
     /// Produces the secondary archive copy of a just-downloaded track:
-    /// the playlist's archive directory (or the global default), a plain
-    /// copy for format auto, a local ffmpeg transcode otherwise. Never
-    /// throws and never touches the primary: a failed archive becomes a
-    /// track warning the next run can repair, while the download stays
-    /// "downloaded". Runs after the integrity gate, so the archive path
-    /// persists with the track row in the same SaveChanges.
+    /// the playlist's archive folder (its own override or the app-wide
+    /// default plus a folder named after the playlist), a plain copy for
+    /// format auto, a local ffmpeg transcode otherwise. A playlist with
+    /// the archive switched off, or no archive path anywhere, gets no
+    /// copy and no archive path. Never throws and never touches the
+    /// primary: a failed archive becomes a track warning the next run can
+    /// repair, while the download stays "downloaded". Runs after the
+    /// integrity gate, so the archive path persists with the track row in
+    /// the same SaveChanges.
     /// </summary>
     private async Task ArchiveDownloadedTrackAsync(
         TrackEntity track, MelodyBridgeDbContext db, CancellationToken ct)
     {
-        string? archiveDir = null, archiveFormat = null;
-
-        // The archive lives on the playlist row (its own directory and
-        // format); the global defaults fill in what it leaves empty.
-        if (track.PlaylistEntityId is { Length: > 0 } playlistId)
+        var target = await ResolveArchiveTargetAsync(track.PlaylistEntityId, db, ct);
+        if (!target.Enabled || target.Folder is null)
         {
-            var playlist = await db.Playlists.AsNoTracking()
-                .FirstOrDefaultAsync(p => p.Id == playlistId, ct);
-            archiveDir = playlist?.ArchiveDirectory;
-            archiveFormat = playlist?.ArchiveFormat;
-        }
-        if (string.IsNullOrWhiteSpace(archiveDir))
-            archiveDir = await _settings.GetAsync("archive_path", "", ct);
-        if (string.IsNullOrWhiteSpace(archiveFormat))
-            archiveFormat = await _settings.GetAsync("archive_format", "auto", ct);
-
-        if (string.IsNullOrWhiteSpace(archiveDir))
-        {
-            // No archive target anywhere: clear a stale archive path
-            // from an earlier configuration so the UI never shows a
-            // file that no longer belongs to this setup.
+            // No archive target (or the playlist switched it off): clear
+            // a stale archive path from an earlier configuration so the
+            // UI never shows a file that no longer belongs to this setup.
             track.ArchivePath = null;
             return;
         }
 
         var result = Audio.ArchiveCopier.Copy(
-            track.CurrentPath!, archiveDir, archiveFormat,
+            track.CurrentPath!, target.Folder, target.Format,
             melodyId: track.MelodyId,
             title: track.Title, artist: track.Artist, album: track.Album,
             trackNumber: (uint?)(track.Position + 1),
@@ -671,6 +683,58 @@ internal sealed class DownloadPipeline
                 : $"{track.Warning}; archive copy failed: {result.Reason}";
         }
     }
+
+    /// <summary>The playlist's effective archive target: whether the
+    /// archive is on, which folder (own override or the app-wide path
+    /// plus a folder named after the playlist) and which format (own
+    /// override or the app-wide default).</summary>
+    private async Task<(bool Enabled, string? Folder, string? Format)> ResolveArchiveTargetAsync(
+        string? playlistId, MelodyBridgeDbContext db, CancellationToken ct)
+    {
+        PlaylistEntity? playlist = null;
+        if (playlistId is { Length: > 0 })
+        {
+            playlist = await db.Playlists.AsNoTracking()
+                .FirstOrDefaultAsync(p => p.Id == playlistId, ct);
+        }
+        if (playlist is { ArchiveEnabled: false })
+            return (false, null, null);
+
+        var globalPath = await _settings.GetAsync("archive_path", "", ct);
+        var folder = PlaylistRules.ResolveArchiveFolder(
+            playlist?.ArchiveDirectory, globalPath, playlist?.Name);
+        var format = !string.IsNullOrWhiteSpace(playlist?.ArchiveFormat)
+            ? playlist!.ArchiveFormat!
+            : await _settings.GetAsync("archive_format", "auto", ct);
+        return (true, folder.Length == 0 ? null : folder, format);
+    }
+
+    /// <summary>One hard link, best effort: false on any link failure.</summary>
+    private bool TryHardLink(string linkPath, string targetPath)
+    {
+        try
+        {
+            if (File.Exists(linkPath) && _hardLinks.LinkCount(linkPath) is not > 1)
+                File.Delete(linkPath);
+            var folder = Path.GetDirectoryName(linkPath);
+            if (!string.IsNullOrEmpty(folder)) Directory.CreateDirectory(folder);
+            _hardLinks.Create(linkPath, targetPath);
+            return true;
+        }
+        catch (IOException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>Full-path comparison; case-insensitive on Windows/macOS-style filesystems.</summary>
+    private static bool PathsEqual(string first, string second)
+        => string.Equals(
+            Path.GetFullPath(first),
+            Path.GetFullPath(second),
+            OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
+                ? StringComparison.OrdinalIgnoreCase
+                : StringComparison.Ordinal);
 
     /// <summary>
     /// Settles a flagged quality review (length mismatch, inflated

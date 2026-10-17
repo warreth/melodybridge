@@ -277,7 +277,8 @@ public class PlaylistAutoSaveTests
             string? targetDirectory = null, PlaylistSyncMode? syncMode = null,
             string? preferredFormat = null, string? archiveDirectory = null,
             string? archiveFormat = null, bool? autoDownload = null,
-            bool? strictQuality = null, bool? allowContainerChange = null, CancellationToken ct = default)
+            bool? strictQuality = null, bool? allowContainerChange = null,
+            bool? archiveEnabled = null, CancellationToken ct = default)
         {
             if (!_failedOnce)
             {
@@ -285,7 +286,7 @@ public class PlaylistAutoSaveTests
                 throw new InvalidOperationException("simulated transient store failure");
             }
             await base.UpdateScheduleAsync(playlistId, name, schedule, targetDirectory, syncMode, preferredFormat,
-                archiveDirectory, archiveFormat, autoDownload, strictQuality, allowContainerChange, ct);
+                archiveDirectory, archiveFormat, autoDownload, strictQuality, allowContainerChange, archiveEnabled, ct);
         }
     }
 }

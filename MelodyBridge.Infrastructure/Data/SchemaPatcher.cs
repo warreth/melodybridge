@@ -60,6 +60,12 @@ public static class SchemaPatcher
         ("Tracks", "ReviewKind", "TEXT NULL"),
         ("Tracks", "ReviewText", "TEXT NULL"),
         ("Tracks", "AvoidPluginId", "TEXT NULL"),
+        // Per-playlist archive switch: off skips the copy even when the
+        // app-wide archive path is set.
+        ("Playlists", "ArchiveEnabled", "INTEGER NOT NULL DEFAULT 1"),
+        // Sync jobs select a media server profile instead of carrying
+        // raw credentials; legacy inline values still work.
+        ("SyncJobs", "MediaServerProfileId", "TEXT NULL"),
     };
 
     public static async Task PatchAsync(MelodyBridgeDbContext db, CancellationToken ct = default)
