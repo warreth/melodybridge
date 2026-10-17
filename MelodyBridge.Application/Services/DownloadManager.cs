@@ -77,14 +77,14 @@ public class DownloadManager : IDownloadManager
             ? $"{budget.TotalMinutes:0.#} minute"
             : $"{budget.TotalSeconds:0} second";
 
-    /// <summary>Live progress reporting per melodyId, for the UI.</summary>
-    private readonly ConcurrentDictionary<string, DownloadProgress> _progress = new();
-
-    /// <summary>Why the last waterfall run for a melodyId produced nothing, for honest error messages.</summary>
-    private readonly ConcurrentDictionary<string, string> _lastFailure = new();
+    /// <summary>
+    /// Live progress plus the last failure per melodyId, for the UI and for
+    /// honest error messages. Bounded inside: the manager is a singleton.
+    /// </summary>
+    private readonly DownloadState _state = new();
 
     public IReadOnlyList<DownloadProgress> SnapshotProgress()
-        => _progress.Values.ToList();
+        => _state.Snapshot();
 
     /// <inheritdoc />
     public async Task<string?> DownloadAsync(string sourceUrl, string outputDirectory, string melodyId, CancellationToken ct = default)
@@ -128,7 +128,7 @@ public class DownloadManager : IDownloadManager
     /// when the last call succeeded (or never ran).
     /// </summary>
     public string? LastFailure(string melodyId)
-        => _lastFailure.TryGetValue(melodyId, out var reason) ? reason : null;
+        => _state.LastFailure(melodyId);
 
     /// <summary>
     /// The main entry for playlist tracks: search through the plugin
@@ -158,10 +158,10 @@ public class DownloadManager : IDownloadManager
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
-            _progress[melodyId] = new DownloadProgress(melodyId, query.Title, "failed", null, null,
-                Warning: "the track budget expired");
-            _lastFailure[melodyId] =
-                $"the track took longer than its {DescribeBudget(trackBudget)} budget";
+            _state.SetProgress(new DownloadProgress(melodyId, query.Title, "failed", null, null,
+                Warning: "the track budget expired"));
+            _state.SetFailure(melodyId,
+                $"the track took longer than its {DescribeBudget(trackBudget)} budget");
             _logger.LogWarning("Track '{Title}' exceeded its {Budget} budget; giving up",
                 query.Title, DescribeBudget(trackBudget));
             return null;
@@ -185,7 +185,7 @@ public class DownloadManager : IDownloadManager
                 query with { Quality = targets[i] }, outputDirectory, melodyId, pluginBudget, ct);
             if (path is not null) return path;
 
-            requestedFailure ??= _lastFailure.TryGetValue(melodyId, out var reason) ? reason : null;
+            requestedFailure ??= _state.LastFailure(melodyId);
             if (i + 1 < targets.Count)
                 _logger.LogInformation(
                     "No download for '{Title}' at {Quality}; stepping down to {Next}",
@@ -194,7 +194,7 @@ public class DownloadManager : IDownloadManager
 
         // The headline failure is the quality the user asked for, not the
         // last step of the ladder.
-        if (requestedFailure is not null) _lastFailure[melodyId] = requestedFailure;
+        if (requestedFailure is not null) _state.SetFailure(melodyId, requestedFailure);
         return null;
     }
 
@@ -204,8 +204,8 @@ public class DownloadManager : IDownloadManager
         TimeSpan pluginBudget, CancellationToken ct)
     {
         var quality = query.Quality;
-        _progress[melodyId] = new DownloadProgress(melodyId, query.Title, "searching", null, null);
-        _lastFailure.TryRemove(melodyId, out _);
+        _state.SetProgress(new DownloadProgress(melodyId, query.Title, "searching", null, null));
+        _state.ClearFailure(melodyId);
         // Why nothing landed: hits the filters rejected, versus no hit at all.
         var skippedByBand = 0;
         var skippedByDuration = 0;
@@ -288,8 +288,8 @@ public class DownloadManager : IDownloadManager
                             continue;
                         }
 
-                        _progress[melodyId] = new DownloadProgress(
-                            melodyId, query.Title, "downloading", downloader.Name, null, candidate.MatchConfidence);
+                        _state.SetProgress(new DownloadProgress(
+                            melodyId, query.Title, "downloading", downloader.Name, null, candidate.MatchConfidence));
                         var result = await DownloadAsync(downloader, candidate.SourceUrl!, outputDirectory, melodyId, quality, pluginCt);
                         if (result is null || !result.Success || result.FilePath is null)
                         {
@@ -351,9 +351,9 @@ public class DownloadManager : IDownloadManager
                         TaglibHelper.WriteMelodyId(result.FilePath, melodyId);
 
                         _health.RecordSuccess(downloader.Id);
-                        _progress[melodyId] = new DownloadProgress(
+                        _state.SetProgress(new DownloadProgress(
                             melodyId, query.Title, "done", downloader.Name, result.FilePath, candidate.MatchConfidence,
-                            Warning: measured is null ? "bitrate could not be verified" : null);
+                            Warning: measured is null ? "bitrate could not be verified" : null));
                         return result.FilePath;
                     }
                 }
@@ -375,12 +375,12 @@ public class DownloadManager : IDownloadManager
                 }
             }
 
-            _progress[melodyId] = new DownloadProgress(
+            _state.SetProgress(new DownloadProgress(
                 melodyId, query.Title, "failed", null, null,
-                Warning: "No plugin could download this track");
+                Warning: "No plugin could download this track"));
             // Distinguish "nothing matched your filters" from "nobody has
             // the track": the fix for the first is relaxing the filters.
-            _lastFailure[melodyId] =
+            _state.SetFailure(melodyId,
                 plan.Plugins.Count == 0 && plan.Excluded.Count > 0
                     ? "your quality filters excluded every plugin"
                     : skippedByBand > 0
@@ -391,12 +391,12 @@ public class DownloadManager : IDownloadManager
                                 ? "sources returned files that are not audio"
                                 : skippedByDuration > 0
                                     ? "sources only had versions with the wrong length"
-                                    : "no source had this track";
+                                    : "no source had this track");
             return null;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            _progress[melodyId] = new DownloadProgress(melodyId, query.Title, "failed", null, null, Warning: ex.Message);
+            _state.SetProgress(new DownloadProgress(melodyId, query.Title, "failed", null, null, Warning: ex.Message));
             throw;
         }
     }
