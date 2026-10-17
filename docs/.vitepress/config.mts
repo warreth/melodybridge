@@ -57,6 +57,7 @@ export default defineConfig({
         items: [
           { text: 'Accounts and imports', link: '/accounts' },
           { text: 'Lucida and FlareSolverr', link: '/lucida' },
+          { text: 'Jumo Qobuz rips', link: '/jumo' },
           { text: 'Soulseek and slskd', link: '/slskd' },
           { text: 'Qobuz and qobuz-dlp', link: '/qobuz' },
           { text: 'Deezer and deemix', link: '/deemix' }

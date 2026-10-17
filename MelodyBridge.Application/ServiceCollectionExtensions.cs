@@ -4,6 +4,7 @@ using MelodyBridge.Infrastructure.Accounts;
 using MelodyBridge.Infrastructure.Cloudflare;
 using MelodyBridge.Infrastructure.Deezer;
 using MelodyBridge.Infrastructure.Downloaders;
+using MelodyBridge.Infrastructure.Jumo;
 using MelodyBridge.Infrastructure.Lucida;
 using MelodyBridge.Infrastructure.MediaServers;
 using MelodyBridge.Infrastructure.Playlists;
@@ -122,6 +123,19 @@ public static class ServiceCollectionExtensions
                 sp.GetRequiredService<IHttpClientFactory>().CreateClient("lucida"),
                 sp.GetRequiredService<IChallengeSolver>(),
                 sp.GetRequiredService<ILogger<LucidaDownloader>>()));
+
+        // Jumo: a community Qobuz front-end that needs no account. The
+        // plugin talks its guarded API for search and stream descriptors,
+        // then pulls the audio straight from the signed Qobuz CDN URLs and
+        // decrypts locally.
+        services.AddHttpClient("jumo", c => c.Timeout = TimeSpan.FromMinutes(3));
+        services.AddSingleton<IDownloader>(sp =>
+            new JumoDownloader(
+                new JumoClient(
+                    sp.GetRequiredService<IHttpClientFactory>().CreateClient("jumo"),
+                    sp.GetRequiredService<ILogger<JumoClient>>()),
+                sp.GetRequiredService<IPluginConfig>(),
+                sp.GetRequiredService<ILogger<JumoDownloader>>()));
 
         // ISRC enrichment for sources that do not provide one (Spotify
         // embed scrape, YouTube, CSV imports): Deezer's public search API
