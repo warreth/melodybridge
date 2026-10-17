@@ -1,8 +1,10 @@
 @page "/sync-jobs"
 @using System.Text.Json
 @using MelodyBridge.Infrastructure.MediaServers
+@using MelodyBridge.Infrastructure.Services
 @inject ISyncJobRunner JobRunner
 @inject IDbContextFactory<MelodyBridgeDbContext> DbFactory
+@inject MediaServerProfileStore ServerProfiles
 @implements IDisposable
 
 <PageTitle>Sync jobs - MelodyBridge</PageTitle>
@@ -131,7 +133,7 @@
                         <div class="form-grid">
                             <label>
                                 Output type
-                                <select @bind="draft.OutputTarget">
+                                <select @bind="draft.OutputTarget" @bind:after="OnOutputTargetChanged">
                                     <option value="@OutputTargetType.M3uFile">M3U File</option>
                                     <option value="@OutputTargetType.JellyfinApi">Jellyfin API</option>
                                     <option value="@OutputTargetType.PlexApi">Plex API</option>
@@ -145,44 +147,17 @@
                                     <input @bind="draft.M3uOutputPath" placeholder="/app/playlists/playlist.m3u" />
                                 </label>
                             }
-                            else if (draft.OutputTarget == OutputTargetType.JellyfinApi)
+                            else
                             {
                                 <label>
-                                    Jellyfin server URL
-                                    <input @bind="draft.JellyfinServerUrl" placeholder="http://host.docker.internal:8096" />
-                                </label>
-                                <JellyfinConnect ServerUrl="@draft.JellyfinServerUrl"
-                                                 Username="@wizardJellyfinUsername"
-                                                 UsernameChanged="@(name => wizardJellyfinUsername = name ?? "")"
-                                                 Connected="OnWizardConnected" />
-                            }
-                            else if (draft.OutputTarget == OutputTargetType.PlexApi)
-                            {
-                                <label>
-                                    Plex server URL
-                                    <input @bind="draft.JellyfinServerUrl" placeholder="http://host.docker.internal:32400" />
-                                </label>
-                                <label>
-                                    Plex token
-                                    <input @bind="draft.JellyfinApiKey" type="password" placeholder="X-Plex-Token" />
-                                </label>
-                            }
-                            else if (draft.OutputTarget == OutputTargetType.SubsonicApi)
-                            {
-                                <label>
-                                    Subsonic server URL
-                                    <input @bind="draft.JellyfinServerUrl" placeholder="http://host.docker.internal:4533" />
-                                </label>
-                                <label>
-                                    Subsonic username
-                                    <input @bind="draft.JellyfinUserId" placeholder="admin" />
-                                </label>
-                                <label>
-                                    Subsonic password
-                                    <input @bind="draft.JellyfinApiKey" type="password" placeholder="password" />
-                                </label>
-                                <label class="hint-text">
-                                    Navidrome, gonic, Airsonic, Ampache, Funkwhale and Nextcloud Music all speak this API.
+                                    Media server profile
+                                    <select @bind="draft.MediaServerProfileId">
+                                        <option value="">Select a profile...</option>
+                                        @foreach (var p in ProfilesForTarget())
+                                        {
+                                            <option value="@p.Id">@ProfileLabel(p)</option>
+                                        }
+                                    </select>
                                 </label>
                             }
                             <label>
@@ -206,18 +181,43 @@
                         </div>
                         @if (draft.OutputTarget != OutputTargetType.M3uFile)
                         {
-                            <MediaServerUserPicker ServerUrl="@draft.JellyfinServerUrl"
-                                                ApiKey="@draft.JellyfinApiKey"
-                                                Kind="@(draft.OutputTarget switch
-                                                {
-                                                    OutputTargetType.PlexApi => "Plex",
-                                                    OutputTargetType.SubsonicApi => "Subsonic",
-                                                    _ => "Jellyfin",
-                                                })"
-                                                Username="@(draft.OutputTarget == OutputTargetType.SubsonicApi ? draft.JellyfinUserId : null)"
-                                                ShowUserList="@(draft.OutputTarget == OutputTargetType.JellyfinApi)"
-                                                UserLabel="Jellyfin user"
-                                                @bind-UserId="draft.JellyfinUserId" />
+                            @if (ProfilesForTarget().Count == 0)
+                            {
+                                <div class="hint-box">
+                                    No @TargetKind() profile yet. Create one under
+                                    <a href="/settings#media-servers" target="_blank" rel="noopener">Settings, Media servers</a>,
+                                    then reload the list here.
+                                </div>
+                            }
+                            else if (SelectedProfile is { } chosen)
+                            {
+                                <MediaServerUserPicker ServerUrl="@chosen.BaseUrl"
+                                                       ApiKey="@chosen.ApiKey"
+                                                       Username="@(IsSubsonicKind(chosen.Kind) ? chosen.Username : draft.JellyfinUserId)"
+                                                       Kind="@chosen.Kind"
+                                                       ShowUserList="@(draft.OutputTarget == OutputTargetType.JellyfinApi)"
+                                                       UserLabel="Jellyfin user"
+                                                       @bind-UserId="draft.JellyfinUserId" />
+                            }
+                            else if (!HasLegacyInlineConnection)
+                            {
+                                <div class="hint-box">Pick a profile above to sync to.</div>
+                            }
+                            <div class="flex-actions">
+                                <a class="btn-modern ghost small" href="/settings#media-servers" target="_blank" rel="noopener">
+                                    <Icon Name="plus" Size="14" /> Add a profile
+                                </a>
+                                <button class="btn-modern ghost small" type="button" @onclick="ReloadProfiles">
+                                    <Icon Name="refresh" Size="14" /> Reload profiles
+                                </button>
+                            </div>
+                            @if (SelectedProfile is null && HasLegacyInlineConnection)
+                            {
+                                <div class="hint-box">
+                                    This job still carries the connection it was created with.
+                                    Pick a profile to replace it, or leave it as is.
+                                </div>
+                            }
                         }
                         @if (draft.Schedule == SyncJobSchedule.Cron)
                         {
@@ -261,13 +261,17 @@
                             {
                                 <div><strong>M3U path:</strong> @draft.M3uOutputPath</div>
                             }
-                            else
+                            else if (SelectedProfile is { } reviewProfile)
                             {
-                                <div><strong>Server:</strong> @draft.JellyfinServerUrl</div>
-                                @if (draft.OutputTarget == OutputTargetType.SubsonicApi)
+                                <div><strong>Server:</strong> @reviewProfile.Name (@reviewProfile.BaseUrl)</div>
+                                @if (draft.OutputTarget == OutputTargetType.JellyfinApi)
                                 {
-                                    <div><strong>User:</strong> @draft.JellyfinUserId</div>
+                                    <div><strong>Jellyfin user:</strong> @(string.IsNullOrWhiteSpace(draft.JellyfinUserId) ? "(server default)" : draft.JellyfinUserId)</div>
                                 }
+                            }
+                            else if (HasLegacyInlineConnection)
+                            {
+                                <div><strong>Server:</strong> @draft.JellyfinServerUrl (connection saved in this job)</div>
                             }
                             <div><strong>Schedule:</strong> @draft.Schedule</div>
                             @if (draft.Schedule == SyncJobSchedule.Cron && !string.IsNullOrWhiteSpace(draft.CronExpression))
@@ -459,11 +463,63 @@
     private HashSet<string> selectedFolders = new();
     private List<RemapRule> pathRules = new();
     private List<RemapRule> extRules = new();
-    private string wizardJellyfinUsername = "";
+    /// <summary>Media server profiles the wizard can pick from (Settings, Media servers).</summary>
+    private List<MediaServerProfile> mediaServerProfiles = new();
 
     protected override async Task OnInitializedAsync()
     {
         await LoadDataAsync();
+        await ReloadProfiles();
+    }
+
+    /// <summary>The profiles whose kind matches the chosen output target.</summary>
+    private List<MediaServerProfile> ProfilesForTarget()
+        => mediaServerProfiles.Where(p => ProfileMatchesTarget(p.Kind)).ToList();
+
+    private bool ProfileMatchesTarget(string? kind) => draft.OutputTarget switch
+    {
+        OutputTargetType.PlexApi => string.Equals(kind, "Plex", StringComparison.OrdinalIgnoreCase),
+        OutputTargetType.SubsonicApi => IsSubsonicKind(kind),
+        _ => string.Equals(kind, "Jellyfin", StringComparison.OrdinalIgnoreCase),
+    };
+
+    /// <summary>True for the kinds that speak the Subsonic/OpenSubsonic API.</summary>
+    private static bool IsSubsonicKind(string? kind)
+        => string.Equals(kind, "Subsonic", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(kind, "Navidrome", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>The profile the wizard currently selects, when it still exists.</summary>
+    private MediaServerProfile? SelectedProfile
+        => !string.IsNullOrWhiteSpace(draft.MediaServerProfileId)
+            ? mediaServerProfiles.FirstOrDefault(p => p.Id == draft.MediaServerProfileId
+                && ProfileMatchesTarget(p.Kind))
+            : null;
+
+    /// <summary>Editing a job that still carries inline credentials (pre-profile era).</summary>
+    private bool HasLegacyInlineConnection
+        => string.IsNullOrWhiteSpace(draft.MediaServerProfileId)
+           && !string.IsNullOrWhiteSpace(draft.JellyfinServerUrl);
+
+    /// <summary>The kind label used when no profile exists yet.</summary>
+    private string TargetKind() => draft.OutputTarget switch
+    {
+        OutputTargetType.PlexApi => "Plex",
+        OutputTargetType.SubsonicApi => "Subsonic",
+        _ => "Jellyfin",
+    };
+
+    private static string ProfileLabel(MediaServerProfile p)
+        => p.Name + " (" + p.BaseUrl + ")";
+
+    /// <summary>Switching the output target drops a profile that no longer matches.</summary>
+    private void OnOutputTargetChanged()
+    {
+        if (SelectedProfile is null) draft.MediaServerProfileId = null;
+    }
+
+    private async Task ReloadProfiles()
+    {
+        mediaServerProfiles = (await ServerProfiles.GetAllAsync()).ToList();
     }
 
     private async Task LoadDataAsync(bool preserveOrder = false)
@@ -495,19 +551,9 @@
         selectedFolders = new HashSet<string>();
         pathRules = new List<RemapRule>();
         extRules = new List<RemapRule>();
-        wizardJellyfinUsername = "";
         currentStep = 0;
         stepError = null;
         showWizard = true;
-    }
-
-    /// <summary>The connect component hands over the session token and user.</summary>
-    private void OnWizardConnected(JellyfinLoginResult result)
-    {
-        if (!result.Succeeded) return;
-        draft.JellyfinApiKey = result.Token!;
-        if (!string.IsNullOrWhiteSpace(result.UserId))
-            draft.JellyfinUserId = result.UserId!;
     }
 
     private void StartEditJob(SyncJobEntity job)
@@ -601,16 +647,17 @@
                 stepError = "Enter the M3U output path first.";
                 return;
             }
-            if (draft.OutputTarget != OutputTargetType.M3uFile && string.IsNullOrWhiteSpace(draft.JellyfinServerUrl))
+            if (draft.OutputTarget != OutputTargetType.M3uFile)
             {
-                stepError = "Enter the server URL first.";
-                return;
-            }
-            if (draft.OutputTarget == OutputTargetType.JellyfinApi
-                && string.IsNullOrWhiteSpace(draft.JellyfinApiKey))
-            {
-                stepError = "Connect to Jellyfin first: sign in or use Quick Connect.";
-                return;
+                // Credentials live in the media server profiles; the wizard
+                // only picks one so jobs and profiles cannot drift apart.
+                if (SelectedProfile is null && !HasLegacyInlineConnection)
+                {
+                    stepError = ProfilesForTarget().Count == 0
+                        ? $"No {TargetKind()} profile yet. Create one under Settings, Media servers, then pick it here."
+                        : "Pick a media server profile first.";
+                    return;
+                }
             }
             if (draft.Schedule == SyncJobSchedule.Cron && string.IsNullOrWhiteSpace(draft.CronExpression))
             {
@@ -674,8 +721,13 @@
             entity.SearchLocationPaths = JsonSerializer.Serialize(pathsList);
             entity.OutputTarget = draft.OutputTarget.ToString();
             entity.M3uOutputPath = draft.M3uOutputPath;
-            entity.JellyfinServerUrl = draft.JellyfinServerUrl;
-            entity.JellyfinApiKey = draft.JellyfinApiKey;
+            entity.MediaServerProfileId = draft.MediaServerProfileId;
+            // A chosen profile owns the connection: inline values are
+            // cleared so the runner resolves the profile fresh. A legacy
+            // job without a picked profile keeps its stored values.
+            var usesProfile = !string.IsNullOrWhiteSpace(draft.MediaServerProfileId);
+            entity.JellyfinServerUrl = usesProfile ? null : draft.JellyfinServerUrl;
+            entity.JellyfinApiKey = usesProfile ? null : draft.JellyfinApiKey;
             entity.JellyfinUserId = draft.JellyfinUserId;
             entity.PathRemapRules = JsonSerializer.Serialize(remapRules);
             entity.ExtensionRemapRules = JsonSerializer.Serialize(extRulesDict);

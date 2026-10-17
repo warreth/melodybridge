@@ -68,6 +68,9 @@ public class SyncJob
     public string? JellyfinServerUrl { get; set; }
     public string? JellyfinApiKey { get; set; }
     public string? JellyfinUserId { get; set; }
+    /// <summary>Media server profile id (Settings, Media servers); null
+    /// for legacy jobs with inline connection values.</summary>
+    public string? MediaServerProfileId { get; set; }
     public string? M3uOutputPath { get; set; }
     public Dictionary<string, string> PathRemapRules { get; set; } = new();
     public Dictionary<string, string> ExtensionRemapRules { get; set; } = new();

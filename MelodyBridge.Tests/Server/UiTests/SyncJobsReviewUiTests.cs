@@ -36,6 +36,8 @@ public class SyncJobsReviewUiTests
             new MelodyBridge.Infrastructure.MediaServers.MediaServerDirectoryFactory(
                 sp.GetServices<IMediaServerDirectory>()));
         _ctx.Services.AddSingleton<IDbContextFactory<MelodyBridgeDbContext>>(_dbFactory);
+        _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Services.MediaServerProfileStore(
+            new MelodyBridge.Infrastructure.Services.SettingsStore(_dbFactory)));
         _ctx.Services.AddSingleton<MelodyBridge.Infrastructure.MediaServers.JellyfinLoginService>(
             new TestServices.StubJellyfinLogin());
     }

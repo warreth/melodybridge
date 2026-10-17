@@ -240,6 +240,209 @@ public class SyncJobRunnerTests
         }
     }
 
+    [Test]
+    public async Task RunJob_WithProfile_ResolvesTheConnectionFreshFromTheProfile()
+    {
+        var dbPath = NewDbPath();
+        var dir = Path.Combine(Path.GetTempPath(), $"mb-job-{Guid.NewGuid():N}");
+        try
+        {
+            var factory = await NewDbFactory(dbPath);
+            await SeedPlaylistAsync(factory, dir);
+            var profiles = new MediaServerProfileStore(new SettingsStore(factory));
+            await profiles.SaveAsync(new MediaServerProfile
+            {
+                Id = "prof-1",
+                Name = "Homelab",
+                Kind = "Jellyfin",
+                BaseUrl = "http://jellyfin:8096",
+                ApiKey = "token-1",
+            });
+
+            var server = new CapturingServerSync("Jellyfin");
+            var runner = new SyncJobRunner(factory,
+                new M3uGenerator(NullLogger<M3uGenerator>.Instance),
+                new IMediaServerSync[] { server },
+                NullLogger<SyncJobRunner>.Instance,
+                profiles);
+            var job = new SyncJob
+            {
+                Id = "job-profile",
+                Name = "Job Playlist",
+                SourceId = "pl-job",
+                OutputTarget = OutputTargetType.JellyfinApi,
+                MediaServerProfileId = "prof-1",
+                JellyfinUserId = "user-7",
+            };
+
+            var log = await runner.RunJobAsync(job);
+
+            Assert.That(log.Status, Is.EqualTo(SyncStatus.Completed));
+            Assert.That(server.Connection, Is.Not.Null);
+            Assert.That(server.Connection!.BaseUrl, Is.EqualTo("http://jellyfin:8096"),
+                "the profile's URL is the connection, not a copy stored on the job");
+            Assert.That(server.Connection.ApiKey, Is.EqualTo("token-1"));
+            Assert.That(server.Connection.UserId, Is.EqualTo("user-7"),
+                "the job's Jellyfin user still travels along for favorites");
+        }
+        finally
+        {
+            TryDelete(dbPath);
+            try { Directory.Delete(dir, recursive: true); } catch { /* best effort */ }
+        }
+    }
+
+    [Test]
+    public async Task RunJob_WithSubsonicProfile_CarriesTheProfilesUsername()
+    {
+        var dbPath = NewDbPath();
+        var dir = Path.Combine(Path.GetTempPath(), $"mb-job-{Guid.NewGuid():N}");
+        try
+        {
+            var factory = await NewDbFactory(dbPath);
+            await SeedPlaylistAsync(factory, dir);
+            var profiles = new MediaServerProfileStore(new SettingsStore(factory));
+            await profiles.SaveAsync(new MediaServerProfile
+            {
+                Id = "prof-sv",
+                Name = "Navidrome",
+                Kind = "Navidrome",
+                BaseUrl = "http://navidrome:4533",
+                ApiKey = "secret",
+                Username = "admin",
+            });
+
+            var server = new CapturingServerSync("Subsonic");
+            var runner = new SyncJobRunner(factory,
+                new M3uGenerator(NullLogger<M3uGenerator>.Instance),
+                new IMediaServerSync[] { server },
+                NullLogger<SyncJobRunner>.Instance,
+                profiles);
+            var job = new SyncJob
+            {
+                Id = "job-subsonic",
+                Name = "Job Playlist",
+                SourceId = "pl-job",
+                OutputTarget = OutputTargetType.SubsonicApi,
+                MediaServerProfileId = "prof-sv",
+            };
+
+            var log = await runner.RunJobAsync(job);
+
+            Assert.That(log.Status, Is.EqualTo(SyncStatus.Completed));
+            Assert.That(server.Connection!.UserId, Is.EqualTo("admin"),
+                "Subsonic authenticates with the profile's username");
+            Assert.That(server.Connection.ApiKey, Is.EqualTo("secret"));
+        }
+        finally
+        {
+            TryDelete(dbPath);
+            try { Directory.Delete(dir, recursive: true); } catch { /* best effort */ }
+        }
+    }
+
+    [Test]
+    public async Task RunJob_ProfileDeleted_FailsWithAPickAnotherMessage()
+    {
+        var dbPath = NewDbPath();
+        var dir = Path.Combine(Path.GetTempPath(), $"mb-job-{Guid.NewGuid():N}");
+        try
+        {
+            var factory = await NewDbFactory(dbPath);
+            await SeedPlaylistAsync(factory, dir);
+            var profiles = new MediaServerProfileStore(new SettingsStore(factory));
+            var server = new CapturingServerSync("Jellyfin");
+            var runner = new SyncJobRunner(factory,
+                new M3uGenerator(NullLogger<M3uGenerator>.Instance),
+                new IMediaServerSync[] { server },
+                NullLogger<SyncJobRunner>.Instance,
+                profiles);
+            var job = new SyncJob
+            {
+                Id = "job-gone",
+                Name = "Job Playlist",
+                SourceId = "pl-job",
+                OutputTarget = OutputTargetType.JellyfinApi,
+                MediaServerProfileId = "prof-gone",
+            };
+
+            var log = await runner.RunJobAsync(job);
+
+            Assert.That(log.Status, Is.EqualTo(SyncStatus.Failed));
+            Assert.That(log.Message, Does.Contain("no longer exists"),
+                "the run says exactly what to fix");
+            Assert.That(server.Connection, Is.Null, "nothing was synced with a guessed connection");
+        }
+        finally
+        {
+            TryDelete(dbPath);
+            try { Directory.Delete(dir, recursive: true); } catch { /* best effort */ }
+        }
+    }
+
+    [Test]
+    public async Task RunJob_ProfileKindMismatch_FailsWithClearMessage()
+    {
+        var dbPath = NewDbPath();
+        var dir = Path.Combine(Path.GetTempPath(), $"mb-job-{Guid.NewGuid():N}");
+        try
+        {
+            var factory = await NewDbFactory(dbPath);
+            await SeedPlaylistAsync(factory, dir);
+            var profiles = new MediaServerProfileStore(new SettingsStore(factory));
+            await profiles.SaveAsync(new MediaServerProfile
+            {
+                Id = "prof-plex",
+                Name = "Plexy",
+                Kind = "Plex",
+                BaseUrl = "http://plex:32400",
+                ApiKey = "plex-token",
+            });
+
+            var server = new CapturingServerSync("Jellyfin");
+            var runner = new SyncJobRunner(factory,
+                new M3uGenerator(NullLogger<M3uGenerator>.Instance),
+                new IMediaServerSync[] { server },
+                NullLogger<SyncJobRunner>.Instance,
+                profiles);
+            var job = new SyncJob
+            {
+                Id = "job-mismatch",
+                Name = "Job Playlist",
+                SourceId = "pl-job",
+                OutputTarget = OutputTargetType.JellyfinApi,
+                MediaServerProfileId = "prof-plex",
+            };
+
+            var log = await runner.RunJobAsync(job);
+
+            Assert.That(log.Status, Is.EqualTo(SyncStatus.Failed));
+            Assert.That(log.Message, Does.Contain("is a Plex server"),
+                "editing a profile's kind must not silently feed the wrong client");
+            Assert.That(server.Connection, Is.Null);
+        }
+        finally
+        {
+            TryDelete(dbPath);
+            try { Directory.Delete(dir, recursive: true); } catch { /* best effort */ }
+        }
+    }
+
+    /// <summary>A server sync that records the connection it was handed.</summary>
+    private sealed class CapturingServerSync(string name) : IMediaServerSync
+    {
+        public string Name { get; } = name;
+        public MediaServerConnection? Connection { get; private set; }
+        public MediaServerSyncReport? LastReport { get; private set; }
+
+        public Task SyncPlaylistAsync(Playlist playlist, PlaylistOutputOptions options, CancellationToken ct = default)
+        {
+            Connection = options.MediaServerConnection;
+            LastReport = new MediaServerSyncReport(playlist.Tracks?.Count ?? 0, Array.Empty<string>(), null, "Synced");
+            return Task.CompletedTask;
+        }
+    }
+
     /// <summary>A server sync that always reports a rejected create.</summary>
     private sealed class FailingServerSync : IMediaServerSync
     {

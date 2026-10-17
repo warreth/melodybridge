@@ -32,6 +32,7 @@ public static class SyncJobMapping
             JellyfinServerUrl = entity.JellyfinServerUrl,
             JellyfinApiKey = entity.JellyfinApiKey,
             JellyfinUserId = entity.JellyfinUserId,
+            MediaServerProfileId = entity.MediaServerProfileId,
             PathRemapRules = remapRules,
             ExtensionRemapRules = extRules,
             Schedule = Enum.TryParse<SyncJobSchedule>(entity.Schedule, true, out var s) ? s : SyncJobSchedule.Manual,

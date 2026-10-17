@@ -59,6 +59,8 @@ public class SyncJobsLayoutUiTests
 
         _ctx.Services.AddSingleton<ISyncJobRunner>(_jobRunner.Object);
         _ctx.Services.AddSingleton<IDbContextFactory<MelodyBridgeDbContext>>(dbFactory);
+        _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Services.MediaServerProfileStore(
+            new MelodyBridge.Infrastructure.Services.SettingsStore(dbFactory)));
         _ctx.Services.AddSingleton<MelodyBridge.Infrastructure.MediaServers.JellyfinLoginService>(
             new TestServices.StubJellyfinLogin());
     }

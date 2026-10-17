@@ -53,6 +53,8 @@ public class SyncJobsWizardUiTests
             new MelodyBridge.Infrastructure.MediaServers.MediaServerDirectoryFactory(
                 sp.GetServices<IMediaServerDirectory>()));
         _ctx.Services.AddSingleton<IDbContextFactory<MelodyBridgeDbContext>>(_dbFactory);
+        _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Services.MediaServerProfileStore(
+            new MelodyBridge.Infrastructure.Services.SettingsStore(_dbFactory)));
         _ctx.Services.AddSingleton<MelodyBridge.Infrastructure.MediaServers.JellyfinLoginService>(
             new TestServices.StubJellyfinLogin());
     }
@@ -218,22 +220,56 @@ public class SyncJobsWizardUiTests
              && l.TextContent.Contains("/b")), Is.EqualTo(0), "/b is not checked");
     }
 
-    // ── C2: Jellyfin user picker ────────────────────────────────────
+    // ── C2: media server profiles instead of raw credentials ───────
 
-    [Test]
-    public void Step3_JellyfinBranch_ShowsUserDropdownAndTestButton()
+    /// <summary>Saves a profile through the same store the page reads.</summary>
+    private void SeedProfile(string id, string name, string kind, string url, string key)
+    {
+        var store = new MelodyBridge.Infrastructure.Services.MediaServerProfileStore(
+            new MelodyBridge.Infrastructure.Services.SettingsStore(_dbFactory));
+        store.SaveAsync(new MelodyBridge.Infrastructure.Services.MediaServerProfile
+        {
+            Id = id,
+            Name = name,
+            Kind = kind,
+            BaseUrl = url,
+            ApiKey = key,
+        }).GetAwaiter().GetResult();
+    }
+
+    /// <summary>The profile dropdown of the output step (not the schedule one).</summary>
+    private static AngleSharp.Dom.IElement ProfileSelect(IRenderedComponent<SyncJobs> cut)
+        => cut.FindAll("label")
+            .Single(l => l.TextContent.Contains("Media server profile"))
+            .QuerySelector("select")!;
+
+    private IRenderedComponent<SyncJobs> OpenJellyfinStep()
     {
         SeedScanLocations("/music");
         var cut = OpenWizardWithPlaylistSource();
         Next(cut, 2); // step 3 = output
         cut.FindAll("select").First(s => s.TextContent.Contains("M3U File")).Change("JellyfinApi");
-
-        Assert.That(cut.Markup, Does.Contain("(server default)"));
-        Assert.That(cut.Markup, Does.Contain("Test connection"));
+        return cut;
     }
 
     [Test]
-    public void Step3_TestConnection_CallsDirectoryWithWizardValues_AndListsUsers()
+    public void Step3_JellyfinTarget_ShowsProfilePicker_AndNeverAsksForCredentials()
+    {
+        SeedProfile("prof-1", "Homelab", "Jellyfin", "http://jf:8096", "token-1");
+        var cut = OpenJellyfinStep();
+
+        Assert.That(cut.Markup, Does.Contain("Media server profile"));
+        Assert.That(ProfileSelect(cut).TextContent, Does.Contain("Homelab (http://jf:8096)"));
+        Assert.That(cut.Markup, Does.Not.Contain("http://host.docker.internal:8096"),
+            "the wizard no longer offers a raw server URL");
+        Assert.That(cut.Markup, Does.Not.Contain("password (not stored)"),
+            "the wizard no longer offers raw credentials");
+        Assert.That(cut.Markup, Does.Not.Contain("Sign in"),
+            "sign-in moved to the profile editor in Settings");
+    }
+
+    [Test]
+    public void Step3_TestConnection_UsesThePickedProfile_AndListsUsers()
     {
         // A Navidrome directory registered after the Jellyfin one: a
         // single IMediaServerDirectory resolve picks the last one, which
@@ -243,28 +279,20 @@ public class SyncJobsWizardUiTests
         navidrome.SetupGet(d => d.Kind).Returns("Navidrome");
         _ctx.Services.AddSingleton<IMediaServerDirectory>(navidrome.Object);
 
-        SeedScanLocations("/music");
-        var cut = OpenWizardWithPlaylistSource();
-        Next(cut, 2);
-        cut.FindAll("select").First(s => s.TextContent.Contains("M3U File")).Change("JellyfinApi");
-
-        cut.Find("input[placeholder='http://host.docker.internal:8096']").Change("http://jf:8096");
-        cut.Find("input[placeholder='jellyfin user']").Change("mbadmin");
-        cut.Find("input[placeholder='password (not stored)']").Change("secret");
-        cut.FindAll("button").First(b => b.TextContent.Trim() == "Sign in").Click();
-        cut.WaitForAssertion(() =>
-            Assert.That(cut.Markup, Does.Contain("Signed in as mbadmin")), TimeSpan.FromSeconds(3));
+        SeedProfile("prof-1", "Homelab", "Jellyfin", "http://jf:8096", "token-1");
+        var cut = OpenJellyfinStep();
+        ProfileSelect(cut).Change("prof-1");
 
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Test connection").Click();
 
         _userDirectory.Verify(
             d => d.TestConnectionAsync(
-                It.Is<MediaServerConnection>(c => c.BaseUrl == "http://jf:8096" && c.ApiKey == "session-token"),
+                It.Is<MediaServerConnection>(c => c.BaseUrl == "http://jf:8096" && c.ApiKey == "token-1"),
                 It.IsAny<CancellationToken>()),
             Times.Once);
         _userDirectory.Verify(
             d => d.GetUsersAsync(
-                It.Is<MediaServerConnection>(c => c.BaseUrl == "http://jf:8096" && c.ApiKey == "session-token"),
+                It.Is<MediaServerConnection>(c => c.BaseUrl == "http://jf:8096" && c.ApiKey == "token-1"),
                 It.IsAny<CancellationToken>()),
             Times.Once);
         navidrome.Verify(
@@ -276,36 +304,63 @@ public class SyncJobsWizardUiTests
     }
 
     [Test]
-    public void Step3_SignIn_FillsTheSessionTokenAndUser()
+    public void Step3_NoMatchingProfile_BlocksNext_AndLinksToSettings()
     {
-        var login = new TestServices.StubJellyfinLogin();
-        _ctx.Services.AddSingleton<MelodyBridge.Infrastructure.MediaServers.JellyfinLoginService>(login);
+        // A Plex profile must not satisfy a Jellyfin job.
+        SeedProfile("prof-plex", "Plexy", "Plex", "http://plex:32400", "plex-token");
+        var cut = OpenJellyfinStep();
+
+        Assert.That(ProfileSelect(cut).TextContent, Does.Not.Contain("Plexy"),
+            "the picker only lists profiles of the chosen kind");
+        Next(cut);
+
+        Assert.That(cut.Markup, Does.Contain("Step 3 of 5"), "must stay on the output step");
+        Assert.That(cut.Markup, Does.Contain("Settings, Media servers"),
+            "the error points at where a profile is created");
+        Assert.That(cut.Markup, Does.Contain("href=\"/settings#media-servers\""));
+    }
+
+    [Test]
+    public void Step3_PickProfile_SaveStoresTheProfileId_AndClearsInlineCreds()
+    {
+        SeedProfile("prof-1", "Homelab", "Jellyfin", "http://jf:8096", "token-1");
+        var cut = OpenJellyfinStep();
+        ProfileSelect(cut).Change("prof-1");
+
+        Next(cut); // -> remaps
+        Next(cut); // -> review
+        Assert.That(cut.Markup, Does.Contain("Homelab (http://jf:8096)"),
+            "the review names the profile");
+
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Create sync job").Click();
+
+        using var db = _dbFactory.CreateDbContext();
+        var job = db.SyncJobs.AsNoTracking().Single();
+        Assert.That(job.MediaServerProfileId, Is.EqualTo("prof-1"),
+            "the job stores the profile, not a copy of its credentials");
+        Assert.That(job.JellyfinServerUrl, Is.Null);
+        Assert.That(job.JellyfinApiKey, Is.Null);
+    }
+
+    [Test]
+    public void Step3_ProfileKind_MatchesTheOutputTarget()
+    {
+        SeedProfile("prof-jf", "JF", "Jellyfin", "http://jf:1", "t1");
+        SeedProfile("prof-plex", "PX", "Plex", "http://px:1", "t2");
+        SeedProfile("prof-sub", "SUB", "Navidrome", "http://nv:1", "t3");
 
         SeedScanLocations("/music");
         var cut = OpenWizardWithPlaylistSource();
         Next(cut, 2);
-        cut.FindAll("select").First(s => s.TextContent.Contains("M3U File")).Change("JellyfinApi");
 
-        cut.Find("input[placeholder='http://host.docker.internal:8096']").Change("http://jf:8096");
-        cut.Find("input[placeholder='jellyfin user']").Change("mbadmin");
-        cut.Find("input[placeholder='password (not stored)']").Change("secret");
-        cut.FindAll("button").First(b => b.TextContent.Trim() == "Sign in").Click();
+        cut.FindAll("select").First(s => s.TextContent.Contains("M3U File")).Change("PlexApi");
+        Assert.That(ProfileSelect(cut).TextContent, Does.Contain("PX"));
+        Assert.That(ProfileSelect(cut).TextContent, Does.Not.Contain("JF"));
 
-        cut.WaitForAssertion(() =>
-        {
-            Assert.That(login.Calls, Is.EqualTo(1), "the button runs the sign-in");
-            Assert.That(cut.Markup, Does.Contain("Signed in as mbadmin"));
-        }, TimeSpan.FromSeconds(3));
-
-        // The credential is set, so the step accepts the connection and
-        // Next moves on instead of asking to connect first.
-        Next(cut);
-        Assert.Multiple(() =>
-        {
-            Assert.That(cut.Markup, Does.Not.Contain("Connect to Jellyfin first"));
-            Assert.That(cut.Markup, Does.Contain("Optional: fix file paths"),
-                "the wizard advanced past the output step");
-        });
+        cut.FindAll("select").First(s => s.TextContent.Contains("M3U File")).Change("SubsonicApi");
+        Assert.That(ProfileSelect(cut).TextContent, Does.Contain("SUB"),
+            "Navidrome profiles speak the Subsonic API");
+        Assert.That(ProfileSelect(cut).TextContent, Does.Not.Contain("PX"));
     }
 
     // ── C3: multiple remap rules ────────────────────────────────────

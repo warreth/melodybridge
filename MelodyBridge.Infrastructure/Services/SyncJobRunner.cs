@@ -14,17 +14,20 @@ public class SyncJobRunner : ISyncJobRunner
     private readonly M3uGenerator _m3uGenerator;
     private readonly IEnumerable<IMediaServerSync> _mediaServers;
     private readonly ILogger<SyncJobRunner> _logger;
+    private readonly MediaServerProfileStore? _profiles;
 
     public SyncJobRunner(
         IDbContextFactory<MelodyBridgeDbContext> dbFactory,
         M3uGenerator m3uGenerator,
         IEnumerable<IMediaServerSync> mediaServers,
-        ILogger<SyncJobRunner> logger)
+        ILogger<SyncJobRunner> logger,
+        MediaServerProfileStore? profiles = null)
     {
         _dbFactory = dbFactory;
         _m3uGenerator = m3uGenerator;
         _mediaServers = mediaServers;
         _logger = logger;
+        _profiles = profiles;
     }
 
     public async Task<SyncJobRunLog> RunJobAsync(SyncJob job, CancellationToken ct = default)
@@ -153,15 +156,41 @@ public class SyncJobRunner : ISyncJobRunner
                         break;
                     }
 
-                    // Per-job connection wins when the wizard stored one;
-                    // otherwise the global settings apply (Settings page).
-                    MediaServerConnection? connection =
-                        !string.IsNullOrWhiteSpace(job.JellyfinServerUrl)
-                            ? new MediaServerConnection(
-                                job.JellyfinServerUrl!,
-                                job.JellyfinApiKey ?? "",
-                                job.JellyfinUserId)
-                            : null;
+                    // Connection: a media server profile (Settings) is
+                    // resolved fresh on every run, so editing the profile
+                    // applies here; legacy jobs with inline values keep
+                    // working. Without either, the app-wide settings apply.
+                    MediaServerConnection? connection = null;
+                    if (!string.IsNullOrWhiteSpace(job.MediaServerProfileId) && _profiles is not null)
+                    {
+                        var profile = await _profiles.FindAsync(job.MediaServerProfileId!, ct);
+                        if (profile is null)
+                        {
+                            errors.Add(
+                                $"Media server profile '{job.MediaServerProfileId}' no longer exists. Pick another one in the job's settings.");
+                            break;
+                        }
+                        if (!KindMatchesTarget(profile.Kind, job.OutputTarget))
+                        {
+                            // The profile kind can be edited after the job
+                            // was created; a Plex profile must not be fed
+                            // to the Jellyfin client.
+                            errors.Add(
+                                $"Profile '{profile.Name}' is a {profile.Kind} server, but this job targets {job.OutputTarget}. Pick a matching profile in the job's settings.");
+                            break;
+                        }
+                        // Subsonic authenticates with its username; a
+                        // Jellyfin profile pairs with the job's user id.
+                        var userId = job.JellyfinUserId;
+                        if (string.IsNullOrWhiteSpace(userId) && IsSubsonicKind(profile.Kind))
+                            userId = profile.Username;
+                        connection = new MediaServerConnection(profile.BaseUrl, profile.ApiKey, userId);
+                    }
+                    else if (!string.IsNullOrWhiteSpace(job.JellyfinServerUrl))
+                    {
+                        connection = new MediaServerConnection(
+                            job.JellyfinServerUrl!, job.JellyfinApiKey ?? "", job.JellyfinUserId);
+                    }
                     var serverOptions = new PlaylistOutputOptions("/playlists/" + job.Name + ".m3u",
                         false, remap.Count > 0 ? remap : null, connection, extensionRemap);
                     await server.SyncPlaylistAsync(playlist, serverOptions, ct);
@@ -238,4 +267,18 @@ public class SyncJobRunner : ISyncJobRunner
             return new SyncJobRunLog(DateTime.UtcNow, SyncStatus.Failed, ex.Message, 0, totalTracks);
         }
     }
+
+    /// <summary>True for the kinds that speak the Subsonic/OpenSubsonic API.</summary>
+    private static bool IsSubsonicKind(string? kind)
+        => string.Equals(kind, "Subsonic", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(kind, "Navidrome", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>True when a profile kind can serve an output target.</summary>
+    private static bool KindMatchesTarget(string? kind, OutputTargetType target) => target switch
+    {
+        OutputTargetType.PlexApi => string.Equals(kind, "Plex", StringComparison.OrdinalIgnoreCase),
+        OutputTargetType.SubsonicApi => IsSubsonicKind(kind),
+        OutputTargetType.JellyfinApi => string.Equals(kind, "Jellyfin", StringComparison.OrdinalIgnoreCase),
+        _ => true,
+    };
 }

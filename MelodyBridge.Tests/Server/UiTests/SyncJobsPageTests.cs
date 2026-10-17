@@ -63,6 +63,8 @@ public class SyncJobsPageTests
 
         _ctx.Services.AddSingleton<ISyncJobRunner>(_jobRunner.Object);
         _ctx.Services.AddSingleton<IDbContextFactory<MelodyBridgeDbContext>>(dbFactory);
+        _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Services.MediaServerProfileStore(
+            new MelodyBridge.Infrastructure.Services.SettingsStore(dbFactory)));
         _ctx.Services.AddSingleton<MelodyBridge.Infrastructure.MediaServers.JellyfinLoginService>(
             new TestServices.StubJellyfinLogin());
     }
@@ -198,6 +200,8 @@ public class SyncJobsPageTests
 
             // The production runner over the real DB, no media servers.
             _ctx.Services.AddSingleton<IDbContextFactory<MelodyBridgeDbContext>>(sqliteFactory);
+            _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Services.MediaServerProfileStore(
+                new MelodyBridge.Infrastructure.Services.SettingsStore(sqliteFactory)));
             _ctx.Services.AddSingleton<ISyncJobRunner>(new MelodyBridge.Infrastructure.Services.SyncJobRunner(
                 sqliteFactory,
                 new MelodyBridge.Infrastructure.Playlists.M3uGenerator(
