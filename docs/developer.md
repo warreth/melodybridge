@@ -143,7 +143,7 @@ public interface ISourceProvider
 }
 ```
 
-Implement this to support a new playlist platform. `PlaylistStore` picks the provider whose `CanHandle` accepts the URL.
+Implement this to support a new playlist platform. `PlaylistStore` picks the provider whose `CanHandle` accepts the URL. Built-in: `SpotifySourceProvider`, `YouTubeSourceProvider`, `DeezerSourceProvider`, `SoundCloudSourceProvider` and `ListenBrainzSourceProvider` (all registered in `AddMelodyBridge`).
 
 ### `IMediaServerSync`: media server targets
 

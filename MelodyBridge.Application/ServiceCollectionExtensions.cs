@@ -153,6 +153,12 @@ public static class ServiceCollectionExtensions
             c.DefaultRequestHeaders.UserAgent.ParseAdd("MelodyBridge/1.0 (+https://melodybridge.app)");
             c.Timeout = TimeSpan.FromSeconds(15);
         });
+        // ListenBrainz asks clients to identify themselves too.
+        services.AddHttpClient("listenbrainz", c =>
+        {
+            c.DefaultRequestHeaders.UserAgent.ParseAdd("MelodyBridge/1.0 (+https://melodybridge.app)");
+            c.Timeout = TimeSpan.FromSeconds(20);
+        });
         // MusicBrainz is the ISRC fallback when Deezer has no confident
         // match: it asks for a real User-Agent and at most one request per
         // second, both handled by the resolver.
@@ -177,6 +183,18 @@ public static class ServiceCollectionExtensions
         // Source providers (playlists)
         services.AddSingleton<ISourceProvider, YouTubeSourceProvider>();
         services.AddSingleton<ISourceProvider, SpotifySourceProvider>();
+        // Public playlist sources: Deezer, SoundCloud sets and
+        // ListenBrainz need no account.
+        services.AddSingleton<ISourceProvider>(sp =>
+            new DeezerSourceProvider(
+                sp.GetRequiredService<IHttpClientFactory>().CreateClient("deezer"),
+                sp.GetRequiredService<ILogger<DeezerSourceProvider>>()));
+        services.AddSingleton<ISourceProvider>(sp =>
+            new SoundCloudSourceProvider(sp.GetRequiredService<ILogger<SoundCloudSourceProvider>>()));
+        services.AddSingleton<ISourceProvider>(sp =>
+            new ListenBrainzSourceProvider(
+                sp.GetRequiredService<IHttpClientFactory>().CreateClient("listenbrainz"),
+                sp.GetRequiredService<ILogger<ListenBrainzSourceProvider>>()));
 
         // Application services. Singleton: the download progress map and
         // the coordinator's run handles must survive page navigations

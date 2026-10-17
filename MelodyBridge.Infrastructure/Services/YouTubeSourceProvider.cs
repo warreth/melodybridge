@@ -79,6 +79,17 @@ public class YouTubeSourceProvider : ISourceProvider
     /// offline tests pin the mapping against a real response shape.
     /// </summary>
     internal static Playlist ParsePlaylistJson(string stdout, string url)
+        => ParseFlatPlaylist(stdout, url, Platform.YouTubeMusic,
+            id => $"https://www.youtube.com/watch?v={id}");
+
+    /// <summary>
+    /// The shared flat-playlist mapping: the same yt-dlp shape feeds the
+    /// YouTube and SoundCloud providers, so only the platform and the
+    /// fallback location differ.
+    /// </summary>
+    internal static Playlist ParseFlatPlaylist(
+        string stdout, string url, Platform platform, Func<string, string> location,
+        Func<JsonElement, bool>? entryFilter = null)
     {
         JsonDocument doc;
         try
@@ -107,10 +118,20 @@ public class YouTubeSourceProvider : ISourceProvider
                     if (entry.ValueKind != JsonValueKind.Object) continue;
                     var id = GetString(entry, "id");
                     if (string.IsNullOrEmpty(id)) continue;
+                    if (entryFilter is not null && !entryFilter(entry)) continue;
 
                     TimeSpan? duration = entry.TryGetProperty("duration", out var d) && d.ValueKind == JsonValueKind.Number
                         ? TimeSpan.FromSeconds(d.GetDouble())
                         : null;
+
+                    // The entry's own URL wins when yt-dlp provides one
+                    // (SoundCloud track pages); otherwise the caller's
+                    // pattern builds it from the id.
+                    var entryUrl = GetString(entry, "webpage_url") ?? GetString(entry, "url");
+                    var trackUrl = !string.IsNullOrWhiteSpace(entryUrl)
+                        && entryUrl!.StartsWith("http", StringComparison.OrdinalIgnoreCase)
+                        ? entryUrl
+                        : location(id);
 
                     tracks.Add(new Track
                     {
@@ -119,12 +140,12 @@ public class YouTubeSourceProvider : ISourceProvider
                             ?? GetString(entry, "channel")
                             ?? "Unknown",
                         Duration = duration,
-                        SongID = new SongID(Platform.YouTubeMusic, id),
-                        PlatformSongID = new SongID(Platform.YouTubeMusic, id),
-                        SourcePlatform = Platform.YouTubeMusic,
+                        SongID = new SongID(platform, id),
+                        PlatformSongID = new SongID(platform, id),
+                        SourcePlatform = platform,
                         SyncStatus = SyncStatus.Pending,
                         MediaType = MediaType.MP3,
-                        CurrentTrackLocation = new FileLocation($"https://www.youtube.com/watch?v={id}"),
+                        CurrentTrackLocation = new FileLocation(trackUrl),
                     });
                 }
             }

@@ -7,7 +7,7 @@ hero:
   image:
     src: /screens/home.webp
     alt: MelodyBridge dashboard with playlist cards and download status
-  tagline: Save a Spotify or YouTube playlist, download the tracks through a plugin waterfall, and publish them as M3U, Jellyfin, Plex or Subsonic playlists, on your own server.
+  tagline: Save a Spotify, YouTube, Deezer, SoundCloud or ListenBrainz playlist, download the tracks through a plugin waterfall, and publish them as M3U, Jellyfin, Plex or Subsonic playlists, on your own server.
   actions:
     - theme: brand
       text: Quick start

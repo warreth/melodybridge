@@ -20,8 +20,10 @@ The short version of the pipeline:
 
 ## Playlists are snapshots
 
-When you add a public Spotify or YouTube link, MelodyBridge reads the playlist
-(page scraping for Spotify, yt-dlp for YouTube) and saves the whole track list
+When you add a public Spotify, YouTube, Deezer, SoundCloud or ListenBrainz
+link, MelodyBridge reads the playlist (page scraping or the public API for
+Spotify, yt-dlp for YouTube and SoundCloud, the public Deezer and ListenBrainz
+APIs for those) and saves the whole track list
 locally. No API key or account is needed for public playlists. You also get the
 cover art, the track count and each track's duration.
 
