@@ -514,7 +514,9 @@ public class DevPanelTests
         dlBtn.Click();
 
         // The queued download runs through the real DownloadManager over
-        // the real plugin double: a file must appear on disk.
+        // the real plugin double: a file must appear on disk. The queue
+        // does real file work, so give it patience under a loaded suite
+        // (this flaked once at 10 seconds).
         cut.WaitForAssertion(() =>
         {
             var task = _devPanelService.DownloadQueue.FirstOrDefault(t => t.Status == "Completed");
@@ -523,7 +525,7 @@ public class DevPanelTests
             Assert.That(System.IO.File.Exists(task.ResultPath), Is.True,
                 "the completed task points at a real file");
             Assert.That(new FileInfo(task.ResultPath!).Length, Is.GreaterThan(0));
-        }, TimeSpan.FromSeconds(10));
+        }, TimeSpan.FromSeconds(30));
     }
 
     // ───────────────────────────────────────────────────────
