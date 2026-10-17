@@ -82,4 +82,61 @@ public class TaglibHelperFormatTests
         Assert.That(read.Tag.Title, Is.EqualTo("T"));
         Assert.That(read.Tag.Performers, Does.Contain("A"));
     }
+
+    /// <summary>A real 1x1 PNG: the smallest byte set TagLib accepts as a picture.</summary>
+    private static byte[] TinyPng() => Convert.FromBase64String(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==");
+
+    [Test]
+    public void Mp3File_AlbumArtistCoverAndLyricsRoundTrip()
+    {
+        var path = MakeMp3();
+        var cover = TinyPng();
+
+        TaglibHelper.WriteTags(path,
+            title: "Title", artist: "Artist", album: "Album",
+            albumArtist: "Various Artists", track: 3,
+            coverArt: cover, lyrics: "first line\nsecond line");
+
+        var read = TagLib.File.Create(path);
+        Assert.Multiple(() =>
+        {
+            Assert.That(read.Tag.AlbumArtists, Does.Contain("Various Artists"),
+                "the release credit is what media servers group on");
+            Assert.That(read.Tag.Pictures, Has.Length.EqualTo(1));
+            Assert.That(read.Tag.Pictures[0].Data.Data, Is.EqualTo(cover),
+                "the embedded bytes must come back unchanged");
+            Assert.That(read.Tag.Lyrics, Does.Contain("first line"));
+        });
+    }
+
+    [Test]
+    public void OpusFile_AlbumArtistCoverAndLyricsRoundTrip()
+    {
+        var path = MakeOpus();
+        var cover = TinyPng();
+
+        TaglibHelper.WriteTags(path,
+            title: "Title", artist: "Artist", album: "Album",
+            albumArtist: "Various Artists", coverArt: cover, lyrics: "words");
+
+        var read = TagLib.File.Create(path);
+        Assert.Multiple(() =>
+        {
+            Assert.That(read.Tag.AlbumArtists, Does.Contain("Various Artists"));
+            Assert.That(read.Tag.Pictures, Has.Length.EqualTo(1));
+            Assert.That(read.Tag.Lyrics, Does.Contain("words"));
+        });
+    }
+
+    [Test]
+    public void HasPictures_TracksWhetherCoverArtIsEmbedded()
+    {
+        var path = MakeMp3();
+        Assert.That(TaglibHelper.HasPictures(path), Is.False, "a fresh file has no art");
+
+        TaglibHelper.WriteTags(path, coverArt: TinyPng());
+        Assert.That(TaglibHelper.HasPictures(path), Is.True,
+            "an embedded cover must be visible to the pipeline before it fetches another");
+    }
 }

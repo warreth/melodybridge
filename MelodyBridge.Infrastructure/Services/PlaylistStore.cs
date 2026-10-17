@@ -246,8 +246,10 @@ public class PlaylistStore
                 title: track.Title,
                 artist: track.Artist,
                 album: track.Album,
+                albumArtist: track.AlbumArtist,
                 // Position is 0-based; the tag and the UI are 1-based.
-                track: (uint?)(track.Position + 1));
+                track: (uint?)(track.Position + 1),
+                lyrics: track.Lyrics);
 
             // Fast integrity gate: a truncated or corrupt download
             // must not survive as "downloaded": delete it and fail the
