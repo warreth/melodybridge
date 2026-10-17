@@ -167,6 +167,43 @@ public class PlaylistStoreDedupTests
     }
 
     [Test]
+    public async Task Dedup_SharesTheExistingArchiveCopy_InsteadOfDuplicatingBytes()
+    {
+        var (dirA, dirB, sourceFile) = SetupTwoPlaylists();
+
+        // Playlist A's row already has an archive copy, from when it was
+        // downloaded. Playlist B dedups to the same track and must point
+        // at that copy, not write a second one.
+        var archiveDir = Path.Combine(_root, "archive");
+        Directory.CreateDirectory(archiveDir);
+        var archiveFile = Path.Combine(archiveDir, "Shared Song.mp3");
+        File.WriteAllText(archiveFile, "archived bytes");
+
+        var (trackAId, trackBId) = await SeedSharedTrack(dirA, dirB, sourceFile);
+        await using (var db = _factory.CreateDbContext())
+        {
+            var a = await db.Tracks.FirstAsync(t => t.Id == trackAId);
+            a.ArchivePath = archiveFile;
+            var b = await db.Playlists.FirstAsync(p => p.Id == "pl-b");
+            b.ArchiveDirectory = archiveDir;
+            b.ArchiveFormat = "mp3";
+            await db.SaveChangesAsync();
+        }
+
+        var store = NewStore(new ThrowingDownloader());
+        var (downloaded, failed) = await store.DownloadMissingAsync("pl-b");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That((downloaded, failed), Is.EqualTo((1, 0)));
+            Assert.That(ReadTrack(_factory, trackBId)!.ArchivePath, Is.EqualTo(archiveFile),
+                "the deduplicated row shares the original's archive copy");
+            Assert.That(Directory.GetFiles(archiveDir), Has.Length.EqualTo(1),
+                "no duplicate archive bytes were written");
+        });
+    }
+
+    [Test]
     public async Task QualityMismatch_PausesForReviewInsteadOfGuessing()
     {
         // Playlist A holds an mp3 at 320; playlist B wants flac.

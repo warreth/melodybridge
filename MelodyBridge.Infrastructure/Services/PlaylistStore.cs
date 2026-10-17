@@ -218,7 +218,7 @@ public class PlaylistStore
             // playlist folder, no network call is needed at all. Exact
             // quality matches hardlink instantly; a mismatch pauses the
             // track for a human decision instead of guessing.
-            if (await TryDeduplicateAsync(track, dir, primary, ct) is { } verdict)
+            if (await TryDeduplicateAsync(track, dir, primary, db, ct) is { } verdict)
                 return verdict;
 
             var query = new TrackQuery(track.Artist!, track.Title!, primary, expectedDuration, track.Isrc);
@@ -335,7 +335,8 @@ public class PlaylistStore
     /// the honest options are a real download or a user decision.
     /// </summary>
     private async Task<string?> TryDeduplicateAsync(
-        TrackEntity track, string dir, DownloadQuality quality, CancellationToken ct)
+        TrackEntity track, string dir, DownloadQuality quality, MelodyBridgeDbContext db,
+        CancellationToken ct)
     {
         // A user decision to download a fresh copy trumps the conflict:
         // consume the one-shot flag and let the waterfall run.
@@ -397,6 +398,22 @@ public class PlaylistStore
         track.MediaType = candidate.ExistingFormat;
         AudioProbe.Fill(track, linkPath);
         track.Warning = null;
+
+        // The archive copy belongs to the track, not to one playlist row:
+        // when the original already has one, share that path instead of
+        // writing the same bytes a second time. Without one, make it now
+        // so a deduplicated track is not the only one missing from the
+        // archive.
+        if (!string.IsNullOrWhiteSpace(candidate.ExistingArchivePath)
+            && File.Exists(candidate.ExistingArchivePath))
+        {
+            track.ArchivePath = candidate.ExistingArchivePath;
+        }
+        else
+        {
+            await ArchiveDownloadedTrackAsync(track, db, ct);
+        }
+
         _logger.LogInformation(
             "Dedup: hardlinked '{Title}' from {Source} into {Target} (zero new bytes)",
             track.Title, candidate.ExistingPath, linkPath);
@@ -432,7 +449,8 @@ public class PlaylistStore
                 row.PlaylistEntityId,
                 // Quality facts live on the row; a missing bitrate is
                 // treated as unverifiable (mismatch) by the verdict.
-                row.Bitrate is > 0);
+                row.Bitrate is > 0,
+                row.ArchivePath);
         }
         return null;
     }

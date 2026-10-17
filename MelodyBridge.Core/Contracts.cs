@@ -182,7 +182,12 @@ public record DedupMatch(
     /// <summary>Playlist row id the existing file belongs to (any one of them).</summary>
     string? SourcePlaylistId,
     /// <summary>True when container and bitrate satisfy the requested profile exactly.</summary>
-    bool QualityMatches)
+    bool QualityMatches,
+    /// <summary>
+    /// Archive copy that belongs to the existing row, when one was made.
+    /// A deduplicated track reuses it instead of writing duplicate bytes.
+    /// </summary>
+    string? ExistingArchivePath = null)
 {
     /// <summary>Human summary of the mismatch, for the UI warning.</summary>
     public string Describe()
