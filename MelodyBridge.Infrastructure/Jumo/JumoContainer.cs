@@ -49,8 +49,8 @@ public static class JumoContainer
     /// <summary>
     /// Parses the init segment. Returns the native FLAC header and the
     /// segment table for lossless streams; when the payload carries no
-    /// FLAC header the kind is "mp4" and the whole init segment is the
-    /// output header (the client keeps the fragmented MP4 as-is).
+    /// FLAC header the kind is "mp4", which the downloader refuses for
+    /// lossless requests.
     /// </summary>
     public static InitInfo ParseInit(ReadOnlySpan<byte> init)
     {
@@ -143,9 +143,71 @@ public static class JumoContainer
     }
 
     /// <summary>
-    /// Decrypts and assembles the stream: native FLAC for lossless
-    /// formats, plain MP3 frames for the 320 kbps tier and the untouched
-    /// fragmented MP4 when the init carried no FLAC header.
+    /// Writes the output header for the stream and returns the container
+    /// it produces: a native FLAC header for every lossless format, and
+    /// nothing for the MP3 tier (frames only).
+    ///
+    /// An init segment without a FLAC header means the service announced a
+    /// fragmented MP4 stream, which this plugin cannot deliver as the
+    /// requested lossless container; refusing here saves downloading the
+    /// whole track for a file the quality gate would reject anyway.
+    /// </summary>
+    public static string WriteStreamHeader(InitInfo init, string effectiveFormat, Stream output)
+    {
+        if (init.Kind == "mp4" && effectiveFormat != "5")
+            throw new NotSupportedException(
+                "the service announced a fragmented MP4 stream, which this plugin cannot deliver as FLAC");
+
+        if (effectiveFormat != "5")
+            output.Write(init.Header);
+        return effectiveFormat == "5" ? "mp3" : "flac";
+    }
+
+    /// <summary>
+    /// Decrypts one media segment and writes it in stream order: plain
+    /// frames as they are, encrypted frames through the AES-CTR path,
+    /// trailing bytes last. Called with the segments in order against the
+    /// same output stream, this produces the exact file <see cref="Assemble"/>
+    /// would build, at one segment of memory instead of the whole stream.
+    /// </summary>
+    public static void WriteSegment(InitInfo init, int tableIndex, byte[] segment, byte[] contentKey, Stream output)
+    {
+        var layout = ParseSegment(segment);
+
+        // The table's byte length is the segment's whole mdat payload: a
+        // short read elsewhere (CDN hiccup) is caught right here instead
+        // of producing a corrupt file.
+        var mdatBytes = layout.MdatEnd - layout.DataStart;
+        if (mdatBytes != init.Table[tableIndex].ByteLength)
+            throw new InvalidDataException(
+                $"Jumo segment {tableIndex + 1} is truncated or malformed ({mdatBytes} vs {init.Table[tableIndex].ByteLength} bytes)");
+
+        var position = layout.DataStart;
+        foreach (var frame in layout.Frames)
+        {
+            // Same guard as the reference client: a frame that runs past
+            // the segment is a short read, not data to write.
+            if (position + frame.Size > segment.Length)
+                throw new InvalidDataException($"Jumo segment {tableIndex + 1} has a frame that overruns the segment");
+
+            var slice = segment.AsSpan(position, (int)frame.Size);
+            if (frame.Flags == 0)
+                output.Write(slice);
+            else
+                output.Write(DecryptFrame(contentKey, frame.Iv, slice));
+            position += (int)frame.Size;
+        }
+
+        if (position < layout.MdatEnd)
+            output.Write(segment.AsSpan(position, layout.MdatEnd - position));
+    }
+
+    /// <summary>
+    /// Decrypts and assembles the stream in memory: native FLAC for
+    /// lossless formats, plain MP3 frames for the 320 kbps tier. The
+    /// downloader uses <see cref="WriteStreamHeader"/> and
+    /// <see cref="WriteSegment"/> against the output file instead; this
+    /// wrapper keeps the pipeline available for direct byte checks.
     /// </summary>
     /// <param name="effectiveFormat">Qobuz format id ("5" is MP3).</param>
     public static AssembledStream Assemble(InitInfo init, IReadOnlyList<byte[]> mediaSegments, byte[] contentKey, string effectiveFormat)
@@ -154,67 +216,11 @@ public static class JumoContainer
             throw new InvalidDataException(
                 $"Jumo segment mismatch: {mediaSegments.Count} audio blobs vs {init.Table.Count} table rows");
 
-        var isMp4 = init.Kind == "mp4" && effectiveFormat != "5";
-        var parts = new List<byte[]>();
-
-        // The header (a native FLAC header, or the whole init segment for
-        // the fragmented-MP4 fallback) leads every output except the MP3
-        // path, where only frames are kept.
-        if (isMp4 || effectiveFormat != "5")
-            parts.Add(init.Header);
-
+        using var buffer = new MemoryStream();
+        var container = WriteStreamHeader(init, effectiveFormat, buffer);
         for (var i = 0; i < mediaSegments.Count; i++)
-        {
-            var segment = mediaSegments[i];
-            var layout = ParseSegment(segment);
-
-            // The table's byte length is the segment's whole mdat payload:
-            // a short read elsewhere (CDN hiccup) is caught right here
-            // instead of producing a corrupt file.
-            var mdatBytes = layout.MdatEnd - layout.DataStart;
-            if (mdatBytes != init.Table[i].ByteLength)
-                throw new InvalidDataException(
-                    $"Jumo segment {i + 1} is truncated or malformed ({mdatBytes} vs {init.Table[i].ByteLength} bytes)");
-
-            if (isMp4)
-            {
-                var buffer = segment.ToArray();
-                DecryptInto(buffer, segment, layout, contentKey);
-                parts.Add(buffer);
-                continue;
-            }
-
-            var position = layout.DataStart;
-            foreach (var frame in layout.Frames)
-            {
-                var slice = segment.AsSpan(position, (int)frame.Size);
-                parts.Add(frame.Flags == 0
-                    ? slice.ToArray()
-                    : DecryptFrame(contentKey, frame.Iv, slice));
-                position += (int)frame.Size;
-            }
-
-            if (position < layout.MdatEnd)
-                parts.Add(segment.AsSpan(position, layout.MdatEnd - position).ToArray());
-        }
-
-        var container = isMp4 ? "m4a" : effectiveFormat == "5" ? "mp3" : "flac";
-        return new AssembledStream(Concat(parts), container);
-    }
-
-    /// <summary>Decrypts every flagged frame in place inside a segment copy (mp4 path).</summary>
-    private static void DecryptInto(byte[] buffer, ReadOnlySpan<byte> segment, SegmentLayout layout, byte[] key)
-    {
-        var position = layout.DataStart;
-        foreach (var frame in layout.Frames)
-        {
-            if (frame.Flags != 0)
-            {
-                var plain = DecryptFrame(key, frame.Iv, segment.Slice(position, (int)frame.Size));
-                Array.Copy(plain, 0, buffer, position, plain.Length);
-            }
-            position += (int)frame.Size;
-        }
+            WriteSegment(init, i, mediaSegments[i], contentKey, buffer);
+        return new AssembledStream(buffer.ToArray(), container);
     }
 
     /// <summary>Parses the init payload's segment table.</summary>
@@ -300,17 +306,4 @@ public static class JumoContainer
 
     private static ushort ReadUInt16BigEndian(ReadOnlySpan<byte> data)
         => (ushort)((data[0] << 8) | data[1]);
-
-    private static byte[] Concat(List<byte[]> parts)
-    {
-        var total = parts.Sum(p => (long)p.Length);
-        var result = new byte[total];
-        var offset = 0;
-        foreach (var part in parts)
-        {
-            Buffer.BlockCopy(part, 0, result, offset, part.Length);
-            offset += part.Length;
-        }
-        return result;
-    }
 }

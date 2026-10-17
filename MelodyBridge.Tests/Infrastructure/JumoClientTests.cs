@@ -207,6 +207,34 @@ public class JumoClientTests
     }
 
     [Test]
+    public async Task Throttled503_WithoutRetryAfter_BacksOffAndSucceeds()
+    {
+        // The limiter also answers a bare 503 with no Retry-After at all;
+        // the client must still back off (exponentially) instead of
+        // hammering once per second.
+        var attempts = 0;
+        var stub = new JumoServerStub
+        {
+            Respond = request =>
+            {
+                attempts++;
+                return attempts == 1
+                    ? new HttpResponseMessage(HttpStatusCode.ServiceUnavailable) { Content = new ByteArrayContent([]) }
+                    : EncryptedJson(new { ok = true }, request);
+            },
+        };
+        var client = Create(stub);
+
+        var started = DateTimeOffset.UtcNow;
+        var response = await client.ApiGetAsync(SearchUrl(), CancellationToken.None);
+
+        Assert.That(response.Status, Is.EqualTo(200));
+        Assert.That(attempts, Is.EqualTo(2));
+        Assert.That(DateTimeOffset.UtcNow - started, Is.GreaterThanOrEqualTo(TimeSpan.FromSeconds(1)),
+            "a bare 503 must still wait before the retry");
+    }
+
+    [Test]
     public async Task TamperedPayload_FailsClosed()
     {
         var stub = new JumoServerStub

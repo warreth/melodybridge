@@ -34,10 +34,12 @@ goes into the log, so a suddenly empty search has an explanation.
 
 ## Things to know
 
-- The service guards its API against scripts and hands out rate limits (HTTP
-  429). The plugin waits for the announced retry time and tries again; a heavy
-  batch may still run into the limit. Normal use, a playlist at a time, stays
-  well clear of it.
+- The service guards its API against scripts and throttles with HTTP 429 or
+  503. The 429 responses announce a wait; the 503 ones often do not, so the
+  plugin backs off on its own and retries a few times. When it is still
+  throttled, the plugin reports itself unavailable for a short while, so a run
+  moves on to your other plugins instead of hammering it track by track.
+  Normal use, a playlist at a time, stays well clear of the limit.
 - It is a community front-end, not an official Qobuz service. It has gone
   offline and returned before, and it can refuse requests from some networks
   (HTTP 403). When that happens the plugin reports itself unavailable and the

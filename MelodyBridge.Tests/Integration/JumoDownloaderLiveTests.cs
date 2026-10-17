@@ -27,9 +27,6 @@ public class JumoDownloaderLiveTests
     public void Setup()
     {
         var config = new StubPluginConfig();
-        // CD quality keeps the live download light while still exercising
-        // the lossless path (one segment table, native FLAC output).
-        config.Set("jumo", JumoDownloader.FlacQualityKey, "6");
         var http = new HttpClient { Timeout = TimeSpan.FromMinutes(3) };
         _downloader = new JumoDownloader(
             new JumoClient(http, NullLogger<JumoClient>.Instance),
@@ -72,8 +69,7 @@ public class JumoDownloaderLiveTests
             hit.SourceUrl!, _outDir, "mb-jumo-live-mp3",
             new DownloadQuality(AudioFormat.Mp3, 320, 320));
 
-        if (!result.Success && result.ErrorMessage?.Contains("preview") == true)
-            Assert.Ignore("only a preview stream is available for this track right now");
+        SkipWhenThrottled(result);
         Assert.That(result.Success, Is.True, $"download failed: {result.ErrorMessage}");
         Assert.That(File.Exists(result.FilePath), Is.True);
 
@@ -90,15 +86,15 @@ public class JumoDownloaderLiveTests
     [Test]
     public async Task Download_FlacTier_ProducesNativeLosslessFlac()
     {
+        // No quality override: this exercises the shipped default, the
+        // hi-res tier, through the same segment table and decryption path
+        // as every other lossless download.
         var hit = await SearchOrSkipAsync();
         var result = await _downloader.DownloadAsync(
             hit.SourceUrl!, _outDir, "mb-jumo-live-flac",
             new DownloadQuality(AudioFormat.Flac));
 
-        if (!result.Success && result.ErrorMessage?.Contains("preview") == true)
-            Assert.Ignore("only a preview stream is available for this track right now");
-        if (!result.Success && result.ErrorMessage?.Contains("429") == true)
-            Assert.Ignore("the service throttled this test run; the client retried and backed off as far as it should");
+        SkipWhenThrottled(result);
         Assert.That(result.Success, Is.True, $"download failed: {result.ErrorMessage}");
         Assert.That(File.Exists(result.FilePath), Is.True);
 
@@ -116,6 +112,19 @@ public class JumoDownloaderLiveTests
         Assert.That(TaglibHelper.ReadMelodyId(result.FilePath!), Is.EqualTo("mb-jumo-live-flac"));
 
         AssertDuration(result.FilePath!, min: 180, max: 400);
+    }
+
+    /// <summary>
+    /// The service can throttle a test run; that is a service condition,
+    /// not a plugin defect, and the Ignore names the reason.
+    /// </summary>
+    private static void SkipWhenThrottled(DownloaderDownloadResult result)
+    {
+        if (result.Success) return;
+        if (result.ErrorMessage?.Contains("preview") == true)
+            Assert.Ignore("only a preview stream is available for this track right now");
+        if (result.ErrorMessage?.Contains("429") == true || result.ErrorMessage?.Contains("503") == true)
+            Assert.Ignore("the service throttled this test run; the client retried and backed off as far as it should");
     }
 
     /// <summary>ffprobe reads the real duration; a broken assembly cannot pass this.</summary>

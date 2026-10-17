@@ -29,9 +29,9 @@ public sealed class JumoClient
     public const string AlbumPath = "/xtkbpqjnrrhspkqgjp";
     public const string RegionsPath = "/symdofufvpjpgkmru";
 
-    private const int MaxAttempts = 5;
+    private const int MaxAttempts = 6;
     private const int MinRetrySeconds = 1;
-    private const int MaxRetrySeconds = 15;
+    private const int MaxRetrySeconds = 20;
 
     /// <summary>
     /// The service rejects an interaction whose page is younger than a few
@@ -61,11 +61,7 @@ public sealed class JumoClient
 
     /// <summary>GET through the guarded API with decoding and 429/503 retries.</summary>
     public Task<ApiResponse> ApiGetAsync(string url, CancellationToken ct)
-        => SendAsync(HttpMethod.Get, url, jsonBody: null, ct);
-
-    /// <summary>POST JSON through the guarded API with decoding and retries.</summary>
-    public Task<ApiResponse> ApiPostJsonAsync(string url, string jsonBody, CancellationToken ct)
-        => SendAsync(HttpMethod.Post, url, jsonBody, ct);
+        => SendAsync(url, ct);
 
     /// <summary>
     /// Plain download without the API guard, for the signed Qobuz CDN
@@ -80,7 +76,7 @@ public sealed class JumoClient
         return bytes;
     }
 
-    private async Task<ApiResponse> SendAsync(HttpMethod method, string url, string? jsonBody, CancellationToken ct)
+    private async Task<ApiResponse> SendAsync(string url, CancellationToken ct)
     {
         var uri = new Uri(url, UriKind.Absolute);
         var pathname = uri.AbsolutePath;
@@ -90,16 +86,15 @@ public sealed class JumoClient
             var nonce = Convert.ToHexString(RandomNumberGenerator.GetBytes(12)).ToLowerInvariant();
             var sequence = Interlocked.Increment(ref _sequence);
 
-            using var request = new HttpRequestMessage(method, uri);
-            AddContextHeaders(request, pathname, method.Method, nonce, sequence);
-            if (jsonBody is not null)
-                request.Content = new StringContent(jsonBody, Encoding.UTF8, "application/json");
+            using var request = new HttpRequestMessage(HttpMethod.Get, uri);
+            AddContextHeaders(request, pathname, nonce, sequence);
 
             using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
             var raw = await response.Content.ReadAsByteArrayAsync(ct);
 
-            // 429 and 503 arrive encrypted like every other payload; the
-            // Retry-After header is the only plain signal on them.
+            // Throttle responses (429, 503) arrive encrypted like every
+            // other payload when they carry a body; the Retry-After header
+            // stays plain.
             if ((int)response.StatusCode is 429 or 503 && raw.Length > 0)
             {
                 try
@@ -123,8 +118,12 @@ public sealed class JumoClient
 
             if ((int)response.StatusCode is 429 or 503 && attempt < MaxAttempts - 1)
             {
-                var retryAfter = (int?)response.Headers.RetryAfter?.Delta?.TotalSeconds ?? MinRetrySeconds;
-                var wait = TimeSpan.FromSeconds(Math.Clamp(retryAfter, MinRetrySeconds, MaxRetrySeconds));
+                // Use the announced wait when there is one. A bare 503 has
+                // no Retry-After, so back off exponentially instead: one
+                // second is far too short for a busy limiter.
+                var retryAfter = (int?)response.Headers.RetryAfter?.Delta?.TotalSeconds;
+                var waitSeconds = retryAfter ?? Math.Min(MaxRetrySeconds, 1 << attempt);
+                var wait = TimeSpan.FromSeconds(Math.Clamp(waitSeconds, MinRetrySeconds, MaxRetrySeconds));
                 _logger.LogDebug("Jumo throttled ({Status}), waiting {Seconds:0}s before retry {Attempt}",
                     (int)response.StatusCode, wait.TotalSeconds, attempt + 1);
                 await Task.Delay(wait, ct);
@@ -136,26 +135,23 @@ public sealed class JumoClient
         }
     }
 
+    /// <summary>The service refuses requests without a browser-like User-Agent (live-probed).</summary>
+    private const string BrowserUserAgent =
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36";
+
     /// <summary>
     /// Adds the request-context headers the site sends. The public key and
     /// the gzip hint go only to the search and descriptor endpoints, the
     /// two that answer with an encrypted, compressed payload.
     /// </summary>
-    /// <summary>
-    /// The service refuses requests without a browser-like User-Agent
-    /// (live-probed: no UA is answered with HTTP 403 "Invalid request.").
-    /// </summary>
-    private const string BrowserUserAgent =
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36";
-
-    private void AddContextHeaders(HttpRequestMessage request, string pathname, string method, string nonce, int sequence)
+    private void AddContextHeaders(HttpRequestMessage request, string pathname, string nonce, int sequence)
     {
         request.Headers.TryAddWithoutValidation("User-Agent", BrowserUserAgent);
         request.Headers.TryAddWithoutValidation("X-Jumo-Client", "browser");
         request.Headers.TryAddWithoutValidation("X-Jumo-Session", _session);
         request.Headers.TryAddWithoutValidation("X-Jumo-Request-Nonce", nonce);
         request.Headers.TryAddWithoutValidation("X-Jumo-Sequence", sequence.ToString(CultureInfo.InvariantCulture));
-        request.Headers.TryAddWithoutValidation("X-Jumo-Interaction", InteractionHeader(nonce, method, pathname));
+        request.Headers.TryAddWithoutValidation("X-Jumo-Interaction", InteractionHeader(nonce, pathname));
 
         if (pathname is SearchPath or FetchPath)
         {
@@ -170,11 +166,11 @@ public sealed class JumoClient
     /// record, base64url of a JSON object. The field set and order match
     /// what the bundle serializes.
     /// </summary>
-    private string InteractionHeader(string nonce, string method, string pathname)
+    private string InteractionHeader(string nonce, string pathname)
     {
         var pageAge = Math.Max(MinInteractionPageAgeMs, Environment.TickCount64 - _bootedAt);
         var json = string.Create(CultureInfo.InvariantCulture,
-            $"{{\"v\":1,\"nonce\":\"{nonce}\",\"method\":\"{method}\",\"path\":\"{pathname}\",\"pageAgeMs\":{pageAge},\"lastInputAgeMs\":null,\"pointer\":0,\"key\":0,\"scroll\":0,\"touch\":0,\"focused\":true,\"visibility\":\"visible\",\"botSignals\":[]}}");
+            $"{{\"v\":1,\"nonce\":\"{nonce}\",\"method\":\"GET\",\"path\":\"{pathname}\",\"pageAgeMs\":{pageAge},\"lastInputAgeMs\":null,\"pointer\":0,\"key\":0,\"scroll\":0,\"touch\":0,\"focused\":true,\"visibility\":\"visible\",\"botSignals\":[]}}");
         return Base64Url(Encoding.UTF8.GetBytes(json));
     }
 

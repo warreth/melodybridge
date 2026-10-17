@@ -1,16 +1,39 @@
+using System.Net;
+using System.Text;
 using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.Jumo;
 
 namespace MelodyBridge.Tests.Infrastructure;
 
 /// <summary>
-/// Jumo plugin parsing tests against response shapes captured from the
-/// live service: search items, track and album ids, descriptor manifests
-/// and the source identifier round trip. No network access needed.
+/// Jumo plugin tests: parsing of live-shaped responses (search items,
+/// track and album ids, descriptor manifests, source identifiers) plus an
+/// offline download run against a stubbed service, covering album paging
+/// and the stream write path end to end. No network access needed.
 /// </summary>
 [TestFixture]
 public class JumoDownloaderTests
 {
+    private readonly List<string> _tempDirs = new();
+
+    [TearDown]
+    public void TearDown()
+    {
+        foreach (var dir in _tempDirs)
+        {
+            try { Directory.Delete(dir, recursive: true); } catch { /* best effort */ }
+        }
+        _tempDirs.Clear();
+    }
+
+    private string NewDir()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), $"mb-jumo-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        _tempDirs.Add(dir);
+        return dir;
+    }
+
     private const string SearchJson = """
     {
       "query": "daft punk one more time",
@@ -131,7 +154,6 @@ public class JumoDownloaderTests
 
         Assert.That(manifest, Is.Not.Null);
         Assert.That(manifest!.EffectiveFormat, Is.EqualTo("7"));
-        Assert.That(manifest.Container, Is.EqualTo("flac"));
         Assert.That(manifest.SegmentCount, Is.EqualTo(28));
         Assert.That(manifest.Preview, Is.False);
         Assert.That(manifest.ContentKey, Has.Length.EqualTo(32));
@@ -173,6 +195,96 @@ public class JumoDownloaderTests
         Assert.That(JumoDownloader.Caps.ServesControlled(new DownloadQuality(AudioFormat.Flac)), Is.True);
         Assert.That(JumoDownloader.Caps.ServesControlled(new DownloadQuality(AudioFormat.Mp3, 320, 320)), Is.True);
         Assert.That(JumoDownloader.Caps.ServesControlled(new DownloadQuality(AudioFormat.Opus)), Is.False);
+    }
+
+    [Test]
+    public async Task DownloadAsync_PagesThroughTheAlbum_WritesTheDecryptedFlac()
+    {
+        // The wanted track sits on the second album page; the first page
+        // must not satisfy the lookup. The descriptor and the "CDN" are
+        // served by the stub, so the whole write path runs for real.
+        var handler = new StubJumoHandler();
+        var downloader = new JumoDownloader(
+            new JumoClient(new HttpClient(handler), Microsoft.Extensions.Logging.Abstractions.NullLogger<JumoClient>.Instance),
+            new StubPluginConfig(),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<JumoDownloader>.Instance);
+
+        var dir = NewDir();
+        var result = await downloader.DownloadAsync(
+            "jumo:0886443927087:9140024", dir, "mb-jumo-test", new DownloadQuality(AudioFormat.Flac));
+
+        Assert.That(result.Success, Is.True, result.ErrorMessage);
+        Assert.That(result.FilePath, Does.EndWith(".flac"));
+        Assert.That(File.ReadAllBytes(result.FilePath!), Is.EqualTo(JumoFixtures.ExpectedFlac()),
+            "the file on disk must be the exact decrypted stream");
+
+        var albumRequests = handler.Requests.Where(r => r.Contains("/xtkbpqjnrrhspkqgjp")).ToList();
+        Assert.That(albumRequests, Has.Count.EqualTo(2),
+            "the long album must be paged until the track is found");
+        Assert.That(albumRequests[0], Does.Contain("track_offset=0"));
+        Assert.That(albumRequests[1], Does.Contain("track_offset=2"));
+    }
+
+    /// <summary>
+    /// A stubbed Jumo service: regions, a two-page album, one descriptor
+    /// and the fixture segments as the "CDN".
+    /// </summary>
+    private sealed class StubJumoHandler : HttpMessageHandler
+    {
+        public List<string> Requests { get; } = new();
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            var url = request.RequestUri!.ToString();
+            Requests.Add(url);
+
+            if (url.Contains(JumoClient.RegionsPath))
+                return Json("""{"regions":[{"code":"CA","available":true}],"default":"CA"}""");
+
+            if (url.Contains(JumoClient.AlbumPath))
+            {
+                if (url.Contains("track_offset=0"))
+                    return Json("""
+                    { "tracks": { "total": 60, "items": [
+                      { "id": 1, "title": "Other One" },
+                      { "id": 2, "title": "Other Two" }
+                    ] } }
+                    """);
+                return Json("""
+                { "tracks": { "total": 60, "items": [
+                  { "id": 9140024, "title": "One More Time",
+                    "fetchUrls": { "27": "https://jumo-dl.pages.dev/wydmcqpplrfjrstcj?p=test" } }
+                ] } }
+                """);
+            }
+
+            if (url.Contains(JumoClient.FetchPath))
+                return Json(JumoFixtures.DescriptorJson());
+
+            if (url.Contains("cdn.melodybridge.test/seg"))
+            {
+                var index = url[(url.IndexOf("i=", StringComparison.Ordinal) + 2)..];
+                var bytes = index switch
+                {
+                    "0" => JumoFixtures.Init(),
+                    "1" => JumoFixtures.MediaSegments()[0],
+                    "2" => JumoFixtures.MediaSegments()[1],
+                    _ => throw new InvalidOperationException("unexpected segment " + index),
+                };
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(bytes) });
+            }
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound)
+            {
+                Content = new StringContent("{}", Encoding.UTF8, "application/json"),
+            });
+        }
+
+        private static Task<HttpResponseMessage> Json(string body)
+            => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(body, Encoding.UTF8, "application/json"),
+            });
     }
 
     private sealed class UnusedHandler : HttpMessageHandler

@@ -145,7 +145,7 @@ Implement this to add a download source. Built-in plugins:
 | `ArchiveOrgDownloader` | `archiveorg` | Internet Archive (public JSON APIs) | Public-domain and community recordings; picks the matching file inside a multi-track item, not the first one; rejects files under 128 kbps |
 | `YtDlpDownloader` | `ytdlp` | YouTube (via yt-dlp) | Widest fallback; audio-only best stream, top-5 ranked by match and duration; explicit formats transcode to the requested cap |
 
-Place new implementations in `MelodyBridge.Infrastructure/Downloaders/` and register via `services.AddSingleton<IDownloader, YourPlugin>()`. Quality-gate downloads against the requested `DownloadQuality` band so bad rips never enter the library.
+Place new implementations in `MelodyBridge.Infrastructure/Downloaders/` and register via `services.AddSingleton<IDownloader, YourPlugin>()`. A plugin that ships its own protocol client or byte-level helpers lives in its own folder next to it instead (`Infrastructure/Lucida/`, `Infrastructure/Jumo/`) and registers the same way. Quality-gate downloads against the requested `DownloadQuality` band so bad rips never enter the library.
 
 Every plugin-produced file is sniffed with `AudioSignature` (magic bytes, never the extension) before `DownloadManager` accepts it: an HTML error page or JSON body served under a 200 status is deleted and the waterfall moves on. Plugins that save files themselves delete partial output on failure and cancellation; the yt-dlp-backed plugins keep yt-dlp's resumable `.part` fragments (never final output, and the next attempt resumes from them).
 

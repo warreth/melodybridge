@@ -75,7 +75,12 @@ public class JumoDownloader : IDownloader
     /// <summary>Retries per segment before the whole download fails.</summary>
     private const int SegmentAttempts = 3;
 
-    private static readonly TimeSpan SearchTimeout = TimeSpan.FromSeconds(20);
+    /// <summary>
+    /// Search timeout: inclusive of the client's own throttle backoff,
+    /// which can span half a minute during a limiter burst. Still well
+    /// inside the plugin budget.
+    /// </summary>
+    private static readonly TimeSpan SearchTimeout = TimeSpan.FromSeconds(60);
     private static readonly TimeSpan RegionsTtl = TimeSpan.FromMinutes(10);
 
     public JumoDownloader(JumoClient client, IPluginConfig config, ILogger<JumoDownloader> logger)
@@ -124,9 +129,13 @@ public class JumoDownloader : IDownloader
         try
         {
             var region = await EffectiveRegionAsync(ct);
+
+            // A small page keeps the request light; the service throttles
+            // heavy API use (live probing saw 503s for a limit of 30 while
+            // smaller pages passed in the same window).
             var url = JumoClient.Origin + JumoClient.SearchPath
                 + "?query=" + Uri.EscapeDataString(searchText)
-                + "&offset=0&limit=30&region=" + Uri.EscapeDataString(region) + "&view=ui";
+                + "&offset=0&limit=10&region=" + Uri.EscapeDataString(region) + "&view=ui";
 
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
             timeout.CancelAfter(SearchTimeout);
@@ -134,9 +143,19 @@ public class JumoDownloader : IDownloader
             if (response.Status != 200)
             {
                 _logger.LogDebug("Jumo search returned {Status}", response.Status);
-                LastUnavailableReason = response.Status is 403 or 429
-                    ? $"The service refused the search (HTTP {response.Status}); it guards its API against non-browser clients"
-                    : null;
+
+                // A refused or throttled search means the service is not
+                // usable right now. Report that as unavailable (the short
+                // negative TTL makes the waterfall skip the plugin for a
+                // while) instead of letting every track of a run fail as a
+                // bare "no source" miss.
+                if (response.Status is 403 or 429 or 503)
+                {
+                    LastUnavailableReason = response.Status is 403
+                        ? "The service refused the search (HTTP 403); it guards its API against non-browser clients"
+                        : $"The service is throttling requests (HTTP {response.Status})";
+                    _availability.Store(false);
+                }
                 return null;
             }
 
@@ -276,12 +295,10 @@ public class JumoDownloader : IDownloader
                 return new DownloaderDownloadResult(false, null,
                     $"Jumo only offers a preview stream for track {trackId} in region {region}");
 
-            var assembled = await FetchAndDecryptAsync(manifest, ct);
-
-            var extension = assembled.Container;
+            var extension = manifest.EffectiveFormat == "5" ? "mp3" : "flac";
             var suffix = melodyId is { Length: > 0 } ? melodyId : Guid.NewGuid().ToString("N")[..8];
             filePath = Path.Combine(outputDirectory, $"jumo_{Sanitize(trackId)}_{Sanitize(suffix)}.{extension}");
-            await File.WriteAllBytesAsync(filePath, assembled.Bytes, ct);
+            await FetchAndWriteAsync(manifest, filePath, ct);
 
             if (new FileInfo(filePath).Length == 0)
             {
@@ -313,7 +330,7 @@ public class JumoDownloader : IDownloader
 
     /// <summary>A parsed descriptor manifest (the qb object).</summary>
     internal sealed record StreamManifest(
-        string EffectiveFormat, string Container, string ContentKey, string UrlTemplate,
+        string EffectiveFormat, string ContentKey, string UrlTemplate,
         int SegmentCount, bool Preview);
 
     internal static StreamManifest? ParseManifest(string json)
@@ -326,7 +343,6 @@ public class JumoDownloader : IDownloader
 
             var preview = qb.TryGetProperty("preview", out var p) && p.ValueKind == JsonValueKind.True;
             var effectiveFormat = GetId(qb, "effective_format") ?? GetId(qb, "format_id") ?? "";
-            var container = GetString(qb, "container") ?? "flac";
             var contentKey = GetString(qb, "content_key") ?? "";
             var urlTemplate = GetString(qb, "url_template") ?? "";
             var segments = qb.TryGetProperty("n_segments", out var n) && n.ValueKind == JsonValueKind.Number
@@ -334,7 +350,7 @@ public class JumoDownloader : IDownloader
                 : 0;
             if (contentKey.Length == 0 || urlTemplate.Length == 0 || segments <= 0)
                 return null;
-            return new StreamManifest(effectiveFormat, container, contentKey, urlTemplate, segments, preview);
+            return new StreamManifest(effectiveFormat, contentKey, urlTemplate, segments, preview);
         }
         catch (JsonException)
         {
@@ -347,8 +363,12 @@ public class JumoDownloader : IDownloader
     /// assembles (decrypts) the stream. Each segment is validated against
     /// the init segment's table, so a truncated transfer is retried
     /// instead of producing a broken file.
+    ///
+    /// Segments are fetched in small batches and decrypted straight into
+    /// the output file, so peak memory stays at one batch of segment bytes
+    /// instead of the whole stream (a hi-res track is around 96 MB).
     /// </summary>
-    private async Task<JumoContainer.AssembledStream> FetchAndDecryptAsync(StreamManifest manifest, CancellationToken ct)
+    private async Task FetchAndWriteAsync(StreamManifest manifest, string filePath, CancellationToken ct)
     {
         var init = await FetchSegmentAsync(manifest.UrlTemplate, 0, ct);
         var initInfo = JumoContainer.ParseInit(init);
@@ -358,22 +378,20 @@ public class JumoDownloader : IDownloader
             throw new InvalidDataException(
                 $"Jumo segment table has {initInfo.Table.Count} rows, descriptor says {manifest.SegmentCount}");
 
-        var count = initInfo.Table.Count;
-        var segments = new byte[count][];
-        var next = 0;
-        var workers = Enumerable.Range(0, Math.Min(SegmentConcurrency, count)).Select(async _ =>
-        {
-            while (true)
-            {
-                var index = Interlocked.Increment(ref next) - 1;
-                if (index >= count) return;
-                segments[index] = await FetchValidatedSegmentAsync(manifest, initInfo, index, ct);
-            }
-        });
-        await Task.WhenAll(workers);
-
         var contentKey = Convert.FromHexString(manifest.ContentKey);
-        return JumoContainer.Assemble(initInfo, segments, contentKey, manifest.EffectiveFormat);
+        await using var output = File.Create(filePath);
+        JumoContainer.WriteStreamHeader(initInfo, manifest.EffectiveFormat, output);
+
+        var count = initInfo.Table.Count;
+        for (var start = 0; start < count; start += SegmentConcurrency)
+        {
+            var batch = new byte[Math.Min(SegmentConcurrency, count - start)][];
+            await Task.WhenAll(Enumerable.Range(0, batch.Length).Select(async offset =>
+                batch[offset] = await FetchValidatedSegmentAsync(manifest, initInfo, start + offset, ct)));
+
+            for (var i = 0; i < batch.Length; i++)
+                JumoContainer.WriteSegment(initInfo, start + i, batch[i], contentKey, output);
+        }
     }
 
     /// <summary>Fetches one media segment and checks it against the table row.</summary>
@@ -417,45 +435,64 @@ public class JumoDownloader : IDownloader
     /// <summary>
     /// Looks up the track inside its album and returns the descriptor URL
     /// for the requested format. Descriptor URLs are signed and short
-    /// lived, so they are fetched fresh for every download.
+    /// lived, so they are fetched fresh for every download. Long albums
+    /// (box sets, compilations) page through the track list until the
+    /// track is found.
     /// </summary>
     private async Task<string?> TrackFetchUrlAsync(
         string albumId, string trackId, string format, string region, CancellationToken ct)
     {
-        var url = JumoClient.Origin + JumoClient.AlbumPath
-            + "?album_id=" + Uri.EscapeDataString(albumId)
-            + "&region=" + Uri.EscapeDataString(region)
-            + "&track_offset=0&track_limit=50"
-            + "&get_track_urls=true&format_id=" + Uri.EscapeDataString(format);
+        const int pageSize = 50;
+        const int maxPages = 4;
 
-        var response = await _client.ApiGetAsync(url, ct);
-        if (response.Status != 200)
+        var offset = 0;
+        for (var page = 0; page < maxPages; page++)
         {
-            _logger.LogDebug("Jumo album {AlbumId} returned {Status}", albumId, response.Status);
-            return null;
-        }
+            var url = JumoClient.Origin + JumoClient.AlbumPath
+                + "?album_id=" + Uri.EscapeDataString(albumId)
+                + "&region=" + Uri.EscapeDataString(region)
+                + "&track_offset=" + offset + "&track_limit=" + pageSize
+                + "&get_track_urls=true&format_id=" + Uri.EscapeDataString(format);
 
-        try
-        {
-            using var doc = JsonDocument.Parse(response.Body);
-            if (!doc.RootElement.TryGetProperty("tracks", out var tracks) ||
-                !tracks.TryGetProperty("items", out var items) ||
-                items.ValueKind != JsonValueKind.Array)
-                return null;
-
-            foreach (var item in items.EnumerateArray())
+            var response = await _client.ApiGetAsync(url, ct);
+            if (response.Status != 200)
             {
-                if (GetId(item, "id") != trackId) continue;
-                if (!item.TryGetProperty("fetchUrls", out var fetchUrls) ||
-                    !fetchUrls.TryGetProperty(format, out var formatUrl) ||
-                    formatUrl.ValueKind != JsonValueKind.String)
-                    return null;
-                return formatUrl.GetString();
+                _logger.LogDebug("Jumo album {AlbumId} returned {Status}", albumId, response.Status);
+                return null;
             }
-        }
-        catch (JsonException)
-        {
-            return null;
+
+            try
+            {
+                using var doc = JsonDocument.Parse(response.Body);
+                if (!doc.RootElement.TryGetProperty("tracks", out var tracks) ||
+                    !tracks.TryGetProperty("items", out var items) ||
+                    items.ValueKind != JsonValueKind.Array)
+                    return null;
+
+                foreach (var item in items.EnumerateArray())
+                {
+                    if (GetId(item, "id") != trackId) continue;
+                    if (!item.TryGetProperty("fetchUrls", out var fetchUrls) ||
+                        !fetchUrls.TryGetProperty(format, out var formatUrl) ||
+                        formatUrl.ValueKind != JsonValueKind.String)
+                        return null;
+                    return formatUrl.GetString();
+                }
+
+                var itemCount = items.GetArrayLength();
+                if (itemCount == 0) return null;
+                offset += itemCount;
+
+                var total = tracks.TryGetProperty("total", out var totalValue) &&
+                            totalValue.ValueKind == JsonValueKind.Number
+                    ? (long)totalValue.GetDouble()
+                    : offset;
+                if (offset >= total) return null;
+            }
+            catch (JsonException)
+            {
+                return null;
+            }
         }
         return null;
     }

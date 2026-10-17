@@ -132,6 +132,7 @@ public class DownloaderRegistryOrderTests
         new StubDownloader("slskd", "Soulseek"),
         new StubDownloader("doubledouble", "DoubleDouble"),
         new StubDownloader("lucida", "Lucida"),
+        new StubDownloader("jumo", "Jumo"),
     };
 
     private DownloaderRegistry RegistryOver(params IDownloader[] plugins)
@@ -166,7 +167,7 @@ public class DownloaderRegistryOrderTests
         Assert.That(fresh.GetEnabled().Select(d => d.Id), Is.EqualTo(new[]
         {
             "soundcloud", "archiveorg", "ytdlp", "qobuz", "deemix",
-            "monochrome", "slskd", "doubledouble", "lucida",
+            "monochrome", "slskd", "doubledouble", "lucida", "jumo",
         }), "an untouched default order follows the new default");
     }
 
@@ -181,8 +182,26 @@ public class DownloaderRegistryOrderTests
         Assert.That(fresh.GetEnabled().Select(d => d.Id), Is.EqualTo(new[]
         {
             "soundcloud", "archiveorg", "ytdlp", "qobuz", "deemix",
-            "monochrome", "slskd", "doubledouble", "lucida",
+            "monochrome", "slskd", "doubledouble", "lucida", "jumo",
         }), "a shipped default from before the premium plugins also migrates");
+    }
+
+    [Test]
+    public async Task UntouchedOrderFromBeforeJumo_AlsoMigrates()
+    {
+        // The default from before Jumo existed. Jumo rides at the end
+        // either way, but the stored list must still be recognized as an
+        // untouched shipped order so the bookkeeping stays clean.
+        await SeedOrderAsync(
+            "soundcloud", "archiveorg", "ytdlp", "qobuz", "deemix",
+            "monochrome", "slskd", "doubledouble", "lucida");
+
+        var fresh = RegistryOver(NewShippedPlugins());
+        Assert.That(fresh.GetEnabled().Select(d => d.Id), Is.EqualTo(new[]
+        {
+            "soundcloud", "archiveorg", "ytdlp", "qobuz", "deemix",
+            "monochrome", "slskd", "doubledouble", "lucida", "jumo",
+        }), "the previous shipped default is still a shipped default");
     }
 
     [Test]
@@ -196,7 +215,7 @@ public class DownloaderRegistryOrderTests
         Assert.That(fresh.GetEnabled().Select(d => d.Id), Is.EqualTo(new[]
         {
             "lucida", "soundcloud", "archiveorg", "ytdlp", "monochrome", "doubledouble",
-            "qobuz", "deemix", "slskd",
+            "qobuz", "deemix", "slskd", "jumo",
         }), "a user's own order is left alone; the new plugins ride at the end");
     }
 

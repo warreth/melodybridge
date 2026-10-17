@@ -19,23 +19,6 @@ public class JumoContainerTests
     private const string KatPlain = "4a756d6f20636f6e7461696e6572204145532d435452206b6e6f776e20616e7377657220766563746f722c203332206279746573";
     private const string KatCipher = "465ad6d97aba08446d9f945bfe816b43eafcb1b1be8b4d588ecab6b869e0debd5445d22ce26e222d9911e8f6bc5b6680a063cc07";
 
-    private const string ContentKey = "00112233445566778899aabbccddeeff";
-
-    private const string InitFixture =
-        "AAAAFGZ0eXBtcDQybXA0MmlzbzYAAABxdXVpZMfHXfD92VHpj8IpceSs+NIAAAAAAIt3OAABPCIAAKxEEAIAAAAAAAAAAAAqZkxhQwAFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpAAACAAAAQgAAEgAAAAAjAAAkAAAAABhtb292AAAAAAAAAAAAAAAAAAAAAA==";
-
-    private const string MediaSegment1 =
-        "AAAAGHN0eXAAAAAAAAAAAAAAAAAAAAAAAAAAVHV1aWQ7QhKSVvNfdZI2Y7aaH1KyAAAAAAAAAHQIAAADAAAAEhIAAAAAAAAAAAAAAAAAABYSAAABAAAAAAAAEAAAAAAVEgAAAQAAAAAAABABAAAAGG1vb2YAAAAAAAAAAAAAAAAAAAAAAAAASm1kYXRmcmFtZS1vbmUtcGxhaW4tYWGbQ+Osemjs7q6g0X6MBDawewNboDR1af3IbDSqFVMBVHXxRutm4YySJncvdGFpbDE=";
-
-    private const string MediaSegment2 =
-        "AAAAGHN0eXAAAAAAAAAAAAAAAAAAAAAAAAAARHV1aWQ7QhKSVvNfdZI2Y7aaH1KyAAAAAAAAAGQIAAACAAAAEhIAAAAAAAAAAAAAAAAAABESAAABAAAAAAAAIAAAAAAYbW9vZgAAAAAAAAAAAAAAAAAAAAAAAAArbWRhdHNlZzItZnJhbWUtYS1wbGFpbkQnT30GHT1+NpmTNS+Ksl0O";
-
-    private const string ExpectedFlac =
-        "ZkxhQ4AFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpZnJhbWUtb25lLXBsYWluLWFhZnJhbWUtdHdvLWVuY3J5cHRlZC1iYmZyYW1lLXRocmVlLWNyeXB0ZWQtY3RhaWwxc2VnMi1mcmFtZS1hLXBsYWluc2VnMi1mcmFtZS1iLWVuY3I=";
-
-    private const string ExpectedMp3 =
-        "ZnJhbWUtb25lLXBsYWluLWFhZnJhbWUtdHdvLWVuY3J5cHRlZC1iYmZyYW1lLXRocmVlLWNyeXB0ZWQtY3RhaWwxc2VnMi1mcmFtZS1hLXBsYWluc2VnMi1mcmFtZS1iLWVuY3I=";
-
     // A real init segment captured from the service (format 6 stream of
     // "One More Time"); it anchors the parser to the live layout.
     private const string RealInitSegment =
@@ -43,9 +26,9 @@ public class JumoContainerTests
 
     private static byte[] Bytes(string base64) => Convert.FromBase64String(base64);
 
-    private static JumoContainer.InitInfo InitFromFixture() => JumoContainer.ParseInit(Bytes(InitFixture));
+    private static JumoContainer.InitInfo InitFromFixture() => JumoContainer.ParseInit(JumoFixtures.Init());
 
-    private static List<byte[]> MediaFromFixture() => [Bytes(MediaSegment1), Bytes(MediaSegment2)];
+    private static List<byte[]> MediaFromFixture() => JumoFixtures.MediaSegments();
 
     [Test]
     public void DecryptFrame_KnownAnswerVector_MatchesWebCrypto()
@@ -79,21 +62,65 @@ public class JumoContainerTests
         var init = InitFromFixture();
         var media = MediaFromFixture();
 
-        var flac = JumoContainer.Assemble(init, media, Convert.FromHexString(ContentKey), "6");
+        var flac = JumoContainer.Assemble(init, media, JumoFixtures.ContentKey(), "6");
         Assert.That(flac.Container, Is.EqualTo("flac"));
-        Assert.That(flac.Bytes, Is.EqualTo(Bytes(ExpectedFlac)),
+        Assert.That(flac.Bytes, Is.EqualTo(JumoFixtures.ExpectedFlac()),
             "decrypted FLAC assembly (header, plain and encrypted frames, trailing bytes) must be exact");
 
-        var mp3 = JumoContainer.Assemble(init, media, Convert.FromHexString(ContentKey), "5");
+        var mp3 = JumoContainer.Assemble(init, media, JumoFixtures.ContentKey(), "5");
         Assert.That(mp3.Container, Is.EqualTo("mp3"));
-        Assert.That(mp3.Bytes, Is.EqualTo(Bytes(ExpectedMp3)),
+        Assert.That(mp3.Bytes, Is.EqualTo(JumoFixtures.ExpectedMp3()),
             "the MP3 path drops the header and keeps frames plus trailing bytes");
+    }
+
+    [Test]
+    public void WriteStreamHeaderAndSegments_MatchAssembleExactly()
+    {
+        // The downloader writes straight to the output file through these
+        // two calls; the result must be byte-identical to the in-memory
+        // assembly.
+        var init = InitFromFixture();
+        var media = MediaFromFixture();
+        var key = JumoFixtures.ContentKey();
+
+        using var output = new MemoryStream();
+        var container = JumoContainer.WriteStreamHeader(init, "6", output);
+        for (var i = 0; i < media.Count; i++)
+            JumoContainer.WriteSegment(init, i, media[i], key, output);
+
+        Assert.That(container, Is.EqualTo("flac"));
+        Assert.That(output.ToArray(), Is.EqualTo(JumoFixtures.ExpectedFlac()));
+
+        using var mp3Output = new MemoryStream();
+        JumoContainer.WriteStreamHeader(init, "5", mp3Output);
+        for (var i = 0; i < media.Count; i++)
+            JumoContainer.WriteSegment(init, i, media[i], key, mp3Output);
+        Assert.That(mp3Output.ToArray(), Is.EqualTo(JumoFixtures.ExpectedMp3()));
+    }
+
+    [Test]
+    public void WriteStreamHeader_FragmentedMp4ForALosslessRequest_IsRefused()
+    {
+        // An init segment without a FLAC header means the service serves a
+        // fragmented MP4 container. The plugin cannot deliver that as the
+        // requested lossless container, so it refuses before any segment
+        // is downloaded.
+        var init = JumoFixtures.Init();
+        var flacIndex = init.AsSpan().IndexOf("fLaC"u8);
+        Assert.That(flacIndex, Is.GreaterThanOrEqualTo(0), "fixture sanity: it carries a FLAC header");
+        init.AsSpan(flacIndex, 4).Clear();
+
+        var parsed = JumoContainer.ParseInit(init);
+        Assert.That(parsed.Kind, Is.EqualTo("mp4"));
+
+        using var output = new MemoryStream();
+        Assert.Throws<NotSupportedException>(() => JumoContainer.WriteStreamHeader(parsed, "6", output));
     }
 
     [Test]
     public void ParseSegment_SyntheticFixture_ReadsFrameIndex()
     {
-        var layout = JumoContainer.ParseSegment(Bytes(MediaSegment1));
+        var layout = JumoContainer.ParseSegment(JumoFixtures.MediaSegments()[0]);
 
         Assert.That(layout.Frames.Count, Is.EqualTo(3));
         Assert.That(layout.Frames[0].Flags, Is.EqualTo(0));
@@ -107,10 +134,10 @@ public class JumoContainerTests
     public void Assemble_TruncatedSegment_Throws()
     {
         var init = InitFromFixture();
-        var truncated = Bytes(MediaSegment1)[..^1];
+        var truncated = JumoFixtures.MediaSegments()[0][..^1];
 
         var ex = Assert.Throws<InvalidDataException>(() => JumoContainer.Assemble(
-            init, [truncated, Bytes(MediaSegment2)], Convert.FromHexString(ContentKey), "6"));
+            init, [truncated, JumoFixtures.MediaSegments()[1]], JumoFixtures.ContentKey(), "6"));
         Assert.That(ex!.Message, Does.Contain("truncated"));
     }
 
@@ -120,7 +147,7 @@ public class JumoContainerTests
         var init = InitFromFixture();
 
         Assert.Throws<InvalidDataException>(() => JumoContainer.Assemble(
-            init, [Bytes(MediaSegment1)], Convert.FromHexString(ContentKey), "6"));
+            init, [JumoFixtures.MediaSegments()[0]], JumoFixtures.ContentKey(), "6"));
     }
 
     [Test]
