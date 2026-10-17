@@ -43,6 +43,7 @@ public static class LogAreas
         ("SpotifyAccountProvider", "Sources"),
         ("YouTubeAccountProvider", "Sources"),
         ("AccountTokenStore", "Sources"),
+        ("IsrcResolver", "Sources"),
         ("SourceProvider", "Sources"),
 
         // Downloads: the manager, coordinator, registry and every plugin.
@@ -56,6 +57,10 @@ public static class LogAreas
         ("Downloader", "Downloads"),
         ("BitrateProbe", "Downloads"),
         ("Spectrum", "Downloads"),
+        ("FlareSolverr", "Downloads"),
+        ("QobuzClient", "Downloads"),
+        ("DeezerClient", "Downloads"),
+        ("TidalClient", "Downloads"),
 
         // Library: scanning the disk and watching folders.
         ("LibraryScanner", "Library"),
@@ -71,6 +76,12 @@ public static class LogAreas
         ("AutoSync", "Sync"),
         ("JellyfinSync", "Sync"),
         ("Jellyfin", "Sync"),
+        ("PlexSync", "Sync"),
+        ("PlexDirectory", "Sync"),
+        ("Plex", "Sync"),
+        ("SubsonicSync", "Sync"),
+        ("SubsonicDirectory", "Sync"),
+        ("Subsonic", "Sync"),
         ("M3uGenerator", "Sync"),
 
         // Database: EF Core internals and our context.

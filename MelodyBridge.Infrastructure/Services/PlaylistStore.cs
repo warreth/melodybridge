@@ -255,7 +255,7 @@ public class PlaylistStore
             // source platform advertised for the track.
             var integrity = Audio.FileIntegrity.Check(
                 path, track.DurationMs is > 0 ? TimeSpan.FromMilliseconds(track.DurationMs.Value) : null);
-            if (!integrity.Ok)
+            if (!integrity.Ok && !integrity.ToolMissing)
             {
                 try { System.IO.File.Delete(path); } catch { /* best effort */ }
                 track.DownloadStatus = "failed";
@@ -268,7 +268,16 @@ public class PlaylistStore
             track.LastSeenAt = DateTime.UtcNow;
             track.Bitrate = Audio.BitrateProbe.MeasureKbps(path);
             AudioProbe.Fill(track, path);
-            track.Warning = BuildWarning(track, path, spectrumMode);
+            var warning = BuildWarning(track, path, spectrumMode);
+            // No ffprobe means the check could not run at all. The file is
+            // kept (deleting a good download because a tool is missing is
+            // worse), and the row says it was not verified.
+            if (integrity.ToolMissing)
+            {
+                const string unverified = "could not verify the download: ffprobe is not installed";
+                warning = string.IsNullOrEmpty(warning) ? unverified : $"{warning}; {unverified}";
+            }
+            track.Warning = warning;
             await ArchiveDownloadedTrackAsync(track, db, ct);
             return "downloaded";
         }

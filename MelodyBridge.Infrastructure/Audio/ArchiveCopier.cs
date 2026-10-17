@@ -88,7 +88,7 @@ public static class ArchiveCopier
                 return new(false, targetPath, "ffmpeg produced no output");
 
             var integrity = FileIntegrity.Check(targetPath, expectedDuration);
-            if (!integrity.Ok)
+            if (!integrity.Ok && !integrity.ToolMissing)
             {
                 TryDelete(targetPath);
                 return new(false, targetPath, $"archive transcode looks corrupt: {integrity.Reason}");

@@ -7,7 +7,12 @@ namespace MelodyBridge.Infrastructure.Audio;
 /// <summary>Verdict of a <see cref="FileIntegrity"/> check.</summary>
 /// <param name="Ok">True when ffprobe can parse the file and its duration is sane.</param>
 /// <param name="Reason">Terse failure reason; null when <paramref name="Ok"/> is true.</param>
-public record IntegrityResult(bool Ok, string? Reason);
+/// <param name="ToolMissing">
+/// True when the check could not run because ffprobe is not installed. The
+/// caller must not treat this as proof of corruption: keeping an unverified
+/// download is better than deleting a good one because a tool is absent.
+/// </param>
+public record IntegrityResult(bool Ok, string? Reason, bool ToolMissing = false);
 
 /// <summary>
 /// Fast post-download integrity check: parses the file with ffprobe and
@@ -27,7 +32,7 @@ public static class FileIntegrity
     {
         var ffprobe = SpectrumAnalyzer.FindFfprobe();
         if (ffprobe is null)
-            return new(false, "ffprobe not found");
+            return new(false, "ffprobe not found", ToolMissing: true);
 
         try
         {

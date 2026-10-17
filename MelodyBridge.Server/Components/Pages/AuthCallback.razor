@@ -14,11 +14,18 @@
 
 <PageTitle>Connecting account</PageTitle>
 
+<section class="page-title">
+    <div>
+        <span class="eyebrow">Accounts</span>
+        <h1>Connecting your account</h1>
+        <p>Finishing the login and returning you to the accounts settings.</p>
+    </div>
+</section>
+
 <section class="panel-card" style="max-width:480px; margin-inline:auto;">
     <div class="panel-header">
         <div>
-            <span class="eyebrow">Accounts</span>
-            <h2>Connecting your account</h2>
+            <h2>Login status</h2>
         </div>
     </div>
 
@@ -34,7 +41,7 @@
     }
     else if (error is not null)
     {
-        <div class="log-error-banner">@error</div>
+        <div class="result-box error">@error</div>
         <p class="text-muted"><a href="/settings#accounts">Back to the accounts settings</a> and try connecting again.</p>
     }
     else

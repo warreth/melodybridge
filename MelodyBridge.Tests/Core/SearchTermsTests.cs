@@ -37,10 +37,19 @@ public class SearchTermsTests
         => Assert.That(SearchTerms.CleanArtist(input), Is.EqualTo(expected));
 
     [Test]
-    public void CleanArtist_KeepsFirstCreditedArtist()
+    public void CleanArtist_KeepsTheFullCredit()
     {
-        Assert.That(SearchTerms.CleanArtist("Duke Dumont ft. Jax Jones"), Is.EqualTo("Duke Dumont"));
-        Assert.That(SearchTerms.CleanArtist("Ben Böhmer, Alban Chastel"), Is.EqualTo("Ben Bohmer"));
+        Assert.Multiple(() =>
+        {
+            Assert.That(SearchTerms.CleanArtist("Duke Dumont ft. Jax Jones"), Is.EqualTo("Duke Dumont"),
+                "a featuring tag still narrows to the primary artist");
+            Assert.That(SearchTerms.CleanArtist("Ben Böhmer, Alban Chastel"),
+                Is.EqualTo("Ben Bohmer, Alban Chastel"),
+                "a comma is a credit separator in some rows, so it is kept");
+            Assert.That(SearchTerms.CleanArtist("Earth, Wind & Fire"), Is.EqualTo("Earth, Wind & Fire"),
+                "a comma inside the band name must never truncate it to 'Earth'");
+            Assert.That(SearchTerms.CleanArtist("Tyler, The Creator"), Is.EqualTo("Tyler, The Creator"));
+        });
     }
 
     [Test]

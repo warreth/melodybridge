@@ -68,5 +68,15 @@ RUN printf '#!/bin/sh\nexec node /opt/deemix/main.cjs "$@"\n' > /usr/local/bin/d
     chmod +x /usr/local/bin/deemix
 WORKDIR /app
 COPY --from=build /app/publish ./
+
+# Listen on 80 by default, so a plain `docker run -p 3333:80` works
+# without extra environment variables (the compose files set it too).
+ENV ASPNETCORE_URLS=http://+:80
 EXPOSE 80
+
+# The app is healthy when its own home page answers. curl is installed
+# above; the start period covers the first schema migration.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+    CMD curl -fsS http://127.0.0.1/ >/dev/null || exit 1
+
 ENTRYPOINT ["dotnet", "MelodyBridge.Server.dll"]
