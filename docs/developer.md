@@ -43,7 +43,7 @@ Spotify playlist URL
    → DownloadMissingAsync → IsrcResolver (Deezer) → DownloadManager waterfall
    → MP3 file + title/artist tags + MELODY_ID written by the manager
    → LibraryScanner (reads tags, keeps DB current as files move)
-   → SyncJobRunner → M3uGenerator (#EXTINF) or IMediaServerSync (Jellyfin, Plex, Navidrome)
+   → SyncJobRunner → M3uGenerator (#EXTINF) or IMediaServerSync (Jellyfin, Plex, Subsonic)
 
 The MELODY_ID in the file is the source of truth and the database is a
 cache over it: see Track identity below. ISRC is the matching signal:
@@ -155,7 +155,7 @@ public interface IMediaServerSync
 }
 ```
 
-Implement this to sync playlists to a media server. Built-in targets are resolved by `Name` (`"Jellyfin"`, `"Plex"`, `"Navidrome"`): place implementations in `MelodyBridge.Infrastructure/MediaServers/`: `JellyfinSync.cs`, `PlexSync.cs`, `NavidromeSync.cs`. Each has a settings pair (`JellyfinSettings.cs`, `PlexSettings.cs`, `NavidromeSettings.cs`) reading connection values from the settings table, and `IMediaServerDirectory` (`JellyfinUserDirectory.cs`, `PlexNavidromeDirectories.cs`) supplies the wizard's Test connection and user picker. Per-job connection overrides travel in `PlaylistOutputOptions.MediaServerConnection` (base URL, credential, optional user id).
+Implement this to sync playlists to a media server. Built-in targets are resolved by `Name` (`"Jellyfin"`, `"Plex"`, `"Subsonic"`): place implementations in `MelodyBridge.Infrastructure/MediaServers/`: `JellyfinSync.cs`, `PlexSync.cs`, `SubsonicSync.cs`. Each has a settings pair (`JellyfinSettings.cs`, `PlexSettings.cs`, `NavidromeSettings.cs`, the Subsonic values keep their historical navidrome_* keys) reading connection values from the settings table, and `IMediaServerDirectory` (`JellyfinUserDirectory.cs`, `PlexSubsonicDirectories.cs`) supplies the wizard's Test connection and user picker. Kind-based lookups go through `IMediaServerDirectoryFactory` (`MediaServerDirectoryFactory.cs`), which knows the aliases ("Navidrome" is Subsonic). Per-job connection overrides travel in `PlaylistOutputOptions.MediaServerConnection` (base URL, credential, optional user id).
 
 ### `IDownloadManager`: the waterfall
 
@@ -295,7 +295,7 @@ Registers core services: `DownloadManager`, `SyncEngine`, library scanner, M3U g
 
 ### `AddMediaServerSyncs()`
 
-Registers every media server sync plugin (Jellyfin, Plex, Navidrome), their settings and user directories, each with its own `HttpClient` via `AddHttpClient`.
+Registers every media server sync plugin (Jellyfin, Plex, Subsonic) plus the kind-based directory factory, their settings and user directories, each with its own `HttpClient` via `AddHttpClient`.
 
 ### Usage in `Program.cs`
 
@@ -350,8 +350,8 @@ MelodyBridge.Tests/
 │   ├── LibraryScannerTests.cs       # Real tagged MP3s: register + move/update identity
 │   ├── M3uGeneratorTests.cs         # Read-back of produced .m3u files
 │   ├── JellyfinSyncTests.cs         # Media-server sync clients: Jellyfin,
-│   ├── PlexSyncTests.cs             # Plex, Navidrome. Unit tests run against
-│   ├── NavidromeSyncTests.cs        # ScriptedHandler, a shared scripted HTTP
+│   ├── PlexSyncTests.cs             # Plex, Subsonic. Unit tests run against
+│   ├── SubsonicSyncTests.cs         # ScriptedHandler, a shared scripted HTTP
 │   ├── MediaServerDirectoryTests.cs # boundary; Live tests boot real docker
 │   │                                # containers (Category=Live, images must
 │   │                                # be pulled; the Plex one reads PLEX_TOKEN)

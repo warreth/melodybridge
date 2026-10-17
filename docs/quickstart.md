@@ -43,7 +43,7 @@ MelodyBridge downloads.
 </div>
 <div class="step" data-step="3">
 <strong>Publish it</strong>
-<p>Create a sync job that writes an M3U file or pushes the playlist to Jellyfin, Plex or Navidrome. More about that in <a href="/publishing">Publishing playlists</a>.</p>
+<p>Create a sync job that writes an M3U file or pushes the playlist to Jellyfin, Plex or a Subsonic server. More about that in <a href="/publishing">Publishing playlists</a>.</p>
 </div>
 </div>
 

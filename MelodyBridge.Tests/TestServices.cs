@@ -65,6 +65,12 @@ public static class TestServices
             new FixedPlexSettings());
         services.AddSingleton<MelodyBridge.Infrastructure.MediaServers.INavidromeSettings>(
             new FixedNavidromeSettings());
+        // Kind-based media-server directory lookup: the components resolve
+        // through the factory, which picks up whatever the fixture
+        // registered as IMediaServerDirectory.
+        services.AddSingleton<IMediaServerDirectoryFactory>(sp =>
+            new MelodyBridge.Infrastructure.MediaServers.MediaServerDirectoryFactory(
+                sp.GetServices<IMediaServerDirectory>()));
     }
 
     /// <summary>Plugins page stub: a fixed version and recorded updates.</summary>

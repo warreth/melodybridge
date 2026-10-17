@@ -20,8 +20,9 @@ redirect URLs and the no-Premium import routes, lives in
 
 ### Media servers
 
-Named connection profiles for Jellyfin, Plex and Navidrome: the server URL plus
-the credentials each kind needs. Jellyfin and Navidrome take a username and
+Named connection profiles for Jellyfin, Plex and Subsonic (Navidrome, gonic,
+Airsonic and friends): the server URL plus the credentials each kind needs.
+Jellyfin and Subsonic take a username and
 password. Jellyfin signs in and keeps the session token, or you use **Quick
 Connect**: the app shows a code, you approve it in Jellyfin, and the sign-in
 finishes by itself. Plex takes an X-Plex-Token. Every profile has a **Test**

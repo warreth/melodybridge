@@ -16,8 +16,7 @@
 @inject NtfyNotifier Ntfy
 @inject UpdateCheckService UpdateCheck
 @inject NotificationService Notifications
-@inject IMediaServerDirectory JellyfinDirectory
-@inject IEnumerable<IMediaServerDirectory> Directories
+@inject IMediaServerDirectoryFactory DirectoryFactory
 @inject IJSRuntime JS
 @implements IDisposable
 
@@ -280,15 +279,16 @@ else if (activeTab == "media-servers")
                         <select @bind="editingProfile.Kind">
                             <option value="Jellyfin">Jellyfin</option>
                             <option value="Plex">Plex</option>
-                            <option value="Navidrome">Navidrome</option>
+                            <option value="Subsonic">Subsonic (Navidrome, gonic, Airsonic, ...)</option>
+                            <option value="Navidrome">Navidrome (same API as Subsonic)</option>
                         </select>
                     </label>
                     <label>Base URL (required) <input @bind="editingProfile.BaseUrl"
-                           placeholder="@(editingProfile.Kind == "Plex" ? "http://plex:32400" : editingProfile.Kind == "Navidrome" ? "http://navidrome:4533" : "http://jellyfin:8096")" /></label>
-                    @if (editingProfile.Kind == "Navidrome")
+                           placeholder="@(editingProfile.Kind == "Plex" ? "http://plex:32400" : IsSubsonicKind(editingProfile.Kind) ? "http://navidrome:4533" : "http://jellyfin:8096")" /></label>
+                    @if (IsSubsonicKind(editingProfile.Kind))
                     {
                         <label>Username <input @bind="editingProfile.Username" placeholder="admin" /></label>
-                        <label class="hint-text">Navidrome has no API key: username and password are the credentials.</label>
+                        <label class="hint-text">Subsonic servers have no API key: username and password are the credentials. Navidrome, gonic, Airsonic, Ampache, Funkwhale and Nextcloud Music all speak this API.</label>
                     }
                     @if (editingProfile.Kind == "Jellyfin")
                     {
@@ -303,8 +303,8 @@ else if (activeTab == "media-servers")
                     }
                     else
                     {
-                        <label>@(editingProfile.Kind == "Navidrome" ? "Password" : "Plex token")
-                            <input @bind="editingProfile.ApiKey" type="password" placeholder="@(editingProfile.Kind == "Navidrome" ? "password" : "X-Plex-Token")" />
+                        <label>@(IsSubsonicKind(editingProfile.Kind) ? "Password" : "Plex token")
+                            <input @bind="editingProfile.ApiKey" type="password" placeholder="@(IsSubsonicKind(editingProfile.Kind) ? "password" : "X-Plex-Token")" />
                         </label>
                     }
                 </div>
@@ -1177,9 +1177,14 @@ else if (activeTab == "about")
     private static (string UrlKey, string SecretKey) KindKeys(string kind) => kind switch
     {
         "Plex" => ("plex_url", "plex_key"),
-        "Navidrome" => ("navidrome_url", "navidrome_password"),
+        "Navidrome" or "Subsonic" => ("navidrome_url", "navidrome_password"),
         _ => ("jellyfin_url", "jellyfin_key"),
     };
+
+    /// <summary>True for the kinds that speak the Subsonic/OpenSubsonic API.</summary>
+    private static bool IsSubsonicKind(string? kind)
+        => string.Equals(kind, "Navidrome", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(kind, "Subsonic", StringComparison.OrdinalIgnoreCase);
 
     private bool IsAppDefault(MediaServerProfile profile)
     {
@@ -1197,14 +1202,14 @@ else if (activeTab == "about")
 
     /// <summary>Writes this profile's values into the app-wide rows of its
     /// kind (jellyfin_*, plex_*, navidrome_*). Profiles carry no Jellyfin
-    /// user id, so an existing jellyfin_user row is kept; a Navidrome
+    /// user id, so an existing jellyfin_user row is kept; a Subsonic
     /// profile does carry its username, which its sync authenticates with.</summary>
     private async Task MakeAppDefault(MediaServerProfile profile)
     {
         var (urlKey, secretKey) = KindKeys(profile.Kind);
         await TourReset.SetAsync(urlKey, profile.BaseUrl);
         await TourReset.SetAsync(secretKey, profile.ApiKey);
-        if (string.Equals(profile.Kind, "Navidrome", StringComparison.OrdinalIgnoreCase)
+        if (IsSubsonicKind(profile.Kind)
             && !string.IsNullOrWhiteSpace(profile.Username))
         {
             await TourReset.SetAsync("navidrome_user", profile.Username!);
@@ -1225,10 +1230,9 @@ else if (activeTab == "about")
         testingProfile = profile.Id;
         try
         {
-            var directory = Directories.FirstOrDefault(d =>
-                string.Equals(d.Kind, profile.Kind, StringComparison.OrdinalIgnoreCase));
+            var directory = DirectoryFactory.For(profile.Kind);
             var connection = new MediaServerConnection(profile.BaseUrl, profile.ApiKey, profile.Username);
-            var ok = await (directory ?? JellyfinDirectory).TestConnectionAsync(connection);
+            var ok = directory is not null && await directory.TestConnectionAsync(connection);
             profileTestStatus[profile.Id] = ok ? "ok" : "err";
         }
         catch
@@ -1322,7 +1326,7 @@ else if (activeTab == "about")
                 var (urlKey, secretKey) = KindKeys(profile.Kind);
                 await TourReset.SetAsync(urlKey, "");
                 await TourReset.SetAsync(secretKey, "");
-                if (string.Equals(profile.Kind, "Navidrome", StringComparison.OrdinalIgnoreCase))
+                if (IsSubsonicKind(profile.Kind))
                     await TourReset.SetAsync("navidrome_user", "");
                 await LoadInitSettingsAsync();
                 Notifications.Warn($"Deleted '{deleteProfileName}': it was the app default, which is now cleared.");

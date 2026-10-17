@@ -50,21 +50,23 @@ public class PlexDirectory : IMediaServerDirectory
 }
 
 /// <summary>
-/// Navidrome reachability + user list. Auth is username + salted-md5
-/// token: the ApiKey parameter carries the password here.
+/// Subsonic reachability for the wizard's Test connection button: any
+/// server that speaks the Subsonic/OpenSubsonic API (Navidrome, gonic,
+/// Airsonic-Advanced, Ampache, Funkwhale, Nextcloud Music). Auth is
+/// username + salted-md5 token: the ApiKey parameter carries the password.
 /// </summary>
-public class NavidromeDirectory : IMediaServerDirectory
+public class SubsonicDirectory : IMediaServerDirectory
 {
-    public string Kind => "Navidrome";
+    public string Kind => "Subsonic";
 
     private static readonly HttpClient DefaultHttp = new() { Timeout = TimeSpan.FromSeconds(10) };
     private readonly HttpClient _http = DefaultHttp;
 
     /// <summary>DI path: shares the static default client.</summary>
-    public NavidromeDirectory() { }
+    public SubsonicDirectory() { }
 
     /// <summary>Test seam: injects a scripted client (tests only).</summary>
-    internal NavidromeDirectory(HttpClient http) => _http = http;
+    internal SubsonicDirectory(HttpClient http) => _http = http;
 
     public async Task<bool> TestConnectionAsync(
         MediaServerConnection connection, CancellationToken ct = default)
@@ -76,7 +78,7 @@ public class NavidromeDirectory : IMediaServerDirectory
         var salt = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(6)).ToLowerInvariant();
         var token = Convert.ToHexString(System.Security.Cryptography.MD5.HashData(
             System.Text.Encoding.UTF8.GetBytes(connection.ApiKey + salt))).ToLowerInvariant();
-        var url = $"{NavidromeSync.NormalizeBaseUrl(connection.BaseUrl).TrimEnd('/')}/rest/ping" +
+        var url = $"{SubsonicSync.NormalizeBaseUrl(connection.BaseUrl).TrimEnd('/')}/rest/ping" +
                   $"?u={Uri.EscapeDataString(username)}&t={token}&s={salt}&v=1.16.1&c=melodybridge&f=json";
         try
         {
@@ -95,7 +97,7 @@ public class NavidromeDirectory : IMediaServerDirectory
     public Task<List<MediaServerUserOption>> GetUsersAsync(
         MediaServerConnection connection, CancellationToken ct = default)
     {
-        // Navidrome users are their own credentials; no directory to list.
+        // Subsonic users are their own credentials; no directory to list.
         return Task.FromResult(new List<MediaServerUserOption>());
     }
 }

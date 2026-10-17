@@ -63,6 +63,26 @@ public interface IMediaServerDirectory
 public record MediaServerUserOption(string Id, string? Name);
 
 /// <summary>
+/// Resolves the directory that speaks a stored server kind. Three
+/// directories are registered (Jellyfin, Plex, Subsonic) and resolving a
+/// single <see cref="IMediaServerDirectory"/> silently returns the last
+/// registration, so every kind-based lookup goes through here instead.
+/// </summary>
+public interface IMediaServerDirectoryFactory
+{
+    /// <summary>Every registered directory, in registration order.</summary>
+    IReadOnlyList<IMediaServerDirectory> All { get; }
+
+    /// <summary>
+    /// The directory for a kind ("Jellyfin", "Plex", "Subsonic"), with
+    /// aliases applied ("Navidrome" is Subsonic). Null when no kind is
+    /// given and the composition is not trimmed to exactly one directory,
+    /// or when nothing speaks the kind.
+    /// </summary>
+    IMediaServerDirectory? For(string? kind);
+}
+
+/// <summary>
 /// Non-strict download policy: when the requested quality cannot be
 /// delivered, the manager walks down the quality ladder the enabled
 /// plugins declare (QualityLadder). AllowContainerChange says whether a

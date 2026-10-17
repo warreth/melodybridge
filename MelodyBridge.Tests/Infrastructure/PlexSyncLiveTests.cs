@@ -102,5 +102,45 @@ public class PlexSyncLiveTests
         Assert.That(sync.LastReport!.Message,
             Is.AnyOf("Created playlist", "Updated existing playlist", "Created playlist (no id)"),
             "a claimed-server sync must create or update the playlist, not fail");
+
+        // Read the playlist's own items back: a sync that reported resolved
+        // tracks while the server holds an empty playlist must fail here.
+        var items = await ReadPlaylistItemCountAsync(token!, "MB Live Mix");
+        Assert.That(items, Is.EqualTo(sync.LastReport.ResolvedCount),
+            "the playlist's item count must match what the report claims");
+    }
+
+    /// <summary>Item count of a real playlist on the server, 0 when it does not exist.</summary>
+    private static async Task<int> ReadPlaylistItemCountAsync(string token, string name)
+    {
+        using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+        using var listRequest = new HttpRequestMessage(
+            HttpMethod.Get, PlexLiveServer.BaseUrl + "/playlists?playlistType=audio");
+        listRequest.Headers.Add("X-Plex-Token", token);
+        listRequest.Headers.Add("Accept", "application/json");
+        using var listResponse = await http.SendAsync(listRequest);
+        listResponse.EnsureSuccessStatusCode();
+        using var listDoc = JsonDocument.Parse(await listResponse.Content.ReadAsStringAsync());
+        if (!listDoc.RootElement.GetProperty("MediaContainer")
+                .TryGetProperty("Metadata", out var metadata))
+            return 0;
+
+        foreach (var row in metadata.EnumerateArray())
+        {
+            if (!string.Equals(row.GetProperty("title").GetString(), name, StringComparison.Ordinal))
+                continue;
+
+            var key = row.GetProperty("ratingKey").GetString();
+            using var itemsRequest = new HttpRequestMessage(
+                HttpMethod.Get, PlexLiveServer.BaseUrl + $"/playlists/{key}/items");
+            itemsRequest.Headers.Add("X-Plex-Token", token);
+            itemsRequest.Headers.Add("Accept", "application/json");
+            using var itemsResponse = await http.SendAsync(itemsRequest);
+            itemsResponse.EnsureSuccessStatusCode();
+            using var itemsDoc = JsonDocument.Parse(await itemsResponse.Content.ReadAsStringAsync());
+            return itemsDoc.RootElement.GetProperty("MediaContainer")
+                .TryGetProperty("Metadata", out var items) ? items.GetArrayLength() : 0;
+        }
+        return 0;
     }
 }

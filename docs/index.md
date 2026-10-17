@@ -7,7 +7,7 @@ hero:
   image:
     src: /screens/home.webp
     alt: MelodyBridge dashboard with playlist cards and download status
-  tagline: Save a Spotify or YouTube playlist, download the tracks through a plugin waterfall, and publish them as M3U, Jellyfin, Plex or Navidrome playlists, on your own server.
+  tagline: Save a Spotify or YouTube playlist, download the tracks through a plugin waterfall, and publish them as M3U, Jellyfin, Plex or Subsonic playlists, on your own server.
   actions:
     - theme: brand
       text: Quick start
@@ -31,7 +31,7 @@ features:
     link: /concepts#quality-checks
   - icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M7 9l5-5 5 5M5 20h14"/></svg>'
     title: Publishing integrations
-    details: "Write M3U files or push playlists into Jellyfin, Plex and Navidrome. Run a job by hand, or let it run nightly."
+    details: "Write M3U files or push playlists into Jellyfin, Plex and Subsonic servers like Navidrome. Run a job by hand, or let it run nightly."
     link: /publishing
   - icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h7l9 9-7 7-9-9V4z"/><circle cx="8.5" cy="8.5" r="1.5"/></svg>'
     title: Resilient library

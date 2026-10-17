@@ -295,6 +295,7 @@ public class SettingsPageTests
     public void Settings_ConnectionsTab_TestButton_UsesJellyfinDirectory()
     {
         var directory = new Mock<MelodyBridge.Core.IMediaServerDirectory>();
+        directory.SetupGet(d => d.Kind).Returns("Jellyfin");
         directory.Setup(d => d.TestConnectionAsync(
                 It.Is<MediaServerConnection>(c => c.BaseUrl == "http://media:8096" && c.ApiKey == "key1"),
                 It.IsAny<CancellationToken>()))

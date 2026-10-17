@@ -48,6 +48,10 @@ public class SyncJobsWizardUiTests
 
         _ctx.Services.AddSingleton<ISyncJobRunner>(_jobRunner.Object);
         _ctx.Services.AddSingleton<IMediaServerDirectory>(_userDirectory.Object);
+        // Kind-based lookup through the factory, like the real app.
+        _ctx.Services.AddSingleton<IMediaServerDirectoryFactory>(sp =>
+            new MelodyBridge.Infrastructure.MediaServers.MediaServerDirectoryFactory(
+                sp.GetServices<IMediaServerDirectory>()));
         _ctx.Services.AddSingleton<IDbContextFactory<MelodyBridgeDbContext>>(_dbFactory);
         _ctx.Services.AddSingleton<MelodyBridge.Infrastructure.MediaServers.JellyfinLoginService>(
             new TestServices.StubJellyfinLogin());

@@ -9,14 +9,14 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace MelodyBridge.Tests.Infrastructure;
 
 /// <summary>
-/// Navidrome client behavior against a scripted HTTP boundary: the tests
+/// Subsonic client behavior against a scripted HTTP boundary: the tests
 /// assert on the exact Subsonic routes called (ping, search3, createPlaylist,
 /// star), the salted-token auth parameters, and the upsert-vs-duplicate
 /// playlist logic. Subsonic-level errors come back HTTP 200 with
 /// status=failed: one test proves they surface as report errors.
 /// </summary>
 [TestFixture]
-public class NavidromeSyncTests
+public class SubsonicSyncTests
 {
     private sealed class FixedSettings : INavidromeSettings
     {
@@ -29,8 +29,8 @@ public class NavidromeSyncTests
         public Task<string> GetPasswordAsync(CancellationToken ct = default) => Task.FromResult(Password);
     }
 
-    private static NavidromeSync NewSync(ScriptedHandler handler, FixedSettings? settings = null)
-        => new(new HttpClient(handler), NullLogger<NavidromeSync>.Instance,
+    private static SubsonicSync NewSync(ScriptedHandler handler, FixedSettings? settings = null)
+        => new(new HttpClient(handler), NullLogger<SubsonicSync>.Instance,
             settings ?? new FixedSettings());
 
     private static Playlist PlaylistOf(params Track[] tracks) => new()
@@ -66,9 +66,9 @@ public class NavidromeSyncTests
         => Track("song", "/media/artist/album/song.mp3", liked, artist: "Artist");
 
     [Test]
-    public void Name_IsNavidrome()
-        => Assert.That(new NavidromeSync(new HttpClient(new ScriptedHandler()),
-            NullLogger<NavidromeSync>.Instance, new FixedSettings()).Name, Is.EqualTo("Navidrome"));
+    public void Name_IsSubsonic()
+        => Assert.That(new SubsonicSync(new HttpClient(new ScriptedHandler()),
+            NullLogger<SubsonicSync>.Instance, new FixedSettings()).Name, Is.EqualTo("Subsonic"));
 
     [Test]
     public async Task SyncPlaylistAsync_Requests_CarrySaltedTokenAuth()
@@ -160,7 +160,7 @@ public class NavidromeSyncTests
         var handler = StandardRoutes();
         var sync = NewSync(handler);
 
-        // Path-only track: Navidrome cannot be searched by path (fake paths),
+        // Path-only track: Subsonic servers cannot be searched by path (fake paths),
         // so a title-less track is unresolved by design.
         await sync.SyncPlaylistAsync(PlaylistOf(Track(null!, "/media/unknown.mp3")),
             new PlaylistOutputOptions("/tmp/out.m3u", false, null));

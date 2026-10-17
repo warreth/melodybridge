@@ -262,18 +262,27 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IMediaServerSync>(sp => sp.GetRequiredService<PlexSync>());
         services.AddSingleton<IMediaServerDirectory, PlexDirectory>();
 
-        // Navidrome: Subsonic salted-md5 auth, search3 lookup, star favorites.
-        services.AddHttpClient(nameof(NavidromeSync));
+        // Subsonic (Navidrome, gonic, Airsonic, Ampache, Funkwhale and
+        // Nextcloud Music all speak this API): salted-md5 auth, search3
+        // lookup, star favorites. The settings keep their historical
+        // navidrome_* keys so existing installs stay configured.
+        services.AddHttpClient(nameof(SubsonicSync));
         services.AddSingleton<ConfigNavidromeSettings>();
         services.AddSingleton<INavidromeSettings, DbNavidromeSettings>();
         services.AddSingleton(sp =>
         {
-            var http = sp.GetRequiredService<IHttpClientFactory>().CreateClient(nameof(NavidromeSync));
-            return new NavidromeSync(http, sp.GetRequiredService<ILogger<NavidromeSync>>(),
+            var http = sp.GetRequiredService<IHttpClientFactory>().CreateClient(nameof(SubsonicSync));
+            return new SubsonicSync(http, sp.GetRequiredService<ILogger<SubsonicSync>>(),
                 sp.GetRequiredService<INavidromeSettings>());
         });
-        services.AddSingleton<IMediaServerSync>(sp => sp.GetRequiredService<NavidromeSync>());
-        services.AddSingleton<IMediaServerDirectory, NavidromeDirectory>();
+        services.AddSingleton<IMediaServerSync>(sp => sp.GetRequiredService<SubsonicSync>());
+        services.AddSingleton<IMediaServerDirectory, SubsonicDirectory>();
+
+        // Kind-based directory lookup: three directories are registered and
+        // a single IMediaServerDirectory resolve would silently return the
+        // last one, so every kind-based lookup goes through this factory.
+        services.AddSingleton<IMediaServerDirectoryFactory>(sp =>
+            new MediaServerDirectoryFactory(sp.GetServices<IMediaServerDirectory>()));
         return services;
     }
 }

@@ -138,13 +138,13 @@ public class SyncJobRunner : ISyncJobRunner
 
                 case OutputTargetType.JellyfinApi:
                 case OutputTargetType.PlexApi:
-                case OutputTargetType.NavidromeApi:
+                case OutputTargetType.SubsonicApi:
                     var server = _mediaServers.FirstOrDefault(s =>
                         s.Name.Equals(job.OutputTarget switch
                         {
                             OutputTargetType.JellyfinApi => "Jellyfin",
                             OutputTargetType.PlexApi => "Plex",
-                            OutputTargetType.NavidromeApi => "Navidrome",
+                            OutputTargetType.SubsonicApi => "Subsonic",
                             _ => (string?)null
                         }, StringComparison.OrdinalIgnoreCase));
                     if (server == null)

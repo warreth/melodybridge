@@ -7,28 +7,29 @@ using Microsoft.Extensions.Logging;
 namespace MelodyBridge.Infrastructure.MediaServers;
 
 /// <summary>
-/// Pushes a playlist into a Navidrome server through its Subsonic API.
+/// Pushes a playlist into any Subsonic/OpenSubsonic server: Navidrome,
+/// gonic, Airsonic-Advanced, Ampache, Funkwhale, Nextcloud Music.
 /// Auth is username + salted-md5 token (t=md5(password+salt)), so the
 /// password never travels in the clear. Tracks are resolved by searching
 /// title/artist (search3) and matching the song the way the UI does;
 /// playlists are created with repeated songId parameters and, when the
 /// name already exists, the existing playlist is updated instead of
-/// duplicated. Liked tracks get starred (the Navidrome "favorite" heart).
+/// duplicated. Liked tracks get starred (the Subsonic "favorite" heart).
 /// </summary>
-public class NavidromeSync : IMediaServerSync
+public class SubsonicSync : IMediaServerSync
 {
     private const string ClientName = "melodybridge";
     private const string ApiVersion = "1.16.1";
 
     private readonly HttpClient _http;
-    private readonly ILogger<NavidromeSync> _logger;
+    private readonly ILogger<SubsonicSync> _logger;
     private readonly INavidromeSettings _settings;
-    public string Name => "Navidrome";
+    public string Name => "Subsonic";
 
     private MediaServerSyncReport? _lastReport;
     public MediaServerSyncReport? LastReport => _lastReport;
 
-    public NavidromeSync(HttpClient http, ILogger<NavidromeSync> logger, INavidromeSettings settings)
+    public SubsonicSync(HttpClient http, ILogger<SubsonicSync> logger, INavidromeSettings settings)
     {
         _http = http;
         _logger = logger;
@@ -40,7 +41,7 @@ public class NavidromeSync : IMediaServerSync
     {
         if (options.MediaServerConnection is { } conn)
         {
-            // Per-job override: UserId carries the Navidrome username.
+            // Per-job override: UserId carries the Subsonic username.
             return (conn.BaseUrl, conn.UserId ?? "", conn.ApiKey);
         }
         return (await _settings.GetBaseUrlAsync(ct),
@@ -68,7 +69,7 @@ public class NavidromeSync : IMediaServerSync
         {
             var err = root.TryGetProperty("error", out var e) && e.TryGetProperty("message", out var m)
                 ? m.GetString() : "unknown Subsonic error";
-            throw new InvalidOperationException($"Navidrome API error: {err}");
+            throw new InvalidOperationException($"Subsonic API error: {err}");
         }
         return root;
     }
@@ -111,10 +112,10 @@ public class NavidromeSync : IMediaServerSync
     }
 
     /// <summary>
-    /// Resolves one track to a Navidrome song id via search3 by title
-    /// (artist as tie-breaker). Navidrome's path field is metadata-built,
-    /// so path matching is unreliable; title+artist is what the server
-    /// itself indexes.
+    /// Resolves one track to a Subsonic song id via search3 by title
+    /// (artist as tie-breaker). Subsonic servers build the path field from
+    /// metadata, so path matching is unreliable; title+artist is what they
+    /// index themselves.
     /// </summary>
     private async Task<string?> ResolveSongIdAsync(
         string baseUrl, string username, string password, string lookupPath, Track track, CancellationToken ct)
@@ -145,7 +146,7 @@ public class NavidromeSync : IMediaServerSync
             }
             return best;
         }
-        catch (Exception ex) { _logger.LogDebug(ex, "Navidrome search failed for {title}", track.Title); }
+        catch (Exception ex) { _logger.LogDebug(ex, "Subsonic search failed for {title}", track.Title); }
         return null;
     }
 
@@ -202,13 +203,13 @@ public class NavidromeSync : IMediaServerSync
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to call Navidrome API to upsert playlist");
+            _logger.LogError(ex, "Failed to call the Subsonic API to upsert playlist");
             _lastReport = new MediaServerSyncReport(songIds.Count, unresolved.ToArray(),
                 null, $"Error: {ex.Message}", Succeeded: false);
         }
     }
 
-    /// <summary>Stars liked songs (Navidrome's favorite heart).</summary>
+    /// <summary>Stars liked songs (the Subsonic favorite heart).</summary>
     private async Task StarAsync(string baseUrl, string username, string password, List<string> likedIds, CancellationToken ct)
     {
         var starred = 0;
@@ -219,13 +220,13 @@ public class NavidromeSync : IMediaServerSync
                 await GetJsonAsync(AuthUrl(baseUrl, username, password, "star", $"&id={Uri.EscapeDataString(id)}"), ct);
                 starred++;
             }
-            catch (Exception ex) { _logger.LogDebug(ex, "Navidrome star failed for {id}", id); }
+            catch (Exception ex) { _logger.LogDebug(ex, "Subsonic star failed for {id}", id); }
         }
         if (likedIds.Count > 0)
-            _logger.LogInformation("Starred {Starred}/{Total} liked songs in Navidrome", starred, likedIds.Count);
+            _logger.LogInformation("Starred {Starred}/{Total} liked songs on the Subsonic server", starred, likedIds.Count);
     }
 
-    /// <summary>Navidrome URLs need a scheme; default to plain http.</summary>
+    /// <summary>Subsonic URLs need a scheme; default to plain http.</summary>
     internal static string NormalizeBaseUrl(string baseUrl)
     {
         var url = (baseUrl ?? "").Trim().TrimEnd('/');

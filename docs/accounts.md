@@ -87,7 +87,7 @@ setup.
 
 Tracks imported from your liked songs are flagged, and every sync job marks them
 as favorites on the target: per user in Jellyfin, a top rating on the Plex
-token-holder's account, and a star in Navidrome. See
+token-holder's account, and a star on the Subsonic side. See
 [Publishing playlists](/publishing).
 
 ## Why there is no passwordless login

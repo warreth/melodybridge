@@ -363,8 +363,8 @@ public class ReleasePipelineLiveTests
             new M3uGenerator(NullLogger<M3uGenerator>.Instance),
             new IMediaServerSync[]
             {
-                new NavidromeSync(new HttpClient { Timeout = TimeSpan.FromSeconds(60) },
-                    NullLogger<NavidromeSync>.Instance, new NavidromeFixedSettings()),
+                new SubsonicSync(new HttpClient { Timeout = TimeSpan.FromSeconds(60) },
+                    NullLogger<SubsonicSync>.Instance, new NavidromeFixedSettings()),
             },
             NullLogger<SyncJobRunner>.Instance);
         var job = new SyncJob
@@ -372,7 +372,7 @@ public class ReleasePipelineLiveTests
             Id = "release-e2e-navidrome",
             Name = JobName,
             SourceId = _playlistId,
-            OutputTarget = OutputTargetType.NavidromeApi,
+            OutputTarget = OutputTargetType.SubsonicApi,
             JellyfinServerUrl = NavidromeLiveServer.BaseUrl,
             JellyfinUserId = NavidromeLiveServer.Username,
             JellyfinApiKey = NavidromeLiveServer.Password,
