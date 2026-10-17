@@ -166,6 +166,78 @@ public class PlaylistDeleteUiTests
     }
 
     [Test]
+    public void Details_RemoveDownloadedTrack_AsksKeepOrDelete_AndDefaultKeepsTheFile()
+    {
+        var file = SeedWithFile();
+        var cut = _ctx.Render<PlaylistDetails>(p => p.Add(p => p.PlaylistId, "pl-del"));
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("The end")), TimeSpan.FromSeconds(3));
+
+        cut.FindAll("button").Single(b => b.TextContent.Trim() == "Remove").Click();
+
+        Assert.That(cut.Markup, Does.Contain("The track leaves this playlist"),
+            "the dialog explains the choice");
+        Assert.That(cut.Markup, Does.Contain("Keep the file on disk"));
+        Assert.That(cut.Markup, Does.Contain("Delete the downloaded file"));
+
+        // Confirm without touching the radios: the safe default keeps the file.
+        cut.FindAll("button").Single(b => b.TextContent.Trim() == "Remove track").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            using var db = new TestSqliteFactory(_dbPath).CreateDbContext();
+            Assert.That(db.Tracks.Count(), Is.EqualTo(0), "the track row is gone");
+        }, TimeSpan.FromSeconds(3));
+        Assert.That(File.Exists(file), Is.True, "the default choice keeps the music file");
+    }
+
+    [Test]
+    public void Details_RemoveDownloadedTrack_DeleteChoice_RemovesTheFile()
+    {
+        var file = SeedWithFile();
+        var cut = _ctx.Render<PlaylistDetails>(p => p.Add(p => p.PlaylistId, "pl-del"));
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("The end")), TimeSpan.FromSeconds(3));
+
+        cut.FindAll("button").Single(b => b.TextContent.Trim() == "Remove").Click();
+        cut.FindAll(".confirm-modal input[type='radio']")[1].Change(true);
+        cut.FindAll("button").Single(b => b.TextContent.Trim() == "Remove track").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(File.Exists(file), Is.False, "the delete choice removes the file");
+            using var db = new TestSqliteFactory(_dbPath).CreateDbContext();
+            Assert.That(db.Tracks.Count(), Is.EqualTo(0));
+        }, TimeSpan.FromSeconds(3));
+    }
+
+    [Test]
+    public void Details_RemoveTrackWithoutFile_RemovesImmediately_NoDialog()
+    {
+        SeedWithFile();
+        using (var db = new TestSqliteFactory(_dbPath).CreateDbContext())
+        {
+            var track = db.Tracks.Single(t => t.MelodyId == "m-del");
+            track.DownloadStatus = "pending";
+            track.CurrentPath = null;
+            db.SaveChanges();
+        }
+
+        var cut = _ctx.Render<PlaylistDetails>(p => p.Add(p => p.PlaylistId, "pl-del"));
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("The end")), TimeSpan.FromSeconds(3));
+
+        cut.FindAll("button").Single(b => b.TextContent.Trim() == "Remove").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            using var db = new TestSqliteFactory(_dbPath).CreateDbContext();
+            Assert.That(db.Tracks.Count(), Is.EqualTo(0), "the row is gone without a dialog");
+        }, TimeSpan.FromSeconds(3));
+        Assert.That(cut.Markup, Does.Not.Contain("The track leaves this playlist"));
+    }
+
+    [Test]
     public void Details_DeleteButton_NavigatesBackToOverview()
     {
         SeedWithFile();

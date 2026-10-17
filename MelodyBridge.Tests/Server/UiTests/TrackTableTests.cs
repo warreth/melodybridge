@@ -36,6 +36,7 @@ public class TrackTableTests
         IReadOnlyList<TrackEntity>? tracks = null,
         bool busy = false,
         bool fileColumn = false,
+        bool archiveState = false,
         Func<TrackEntity, string?>? queueLabel = null,
         Action<TrackEntity>? onRetry = null,
         Action<TrackEntity>? onRemove = null)
@@ -44,6 +45,7 @@ public class TrackTableTests
             pb.Add(t => t.Tracks, tracks ?? SampleTracks());
             pb.Add(t => t.Busy, busy);
             pb.Add(t => t.ShowFilenameColumn, fileColumn);
+            pb.Add(t => t.ShowArchiveState, archiveState);
             if (queueLabel is not null) pb.Add(t => t.QueueLabel, queueLabel);
             if (onRetry is not null) pb.Add(t => t.OnRetry, t => { onRetry(t); return Task.CompletedTask; });
             if (onRemove is not null) pb.Add(t => t.OnRemove, t => { onRemove(t); return Task.CompletedTask; });
@@ -167,12 +169,68 @@ public class TrackTableTests
         var cut = Render(tracks, onRemove: t => removePayload = t);
 
         var row = cut.FindAll("tbody tr").Single(tr => tr.TextContent.Contains("Charlie"));
-        row.QuerySelector("button[title='Remove from playlist (deletes the file)']")!.Click();
+        row.QuerySelector("button[title='Remove from the playlist; choose whether the downloaded file goes too']")!.Click();
         Assert.That(ReferenceEquals(removePayload, tracks[0]), Is.True);
 
         var pendingRow = cut.FindAll("tbody tr").Single(tr => tr.TextContent.Contains("Delta"));
-        Assert.That(pendingRow.QuerySelector("button[title='Remove from playlist (deletes the file)']"),
-            Is.Null, "never-downloaded tracks have nothing to remove");
+        Assert.That(pendingRow.QuerySelector("button[title='Remove from the playlist']"),
+            Is.Null, "a track without a status has nothing to remove");
+    }
+
+    // ── Archive state check ────────────────────────────────────────
+
+    [Test]
+    public void Archive_Check_ShowsGreen_WhenTheCopyExistsOnDisk()
+    {
+        var archiveFile = Path.Combine(Path.GetTempPath(), $"mb-tt-archive-{Guid.NewGuid():N}.mp3");
+        File.WriteAllBytes(archiveFile, new byte[] { 1, 2, 3 });
+        try
+        {
+            var tracks = SampleTracks();
+            tracks[0].ArchivePath = archiveFile;
+            var cut = Render(tracks, archiveState: true);
+
+            var row = cut.FindAll("tbody tr").Single(tr => tr.TextContent.Contains("Charlie"));
+            var pill = row.QuerySelectorAll("span.pill")
+                .Single(p => p.GetAttribute("title")?.StartsWith("Archive copy present") == true);
+            Assert.That(pill.ClassList, Does.Contain("ok"));
+            Assert.That(pill.GetAttribute("title"), Does.Contain(archiveFile));
+        }
+        finally
+        {
+            try { File.Delete(archiveFile); } catch { /* best effort */ }
+        }
+    }
+
+    [Test]
+    public void Archive_Check_Idle_WhenTheTrackHasNoCopyYet()
+    {
+        var tracks = SampleTracks();
+        var cut = Render(tracks, archiveState: true);
+
+        var row = cut.FindAll("tbody tr").Single(tr => tr.TextContent.Contains("Charlie"));
+        var pill = row.QuerySelectorAll("span.pill")
+            .Single(p => p.GetAttribute("title")?.Contains("No archive copy") == true);
+        Assert.That(pill.ClassList, Does.Contain("neutral"),
+            "no copy yet is a calm state, not a warning");
+
+        // A recorded copy that vanished is the real problem: warn, and
+        // say which file is gone.
+        tracks[0].ArchivePath = "/does/not/exist.mp3";
+        var cut2 = Render(tracks, archiveState: true);
+        var warn = cut2.FindAll("tbody tr").Single(tr => tr.TextContent.Contains("Charlie"))
+            .QuerySelectorAll("span.pill")
+            .Single(p => p.GetAttribute("title")?.Contains("missing from disk") == true);
+        Assert.That(warn.ClassList, Does.Contain("warn"));
+        Assert.That(warn.GetAttribute("title"), Does.Contain("/does/not/exist.mp3"));
+    }
+
+    [Test]
+    public void Archive_Check_Hidden_WithoutTheParameter()
+    {
+        var cut = Render(SampleTracks());
+        Assert.That(cut.Markup, Does.Not.Contain("Archive copy present"));
+        Assert.That(cut.Markup, Does.Not.Contain("No archive copy"));
     }
 
     [Test]

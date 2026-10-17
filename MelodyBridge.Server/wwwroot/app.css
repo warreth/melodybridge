@@ -1643,9 +1643,27 @@ td.file-path {
 }
 
 
+/* ── Import modal: one row per source, action on the right ────────── */
+.import-options { display: grid; gap: .6rem; }
+.import-option {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: .85rem 1rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+}
+.import-option-main { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+.import-option-main p { flex-basis: 100%; margin: 0; color: var(--muted); font-size: .85rem; line-height: 1.45; }
+.import-option-main strong { font-size: .95rem; }
+.import-option-action { flex-shrink: 0; }
+@media (max-width: 640px) {
+    .import-option { flex-direction: column; align-items: stretch; }
+}
+
 /* ── Connections profiles ─────────────────────────────────────── */
-.profile-list { display: grid; gap: .6rem; margin-top: .75rem; }
-.profile-row {
+.profile-list { display: grid; gap: .6rem; margin-top: .75rem; }.profile-row {
     display: flex;
     align-items: center;
     gap: .75rem;
@@ -1672,6 +1690,34 @@ input[type="file"].btn-modern::file-selector-button {
     cursor: pointer;
     font: inherit;
 }
+
+/* ── Radio choice rows (dialogs with a keep-or-delete pick) ───────── */
+.choice-list { display: grid; gap: .5rem; margin-top: .25rem; }
+.choice-row {
+    display: flex;
+    align-items: flex-start;
+    gap: .7rem;
+    padding: .65rem .85rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+    cursor: pointer;
+}
+.choice-row:hover { border-color: var(--border-strong); }
+/* The global input rule is built for text fields: a radio needs its own
+   box, or it stretches to a 40px full-width blob. */
+.choice-row input[type="radio"] {
+    width: 18px;
+    height: 18px;
+    min-height: 18px;
+    margin: .15rem 0 0 0;
+    padding: 0;
+    flex-shrink: 0;
+    accent-color: var(--accent-strong);
+}
+.choice-row > span { display: grid; gap: .1rem; flex: 1; min-width: 0; }
+.choice-row strong { font-size: .9rem; }
+.choice-row small { color: var(--muted); line-height: 1.35; }
 /* ── Polish pass: toggles, labels, tables, action rows ────────────── */
 /* Wide toggles (Advanced, Library): text never overlaps the switch.
    Label flexes, switch keeps its box, whole row is one click target. */

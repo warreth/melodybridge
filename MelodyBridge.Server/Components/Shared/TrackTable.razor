@@ -96,6 +96,23 @@
                         {
                             <StatusPill Variant="warn" Title="@warnTitle" Class="pill-tight">!</StatusPill>
                         }
+                        @if (ShowArchiveState && track.DownloadStatus == "downloaded")
+                        {
+                            // The tiny archive check: a green check when the
+                            // copy exists, a calm note when this track has
+                            // none yet, a warning when the recorded copy
+                            // vanished from disk.
+                            var hasArchivePath = !string.IsNullOrWhiteSpace(track.ArchivePath);
+                            var archiveOk = hasArchivePath && System.IO.File.Exists(track.ArchivePath);
+                            <StatusPill Variant="@(archiveOk ? "ok" : hasArchivePath ? "warn" : "neutral")" Class="pill-tight"
+                                        Title="@(archiveOk
+                                            ? $"Archive copy present: {track.ArchivePath}"
+                                            : hasArchivePath
+                                                ? $"Archive copy missing from disk: {track.ArchivePath}"
+                                                : "No archive copy for this track yet")">
+                                <Icon Name="@(archiveOk ? "check" : hasArchivePath ? "alert" : "minus")" Size="12" />
+                            </StatusPill>
+                        }
                     </td>
                     @if (ShowFilenameColumn)
                     {
@@ -149,7 +166,10 @@
                             }
                             @if (track.DownloadStatus is not null)
                             {
-                                <button class="btn-modern small ghost" title="Remove from playlist (deletes the file)"
+                                <button class="btn-modern small ghost"
+                                        title="@(track.DownloadStatus == "downloaded"
+                                            ? "Remove from the playlist; choose whether the downloaded file goes too"
+                                            : "Remove from the playlist")"
                                         @onclick="() => OnRemove.InvokeAsync(track)" disabled="@Busy">
                                     <Icon Name="x" Size="14" /> <span class="btn-label">Remove</span>
                                 </button>
@@ -169,6 +189,8 @@
     [Parameter] public bool Busy { get; set; }
     /// <summary>The File column appears when the user opted in.</summary>
     [Parameter] public bool ShowFilenameColumn { get; set; }
+    /// <summary>Shows the archive check next to the status pill (downloaded rows only).</summary>
+    [Parameter] public bool ShowArchiveState { get; set; }
     /// <summary>Live queue label for a track while a run is active; null means the plain pill.</summary>
     [Parameter] public Func<TrackEntity, string?>? QueueLabel { get; set; }
     /// <summary>Download this one track.</summary>

@@ -101,6 +101,82 @@ public class ArchiveCopyUiTests
         return cut;
     }
 
+    [Test]
+    public void ArchiveToggle_OnByDefault_AndSwitchingOff_HidesFolderAndFormat()
+    {
+        using (var db = _factory.CreateDbContext())
+        {
+            db.DownloaderSettings.Add(new DownloaderSettingEntity
+                { Key = "archive_path", Value = "/archive-global" });
+            db.SaveChanges();
+        }
+
+        var cut = RenderPage();
+
+        var toggle = cut.FindAll(".archive-section input[type='checkbox']").Single();
+        Assert.That(toggle.HasAttribute("checked"), Is.True,
+            "the archive copy is on by default");
+        Assert.That(cut.Markup, Does.Contain("Archive folder"),
+            "an archived playlist shows its folder and format settings");
+
+        toggle.Change(false);
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.Markup, Does.Not.Contain("Archive folder"),
+                "switching the archive off hides the folder field");
+            Assert.That(cut.Markup, Does.Not.Contain("Archive format"),
+                "and the format select with it");
+            Assert.That(DbArchiveEnabled(), Is.False,
+                "the switch persisted for this playlist");
+        }, TimeSpan.FromSeconds(3));
+    }
+
+    [Test]
+    public void ArchiveToggle_Off_HidesTheArchiveFields_OnReload()
+    {
+        using (var db = _factory.CreateDbContext())
+        {
+            db.DownloaderSettings.Add(new DownloaderSettingEntity
+                { Key = "archive_path", Value = "/archive-global" });
+            db.Playlists.Find("pl-1")!.ArchiveEnabled = false;
+            db.SaveChanges();
+        }
+
+        var cut = RenderPage();
+
+        Assert.That(cut.Markup, Does.Not.Contain("Archive folder"));
+        Assert.That(cut.Markup, Does.Not.Contain("Archive format"));
+        var toggle = cut.FindAll(".archive-section input[type='checkbox']").Single();
+        Assert.That(toggle.HasAttribute("checked"), Is.False);
+    }
+
+    [Test]
+    public void ArchiveFormat_DefaultOption_NamesTheAppDefault()
+    {
+        using (var db = _factory.CreateDbContext())
+        {
+            db.DownloaderSettings.Add(new DownloaderSettingEntity
+                { Key = "archive_path", Value = "/archive-global" });
+            db.DownloaderSettings.Add(new DownloaderSettingEntity
+                { Key = "archive_format", Value = "flac" });
+            db.SaveChanges();
+        }
+
+        var cut = RenderPage();
+
+        var select = cut.FindAll(".archive-section select").Single();
+        var first = select.QuerySelectorAll("option")[0];
+        Assert.That(first.TextContent.Trim(), Is.EqualTo("App default (FLAC)"),
+            "the select spells out what the app default currently converts to");
+    }
+
+    private bool? DbArchiveEnabled()
+    {
+        using var db = _factory.CreateDbContext();
+        return db.Playlists.AsNoTracking().First(p => p.Id == "pl-1").ArchiveEnabled;
+    }
+
     /// <summary>The archive folder input: the one under the Archive copy eyebrow.</summary>
     private static IElement ArchiveFolderInput(IRenderedComponent<PlaylistDetails> cut)
     {
