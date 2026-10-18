@@ -43,10 +43,6 @@ public sealed class LibraryPathMover
     {
         var moveMusic = FileRelocator.CanMove(oldMusicPath, newMusicPath);
         var moveArchive = FileRelocator.CanMove(oldArchivePath, newArchivePath);
-        var followMusic = oldMusicPath is { Length: > 0 }
-            && !FileRelocator.PathsEqual(oldMusicPath, newMusicPath);
-        var followArchive = oldArchivePath is { Length: > 0 }
-            && !FileRelocator.PathsEqual(oldArchivePath, newArchivePath);
 
         var files = 0;
         var failed = 0;
@@ -60,7 +56,7 @@ public sealed class LibraryPathMover
         // and every row pointing at it follows.
         if (moveMusic || moveArchive)
         {
-            var moved = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var moved = new Dictionary<string, string>(FileRelocator.PathComparer);
             var tracks = await db.Tracks
                 .Where(t => t.CurrentPath != null || t.ArchivePath != null)
                 .ToListAsync(ct);
@@ -81,35 +77,37 @@ public sealed class LibraryPathMover
             }
         }
 
-        // Rows that used the old root as their value follow the new one;
-        // an explicit folder below the old root is rebased onto the new
-        // root, so it never points at the old tree again.
-        if (followMusic || followArchive)
+        // Rows follow only when the files actually move: a refused root
+        // change (cleared, nested, unchanged) must not leave folders and
+        // scan locations pointing at a tree that was never relocated.
+        if (moveMusic || moveArchive)
         {
             foreach (var playlist in await db.Playlists.ToListAsync(ct))
             {
-                if (followMusic
+                var rowChanged = false;
+                if (moveMusic
                     && Rebased(playlist.TargetDirectory, oldMusicPath!, newMusicPath) is { Changed: true } target)
                 {
                     playlist.TargetDirectory = target.Value;
-                    playlists++;
+                    rowChanged = true;
                 }
-                if (followArchive
+                if (moveArchive
                     && Rebased(playlist.ArchiveDirectory, oldArchivePath!, newArchivePath) is { Changed: true } archive)
                 {
                     playlist.ArchiveDirectory = archive.Value;
-                    playlists++;
+                    rowChanged = true;
                 }
+                if (rowChanged) playlists++;
             }
         }
 
-        if (followMusic)
+        if (moveMusic)
         {
             foreach (var location in await db.ScanLocations.ToListAsync(ct))
             {
                 if (Rebased(location.Path, oldMusicPath!, newMusicPath) is { Changed: true } rebased)
                 {
-                    location.Path = rebased.Value;
+                    location.Path = rebased.Value!;
                     scanLocations++;
                 }
             }

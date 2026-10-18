@@ -1110,6 +1110,11 @@ else if (activeTab == "about")
         try
         {
             await using var db = await DbFactory.CreateDbContextAsync();
+            // Stored trimmed: a stray trailing space would otherwise land
+            // inside a path the downloader uses verbatim.
+            musicPath = musicPath.Trim();
+            playlistPath = playlistPath.Trim();
+            archivePath = archivePath.Trim();
             await Upsert(db, "music_path", musicPath);
             await Upsert(db, "playlist_path", playlistPath);
             await Upsert(db, "archive_path", archivePath);
@@ -1140,13 +1145,15 @@ else if (activeTab == "about")
             await SaveNtfyAsync();
 
             // Path changes move the library: playlists, scan locations and
-            // the files themselves follow the new root.
-            var newMusicPath = musicPath.Trim();
-            var newArchivePath = archivePath.Trim();
+            // the files themselves follow the new root. The remembered
+            // root only advances on a real value: clearing the field then
+            // filling in a new root later still moves the old files.
+            var newMusicPath = musicPath;
+            var newArchivePath = archivePath;
             var move = await PathMover.MoveAsync(
                 savedMusicPath, newMusicPath, savedArchivePath, newArchivePath);
-            savedMusicPath = newMusicPath;
-            savedArchivePath = newArchivePath;
+            if (newMusicPath.Length > 0) savedMusicPath = newMusicPath;
+            if (newArchivePath.Length > 0) savedArchivePath = newArchivePath;
             await LoadInitSettingsAsync(); // the default pill reads fresh rows
 
             dirty = false;

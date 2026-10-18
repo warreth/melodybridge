@@ -212,7 +212,7 @@ public class LibraryPathMoverTests
     }
 
     [Test]
-    public async Task MoveAsync_NestedRoots_AreRefused()
+    public async Task MoveAsync_NestedRoots_AreRefused_AndRowsAreLeftAlone()
     {
         var oldRoot = Path.Combine(_root, "music");
         var nested = Path.Combine(oldRoot, "inner");
@@ -220,6 +220,14 @@ public class LibraryPathMoverTests
 
         await using (var db = await _factory.CreateDbContextAsync())
         {
+            db.Playlists.Add(new PlaylistEntity
+            {
+                Id = "pl-1",
+                Name = "My Mix",
+                SourceUrl = "stub:pl",
+                TargetDirectory = oldRoot,
+            });
+            db.ScanLocations.Add(new ScanLocationEntity { Path = oldRoot });
             db.Tracks.Add(new TrackEntity
             {
                 MelodyId = "m1", Title = "Song", Artist = "A", Position = 0,
@@ -231,7 +239,83 @@ public class LibraryPathMoverTests
         var result = await NewMover().MoveAsync(oldRoot, nested, null, null);
 
         Assert.That(result.Files, Is.EqualTo(0), "moving a root inside itself is ambiguous and refused");
+        Assert.That(result.Playlists, Is.EqualTo(0),
+            "a refused move must not leave folders pointing at a tree that was never relocated");
+        Assert.That(result.ScanLocations, Is.EqualTo(0));
         Assert.That(File.Exists(file), Is.True);
+        await using var check = await _factory.CreateDbContextAsync();
+        Assert.That((await check.Playlists.AsNoTracking().SingleAsync()).TargetDirectory, Is.EqualTo(oldRoot));
+        Assert.That((await check.ScanLocations.AsNoTracking().SingleAsync()).Path, Is.EqualTo(oldRoot));
+    }
+
+    [Test]
+    public async Task MoveAsync_ClearedNewRoot_ChangesNothing()
+    {
+        var oldRoot = Path.Combine(_root, "music");
+        var file = WriteFile("music/song.mp3");
+
+        await using (var db = await _factory.CreateDbContextAsync())
+        {
+            db.Playlists.Add(new PlaylistEntity
+            {
+                Id = "pl-1",
+                Name = "My Mix",
+                SourceUrl = "stub:pl",
+                TargetDirectory = oldRoot,
+            });
+            db.ScanLocations.Add(new ScanLocationEntity { Path = oldRoot });
+            db.Tracks.Add(new TrackEntity
+            {
+                MelodyId = "m1", Title = "Song", Artist = "A", Position = 0,
+                DownloadStatus = "downloaded", CurrentPath = file,
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var result = await NewMover().MoveAsync(oldRoot, "", null, null);
+
+        Assert.That(result.MovedAnything, Is.False,
+            "a cleared root has nowhere to move to; rows must survive the save untouched");
+        await using var check = await _factory.CreateDbContextAsync();
+        Assert.That((await check.Playlists.AsNoTracking().SingleAsync()).TargetDirectory, Is.EqualTo(oldRoot));
+        Assert.That((await check.ScanLocations.AsNoTracking().SingleAsync()).Path, Is.EqualTo(oldRoot));
+        Assert.That(File.Exists(file), Is.True);
+    }
+
+    [Test]
+    public async Task MoveAsync_CaseSensitiveFilesystem_KeepsFilesApart()
+    {
+        if (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS())
+            Assert.Ignore("needs a case-sensitive filesystem");
+
+        var oldRoot = Path.Combine(_root, "music");
+        var newRoot = Path.Combine(_root, "new");
+        var upper = WriteFile("music/Song.mp3", "upper");
+        var lower = WriteFile("music/song.mp3", "lower");
+
+        await using (var db = await _factory.CreateDbContextAsync())
+        {
+            db.Tracks.Add(new TrackEntity
+            {
+                MelodyId = "m1", Title = "Upper", Artist = "A", Position = 0,
+                DownloadStatus = "downloaded", CurrentPath = upper,
+            });
+            db.Tracks.Add(new TrackEntity
+            {
+                MelodyId = "m2", Title = "Lower", Artist = "A", Position = 1,
+                DownloadStatus = "downloaded", CurrentPath = lower,
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var result = await NewMover().MoveAsync(oldRoot, newRoot, null, null);
+
+        Assert.That(result.Files, Is.EqualTo(2), "both files are real and both move");
+        Assert.That(File.ReadAllText(Path.Combine(newRoot, "Song.mp3")), Is.EqualTo("upper"));
+        Assert.That(File.ReadAllText(Path.Combine(newRoot, "song.mp3")), Is.EqualTo("lower"));
+        await using var check = await _factory.CreateDbContextAsync();
+        var paths = await check.Tracks.AsNoTracking().Select(t => t.CurrentPath).OrderBy(p => p).ToListAsync();
+        Assert.That(paths, Is.Unique, "the two rows must not collapse onto one file");
     }
 
     [Test]

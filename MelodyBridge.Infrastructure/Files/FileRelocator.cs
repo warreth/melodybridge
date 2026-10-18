@@ -63,6 +63,13 @@ internal static class FileRelocator
             PathComparison);
     }
 
+    /// <summary>The comparer that matches this filesystem's case rules,
+    /// for path-keyed dictionaries.</summary>
+    public static StringComparer PathComparer { get; } =
+        OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
+            ? StringComparer.OrdinalIgnoreCase
+            : StringComparer.Ordinal;
+
     /// <summary>True when a library can move from one root to another:
     /// both given, different, and not nested inside each other.</summary>
     public static bool CanMove(string? oldRoot, string? newRoot)
