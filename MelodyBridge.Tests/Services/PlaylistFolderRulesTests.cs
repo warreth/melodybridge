@@ -107,4 +107,30 @@ public class PlaylistFolderRulesTests
     {
         Assert.That(PlaylistStore.EffectiveArchiveFolder(null, "", "Road Trip"), Is.Empty);
     }
+
+    [Test]
+    public void EffectivePlaylistFolder_PlaylistFoldersOff_UsesTheRoot()
+    {
+        Assert.That(
+            PlaylistStore.EffectivePlaylistFolder(null, "/music", "My List", playlistFolders: false),
+            Is.EqualTo("/music"),
+            "with sorting off every playlist lands directly in the music path");
+        Assert.That(
+            PlaylistStore.EffectivePlaylistFolder("/custom", "/music", "My List", playlistFolders: false),
+            Is.EqualTo("/custom"),
+            "an explicit folder still wins");
+    }
+
+    [Test]
+    public void EffectiveArchiveFolder_PlaylistFoldersOff_UsesTheRoot()
+    {
+        Assert.That(
+            PlaylistStore.EffectiveArchiveFolder(null, "/archive", "My List", playlistFolders: false),
+            Is.EqualTo("/archive"));
+        Assert.That(
+            PlaylistStore.EffectiveArchiveFolder("", "", "My List", playlistFolders: false),
+            Is.EqualTo(""),
+            "no archive path configured stays empty");
+    }
+
 }

@@ -60,12 +60,30 @@ public sealed class TrackLinker
             .ThenByDescending(t => t.LastSeenAt ?? DateTime.MinValue)
             .ToListAsync(ct);
 
+        var archiveRoots = await ArchiveRootsAsync(db, ct);
         foreach (var row in existing)
         {
             if (!File.Exists(row.CurrentPath)) continue;
+            // A row whose "primary" actually sits in an archive folder is
+            // not a primary: linking it would turn an archive copy into
+            // another playlist's download.
+            if (PlaylistRules.PathIsUnder(row.CurrentPath, archiveRoots)) continue;
             return ToMatch(row);
         }
         return null;
+    }
+
+    /// <summary>Every configured archive root: the app-wide archive path
+    /// plus each playlist's own archive folder.</summary>
+    private async Task<List<string>> ArchiveRootsAsync(MelodyBridgeDbContext db, CancellationToken ct)
+    {
+        var roots = await db.Playlists.AsNoTracking()
+            .Where(p => p.ArchiveDirectory != null && p.ArchiveDirectory != "")
+            .Select(p => p.ArchiveDirectory!)
+            .ToListAsync(ct);
+        var global = await _settings.GetAsync("archive_path", "", ct);
+        if (!string.IsNullOrWhiteSpace(global)) roots.Add(global);
+        return roots;
     }
 
     /// <summary>
@@ -209,8 +227,9 @@ public sealed class TrackLinker
         if (!await _settings.GetBoolAsync(PlaylistStore.DedupSettingKey, true, ct)) return 0;
 
         var musicPath = await _settings.GetAsync("music_path", "/music", ct);
+        var playlistFolders = await _settings.GetBoolAsync("playlist_folders", true, ct);
         var folder = PlaylistRules.ResolvePlaylistFolder(
-            playlist.TargetDirectory, musicPath, playlist.Name);
+            playlist.TargetDirectory, musicPath, playlist.Name, playlistFolders);
         if (string.IsNullOrWhiteSpace(folder)) return 0;
 
         var preferredFormat = playlist.PreferredFormat;
@@ -340,8 +359,9 @@ public sealed class TrackLinker
                 .FirstOrDefaultAsync(p => p.Id == playlistId, ct);
         }
         var musicPath = await _settings.GetAsync("music_path", "/music", ct);
+        var playlistFolders = await _settings.GetBoolAsync("playlist_folders", true, ct);
         return PlaylistRules.ResolvePlaylistFolder(
-            playlist?.TargetDirectory, musicPath, playlist?.Name);
+            playlist?.TargetDirectory, musicPath, playlist?.Name, playlistFolders);
     }
 
     /// <summary>
@@ -452,8 +472,9 @@ public sealed class TrackLinker
             return new ArchiveTarget(false, null, null);
 
         var globalPath = await _settings.GetAsync("archive_path", "", ct);
+        var playlistFolders = await _settings.GetBoolAsync("playlist_folders", true, ct);
         var folder = PlaylistRules.ResolveArchiveFolder(
-            playlist?.ArchiveDirectory, globalPath, playlist?.Name);
+            playlist?.ArchiveDirectory, globalPath, playlist?.Name, playlistFolders);
         var format = !string.IsNullOrWhiteSpace(playlist?.ArchiveFormat)
             ? playlist!.ArchiveFormat!
             : await _settings.GetAsync("archive_format", "auto", ct);

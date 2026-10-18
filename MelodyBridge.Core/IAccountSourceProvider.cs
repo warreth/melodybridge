@@ -51,7 +51,11 @@ public record UserPlaylist(
     string? Owner,
     int TrackCount,
     bool IsLikedSongs,
-    string? CoverImageUrl = null);
+    string? CoverImageUrl = null,
+    /// <summary>True when the playlist belongs to the connected account
+    /// (created by it), false for followed or collaborative ones. The
+    /// import list shows own playlists first.</summary>
+    bool IsOwned = false);
 
 /// <summary>
 /// Minimal OAuth token pair an account provider needs. Providers refresh

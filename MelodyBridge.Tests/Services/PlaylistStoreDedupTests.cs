@@ -247,6 +247,47 @@ public class PlaylistStoreDedupTests
     }
 
     [Test]
+    public async Task Dedup_IgnoresACandidateWhoseFileLivesInTheArchiveFolder()
+    {
+        // Playlist A's row points at an archive file. Linking it would
+        // turn an archive copy into playlist B's download, so B must
+        // fetch its own file instead.
+        var (dirA, dirB, sourceFile) = SetupTwoPlaylists();
+        var archiveDir = Path.Combine(_root, "archive");
+        Directory.CreateDirectory(archiveDir);
+        var archiveFile = Path.Combine(archiveDir, "shared.mp3");
+        File.WriteAllBytes(archiveFile, TestAudio.MinimalMp3());
+        await new SettingsStore(_factory).SetAsync("archive_path", archiveDir);
+
+        var (trackAId, trackBId) = await SeedSharedTrack(dirA, dirB, archiveFile, preferredB: "auto");
+        await using (var db = _factory.CreateDbContext())
+        {
+            var a = await db.Tracks.FirstAsync(t => t.Id == trackAId);
+            a.CurrentPath = archiveFile;
+            await db.SaveChangesAsync();
+        }
+
+        var fileToServe = Path.Combine(_root, "serve.mp3");
+        File.WriteAllBytes(fileToServe, TestAudio.MinimalMp3());
+        var downloader = new ServingDownloader(fileToServe);
+        var store = NewStore(downloader);
+        var (downloaded, failed) = await store.DownloadMissingAsync("pl-b");
+
+        var diag = ReadTrack(_factory, trackBId);
+        Assert.That((downloaded, failed), Is.EqualTo((1, 0)),
+            $"download error: {diag?.DownloadError}; calls={downloader.Calls}; status={diag?.DownloadStatus}");
+        var row = ReadTrack(_factory, trackBId);
+        Assert.Multiple(() =>
+        {
+            Assert.That(downloader.Calls, Is.EqualTo(1),
+                "an archive copy is not a link candidate: the track really downloads");
+            Assert.That(row!.IsHardLink, Is.False);
+            Assert.That(row.CurrentPath, Does.StartWith(dirB),
+                "the fresh file lands in this playlist's own folder");
+        });
+    }
+
+    [Test]
     public async Task QualityMismatch_PausesForReviewInsteadOfGuessing()
     {
         // Playlist A holds an mp3 at 320; playlist B wants flac.
@@ -509,11 +550,13 @@ public class PlaylistStoreDedupTests
             new QualityDeliverable(AudioFormat.Flac, Lossless: true, 900, 10000),
             new QualityDeliverable(AudioFormat.Mp3, Lossless: false, 128, 320),
         ]);
+        public int Calls { get; private set; }
         public Task<bool> IsAvailableAsync(CancellationToken ct = default) => Task.FromResult(true);
         public Task<DownloaderSearchHit?> SearchAsync(TrackQuery query, CancellationToken ct = default)
             => Task.FromResult(new DownloaderSearchHit(query.Title, query.Artist, "https://serve.example/1", TimeSpan.FromSeconds(200), BitrateKbps: 320));
         public Task<DownloaderDownloadResult> DownloadAsync(string sourceUrl, string outputDirectory, string? melodyId, DownloadQuality? quality = null, CancellationToken ct = default)
         {
+            Calls++;
             var path = Path.Combine(outputDirectory, Path.GetFileName(file));
             File.Copy(file, path, overwrite: true);
             return Task.FromResult(new DownloaderDownloadResult(true, path, null));

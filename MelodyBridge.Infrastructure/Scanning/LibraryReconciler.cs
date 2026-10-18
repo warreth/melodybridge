@@ -56,6 +56,8 @@ public class LibraryReconciler
         var musicPath = _settings is null
             ? string.Empty
             : await _settings.GetAsync("music_path", "/music", ct);
+        var playlistFolders = _settings is null
+            || await _settings.GetBoolAsync("playlist_folders", true, ct);
 
         // Archive copies never satisfy a track: a playlist whose primary
         // file vanished must not count as downloaded just because the
@@ -83,7 +85,7 @@ public class LibraryReconciler
         {
             var dir = FirstNonEmpty(playlist.TargetDirectory, musicPath);
             var ownFolder = PlaylistRules.ResolvePlaylistFolder(
-                playlist.TargetDirectory, musicPath, playlist.Name);
+                playlist.TargetDirectory, musicPath, playlist.Name, playlistFolders);
             var filesByMelodyId = string.IsNullOrWhiteSpace(dir)
                 ? new Dictionary<string, string>()
                 : IndexDirectory(dir, archiveRoots, ownFolder);
@@ -99,9 +101,23 @@ public class LibraryReconciler
                 // library pass may settle it behind the user's back.
                 if (track.DownloadStatus == "needs-review") continue;
 
-                // Fast path: the remembered path still exists.
+                // Fast path: the remembered path still exists, unless it
+                // points into an archive folder. An archive copy is not a
+                // primary: clear it so the track links or downloads again.
                 if (track.CurrentPath is not null && File.Exists(track.CurrentPath))
                 {
+                    if (PlaylistRules.PathIsUnder(track.CurrentPath, archiveRoots))
+                    {
+                        if (string.Equals(track.CurrentPath, track.ArchivePath, StringComparison.OrdinalIgnoreCase))
+                            track.ArchivePath = null;
+                        track.CurrentPath = null;
+                        track.DownloadStatus = "pending";
+                        track.Warning = string.IsNullOrEmpty(track.Warning)
+                            ? "the file lived in the archive folder; download it again or link another playlist's copy"
+                            : track.Warning;
+                        lost++;
+                        continue;
+                    }
                     if (track.DownloadStatus != "downloaded")
                     {
                         track.DownloadStatus = "downloaded";
@@ -208,6 +224,7 @@ public class LibraryReconciler
 
         var musicPath = await _settings.GetAsync("music_path", "/music", ct);
         var archivePath = await _settings.GetAsync("archive_path", "", ct);
+        var playlistFolders = await _settings.GetBoolAsync("playlist_folders", true, ct);
 
         var layout = new Dictionary<string, PlaylistLayout>(StringComparer.Ordinal);
         foreach (var playlist in playlists)
@@ -215,11 +232,11 @@ public class LibraryReconciler
             layout[playlist.Id] = new PlaylistLayout(
                 Base: FirstNonEmpty(playlist.TargetDirectory, musicPath),
                 Folder: PlaylistRules.ResolvePlaylistFolder(
-                    playlist.TargetDirectory, musicPath, playlist.Name),
+                    playlist.TargetDirectory, musicPath, playlist.Name, playlistFolders),
                 ArchiveBase: FirstNonEmpty(playlist.ArchiveDirectory, archivePath),
                 ArchiveFolder: playlist.ArchiveEnabled
                     ? PlaylistRules.ResolveArchiveFolder(
-                        playlist.ArchiveDirectory, archivePath, playlist.Name)
+                        playlist.ArchiveDirectory, archivePath, playlist.Name, playlistFolders)
                     : string.Empty);
         }
 

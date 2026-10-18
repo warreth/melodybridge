@@ -93,30 +93,44 @@ public class DownloadManager : IDownloadManager
     /// automatic match refused or skipped. Guarded like the waterfall: an
     /// unavailable or throwing plugin contributes nothing.
     /// </summary>
-    public async Task<IReadOnlyList<DownloadCandidate>> SearchCandidatesAsync(
+    public Task<IReadOnlyList<DownloadCandidate>> SearchCandidatesAsync(
         TrackQuery query, CancellationToken ct = default)
+        => SearchCandidatesAsync(query, onCandidate: null, ct);
+
+    /// <summary>
+    /// Same list, but every enabled plugin searches at the same time: the
+    /// wait is the slowest plugin instead of the sum of all of them, and
+    /// each plugin still makes exactly one search request, so nothing
+    /// costs extra rate-limit budget. <paramref name="onCandidate"/>
+    /// receives each hit the moment its plugin answers, so a picker can
+    /// fill in while the rest is still running.
+    /// </summary>
+    public async Task<IReadOnlyList<DownloadCandidate>> SearchCandidatesAsync(
+        TrackQuery query, Action<DownloadCandidate>? onCandidate,
+        CancellationToken ct = default)
     {
         var (pluginBudget, _) = await BudgetsAsync(ct);
-        var results = new List<DownloadCandidate>();
-        var seenUrls = new HashSet<string>(StringComparer.Ordinal);
+        var results = new System.Collections.Concurrent.ConcurrentBag<DownloadCandidate>();
+        var seenUrls = new System.Collections.Concurrent.ConcurrentDictionary<string, byte>(StringComparer.Ordinal);
 
-        foreach (var downloader in _registry.GetEnabled())
+        var tasks = _registry.GetEnabled().Select(async downloader =>
         {
-            ct.ThrowIfCancellationRequested();
-            if (_health.ShouldSkip(downloader.Id)) continue;
+            if (_health.ShouldSkip(downloader.Id)) return;
 
             using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
             budget.CancelAfter(pluginBudget);
             try
             {
-                if (!await AvailableAsync(downloader, budget.Token)) continue;
+                if (!await AvailableAsync(downloader, budget.Token)) return;
                 var hits = await downloader.SearchAllAsync(query, budget.Token);
                 foreach (var hit in hits)
                 {
-                    if (hit.SourceUrl is not { Length: > 0 } url || !seenUrls.Add(url)) continue;
-                    results.Add(new DownloadCandidate(
+                    if (hit.SourceUrl is not { Length: > 0 } url || !seenUrls.TryAdd(url, 0)) continue;
+                    var candidate = new DownloadCandidate(
                         downloader.Id, downloader.Name, hit.Title, hit.Artist,
-                        hit.Duration, hit.BitrateKbps, url, hit.MatchConfidence));
+                        hit.Duration, hit.BitrateKbps, url, hit.MatchConfidence);
+                    results.Add(candidate);
+                    onCandidate?.Invoke(candidate);
                 }
             }
             catch (OperationCanceledException) when (!ct.IsCancellationRequested)
@@ -128,7 +142,9 @@ public class DownloadManager : IDownloadManager
                 _logger.LogWarning(ex, "{Name} candidate search threw for '{Artist} - {Title}'",
                     downloader.Name, query.Artist, query.Title);
             }
-        }
+        }).ToList();
+
+        await Task.WhenAll(tasks);
 
         // Best first: the plugin's own confidence, then the shared score
         // (title/artist similarity with the duration penalty). The user

@@ -894,4 +894,82 @@ public class DefaultDownloadPathTests
         }
 
     }
+
+    [Test]
+    public async Task Redownload_ReplacesTheOldFileAndItsArchiveCopy()
+    {
+        var dbPath = NewDbPath();
+        var musicDir = Path.Combine(Path.GetTempPath(), $"mb-default-redo-music-{Guid.NewGuid():N}");
+        var archiveDir = Path.Combine(Path.GetTempPath(), $"mb-default-redo-arch-{Guid.NewGuid():N}");
+        try
+        {
+            var factory = await NewDbFactory(dbPath);
+            var settings = new SettingsStore(factory);
+            await settings.SetAsync("music_path", musicDir);
+            await settings.SetAsync("archive_path", archiveDir);
+            await SeedPlaylistWithoutFolderAsync(factory);
+            var store = NewStore(factory, new FileWritingDownloader());
+
+            var first = await store.DownloadMissingAsync("pl-default");
+            Assert.That(first, Is.EqualTo((1, 0)));
+
+            int trackId;
+            string freshPrimary, freshArchive;
+            await using (var db = await factory.CreateDbContextAsync())
+            {
+                var track = await db.Tracks.AsNoTracking().SingleAsync(t => t.MelodyId == "mel-d1");
+                trackId = track.Id;
+                freshPrimary = track.CurrentPath!;
+                freshArchive = track.ArchivePath!;
+            }
+            Assert.That(System.IO.File.Exists(freshPrimary), Is.True);
+            Assert.That(System.IO.File.Exists(freshArchive), Is.True);
+
+            // An older provider left differently named files behind: the
+            // rerun must replace both, not only the file it writes now.
+            var stalePrimary = Path.Combine(Path.GetDirectoryName(freshPrimary)!, "old-provider.mp3");
+            var staleArchive = Path.Combine(Path.GetDirectoryName(freshArchive)!, "old-provider.mp3");
+            System.IO.File.Move(freshPrimary, stalePrimary);
+            System.IO.File.Move(freshArchive, staleArchive);
+            await using (var db = await factory.CreateDbContextAsync())
+            {
+                var track = await db.Tracks.SingleAsync(t => t.MelodyId == "mel-d1");
+                track.CurrentPath = stalePrimary;
+                track.ArchivePath = staleArchive;
+                track.DownloadStatus = "pending";
+                await db.SaveChangesAsync();
+            }
+
+            var retry = await store.DownloadTrackAsync(trackId);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(retry, Is.EqualTo("downloaded"));
+                Assert.That(System.IO.File.Exists(stalePrimary), Is.False,
+                    "the replaced primary file goes");
+                Assert.That(System.IO.File.Exists(staleArchive), Is.False,
+                    "and the replaced archive copy goes with it");
+            });
+            await using (var check = await factory.CreateDbContextAsync())
+            {
+                var track = await check.Tracks.AsNoTracking().SingleAsync(t => t.Id == trackId);
+                Assert.Multiple(() =>
+                {
+                    Assert.That(track.CurrentPath, Is.EqualTo(freshPrimary),
+                        "the fresh download lands under its own name");
+                    Assert.That(System.IO.File.Exists(track.CurrentPath!), Is.True);
+                    Assert.That(track.ArchivePath, Is.EqualTo(freshArchive),
+                        "the archive copy matches the fresh download");
+                    Assert.That(System.IO.File.Exists(track.ArchivePath!), Is.True);
+                });
+            }
+        }
+        finally
+        {
+            TryDelete(dbPath);
+            try { Directory.Delete(musicDir, recursive: true); } catch { /* best effort */ }
+            try { Directory.Delete(archiveDir, recursive: true); } catch { /* best effort */ }
+        }
+    }
+
 }

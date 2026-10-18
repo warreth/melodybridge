@@ -244,7 +244,8 @@ public class YouTubeAccountProvider : IAccountSourceProvider
                     playlist.Snippet?.Title ?? "Untitled",
                     playlist.Snippet?.ChannelTitle,
                     (int)(playlist.ContentDetails?.ItemCount ?? 0),
-                    playlist.Id == LikedId));
+                    playlist.Id == LikedId,
+                    IsOwned: true));
             }
             pageToken = response.NextPageToken;
         } while (pageToken is not null);

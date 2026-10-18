@@ -116,6 +116,15 @@ public interface IDownloadManager
     Task<IReadOnlyList<DownloadCandidate>> SearchCandidatesAsync(
         TrackQuery query, CancellationToken ct = default);
     /// <summary>
+    /// The same list with every plugin searched at the same time:
+    /// <paramref name="onCandidate"/> receives each hit the moment its
+    /// plugin answers, so a picker fills in while the rest still runs.
+    /// One search request per plugin, exactly like the sequential call.
+    /// </summary>
+    Task<IReadOnlyList<DownloadCandidate>> SearchCandidatesAsync(
+        TrackQuery query, Action<DownloadCandidate>? onCandidate,
+        CancellationToken ct = default);
+    /// <summary>
     /// Download one candidate a human picked by hand. The choice overrides
     /// the ranking, never the sanity: non-audio bytes are still rejected
     /// and the MELODY_ID tag is written.

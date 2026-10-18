@@ -43,6 +43,9 @@ public class DownloadManagerCandidateTests
         public string Name => $"Plugin {Id}";
         public PluginCapabilities Capabilities => PluginCapabilities.Any;
         public bool Available { get; init; } = true;
+        /// <summary>Optional barrier both plugins must be inside, proving
+        /// the searches run at the same time.</summary>
+        public Func<Task>? SearchBarrier { get; init; }
         public int DownloadCalls { get; private set; }
         public string? LastSourceUrl { get; private set; }
 
@@ -52,9 +55,13 @@ public class DownloadManagerCandidateTests
         public Task<DownloaderSearchHit?> SearchAsync(TrackQuery query, CancellationToken ct = default)
             => Task.FromResult(_hits.FirstOrDefault());
 
-        public Task<IReadOnlyList<DownloaderSearchHit>> SearchAllAsync(
+        public async Task<IReadOnlyList<DownloaderSearchHit>> SearchAllAsync(
             TrackQuery query, CancellationToken ct = default)
-            => Task.FromResult(_hits);
+        {
+            if (SearchBarrier is not null)
+                await SearchBarrier().WaitAsync(TimeSpan.FromSeconds(10));
+            return _hits;
+        }
 
         public Task<DownloaderDownloadResult> DownloadAsync(
             string sourceUrl, string outputDirectory, string? melodyId,
@@ -160,4 +167,41 @@ public class DownloadManagerCandidateTests
         Assert.That(result, Is.Null);
         Assert.That(manager.LastFailure("mel-ghost"), Does.Contain("not enabled"));
     }
+    [Test]
+    public async Task SearchCandidates_RunsPluginsAtTheSameTime_AndStreamsHits()
+    {
+        // Both plugins must be inside their search before either may
+        // answer: a sequential loop would time one out and lose it.
+        var both = new TaskCompletionSource();
+        var inside = 0;
+        async Task BarrierAsync()
+        {
+            if (Interlocked.Increment(ref inside) == 2) both.TrySetResult();
+            await both.Task;
+        }
+        var alpha = new StubPlugin("alpha", Hit("Song", "Artist", "https://a/1", 210))
+        {
+            SearchBarrier = BarrierAsync,
+        };
+        var beta = new StubPlugin("beta", Hit("Song (Live)", "Artist", "https://b/1", 220))
+        {
+            SearchBarrier = BarrierAsync,
+        };
+        IDownloadManager manager = new DownloadManager(
+            new ListDownloaderRegistry(alpha, beta),
+            NullLogger<DownloadManager>.Instance);
+
+        var streamed = new List<DownloadCandidate>();
+        var all = await manager.SearchCandidatesAsync(
+            new TrackQuery("Artist", "Song", DownloadQuality.Any),
+            streamed.Add);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(all, Has.Count.EqualTo(2), "both plugins answered");
+            Assert.That(streamed, Has.Count.EqualTo(2),
+                "each hit is streamed as soon as its plugin answers");
+        });
+    }
+
 }

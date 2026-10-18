@@ -820,4 +820,65 @@ public class LibraryReconcilerTests
         Assert.That(track.CurrentPath, Is.EqualTo(moved));
         Assert.That(track.DownloadStatus, Is.EqualTo("downloaded"));
     }
+
+    [Test]
+    public async Task CurrentPathInsideAnArchiveFolder_IsClearedNotKeptAsDownloaded()
+    {
+        // A row from before the archive guard can point its primary at an
+        // archive file. The fast path must not bless that: an archive copy
+        // is not a primary, so the row returns to pending.
+        var archiveDir = Path.Combine(_dir, "archive");
+        Directory.CreateDirectory(archiveDir);
+        var settings = new SettingsStore(_factory);
+        await settings.SetAsync("music_path", _dir);
+        await settings.SetAsync("archive_path", archiveDir);
+        var file = WriteTaggedFile("archive", "mb-recon-inside");
+
+        await using (var db = _factory.CreateDbContext())
+        {
+            db.Playlists.Add(new PlaylistEntity
+            {
+                Id = "pl-inside",
+                Name = "Inside",
+                SourceUrl = "https://example.com/inside",
+                SourcePlatform = Platform.Spotify,
+                TargetDirectory = _dir,
+                Tracks = new List<TrackEntity>
+                {
+                    new()
+                    {
+                        MelodyId = "mb-recon-inside",
+                        Title = "Wrong pointer",
+                        Artist = "A",
+                        Position = 0,
+                        DownloadStatus = "downloaded",
+                        CurrentPath = file,
+                        ArchivePath = file,
+                    },
+                },
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var reconciler = new LibraryReconciler(
+            _factory, NullLogger<LibraryReconciler>.Instance, settings, NewLinker());
+        await reconciler.ReconcileAllAsync();
+
+        await using (var db = _factory.CreateDbContext())
+        {
+            var row = db.Tracks.Single(t => t.PlaylistEntityId == "pl-inside");
+            Assert.Multiple(() =>
+            {
+                Assert.That(row.CurrentPath, Is.Null,
+                    "an archive file never stays the primary");
+                Assert.That(row.ArchivePath, Is.Null);
+                Assert.That(row.DownloadStatus, Is.EqualTo("pending"),
+                    "the track can be linked or downloaded again");
+                Assert.That(row.Warning, Does.Contain("archive"),
+                    "the row says why it was cleared");
+            });
+        }
+        Assert.That(File.Exists(file), Is.True, "the archive file itself stays");
+    }
+
 }

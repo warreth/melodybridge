@@ -1,5 +1,6 @@
 using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.Data;
+using MelodyBridge.Infrastructure.Services;
 using MelodyBridge.Infrastructure.Tagging;
 using TagLib;
 using Microsoft.Extensions.Logging;
@@ -29,6 +30,9 @@ public class LibraryScanner : ILibraryScanner
         var tagged = 0;
         var untagged = 0;
         var missing = new List<string>();
+        // Never adopt an archive copy as a primary file, even when the
+        // user points a scan location at the archive tree.
+        var archiveRoots = await ArchiveRootsAsync(ct);
 
         foreach (var loc in paths)
         {
@@ -42,7 +46,8 @@ public class LibraryScanner : ILibraryScanner
             }
 
             var files = Directory.EnumerateFiles(loc.Path, "*.*", SearchOption.AllDirectories)
-                .Where(f => extensions.Contains(Path.GetExtension(f), StringComparer.OrdinalIgnoreCase));
+                .Where(f => extensions.Contains(Path.GetExtension(f), StringComparer.OrdinalIgnoreCase))
+                .Where(f => !PlaylistRules.PathIsUnder(f, archiveRoots));
 
             foreach (var filePath in files)
             {
@@ -127,5 +132,21 @@ public class LibraryScanner : ILibraryScanner
         }
 
         return new ScanReport(locations, tagged, untagged, missing.ToArray());
+    }
+
+    /// <summary>Archive roots of the library: playlist archive folders plus
+    /// the app-wide archive path.</summary>
+    private async Task<List<string>> ArchiveRootsAsync(CancellationToken ct)
+    {
+        var roots = await _db.Playlists.AsNoTracking()
+            .Where(p => p.ArchiveDirectory != null && p.ArchiveDirectory != "")
+            .Select(p => p.ArchiveDirectory!)
+            .ToListAsync(ct);
+        var global = await _db.DownloaderSettings.AsNoTracking()
+            .Where(s => s.Key == "archive_path")
+            .Select(s => s.Value)
+            .FirstOrDefaultAsync(ct);
+        if (!string.IsNullOrWhiteSpace(global)) roots.Add(global);
+        return roots;
     }
 }

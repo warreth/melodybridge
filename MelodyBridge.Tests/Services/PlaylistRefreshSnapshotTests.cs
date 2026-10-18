@@ -113,6 +113,7 @@ public class PlaylistRefreshSnapshotTests
                 track.ReviewText = "duration mismatch: 345.2s vs expected 300s; bitrate looks inflated";
                 track.SourcePluginId = "ytdlp";
                 track.AvoidPluginId = "archiveorg";
+                track.Album = "Kept Album";
                 track.AlbumArtist = "Various Artists";
                 track.CoverUrl = "https://cdn.example/cover.jpg";
                 track.Lyrics = "first line\nsecond line";
@@ -148,6 +149,8 @@ public class PlaylistRefreshSnapshotTests
                         "Retry still needs to know who delivered the flagged file");
                     Assert.That(track.AvoidPluginId, Is.EqualTo("archiveorg"),
                         "a retry hint set before the rebuild must still steer that attempt");
+                    Assert.That(track.Album, Is.EqualTo("Kept Album"),
+                        "a source that temporarily has no album must not blank the stored one");
                     Assert.That(track.AlbumArtist, Is.EqualTo("Various Artists"),
                         "the release credit survives the rebuild");
                     Assert.That(track.CoverUrl, Is.EqualTo("https://cdn.example/cover.jpg"),

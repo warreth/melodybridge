@@ -199,6 +199,12 @@ public class SpotifyAccountProvider : IAccountSourceProvider
         var client = await GetClientAsync(ct);
         var result = new List<UserPlaylist>();
 
+        // Which playlists are the account's own: followed ones are listed
+        // after them in the import dialog.
+        string? meId = null;
+        try { meId = (await client.UserProfile.Current())?.Id; }
+        catch { /* own-first ordering degrades to alphabetical */ }
+
         // /me/playlists pages through every playlist of the user, private ones
         // included (playlist-read-private scope).
         await foreach (var playlist in client.Paginate(
@@ -211,7 +217,8 @@ public class SpotifyAccountProvider : IAccountSourceProvider
                 playlist.Owner?.DisplayName ?? playlist.Owner?.Id,
                 playlist.Items?.Total ?? 0,
                 IsLikedSongs: false,
-                playlist.Images?.FirstOrDefault()?.Url));
+                playlist.Images?.FirstOrDefault()?.Url,
+                IsOwned: meId is not null && playlist.Owner?.Id == meId));
         }
 
         return result;

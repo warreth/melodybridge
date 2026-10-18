@@ -95,6 +95,25 @@ public class QobuzDownloaderTests
             .FirstOrDefault() ?? "";
 
     [Test]
+    public void Rank_RealRiverPair_QobuzCreditsOnlyTheLead_AndStillWins()
+    {
+        // The user's case, pinned with the catalogue's own answer: Qobuz
+        // carries both Revival ISRCs (USUM71713011 and USUM71712944) and
+        // credits "Eminem" alone, while Spotify credits "Eminem, Ed
+        // Sheeran" and advertises 226s against Qobuz's 221s. The exact
+        // code must carry the hit.
+        var hit = QobuzDownloader.Rank(new[]
+        {
+            new QobuzClient.QobuzTrack(46100068, "River (feat. Ed Sheeran)", "Eminem",
+                TimeSpan.FromSeconds(221), "USUM71712944", null, false),
+        }, new TrackQuery("Eminem, Ed Sheeran", "River", DownloadQuality.Any,
+            ExpectedDuration: TimeSpan.FromSeconds(226), Isrc: "USUM71712944"));
+
+        Assert.That(hit, Is.Not.Null);
+        Assert.That(hit!.SourceUrl, Does.EndWith("/46100068"));
+    }
+
+    [Test]
     public async Task Search_WithAnIsrc_AsksTheCatalogueForTheCodeFirst()
     {
         // The text search would return a soundtrack that shares the words;

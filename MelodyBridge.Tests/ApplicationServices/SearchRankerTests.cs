@@ -76,6 +76,19 @@ public class SearchRankerTests
     }
 
     [Test]
+    public void ExactRecording_AcceptsAShorterArtistCreditOnTheSameCode()
+    {
+        // Spotify: "Eminem, Ed Sheeran", 226s. Qobuz: "Eminem", 221s,
+        // same code. The credit difference must not veto the code.
+        var result = SearchRanker.RankExactRecording("Eminem, Ed Sheeran", "River",
+            TimeSpan.FromSeconds(226),
+            new[] { Hit("River (feat. Ed Sheeran)", "Eminem", "https://x/river", 221) });
+
+        Assert.That(result, Is.Not.Null);
+        Assert.That(result!.SourceUrl, Is.EqualTo("https://x/river"));
+    }
+
+    [Test]
     public void ExactRecording_StillRejectsAGrosslyImplausibleLength()
     {
         // A 30 second clip is not the track, whatever code the catalogue

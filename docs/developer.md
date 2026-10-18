@@ -219,10 +219,12 @@ public interface IDownloadManager
 }
 ```
 
-`SearchCandidatesAsync` and `DownloadCandidateAsync` are the manual picker's
-pair: the search runs every enabled plugin's `SearchAllAsync` with no
-acceptance gate and no quality routing (guarded per plugin, best first), and
-the download fetches exactly the picked candidate. The pick overrides the
+`SearchCandidatesAsync(query, onCandidate, ct)` and `DownloadCandidateAsync`
+are the manual picker's pair: the search runs every enabled plugin's
+`SearchAllAsync` at the same time (one request per plugin, so the wait is the
+slowest plugin instead of the sum), streams each hit through `onCandidate`, and
+applies no acceptance gate and no quality routing (guarded per plugin, best
+first); the download fetches exactly the picked candidate. The pick overrides the
 ranking, never the sanity: bytes must sniff as audio and the MELODY_ID tag is
 written. `DownloadPipeline.DownloadChosenTrackAsync` wraps it with the usual
 claim and the shared post-download steps (`CompleteDownloadAsync`: tags,
@@ -325,7 +327,10 @@ Playlist folders are the unit of storage: `PlaylistRules.ResolvePlaylistFolder`
 turns a playlist's `TargetDirectory` (plus the `music_path` setting for the
 default) into the folder downloads land in. An explicit folder is used as it is;
 the app-wide default counts as "no choice" and gets a subfolder named after the
-playlist, so every playlist owns its folder, liked songs included.
+playlist, so every playlist owns its folder, liked songs included. The
+`playlist_folders` setting (Default paths, on by default) turns the per-playlist
+subfolder off: the root itself is then the folder, and every caller reads the
+setting through `SettingsStore`.
 `ResolveArchiveFolder` applies the same rule under the archive path, and the
 playlist row carries an `ArchiveEnabled` switch that skips the copy entirely when
 off. `LibraryReconciler` moves downloaded files (archive copies included) that
@@ -341,7 +346,10 @@ module that performs it: the download claim, the playlist add/refresh
 path and `LibraryReconciler` all go through it. A claimed track looks
 for another playlist's row with the same MelodyId and a downloaded
 file, and compares that file's measured quality with the requested
-band:
+band. Rows whose `CurrentPath` sits inside an archive root (the
+`archive_path` setting or any playlist's `ArchiveDirectory`) are never
+candidates: an archive copy cannot become another playlist's primary
+file.
 
 - Exact match: `HardLinkService.Create` (P/Invoke `link(2)` on Unix,
   `CreateHardLinkW` on Windows; `File.CreateHardLink` arrives in
@@ -352,11 +360,11 @@ band:
   playlist's configured format; a different format gets this playlist's
   own local copy, and only a cross-device link falls back that way.
 - Quality difference: the row pauses as `needs-review` with a warning;
-  the UI offers "Download new version" and "Hardlink existing version"
-  (`ResolveReviewAsync`). The store never picks for the user. "Download
-  new" records a one-shot `Tracks.SkipDedup` flag, so the next attempt
-  skips the dedup check once and really fetches a fresh file instead of
-  pausing on the same candidate again.
+  the UI offers "Download new" and "Hardlink existing" (`ResolveReviewAsync`;
+  the hardlink button opens a confirmation dialog first). The store never picks
+  for the user. "Download new" records a one-shot `Tracks.SkipDedup` flag, so
+  the next attempt skips the dedup check once and really fetches a fresh file
+  instead of pausing on the same candidate again.
 - Cross-device failure (EXDEV): the exception carries the honest
   message, the store logs it and the track downloads normally. A
   `File.Copy` fallback is deliberately forbidden.

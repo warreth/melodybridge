@@ -78,9 +78,10 @@ internal sealed class DownloadPipeline
             // path (one subfolder per playlist, so dedup links and archive
             // copies stay separated per playlist).
             var musicPath = await _settings.GetAsync("music_path", "/music", ct);
+            var playlistFolders = await _settings.GetBoolAsync("playlist_folders", true, ct);
             dir = outputDirectoryOverride is not null
                 ? outputDirectoryOverride
-                : PlaylistRules.ResolvePlaylistFolder(entity.TargetDirectory, musicPath, entity.Name);
+                : PlaylistRules.ResolvePlaylistFolder(entity.TargetDirectory, musicPath, entity.Name, playlistFolders);
             if (string.IsNullOrWhiteSpace(dir))
                 throw new InvalidOperationException(
                     "No download folder configured. Set one in the playlist settings.");
@@ -140,7 +141,8 @@ internal sealed class DownloadPipeline
             var playlist = await db.Playlists.AsNoTracking()
                 .FirstOrDefaultAsync(p => p.Id == track.PlaylistEntityId, ct);
             var musicPath = await _settings.GetAsync("music_path", "/music", ct);
-            dir = PlaylistRules.ResolvePlaylistFolder(playlist?.TargetDirectory, musicPath, playlist?.Name);
+            var playlistFolders = await _settings.GetBoolAsync("playlist_folders", true, ct);
+            dir = PlaylistRules.ResolvePlaylistFolder(playlist?.TargetDirectory, musicPath, playlist?.Name, playlistFolders);
             preferredFormat = playlist?.PreferredFormat ?? "";
             if (string.IsNullOrWhiteSpace(preferredFormat))
                 preferredFormat = await _settings.GetAsync("default_quality", "auto", ct);
@@ -309,6 +311,12 @@ internal sealed class DownloadPipeline
         // file never costs a network call.
         await EnrichMetadataAsync(track, path, ct);
 
+        // The fresh file replaces what the row held: delete the previous
+        // primary and archive copy by name first (a hardlink twin in
+        // another playlist keeps its bytes), so a retry that lands under a
+        // new name cannot leave orphans and the archive copy below always
+        // matches this download.
+        await DeleteReplacedFilesAsync(db, track, path, ct);
         track.DownloadStatus = "downloaded";
         track.CurrentPath = path;
         track.LastSeenAt = DateTime.UtcNow;
@@ -330,11 +338,54 @@ internal sealed class DownloadPipeline
     }
 
     /// <summary>
+    /// Deletes the files a rerun replaced. Name-wise and reference-checked:
+    /// a path another row still points at (a hardlink twin or a shared
+    /// archive) survives, and a failed delete only warns on the row.
+    /// </summary>
+    private async Task DeleteReplacedFilesAsync(
+        MelodyBridgeDbContext db, TrackEntity track, string newPath, CancellationToken ct)
+    {
+        var oldPaths = new[] { track.CurrentPath, track.ArchivePath }
+            .Where(p => !string.IsNullOrWhiteSpace(p))
+            .Select(p => p!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Where(p => !PlaylistStore.PathsEqual(p, newPath))
+            .ToList();
+        foreach (var oldPath in oldPaths)
+        {
+            if (await db.Tracks.AsNoTracking()
+                .AnyAsync(t => t.Id != track.Id
+                    && (t.CurrentPath == oldPath || t.ArchivePath == oldPath), ct))
+            {
+                continue;
+            }
+            if (!File.Exists(oldPath)) continue;
+            try
+            {
+                File.Delete(oldPath);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning("Could not delete the replaced file {Path}: {Reason}",
+                    oldPath, ex.Message);
+                track.Warning = string.IsNullOrEmpty(track.Warning)
+                    ? $"could not remove the previous file {oldPath}: {ex.Message}"
+                    : $"{track.Warning}; could not remove the previous file {oldPath}: {ex.Message}";
+            }
+        }
+    }
+
+    /// <summary>
     /// Candidates every enabled plugin offers for a track, for the manual
     /// source picker. A read-only search: no claim, no row change.
     /// </summary>
-    public async Task<IReadOnlyList<DownloadCandidate>> SearchCandidatesAsync(
+    public Task<IReadOnlyList<DownloadCandidate>> SearchCandidatesAsync(
         int trackId, CancellationToken ct = default)
+        => SearchCandidatesAsync(trackId, onCandidate: null, ct);
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<DownloadCandidate>> SearchCandidatesAsync(
+        int trackId, Action<DownloadCandidate>? onCandidate, CancellationToken ct = default)
     {
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var track = await db.Tracks.AsNoTracking().FirstOrDefaultAsync(t => t.Id == trackId, ct);
@@ -357,7 +408,7 @@ internal sealed class DownloadPipeline
         var query = new TrackQuery(
             track.Artist!, track.Title!, PlaylistRules.ParseQuality(preferred),
             expectedDuration, track.Isrc);
-        return await _downloadManager.SearchCandidatesAsync(query, ct);
+        return await _downloadManager.SearchCandidatesAsync(query, onCandidate, ct);
     }
 
     /// <summary>
@@ -383,7 +434,8 @@ internal sealed class DownloadPipeline
             var playlist = await db.Playlists.AsNoTracking()
                 .FirstOrDefaultAsync(p => p.Id == track.PlaylistEntityId, ct);
             var musicPath = await _settings.GetAsync("music_path", "/music", ct);
-            dir = PlaylistRules.ResolvePlaylistFolder(playlist?.TargetDirectory, musicPath, playlist?.Name);
+            var playlistFolders = await _settings.GetBoolAsync("playlist_folders", true, ct);
+            dir = PlaylistRules.ResolvePlaylistFolder(playlist?.TargetDirectory, musicPath, playlist?.Name, playlistFolders);
             preferredFormat = playlist?.PreferredFormat ?? "";
             if (string.IsNullOrWhiteSpace(preferredFormat))
                 preferredFormat = await _settings.GetAsync("default_quality", "auto", ct);

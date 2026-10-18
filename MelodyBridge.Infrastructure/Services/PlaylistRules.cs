@@ -118,25 +118,47 @@ internal static class PlaylistRules
     /// subfolder named after the playlist, so every playlist owns its
     /// folder and its dedup links. Empty when nothing is configured.
     /// </summary>
-    internal static string ResolvePlaylistFolder(string? targetDirectory, string defaultMusicPath, string? playlistName)
-        => ResolveWithPlaylistFolder(targetDirectory, defaultMusicPath, playlistName);
+    internal static string ResolvePlaylistFolder(string? targetDirectory, string defaultMusicPath, string? playlistName,
+        bool playlistFolders = true)
+        => ResolveWithPlaylistFolder(targetDirectory, defaultMusicPath, playlistName, playlistFolders);
 
     /// <summary>
     /// The playlist's effective archive folder, same rule as the download
     /// folder: an explicit folder wins, the app-wide archive path gets a
     /// subfolder per playlist. Empty when no archive path is configured.
     /// </summary>
-    internal static string ResolveArchiveFolder(string? archiveDirectory, string defaultArchivePath, string? playlistName)
-        => ResolveWithPlaylistFolder(archiveDirectory, defaultArchivePath, playlistName);
+    internal static string ResolveArchiveFolder(string? archiveDirectory, string defaultArchivePath, string? playlistName,
+        bool playlistFolders = true)
+        => ResolveWithPlaylistFolder(archiveDirectory, defaultArchivePath, playlistName, playlistFolders);
 
-    private static string ResolveWithPlaylistFolder(string? explicitFolder, string defaultRoot, string? playlistName)
+    private static string ResolveWithPlaylistFolder(string? explicitFolder, string defaultRoot, string? playlistName,
+        bool playlistFolders)
     {
         if (!string.IsNullOrWhiteSpace(explicitFolder) && !PathEquals(explicitFolder, defaultRoot))
             return explicitFolder.Trim();
         var root = !string.IsNullOrWhiteSpace(explicitFolder) ? explicitFolder.Trim()
             : defaultRoot?.Trim() ?? "";
         if (root.Length == 0) return string.Empty;
-        return Path.Combine(root, FolderNameFor(playlistName));
+        // Sorting off means one flat library: the root itself is the home.
+        return playlistFolders ? Path.Combine(root, FolderNameFor(playlistName)) : root;
+    }
+
+    /// <summary>
+    /// True when a path lives inside one of the archive roots. Archive
+    /// copies must never be adopted or linked as a track's main file.
+    /// </summary>
+    internal static bool PathIsUnder(string? path, IEnumerable<string> roots)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return false;
+        var full = path.Trim();
+        foreach (var root in roots)
+        {
+            if (string.IsNullOrWhiteSpace(root)) continue;
+            if (PathEquals(full, root)) return true;
+            var prefix = root.Trim().TrimEnd('/', '\\') + Path.DirectorySeparatorChar;
+            if (full.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) return true;
+        }
+        return false;
     }
 
     /// <summary>Path equality ignoring a trailing separator; case-insensitive on Windows/macOS.</summary>

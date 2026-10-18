@@ -322,8 +322,11 @@ internal sealed class PlaylistSnapshots
                     // carry one (embed scrape, YouTube).
                     mapped.Isrc ??= prior.Isrc;
                     // Download metadata survives too: a refresh must not
-                    // lose the cover, the release credit or the lyrics the
-                    // pipeline already paid for.
+                    // lose the album, the cover, the release credit or the
+                    // lyrics the pipeline already paid for. A source that
+                    // temporarily loses album data (a fallback scrape)
+                    // must not blank a stored album.
+                    mapped.Album ??= prior.Album;
                     mapped.AlbumArtist ??= prior.AlbumArtist;
                     mapped.CoverUrl ??= prior.CoverUrl;
                     mapped.Lyrics ??= prior.Lyrics;

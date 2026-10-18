@@ -269,4 +269,41 @@ public class LibraryScannerTests
             Directory.Delete(dir, recursive: true);
         }
     }
+
+    [Test]
+    public async Task Scan_FileInsideAnArchiveFolder_IsNotAdopted()
+    {
+        var options = new DbContextOptionsBuilder<MelodyBridgeDbContext>()
+            .UseSqlite($"Data Source=file:memdb{Guid.NewGuid():N}?mode=memory&cache=shared")
+            .Options;
+        using var db = new MelodyBridgeDbContext(options);
+        db.Database.EnsureCreated();
+
+        var musicDir = NewDir();
+        var archiveDir = Path.Combine(musicDir, "archive");
+        Directory.CreateDirectory(archiveDir);
+        try
+        {
+            var archiveFile = Path.Combine(archiveDir, "archived.mp3");
+            await System.IO.File.WriteAllBytesAsync(archiveFile, SilenceMp3());
+            MelodyBridge.Infrastructure.Tagging.TaglibHelper.WriteMelodyId(archiveFile, "mel-arch-scan");
+            db.Playlists.Add(new PlaylistEntity
+            {
+                Id = "pl-arch",
+                Name = "Archive",
+                SourceUrl = "https://example.com/a",
+                SourcePlatform = Platform.Spotify,
+                ArchiveDirectory = archiveDir,
+            });
+            await db.SaveChangesAsync();
+
+            var scanner = new LibraryScanner(db, NullLogger<LibraryScanner>.Instance);
+            await scanner.ScanAsync(new[] { new ScanLocation(musicDir) });
+
+            Assert.That(db.Tracks.AsNoTracking().Any(t => t.MelodyId == "mel-arch-scan"), Is.False,
+                "a file inside an archive root is never adopted as a library track");
+        }
+        finally { Directory.Delete(musicDir, recursive: true); }
+    }
+
 }

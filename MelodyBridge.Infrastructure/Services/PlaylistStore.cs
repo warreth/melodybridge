@@ -62,12 +62,14 @@ public class PlaylistStore
     /// The folder a playlist's downloads land in: the explicit folder, or
     /// the music path with a subfolder named after the playlist (UI hint).
     /// </summary>
-    public static string EffectivePlaylistFolder(string? targetDirectory, string musicPath, string? playlistName)
-        => PlaylistRules.ResolvePlaylistFolder(targetDirectory, musicPath, playlistName);
+    public static string EffectivePlaylistFolder(string? targetDirectory, string musicPath, string? playlistName,
+        bool playlistFolders = true)
+        => PlaylistRules.ResolvePlaylistFolder(targetDirectory, musicPath, playlistName, playlistFolders);
 
     /// <summary>The playlist's effective archive folder (UI hint).</summary>
-    public static string EffectiveArchiveFolder(string? archiveDirectory, string archivePath, string? playlistName)
-        => PlaylistRules.ResolveArchiveFolder(archiveDirectory, archivePath, playlistName);
+    public static string EffectiveArchiveFolder(string? archiveDirectory, string archivePath, string? playlistName,
+        bool playlistFolders = true)
+        => PlaylistRules.ResolveArchiveFolder(archiveDirectory, archivePath, playlistName, playlistFolders);
 
     /// <summary>Path equality as the folder rules apply it (UI hint).</summary>
     public static bool PathsEqual(string? first, string? second)
@@ -129,10 +131,10 @@ public class PlaylistStore
     public Task<string> DownloadTrackAsync(int trackId, CancellationToken ct = default)
         => _pipeline.DownloadTrackAsync(trackId, ct);
 
-    /// <summary>Candidates every enabled plugin offers for one track (manual picker).</summary>
+    /// <summary>Candidates every enabled plugin offers for one track; the optional callback streams hits.</summary>
     public Task<IReadOnlyList<DownloadCandidate>> SearchCandidatesAsync(
-        int trackId, CancellationToken ct = default)
-        => _pipeline.SearchCandidatesAsync(trackId, ct);
+        int trackId, Action<DownloadCandidate>? onCandidate = null, CancellationToken ct = default)
+        => _pipeline.SearchCandidatesAsync(trackId, onCandidate, ct);
 
     /// <summary>Downloads one candidate a human picked by hand.</summary>
     public Task<string> DownloadCandidateAsync(
