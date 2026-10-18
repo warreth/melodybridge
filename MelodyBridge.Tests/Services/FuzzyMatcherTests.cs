@@ -90,6 +90,10 @@ public class FuzzyMatcherTests
     [TestCase("Song (Acoustic)", "Song (Acoustic Version)", false)]
     [TestCase("Song (Live)", "Song (Live at Wembley)", false)]
     [TestCase("Song", "Song (Live)", false)]
+    // Marker spellings: platforms write both for the same thing.
+    [TestCase("Song (Remastered)", "Artist - Song (Remaster)", false)]
+    [TestCase("Song (Remaster)", "Artist - Song (Remastered)", false)]
+    [TestCase("Song (Remixes)", "Song (Remix)", false)]
     // Promotional parentheses are not version markers; the search text
     // drops them on purpose, so a plain hit must stay acceptable.
     [TestCase("Nightshift (Original Mix)", "Nightshift", false)]
@@ -108,6 +112,16 @@ public class FuzzyMatcherTests
         "Traum", "Chopin - Nocturne Op. 9 No. 2", true)]
     [TestCase("SLVL", "The Last Airbender", "Avatar", "Avatar: The Last Airbender Book 1 Water", false)]
     [TestCase("SLVL", "The Last Airbender", "Trailer Music", "Last Airbender Trailer Music", false)]
+    // Featured credits and artist-prefixed titles are the norm on upload
+    // platforms; they must not turn a working download into a miss.
+    [TestCase("Sam Smith", "Unholy", "Sam Smith",
+        "Sam Smith, Kim Petras - Unholy (Official Music Video)", true)]
+    [TestCase("Sam Smith, Kim Petras", "Unholy (feat. Kim Petras)", "Sam Smith",
+        "Sam Smith, Kim Petras - Unholy (Official Music Video)", true)]
+    // The search deliberately stripped the promotional suffix: the hit it
+    // asked for must pass the gate that scores the same way.
+    [TestCase("The Artist", "Song (Original Mix)", "The Artist", "The Artist - Song", true)]
+    [TestCase("The Artist", "Song [Official Video]", "The Artist", "The Artist - Song", true)]
     // The (VIP) case is rejected by DropsRequestedMarker, not by this gate:
     // see the test above.
     public void IsAcceptableMatch_KeepsRealHits_DropsUnrelatedTitles(

@@ -135,12 +135,40 @@ public class JellyfinSync : IMediaServerSync
             => ByPath.TryGetValue(NormalizePath(path), out var id) ? id : null;
     }
 
+    /// <summary>
+    /// How long a loaded library index serves later playlists. A sync job
+    /// runs one sync per playlist back to back, and walking a large
+    /// library once per playlist would cost more than the old per-track
+    /// lookups. A minute is short enough that a file scanned mid-job is
+    /// found by the per-track search fallback on the next job.
+    /// </summary>
+    internal static TimeSpan LibraryIndexTtl { get; set; } = TimeSpan.FromSeconds(60);
+
+    private readonly object _libraryCacheGate = new();
+    private (string Key, DateTime FetchedAtUtc, LibraryIndex Index)? _libraryCache;
+
     private async Task<LibraryIndex> LoadLibraryIndexAsync(
         string baseUrl, string apiKey, CancellationToken ct)
     {
+        var key = $"{baseUrl}\u0000{apiKey}";
+        lock (_libraryCacheGate)
+        {
+            if (_libraryCache is { } cached
+                && cached.Key == key
+                && DateTime.UtcNow - cached.FetchedAtUtc < LibraryIndexTtl)
+            {
+                return cached.Index;
+            }
+        }
+
         var items = await LoadItemsAsync(
             baseUrl, apiKey, "Recursive=true&IncludeItemTypes=Audio&Fields=Path", ct);
-        if (items is null) return new LibraryIndex(new Dictionary<string, string>(StringComparer.Ordinal), Loaded: false);
+        if (items is null)
+        {
+            // A failed walk is not cached: the next playlist retries instead
+            // of degrading to search fallbacks for the whole window.
+            return new LibraryIndex(new Dictionary<string, string>(StringComparer.Ordinal), Loaded: false);
+        }
 
         var byPath = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var item in items)
@@ -148,7 +176,12 @@ public class JellyfinSync : IMediaServerSync
             if (item.Id is { Length: > 0 } id && item.Path is { Length: > 0 } path)
                 byPath.TryAdd(NormalizePath(path), id);
         }
-        return new LibraryIndex(byPath, Loaded: true);
+        var index = new LibraryIndex(byPath, Loaded: true);
+        lock (_libraryCacheGate)
+        {
+            _libraryCache = (key, DateTime.UtcNow, index);
+        }
+        return index;
     }
 
     /// <summary>

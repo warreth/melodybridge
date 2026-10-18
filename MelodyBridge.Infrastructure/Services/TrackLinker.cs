@@ -231,6 +231,9 @@ public sealed class TrackLinker
 
             // The same claim the download pipeline uses: a concurrent run
             // and this pass never link (or download) the same row twice.
+            // Whatever happens next, the claim must be released: a row left
+            // in_progress would be skipped by every later download until
+            // the next restart.
             var previousStatus = track.DownloadStatus;
             var claimed = await db.Tracks
                 .Where(t => t.Id == track.Id
@@ -238,20 +241,40 @@ public sealed class TrackLinker
                 .ExecuteUpdateAsync(s => s.SetProperty(t => t.DownloadStatus, "in_progress"), ct);
             if (claimed != 1) continue;
 
-            var outcome = await TryLinkAsync(track, db, requested,
-                pauseOnQualityMismatch: false, ct, candidate: candidate.Match);
-            if (outcome == TrackLinkOutcome.Linked)
+            var linkedThisTrack = false;
+            try
             {
-                linked++;
+                var outcome = await TryLinkAsync(track, db, requested,
+                    pauseOnQualityMismatch: false, ct, candidate: candidate.Match);
+                linkedThisTrack = outcome == TrackLinkOutcome.Linked;
+                if (linkedThisTrack) linked++;
             }
-            else
+            finally
             {
-                // Leave the row exactly as it was: no review, no error.
-                await db.Tracks.Where(t => t.Id == track.Id)
-                    .ExecuteUpdateAsync(s => s.SetProperty(t => t.DownloadStatus, previousStatus), ct);
+                if (!linkedThisTrack)
+                {
+                    // Leave the row exactly as it was: no review, no error.
+                    await RestoreStatusAsync(db, track.Id, previousStatus, ct);
+                }
             }
         }
         return linked;
+    }
+
+    /// <summary>The claim release: back to the status the row had before.</summary>
+    private static async Task RestoreStatusAsync(
+        MelodyBridgeDbContext db, int trackId, string? previousStatus, CancellationToken ct)
+    {
+        try
+        {
+            await db.Tracks.Where(t => t.Id == trackId)
+                .ExecuteUpdateAsync(s => s.SetProperty(t => t.DownloadStatus, previousStatus), ct);
+        }
+        catch (Exception)
+        {
+            // Best effort: the startup stale-claim recovery is the safety
+            // net, and swallowing here keeps the original failure visible.
+        }
     }
 
     /// <summary>One query for every candidate row of the pending tracks.</summary>
@@ -437,7 +460,10 @@ public sealed class TrackLinker
         return new ArchiveTarget(true, folder.Length == 0 ? null : folder, format);
     }
 
-    /// <summary>One hard link, best effort: false on any link failure.</summary>
+    /// <summary>One hard link, best effort: false on any link failure.
+    /// The failure family is wider than IOException: read-only targets and
+    /// unsupported filesystems surface as UnauthorizedAccessException or
+    /// NotSupportedException, and none of them may take the caller down.</summary>
     public bool TryHardLink(string linkPath, string targetPath)
     {
         try
@@ -449,7 +475,7 @@ public sealed class TrackLinker
             _hardLinks.Create(linkPath, targetPath);
             return true;
         }
-        catch (IOException)
+        catch (Exception)
         {
             return false;
         }

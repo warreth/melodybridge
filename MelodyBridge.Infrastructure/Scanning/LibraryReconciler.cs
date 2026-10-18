@@ -127,7 +127,9 @@ public class LibraryReconciler
                 // bytes into this playlist's own folder (archive copy
                 // included) instead of adopting a foreign path. A quality
                 // difference is left for a real download: the user never
-                // asked for one here.
+                // asked for one here, and adopting the foreign file would
+                // claim a version this playlist never picked.
+                var foreignQualityDiffers = false;
                 if (!foundIsOwn
                     && _linker is not null
                     && track.MelodyId is not null
@@ -140,12 +142,13 @@ public class LibraryReconciler
                         relinked++;
                         continue;
                     }
+                    foreignQualityDiffers = outcome == TrackLinkOutcome.QualityMismatch;
                 }
 
                 // Slow path: the file found by its MELODY_ID tag under the
                 // playlist folder (files move, ids do not). An archive copy
                 // is not the track; it stays out.
-                if (found is not null)
+                if (found is not null && !foreignQualityDiffers)
                 {
                     track.CurrentPath = found;
                     track.DownloadStatus = "downloaded";

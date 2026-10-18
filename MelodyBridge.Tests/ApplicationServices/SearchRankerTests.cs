@@ -177,6 +177,33 @@ public class SearchRankerTests
     }
 
     [Test]
+    public void FeaturedCreditInTheHitTitle_DoesNotBlockTheMatch()
+    {
+        // The canonical upload spells out collaborators and decorations;
+        // the requested title is just the song. That is the norm, not a
+        // reason to refuse the only correct hit.
+        var result = SearchRanker.Rank("Sam Smith", "Unholy", null,
+            new[]
+            {
+                Hit("Sam Smith, Kim Petras - Unholy (Official Music Video)", "Sam Smith",
+                    "https://x/real", 169),
+            });
+
+        Assert.That(result, Is.Not.Null);
+        Assert.That(result!.SourceUrl, Is.EqualTo("https://x/real"));
+    }
+
+    [Test]
+    public void PromotionalSuffixOnTheRequest_DoesNotBlockTheHitTheSearchAskedFor()
+    {
+        var result = SearchRanker.Rank("The Artist", "Song (Original Mix)", null,
+            new[] { Hit("The Artist - Song", "The Artist", "https://x/real", 200) });
+
+        Assert.That(result, Is.Not.Null,
+            "the search stripped the suffix; the same normalization must score the hit");
+    }
+
+    [Test]
     public void HitThatDropsARequestedVersionMarker_ReturnNoHit()
     {
         // A soundtrack track is actually titled "The Last Airbender": the

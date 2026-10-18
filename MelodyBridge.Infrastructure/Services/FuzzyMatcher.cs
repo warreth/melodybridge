@@ -1,5 +1,6 @@
 namespace MelodyBridge.Infrastructure.Services;
 
+using MelodyBridge.Core;
 using MatchConfidence = MelodyBridge.Core.MatchConfidence;
 
 /// <summary>
@@ -43,11 +44,17 @@ public static class FuzzyMatcher
 
     /// <summary>
     /// True when a hit is close enough to download at all. High confidence
-    /// passes; so does a near-exact title with a different or unknown
-    /// uploader (label channels, "Topic" uploads, an artist name prefixed
-    /// to the title), and a strongly matching artist with at least half
-    /// the title. Everything else is a different recording: a miss is
-    /// honest, a wrong download is not.
+    /// passes; so does a title that stays recognisable next to the hit
+    /// even with a different or unknown uploader (label channels, "Topic"
+    /// uploads, an artist name prefixed to the title, featured credits),
+    /// and a plainly similar title from a matching artist. Everything
+    /// below is a different recording: a miss is honest, a wrong download
+    /// is not.
+    ///
+    /// Scoring uses the same search-text normalization the query used, so
+    /// promotional parentheses do not count against a hit the search
+    /// deliberately looked for ("(Original Mix)"), while the marker rules
+    /// keep using the raw titles.
     /// </summary>
     public static bool IsAcceptableMatch(
         string requestedArtist, string requestedTitle,
@@ -56,19 +63,22 @@ public static class FuzzyMatcher
         if (Confidence(requestedArtist, requestedTitle, hitArtist, hitTitle) == MatchConfidence.High)
             return true;
 
-        // Titles are often "Artist - Song" on upload platforms: compare
-        // the hit against both spellings of the request and keep the
-        // better one.
-        var plainTitleScore = Similarity(requestedTitle, hitTitle);
-        var titleScore = Math.Max(
-            plainTitleScore,
-            Similarity($"{requestedArtist} {requestedTitle}", hitTitle));
-        if (titleScore >= 0.70) return true;
+        var requested = SearchTerms.CleanTitle(requestedTitle);
+        var hit = SearchTerms.CleanTitle(hitTitle ?? "");
+        if (requested.Length == 0 || hit.Length == 0)
+            return Similarity(requestedTitle, hitTitle) >= 0.5;
 
-        // A clearly matching artist with a recognisable part of the
-        // title is a different spelling of the same track, not a miss.
+        var plainTitleScore = Similarity(requested, hit);
+        // Titles are often "Artist - Song" or carry featured credits on
+        // upload platforms: compare the hit against the artist-prefixed
+        // request too and keep the better one.
+        var prefixedTitleScore = Similarity($"{requestedArtist} {requested}", hit);
+        if (prefixedTitleScore >= 0.60) return true;
+
+        // A matching artist with a recognisable part of the title is a
+        // different spelling of the same track, not a miss.
         return plainTitleScore >= 0.50
-            && ArtistScore(requestedArtist, hitArtist) >= 0.85;
+            && ArtistScore(requestedArtist, hitArtist) >= 0.55;
     }
 
     /// <summary>
@@ -127,17 +137,31 @@ public static class FuzzyMatcher
     /// Recording markers: words in parentheses that name a specific
     /// version of a song. A hit that lacks a marker the request names is
     /// a different recording ("The Last Airbender" is not "The Last
-    /// Airbender (VIP)"), not a fallback. Words a parenthesis may open
-    /// with without being a marker are handled by the promotional list in
-    /// SearchTerms; "version", "radio" and "edit" stay out on purpose:
-    /// platforms drop them freely, and the length gate covers the
-    /// differences they stand for.
+    /// Airbender (VIP)"), not a fallback. Filler words in parentheses are
+    /// handled by the promotional list in SearchTerms; "version", "radio"
+    /// and "edit" stay out on purpose: platforms drop them freely, and
+    /// the length gate covers the differences they stand for.
     /// </summary>
     private static readonly HashSet<string> RecordingMarkers = new(StringComparer.Ordinal)
     {
-        "vip", "acoustic", "live", "remix", "remaster", "remastered",
-        "instrumental", "demo", "extended", "slowed", "sped", "nightcore",
-        "cover", "karaoke", "piano", "orchestral", "8d", "mashup", "reprise",
+        "vip", "acoustic", "live", "remix", "remaster", "instrumental", "demo",
+        "extended", "slowed", "sped", "nightcore", "cover", "karaoke", "piano",
+        "orchestral", "8d", "mashup", "reprise",
+    };
+
+    /// <summary>
+    /// One spelling per marker: platforms write "Remaster" and
+    /// "Remastered", "Remixes" and "Remix" for the same thing.
+    /// </summary>
+    private static string CanonicalMarker(string token) => token switch
+    {
+        "remastered" or "remastering" or "remasters" or "remasterted" => "remaster",
+        "remixes" => "remix",
+        "covers" => "cover",
+        "instrumentals" => "instrumental",
+        "mashups" => "mashup",
+        "demos" => "demo",
+        _ => token,
     };
 
     /// <summary>
@@ -150,7 +174,7 @@ public static class FuzzyMatcher
     {
         var markers = MarkersIn(requestedTitle);
         if (markers.Count == 0) return false;
-        var hit = WordSet(hitTitle);
+        var hit = WordSet(hitTitle).Select(CanonicalMarker).ToHashSet(StringComparer.Ordinal);
         foreach (var marker in markers)
             if (!hit.Contains(marker)) return true;
         return false;
@@ -165,7 +189,10 @@ public static class FuzzyMatcher
                  System.Text.RegularExpressions.Regex.Matches(title, @"[([][^)\]]*[)\]]"))
         {
             foreach (var token in WordSet(match.Value))
-                if (RecordingMarkers.Contains(token)) markers.Add(token);
+            {
+                var canonical = CanonicalMarker(token);
+                if (RecordingMarkers.Contains(canonical)) markers.Add(canonical);
+            }
         }
         return markers;
     }

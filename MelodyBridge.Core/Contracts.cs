@@ -141,6 +141,14 @@ public interface IDownloadManager
 }
 
 /// <summary>
+/// Outcome of deleting one track's local files without removing the row:
+/// <paramref name="Deleted"/> is true when at least one file was removed
+/// and everything this row owned is gone; <paramref name="Error"/> is set
+/// when a file could not be deleted, in which case the row is untouched.
+/// </summary>
+public readonly record struct TrackFileDeleteResult(bool Deleted, string? Error);
+
+/// <summary>
 /// One candidate a plugin offered for a track: what the "choose a source"
 /// dialog lists. The list deliberately skips the acceptance gate, so a
 /// human can pick what the automatic match refused.

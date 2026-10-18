@@ -197,6 +197,85 @@ public class LibraryReconcilerTests
         NullLogger<TrackLinker>.Instance);
 
     [Test]
+    public async Task PendingTrack_WithADifferentQualityCopy_StaysPending()
+    {
+        // Playlist A holds an mp3 at 320; playlist B wants flac. The
+        // library pass must not adopt A's file as B's download: the row
+        // stays pending for a real download, where the user decides.
+        var musicDir = Path.Combine(_dir, "music");
+        var dirA = Path.Combine(musicDir, "Playlist A");
+        Directory.CreateDirectory(dirA);
+        var settings = new SettingsStore(_factory);
+        await settings.SetAsync("music_path", musicDir);
+
+        var fileA = WriteTaggedFile("music/Playlist A", "mb-recon-diff");
+        await using (var db = _factory.CreateDbContext())
+        {
+            db.Playlists.Add(new PlaylistEntity
+            {
+                Id = "pl-a",
+                Name = "Playlist A",
+                SourceUrl = "https://example.com/a",
+                SourcePlatform = Platform.Spotify,
+                TargetDirectory = dirA,
+                Tracks = new List<TrackEntity>
+                {
+                    new()
+                    {
+                        MelodyId = "mb-recon-diff",
+                        Title = "Different Quality",
+                        Artist = "A",
+                        Position = 0,
+                        DownloadStatus = "downloaded",
+                        CurrentPath = fileA,
+                        Bitrate = 320,
+                        MediaType = "mp3",
+                    },
+                },
+            });
+            db.Playlists.Add(new PlaylistEntity
+            {
+                Id = "pl-b",
+                Name = "Playlist B",
+                SourceUrl = "https://example.com/b",
+                SourcePlatform = Platform.Spotify,
+                PreferredFormat = "flac",
+                Tracks = new List<TrackEntity>
+                {
+                    new()
+                    {
+                        MelodyId = "mb-recon-diff",
+                        Title = "Different Quality",
+                        Artist = "A",
+                        Position = 0,
+                        DownloadStatus = "pending",
+                    },
+                },
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var reconciler = new LibraryReconciler(
+            _factory, NullLogger<LibraryReconciler>.Instance, settings, NewLinker());
+        await reconciler.ReconcileAllAsync();
+
+        await using (var db = _factory.CreateDbContext())
+        {
+            var row = db.Tracks.Single(t => t.PlaylistEntityId == "pl-b");
+            Assert.Multiple(() =>
+            {
+                Assert.That(row.DownloadStatus, Is.EqualTo("pending"),
+                    "a different quality is a real download decision, not an adoption");
+                Assert.That(row.CurrentPath, Is.Null,
+                    "the foreign path must not become this playlist's file");
+                Assert.That(row.ReviewKind, Is.Null, "the unprompted pass never pauses for review");
+                Assert.That(new HardLinkService().LinkCount(fileA), Is.EqualTo(1),
+                    "playlist A's file stays untouched");
+            });
+        }
+    }
+
+    [Test]
     public async Task PendingTrack_WithAnotherPlaylistsCopy_IsHardlinkedIntoItsOwnFolder()
     {
         var musicDir = Path.Combine(_dir, "music");

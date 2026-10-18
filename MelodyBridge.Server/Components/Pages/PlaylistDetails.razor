@@ -305,7 +305,7 @@ else
         }
         else
         {
-            <TrackTable Tracks="@FilteredTracks().ToList()"
+            <TrackTable Tracks="@TrackRows"
                         ShowFilenameColumn="@showFilenameColumn"
                         ShowArchiveState="@(editArchiveEnabled && HasArchiveTarget)"
                         ArchiveStates="@archiveStates"
@@ -596,6 +596,7 @@ else
             editAllowContainerChange = playlist.AllowContainerChange;
             ApplyCounts();
             StartArchiveProbe();
+            filteredCache = null;
         }
         persisted = (editName, editTargetDirectory, editQuality, editArchiveDirectory, editArchiveFormat, editSchedule, editSyncMode, editAutoDownload, editStrictQuality, editAllowContainerChange, editArchiveEnabled);
         formReady = true;
@@ -616,6 +617,7 @@ else
         if (playlist is null) return;
         ApplyCounts();
         StartArchiveProbe();
+        filteredCache = null;
     }
 
     /// <summary>The stat cards and the review hint, from the loaded rows.</summary>
@@ -997,6 +999,12 @@ else
     private IReadOnlyList<DownloadCandidate> sourceCandidates = Array.Empty<DownloadCandidate>();
     private bool searchingSources;
     private bool downloadingCandidate;
+    /// <summary>
+    /// A search can run for minutes (every plugin has its own budget) and
+    /// the dialog can be closed or reopened for another track meanwhile:
+    /// only the newest generation may write its result.
+    /// </summary>
+    private int sourceSearchGeneration;
 
     private async Task OpenSourcePicker(TrackEntity track)
     {
@@ -1006,22 +1014,38 @@ else
         await SearchSourcesAsync();
     }
 
-    private void CloseSourcePicker() => chooseSourceTrack = null;
+    private void CloseSourcePicker()
+    {
+        // A search still in flight must not write into a later dialog.
+        sourceSearchGeneration++;
+        searchingSources = false;
+        chooseSourceTrack = null;
+    }
 
     private async Task SearchSourcesAgain() => await SearchSourcesAsync();
 
     private async Task SearchSourcesAsync()
     {
         if (chooseSourceTrack is not { } track) return;
+        var generation = ++sourceSearchGeneration;
+        var trackId = track.Id;
         searchingSources = true;
         StateHasChanged();
+        IReadOnlyList<DownloadCandidate>? candidates = null;
         try
         {
-            sourceCandidates = await Store.SearchCandidatesAsync(track.Id);
+            candidates = await Store.SearchCandidatesAsync(trackId);
         }
         finally
         {
-            searchingSources = false;
+            // A stale search (dialog closed, another track opened, Search
+            // again pressed) changes nothing: not the list, not the flag.
+            if (generation == sourceSearchGeneration && chooseSourceTrack?.Id == trackId)
+            {
+                if (candidates is not null) sourceCandidates = candidates;
+                searchingSources = false;
+                StateHasChanged();
+            }
         }
     }
 
@@ -1032,16 +1056,19 @@ else
     private async Task DownloadPickedCandidate(DownloadCandidate candidate)
     {
         if (chooseSourceTrack is not { } track) return;
+        var trackId = track.Id;
         downloadingCandidate = true;
-        retryingTrackIds.Add(track.Id);
+        retryingTrackIds.Add(trackId);
         try
         {
-            var result = await Store.DownloadCandidateAsync(track.Id, candidate);
+            var result = await Store.DownloadCandidateAsync(trackId, candidate);
             switch (result)
             {
                 case "downloaded":
                     Notifications.Success($"Downloaded '{track.Title}' from {candidate.PluginName}.");
-                    chooseSourceTrack = null;
+                    // Only close the dialog this pick came from: another
+                    // track's picker may be open by now.
+                    if (chooseSourceTrack?.Id == trackId) chooseSourceTrack = null;
                     break;
                 case "claimed-by-another-run":
                     Notifications.Info("This track is already being downloaded by a running batch.");
@@ -1055,7 +1082,7 @@ else
         finally
         {
             downloadingCandidate = false;
-            retryingTrackIds.Remove(track.Id);
+            retryingTrackIds.Remove(trackId);
         }
     }
 
@@ -1103,10 +1130,21 @@ else
         {
             if (choice == RemoveChoice.DeleteFile)
             {
-                if (await Store.DeleteTrackFilesAsync(PlaylistId, track.Id))
+                var outcome = await Store.DeleteTrackFilesAsync(PlaylistId, track.Id);
+                if (outcome.Error is { } error)
+                {
+                    // The file is still on disk, so nothing was reset: say so
+                    // instead of reporting a delete that did not happen.
+                    Notifications.Warn($"Could not delete the file of '{track.Title}': {error}");
+                }
+                else if (outcome.Deleted)
+                {
                     Notifications.Success($"Deleted the file of '{track.Title}'; download it again whenever you want.");
+                }
                 else
+                {
                     Notifications.Info($"'{track.Title}' had no files to delete.");
+                }
                 await Load();
                 return;
             }
@@ -1136,8 +1174,14 @@ else
         {
             if (!await Store.ResolveQualityReviewAsync(choice.Track.Id, choice.Action))
             {
-                Notifications.Warn($"Could not settle '{choice.Track.Title}': the track changed. Reload the page.");
+                // False has two causes now: the track changed under us, or
+                // the flagged file could not be deleted (the retry refuses
+                // then, on purpose). Say which one it is.
                 await Load();
+                var current = playlist?.Tracks.FirstOrDefault(t => t.Id == choice.Track.Id);
+                Notifications.Warn(current is { DownloadStatus: "downloaded", ReviewKind: not null }
+                    ? $"Could not replace '{choice.Track.Title}': its flagged file could not be deleted. Keep the file, or fix the file permissions and try again."
+                    : $"Could not settle '{choice.Track.Title}': the track changed. Reload the page.");
                 return;
             }
 
@@ -1174,7 +1218,11 @@ else
         }
     }
 
-    private void OnFilterChanged(ChangeEventArgs e) => trackFilter = e.Value?.ToString() ?? string.Empty;
+    private void OnFilterChanged(ChangeEventArgs e)
+    {
+        trackFilter = e.Value?.ToString() ?? string.Empty;
+        filteredCache = null;
+    }
 
     // Delete flow: the topbar asks, the dialog confirms, files optional.
     private async Task AskDelete()
@@ -1204,6 +1252,15 @@ else
         finally { busy = false; }
     }
 
+    /// <summary>
+    /// The filtered rows, computed once per filter change or reload. The
+    /// table keys its sort and its diff on the list reference, so handing
+    /// it a fresh list on every render defeated both.
+    /// </summary>
+    private IReadOnlyList<TrackEntity>? filteredCache;
+
+    private IReadOnlyList<TrackEntity> TrackRows => filteredCache ??= FilteredTracks().ToList();
+
     private IEnumerable<TrackEntity> FilteredTracks()
     {
         var source = playlist?.Tracks ?? Enumerable.Empty<TrackEntity>();
@@ -1226,7 +1283,11 @@ else
 
     private int attentionCount => (playlist?.Tracks ?? new List<TrackEntity>()).Count(NeedsAttention);
 
-    private void ToggleAttentionOnly() => attentionOnly = !attentionOnly;
+    private void ToggleAttentionOnly()
+    {
+        attentionOnly = !attentionOnly;
+        filteredCache = null;
+    }
 
     public void Dispose()
     {

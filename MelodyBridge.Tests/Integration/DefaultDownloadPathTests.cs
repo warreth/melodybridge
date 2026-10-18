@@ -514,7 +514,8 @@ public class DefaultDownloadPathTests
 
             var deleted = await store.DeleteTrackFilesAsync("pl-rm", trackId);
 
-            Assert.That(deleted, Is.True);
+            Assert.That(deleted.Deleted, Is.True);
+            Assert.That(deleted.Error, Is.Null);
             Assert.Multiple(() =>
             {
                 Assert.That(File.Exists(primary), Is.False, "the file goes");
@@ -530,6 +531,55 @@ public class DefaultDownloadPathTests
                 Assert.That(track.ArchivePath, Is.Null);
                 Assert.That(track.MelodyId, Is.EqualTo("mel-rm"), "the row keeps its identity");
             });
+        }
+        finally
+        {
+            TryDelete(dbPath);
+            try { Directory.Delete(musicDir, recursive: true); } catch { /* best effort */ }
+        }
+    }
+
+    [Test]
+    public async Task DeleteTrackFiles_WhenTheFileCannotBeDeleted_LeavesTheRowAlone()
+    {
+        if (OperatingSystem.IsWindows())
+            Assert.Ignore("needs POSIX directory permissions");
+
+        var dbPath = NewDbPath();
+        var musicDir = Path.Combine(Path.GetTempPath(), $"mb-default-rmfail-{Guid.NewGuid():N}");
+        try
+        {
+            var factory = await NewDbFactory(dbPath);
+            var (trackId, primary, _) = await SeedTrackWithArchiveAsync(factory, musicDir);
+            var store = NewStore(factory);
+            var dir = Path.GetDirectoryName(primary)!;
+
+            File.SetUnixFileMode(dir, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+            try
+            {
+                var outcome = await store.DeleteTrackFilesAsync("pl-rm", trackId);
+
+                Assert.Multiple(() =>
+                {
+                    Assert.That(outcome.Deleted, Is.False);
+                    Assert.That(outcome.Error, Does.Contain("could not delete"),
+                        "the failure is reported, not swallowed");
+                });
+                await using var db = await factory.CreateDbContextAsync();
+                var track = await db.Tracks.AsNoTracking().SingleAsync();
+                Assert.Multiple(() =>
+                {
+                    Assert.That(track.DownloadStatus, Is.EqualTo("downloaded"),
+                        "resetting the row would let the next scan re-adopt the file");
+                    Assert.That(track.CurrentPath, Is.EqualTo(primary));
+                    Assert.That(File.Exists(primary), Is.True);
+                });
+            }
+            finally
+            {
+                File.SetUnixFileMode(dir,
+                    UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            }
         }
         finally
         {

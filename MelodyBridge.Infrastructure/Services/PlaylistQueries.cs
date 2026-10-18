@@ -134,23 +134,37 @@ internal sealed class PlaylistQueries
     /// archive copy) but keeps the row: it returns to "pending" so a later
     /// download restores it, with every measured fact cleared. Name-wise
     /// like every delete, so a path another row still references (a hard
-    /// link twin) survives for that row. Returns false when the track is
-    /// not in this playlist or has no files worth deleting.
+    /// link twin) survives for that row. The deletion is verified: a file
+    /// that cannot be deleted leaves the row exactly as it was, because
+    /// resetting it would let the next scan re-adopt the same bytes as a
+    /// fresh download.
     /// </summary>
-    public async Task<bool> DeleteTrackFilesAsync(
+    public async Task<TrackFileDeleteResult> DeleteTrackFilesAsync(
         string playlistId, int trackId, CancellationToken ct = default)
     {
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var track = await db.Tracks
             .FirstOrDefaultAsync(t => t.Id == trackId && t.PlaylistEntityId == playlistId, ct);
-        if (track is null) return false;
+        if (track is null) return new TrackFileDeleteResult(false, null);
 
         var hadFiles = false;
         foreach (var path in OwnPaths([track]))
         {
             hadFiles = true;
+            // Another row on the same path owns the name now: nothing of
+            // this row's is left there, so the reset below is still honest.
             if (await PathReferencedByOthersAsync(db, track.Id, path, ct)) continue;
-            try { System.IO.File.Delete(path); } catch { /* best effort */ }
+            if (!System.IO.File.Exists(path)) continue;
+            try
+            {
+                System.IO.File.Delete(path);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(
+                    "Could not delete {Path} of '{Title}': {Reason}", path, track.Title, ex.Message);
+                return new TrackFileDeleteResult(false, $"could not delete {path}: {ex.Message}");
+            }
         }
 
         track.CurrentPath = null;
@@ -171,7 +185,7 @@ internal sealed class PlaylistQueries
         track.LastSeenAt = null;
         await db.SaveChangesAsync(ct);
         _changes.Bump();
-        return hadFiles;
+        return new TrackFileDeleteResult(hadFiles, null);
     }
 
     /// <summary>True when any other row still references the exact path,
