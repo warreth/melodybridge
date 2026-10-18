@@ -251,8 +251,20 @@
 
     private async Task CopyToClipboardAsync()
     {
-        await JS.InvokeVoidAsync("navigator.clipboard.writeText", BuildText());
-        statusMessage = $"Copied {filtered.Count} {(filtered.Count == 1 ? "entry" : "entries")} to clipboard";
+        bool copied;
+        try
+        {
+            // The helper falls back to the selection trick on plain-http
+            // hosts, where navigator.clipboard does not exist.
+            copied = await JS.InvokeAsync<bool>("melody.copyText", BuildText());
+        }
+        catch (JSException)
+        {
+            copied = false;
+        }
+        statusMessage = copied
+            ? $"Copied {filtered.Count} {(filtered.Count == 1 ? "entry" : "entries")} to clipboard"
+            : "The browser would not let the page copy. Use Export instead.";
     }
 
     private async Task DownloadFileAsync()

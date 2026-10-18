@@ -967,17 +967,19 @@ else if (activeTab == "about")
 
     private async Task CopyRedirectToClipboard(string provider, string uri)
     {
+        bool copied;
         try
         {
-            await JS.InvokeVoidAsync("navigator.clipboard.writeText", uri);
-            copyHintFor = provider;
-            copyHint = "Copied";
+            // The helper falls back to the selection trick on plain-http
+            // hosts, where navigator.clipboard does not exist.
+            copied = await JS.InvokeAsync<bool>("melody.copyText", uri);
         }
         catch (JSException)
         {
-            copyHintFor = provider;
-            copyHint = "Copy failed: select it manually";
+            copied = false;
         }
+        copyHintFor = provider;
+        copyHint = copied ? "Copied" : "Copy failed: select it manually";
         // The hint belongs to the button that was used and fades quickly.
         var providerAtClick = provider;
         _ = Task.Run(async () =>

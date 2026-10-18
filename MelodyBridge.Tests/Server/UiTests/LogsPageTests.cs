@@ -149,6 +149,32 @@ public class LogsPageTests
     }
 
     [Test]
+    public void Logs_CopyReportsSuccess()
+    {
+        _collector.Log(LogLevel.Info, "Sync", "only entry to copy");
+        _ctx.JSInterop.Setup<bool>("melody.copyText", _ => true).SetResult(true);
+
+        var cut = _ctx.Render<Logs>();
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Copy").Click();
+
+        Assert.That(cut.Find(".result-box").TextContent, Does.Contain("Copied 1 entry to clipboard"));
+    }
+
+    [Test]
+    public void Logs_CopyWithoutAClipboardOffersExportInstead()
+    {
+        _collector.Log(LogLevel.Info, "Sync", "only entry to copy");
+        // Plain-http hosts have no navigator.clipboard, and the fallback can
+        // still be denied: the page must survive it and point at Export.
+        _ctx.JSInterop.Setup<bool>("melody.copyText", _ => true).SetResult(false);
+
+        var cut = _ctx.Render<Logs>();
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Copy").Click();
+
+        Assert.That(cut.Find(".result-box").TextContent, Does.Contain("Use Export instead"));
+    }
+
+    [Test]
     public void Exporter_TextContainsBufferedEntries()
     {
         _collector.Log(LogLevel.Info, "Sync", "playlist Techno synced with 101 tracks");

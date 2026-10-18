@@ -127,6 +127,43 @@ window.melody = (() => {
         hideSpotlight,
         dismissErrorUi,
         focusSelector,
+        // Copy text to the system clipboard and report whether it worked.
+        // navigator.clipboard only exists in secure contexts (https or
+        // localhost), and plain-http hosts are common for self-hosted
+        // instances, so the old selection trick is the fallback instead of
+        // a failed copy.
+        copyText(text) {
+            const fallbackCopy = () => {
+                const area = document.createElement('textarea');
+                area.value = text;
+                area.setAttribute('readonly', '');
+                area.style.position = 'fixed';
+                area.style.left = '-9999px';
+                document.body.appendChild(area);
+                const selection = document.getSelection();
+                const previous = selection && selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
+                area.select();
+                let copied = false;
+                try {
+                    copied = document.execCommand('copy');
+                } catch (err) {
+                    copied = false;
+                }
+                area.remove();
+                if (previous && selection) {
+                    selection.removeAllRanges();
+                    selection.addRange(previous);
+                }
+                return copied;
+            };
+
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                return navigator.clipboard.writeText(text)
+                    .then(() => true)
+                    .catch(() => fallbackCopy());
+            }
+            return Promise.resolve(fallbackCopy());
+        },
         // Trigger a browser download for exported data (playlists, logs, backups).
         downloadFile(fileName, contentType, byteArray) {
             const buffer = new Uint8Array(byteArray);

@@ -115,11 +115,12 @@ public class AccountTutorialTests
     [Test]
     public void CopyButton_CallsClipboardInterop()
     {
+        _ctx.JSInterop.Setup<bool>("melody.copyText", _ => true).SetResult(true);
         var cut = _ctx.Render<Settings>();
 
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Copy").Click();
 
-        var invocation = _ctx.JSInterop.VerifyInvoke("navigator.clipboard.writeText");
+        var invocation = _ctx.JSInterop.VerifyInvoke("melody.copyText");
         Assert.That((string)invocation.Arguments.Single(),
             Does.StartWith("http://127.0.0.1"),
             "the copied URI is the substituted loopback one");
