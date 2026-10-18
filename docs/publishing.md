@@ -1,9 +1,11 @@
 # Publishing playlists
 
 A sync job turns a saved playlist into something your players can use: an M3U
-file, or a real playlist inside Jellyfin, Plex or a Subsonic server. Jobs run by hand or
-on a schedule, so your "New releases" playlist can show up on the media server
-without you touching anything.
+file, a real playlist inside Jellyfin, Plex or a Subsonic server, or several of
+those at once. One job can write the M3U and push the same playlist to Jellyfin
+and Plex in a single run. Jobs run by hand or on a schedule, so your "New
+releases" playlist can show up on the media server without you touching
+anything.
 
 <img src="/screens/sync.webp" alt="Sync jobs page with job cards and the five step wizard" width="800">
 
@@ -24,20 +26,26 @@ Give the job a name and choose the source:
 A checkbox list of your scan folders, all checked by default. Leave them all
 checked to search every folder for matching files.
 
-### Step 3: Choose the output
+### Step 3: Choose the targets
 
-| Output | What it needs |
+Tick everything the job should publish to; at least one target is required.
+
+| Target | What it needs |
 |---|---|
-| M3U File | An output path inside the container. It starts from the **Playlist output folder** setting plus the job name; type a different path when this job should land elsewhere |
-| Jellyfin API | A Jellyfin profile from **Settings, Media servers**. **Test connection** checks it and lets you pick the user |
-| Plex API | A Plex profile. The token holder is the only account there is, so there is no user picker |
-| Subsonic API | A Subsonic or Navidrome profile. Navidrome, gonic, Airsonic, Ampache, Funkwhale and Nextcloud Music all speak this API; there are no API keys |
+| M3U file | An output path inside the container. It starts from the **Playlist output folder** setting plus the job name; type a different path when this job should land elsewhere |
+| Jellyfin | A Jellyfin profile from **Settings, Media servers**. **Test connection** checks it and lets you pick the user; that user applies to every Jellyfin target of the job |
+| Plex | A Plex profile. The token holder is the only account there is, so there is no user picker |
+| Subsonic | A Subsonic or Navidrome profile. Navidrome, gonic, Airsonic, Ampache, Funkwhale and Nextcloud Music all speak this API; there are no API keys |
 
-The job stores the profile you pick, not a copy of its credentials: edit the
+The job stores the profiles you tick, not a copy of their credentials: edit a
 profile once and every job that uses it follows. No profile yet? The wizard links
 straight to the media servers tab, where you create one (Jellyfin sign-in and
 Quick Connect included), then reload the list here. A job created before profiles
-existed keeps the connection it carries until you pick a profile for it.
+existed keeps the connection it carries as a target you can keep or replace.
+
+The job card names every target, and the run summary counts them: a run that
+reaches three targets says so, and one refused target fails the run with its own
+message while the others still publish.
 
 ### Step 4: Optional: fix file paths
 

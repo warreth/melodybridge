@@ -10,6 +10,15 @@ namespace MelodyBridge.Infrastructure.Services;
 
 public class SyncJobRunner : ISyncJobRunner
 {
+    /// <summary>Human name of a target for messages and the run summary.</summary>
+    private static string TargetLabel(SyncTarget target) => target.Kind switch
+    {
+        OutputTargetType.JellyfinApi => "Jellyfin",
+        OutputTargetType.PlexApi => "Plex",
+        OutputTargetType.SubsonicApi => "Subsonic",
+        _ => "M3U file",
+    };
+
     private readonly IDbContextFactory<MelodyBridgeDbContext> _dbFactory;
     private readonly M3uGenerator _m3uGenerator;
     private readonly IEnumerable<IMediaServerSync> _mediaServers;
@@ -125,113 +134,134 @@ public class SyncJobRunner : ISyncJobRunner
                 }).ToList()
             };
 
-            // Output based on target type
-            switch (job.OutputTarget)
+            // One publication per target: a job may write the M3U and push
+            // to several media servers in the same run. A job stored before
+            // multi-target support has no list and falls back to its one
+            // legacy target.
+            var targets = job.Targets.Count > 0
+                ? job.Targets
+                : new List<SyncTarget>
+                {
+                    new(job.OutputTarget,
+                        job.OutputTarget == OutputTargetType.M3uFile ? null : job.MediaServerProfileId,
+                        job.OutputTarget == OutputTargetType.M3uFile ? job.M3uOutputPath : null),
+                };
+
+            resolvedTracks = playlist.Tracks?.Count ?? 0;
+            var targetLabels = new List<string>();
+
+            foreach (var target in targets)
             {
-                case OutputTargetType.M3uFile:
-                    if (!string.IsNullOrEmpty(job.M3uOutputPath))
-                    {
-                        var options = new PlaylistOutputOptions(job.M3uOutputPath, false,
-                            remap.Count > 0 ? remap : null,
-                            ExtensionRemap: extensionRemap);
-                        await _m3uGenerator.GenerateM3uAsync(playlist, searchPaths, options, ct);
-                        resolvedTracks = playlist.Tracks?.Count ?? 0;
-                    }
-                    break;
+                ct.ThrowIfCancellationRequested();
 
-                case OutputTargetType.JellyfinApi:
-                case OutputTargetType.PlexApi:
-                case OutputTargetType.SubsonicApi:
-                    var server = _mediaServers.FirstOrDefault(s =>
-                        s.Name.Equals(job.OutputTarget switch
-                        {
-                            OutputTargetType.JellyfinApi => "Jellyfin",
-                            OutputTargetType.PlexApi => "Plex",
-                            OutputTargetType.SubsonicApi => "Subsonic",
-                            _ => (string?)null
-                        }, StringComparison.OrdinalIgnoreCase));
-                    if (server == null)
+                if (target.Kind == OutputTargetType.M3uFile)
+                {
+                    if (string.IsNullOrWhiteSpace(target.M3uPath))
                     {
-                        errors.Add($"No plugin registered for '{job.OutputTarget}'");
-                        break;
+                        errors.Add("M3U file: no output path configured");
+                        continue;
                     }
+                    var options = new PlaylistOutputOptions(target.M3uPath, false,
+                        remap.Count > 0 ? remap : null,
+                        ExtensionRemap: extensionRemap);
+                    await _m3uGenerator.GenerateM3uAsync(playlist, searchPaths, options, ct);
+                    targetLabels.Add("M3U file");
+                    continue;
+                }
 
-                    // Connection: a media server profile (Settings) is
-                    // resolved fresh on every run, so editing the profile
-                    // applies here; legacy jobs with inline values keep
-                    // working. Without either, the app-wide settings apply.
-                    MediaServerConnection? connection = null;
-                    if (!string.IsNullOrWhiteSpace(job.MediaServerProfileId))
+                var serverName = target.Kind switch
+                {
+                    OutputTargetType.JellyfinApi => "Jellyfin",
+                    OutputTargetType.PlexApi => "Plex",
+                    OutputTargetType.SubsonicApi => "Subsonic",
+                    _ => (string?)null,
+                };
+                var server = _mediaServers.FirstOrDefault(s =>
+                    s.Name.Equals(serverName, StringComparison.OrdinalIgnoreCase));
+                if (server == null)
+                {
+                    errors.Add($"{TargetLabel(target)}: no {serverName} plugin registered");
+                    continue;
+                }
+
+                // Connection: a media server profile (Settings) is resolved
+                // fresh on every run, so editing the profile applies here;
+                // legacy jobs with inline values keep working. Without
+                // either, the app-wide settings apply.
+                MediaServerConnection? connection = null;
+                string? profileName = null;
+                if (!string.IsNullOrWhiteSpace(target.ProfileId))
+                {
+                    if (_profiles is null)
                     {
-                        if (_profiles is null)
-                        {
-                            errors.Add(
-                                $"Media server profile '{job.MediaServerProfileId}' cannot be resolved: no profile store is available.");
-                            break;
-                        }
-                        var profile = await _profiles.FindAsync(job.MediaServerProfileId!, ct);
-                        if (profile is null)
-                        {
-                            errors.Add(
-                                $"Media server profile '{job.MediaServerProfileId}' no longer exists. Pick another one in the job's settings.");
-                            break;
-                        }
-                        if (!MediaServerKinds.MatchesOutputTarget(profile.Kind, job.OutputTarget))
-                        {
-                            // The profile kind can be edited after the job
-                            // was created; a Plex profile must not be fed
-                            // to the Jellyfin client.
-                            errors.Add(
-                                $"Profile '{profile.Name}' is a {profile.Kind} server, but this job targets {job.OutputTarget}. Pick a matching profile in the job's settings.");
-                            break;
-                        }
-                        // Subsonic authenticates with the username stored
-                        // on the profile; the password comes from the same
-                        // profile, so its username wins over a legacy job's
-                        // user field (the old wizard stored the username
-                        // there). Jellyfin keeps the job's user id: it
-                        // selects whose favorites get marked.
-                        var userId = job.JellyfinUserId;
-                        if (MediaServerKinds.IsSubsonic(profile.Kind)
-                            && !string.IsNullOrWhiteSpace(profile.Username))
-                        {
-                            userId = profile.Username;
-                        }
-                        connection = new MediaServerConnection(profile.BaseUrl, profile.ApiKey, userId);
+                        errors.Add(
+                            $"{TargetLabel(target)}: media server profile '{target.ProfileId}' cannot be resolved: no profile store is available.");
+                        continue;
                     }
-                    else if (!string.IsNullOrWhiteSpace(job.JellyfinServerUrl))
+                    var profile = await _profiles.FindAsync(target.ProfileId!, ct);
+                    if (profile is null)
                     {
-                        connection = new MediaServerConnection(
-                            job.JellyfinServerUrl!, job.JellyfinApiKey ?? "", job.JellyfinUserId);
+                        errors.Add(
+                            $"{TargetLabel(target)}: profile '{target.ProfileId}' no longer exists. Pick another one in the job's settings.");
+                        continue;
                     }
-                    var serverOptions = new PlaylistOutputOptions("/playlists/" + job.Name + ".m3u",
-                        false, remap.Count > 0 ? remap : null, connection, extensionRemap);
-                    await server.SyncPlaylistAsync(playlist, serverOptions, ct);
-                    resolvedTracks = playlist.Tracks?.Count ?? 0;
-
-                    if (server.LastReport?.UnresolvedPaths is { Length: > 0 } unresolved)
+                    if (!MediaServerKinds.MatchesOutputTarget(profile.Kind, target.Kind))
                     {
-                        warnings.AddRange(unresolved
-                            .Select(p => $"{p}: not found on server"));
+                        // The profile kind can be edited after the job was
+                        // created; a Plex profile must not be fed to the
+                        // Jellyfin client.
+                        errors.Add(
+                            $"{TargetLabel(target)}: profile '{profile.Name}' is a {profile.Kind} server, but this job targets {target.Kind}. Pick a matching profile in the job's settings.");
+                        continue;
                     }
+                    // Subsonic authenticates with the username stored on the
+                    // profile; the password comes from the same profile, so
+                    // its username wins over a legacy job's user field.
+                    // Jellyfin keeps the job's user id: it selects whose
+                    // favorites get marked.
+                    var userId = job.JellyfinUserId;
+                    if (MediaServerKinds.IsSubsonic(profile.Kind)
+                        && !string.IsNullOrWhiteSpace(profile.Username))
+                    {
+                        userId = profile.Username;
+                    }
+                    connection = new MediaServerConnection(profile.BaseUrl, profile.ApiKey, userId);
+                    profileName = profile.Name;
+                }
+                else if (!string.IsNullOrWhiteSpace(job.JellyfinServerUrl))
+                {
+                    connection = new MediaServerConnection(
+                        job.JellyfinServerUrl!, job.JellyfinApiKey ?? "", job.JellyfinUserId);
+                }
 
-                    // A sync that failed on the server (unreachable, rejected
-                    // create or update) must fail the job, not report success.
-                    if (server.LastReport is { Succeeded: false } failedReport)
-                        errors.Add($"{server.Name}: {failedReport.Message}");
-                    break;
+                var label = profileName is { Length: > 0 }
+                    ? $"{TargetLabel(target)} ({profileName})"
+                    : TargetLabel(target);
+                var serverOptions = new PlaylistOutputOptions("/playlists/" + job.Name + ".m3u",
+                    false, remap.Count > 0 ? remap : null, connection, extensionRemap);
+                await server.SyncPlaylistAsync(playlist, serverOptions, ct);
+                targetLabels.Add(label);
 
-                default:
-                    errors.Add($"Output target '{job.OutputTarget}' not implemented");
-                    break;
+                if (server.LastReport?.UnresolvedPaths is { Length: > 0 } unresolved)
+                {
+                    warnings.AddRange(unresolved
+                        .Select(p => $"{p}: not found on {label}"));
+                }
+
+                // A sync that failed on the server (unreachable, rejected
+                // create or update) must fail the job, not report success.
+                if (server.LastReport is { Succeeded: false } failedReport)
+                    errors.Add($"{label}: {failedReport.Message}");
             }
 
             // Record the run
             await using (var db2 = await _dbFactory.CreateDbContextAsync(ct))
             {
+                var targetWord = targets.Count == 1 ? "target" : "targets";
+                var targetList = targetLabels.Count > 0 ? string.Join(", ", targetLabels) : "none";
                 var summary = skippedTracks > 0
-                    ? $"Synced {resolvedTracks}/{totalTracks} tracks, {skippedTracks} without a local file"
-                    : $"Synced {resolvedTracks}/{totalTracks} tracks";
+                    ? $"Synced {resolvedTracks}/{totalTracks} tracks to {targets.Count} {targetWord} ({targetList}), {skippedTracks} without a local file"
+                    : $"Synced {resolvedTracks}/{totalTracks} tracks to {targets.Count} {targetWord} ({targetList})";
 
                 var runEntity = new SyncJobRunEntity
                 {

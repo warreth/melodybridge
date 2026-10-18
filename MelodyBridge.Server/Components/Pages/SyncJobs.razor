@@ -131,36 +131,109 @@
                 else if (currentStep == 2)
                 {
                     <div class="wizard-step">
-                        <div class="form-grid">
-                            <label>
-                                Output type
-                                <select @bind="draft.OutputTarget" @bind:after="OnOutputTargetChanged">
-                                    <option value="@OutputTargetType.M3uFile">M3U File</option>
-                                    <option value="@OutputTargetType.JellyfinApi">Jellyfin API</option>
-                                    <option value="@OutputTargetType.PlexApi">Plex API</option>
-                                    <option value="@OutputTargetType.SubsonicApi">Subsonic API</option>
-                                </select>
-                            </label>
-                            @if (draft.OutputTarget == OutputTargetType.M3uFile)
+                        <div class="settings-section">
+                            <span class="eyebrow">Targets</span>
+                            <div class="toggle-row">
+                                <label class="toggle-switch wide">
+                                    <input type="checkbox" checked="@draftM3uEnabled" @onchange="OnM3uEnabledChanged" />
+                                    <span class="toggle-slider"></span>
+                                    <span>M3U file</span>
+                                </label>
+                                <span class="text-muted">Write the playlist as an .m3u file.</span>
+                            </div>
+                            @if (draftM3uEnabled)
                             {
                                 <label>
                                     M3U output path
                                     <input @bind="draft.M3uOutputPath" placeholder="/app/playlists/playlist.m3u" />
                                 </label>
                             }
-                            else
+                            <div class="toggle-row">
+                                <span class="text-muted">
+                                    One job can publish to several targets at once: tick every media server
+                                    it should reach.
+                                </span>
+                            </div>
+                            @if (mediaServerProfiles.Count == 0 && !keepLegacyConnection)
                             {
-                                <label>
-                                    Media server profile
-                                    <select @bind="draft.MediaServerProfileId">
-                                        <option value="">Select a profile...</option>
-                                        @foreach (var p in ProfilesForTarget())
-                                        {
-                                            <option value="@p.Id">@ProfileLabel(p)</option>
-                                        }
-                                    </select>
+                                <div class="hint-box">
+                                    No media server profiles yet. Create one under
+                                    <a href="/settings#media-servers" target="_blank" rel="noopener">Settings, Media servers</a>,
+                                    then reload the list here.
+                                </div>
+                            }
+                            @foreach (var profile in mediaServerProfiles)
+                            {
+                                <label class="choice-row">
+                                    <input type="checkbox"
+                                           checked="@selectedProfileIds.Contains(profile.Id)"
+                                           @onchange="e => ToggleProfile(profile.Id, e)" />
+                                    <span>
+                                        <strong>@profile.Name</strong>
+                                        <small>@TargetLabel(profile.Kind) · @profile.BaseUrl</small>
+                                    </span>
                                 </label>
                             }
+                            @if (keepLegacyConnection)
+                            {
+                                <label class="choice-row">
+                                    <input type="checkbox" checked="@keepLegacyConnection"
+                                           @onchange="e => keepLegacyConnection = e.Value is true" />
+                                    <span>
+                                        <strong>@TargetLabel(legacyConnectionKind.ToString()) (connection saved in this job)</strong>
+                                        <small>A job from before profiles; leave it ticked or replace it with a profile.</small>
+                                    </span>
+                                </label>
+                            }
+                            <div class="flex-actions">
+                                <a class="btn-modern ghost small" href="/settings#media-servers" target="_blank" rel="noopener">
+                                    <Icon Name="plus" Size="14" /> Add a profile
+                                </a>
+                                <button class="btn-modern ghost small" type="button" @onclick="ReloadProfiles">
+                                    <Icon Name="refresh" Size="14" /> Reload profiles
+                                </button>
+                            </div>
+                            <div class="hint-box">Targets: @TargetsSummary</div>
+                        </div>
+                        @{
+                            var jellyfinProfile = SelectedProfiles.FirstOrDefault(
+                                p => MediaServerKinds.MatchesOutputTarget(p.Kind, OutputTargetType.JellyfinApi));
+                        }
+                        @if (jellyfinProfile is not null)
+                        {
+                            <MediaServerUserPicker ServerUrl="@jellyfinProfile.BaseUrl"
+                                                   ApiKey="@jellyfinProfile.ApiKey"
+                                                   Username="@draft.JellyfinUserId"
+                                                   Kind="@jellyfinProfile.Kind"
+                                                   ShowUserList="true"
+                                                   UserLabel="Jellyfin user"
+                                                   @bind-UserId="draft.JellyfinUserId" />
+                            <div class="hint-box">
+                                The picked Jellyfin user applies to every Jellyfin target of this job: it
+                                decides whose favorites get marked.
+                            </div>
+                        }
+                        else if (keepLegacyConnection && legacyConnectionKind == OutputTargetType.JellyfinApi)
+                        {
+                            <MediaServerUserPicker ServerUrl="@draft.JellyfinServerUrl"
+                                                   ApiKey="@draft.JellyfinApiKey"
+                                                   Username="@draft.JellyfinUserId"
+                                                   Kind="Jellyfin"
+                                                   ShowUserList="true"
+                                                   UserLabel="Jellyfin user"
+                                                   @bind-UserId="draft.JellyfinUserId" />
+                        }
+                        else if (keepLegacyConnection && legacyConnectionKind == OutputTargetType.SubsonicApi)
+                        {
+                            <MediaServerUserPicker ServerUrl="@draft.JellyfinServerUrl"
+                                                   ApiKey="@draft.JellyfinApiKey"
+                                                   Username="@draft.JellyfinUserId"
+                                                   Kind="Subsonic"
+                                                   ShowUserList="false"
+                                                   UserLabel="Navidrome username"
+                                                   @bind-UserId="draft.JellyfinUserId" />
+                        }
+                        <div class="form-grid">
                             <label>
                                 Schedule
                                 <select @bind="draft.Schedule">
@@ -184,59 +257,6 @@
                                 </label>
                             }
                         </div>
-                        @if (draft.OutputTarget != OutputTargetType.M3uFile)
-                        {
-                            @if (ProfilesForTarget().Count == 0 && !HasLegacyInlineConnection)
-                            {
-                                <div class="hint-box">
-                                    No @TargetKind() profile yet. Create one under
-                                    <a href="/settings#media-servers" target="_blank" rel="noopener">Settings, Media servers</a>,
-                                    then reload the list here.
-                                </div>
-                            }
-                            else if (SelectedProfile is { } chosen)
-                            {
-                                <MediaServerUserPicker ServerUrl="@chosen.BaseUrl"
-                                                       ApiKey="@chosen.ApiKey"
-                                                       Username="@(MediaServerKinds.IsSubsonic(chosen.Kind) ? chosen.Username : draft.JellyfinUserId)"
-                                                       Kind="@chosen.Kind"
-                                                       ShowUserList="@(draft.OutputTarget == OutputTargetType.JellyfinApi)"
-                                                       UserLabel="Jellyfin user"
-                                                       @bind-UserId="draft.JellyfinUserId" />
-                            }
-                            else if (HasLegacyInlineConnection)
-                            {
-                                @* A job from before profiles: keep its own
-                                   connection testable and its Jellyfin user
-                                   pickable until a profile replaces it. *@
-                                <MediaServerUserPicker ServerUrl="@draft.JellyfinServerUrl"
-                                                       ApiKey="@draft.JellyfinApiKey"
-                                                       Username="@(draft.OutputTarget == OutputTargetType.SubsonicApi ? draft.JellyfinUserId : null)"
-                                                       Kind="@TargetKind()"
-                                                       ShowUserList="@(draft.OutputTarget == OutputTargetType.JellyfinApi)"
-                                                       UserLabel="Jellyfin user"
-                                                       @bind-UserId="draft.JellyfinUserId" />
-                            }
-                            else
-                            {
-                                <div class="hint-box">Pick a profile above to sync to.</div>
-                            }
-                            <div class="flex-actions">
-                                <a class="btn-modern ghost small" href="/settings#media-servers" target="_blank" rel="noopener">
-                                    <Icon Name="plus" Size="14" /> Add a profile
-                                </a>
-                                <button class="btn-modern ghost small" type="button" @onclick="ReloadProfiles">
-                                    <Icon Name="refresh" Size="14" /> Reload profiles
-                                </button>
-                            </div>
-                            @if (SelectedProfile is null && HasLegacyInlineConnection)
-                            {
-                                <div class="hint-box">
-                                    This job still carries the connection it was created with.
-                                    Pick a profile to replace it, or leave it as is.
-                                </div>
-                            }
-                        }
                         @if (draft.Schedule == SyncJobSchedule.Cron)
                         {
                             <div class="hint-box">
@@ -274,22 +294,22 @@
                             <div><strong>Name:</strong> @draft.Name</div>
                             <div><strong>Source:</strong> @(sourceType == "folder" ? selectedFolder : SourceDisplay)</div>
                             <div><strong>Search locations:</strong> @(SearchLocationSummary)</div>
-                            <div><strong>Output target:</strong> @TargetLabel(draft.OutputTarget)</div>
-                            @if (draft.OutputTarget == OutputTargetType.M3uFile)
+                            <div><strong>Targets:</strong> @TargetsSummary</div>
+                            @if (draftM3uEnabled)
                             {
                                 <div><strong>M3U path:</strong> @draft.M3uOutputPath</div>
                             }
-                            else if (SelectedProfile is { } reviewProfile)
+                            @foreach (var reviewProfile in SelectedProfiles)
                             {
-                                <div><strong>Server:</strong> @reviewProfile.Name (@reviewProfile.BaseUrl)</div>
-                                @if (draft.OutputTarget == OutputTargetType.JellyfinApi)
-                                {
-                                    <div><strong>Jellyfin user:</strong> @(string.IsNullOrWhiteSpace(draft.JellyfinUserId) ? "(server default)" : draft.JellyfinUserId)</div>
-                                }
+                                <div><strong>@TargetLabel(reviewProfile.Kind):</strong> @reviewProfile.Name (@reviewProfile.BaseUrl)</div>
                             }
-                            else if (HasLegacyInlineConnection)
+                            @if (keepLegacyConnection)
                             {
-                                <div><strong>Server:</strong> @draft.JellyfinServerUrl (connection saved in this job)</div>
+                                <div><strong>@TargetLabel(legacyConnectionKind.ToString()):</strong> @draft.JellyfinServerUrl (connection saved in this job)</div>
+                            }
+                            @if (SelectedProfiles.Any(pr => MediaServerKinds.MatchesOutputTarget(pr.Kind, OutputTargetType.JellyfinApi)))
+                            {
+                                <div><strong>Jellyfin user:</strong> @(string.IsNullOrWhiteSpace(draft.JellyfinUserId) ? "(server default)" : draft.JellyfinUserId)</div>
                             }
                             <div><strong>Schedule:</strong> @draft.Schedule</div>
                             @if (draft.Schedule == SyncJobSchedule.Cron && !string.IsNullOrWhiteSpace(draft.CronExpression))
@@ -355,7 +375,7 @@
         <div class="panel-card">
             <div class="panel-header">
                 <div>
-                    <span class="eyebrow">@TargetLabel(job.OutputTarget)</span>
+                    <span class="eyebrow">@JobTargetsLabel(job)</span>
                     <h2>@job.Name</h2>
                 </div>
                 @{
@@ -486,6 +506,12 @@
     private List<RemapRule> extRules = new();
     /// <summary>Media server profiles the wizard can pick from (Settings, Media servers).</summary>
     private List<MediaServerProfile> mediaServerProfiles = new();
+    /// <summary>Wizard target state: the M3U switch, the ticked profiles and
+    /// a legacy job's saved connection.</summary>
+    private bool draftM3uEnabled;
+    private List<string> selectedProfileIds = new();
+    private bool keepLegacyConnection;
+    private OutputTargetType legacyConnectionKind = OutputTargetType.JellyfinApi;
     /// <summary>The Playlist output folder setting: the M3U path prefill.</summary>
     private string defaultM3uFolder = "/app/playlists";
 
@@ -496,41 +522,57 @@
         await ReloadProfiles();
     }
 
-    /// <summary>The profiles whose kind matches the chosen output target.</summary>
-    private List<MediaServerProfile> ProfilesForTarget()
-        => mediaServerProfiles.Where(p => ProfileMatchesTarget(p.Kind)).ToList();
+    /// <summary>The profiles the wizard currently has ticked, in profile-list order.</summary>
+    private List<MediaServerProfile> SelectedProfiles
+        => mediaServerProfiles.Where(p => selectedProfileIds.Contains(p.Id)).ToList();
 
-    private bool ProfileMatchesTarget(string? kind)
-        => MediaServerKinds.MatchesOutputTarget(kind, draft.OutputTarget);
+    /// <summary>True when at least one target is chosen.</summary>
+    private bool HasAnyTarget
+        => draftM3uEnabled || selectedProfileIds.Count > 0 || keepLegacyConnection;
 
-    /// <summary>The profile the wizard currently selects, when it still exists.</summary>
-    private MediaServerProfile? SelectedProfile
-        => !string.IsNullOrWhiteSpace(draft.MediaServerProfileId)
-            ? mediaServerProfiles.FirstOrDefault(p => p.Id == draft.MediaServerProfileId
-                && ProfileMatchesTarget(p.Kind))
-            : null;
-
-    /// <summary>Editing a job that still carries inline credentials (pre-profile era).</summary>
-    private bool HasLegacyInlineConnection
-        => string.IsNullOrWhiteSpace(draft.MediaServerProfileId)
-           && !string.IsNullOrWhiteSpace(draft.JellyfinServerUrl);
-
-    /// <summary>The kind label used when no profile exists yet.</summary>
-    private string TargetKind() => draft.OutputTarget switch
+    private void ToggleProfile(string profileId, ChangeEventArgs e)
     {
-        OutputTargetType.PlexApi => "Plex",
-        OutputTargetType.SubsonicApi => "Subsonic",
-        _ => "Jellyfin",
-    };
+        if (e.Value is true)
+        {
+            if (!selectedProfileIds.Contains(profileId)) selectedProfileIds.Add(profileId);
+        }
+        else
+        {
+            selectedProfileIds.Remove(profileId);
+        }
+    }
 
-    private static string ProfileLabel(MediaServerProfile p)
-        => p.Name + " (" + p.BaseUrl + ")";
-
-    /// <summary>Switching the output target drops a profile that no longer matches.</summary>
-    private void OnOutputTargetChanged()
+    private void OnM3uEnabledChanged(ChangeEventArgs e)
     {
-        if (SelectedProfile is null) draft.MediaServerProfileId = null;
-        PrefillM3uPath();
+        draftM3uEnabled = e.Value is true;
+        if (draftM3uEnabled) PrefillM3uPath();
+    }
+
+    /// <summary>Human summary of the wizard's chosen targets.</summary>
+    private string TargetsSummary
+    {
+        get
+        {
+            var names = new List<string>();
+            if (draftM3uEnabled) names.Add("M3U file");
+            names.AddRange(SelectedProfiles.Select(p => $"{TargetLabel(p.Kind)} ({p.Name})"));
+            if (keepLegacyConnection)
+                names.Add($"{TargetLabel(legacyConnectionKind.ToString())} (saved connection)");
+            return names.Count == 0 ? "none yet" : string.Join(", ", names);
+        }
+    }
+
+    /// <summary>The card's eyebrow: every target of a stored job.</summary>
+    private string JobTargetsLabel(SyncJobEntity job)
+    {
+        var labels = SyncJobMapping.TargetsOf(job).Select(t => t.Kind switch
+        {
+            OutputTargetType.M3uFile => "M3U file",
+            _ => mediaServerProfiles.FirstOrDefault(p => p.Id == t.ProfileId) is { } profile
+                ? $"{TargetLabel(t.Kind.ToString())} ({profile.Name})"
+                : TargetLabel(t.Kind.ToString()),
+        });
+        return string.Join(" + ", labels);
     }
 
     /// <summary>
@@ -540,7 +582,7 @@
     /// </summary>
     private void PrefillM3uPath()
     {
-        if (draft.OutputTarget != OutputTargetType.M3uFile) return;
+        if (!draftM3uEnabled) return;
         if (!string.IsNullOrWhiteSpace(draft.M3uOutputPath)) return;
         if (string.IsNullOrWhiteSpace(defaultM3uFolder)) return;
 
@@ -578,6 +620,12 @@
     private void StartNewJob()
     {
         draft = new SyncJob();
+        // The old wizard defaulted to an M3U file; keep that as the first
+        // target, and let the user tick media servers next to it.
+        draftM3uEnabled = true;
+        selectedProfileIds = new List<string>();
+        keepLegacyConnection = false;
+        legacyConnectionKind = OutputTargetType.JellyfinApi;
         isEditing = false;
         selectedSourceId = "";
         selectedFolder = "";
@@ -594,6 +642,20 @@
     {
         // hydrate the wizard from the stored entity so saving updates it in place
         draft = SyncJobMapping.MapToDomain(job);
+        draftM3uEnabled = draft.Targets.Any(t => t.Kind == OutputTargetType.M3uFile);
+        draft.M3uOutputPath ??= draft.Targets
+            .FirstOrDefault(t => t.Kind == OutputTargetType.M3uFile)?.M3uPath;
+        selectedProfileIds = draft.Targets
+            .Where(t => t.Kind != OutputTargetType.M3uFile && !string.IsNullOrWhiteSpace(t.ProfileId))
+            .Select(t => t.ProfileId!)
+            .Distinct()
+            .ToList();
+        var inlineKind = draft.Targets
+            .FirstOrDefault(t => t.Kind != OutputTargetType.M3uFile
+                && string.IsNullOrWhiteSpace(t.ProfileId))?.Kind;
+        keepLegacyConnection = inlineKind is not null
+            && !string.IsNullOrWhiteSpace(draft.JellyfinServerUrl);
+        legacyConnectionKind = inlineKind ?? OutputTargetType.JellyfinApi;
         isEditing = true;
         sourceType = string.IsNullOrWhiteSpace(job.SourceId) && draft.SearchLocationPaths.Count > 0
             ? "folder" : "playlist";
@@ -616,7 +678,7 @@
     {
         0 => "Pick your playlist",
         1 => "Where your music lives",
-        2 => "Choose the output",
+        2 => "Choose the targets",
         3 => "Optional: fix file paths",
         4 => isEditing ? "Check and save" : "Check and create",
         _ => ""
@@ -633,6 +695,14 @@
     };
 
     private static string TargetLabel(OutputTargetType target) => TargetLabel(target.ToString());
+
+    /// <summary>The output kind a media server profile publishes to.</summary>
+    private static OutputTargetType KindOf(string? profileKind) => profileKind?.Trim().ToLowerInvariant() switch
+    {
+        "plex" => OutputTargetType.PlexApi,
+        "subsonic" or "navidrome" => OutputTargetType.SubsonicApi,
+        _ => OutputTargetType.JellyfinApi,
+    };
 
     /// <summary>Review summary of step 2. Empty selection means "no folder
     /// filter": the runner then searches every folder.</summary>
@@ -679,22 +749,27 @@
         }
         if (currentStep == 2)
         {
-            if (draft.OutputTarget == OutputTargetType.M3uFile && string.IsNullOrWhiteSpace(draft.M3uOutputPath))
+            // Credentials live in the media server profiles; the wizard
+            // only ticks them so jobs and profiles cannot drift apart.
+            var missing = selectedProfileIds
+                .Where(id => mediaServerProfiles.All(p => p.Id != id))
+                .ToList();
+            if (missing.Count > 0)
+            {
+                stepError = "A selected media server profile no longer exists. Reload profiles, then pick again.";
+                return;
+            }
+            if (!HasAnyTarget)
+            {
+                stepError = mediaServerProfiles.Count == 0 && !keepLegacyConnection
+                    ? "Pick at least one target: an M3U file, or create a media server profile under Settings first."
+                    : "Pick at least one target: an M3U file or a media server profile.";
+                return;
+            }
+            if (draftM3uEnabled && string.IsNullOrWhiteSpace(draft.M3uOutputPath))
             {
                 stepError = "Enter the M3U output path first.";
                 return;
-            }
-            if (draft.OutputTarget != OutputTargetType.M3uFile)
-            {
-                // Credentials live in the media server profiles; the wizard
-                // only picks one so jobs and profiles cannot drift apart.
-                if (SelectedProfile is null && !HasLegacyInlineConnection)
-                {
-                    stepError = ProfilesForTarget().Count == 0
-                        ? $"No {TargetKind()} profile yet. Create one under Settings, Media servers, then pick it here."
-                        : "Pick a media server profile first.";
-                    return;
-                }
             }
             if (draft.Schedule == SyncJobSchedule.Cron && string.IsNullOrWhiteSpace(draft.CronExpression))
             {
@@ -758,20 +833,41 @@
             entity.SourceId = sourceType == "playlist" && !string.IsNullOrWhiteSpace(selectedSourceId)
                 ? selectedSourceId : null;
             entity.SearchLocationPaths = JsonSerializer.Serialize(pathsList);
-            entity.OutputTarget = draft.OutputTarget.ToString();
-            entity.M3uOutputPath = draft.M3uOutputPath;
-            entity.MediaServerProfileId = draft.MediaServerProfileId;
-            // A chosen profile owns the connection: inline values are
-            // cleared so the runner resolves the profile fresh. A legacy
-            // job without a picked profile keeps its stored values.
-            var usesProfile = !string.IsNullOrWhiteSpace(draft.MediaServerProfileId);
-            entity.JellyfinServerUrl = usesProfile ? null : draft.JellyfinServerUrl;
-            entity.JellyfinApiKey = usesProfile ? null : draft.JellyfinApiKey;
-            entity.JellyfinUserId = draft.JellyfinUserId;
             entity.PathRemapRules = JsonSerializer.Serialize(remapRules);
             entity.ExtensionRemapRules = JsonSerializer.Serialize(extRulesDict);
             entity.Schedule = draft.Schedule.ToString();
             entity.CronExpression = draft.CronExpression;
+
+            // Every ticked target becomes one entry: the M3U file, each
+            // media server profile, and a legacy job's own connection when
+            // it is kept. The legacy single-target columns stay mirrored
+            // for older readers.
+            var targets = new List<SyncTarget>();
+            if (draftM3uEnabled)
+                targets.Add(new SyncTarget(OutputTargetType.M3uFile, M3uPath: draft.M3uOutputPath?.Trim()));
+            foreach (var profile in SelectedProfiles)
+                targets.Add(new SyncTarget(KindOf(profile.Kind), ProfileId: profile.Id));
+            if (keepLegacyConnection)
+                targets.Add(new SyncTarget(legacyConnectionKind));
+            if (targets.Count == 0)
+            {
+                stepError = "Pick at least one target first.";
+                currentStep = 2;
+                return;
+            }
+            SyncJobMapping.ApplyTargets(entity, targets);
+            entity.JellyfinUserId = draft.JellyfinUserId;
+            if (!keepLegacyConnection)
+            {
+                entity.JellyfinServerUrl = null;
+                entity.JellyfinApiKey = null;
+            }
+            else
+            {
+                entity.JellyfinServerUrl = draft.JellyfinServerUrl;
+                entity.JellyfinApiKey = draft.JellyfinApiKey;
+            }
+
             entity.LastRunStatus = string.IsNullOrWhiteSpace(entity.LastRunStatus) ? "Pending" : entity.LastRunStatus;
             await db.SaveChangesAsync();
             showWizard = false;

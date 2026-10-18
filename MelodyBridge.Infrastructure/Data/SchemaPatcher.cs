@@ -70,6 +70,9 @@ public static class SchemaPatcher
         // Rows from before this column keep their old semantics (no anchor
         // at all means due immediately on the next poll).
         ("SyncJobs", "CreatedAt", "TEXT NULL"),
+        // Multi-target jobs: the list of M3U paths and media server
+        // profiles as JSON. Null rows keep the legacy single target.
+        ("SyncJobs", "TargetsJson", "TEXT NULL"),
     };
 
     public static async Task PatchAsync(MelodyBridgeDbContext db, CancellationToken ct = default)

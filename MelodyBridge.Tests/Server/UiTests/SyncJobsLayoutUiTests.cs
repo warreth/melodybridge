@@ -143,6 +143,30 @@ public class SyncJobsLayoutUiTests
     }
 
     [Test]
+    public void JobCard_ListsEveryTargetOfTheJob()
+    {
+        var factory = _ctx.Services.GetRequiredService<IDbContextFactory<MelodyBridgeDbContext>>();
+        using (var db = factory.CreateDbContext())
+        {
+            var job = db.SyncJobs.Single(j => j.Id == "j1");
+            MelodyBridge.Infrastructure.Services.SyncJobMapping.ApplyTargets(job, new[]
+            {
+                new SyncTarget(OutputTargetType.M3uFile, M3uPath: "/out/layout.m3u"),
+                new SyncTarget(OutputTargetType.JellyfinApi, ProfileId: "p-jf"),
+                new SyncTarget(OutputTargetType.PlexApi, ProfileId: "p-px"),
+            });
+            db.SaveChanges();
+        }
+
+        var cut = _ctx.Render<SyncJobs>();
+        var card = cut.FindAll(".panel-card").First(c => c.TextContent.Contains("Layout Job"));
+        var eyebrow = card.QuerySelector(".eyebrow");
+        Assert.That(eyebrow!.TextContent,
+            Is.EqualTo("M3U file + Jellyfin + Plex"),
+            "the card names every target; profiles without a name yet fall back to the kind");
+    }
+
+    [Test]
     public void JobCard_ShowsTheNextRun()
     {
         var cut = _ctx.Render<SyncJobs>();

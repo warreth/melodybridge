@@ -335,6 +335,13 @@ public class SyncJobEntity
     /// </summary>
     public string? MediaServerProfileId { get; set; }
     public string? M3uOutputPath { get; set; }
+    /// <summary>
+    /// Every publication target as JSON ([{kind, profileId, m3uPath}]).
+    /// Null on jobs from before multi-target support: those keep the
+    /// legacy single OutputTarget fields, which stay mirrored for older
+    /// readers.
+    /// </summary>
+    public string? TargetsJson { get; set; }
     public string PathRemapRules { get; set; } = "{}";
     public string ExtensionRemapRules { get; set; } = "{}";
     public string Schedule { get; set; } = "Manual";

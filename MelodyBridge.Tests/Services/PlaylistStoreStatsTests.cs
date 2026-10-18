@@ -420,6 +420,52 @@ public class PlaylistStoreStatsTests
     }
 
     [Test]
+    public async Task SchemaPatcher_OldSyncJobs_GainTheTargetsColumn()
+    {
+        var dbPath = NewDbPath();
+        try
+        {
+            var factory = await NewDbFactory(dbPath);
+
+            await using (var db = factory.CreateDbContext())
+            {
+                db.SyncJobs.Add(new SyncJobEntity
+                {
+                    Id = "old-job-targets",
+                    Name = "Old single-target job",
+                    Schedule = "Manual",
+                    OutputTarget = "M3uFile",
+                    M3uOutputPath = "/out/old.m3u",
+                });
+                await db.SaveChangesAsync();
+
+                // Simulate the pre-column schema.
+                await db.Database.ExecuteSqlRawAsync("ALTER TABLE SyncJobs DROP COLUMN TargetsJson");
+            }
+
+            await using (var db = factory.CreateDbContext())
+                await SchemaPatcher.PatchAsync(db);
+
+            await using (var check = factory.CreateDbContext())
+            {
+                var row = await check.SyncJobs.AsNoTracking().SingleAsync(j => j.Id == "old-job-targets");
+                var targets = MelodyBridge.Infrastructure.Services.SyncJobMapping.TargetsOf(row);
+                Assert.Multiple(() =>
+                {
+                    Assert.That(row.Name, Is.EqualTo("Old single-target job"), "data survives the patch");
+                    Assert.That(row.TargetsJson, Is.Null, "the old row keeps its legacy fields");
+                    Assert.That(targets.Single().Kind, Is.EqualTo(MelodyBridge.Core.OutputTargetType.M3uFile));
+                    Assert.That(targets.Single().M3uPath, Is.EqualTo("/out/old.m3u"));
+                });
+            }
+        }
+        finally
+        {
+            File.Delete(dbPath);
+        }
+    }
+
+    [Test]
     public async Task SchemaPatcher_OldPlaylists_GainTheStrictQualityColumns()
     {
         var dbPath = NewDbPath();

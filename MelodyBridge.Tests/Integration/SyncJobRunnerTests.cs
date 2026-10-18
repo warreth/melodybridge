@@ -170,6 +170,107 @@ public class SyncJobRunnerTests
     }
 
     [Test]
+    public async Task RunJob_MultipleTargets_WritesTheM3uAndPushesEveryServer()
+    {
+        var dbPath = NewDbPath();
+        var dir = Path.Combine(Path.GetTempPath(), $"mb-job-{Guid.NewGuid():N}");
+        var m3uPath = Path.Combine(dir, "multi.m3u");
+        try
+        {
+            var factory = await NewDbFactory(dbPath);
+            await SeedPlaylistAsync(factory, dir);
+            var jellyfin = new CapturingServerSync("Jellyfin");
+            var plex = new CapturingServerSync("Plex");
+            var runner = new SyncJobRunner(factory,
+                new M3uGenerator(NullLogger<M3uGenerator>.Instance),
+                new IMediaServerSync[] { jellyfin, plex },
+                NullLogger<SyncJobRunner>.Instance);
+
+            var job = new SyncJob
+            {
+                Id = "job-multi",
+                Name = "Job Playlist",
+                SourceId = "pl-job",
+                Targets = new List<SyncTarget>
+                {
+                    new(OutputTargetType.M3uFile, M3uPath: m3uPath),
+                    new(OutputTargetType.JellyfinApi),
+                    new(OutputTargetType.PlexApi),
+                },
+            };
+
+            var log = await runner.RunJobAsync(job);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(log.Status, Is.EqualTo(SyncStatus.Completed));
+                Assert.That(log.Message, Does.Contain("2/3"), "the summary keeps the track counts");
+                Assert.That(log.Message, Does.Contain("to 3 targets"));
+                Assert.That(log.Message, Does.Contain("M3U file"));
+                Assert.That(log.Message, Does.Contain("Jellyfin"));
+                Assert.That(log.Message, Does.Contain("Plex"));
+                Assert.That(File.Exists(m3uPath), Is.True, "the M3U target ran too");
+                Assert.That(jellyfin.Calls, Is.EqualTo(1));
+                Assert.That(plex.Calls, Is.EqualTo(1));
+            });
+        }
+        finally
+        {
+            TryDelete(dbPath);
+            try { Directory.Delete(dir, recursive: true); } catch { /* best effort */ }
+        }
+    }
+
+    [Test]
+    public async Task RunJob_OneTargetFails_TheRestStillRun_AndTheJobFails()
+    {
+        var dbPath = NewDbPath();
+        var dir = Path.Combine(Path.GetTempPath(), $"mb-job-{Guid.NewGuid():N}");
+        var m3uPath = Path.Combine(dir, "partial.m3u");
+        try
+        {
+            var factory = await NewDbFactory(dbPath);
+            await SeedPlaylistAsync(factory, dir);
+            var failing = new FailingServerSync();
+            var plex = new CapturingServerSync("Plex");
+            var runner = new SyncJobRunner(factory,
+                new M3uGenerator(NullLogger<M3uGenerator>.Instance),
+                new IMediaServerSync[] { failing, plex },
+                NullLogger<SyncJobRunner>.Instance);
+
+            var job = new SyncJob
+            {
+                Id = "job-partial",
+                Name = "Job Playlist",
+                SourceId = "pl-job",
+                Targets = new List<SyncTarget>
+                {
+                    new(OutputTargetType.M3uFile, M3uPath: m3uPath),
+                    new(OutputTargetType.JellyfinApi),
+                    new(OutputTargetType.PlexApi),
+                },
+            };
+
+            var log = await runner.RunJobAsync(job);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(log.Status, Is.EqualTo(SyncStatus.Failed),
+                    "one refused target fails the run, it does not hide");
+                Assert.That(log.Message, Does.Contain("Create failed"));
+                Assert.That(File.Exists(m3uPath), Is.True,
+                    "the other targets still ran");
+                Assert.That(plex.Calls, Is.EqualTo(1), "a failing target stops nothing else");
+            });
+        }
+        finally
+        {
+            TryDelete(dbPath);
+            try { Directory.Delete(dir, recursive: true); } catch { /* best effort */ }
+        }
+    }
+
+    [Test]
     public async Task RunJob_UnknownPlaylist_FailsWithMessage()
     {
         var dbPath = NewDbPath();
@@ -437,9 +538,11 @@ public class SyncJobRunnerTests
         public string Name { get; } = name;
         public MediaServerConnection? Connection { get; private set; }
         public MediaServerSyncReport? LastReport { get; private set; }
+        public int Calls { get; private set; }
 
         public Task SyncPlaylistAsync(Playlist playlist, PlaylistOutputOptions options, CancellationToken ct = default)
         {
+            Calls++;
             Connection = options.MediaServerConnection;
             LastReport = new MediaServerSyncReport(playlist.Tracks?.Count ?? 0, Array.Empty<string>(), null, "Synced");
             return Task.CompletedTask;

@@ -238,29 +238,33 @@ public class SyncJobsWizardUiTests
         }).GetAwaiter().GetResult();
     }
 
-    /// <summary>The profile dropdown of the output step (not the schedule one).</summary>
-    private static AngleSharp.Dom.IElement ProfileSelect(IRenderedComponent<SyncJobs> cut)
-        => cut.FindAll("label")
-            .Single(l => l.TextContent.Contains("Media server profile"))
-            .QuerySelector("select")!;
+    /// <summary>The target row of a media server profile on the output step.</summary>
+    private static AngleSharp.Dom.IElement ProfileRow(IRenderedComponent<SyncJobs> cut, string profileName)
+        => cut.FindAll("label.choice-row").Single(l => l.TextContent.Contains(profileName));
 
-    private IRenderedComponent<SyncJobs> OpenJellyfinStep()
+    /// <summary>Ticks a media server profile as an additional target.</summary>
+    private static void TickProfile(IRenderedComponent<SyncJobs> cut, string profileName)
+        => ProfileRow(cut, profileName).QuerySelector("input[type='checkbox']")!.Change(true);
+
+    private IRenderedComponent<SyncJobs> OpenOutputStepWithProfile(string profileName)
     {
         SeedScanLocations("/music");
         var cut = OpenWizardWithPlaylistSource();
-        Next(cut, 2); // step 3 = output
-        cut.FindAll("select").First(s => s.TextContent.Contains("M3U File")).Change("JellyfinApi");
+        Next(cut, 2); // step 3 = targets
+        TickProfile(cut, profileName);
         return cut;
     }
 
     [Test]
-    public void Step3_JellyfinTarget_ShowsProfilePicker_AndNeverAsksForCredentials()
+    public void Step3_ProfilesAreTickedTargets_AndNeverAskForCredentials()
     {
         SeedProfile("prof-1", "Homelab", "Jellyfin", "http://jf:8096", "token-1");
-        var cut = OpenJellyfinStep();
+        var cut = OpenOutputStepWithProfile("Homelab");
 
-        Assert.That(cut.Markup, Does.Contain("Media server profile"));
-        Assert.That(ProfileSelect(cut).TextContent, Does.Contain("Homelab (http://jf:8096)"));
+        Assert.That(ProfileRow(cut, "Homelab").TextContent, Does.Contain("http://jf:8096"));
+        Assert.That(ProfileRow(cut, "Homelab").TextContent, Does.Contain("Jellyfin"),
+            "the row names the server kind");
+        Assert.That(cut.Markup, Does.Contain("Targets:"));
         Assert.That(cut.Markup, Does.Not.Contain("http://host.docker.internal:8096"),
             "the wizard no longer offers a raw server URL");
         Assert.That(cut.Markup, Does.Not.Contain("password (not stored)"),
@@ -270,7 +274,7 @@ public class SyncJobsWizardUiTests
     }
 
     [Test]
-    public void Step3_TestConnection_UsesThePickedProfile_AndListsUsers()
+    public void Step3_TestConnection_UsesTheTickedProfile_AndListsUsers()
     {
         // A Navidrome directory registered after the Jellyfin one: a
         // single IMediaServerDirectory resolve picks the last one, which
@@ -281,8 +285,7 @@ public class SyncJobsWizardUiTests
         _ctx.Services.AddSingleton<IMediaServerDirectory>(navidrome.Object);
 
         SeedProfile("prof-1", "Homelab", "Jellyfin", "http://jf:8096", "token-1");
-        var cut = OpenJellyfinStep();
-        ProfileSelect(cut).Change("prof-1");
+        var cut = OpenOutputStepWithProfile("Homelab");
 
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Test connection").Click();
 
@@ -305,63 +308,106 @@ public class SyncJobsWizardUiTests
     }
 
     [Test]
-    public void Step3_NoMatchingProfile_BlocksNext_AndLinksToSettings()
+    public void Step3_NoProfile_UntickedM3u_BlocksNext_AndLinksToSettings()
     {
-        // A Plex profile must not satisfy a Jellyfin job.
-        SeedProfile("prof-plex", "Plexy", "Plex", "http://plex:32400", "plex-token");
-        var cut = OpenJellyfinStep();
+        var cut = OpenWizardWithPlaylistSource();
+        Next(cut, 2); // targets step, no profiles exist
 
-        Assert.That(ProfileSelect(cut).TextContent, Does.Not.Contain("Plexy"),
-            "the picker only lists profiles of the chosen kind");
+        // Switch the default M3U target off: nothing is left to publish to.
+        cut.FindAll("label.toggle-switch.wide")
+            .Single(l => l.TextContent.Contains("M3U file"))
+            .QuerySelector("input[type='checkbox']")!.Change(false);
         Next(cut);
 
-        Assert.That(cut.Markup, Does.Contain("Step 3 of 5"), "must stay on the output step");
+        Assert.That(cut.Markup, Does.Contain("Step 3 of 5"), "must stay on the targets step");
         Assert.That(cut.Markup, Does.Contain("Settings, Media servers"),
             "the error points at where a profile is created");
         Assert.That(cut.Markup, Does.Contain("href=\"/settings#media-servers\""));
     }
 
     [Test]
-    public void Step3_PickProfile_SaveStoresTheProfileId_AndClearsInlineCreds()
+    public void Step3_M3uAndTwoProfiles_SaveStoresEveryTarget()
     {
-        SeedProfile("prof-1", "Homelab", "Jellyfin", "http://jf:8096", "token-1");
-        var cut = OpenJellyfinStep();
-        ProfileSelect(cut).Change("prof-1");
+        // The reported case: one job publishing to an M3U file and two
+        // media servers at once.
+        SeedProfile("prof-jf", "JF", "Jellyfin", "http://jf:1", "t1");
+        SeedProfile("prof-plex", "PX", "Plex", "http://px:1", "t2");
 
-        Next(cut); // -> remaps
-        Next(cut); // -> review
-        Assert.That(cut.Markup, Does.Contain("Homelab (http://jf:8096)"),
-            "the review names the profile");
+        SeedScanLocations("/music");
+        var cut = OpenWizardWithPlaylistSource();
+        Next(cut, 2);
+        TickProfile(cut, "JF");
+        TickProfile(cut, "PX");
+        Next(cut); // remaps
+        Next(cut); // review
+
+        Assert.That(cut.Markup, Does.Contain("Targets:"),
+            "the review names the target set");
+        Assert.That(cut.Markup, Does.Contain("Jellyfin (JF)"));
+        Assert.That(cut.Markup, Does.Contain("Plex (PX)"));
 
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Create sync job").Click();
 
         using var db = _dbFactory.CreateDbContext();
         var job = db.SyncJobs.AsNoTracking().Single();
-        Assert.That(job.MediaServerProfileId, Is.EqualTo("prof-1"),
-            "the job stores the profile, not a copy of its credentials");
-        Assert.That(job.JellyfinServerUrl, Is.Null);
-        Assert.That(job.JellyfinApiKey, Is.Null);
+        var targets = MelodyBridge.Infrastructure.Services.SyncJobMapping.TargetsOf(job);
+        Assert.Multiple(() =>
+        {
+            Assert.That(targets, Has.Count.EqualTo(3), "M3U plus two servers");
+            Assert.That(targets.Any(t => t.Kind == OutputTargetType.M3uFile
+                && !string.IsNullOrWhiteSpace(t.M3uPath)), Is.True);
+            Assert.That(targets.Any(t => t.Kind == OutputTargetType.JellyfinApi
+                && t.ProfileId == "prof-jf"), Is.True);
+            Assert.That(targets.Any(t => t.Kind == OutputTargetType.PlexApi
+                && t.ProfileId == "prof-plex"), Is.True);
+            Assert.That(job.MediaServerProfileId, Is.EqualTo("prof-jf"),
+                "the legacy mirror keeps the first server profile");
+            Assert.That(job.OutputTarget, Is.EqualTo("M3uFile"),
+                "the legacy mirror keeps the first target kind");
+            Assert.That(job.JellyfinServerUrl, Is.Null, "profiles own the credentials");
+        });
     }
 
     [Test]
-    public void Step3_ProfileKind_MatchesTheOutputTarget()
+    public void Step3_TickedProfileKind_BecomesTheTargetKind()
     {
-        SeedProfile("prof-jf", "JF", "Jellyfin", "http://jf:1", "t1");
-        SeedProfile("prof-plex", "PX", "Plex", "http://px:1", "t2");
-        SeedProfile("prof-sub", "SUB", "Navidrome", "http://nv:1", "t3");
+        SeedProfile("prof-plex", "Plexy", "Plex", "http://px:1", "t2");
+        SeedProfile("prof-sub", "Navvy", "Navidrome", "http://nv:1", "t3");
 
         SeedScanLocations("/music");
         var cut = OpenWizardWithPlaylistSource();
         Next(cut, 2);
+        TickProfile(cut, "Plexy");
+        Next(cut);
+        Next(cut);
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Create sync job").Click();
 
-        cut.FindAll("select").First(s => s.TextContent.Contains("M3U File")).Change("PlexApi");
-        Assert.That(ProfileSelect(cut).TextContent, Does.Contain("PX"));
-        Assert.That(ProfileSelect(cut).TextContent, Does.Not.Contain("JF"));
+        using var db = _dbFactory.CreateDbContext();
+        var job = db.SyncJobs.AsNoTracking().Single();
+        Assert.That(MelodyBridge.Infrastructure.Services.SyncJobMapping.TargetsOf(job)
+                .Any(t => t.Kind == OutputTargetType.PlexApi && t.ProfileId == "prof-plex"),
+            Is.True, "a Plex profile becomes a Plex target");
 
-        cut.FindAll("select").First(s => s.TextContent.Contains("M3U File")).Change("SubsonicApi");
-        Assert.That(ProfileSelect(cut).TextContent, Does.Contain("SUB"),
-            "Navidrome profiles speak the Subsonic API");
-        Assert.That(ProfileSelect(cut).TextContent, Does.Not.Contain("PX"));
+        // And the Subsonic kind maps from a Navidrome profile.
+        using (var db2 = _dbFactory.CreateDbContext())
+        {
+            foreach (var row in db2.SyncJobs) db2.SyncJobs.Remove(row);
+            db2.SaveChanges();
+        }
+        var cut2 = _ctx.Render<SyncJobs>();
+        cut2.FindAll("button").First(b => b.TextContent.Trim() == "New sync job").Click();
+        cut2.FindAll("select")[1].Change("p1");
+        Next(cut2, 2);
+        TickProfile(cut2, "Navvy");
+        Next(cut2);
+        Next(cut2);
+        cut2.FindAll("button").First(b => b.TextContent.Trim() == "Create sync job").Click();
+
+        using var db3 = _dbFactory.CreateDbContext();
+        var job2 = db3.SyncJobs.AsNoTracking().Single();
+        Assert.That(MelodyBridge.Infrastructure.Services.SyncJobMapping.TargetsOf(job2)
+                .Any(t => t.Kind == OutputTargetType.SubsonicApi && t.ProfileId == "prof-sub"),
+            Is.True, "Navidrome profiles speak the Subsonic API");
     }
 
     [Test]
@@ -389,10 +435,11 @@ public class SyncJobsWizardUiTests
         var cut = _ctx.Render<SyncJobs>();
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Edit").Click();
         Next(cut, 2);
-        cut.FindAll("select").First(s => s.TextContent.Contains("M3U File")).Change("JellyfinApi");
 
-        // The job's own connection stays testable, and the Jellyfin user
-        // stays pickable, until a profile replaces it.
+        // The job's own connection stays a ticked target, testable, and the
+        // Jellyfin user stays pickable, until a profile replaces it.
+        Assert.That(cut.Markup, Does.Contain("connection saved in this job"),
+            "the legacy target names itself");
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Test connection").Click();
         _userDirectory.Verify(
             d => d.TestConnectionAsync(
@@ -401,10 +448,101 @@ public class SyncJobsWizardUiTests
             Times.Once);
         Assert.That(cut.Markup, Does.Contain("Jellyfin user"));
         Assert.That(cut.Markup, Does.Contain("Bob"), "the user list renders for the legacy job");
-        Assert.That(cut.Markup, Does.Contain("still carries the connection"),
-            "the hint explains the job's status");
-        Assert.That(cut.Markup, Does.Not.Contain("No Jellyfin profile yet"),
+        Assert.That(cut.Markup, Does.Not.Contain("No media server profiles yet"),
             "the legacy connection is a usable path, not a missing-profile dead end");
+    }
+
+    [Test]
+    public void Step3_LegacyJob_SaveKeepsItsSavedConnectionTarget()
+    {
+        SeedScanLocations("/music");
+        SeedPlaylist("p1", "My List");
+        using (var db = _dbFactory.CreateDbContext())
+        {
+            db.SyncJobs.Add(new SyncJobEntity
+            {
+                Id = "job-legacy-save",
+                Name = "Legacy save",
+                SourceId = "p1",
+                SearchLocationPaths = "[]",
+                OutputTarget = "JellyfinApi",
+                JellyfinServerUrl = "http://old:8096",
+                JellyfinApiKey = "old-key",
+                JellyfinUserId = "u2",
+                Schedule = "Manual",
+            });
+            db.SaveChanges();
+        }
+
+        var cut = _ctx.Render<SyncJobs>();
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Edit").Click();
+        Next(cut, 2);
+        Assert.That(cut.Markup, Does.Contain("connection saved in this job"));
+        Next(cut); // remaps
+        Next(cut); // review
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Save changes").Click();
+
+        using var db2 = _dbFactory.CreateDbContext();
+        var job = db2.SyncJobs.AsNoTracking().Single(j => j.Id == "job-legacy-save");
+        var targets = MelodyBridge.Infrastructure.Services.SyncJobMapping.TargetsOf(job);
+        Assert.Multiple(() =>
+        {
+            Assert.That(targets, Has.Count.EqualTo(1), "the legacy target survives an edit");
+            Assert.That(targets[0].Kind, Is.EqualTo(OutputTargetType.JellyfinApi));
+            Assert.That(targets[0].ProfileId, Is.Null, "it stays the job's own connection");
+            Assert.That(job.JellyfinServerUrl, Is.EqualTo("http://old:8096"));
+            Assert.That(job.JellyfinApiKey, Is.EqualTo("old-key"));
+            Assert.That(job.JellyfinUserId, Is.EqualTo("u2"));
+        });
+    }
+
+    [Test]
+    public void Step3_LegacyJob_ReplacingTheSavedConnectionWithAProfile_ClearsTheInlineValues()
+    {
+        SeedProfile("prof-1", "Homelab", "Jellyfin", "http://jf:8096", "token-1");
+        SeedScanLocations("/music");
+        SeedPlaylist("p1", "My List");
+        using (var db = _dbFactory.CreateDbContext())
+        {
+            db.SyncJobs.Add(new SyncJobEntity
+            {
+                Id = "job-legacy-replace",
+                Name = "Legacy replace",
+                SourceId = "p1",
+                SearchLocationPaths = "[]",
+                OutputTarget = "JellyfinApi",
+                JellyfinServerUrl = "http://old:8096",
+                JellyfinApiKey = "old-key",
+                Schedule = "Manual",
+            });
+            db.SaveChanges();
+        }
+
+        var cut = _ctx.Render<SyncJobs>();
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Edit").Click();
+        Next(cut, 2);
+
+        // Untick the saved connection, tick the profile, save.
+        cut.FindAll("label.choice-row")
+            .Single(l => l.TextContent.Contains("connection saved in this job"))
+            .QuerySelector("input[type='checkbox']")!.Change(false);
+        TickProfile(cut, "Homelab");
+        Next(cut);
+        Next(cut);
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Save changes").Click();
+
+        using var db2 = _dbFactory.CreateDbContext();
+        var job = db2.SyncJobs.AsNoTracking().Single(j => j.Id == "job-legacy-replace");
+        var targets = MelodyBridge.Infrastructure.Services.SyncJobMapping.TargetsOf(job);
+        Assert.Multiple(() =>
+        {
+            Assert.That(targets.Any(t => t.Kind == OutputTargetType.JellyfinApi
+                && t.ProfileId == "prof-1"), Is.True);
+            Assert.That(targets.Any(t => t.Kind == OutputTargetType.JellyfinApi
+                && t.ProfileId is null), Is.False, "the replaced connection target is gone");
+            Assert.That(job.JellyfinServerUrl, Is.Null, "the inline credentials are cleared");
+            Assert.That(job.JellyfinApiKey, Is.Null);
+        });
     }
 
     [Test]

@@ -58,12 +58,26 @@ public class SyncPlaylistJob
     public DownloadLocation? DownloadLocation { get; set; }
 }
 
+/// <summary>
+/// One place a sync job publishes to: an M3U file (with its path) or a
+/// media server profile. A job may carry several, so one run can write
+/// the M3U and push to Jellyfin and Plex at once. A server target with a
+/// null profile is a legacy job's own inline connection.
+/// </summary>
+public record SyncTarget(
+    OutputTargetType Kind,
+    string? ProfileId = null,
+    string? M3uPath = null);
+
 public class SyncJob
 {
     public string Id { get; set; } = Guid.NewGuid().ToString();
     public string Name { get; set; } = string.Empty;
     public string? SourceId { get; set; }
     public List<string> SearchLocationPaths { get; set; } = new();
+    /// <summary>Every place this job publishes to. Empty means the legacy
+    /// single target described by OutputTarget/M3uOutputPath.</summary>
+    public List<SyncTarget> Targets { get; set; } = new();
     public OutputTargetType OutputTarget { get; set; } = OutputTargetType.M3uFile;
     public string? JellyfinServerUrl { get; set; }
     public string? JellyfinApiKey { get; set; }
