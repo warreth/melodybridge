@@ -11,6 +11,7 @@
 @inject SpotifyAccountProvider SpotifyAccount
 @inject YouTubeAccountProvider YouTubeAccount
 @inject MediaServerProfileStore ServerProfiles
+@inject LibraryPathMover PathMover
 @inject SettingsStore TourReset
 @inject DatabaseBackupService DbBackup
 @inject NtfyNotifier Ntfy
@@ -197,7 +198,7 @@ else if (activeTab == "media-servers")
                 <span class="eyebrow">Connections</span>
                 <div class="title-with-help">
                     <h2>Media server profiles</h2>
-                    <HelpTip Path="reference#media-servers" Text="Profiles are shortcuts for sync jobs. Mark one as the app default to feed the liked songs sync." />
+                    <HelpTip Path="reference#media-servers" Text="Profiles are shortcuts for sync jobs. Mark one as the app default so jobs without their own profile fall back to it." />
                 </div>
             </div>
             <button class="btn-modern secondary small" @onclick="StartNewProfile">Add profile</button>
@@ -205,7 +206,8 @@ else if (activeTab == "media-servers")
         <div class="settings-section">
             <div class="hint-box">
                 Named server profiles several sync jobs can share. Marking one
-                profile as the app default feeds the liked-songs sync.
+                profile as the app default gives sync jobs that do not pick a
+                profile themselves a connection to fall back on.
             </div>
             @if (migratedFromOldSettings)
             {
@@ -342,6 +344,10 @@ else if (activeTab == "paths")
                     {
                         <small class="text-warn" id="music-path-warning">@musicPathWarning</small>
                     }
+                    <small class="text-muted">
+                        Downloads land here, one folder per playlist. Changing this path
+                        moves the whole library to the new folder when you save.
+                    </small>
                 </label>
                 <label>
                     Playlist output folder
@@ -378,7 +384,11 @@ else if (activeTab == "paths")
                     {
                         <small class="text-warn" id="archive-path-warning">@archivePathWarning</small>
                     }
-                    <small class="text-muted">Leave empty for no archive copy. Playlists can set their own path on their page.</small>
+                    <small class="text-muted">
+                        Leave empty for no archive copy. Playlists can set their own path on
+                        their page. Changing this path moves the existing archive copies
+                        when you save.
+                    </small>
                 </label>
                 <label>
                     Archive format
@@ -393,9 +403,10 @@ else if (activeTab == "paths")
             </div>
             <MountWarning />
             <div class="hint-box">
-                New downloads land under the music path; M3U files go to the
+                New downloads land under the music path, M3U files go to the
                 playlist output folder. Archive copies follow the archive
-                path above.
+                path above. Changing the music or archive path moves the
+                files you already have along with it.
             </div>
         </div>
     </section>
@@ -795,6 +806,10 @@ else if (activeTab == "about")
     private string musicPath = "/music";
     private string playlistPath = "/app/playlists";
     private string archivePath = "";
+    /// <summary>The roots as last persisted; a save compares against them so
+    /// the library moves even after several saves in one session.</summary>
+    private string savedMusicPath = "/music";
+    private string savedArchivePath = "";
     private string archiveFormat = "auto";
     private string defaultQuality = "auto";
     private string spectrumMode = "Fast";
@@ -885,6 +900,8 @@ else if (activeTab == "about")
         musicPath = FindSetting(settings, "music_path", "/music");
         playlistPath = FindSetting(settings, "playlist_path", "/app/playlists");
         archivePath = FindSetting(settings, "archive_path", "");
+        savedMusicPath = musicPath.Trim();
+        savedArchivePath = archivePath.Trim();
         archiveFormat = FindSetting(settings, "archive_format", "auto");
         defaultQuality = FindSetting(settings, "default_quality", "auto");
         if (!PlaylistStore.IsValidFormat(defaultQuality)) defaultQuality = "auto";
@@ -1122,8 +1139,31 @@ else if (activeTab == "about")
             await TourReset.SetAsync("notify_failures", notifyFailures ? "true" : "false");
             await SaveNtfyAsync();
 
+            // Path changes move the library: playlists, scan locations and
+            // the files themselves follow the new root.
+            var newMusicPath = musicPath.Trim();
+            var newArchivePath = archivePath.Trim();
+            var move = await PathMover.MoveAsync(
+                savedMusicPath, newMusicPath, savedArchivePath, newArchivePath);
+            savedMusicPath = newMusicPath;
+            savedArchivePath = newArchivePath;
+            await LoadInitSettingsAsync(); // the default pill reads fresh rows
+
             dirty = false;
-            Notifications.Success("Settings saved.");
+            if (move.FailedFiles > 0)
+            {
+                Notifications.Warn(
+                    $"Settings saved. Moved {move.Files} file(s); {move.FailedFiles} kept their old path because the destination was taken.");
+            }
+            else if (move.MovedAnything)
+            {
+                Notifications.Success(
+                    $"Settings saved. Moved {move.Files} file(s) into the new path.");
+            }
+            else
+            {
+                Notifications.Success("Settings saved.");
+            }
         }
         finally
         {

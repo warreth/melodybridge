@@ -286,8 +286,11 @@ playlist's own folder, never somewhere shared.
 Files that were downloaded before their playlist had a folder still sit loose
 under the music path or archive path. On startup MelodyBridge moves those into
 the playlist's folder and updates its bookkeeping, so the old layout heals by
-itself. Files outside those paths, and destinations that already hold a file,
-are left alone.
+itself. Changing the music path or archive path under **Settings, Default paths**
+does the same on save: the tracked files, the playlist folders and the scan
+locations follow the new root. Files outside those paths, and destinations that
+already hold a file, are left alone; empty folders the move leaves behind are
+removed, a folder with anything else in it stays.
 
 Type a folder on the playlist page to override the location. A folder you type
 is used as it is; leave the field empty and the default music path plus the

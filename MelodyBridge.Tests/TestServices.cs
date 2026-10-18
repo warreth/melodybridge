@@ -37,6 +37,8 @@ public static class TestServices
         var settingsStore = new SettingsStore(dbFactory);
         services.AddSingleton(settingsStore);
         services.AddSingleton(new MediaServerProfileStore(settingsStore));
+        services.AddSingleton(new LibraryPathMover(dbFactory,
+            NullLogger<LibraryPathMover>.Instance));
         services.AddSingleton(new DatabaseBackupService(dbFactory,
             NullLogger<DatabaseBackupService>.Instance));
         services.AddSingleton(new MelodyBridge.Server.Services.NotificationService());

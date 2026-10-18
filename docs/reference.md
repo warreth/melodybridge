@@ -38,14 +38,20 @@ picked.
 
 - **Music path** (`/music` in the Docker image): the root for downloads. Each
   playlist gets its own folder below it, named after the playlist, so one
-  playlist's files never mix with another's.
+  playlist's files never mix with another's. Saving a new path moves your
+  existing library along with it.
 - **Playlist output folder** (`/app/playlists`): where M3U files are written.
+  A new sync job starts with `<folder>/<job name>.m3u`; type a different path
+  in the wizard when a job should land elsewhere.
 - **Archive path** and **Archive format**: the defaults for archive copies.
   Leave the path empty for no archive. Per-playlist values override these, and
-  the playlist page shows what the app default currently is.
+  the playlist page shows what the app default currently is. Saving a new
+  archive path moves the existing archive copies along with it.
 
 Remember that these are paths inside the container, not on your host. The page
-shows a reminder next to the fields.
+shows a reminder next to the fields. Changing a path moves the tracked files,
+the playlist folders and the scan locations; a file whose destination is already
+taken stays where it is and keeps its row, so nothing is overwritten.
 
 ### Quality
 

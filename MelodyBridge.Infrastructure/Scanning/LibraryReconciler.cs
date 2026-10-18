@@ -1,4 +1,5 @@
 using MelodyBridge.Infrastructure.Data;
+using MelodyBridge.Infrastructure.Files;
 using MelodyBridge.Infrastructure.Services;
 using MelodyBridge.Infrastructure.Tagging;
 using Microsoft.EntityFrameworkCore;
@@ -144,7 +145,7 @@ public class LibraryReconciler
                     && File.Exists(primary)
                     && ShouldRelocate(primary, baseFolder, playlistFolder))
                 {
-                    if (TryMove(primary, Path.Combine(playlistFolder, Path.GetFileName(primary))))
+                    if (FileRelocator.TryMove(primary, Path.Combine(playlistFolder, Path.GetFileName(primary)), _logger))
                     {
                         track.CurrentPath = Path.Combine(playlistFolder, Path.GetFileName(primary));
                         moved++;
@@ -155,7 +156,7 @@ public class LibraryReconciler
                     && File.Exists(archive)
                     && ShouldRelocate(archive, archiveBase, archiveFolder))
                 {
-                    if (TryMove(archive, Path.Combine(archiveFolder, Path.GetFileName(archive))))
+                    if (FileRelocator.TryMove(archive, Path.Combine(archiveFolder, Path.GetFileName(archive)), _logger))
                     {
                         track.ArchivePath = Path.Combine(archiveFolder, Path.GetFileName(archive));
                         moved++;
@@ -172,59 +173,9 @@ public class LibraryReconciler
     private static bool ShouldRelocate(string path, string? baseFolder, string targetFolder)
         => !string.IsNullOrWhiteSpace(targetFolder)
            && !string.IsNullOrWhiteSpace(baseFolder)
-           && !PathsEqual(targetFolder, baseFolder)
-           && IsUnder(path, baseFolder)
-           && !IsUnder(path, targetFolder);
-
-    /// <summary>True when the path sits inside the folder (not the folder itself).</summary>
-    private static bool IsUnder(string path, string folder)
-    {
-        try
-        {
-            var root = Path.GetFullPath(folder)
-                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
-                + Path.DirectorySeparatorChar;
-            var candidate = Path.GetFullPath(path);
-            return candidate.StartsWith(root, PathComparison);
-        }
-        catch (Exception)
-        {
-            return false;
-        }
-    }
-
-    private static bool PathsEqual(string first, string second)
-        => string.Equals(first.TrimEnd('/', '\\'), second.TrimEnd('/', '\\'), PathComparison);
-
-    private static StringComparison PathComparison
-        => OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
-            ? StringComparison.OrdinalIgnoreCase
-            : StringComparison.Ordinal;
-
-    /// <summary>One move, best effort: false when anything stood in the way.</summary>
-    private bool TryMove(string source, string destination)
-    {
-        if (PathsEqual(source, destination)) return false;
-        try
-        {
-            if (File.Exists(destination))
-            {
-                _logger.LogInformation(
-                    "Folder layout: {Source} not moved, {Destination} already exists", source, destination);
-                return false;
-            }
-            var folder = Path.GetDirectoryName(destination);
-            if (!string.IsNullOrEmpty(folder)) Directory.CreateDirectory(folder);
-            File.Move(source, destination);
-            _logger.LogInformation("Folder layout: moved {Source} into {Destination}", source, destination);
-            return true;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Folder layout: could not move {Source}", source);
-            return false;
-        }
-    }
+           && !FileRelocator.PathsEqual(targetFolder, baseFolder)
+           && FileRelocator.IsUnder(path, baseFolder)
+           && !FileRelocator.IsUnder(path, targetFolder);
 
     /// <summary>MELODY_ID tag -> path, one entry per audio file in the tree.</summary>
     private static Dictionary<string, string> IndexDirectory(string dir)

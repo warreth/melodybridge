@@ -306,6 +306,10 @@ playlist row carries an `ArchiveEnabled` switch that skips the copy entirely whe
 off. `LibraryReconciler` moves downloaded files (archive copies included) that
 still sit loose under a playlist's base folder into the playlist folder during
 startup reconciliation, never overwriting what a destination already holds.
+`LibraryPathMover` runs the same guarded move for a whole root when the Music
+path or Archive path setting changes: tracked files, playlist folders and scan
+locations follow the new root, and a file with an occupied destination keeps
+its path and is reported as failed.
 
 The identity tag powers deduplication. Before any download,
 `PlaylistStore` looks for another playlist's row with the same MelodyId

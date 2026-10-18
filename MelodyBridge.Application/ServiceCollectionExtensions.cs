@@ -26,6 +26,9 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ILibraryScanner, LibraryScanner>();
         services.AddScoped<MelodyBridge.Infrastructure.Services.DatabaseBackupService>();
         services.AddScoped<MelodyBridge.Infrastructure.Services.MediaServerProfileStore>();
+        // Moves the library when the Music path or Archive path setting
+        // changes; stateless, one for all callers.
+        services.AddSingleton<MelodyBridge.Infrastructure.Services.LibraryPathMover>();
         services.AddSingleton<MelodyBridge.Infrastructure.Scanning.LibraryReconciler>();
         // OS hard links for the dedup feature; stateless, one for all.
         services.AddSingleton<MelodyBridge.Infrastructure.Files.HardLinkService>();
