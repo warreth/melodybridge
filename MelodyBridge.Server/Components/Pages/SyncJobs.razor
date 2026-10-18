@@ -154,6 +154,13 @@
                                     it should reach.
                                 </span>
                             </div>
+                            @if (droppedMissingTargets)
+                            {
+                                <div class="hint-box">
+                                    A media server target was removed because its profile no longer exists.
+                                    Tick a replacement below, then save the job.
+                                </div>
+                            }
                             @if (mediaServerProfiles.Count == 0 && !keepLegacyConnection)
                             {
                                 <div class="hint-box">
@@ -510,6 +517,9 @@
     /// a legacy job's saved connection.</summary>
     private bool draftM3uEnabled;
     private List<string> selectedProfileIds = new();
+    /// <summary>True when opening or reloading a job dropped a target whose
+    /// profile no longer exists; the output step offers a replacement.</summary>
+    private bool droppedMissingTargets;
     private bool keepLegacyConnection;
     private OutputTargetType legacyConnectionKind = OutputTargetType.JellyfinApi;
     /// <summary>The Playlist output folder setting: the M3U path prefill.</summary>
@@ -595,6 +605,24 @@
     private async Task ReloadProfiles()
     {
         mediaServerProfiles = (await ServerProfiles.GetAllAsync()).ToList();
+        PruneMissingProfiles();
+    }
+
+    /// <summary>
+    /// Drops ticked profile ids that no longer exist (deleted under
+    /// Settings since the job was saved) and flags the hint. A stale id has
+    /// no checkbox to untick and saving filters it out, so keeping it would
+    /// only block the wizard.
+    /// </summary>
+    private void PruneMissingProfiles()
+    {
+        if (selectedProfileIds.Count == 0) return;
+        var existing = selectedProfileIds
+            .Where(id => mediaServerProfiles.Any(p => p.Id == id))
+            .ToList();
+        if (existing.Count == selectedProfileIds.Count) return;
+        selectedProfileIds = existing;
+        droppedMissingTargets = true;
     }
 
     private async Task LoadDataAsync(bool preserveOrder = false)
@@ -624,6 +652,7 @@
         // target, and let the user tick media servers next to it.
         draftM3uEnabled = true;
         selectedProfileIds = new List<string>();
+        droppedMissingTargets = false;
         keepLegacyConnection = false;
         legacyConnectionKind = OutputTargetType.JellyfinApi;
         isEditing = false;
@@ -650,6 +679,8 @@
             .Select(t => t.ProfileId!)
             .Distinct()
             .ToList();
+        droppedMissingTargets = false;
+        PruneMissingProfiles();
         var inlineKind = draft.Targets
             .FirstOrDefault(t => t.Kind != OutputTargetType.M3uFile
                 && string.IsNullOrWhiteSpace(t.ProfileId))?.Kind;
@@ -750,15 +781,9 @@
         if (currentStep == 2)
         {
             // Credentials live in the media server profiles; the wizard
-            // only ticks them so jobs and profiles cannot drift apart.
-            var missing = selectedProfileIds
-                .Where(id => mediaServerProfiles.All(p => p.Id != id))
-                .ToList();
-            if (missing.Count > 0)
-            {
-                stepError = "A selected media server profile no longer exists. Reload profiles, then pick again.";
-                return;
-            }
+            // only ticks them so jobs and profiles cannot drift apart. A
+            // deleted profile was already pruned when the job was opened
+            // or the list reloaded, so editing stays possible.
             if (!HasAnyTarget)
             {
                 stepError = mediaServerProfiles.Count == 0 && !keepLegacyConnection
@@ -812,6 +837,10 @@
         saving = true;
         try
         {
+            // A profile deleted in another tab must not be stored as a
+            // target: refresh and prune first, so the job never keeps a
+            // dead id.
+            await ReloadProfiles();
             await using var db = await DbFactory.CreateDbContextAsync();
             // folder source: the folder itself is the source; playlist source
             // keeps the checkbox selection from step 2

@@ -453,6 +453,65 @@ public class SyncJobsWizardUiTests
     }
 
     [Test]
+    public void Step3_JobWhoseProfileWasDeleted_PrunesItAndSavesAReplacement()
+    {
+        SeedProfile("prof-dead", "Gone", "Jellyfin", "http://dead:1", "t1");
+        SeedProfile("prof-live", "Live", "Jellyfin", "http://live:1", "t2");
+        SeedPlaylist("p1", "My List");
+        using (var db = _dbFactory.CreateDbContext())
+        {
+            var job = new SyncJobEntity
+            {
+                Id = "job-stale-profile",
+                Name = "Stale profile",
+                SourceId = "p1",
+                SearchLocationPaths = "[]",
+                Schedule = "Manual",
+            };
+            MelodyBridge.Infrastructure.Services.SyncJobMapping.ApplyTargets(job, new[]
+            {
+                new SyncTarget(OutputTargetType.M3uFile, M3uPath: "/out/stale.m3u"),
+                new SyncTarget(OutputTargetType.JellyfinApi, ProfileId: "prof-dead"),
+            });
+            db.SyncJobs.Add(job);
+            db.SaveChanges();
+        }
+        var store = new MelodyBridge.Infrastructure.Services.MediaServerProfileStore(
+            new MelodyBridge.Infrastructure.Services.SettingsStore(_dbFactory));
+        Assert.That(store.DeleteAsync("prof-dead").GetAwaiter().GetResult(), Is.True);
+
+        var cut = _ctx.Render<SyncJobs>();
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Edit").Click();
+        Next(cut, 2);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(cut.Markup, Does.Contain("profile no longer exists"),
+                "the wizard explains why the target is gone");
+            Assert.That(cut.Markup, Does.Not.Contain("http://dead:1"),
+                "the deleted profile has no row to tick");
+        });
+
+        TickProfile(cut, "Live");
+        Next(cut); // remaps
+        Next(cut); // review
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Save changes").Click();
+
+        using var db2 = _dbFactory.CreateDbContext();
+        var saved = db2.SyncJobs.AsNoTracking().Single(j => j.Id == "job-stale-profile");
+        var targets = MelodyBridge.Infrastructure.Services.SyncJobMapping.TargetsOf(saved);
+        Assert.Multiple(() =>
+        {
+            Assert.That(targets.Any(t => t.ProfileId == "prof-dead"), Is.False,
+                "the stale target is dropped on save");
+            Assert.That(targets.Any(t => t.Kind == OutputTargetType.JellyfinApi
+                && t.ProfileId == "prof-live"), Is.True, "the replacement target is stored");
+            Assert.That(targets.Any(t => t.Kind == OutputTargetType.M3uFile
+                && t.M3uPath == "/out/stale.m3u"), Is.True, "the other targets survive");
+        });
+    }
+
+    [Test]
     public void Step3_LegacyJob_SaveKeepsItsSavedConnectionTarget()
     {
         SeedScanLocations("/music");

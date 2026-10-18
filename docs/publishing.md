@@ -38,10 +38,12 @@ Tick everything the job should publish to; at least one target is required.
 | Subsonic | A Subsonic or Navidrome profile. Navidrome, gonic, Airsonic, Ampache, Funkwhale and Nextcloud Music all speak this API; there are no API keys |
 
 The job stores the profiles you tick, not a copy of their credentials: edit a
-profile once and every job that uses it follows. No profile yet? The wizard links
-straight to the media servers tab, where you create one (Jellyfin sign-in and
-Quick Connect included), then reload the list here. A job created before profiles
-existed keeps the connection it carries as a target you can keep or replace.
+profile once and every job that uses it follows. If a profile is deleted, the
+next edit drops that target and asks for a replacement while the job's other
+targets stay. No profile yet? The wizard links straight to the media servers tab,
+where you create one (Jellyfin sign-in and Quick Connect included), then reload
+the list here. A job created before profiles existed keeps the connection it
+carries as a target you can keep or replace.
 
 The job card names every target, and the run summary counts them: a run that
 reaches three targets says so, and one refused target fails the run with its own
