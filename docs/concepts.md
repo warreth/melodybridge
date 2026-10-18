@@ -322,6 +322,13 @@ other playlist already has one, its bytes are linked into this playlist's archiv
 folder, so both playlists get a copy without a second download or a second
 transcode.
 
+Linking does not wait for a download. When you add or refresh a playlist, tracks
+the library already holds are linked right away, so a new playlist owns its own
+file names from the first moment. The same pass runs when a library scan finds
+files for a playlist that had none. A quality difference never pauses anything on
+its own: it only asks for your decision when a download would otherwise put a
+different version next to the existing one.
+
 ## Archive copies <Badge type="tip" text="Optional" />
 
 Archive copies give every download a second home. The use case is simple: keep a

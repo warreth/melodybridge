@@ -192,6 +192,8 @@ public interface IMediaServerSync
 
 Implement this to sync playlists to a media server. Built-in targets are resolved by `Name` (`"Jellyfin"`, `"Plex"`, `"Subsonic"`): place implementations in `MelodyBridge.Infrastructure/MediaServers/`: `JellyfinSync.cs`, `PlexSync.cs`, `SubsonicSync.cs`. Each has a settings pair (`JellyfinSettings.cs`, `PlexSettings.cs`, `NavidromeSettings.cs`, the Subsonic values keep their historical navidrome_* keys) reading connection values from the settings table, and `IMediaServerDirectory` (`JellyfinUserDirectory.cs`, `PlexSubsonicDirectories.cs`) supplies the wizard's Test connection and user picker. Kind-based lookups go through `IMediaServerDirectoryFactory` (`MediaServerDirectoryFactory.cs`), which knows the aliases ("Navidrome" is Subsonic). Sync jobs pick a named profile from `MediaServerProfileStore` (stored as one JSON list under the `media_server_profiles` settings key) by `SyncJobs.MediaServerProfileId`; `SyncJobRunner` resolves that profile fresh on every run into the per-call `PlaylistOutputOptions.MediaServerConnection` (base URL, credential, optional user id), so editing a profile applies to every job. Jobs created before profiles existed keep their inline `JellyfinServerUrl`/`JellyfinApiKey` values; with neither, the app-wide settings fall back in.
 
+`JellyfinSync` reads the server's audio library once per sync (a paged `/Items?IncludeItemTypes=Audio&Fields=Path` walk) and resolves each track by its remapped path locally. Only paths the library does not hold reach the metadata search; `/Items/ByPath` is tried only when the library walk could not be read at all (older servers). A playlist whose members and order already match is not rewritten, and liked songs that are already favorites are not re-posted.
+
 ### `IDownloadManager`: the waterfall
 
 ```csharp
@@ -217,7 +219,7 @@ public interface IDownloadManager
 - `FileIntegrity.Check` reads the real duration with ffprobe and classifies the file as OK, `Corrupt` (unreadable or truncated: deleted, track failed, retried later) or `DurationMismatch` (the file stays and is flagged).
 - `SpectrumAnalyzer.Verify` measures the real bandwidth. An inflated result flags the file; a low but honest bandwidth leaves an advisory `Warning`.
 
-A flag writes `Tracks.ReviewKind` (`length`, `spectrum`, or both joined by `+`, see `TrackReview`) and `ReviewText`. `ResolveQualityReviewAsync` settles it: Keep clears the columns, Retry deletes the primary and archive files, sets `DownloadStatus = "pending"` and copies `SourcePluginId` into the one-shot `AvoidPluginId`. `PlaylistStore.Verification` carries the live `VerificationOptions` (spectrum mode and class gap, length tolerances); the Server seeds it from the settings table at startup and the Settings page replaces it on save, so a change applies without a restart.
+A flag writes `Tracks.ReviewKind` (`length`, `spectrum`, or both joined by `+`, see `TrackReview`) and `ReviewText`. `ResolveQualityReviewAsync` settles it: Keep clears the columns, Retry deletes the primary and archive files, sets `DownloadStatus = "pending"` and copies `SourcePluginId` into the one-shot `AvoidPluginId`. A retry that cannot delete the flagged file refuses and keeps the review open: re-queueing would let the library passes re-link the same bytes as if a fresh download had landed. `PlaylistStore.Verification` carries the live `VerificationOptions` (spectrum mode and class gap, length tolerances); the Server seeds it from the settings table at startup and the Settings page replaces it on save, so a change applies without a restart.
 
 ## ISRC: exact matching
 
@@ -311,10 +313,12 @@ path or Archive path setting changes: tracked files, playlist folders and scan
 locations follow the new root, and a file with an occupied destination keeps
 its path and is reported as failed.
 
-The identity tag powers deduplication. Before any download,
-`PlaylistStore` looks for another playlist's row with the same MelodyId
-and a downloaded file, and compares that file's measured quality with
-the requested band:
+The identity tag powers deduplication, and `TrackLinker` is the one
+module that performs it: the download claim, the playlist add/refresh
+path and `LibraryReconciler` all go through it. A claimed track looks
+for another playlist's row with the same MelodyId and a downloaded
+file, and compares that file's measured quality with the requested
+band:
 
 - Exact match: `HardLinkService.Create` (P/Invoke `link(2)` on Unix,
   `CreateHardLinkW` on Windows; `File.CreateHardLink` arrives in
@@ -333,6 +337,17 @@ the requested band:
 - Cross-device failure (EXDEV): the exception carries the honest
   message, the store logs it and the track downloads normally. A
   `File.Copy` fallback is deliberately forbidden.
+
+The linking also runs without any download, so a playlist whose tracks
+the library already holds owns its own file names from the first
+moment: `TrackLinker.LinkSharedTracksAsync` runs right after every
+snapshot save (add, refresh, import), and `LibraryReconciler` asks the
+linker for a row without a file before it falls back to its MELODY_ID
+file index. That index never returns an archive copy (archive folders
+and remembered `ArchivePath` values stay out of it), and a
+`needs-review` row is left alone by every library pass: only a real
+download may pause it for the quality decision, an unprompted pass
+leaves a mismatch pending.
 
 Deletion is name-wise by hard link semantics: removing one playlist's
 row removes that playlist's file name only, and both `RemoveTrackAsync`
@@ -359,7 +374,8 @@ Registers core services: `DownloadManager`, `SyncEngine`, library scanner, M3U g
 - `SyncJobRunner`: orchestrates sync jobs (resolve downloaded tracks → M3U / media server)
 - `AutoSyncBackgroundService`: syncs playlists whose per-playlist interval has elapsed
 - `ScanSchedulingBackgroundService`: scheduled library path scans
-- `SyncJobSchedulingBackgroundService`: runs sync jobs whose schedule (preset or cron) is due; jobs only run while the app runs
+- `SyncJobSchedulingBackgroundService`: runs sync jobs whose schedule (preset or cron) is due; jobs only run while the app runs. A never-run job is anchored at `SyncJobs.CreatedAt`, so a new scheduled job first runs at its next fire (a job created while the app was off catches up), and the Sync jobs card shows that next run
+- `DataChangeTracker`: a process-wide write stamp; every store write bumps it and the playlist page reloads when it moved, so changes made by another circuit or a background pass reach an open page without polling the database every second
 - `SpotifySourceProvider`, `YouTubeSourceProvider`: playlist sources
 
 ### `AddMediaServerSyncs()`

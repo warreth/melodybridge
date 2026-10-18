@@ -58,6 +58,12 @@ Manually created jobs run from the **Run now** button. A job that has a schedule
 runs on its own while MelodyBridge is running: the app checks once a minute and
 runs every due job, one after another.
 
+A new job first runs at its next scheduled time, not the moment you save it. Pick
+Daily and the first run is the next 03:00; the card says when that is (**next
+run ...**, or **due now** when a missed window is about to catch up). Press
+**Run now** to start it earlier. A job that was created while the app was off
+catches up on the next check.
+
 Pick **Manual**, **Hourly**, **Daily**, **Weekly**, **Monthly**, or **Cron** for
 something custom. Cron uses five fields (minute, hour, day of month, month, day
 of week):
