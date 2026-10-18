@@ -222,6 +222,59 @@ public class SyncJobRunnerTests
     }
 
     [Test]
+    public async Task RunJob_AThrowingTarget_DoesNotStopTheOthers()
+    {
+        var dbPath = NewDbPath();
+        var dir = Path.Combine(Path.GetTempPath(), $"mb-job-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var factory = await NewDbFactory(dbPath);
+            await SeedPlaylistAsync(factory, dir);
+            var jellyfin = new CapturingServerSync("Jellyfin");
+            var plex = new CapturingServerSync("Plex");
+            var runner = new SyncJobRunner(factory,
+                new M3uGenerator(NullLogger<M3uGenerator>.Instance),
+                new IMediaServerSync[] { jellyfin, plex },
+                NullLogger<SyncJobRunner>.Instance);
+
+            // A regular file where the M3U's folder should be: the
+            // generator's Directory.CreateDirectory throws.
+            var blocker = Path.Combine(dir, "blocked");
+            await File.WriteAllTextAsync(blocker, "not a directory");
+            var job = new SyncJob
+            {
+                Id = "job-throwing",
+                Name = "Job Playlist",
+                SourceId = "pl-job",
+                Targets = new List<SyncTarget>
+                {
+                    new(OutputTargetType.M3uFile, M3uPath: Path.Combine(blocker, "out.m3u")),
+                    new(OutputTargetType.JellyfinApi),
+                    new(OutputTargetType.PlexApi),
+                },
+            };
+
+            var log = await runner.RunJobAsync(job);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(log.Status, Is.EqualTo(SyncStatus.Failed));
+                Assert.That(log.Message, Does.Contain("M3U file:"),
+                    "the thrown target's failure is reported");
+                Assert.That(jellyfin.Calls, Is.EqualTo(1),
+                    "a thrown M3U target must not cost the servers their run");
+                Assert.That(plex.Calls, Is.EqualTo(1));
+            });
+        }
+        finally
+        {
+            TryDelete(dbPath);
+            try { Directory.Delete(dir, recursive: true); } catch { /* best effort */ }
+        }
+    }
+
+    [Test]
     public async Task RunJob_OneTargetFails_TheRestStillRun_AndTheJobFails()
     {
         var dbPath = NewDbPath();
