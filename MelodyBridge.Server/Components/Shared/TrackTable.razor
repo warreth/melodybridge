@@ -148,6 +148,14 @@
                     }
                     <td class="track-actions col-actions">
                         <div class="btn-group">
+                            @if (OnChooseSource.HasDelegate)
+                            {
+                                <button class="btn-modern small ghost"
+                                        title="Search every plugin by hand and pick the source yourself"
+                                        @onclick="() => OnChooseSource.InvokeAsync(track)" disabled="@Busy">
+                                    <Icon Name="search" Size="14" /> <span class="btn-label">Choose source</span>
+                                </button>
+                            }
                             @if (track.DownloadStatus == "needs-review")
                             {
                                 <button class="btn-modern small ghost" title="Download a fresh file in this playlist's quality"
@@ -225,6 +233,11 @@
     [Parameter] public EventCallback<(TrackEntity Track, QualityReviewAction Action)> OnQualityReview { get; set; }
     /// <summary>Remove this track (and its file) from the playlist.</summary>
     [Parameter] public EventCallback<TrackEntity> OnRemove { get; set; }
+    /// <summary>
+    /// Search every plugin by hand and pick the source for this track: the
+    /// honest fallback when the automatic match is wrong or missing.
+    /// </summary>
+    [Parameter] public EventCallback<TrackEntity> OnChooseSource { get; set; }
     /// <summary>Raised whenever the sort changes, so the page can keep the state.</summary>
     [Parameter] public EventCallback OnSortChanged { get; set; }
 

@@ -65,6 +65,22 @@ public class YtDlpDownloaderLiveTests
     }
 
     [Test]
+    public async Task SearchAll_ReturnsTheRawHits_ForTheManualPicker()
+    {
+        // The picker exists for exactly the hits the ranking refuses:
+        // SearchAllAsync must hand them over before the gate.
+        var hits = await _downloader.SearchAllAsync(
+            new TrackQuery("Rick Astley", "Never Gonna Give You Up", MelodyBridge.Core.DownloadQuality.Any));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(hits, Is.Not.Empty, "ytsearch5 returns candidates");
+            Assert.That(hits.Count, Is.LessThanOrEqualTo(5));
+            Assert.That(hits.All(h => h.SourceUrl is { Length: > 0 }), Is.True);
+        });
+    }
+
+    [Test]
     public async Task Search_WrongLengthExpectation_ReturnsTheCandidate_ForTheManagerToReject()
     {
         // The ranker treats a gross mismatch as a last resort: the

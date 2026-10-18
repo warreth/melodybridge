@@ -51,20 +51,30 @@ public partial class YtDlpDownloader : IDownloader
 
     public async Task<DownloaderSearchHit?> SearchAsync(TrackQuery query, CancellationToken ct = default)
     {
-        if (YtDlpProcess.BinaryPath is null) return null;
-
-        // YouTube search is noisy enough already: dropping mix suffixes
-        // and featuring tags keeps the real track on page one.
-        var searchText = query.SearchText;
-        if (searchText.Length == 0) return null;
-
         // Top 5, ranked by title/artist similarity plus duration
         // proximity: never blindly the first row, which is routinely a
         // lyric video or a remix. (The old ytmsearch pseudo-extractor is
         // gone from current yt-dlp versions; ytsearch covers the catalog.)
         // YouTube does not index ISRCs, so the ISRC is not used here.
-        var hits = await SearchExtractorAsync("ytsearch5", query.Artist, query.Title, searchText, ct);
+        var hits = await SearchAllAsync(query, ct);
         return SearchRanker.Rank(query.Artist, query.Title, query.ExpectedDuration, hits);
+    }
+
+    /// <summary>
+    /// Every parsed hit, unranked: the manual source picker shows what the
+    /// ranking refused, so a human can still pick it.
+    /// </summary>
+    public async Task<IReadOnlyList<DownloaderSearchHit>> SearchAllAsync(
+        TrackQuery query, CancellationToken ct = default)
+    {
+        if (YtDlpProcess.BinaryPath is null) return Array.Empty<DownloaderSearchHit>();
+
+        // YouTube search is noisy enough already: dropping mix suffixes
+        // and featuring tags keeps the real track on page one.
+        var searchText = query.SearchText;
+        if (searchText.Length == 0) return Array.Empty<DownloaderSearchHit>();
+
+        return await SearchExtractorAsync("ytsearch5", query.Artist, query.Title, searchText, ct);
     }
 
     /// <summary>Runs one search extractor and parses every flat entry as a candidate.</summary>

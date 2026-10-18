@@ -108,6 +108,21 @@ public interface IDownloadManager
     /// </summary>
     Task<string?> DownloadTrackAsync(TrackQuery query, string outputDirectory, string melodyId,
         DownloadFallback? fallback = null, string? avoidPluginId = null, CancellationToken ct = default);
+    /// <summary>
+    /// Search every enabled plugin for the track and return all candidates
+    /// (best first) without the acceptance gate: the manual source picker
+    /// lists them. Plugins that report unavailable or throw are skipped.
+    /// </summary>
+    Task<IReadOnlyList<DownloadCandidate>> SearchCandidatesAsync(
+        TrackQuery query, CancellationToken ct = default);
+    /// <summary>
+    /// Download one candidate a human picked by hand. The choice overrides
+    /// the ranking, never the sanity: non-audio bytes are still rejected
+    /// and the MELODY_ID tag is written.
+    /// </summary>
+    Task<string?> DownloadCandidateAsync(
+        DownloadCandidate candidate, TrackQuery query, string outputDirectory,
+        string melodyId, CancellationToken ct = default);
     /// <summary>Current in-flight download states (for UI polling).</summary>
     IReadOnlyList<DownloadProgress> SnapshotProgress();
     /// <summary>
@@ -124,6 +139,21 @@ public interface IDownloadManager
     /// </summary>
     string? LastFailure(string melodyId);
 }
+
+/// <summary>
+/// One candidate a plugin offered for a track: what the "choose a source"
+/// dialog lists. The list deliberately skips the acceptance gate, so a
+/// human can pick what the automatic match refused.
+/// </summary>
+public record DownloadCandidate(
+    string PluginId,
+    string PluginName,
+    string Title,
+    string? Artist,
+    TimeSpan? Duration,
+    int? BitrateKbps,
+    string SourceUrl,
+    MatchConfidence Confidence);
 
 /// <summary>
 /// Per-call media-server connection override (Jellyfin, Plex, Navidrome).

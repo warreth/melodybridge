@@ -121,6 +121,23 @@ public interface IDownloader
     Task<DownloaderSearchHit?> SearchAsync(TrackQuery query, CancellationToken ct = default);
 
     /// <summary>
+    /// Every candidate the plugin found for the query, best first, before
+    /// its own ranking gate: the "choose a source by hand" dialog shows
+    /// them so a human can pick a result the automatic match refused. The
+    /// default returns the ranked hit plus its alternatives; plugins that
+    /// can offer more (the yt-dlp backed ones) override it.
+    /// </summary>
+    async Task<IReadOnlyList<DownloaderSearchHit>> SearchAllAsync(
+        TrackQuery query, CancellationToken ct = default)
+    {
+        var hit = await SearchAsync(query, ct);
+        if (hit is null) return Array.Empty<DownloaderSearchHit>();
+        var all = new List<DownloaderSearchHit>(1 + (hit.Alternatives?.Count ?? 0)) { hit };
+        if (hit.Alternatives is { Count: > 0 } alternatives) all.AddRange(alternatives);
+        return all;
+    }
+
+    /// <summary>
     /// Download the track at sourceUrl into outputDirectory, honoring the
     /// requested quality (format/bitrate cap) where the source allows it.
     /// </summary>

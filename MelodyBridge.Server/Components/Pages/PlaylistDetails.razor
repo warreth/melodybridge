@@ -312,11 +312,92 @@ else
                         Busy="@busy"
                         QueueLabel="@TrackQueueLabel"
                         OnRetry="RetryTrack"
+                        OnChooseSource="OpenSourcePicker"
                         OnResolveReview="ResolveDedupReview"
                         OnQualityReview="ResolveQualityReview"
                         OnRemove="RemoveTrack" />
         }
     </section>
+
+    @if (chooseSourceTrack is { } chooser)
+    {
+        <div class="wizard-overlay" @onclick="CloseSourcePicker">
+            <div class="wizard-modal source-picker-modal" @onclick:stopPropagation="true">
+                <div class="wizard-header">
+                    <div>
+                        <span class="eyebrow">Choose source</span>
+                        <h2>@(chooser.Title ?? "Track")</h2>
+                        <p class="text-muted">
+                            Every enabled plugin's results, best guess first. Pick the one that is the
+                            right recording; the automatic match refused all of these.
+                        </p>
+                    </div>
+                    <button class="icon-button" title="Close" @onclick="CloseSourcePicker">
+                        <Icon Name="x" Size="18" />
+                    </button>
+                </div>
+                <div class="wizard-body">
+                    @if (searchingSources)
+                    {
+                        <p class="text-muted">Searching every enabled plugin…</p>
+                    }
+                    else if (sourceCandidates.Count == 0)
+                    {
+                        <div class="hint-box">
+                            No plugin returned a result for this track. Check the plugin settings
+                            (tokens, tools) or try again later.
+                        </div>
+                    }
+                    else
+                    {
+                        @foreach (var candidate in sourceCandidates)
+                        {
+                            <div class="source-candidate">
+                                <div class="source-candidate-main">
+                                    <strong title="@candidate.Title">@candidate.Title</strong>
+                                    <small>
+                                        @(candidate.Artist ?? "Unknown artist")
+                                        @if (candidate.Duration is { } length)
+                                        {
+                                            <span> · @TrackDisplay.Duration((long)length.TotalMilliseconds)</span>
+                                        }
+                                        @if (candidate.BitrateKbps is { } kbps)
+                                        {
+                                            <span> · @kbps kbps</span>
+                                        }
+                                    </small>
+                                </div>
+                                <StatusPill Variant="@(candidate.Confidence == MatchConfidence.High ? "ok" : "warn")"
+                                            Class="pill-tight"
+                                            Title="@(candidate.Confidence == MatchConfidence.High
+                                                ? "The plugin is confident this is the requested track"
+                                                : "The plugin is not sure; listen before you keep it")">
+                                    @(candidate.Confidence == MatchConfidence.High ? "likely" : "unsure")
+                                </StatusPill>
+                                <StatusPill Variant="neutral">@candidate.PluginName</StatusPill>
+                                <button class="btn-modern small primary"
+                                        disabled="@downloadingCandidate"
+                                        @onclick="() => DownloadPickedCandidate(candidate)">
+                                    <Icon Name="download" Size="14" /> Download
+                                </button>
+                            </div>
+                        }
+                    }
+                </div>
+                <div class="wizard-footer">
+                    <div class="flex-actions">
+                        <button class="btn-modern ghost" @onclick="CloseSourcePicker">Close</button>
+                    </div>
+                    <div class="wizard-actions">
+                        <button class="btn-modern secondary" @onclick="() => SearchSourcesAgain()"
+                                disabled="@searchingSources">
+                            <Icon Name="refresh" Size="14" /> Search again
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
 
     @if (removeTrack is { } doomed)
     {
@@ -906,6 +987,76 @@ else
             await Load();
         }
         finally { busy = false; }
+    }
+
+    /// <summary>
+    /// The track the source picker is open for, the candidates every
+    /// plugin offered and whether a pick is downloading.
+    /// </summary>
+    private TrackEntity? chooseSourceTrack;
+    private IReadOnlyList<DownloadCandidate> sourceCandidates = Array.Empty<DownloadCandidate>();
+    private bool searchingSources;
+    private bool downloadingCandidate;
+
+    private async Task OpenSourcePicker(TrackEntity track)
+    {
+        chooseSourceTrack = track;
+        sourceCandidates = Array.Empty<DownloadCandidate>();
+        StateHasChanged();
+        await SearchSourcesAsync();
+    }
+
+    private void CloseSourcePicker() => chooseSourceTrack = null;
+
+    private async Task SearchSourcesAgain() => await SearchSourcesAsync();
+
+    private async Task SearchSourcesAsync()
+    {
+        if (chooseSourceTrack is not { } track) return;
+        searchingSources = true;
+        StateHasChanged();
+        try
+        {
+            sourceCandidates = await Store.SearchCandidatesAsync(track.Id);
+        }
+        finally
+        {
+            searchingSources = false;
+        }
+    }
+
+    /// <summary>
+    /// Downloads the candidate the user picked; the row and the table
+    /// refresh when it lands, and a failure says why instead of guessing.
+    /// </summary>
+    private async Task DownloadPickedCandidate(DownloadCandidate candidate)
+    {
+        if (chooseSourceTrack is not { } track) return;
+        downloadingCandidate = true;
+        retryingTrackIds.Add(track.Id);
+        try
+        {
+            var result = await Store.DownloadCandidateAsync(track.Id, candidate);
+            switch (result)
+            {
+                case "downloaded":
+                    Notifications.Success($"Downloaded '{track.Title}' from {candidate.PluginName}.");
+                    chooseSourceTrack = null;
+                    break;
+                case "claimed-by-another-run":
+                    Notifications.Info("This track is already being downloaded by a running batch.");
+                    break;
+                default:
+                    Notifications.Warn($"'{candidate.PluginName}' could not deliver '{track.Title}'. Try another result.");
+                    break;
+            }
+            await Load();
+        }
+        finally
+        {
+            downloadingCandidate = false;
+            retryingTrackIds.Remove(track.Id);
+        }
     }
 
     private async Task RemoveTrack(TrackEntity track)

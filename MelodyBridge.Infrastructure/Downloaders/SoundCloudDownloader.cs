@@ -53,8 +53,22 @@ public class SoundCloudDownloader : IDownloader
     {
         if (YtDlpProcess.BinaryPath is null) return null;
 
+        // Top 5 ranked, never the first row: scsearch's first hit is
+        // routinely a cover, a remix or a repost of another artist.
+        // SoundCloud does not index ISRCs; the text query is the way in.
+        var hits = await SearchAllAsync(query, ct);
+        return SearchRanker.Rank(query.Artist, query.Title, query.ExpectedDuration, hits);
+    }
+
+    /// <summary>
+    /// Every parsed hit, unranked: the manual source picker shows what the
+    /// ranking refused, so a human can still pick it.
+    /// </summary>
+    public async Task<IReadOnlyList<DownloaderSearchHit>> SearchAllAsync(
+        TrackQuery query, CancellationToken ct = default)
+    {
         var searchText = query.SearchText;
-        if (searchText.Length == 0) return null;
+        if (searchText.Length == 0) return Array.Empty<DownloaderSearchHit>();
 
         try
         {
@@ -66,18 +80,13 @@ public class SoundCloudDownloader : IDownloader
                 "--no-warnings",
             }, TimeSpan.FromSeconds(30), ct);
 
-            if (exit != 0) return null;
-
-            // Top 5 ranked, never the first row: scsearch's first hit is
-            // routinely a cover, a remix or a repost of another artist.
-            // SoundCloud does not index ISRCs; the text query is the way in.
-            var hits = YtDlpDownloader.ParseFlatPlaylistHits(stdout, query.Artist, query.Title, id => id);
-            return SearchRanker.Rank(query.Artist, query.Title, query.ExpectedDuration, hits);
+            if (exit != 0) return Array.Empty<DownloaderSearchHit>();
+            return YtDlpDownloader.ParseFlatPlaylistHits(stdout, query.Artist, query.Title, id => id);
         }
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "SoundCloud search failed for '{Query}'", searchText);
-            return null;
+            return Array.Empty<DownloaderSearchHit>();
         }
     }
 

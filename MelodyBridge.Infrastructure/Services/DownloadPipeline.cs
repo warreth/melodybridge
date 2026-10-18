@@ -240,57 +240,7 @@ internal sealed class DownloadPipeline
                 return "failed";
             }
 
-            // Write-through: the file always ends up with full tags,
-            // whatever the plugin could or could not read from the source.
-            Tagging.TaglibHelper.WriteTags(
-                path,
-                title: track.Title,
-                artist: track.Artist,
-                album: track.Album,
-                albumArtist: track.AlbumArtist,
-                // Position is 0-based; the tag and the UI are 1-based.
-                track: (uint?)(track.Position + 1),
-                lyrics: track.Lyrics);
-
-            // Verification, not rejection: broken bytes fail the track
-            // (deleted, retried on a later run), a wrong length or an
-            // inflated bitrate flags the file and keeps it, so the user
-            // can keep it or retry it at another provider. DurationMs is
-            // what the source platform advertised for the track.
-            var integrity = Audio.FileIntegrity.Check(
-                path, expectedDuration,
-                expectedDuration is { } expected ? verification.ToleranceFor(expected) : null);
-            if (integrity.Issue == Audio.IntegrityIssue.Corrupt)
-            {
-                try { System.IO.File.Delete(path); } catch { /* best effort */ }
-                track.DownloadStatus = "failed";
-                track.DownloadError = $"corrupt download: {integrity.Reason}";
-                return "failed";
-            }
-
-            // Media-server metadata: cover art and lyrics, both optional and
-            // both isolated. They run after the integrity gate so a corrupt
-            // file never costs a network call.
-            await EnrichMetadataAsync(track, path, ct);
-
-            track.DownloadStatus = "downloaded";
-            track.CurrentPath = path;
-            track.LastSeenAt = DateTime.UtcNow;
-            track.Bitrate = Audio.BitrateProbe.MeasureKbps(path);
-            AudioProbe.Fill(track, path);
-            track.SourcePluginId = _downloadManager.LastPluginId(track.MelodyId!);
-            ApplyQualityReview(track, path, integrity, verification);
-            // No ffprobe means the check could not run at all. The file is
-            // kept (deleting a good download because a tool is missing is
-            // worse), and the row says it was not verified.
-            if (integrity.ToolMissing)
-            {
-                const string unverified = "could not verify the download: ffprobe is not installed";
-                track.Warning = string.IsNullOrEmpty(track.Warning)
-                    ? unverified : $"{track.Warning}; {unverified}";
-            }
-            await ArchiveDownloadedTrackAsync(track, db, ct);
-            return "downloaded";
+            return await CompleteDownloadAsync(track, db, path, expectedDuration, verification, ct);
         }
         catch (OperationCanceledException)
         {
@@ -312,6 +262,256 @@ internal sealed class DownloadPipeline
         {
             // A cancelled token must not swallow the status write: the
             // claimed row has to leave "in_progress" whatever happened.
+            await SaveQuietlyAsync(db);
+        }
+    }
+
+    /// <summary>
+    /// The post-download half shared by the waterfall and a hand-picked
+    /// source: write-through tags, the integrity verdict, metadata
+    /// enrichment, the archive copy and the final row state. Returns
+    /// "downloaded" or "failed" (corrupt bytes are deleted).
+    /// </summary>
+    private async Task<string> CompleteDownloadAsync(
+        TrackEntity track, MelodyBridgeDbContext db, string path,
+        TimeSpan? expectedDuration, VerificationOptions verification, CancellationToken ct)
+    {
+        // Write-through: the file always ends up with full tags,
+        // whatever the plugin could or could not read from the source.
+        Tagging.TaglibHelper.WriteTags(
+            path,
+            title: track.Title,
+            artist: track.Artist,
+            album: track.Album,
+            albumArtist: track.AlbumArtist,
+            // Position is 0-based; the tag and the UI are 1-based.
+            track: (uint?)(track.Position + 1),
+            lyrics: track.Lyrics);
+
+        // Verification, not rejection: broken bytes fail the track
+        // (deleted, retried on a later run), a wrong length or an
+        // inflated bitrate flags the file and keeps it, so the user
+        // can keep it or retry it at another provider. DurationMs is
+        // what the source platform advertised for the track.
+        var integrity = Audio.FileIntegrity.Check(
+            path, expectedDuration,
+            expectedDuration is { } expected ? verification.ToleranceFor(expected) : null);
+        if (integrity.Issue == Audio.IntegrityIssue.Corrupt)
+        {
+            try { System.IO.File.Delete(path); } catch { /* best effort */ }
+            track.DownloadStatus = "failed";
+            track.DownloadError = $"corrupt download: {integrity.Reason}";
+            return "failed";
+        }
+
+        // Media-server metadata: cover art and lyrics, both optional and
+        // both isolated. They run after the integrity gate so a corrupt
+        // file never costs a network call.
+        await EnrichMetadataAsync(track, path, ct);
+
+        track.DownloadStatus = "downloaded";
+        track.CurrentPath = path;
+        track.LastSeenAt = DateTime.UtcNow;
+        track.Bitrate = Audio.BitrateProbe.MeasureKbps(path);
+        AudioProbe.Fill(track, path);
+        track.SourcePluginId = _downloadManager.LastPluginId(track.MelodyId!);
+        ApplyQualityReview(track, path, integrity, verification);
+        // No ffprobe means the check could not run at all. The file is
+        // kept (deleting a good download because a tool is missing is
+        // worse), and the row says it was not verified.
+        if (integrity.ToolMissing)
+        {
+            const string unverified = "could not verify the download: ffprobe is not installed";
+            track.Warning = string.IsNullOrEmpty(track.Warning)
+                ? unverified : $"{track.Warning}; {unverified}";
+        }
+        await ArchiveDownloadedTrackAsync(track, db, ct);
+        return "downloaded";
+    }
+
+    /// <summary>
+    /// Candidates every enabled plugin offers for a track, for the manual
+    /// source picker. A read-only search: no claim, no row change.
+    /// </summary>
+    public async Task<IReadOnlyList<DownloadCandidate>> SearchCandidatesAsync(
+        int trackId, CancellationToken ct = default)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var track = await db.Tracks.AsNoTracking().FirstOrDefaultAsync(t => t.Id == trackId, ct);
+        if (track is null
+            || string.IsNullOrWhiteSpace(track.Artist)
+            || string.IsNullOrWhiteSpace(track.Title))
+        {
+            return Array.Empty<DownloadCandidate>();
+        }
+
+        var playlist = await db.Playlists.AsNoTracking()
+            .FirstOrDefaultAsync(p => p.Id == track.PlaylistEntityId, ct);
+        var preferred = playlist?.PreferredFormat ?? "";
+        if (string.IsNullOrWhiteSpace(preferred))
+            preferred = await _settings.GetAsync("default_quality", "auto", ct);
+        var expectedDuration = track.DurationMs is > 0
+            ? TimeSpan.FromMilliseconds(track.DurationMs.Value)
+            : (TimeSpan?)null;
+
+        var query = new TrackQuery(
+            track.Artist!, track.Title!, PlaylistRules.ParseQuality(preferred),
+            expectedDuration, track.Isrc);
+        return await _downloadManager.SearchCandidatesAsync(query, ct);
+    }
+
+    /// <summary>
+    /// Downloads one candidate a human picked for a track, replacing any
+    /// existing file. The pick overrides the ranking, not the pipeline:
+    /// the old primary and archive are removed (name-wise, so a hardlink
+    /// twin elsewhere survives), the row is claimed like any download, and
+    /// the result goes through the same tagging, integrity, enrichment and
+    /// archive steps. Returns "downloaded", "failed",
+    /// "claimed-by-another-run" or "not-found".
+    /// </summary>
+    public async Task<string> DownloadChosenTrackAsync(
+        int trackId, DownloadCandidate candidate, CancellationToken ct = default)
+    {
+        int id;
+        string dir, preferredFormat;
+        await using (var db = await _dbFactory.CreateDbContextAsync(ct))
+        {
+            var track = await db.Tracks.AsNoTracking().FirstOrDefaultAsync(t => t.Id == trackId, ct);
+            if (track is null) return "not-found";
+            id = track.Id;
+
+            var playlist = await db.Playlists.AsNoTracking()
+                .FirstOrDefaultAsync(p => p.Id == track.PlaylistEntityId, ct);
+            var musicPath = await _settings.GetAsync("music_path", "/music", ct);
+            dir = PlaylistRules.ResolvePlaylistFolder(playlist?.TargetDirectory, musicPath, playlist?.Name);
+            preferredFormat = playlist?.PreferredFormat ?? "";
+            if (string.IsNullOrWhiteSpace(preferredFormat))
+                preferredFormat = await _settings.GetAsync("default_quality", "auto", ct);
+        }
+        if (string.IsNullOrWhiteSpace(dir))
+        {
+            throw new InvalidOperationException(
+                "No download folder configured. Set one in the playlist settings.");
+        }
+
+        await using (var db = await _dbFactory.CreateDbContextAsync(CancellationToken.None))
+        {
+            var track = await db.Tracks.FindAsync(new object[] { id }, CancellationToken.None);
+            if (track is null) return "not-found";
+
+            // Read the old names before the claim clears them.
+            var oldPaths = new[] { track.CurrentPath, track.ArchivePath }
+                .Where(p => !string.IsNullOrWhiteSpace(p))
+                .Select(p => p!)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            // Claim and reset in one conditional UPDATE; a running batch
+            // that already holds the row wins, the pick waits for a later
+            // moment instead of racing it.
+            var claimed = await db.Tracks
+                .Where(t => t.Id == id && t.DownloadStatus != "in_progress")
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(t => t.DownloadStatus, "in_progress")
+                    .SetProperty(t => t.CurrentPath, (string?)null)
+                    .SetProperty(t => t.ArchivePath, (string?)null)
+                    .SetProperty(t => t.IsHardLink, false)
+                    .SetProperty(t => t.DownloadError, (string?)null)
+                    .SetProperty(t => t.Warning, (string?)null)
+                    .SetProperty(t => t.ReviewKind, (string?)null)
+                    .SetProperty(t => t.ReviewText, (string?)null)
+                    .SetProperty(t => t.Bitrate, (int?)null)
+                    .SetProperty(t => t.SampleRateHz, (int?)null)
+                    .SetProperty(t => t.FileSizeBytes, (long?)null)
+                    .SetProperty(t => t.MediaType, (string?)null), CancellationToken.None);
+            if (claimed != 1) return "claimed-by-another-run";
+
+            // Replace: the old file and archive go, name-wise. A path
+            // another row still references is a shared name and survives.
+            foreach (var path in oldPaths)
+            {
+                if (await db.Tracks.AsNoTracking()
+                    .AnyAsync(t => t.Id != id && (t.CurrentPath == path || t.ArchivePath == path),
+                        CancellationToken.None))
+                {
+                    continue;
+                }
+                if (!File.Exists(path)) continue;
+                try
+                {
+                    File.Delete(path);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(
+                        "Could not delete the old file {Path} for the picked source ({Reason}); the pick is refused",
+                        path, ex.Message);
+                    track.DownloadStatus = "failed";
+                    track.DownloadError = $"could not replace the existing file {path}: {ex.Message}";
+                    await SaveQuietlyAsync(db);
+                    return "failed";
+                }
+            }
+        }
+
+        return await DownloadPickedTrackAsync(id, candidate, dir, preferredFormat, ct);
+    }
+
+    /// <summary>
+    /// The claimed half of a hand-picked download: builds the query,
+    /// downloads exactly the chosen candidate and runs the shared
+    /// post-download steps.
+    /// </summary>
+    private async Task<string> DownloadPickedTrackAsync(
+        int trackId, DownloadCandidate candidate, string dir, string preferredFormat, CancellationToken ct)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync(CancellationToken.None);
+        var track = await db.Tracks.FindAsync(new object[] { trackId }, CancellationToken.None);
+        if (track is null) return "skipped";
+
+        if (string.IsNullOrWhiteSpace(track.Artist) || string.IsNullOrWhiteSpace(track.Title))
+        {
+            track.DownloadStatus = "failed";
+            track.DownloadError = "missing artist/title metadata";
+            await db.SaveChangesAsync(CancellationToken.None);
+            return "failed";
+        }
+
+        try
+        {
+            var primary = PlaylistRules.ParseQuality(preferredFormat);
+            var expectedDuration = track.DurationMs is > 0
+                ? TimeSpan.FromMilliseconds(track.DurationMs.Value)
+                : (TimeSpan?)null;
+            var query = new TrackQuery(track.Artist!, track.Title!, primary, expectedDuration, track.Isrc);
+
+            var path = await _downloadManager.DownloadCandidateAsync(
+                candidate, query, dir, track.MelodyId!, ct);
+            if (path is null)
+            {
+                track.DownloadStatus = "failed";
+                track.DownloadError = _downloadManager.LastFailure(track.MelodyId!)
+                    ?? $"'{candidate.PluginName}' produced nothing for this pick";
+                return "failed";
+            }
+
+            return await CompleteDownloadAsync(track, db, path, expectedDuration, _verification(), ct);
+        }
+        catch (OperationCanceledException)
+        {
+            track.DownloadStatus = "failed";
+            track.DownloadError = "cancelled";
+            await SaveQuietlyAsync(db);
+            throw;
+        }
+        catch (Exception ex)
+        {
+            track.DownloadStatus = "failed";
+            track.DownloadError = ex.Message.Truncate(1000);
+            return "failed";
+        }
+        finally
+        {
             await SaveQuietlyAsync(db);
         }
     }

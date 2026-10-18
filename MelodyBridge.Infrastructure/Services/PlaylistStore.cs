@@ -129,6 +129,16 @@ public class PlaylistStore
     public Task<string> DownloadTrackAsync(int trackId, CancellationToken ct = default)
         => _pipeline.DownloadTrackAsync(trackId, ct);
 
+    /// <summary>Candidates every enabled plugin offers for one track (manual picker).</summary>
+    public Task<IReadOnlyList<DownloadCandidate>> SearchCandidatesAsync(
+        int trackId, CancellationToken ct = default)
+        => _pipeline.SearchCandidatesAsync(trackId, ct);
+
+    /// <summary>Downloads one candidate a human picked by hand.</summary>
+    public Task<string> DownloadCandidateAsync(
+        int trackId, DownloadCandidate candidate, CancellationToken ct = default)
+        => _pipeline.DownloadChosenTrackAsync(trackId, candidate, ct);
+
     /// <summary>Stamp of the last committed change to the stored library
     /// state; the playlist page reloads when it moves.</summary>
     public long DataVersion => _changes.Version;

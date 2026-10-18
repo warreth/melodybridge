@@ -86,6 +86,121 @@ public class DownloadManager : IDownloadManager
     /// <summary>Which plugin produced the last successful file per melodyId.</summary>
     private readonly ConcurrentDictionary<string, string> _lastPlugin = new();
 
+    /// <summary>
+    /// Every candidate the enabled plugins offer for a track, best first,
+    /// for the manual source picker. Deliberately no acceptance gate and
+    /// no quality routing: the list exists to show a human what the
+    /// automatic match refused or skipped. Guarded like the waterfall: an
+    /// unavailable or throwing plugin contributes nothing.
+    /// </summary>
+    public async Task<IReadOnlyList<DownloadCandidate>> SearchCandidatesAsync(
+        TrackQuery query, CancellationToken ct = default)
+    {
+        var (pluginBudget, _) = await BudgetsAsync(ct);
+        var results = new List<DownloadCandidate>();
+        var seenUrls = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var downloader in _registry.GetEnabled())
+        {
+            ct.ThrowIfCancellationRequested();
+            if (_health.ShouldSkip(downloader.Id)) continue;
+
+            using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            budget.CancelAfter(pluginBudget);
+            try
+            {
+                if (!await AvailableAsync(downloader, budget.Token)) continue;
+                var hits = await downloader.SearchAllAsync(query, budget.Token);
+                foreach (var hit in hits)
+                {
+                    if (hit.SourceUrl is not { Length: > 0 } url || !seenUrls.Add(url)) continue;
+                    results.Add(new DownloadCandidate(
+                        downloader.Id, downloader.Name, hit.Title, hit.Artist,
+                        hit.Duration, hit.BitrateKbps, url, hit.MatchConfidence));
+                }
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                // The plugin's own search budget expired: a miss for the list.
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogWarning(ex, "{Name} candidate search threw for '{Artist} - {Title}'",
+                    downloader.Name, query.Artist, query.Title);
+            }
+        }
+
+        // Best first: the plugin's own confidence, then the shared score
+        // (title/artist similarity with the duration penalty). The user
+        // sees the same ordering the waterfall would have used, and can
+        // still pick anything below it.
+        return results
+            .OrderByDescending(c => c.Confidence == MatchConfidence.High)
+            .ThenByDescending(c => FuzzyMatcher.ScoreWithDuration(
+                query.Artist, query.Title, query.ExpectedDuration, c.Artist, c.Title, c.Duration))
+            .ToList();
+    }
+
+    /// <summary>
+    /// Downloads the candidate a human picked. The pick overrides the
+    /// ranking and the playlist's quality gates (the user saw the hit and
+    /// chose it), not the sanity: bytes must sniff as audio and the
+    /// MELODY_ID tag always goes on.
+    /// </summary>
+    public async Task<string?> DownloadCandidateAsync(
+        DownloadCandidate candidate, TrackQuery query, string outputDirectory,
+        string melodyId, CancellationToken ct = default)
+    {
+        var downloader = _registry.GetEnabled().FirstOrDefault(d => d.Id == candidate.PluginId);
+        if (downloader is null)
+        {
+            _state.SetFailure(melodyId, $"plugin '{candidate.PluginId}' is not enabled");
+            return null;
+        }
+
+        _state.SetProgress(new DownloadProgress(
+            melodyId, query.Title, "downloading", downloader.Name, null, candidate.Confidence));
+        try
+        {
+            if (!await AvailableAsync(downloader, ct))
+            {
+                _state.SetFailure(melodyId, $"{downloader.Name} is not available");
+                return null;
+            }
+
+            var result = await DownloadAsync(
+                downloader, candidate.SourceUrl, outputDirectory, melodyId, query.Quality, ct);
+            if (result is null || !result.Success || result.FilePath is null)
+            {
+                _health.RecordFailure(downloader.Id);
+                _state.SetFailure(melodyId,
+                    result?.ErrorMessage ?? $"{downloader.Name} produced nothing");
+                return null;
+            }
+            if (RejectNonAudio(result.FilePath, downloader.Name))
+            {
+                _health.RecordFailure(downloader.Id);
+                _state.SetFailure(melodyId, $"{downloader.Name} returned bytes that are not audio");
+                return null;
+            }
+
+            TaglibHelper.WriteMelodyId(result.FilePath, melodyId);
+            _health.RecordSuccess(downloader.Id);
+            _lastPlugin[melodyId] = downloader.Id;
+            _state.ClearFailure(melodyId);
+            _state.SetProgress(new DownloadProgress(
+                melodyId, query.Title, "done", downloader.Name, result.FilePath, candidate.Confidence));
+            return result.FilePath;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _health.RecordFailure(downloader.Id);
+            _state.SetFailure(melodyId, ex.Message.Length > 1000 ? ex.Message[..1000] : ex.Message);
+            throw;
+        }
+    }
+
+    /// <summary>Current in-flight download states (for UI polling).</summary>
     public IReadOnlyList<DownloadProgress> SnapshotProgress()
         => _state.Snapshot();
 
