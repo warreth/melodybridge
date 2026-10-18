@@ -54,6 +54,22 @@ public class DeemixDownloaderTests
             dataDir, downloadsDir);
     }
 
+    // ── Default folders ─────────────────────────────────────────────────
+
+    [Test]
+    public void LocalDataRoot_FallsBackToTheHomeDirectory_WhenLocalAppDataIsEmpty()
+    {
+        // Linux reports LocalApplicationData as empty until ~/.local/share
+        // exists, which used to turn the plugin's folders into paths
+        // relative to the working directory.
+        Assert.That(DeemixDownloader.LocalDataRoot("", "/home/me"),
+            Is.EqualTo(Path.Combine("/home/me", ".local", "share")));
+        Assert.That(DeemixDownloader.LocalDataRoot("/local/data", "/home/me"),
+            Is.EqualTo("/local/data"), "an OS-provided root wins");
+        Assert.That(DeemixDownloader.LocalDataRoot("", ""),
+            Is.EqualTo("."), "with no home at all, stay relative to the working directory");
+    }
+
     // ── Ranking ──────────────────────────────────────────────────────────
 
     [Test]

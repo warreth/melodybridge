@@ -15,12 +15,13 @@ set -e
 APP_USER=melodybridge
 APP_UID=1000
 APP_GID=1000
+APP_HOME=/app/state/home
 
 if [ "$(id -u)" = "0" ]; then
     # The app user's home lives on the state mount: tool logins and
     # caches have to survive image updates, and the image's /root home
     # is not theirs.
-    mkdir -p /app/state/home
+    mkdir -p "$APP_HOME"
 
     for dir in /app/state /app/playlists; do
         mkdir -p "$dir"
@@ -40,7 +41,14 @@ if [ "$(id -u)" = "0" ]; then
     fi
     chown "$APP_UID:$APP_GID" /music 2>/dev/null || true
 
-    exec su-exec "$APP_USER" dotnet /app/MelodyBridge.Server.dll "$@"
+    # su-exec sets HOME to the target user's passwd home (/home/melodybridge),
+    # overwriting the image's HOME. Re-apply the state-mount home after it,
+    # or the Data Protection keys and the tool logins/caches land on the
+    # container filesystem and vanish with the next image update.
+    exec su-exec "$APP_USER" env HOME="$APP_HOME" dotnet /app/MelodyBridge.Server.dll "$@"
 fi
 
+# Started with --user: no root phase, so make sure the home exists and
+# keep the container's HOME (the image points it at the state mount).
+mkdir -p "$APP_HOME" 2>/dev/null || true
 exec dotnet /app/MelodyBridge.Server.dll "$@"

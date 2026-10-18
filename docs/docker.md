@@ -100,7 +100,7 @@ compose file only sets `ASPNETCORE_URLS`, `FlareSolverr__Url` and
 | Variable | Default | Purpose |
 |---|---|---|
 | `ASPNETCORE_ENVIRONMENT` | `Production` | Set to `Development` for the dev setup |
-| `ASPNETCORE_URLS` | `http://+:80` | Where the server listens inside the container |
+| `ASPNETCORE_URLS` | `http://+:80` | Where the server listens inside the container; takes precedence over `ASPNETCORE_HTTP_PORTS` |
 | `DevPanel__Enabled` | `false` | Enable the `/dev` testing dashboard |
 | `FlareSolverr__Url` | `auto` | Solver endpoint: `auto`, an explicit URL, or `off` |
 | `MELODYBRIDGE_DB` | `/app/state/melodybridge.db` | SQLite database location |
@@ -206,7 +206,9 @@ Build, test and architecture details live in the
 ::: warning
 - The shipped compose publishes port 3333 on all interfaces. Put a reverse
   proxy in front for TLS, or change the mapping to `127.0.0.1:3333:80` to keep
-  the app on this machine only.
+  the app on this machine only. The container itself speaks plain HTTP: TLS
+  and any HTTP-to-HTTPS redirect belong to the proxy. The app only redirects
+  when you configure an HTTPS listener for it directly.
 - Keep API keys, tokens and passwords in the web UI, never in a committed file.
 - Never publish the flaresolverr port to the host; the internal network is
   enough.

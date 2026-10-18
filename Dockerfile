@@ -87,12 +87,18 @@ ENV PATH=/app/tools:$PATH
 # Tool logins and caches live on the state mount. The app user's home must
 # be writable and must survive image updates, so HOME points there instead
 # of the image's /root (tiddl, qobuz-dlp and deemix keep their sessions
-# under it).
+# under it). The entrypoint re-applies it after su-exec, which resets HOME
+# to the user's passwd home.
 ENV HOME=/app/state/home
 
 # Listen on 80 by default, so a plain `docker run -p 3333:80` works
 # without extra environment variables (the compose files set it too).
 ENV ASPNETCORE_URLS=http://+:80
+# The .NET 8 base image sets ASPNETCORE_HTTP_PORTS=8080; URLS above takes
+# precedence, and ASP.NET logs a warning about that override on every
+# start. Blanking the inherited value keeps URLS the one port knob and
+# silences the warning; a user who sets HTTP_PORTS themselves still wins.
+ENV ASPNETCORE_HTTP_PORTS=
 EXPOSE 80
 
 # The app is healthy when its own home page answers. curl is installed

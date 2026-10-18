@@ -82,14 +82,32 @@ public class DeemixDownloader : CliToolDownloader
         "deemix reported success but produced no audio file (is the downloads folder shared with deemix?)";
 
     /// <summary>
+    /// The local data root for MelodyBridge-owned files: %LOCALAPPDATA%
+    /// on Windows, ~/.local/share on Linux. .NET reports the Linux
+    /// special folder as empty until that directory exists, which would
+    /// otherwise turn these paths relative to the working directory.
+    /// Internal for tests.
+    /// </summary>
+    internal static string LocalDataRoot()
+        => LocalDataRoot(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
+
+    internal static string LocalDataRoot(string localApplicationData, string userProfile)
+    {
+        if (!string.IsNullOrEmpty(localApplicationData)) return localApplicationData;
+        return string.IsNullOrEmpty(userProfile)
+            ? "."
+            : Path.Combine(userProfile, ".local", "share");
+    }
+
+    /// <summary>
     /// The deemix config folder MelodyBridge manages
     /// (<c>%LOCALAPPDATA%</c> or <c>~/.local/share</c> plus
     /// <c>melodybridge/deemix</c>). Internal for tests.
     /// </summary>
     internal static string DefaultDataDirectory()
-        => Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "melodybridge", "deemix");
+        => Path.Combine(LocalDataRoot(), "melodybridge", "deemix");
 
     /// <summary>
     /// Where deemix writes when the plugin has no folder configured: a
@@ -97,9 +115,7 @@ public class DeemixDownloader : CliToolDownloader
     /// setting at all. Internal for tests.
     /// </summary>
     internal static string DefaultDownloadsDirectory()
-        => Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "melodybridge", "deemix-downloads");
+        => Path.Combine(LocalDataRoot(), "melodybridge", "deemix-downloads");
 
     // ── Availability ─────────────────────────────────────────────────────
 
