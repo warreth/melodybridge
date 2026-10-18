@@ -336,8 +336,8 @@ the requested band:
 
 Deletion is name-wise by hard link semantics: removing one playlist's
 row removes that playlist's file name only, and both `RemoveTrackAsync`
-and `DeleteAsync` additionally keep any path another row still
-references (primary and archive paths both count). The per-track remove
+and `DeleteAsync` keep any path another row still references (primary
+and archive paths both count). The per-track remove
 dialog on the playlist page picks between "remove from the playlist" and
 "delete the files too"; the latter takes the primary download and its
 archive copy. No central pool exists; playlist folders stay standard.
