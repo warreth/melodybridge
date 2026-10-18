@@ -18,19 +18,25 @@ internal sealed class PlaylistSnapshots
     private readonly IAccountSourceProvider[] _accountProviders;
     private readonly SettingsStore _settings;
     private readonly ILogger _logger;
+    private readonly TrackLinker? _linker;
+    private readonly DataChangeTracker _changes;
 
     public PlaylistSnapshots(
         IDbContextFactory<MelodyBridgeDbContext> dbFactory,
         ISourceProvider[] providers,
         IAccountSourceProvider[] accountProviders,
         SettingsStore settings,
-        ILogger logger)
+        ILogger logger,
+        TrackLinker? linker = null,
+        DataChangeTracker? changes = null)
     {
         _dbFactory = dbFactory;
         _providers = providers;
         _accountProviders = accountProviders;
         _settings = settings;
         _logger = logger;
+        _linker = linker;
+        _changes = changes ?? new DataChangeTracker();
     }
 
     /// <summary>
@@ -352,6 +358,27 @@ internal sealed class PlaylistSnapshots
 
         if (isNew) db.Playlists.Add(entity);
         await db.SaveChangesAsync(ct);
+        _changes.Bump();
+
+        // The library may already hold some of these tracks (the same
+        // songs live in another playlist): link them right away, so this
+        // playlist owns its own file names and archive copies before
+        // anyone clicks download. A linking problem never fails the sync.
+        if (_linker is not null)
+        {
+            try
+            {
+                await _linker.LinkSharedTracksAsync(entity.Id, ct);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Linking existing files for '{Playlist}' failed", entity.Name);
+            }
+        }
 
         var trackCount = entity.Tracks.Count;
         var platformLabel = providerPlatform == Platform.Unknown ? "Imported" : providerPlatform.ToString();

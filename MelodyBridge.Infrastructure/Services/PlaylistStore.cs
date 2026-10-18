@@ -7,6 +7,7 @@ using MelodyBridge.Infrastructure.Data;
 using MelodyBridge.Infrastructure.Files;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace MelodyBridge.Infrastructure.Services;
 
@@ -25,6 +26,8 @@ public class PlaylistStore
     private readonly ILogger<PlaylistStore> _logger;
     private readonly SettingsStore _settings;
     private readonly HardLinkService _hardLinks;
+    private readonly TrackLinker _linker;
+    private readonly DataChangeTracker _changes;
     private readonly IsrcResolver? _isrcResolver;
     private readonly CoverArtFetcher? _coverArt;
     private readonly LyricsResolver? _lyrics;
@@ -80,7 +83,9 @@ public class PlaylistStore
         HardLinkService? hardLinks = null,
         IsrcResolver? isrcResolver = null,
         CoverArtFetcher? coverArt = null,
-        LyricsResolver? lyrics = null)
+        LyricsResolver? lyrics = null,
+        TrackLinker? linker = null,
+        DataChangeTracker? changes = null)
     {
         _dbFactory = dbFactory;
         _providers = providers.ToArray();
@@ -93,6 +98,14 @@ public class PlaylistStore
         // The OS hard link wrapper has no state; one instance shared by
         // every store, or a private one for tests that never inject it.
         _hardLinks = hardLinks ?? new HardLinkService();
+        // The linking half of dedup (hardlink shared tracks and their
+        // archive copies) is one module: DI injects the singleton, tests
+        // that never wire one still get a working private instance.
+        _linker = linker ?? new TrackLinker(
+            dbFactory, _settings, _hardLinks, NullLogger<TrackLinker>.Instance);
+        // The write stamp the pages poll: one instance app-wide in
+        // production, a private one for tests that never wire it.
+        _changes = changes ?? new DataChangeTracker();
         // Optional: without a resolver, tracks simply download without an
         // ISRC like before.
         _isrcResolver = isrcResolver;
@@ -100,13 +113,13 @@ public class PlaylistStore
         // Without them the file is tagged exactly as before.
         _coverArt = coverArt;
         _lyrics = lyrics;
-        _queries = new PlaylistQueries(dbFactory, _settings, coverArt, lyrics, logger);
+        _queries = new PlaylistQueries(dbFactory, _settings, coverArt, lyrics, logger, _changes);
         _snapshots = new PlaylistSnapshots(
-            dbFactory, _providers, _accountProviders, _settings, logger);
+            dbFactory, _providers, _accountProviders, _settings, logger, _linker, _changes);
         _transfer = new PlaylistTransfer(dbFactory, _queries, _snapshots);
         _pipeline = new DownloadPipeline(
-            dbFactory, downloadManager, _settings, _hardLinks,
-            isrcResolver, coverArt, lyrics, logger, () => Verification());
+            dbFactory, downloadManager, _settings, _linker,
+            isrcResolver, coverArt, lyrics, logger, () => Verification(), _changes);
     }
 
     public Task<(int downloaded, int failed)> DownloadMissingAsync(
@@ -115,6 +128,19 @@ public class PlaylistStore
 
     public Task<string> DownloadTrackAsync(int trackId, CancellationToken ct = default)
         => _pipeline.DownloadTrackAsync(trackId, ct);
+
+    /// <summary>Stamp of the last committed change to the stored library
+    /// state; the playlist page reloads when it moves.</summary>
+    public long DataVersion => _changes.Version;
+
+    /// <summary>
+    /// Links the tracks of a playlist that already exist elsewhere in the
+    /// library, hardlink and archive copy included, without downloading.
+    /// The add/refresh path runs this itself; it is public so a repair
+    /// pass (or a test) can insist on it.
+    /// </summary>
+    public Task<int> LinkSharedTracksAsync(string playlistId, CancellationToken ct = default)
+        => _linker.LinkSharedTracksAsync(playlistId, ct);
 
     public Task<DedupMatch?> FindDedupCandidateAsync(
         string melodyId, int excludingTrackId, CancellationToken ct = default)
@@ -134,11 +160,6 @@ public class PlaylistStore
     /// </summary>
     internal static DownloadQuality ParseQuality(string? preferredFormat)
         => PlaylistRules.ParseQuality(preferredFormat);
-
-
-
-
-
 
     public Task<List<PlaylistEntity>> GetAllAsync(CancellationToken ct = default)
         => _queries.GetAllAsync(ct);
@@ -188,7 +209,6 @@ public class PlaylistStore
     public Task<(int recomputed, int missing)> RecomputeMissingFactsAsync(CancellationToken ct = default)
         => _queries.RecomputeMissingFactsAsync(ct);
 
-
     public Task<PlaylistEntity> AddOrRefreshAsync(string sourceUrl, string? targetDirectory = null, CancellationToken ct = default)
         => _snapshots.AddOrRefreshAsync(sourceUrl, targetDirectory, ct);
 
@@ -210,28 +230,6 @@ public class PlaylistStore
     public Task<PlaylistEntity> RefreshAsync(string playlistId, string targetDirectory, CancellationToken ct = default)
         => _snapshots.RefreshAsync(playlistId, targetDirectory, ct);
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
     public Task<string> ExportAsync(IEnumerable<string>? playlistIds = null, CancellationToken ct = default)
         => _transfer.ExportAsync(playlistIds, ct);
 
@@ -240,8 +238,4 @@ public class PlaylistStore
 
     public Task<int> ImportAsync(string json, CancellationToken ct = default)
         => _transfer.ImportAsync(json, ct);
-
-
-
-
 }

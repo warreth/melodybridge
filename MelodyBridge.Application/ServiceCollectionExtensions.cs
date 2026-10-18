@@ -32,6 +32,13 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<MelodyBridge.Infrastructure.Scanning.LibraryReconciler>();
         // OS hard links for the dedup feature; stateless, one for all.
         services.AddSingleton<MelodyBridge.Infrastructure.Files.HardLinkService>();
+        // Links shared tracks (archive copies included) into a playlist's
+        // own folder: one module for the download claim, the playlist
+        // add/refresh pass and library reconciliation.
+        services.AddSingleton<MelodyBridge.Infrastructure.Services.TrackLinker>();
+        // One write stamp for the whole app: the playlist page reloads when
+        // a download, review, scan or refresh moved it.
+        services.AddSingleton<MelodyBridge.Infrastructure.Services.DataChangeTracker>();
 
         // ── Downloader plugins (the waterfall) ──
         // The default order: the fast free sources first (SoundCloud, the

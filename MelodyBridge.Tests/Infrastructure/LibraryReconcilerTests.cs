@@ -1,5 +1,6 @@
 using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.Data;
+using MelodyBridge.Infrastructure.Files;
 using MelodyBridge.Infrastructure.Scanning;
 using MelodyBridge.Infrastructure.Services;
 using MelodyBridge.Infrastructure.Tagging;
@@ -186,6 +187,176 @@ public class LibraryReconcilerTests
 
         Assert.That(relinked, Is.EqualTo(0), "nothing to do when the row is already consistent");
         Assert.That(lost, Is.EqualTo(0));
+    }
+
+    // ── Cross-playlist linking ──────────────────────────────────────
+
+    /// <summary>A linker wired like production: the real settings row, real hard links.</summary>
+    private TrackLinker NewLinker() => new(
+        _factory, new SettingsStore(_factory), new HardLinkService(),
+        NullLogger<TrackLinker>.Instance);
+
+    [Test]
+    public async Task PendingTrack_WithAnotherPlaylistsCopy_IsHardlinkedIntoItsOwnFolder()
+    {
+        var musicDir = Path.Combine(_dir, "music");
+        var dirA = Path.Combine(musicDir, "Playlist A");
+        Directory.CreateDirectory(dirA);
+        var settings = new SettingsStore(_factory);
+        await settings.SetAsync("music_path", musicDir);
+
+        var fileA = WriteTaggedFile("music/Playlist A", "mb-recon-shared");
+        await using (var db = _factory.CreateDbContext())
+        {
+            db.Playlists.Add(new PlaylistEntity
+            {
+                Id = "pl-a",
+                Name = "Playlist A",
+                SourceUrl = "https://example.com/a",
+                SourcePlatform = Platform.Spotify,
+                TargetDirectory = dirA,
+                Tracks = new List<TrackEntity>
+                {
+                    new()
+                    {
+                        MelodyId = "mb-recon-shared",
+                        Title = "Shared",
+                        Artist = "A",
+                        Position = 0,
+                        DownloadStatus = "downloaded",
+                        CurrentPath = fileA,
+                        Bitrate = 320,
+                        MediaType = "mp3",
+                    },
+                },
+            });
+            db.Playlists.Add(new PlaylistEntity
+            {
+                Id = "pl-b",
+                Name = "Playlist B",
+                SourceUrl = "https://example.com/b",
+                SourcePlatform = Platform.Spotify,
+                // No explicit folder: music path plus a folder named after
+                // the playlist, the app-wide default.
+                PreferredFormat = "mp3:320",
+                Tracks = new List<TrackEntity>
+                {
+                    new()
+                    {
+                        MelodyId = "mb-recon-shared",
+                        Title = "Shared",
+                        Artist = "A",
+                        Position = 0,
+                        DownloadStatus = "pending",
+                    },
+                },
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var reconciler = new LibraryReconciler(
+            _factory, NullLogger<LibraryReconciler>.Instance, settings, NewLinker());
+        var (relinked, lost) = await reconciler.ReconcileAllAsync();
+
+        await using (var db = _factory.CreateDbContext())
+        {
+            var row = db.Tracks.Single(t => t.PlaylistEntityId == "pl-b");
+            var folderB = Path.Combine(musicDir, "Playlist B");
+            Assert.Multiple(() =>
+            {
+                Assert.That(lost, Is.EqualTo(0));
+                Assert.That(relinked, Is.GreaterThanOrEqualTo(1));
+                Assert.That(row.DownloadStatus, Is.EqualTo("downloaded"),
+                    "the pending row adopts the shared bytes");
+                Assert.That(row.IsHardLink, Is.True);
+                Assert.That(row.CurrentPath, Is.EqualTo(Path.Combine(folderB, "mb-recon-shared.mp3")),
+                    "the file lands in this playlist's own folder, not the other's");
+                Assert.That(File.Exists(row.CurrentPath), Is.True);
+                Assert.That(new HardLinkService().LinkCount(fileA), Is.EqualTo(2),
+                    "playlist A's file gained a name, not a copy");
+            });
+        }
+    }
+
+    [Test]
+    public async Task ArchiveCopy_IsNotAdoptedAsTheTrack()
+    {
+        // The archive root sits under the playlist's base folder, so the
+        // relink index walks it. The tagged archive must never satisfy a
+        // pending track, or a vanished download would count as present.
+        var archiveDir = Path.Combine(_dir, "archive");
+        Directory.CreateDirectory(archiveDir);
+        var settings = new SettingsStore(_factory);
+        await settings.SetAsync("music_path", _dir);
+        await settings.SetAsync("archive_path", archiveDir);
+        var archiveFile = WriteTaggedFile("archive", "mb-recon-arch");
+
+        await using (var db = _factory.CreateDbContext())
+        {
+            db.Playlists.Add(new PlaylistEntity
+            {
+                Id = "pl-arch",
+                Name = "Archive Only",
+                SourceUrl = "https://example.com/arch",
+                SourcePlatform = Platform.Spotify,
+                TargetDirectory = _dir,
+                Tracks = new List<TrackEntity>
+                {
+                    new()
+                    {
+                        MelodyId = "mb-recon-arch",
+                        Title = "Only an archive",
+                        Artist = "A",
+                        Position = 0,
+                        DownloadStatus = "pending",
+                    },
+                },
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var reconciler = new LibraryReconciler(
+            _factory, NullLogger<LibraryReconciler>.Instance, settings, NewLinker());
+        await reconciler.ReconcileAllAsync();
+
+        await using (var db = _factory.CreateDbContext())
+        {
+            var row = db.Tracks.Single(t => t.PlaylistEntityId == "pl-arch");
+            Assert.Multiple(() =>
+            {
+                Assert.That(row.DownloadStatus, Is.EqualTo("pending"),
+                    "an archive copy is not the track");
+                Assert.That(row.CurrentPath, Is.Null);
+            });
+        }
+        Assert.That(File.Exists(archiveFile), Is.True, "the archive file itself stays");
+    }
+
+    [Test]
+    public async Task PausedDedupReview_IsNotSettledByReconciliation()
+    {
+        var path = WriteTaggedFile("root", "mb-recon-paused");
+        await SeedPlaylistAsync(tracks => tracks.Add(new TrackEntity
+        {
+            MelodyId = "mb-recon-paused",
+            Title = "Waiting",
+            Artist = "A",
+            Position = 0,
+            DownloadStatus = "needs-review",
+            Warning = "dedup conflict: playlist wants mp3 320 kbps",
+            CurrentPath = path,
+        }));
+
+        var reconciler = new LibraryReconciler(
+            _factory, NullLogger<LibraryReconciler>.Instance,
+            OldLayoutSettings(), NewLinker());
+        await reconciler.ReconcileAllAsync();
+
+        await using var db = _factory.CreateDbContext();
+        var track = db.Tracks.First(t => t.MelodyId == "mb-recon-paused");
+        Assert.That(track.DownloadStatus, Is.EqualTo("needs-review"),
+            "a pending human decision must survive the library pass");
+        Assert.That(track.Warning, Does.Contain("dedup conflict"));
     }
 
     // ── Folder layout: loose files move into the playlist folder ────

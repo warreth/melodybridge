@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using MelodyBridge.Application.Services;
 using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.Data;
+using MelodyBridge.Infrastructure.Files;
 using MelodyBridge.Infrastructure.Services;
 
 namespace MelodyBridge.Tests.Services;
@@ -231,6 +232,165 @@ public class PlaylistRefreshSnapshotTests
             }
         }
         finally { TryDelete(dbPath); }
+    }
+
+    [Test]
+    public async Task AddingAPlaylist_LinksTracksTheLibraryAlreadyHolds()
+    {
+        var dbPath = NewDbPath();
+        var root = Path.Combine(Path.GetTempPath(), $"mb-addlink-{Guid.NewGuid():N}");
+        var musicDir = Path.Combine(root, "music");
+        var archiveDir = Path.Combine(root, "archive");
+        var dirA = Path.Combine(musicDir, "Playlist A");
+        var archiveA = Path.Combine(archiveDir, "Playlist A");
+        Directory.CreateDirectory(dirA);
+        Directory.CreateDirectory(archiveA);
+        try
+        {
+            var factory = await NewDbFactory(dbPath);
+            var settings = new SettingsStore(factory);
+            await settings.SetAsync("music_path", musicDir);
+            await settings.SetAsync("archive_path", archiveDir);
+
+            // Playlist A already owns the track: a real file in its own
+            // folder and its archive copy.
+            var fileA = Path.Combine(dirA, "Shared Song.mp3");
+            File.WriteAllText(fileA, "audio bytes");
+            var archiveFileA = Path.Combine(archiveA, "Shared Song.mp3");
+            File.WriteAllText(archiveFileA, "archive bytes");
+            await using (var db = await factory.CreateDbContextAsync())
+            {
+                db.Playlists.Add(new PlaylistEntity
+                {
+                    Id = "pl-a",
+                    Name = "Playlist A",
+                    SourceUrl = "https://example.com/a",
+                    SourcePlatform = Platform.Spotify,
+                    TargetDirectory = dirA,
+                    PreferredFormat = "mp3:320",
+                    Tracks = new List<TrackEntity>
+                    {
+                        new()
+                        {
+                            MelodyId = "spotify:t1",
+                            Title = "Shared Song",
+                            Artist = "Artist A",
+                            Position = 0,
+                            DownloadStatus = "downloaded",
+                            CurrentPath = fileA,
+                            ArchivePath = archiveFileA,
+                            Bitrate = 320,
+                            MediaType = "mp3",
+                        },
+                    },
+                });
+                await db.SaveChangesAsync();
+            }
+
+            var store = NewStore(factory, new StubSourceProvider(("t1", "Shared Song", "Artist A")));
+            var playlist = await store.AddOrRefreshAsync("stub:playlist");
+
+            await using (var db = await factory.CreateDbContextAsync())
+            {
+                var row = await db.Tracks.AsNoTracking()
+                    .SingleAsync(t => t.PlaylistEntityId == playlist.Id);
+                var folderB = Path.Combine(musicDir, "Stub Playlist");
+                Assert.Multiple(() =>
+                {
+                    Assert.That(row.DownloadStatus, Is.EqualTo("downloaded"),
+                        "adding the playlist links the track right away");
+                    Assert.That(row.IsHardLink, Is.True, "the row records the shared bytes");
+                    Assert.That(row.CurrentPath, Does.StartWith(folderB),
+                        "the link lives in this playlist's own folder");
+                    Assert.That(row.CurrentPath, Is.EqualTo(
+                        Path.Combine(folderB, "Shared Song.mp3")));
+                    Assert.That(File.Exists(row.CurrentPath), Is.True);
+                    Assert.That(new HardLinkService().LinkCount(fileA), Is.EqualTo(2),
+                        "playlist A's file gained a second name, no new bytes");
+                    var archiveFolderB = Path.Combine(archiveDir, "Stub Playlist");
+                    Assert.That(row.ArchivePath, Is.EqualTo(
+                        Path.Combine(archiveFolderB, "Shared Song.mp3")),
+                        "the archive copy is linked into this playlist's archive folder too");
+                    Assert.That(File.Exists(row.ArchivePath), Is.True);
+                    Assert.That(new HardLinkService().LinkCount(archiveFileA), Is.EqualTo(2),
+                        "the original archive gained a second name, no new bytes");
+                });
+            }
+        }
+        finally
+        {
+            try { Directory.Delete(root, true); } catch { /* best effort */ }
+            TryDelete(dbPath);
+        }
+    }
+
+    [Test]
+    public async Task AddingAPlaylist_QualityMismatch_LeavesTheRowForALaterDownload()
+    {
+        var dbPath = NewDbPath();
+        var root = Path.Combine(Path.GetTempPath(), $"mb-addlink-{Guid.NewGuid():N}");
+        var musicDir = Path.Combine(root, "music");
+        var dirA = Path.Combine(musicDir, "Playlist A");
+        Directory.CreateDirectory(dirA);
+        try
+        {
+            var factory = await NewDbFactory(dbPath);
+            var settings = new SettingsStore(factory);
+            await settings.SetAsync("music_path", musicDir);
+            await settings.SetAsync("default_quality", "flac");
+            var fileA = Path.Combine(dirA, "Shared Song.mp3");
+            File.WriteAllText(fileA, "audio bytes");
+            await using (var db = await factory.CreateDbContextAsync())
+            {
+                db.Playlists.Add(new PlaylistEntity
+                {
+                    Id = "pl-a",
+                    Name = "Playlist A",
+                    SourceUrl = "https://example.com/a",
+                    SourcePlatform = Platform.Spotify,
+                    TargetDirectory = dirA,
+                    Tracks = new List<TrackEntity>
+                    {
+                        new()
+                        {
+                            MelodyId = "spotify:t1",
+                            Title = "Shared Song",
+                            Artist = "Artist A",
+                            Position = 0,
+                            DownloadStatus = "downloaded",
+                            CurrentPath = fileA,
+                            Bitrate = 320,
+                            MediaType = "mp3",
+                        },
+                    },
+                });
+                await db.SaveChangesAsync();
+            }
+
+            var store = NewStore(factory, new StubSourceProvider(("t1", "Shared Song", "Artist A")));
+            var playlist = await store.AddOrRefreshAsync("stub:playlist");
+
+            await using (var db = await factory.CreateDbContextAsync())
+            {
+                var row = await db.Tracks.AsNoTracking()
+                    .SingleAsync(t => t.PlaylistEntityId == playlist.Id);
+                Assert.Multiple(() =>
+                {
+                    Assert.That(row.DownloadStatus, Is.EqualTo("pending"),
+                        "adding a playlist never downloads and never settles a quality question");
+                    Assert.That(row.ReviewKind, Is.Null,
+                        "no unsolicited review: the user did not ask for a download");
+                    Assert.That(row.Warning, Is.Null);
+                    Assert.That(new HardLinkService().LinkCount(fileA), Is.EqualTo(1),
+                        "the mismatching file stays untouchable");
+                });
+            }
+        }
+        finally
+        {
+            try { Directory.Delete(root, true); } catch { /* best effort */ }
+            TryDelete(dbPath);
+        }
     }
 
     private static void TryDelete(string dbPath)

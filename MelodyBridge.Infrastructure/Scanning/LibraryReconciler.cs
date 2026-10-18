@@ -22,15 +22,21 @@ public class LibraryReconciler
     private readonly IDbContextFactory<MelodyBridgeDbContext> _dbFactory;
     private readonly ILogger<LibraryReconciler> _logger;
     private readonly SettingsStore? _settings;
+    private readonly TrackLinker? _linker;
+    private readonly DataChangeTracker? _changes;
 
     public LibraryReconciler(
         IDbContextFactory<MelodyBridgeDbContext> dbFactory,
         ILogger<LibraryReconciler> logger,
-        SettingsStore? settings = null)
+        SettingsStore? settings = null,
+        TrackLinker? linker = null,
+        DataChangeTracker? changes = null)
     {
         _dbFactory = dbFactory;
         _logger = logger;
         _settings = settings;
+        _linker = linker;
+        _changes = changes;
     }
 
     /// <summary>Run once at startup. Returns (relinked, markedPending).</summary>
@@ -51,6 +57,25 @@ public class LibraryReconciler
             ? string.Empty
             : await _settings.GetAsync("music_path", "/music", ct);
 
+        // Archive copies never satisfy a track: a playlist whose primary
+        // file vanished must not count as downloaded just because the
+        // archive mirror is still there. Both the configured archive
+        // folders and every remembered archive path stay out of the index.
+        var archivePath = _settings is null
+            ? string.Empty
+            : await _settings.GetAsync("archive_path", "", ct);
+        var archiveRoots = playlists
+            .Select(p => FirstNonEmpty(p.ArchiveDirectory, archivePath))
+            .Append(archivePath)
+            .Where(root => !string.IsNullOrWhiteSpace(root))
+            .Distinct(FileRelocator.PathComparer)
+            .ToList();
+        var archivePaths = playlists
+            .SelectMany(p => p.Tracks)
+            .Select(t => t.ArchivePath)
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .ToHashSet(FileRelocator.PathComparer);
+
         var relinked = 0;
         var lost = 0;
 
@@ -59,10 +84,19 @@ public class LibraryReconciler
             var dir = FirstNonEmpty(playlist.TargetDirectory, musicPath);
             var filesByMelodyId = string.IsNullOrWhiteSpace(dir)
                 ? new Dictionary<string, string>()
-                : IndexDirectory(dir);
+                : IndexDirectory(dir, archiveRoots);
+
+            var preferred = playlist.PreferredFormat;
+            if (string.IsNullOrWhiteSpace(preferred) && _settings is not null)
+                preferred = await _settings.GetAsync("default_quality", "auto", ct);
+            var quality = PlaylistRules.ParseQuality(preferred);
 
             foreach (var track in playlist.Tracks)
             {
+                // A paused dedup conflict is a pending human decision: no
+                // library pass may settle it behind the user's back.
+                if (track.DownloadStatus == "needs-review") continue;
+
                 // Fast path: the remembered path still exists.
                 if (track.CurrentPath is not null && File.Exists(track.CurrentPath))
                 {
@@ -75,10 +109,30 @@ public class LibraryReconciler
                     continue;
                 }
 
+                // Another playlist already holds this track: link its
+                // bytes into this playlist's own folder (archive copy
+                // included) instead of adopting the foreign path. A
+                // quality difference is left for a real download: the
+                // user never asked for one here.
+                if (_linker is not null
+                    && track.MelodyId is not null
+                    && track.DownloadStatus is null or "pending" or "failed")
+                {
+                    var outcome = await _linker.TryLinkAsync(
+                        track, db, quality, pauseOnQualityMismatch: false, ct);
+                    if (outcome == TrackLinkOutcome.Linked)
+                    {
+                        relinked++;
+                        continue;
+                    }
+                }
+
                 // Slow path: find the file by its MELODY_ID tag under the
-                // playlist folder (files move, ids do not).
+                // playlist folder (files move, ids do not). An archive
+                // copy is not the track; it stays out.
                 if (track.MelodyId is not null
-                    && filesByMelodyId.TryGetValue(track.MelodyId, out var found))
+                    && filesByMelodyId.TryGetValue(track.MelodyId, out var found)
+                    && !archivePaths.Contains(found))
                 {
                     track.CurrentPath = found;
                     track.DownloadStatus = "downloaded";
@@ -106,7 +160,10 @@ public class LibraryReconciler
         var moved = await RelocateLooseFilesAsync(playlists, ct);
 
         if (relinked > 0 || lost > 0 || moved > 0)
+        {
             await db.SaveChangesAsync(ct);
+            _changes?.Bump();
+        }
 
         _logger.LogInformation(
             "Startup reconciliation: {Relinked} tracks relinked, {Lost} missing files queued for re-download, {Moved} files moved into their playlist folder",
@@ -230,8 +287,9 @@ public class LibraryReconciler
     private readonly record struct PlaylistLayout(
         string Base, string Folder, string ArchiveBase, string ArchiveFolder);
 
-    /// <summary>MELODY_ID tag -> path, one entry per audio file in the tree.</summary>
-    private static Dictionary<string, string> IndexDirectory(string dir)
+    /// <summary>MELODY_ID tag -> path, one entry per audio file in the tree.
+    /// Files under an archive folder never enter the index.</summary>
+    private static Dictionary<string, string> IndexDirectory(string dir, List<string> excludedRoots)
     {
         var index = new Dictionary<string, string>(StringComparer.Ordinal);
         var extensions = new[] { ".mp3", ".flac", ".ogg", ".opus", ".m4a", ".aac", ".wav", ".webm" };
@@ -240,6 +298,8 @@ public class LibraryReconciler
             foreach (var file in Directory.EnumerateFiles(dir, "*.*", SearchOption.AllDirectories))
             {
                 if (!extensions.Contains(Path.GetExtension(file), StringComparer.OrdinalIgnoreCase))
+                    continue;
+                if (excludedRoots.Any(root => FileRelocator.IsUnder(file, root)))
                     continue;
                 var id = TaglibHelper.ReadMelodyId(file);
                 if (!string.IsNullOrWhiteSpace(id))

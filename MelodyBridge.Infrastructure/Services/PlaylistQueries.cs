@@ -18,19 +18,22 @@ internal sealed class PlaylistQueries
     private readonly CoverArtFetcher? _coverArt;
     private readonly LyricsResolver? _lyrics;
     private readonly ILogger _logger;
+    private readonly DataChangeTracker _changes;
 
     public PlaylistQueries(
         IDbContextFactory<MelodyBridgeDbContext> dbFactory,
         SettingsStore settings,
         CoverArtFetcher? coverArt,
         LyricsResolver? lyrics,
-        ILogger logger)
+        ILogger logger,
+        DataChangeTracker? changes = null)
     {
         _dbFactory = dbFactory;
         _settings = settings;
         _coverArt = coverArt;
         _lyrics = lyrics;
         _logger = logger;
+        _changes = changes ?? new DataChangeTracker();
     }
 
     /// <summary>All persisted playlists (without tracks), newest sync first.</summary>
@@ -114,6 +117,7 @@ internal sealed class PlaylistQueries
         }
         db.Tracks.Remove(track);
         await db.SaveChangesAsync(ct);
+        _changes.Bump();
         return true;
     }
 
@@ -225,6 +229,7 @@ internal sealed class PlaylistQueries
         db.Tracks.RemoveRange(entity.Tracks);
         db.Playlists.Remove(entity);
         await db.SaveChangesAsync(ct);
+        _changes.Bump();
         return true;
     }
 
@@ -246,6 +251,7 @@ internal sealed class PlaylistQueries
         if (preferredFormat is { Length: > 0 } fmt)
             entity.PreferredFormat = PlaylistStore.IsValidFormat(fmt) ? fmt : "auto";
         await db.SaveChangesAsync(ct);
+        _changes.Bump();
     }
 
     /// <summary>
@@ -301,6 +307,7 @@ internal sealed class PlaylistQueries
         if (allowContainerChange is { } change)
             entity.AllowContainerChange = change;
         await db.SaveChangesAsync(ct);
+        _changes.Bump();
     }
 
     /// <summary>

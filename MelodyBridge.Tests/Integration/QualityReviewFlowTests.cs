@@ -302,6 +302,55 @@ public class QualityReviewFlowTests
     }
 
     [Test]
+    public async Task Retry_WhenTheFlaggedFileCannotBeDeleted_RefusesInsteadOfFakingADownload()
+    {
+        if (!FfmpegAvailable()) Assert.Ignore("ffmpeg not installed");
+        if (OperatingSystem.IsWindows())
+            Assert.Ignore("needs directory permissions; the POSIX check is the honest one");
+
+        var bad = new FileServingDownloader("bad", MakeMp3("bad-60s.mp3", 60));
+        var (store, factory, trackId) = await SetupAsync(bad);
+        // Download into a subfolder so the database (in _dir) stays
+        // writable while the music folder goes read-only below.
+        var filesDir = Path.Combine(_dir, "files");
+        Directory.CreateDirectory(filesDir);
+        await store.DownloadMissingAsync("pl-review", filesDir);
+
+        string flaggedPath;
+        await using (var before = await factory.CreateDbContextAsync())
+            flaggedPath = (await before.Tracks.AsNoTracking().SingleAsync(t => t.Id == trackId)).CurrentPath!;
+
+        // A read-only folder keeps the flagged bytes in place. The retry
+        // must refuse: pretending the track is pending (and letting the
+        // library passes re-link the same file) would fake a fresh
+        // download that never happened.
+        var folder = Path.GetDirectoryName(flaggedPath)!;
+        File.SetUnixFileMode(folder, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+        try
+        {
+            var queued = await store.ResolveQualityReviewAsync(trackId, QualityReviewAction.Retry);
+
+            Assert.That(queued, Is.False, "the retry is refused while the flagged file is still there");
+            await using var db = await factory.CreateDbContextAsync();
+            var track = await db.Tracks.AsNoTracking().SingleAsync(t => t.Id == trackId);
+            Assert.Multiple(() =>
+            {
+                Assert.That(track.DownloadStatus, Is.EqualTo("downloaded"),
+                    "nothing was downloaded, so the row must not claim it was");
+                Assert.That(track.ReviewKind, Is.EqualTo("length"),
+                    "the open review stays for another decision");
+                Assert.That(track.CurrentPath, Is.EqualTo(flaggedPath));
+                Assert.That(File.Exists(flaggedPath), Is.True);
+            });
+        }
+        finally
+        {
+            File.SetUnixFileMode(folder,
+                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+    }
+
+    [Test]
     public async Task Retry_WithNoOtherProvider_FailsHonestly_AndTheAvoidDoesNotStick()
     {
         if (!FfmpegAvailable()) Assert.Ignore("ffmpeg not installed");

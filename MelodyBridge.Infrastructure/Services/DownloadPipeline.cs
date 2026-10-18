@@ -17,33 +17,36 @@ internal sealed class DownloadPipeline
     private readonly IDbContextFactory<MelodyBridgeDbContext> _dbFactory;
     private readonly IDownloadManager _downloadManager;
     private readonly SettingsStore _settings;
-    private readonly HardLinkService _hardLinks;
+    private readonly TrackLinker _linker;
     private readonly IsrcResolver? _isrcResolver;
     private readonly CoverArtFetcher? _coverArt;
     private readonly LyricsResolver? _lyrics;
     private readonly ILogger _logger;
     private readonly Func<VerificationOptions> _verification;
+    private readonly DataChangeTracker _changes;
 
     public DownloadPipeline(
         IDbContextFactory<MelodyBridgeDbContext> dbFactory,
         IDownloadManager downloadManager,
         SettingsStore settings,
-        HardLinkService hardLinks,
+        TrackLinker linker,
         IsrcResolver? isrcResolver,
         CoverArtFetcher? coverArt,
         LyricsResolver? lyrics,
         ILogger logger,
-        Func<VerificationOptions> verification)
+        Func<VerificationOptions> verification,
+        DataChangeTracker? changes = null)
     {
         _dbFactory = dbFactory;
         _downloadManager = downloadManager;
         _settings = settings;
-        _hardLinks = hardLinks;
+        _linker = linker;
         _isrcResolver = isrcResolver;
         _coverArt = coverArt;
         _lyrics = lyrics;
         _logger = logger;
         _verification = verification;
+        _changes = changes ?? new DataChangeTracker();
     }
 
     /// <summary>
@@ -214,7 +217,7 @@ internal sealed class DownloadPipeline
             // playlist folder, no network call is needed at all. Exact
             // quality matches hardlink instantly; a mismatch pauses the
             // track for a human decision instead of guessing.
-            if (await TryDeduplicateAsync(track, dir, primary, db, ct) is { } verdict)
+            if (await TryDeduplicateAsync(track, primary, db, ct) is { } verdict)
                 return verdict;
 
             var query = new TrackQuery(track.Artist!, track.Title!, primary, expectedDuration, track.Isrc);
@@ -374,6 +377,7 @@ internal sealed class DownloadPipeline
         try
         {
             await db.SaveChangesAsync(CancellationToken.None);
+            _changes.Bump();
         }
         catch (Exception ex)
         {
@@ -385,20 +389,14 @@ internal sealed class DownloadPipeline
 
     /// <summary>
     /// The dedup decision for one claimed track, made before any network
-    /// call. Finds an existing downloaded file for the same MelodyId in
-    /// another playlist folder and:
-    ///  - exact quality match: hardlinks it into this playlist's folder
-    ///    (no download, no duplicate bytes) and returns "downloaded";
-    ///  - quality mismatch: pauses the track as "needs-review" with the
-    ///    conflict spelled out, returns "needs-review";
-    ///  - no usable existing file, dedup disabled, or a cross-device
-    ///    link: returns null so the normal download waterfall runs.
-    ///
-    /// Copying is never a fallback here: when a hard link is impossible
-    /// the honest options are a real download or a user decision.
+    /// call: an exact quality match links the existing file into this
+    /// playlist's folder (and its archive, see <see cref="TrackLinker"/>),
+    /// a quality mismatch pauses the track as "needs-review" with the
+    /// conflict spelled out, and no usable existing file (or dedup off, or
+    /// a cross-device link) returns null so the normal waterfall runs.
     /// </summary>
     private async Task<string?> TryDeduplicateAsync(
-        TrackEntity track, string dir, DownloadQuality quality, MelodyBridgeDbContext db,
+        TrackEntity track, DownloadQuality quality, MelodyBridgeDbContext db,
         CancellationToken ct)
     {
         // A user decision to download a fresh copy trumps the conflict:
@@ -409,141 +407,19 @@ internal sealed class DownloadPipeline
             return null;
         }
 
-        if (track.MelodyId is null || !await _settings.GetBoolAsync(PlaylistStore.DedupSettingKey, true, ct))
-            return null;
-
-        // The fresh file may already sit in the target folder from an
-        // earlier interrupted run: link to that one instead of hunting
-        // for a foreign original.
-        var candidate = await FindDedupCandidateAsync(track.MelodyId, track.Id, ct);
-        if (candidate is null) return null;
-
-        if (!DedupQuality.Matches(candidate.ExistingFormat, candidate.ExistingBitrateKbps, quality))
+        return await _linker.TryLinkAsync(track, db, quality, pauseOnQualityMismatch: true, ct) switch
         {
-            // Pause for a human: the requested quality differs from the
-            // file another playlist owns. Both options are spelled out
-            // for the UI; nothing is guessed, nothing is overwritten.
-            track.DownloadStatus = "needs-review";
-            track.DownloadError = null;
-            track.Warning = $"dedup conflict: playlist wants {PlaylistRules.DescribeQuality(quality)}, "
-                + $"existing file is {candidate.Describe()}. Choose hardlink existing or download new.";
-            _logger.LogInformation(
-                "Dedup conflict for '{Title}': existing {Existing} vs requested {Requested}; paused for review",
-                track.Title, candidate.Describe(), PlaylistRules.DescribeQuality(quality));
-            return "needs-review";
-        }
-
-        // Exact match: link the existing file under its own name into
-        // this playlist's folder. A link failure (cross-device EXDEV,
-        // read-only target, ...) falls back to a real download - a copy
-        // would silently defeat the space saving the user asked for.
-        var fileName = Path.GetFileName(candidate.ExistingPath);
-        var linkPath = Path.Combine(dir, fileName);
-        try
-        {
-            if (File.Exists(linkPath) && _hardLinks.LinkCount(linkPath) is not > 1)
-                File.Delete(linkPath); // stale unlinked file from an earlier run
-            Directory.CreateDirectory(dir);
-            _hardLinks.Create(linkPath, candidate.ExistingPath);
-        }
-        catch (IOException ex)
-        {
-            _logger.LogInformation(
-                "Hard link for '{Title}' failed ({Reason}); downloading instead", track.Title, ex.Message);
-            return null; // fall back to the download waterfall
-        }
-
-        track.DownloadStatus = "downloaded";
-        track.IsHardLink = true;
-        track.CurrentPath = linkPath;
-        track.LastSeenAt = DateTime.UtcNow;
-        track.Bitrate = candidate.ExistingBitrateKbps;
-        track.MediaType = candidate.ExistingFormat;
-        AudioProbe.Fill(track, linkPath);
-        track.Warning = null;
-        // The linked file was verified where it came from; no review
-        // carries over, and there is no provider to avoid.
-        track.ReviewKind = null;
-        track.ReviewText = null;
-        track.SourcePluginId = null;
-
-        // The archive copy belongs to the track, but each playlist keeps
-        // its own archive folder: when the original already has one in the
-        // format this playlist wants, its bytes are linked under this
-        // playlist's archive name instead of writing a second copy. A
-        // different format (or no copy yet) gets this playlist's own copy
-        // from its primary, so the configured format is never silently
-        // bypassed.
-        var archiveTarget = await ResolveArchiveTargetAsync(track.PlaylistEntityId, db, ct);
-        if (!archiveTarget.Enabled || archiveTarget.Folder is null)
-        {
-            track.ArchivePath = null;
-        }
-        else if (candidate.ExistingArchivePath is { Length: > 0 } existingArchive
-            && File.Exists(existingArchive)
-            && Path.GetExtension(existingArchive).Equals(
-                Audio.ArchiveCopier.TargetExtension(track.CurrentPath ?? existingArchive, archiveTarget.Format),
-                StringComparison.OrdinalIgnoreCase))
-        {
-            var archiveFileName = Path.GetFileName(existingArchive);
-            var archiveLink = Path.Combine(archiveTarget.Folder, archiveFileName);
-            if (PlaylistRules.PathEquals(archiveLink, existingArchive)
-                || TryHardLink(archiveLink, existingArchive))
-            {
-                track.ArchivePath = archiveLink;
-            }
-            else
-            {
-                // Cross-device link: make this playlist's own copy instead.
-                await ArchiveDownloadedTrackAsync(track, db, ct);
-            }
-        }
-        else
-        {
-            await ArchiveDownloadedTrackAsync(track, db, ct);
-        }
-
-        _logger.LogInformation(
-            "Dedup: hardlinked '{Title}' from {Source} into {Target} (zero new bytes)",
-            track.Title, candidate.ExistingPath, linkPath);
-        return "downloaded";
+            TrackLinkOutcome.Linked => "downloaded",
+            TrackLinkOutcome.QualityMismatch => "needs-review",
+            // No usable existing file or an impossible link: download.
+            _ => null,
+        };
     }
 
-    /// <summary>
-    /// Best existing file for the melody id: a downloaded row in another
-    /// playlist (or a non-hardlink original in this one), whose file is
-    /// still on disk. Originals win over hardlinks so the link target is
-    /// the primary copy, and newer rows win over stale ones.
-    /// </summary>
-    public async Task<DedupMatch?> FindDedupCandidateAsync(
+    /// <summary>See <see cref="TrackLinker.FindCandidateAsync"/>.</summary>
+    public Task<DedupMatch?> FindDedupCandidateAsync(
         string melodyId, int excludingTrackId, CancellationToken ct = default)
-    {
-        await using var db = await _dbFactory.CreateDbContextAsync(ct);
-        var existing = await db.Tracks.AsNoTracking()
-            .Where(t => t.MelodyId == melodyId
-                && t.Id != excludingTrackId
-                && t.DownloadStatus == "downloaded"
-                && t.ReviewKind == null
-                && t.CurrentPath != null)
-            .OrderByDescending(t => t.IsHardLink == false)
-            .ThenByDescending(t => t.LastSeenAt ?? DateTime.MinValue)
-            .ToListAsync(ct);
-
-        foreach (var row in existing)
-        {
-            if (!File.Exists(row.CurrentPath)) continue;
-            return new DedupMatch(
-                row.CurrentPath!,
-                Path.GetExtension(row.CurrentPath).TrimStart('.').ToLowerInvariant(),
-                row.Bitrate,
-                row.PlaylistEntityId,
-                // Quality facts live on the row; a missing bitrate is
-                // treated as unverifiable (mismatch) by the verdict.
-                row.Bitrate is > 0,
-                row.ArchivePath);
-        }
-        return null;
-    }
+        => _linker.FindCandidateAsync(melodyId, excludingTrackId, ct);
 
     /// <summary>
     /// Resolves a paused dedup conflict the way the user picked.
@@ -569,44 +445,31 @@ internal sealed class DownloadPipeline
             track.SkipDedup = true;
             track.Warning = null;
             await db.SaveChangesAsync(ct);
+            _changes.Bump();
             return true;
         }
 
-        var candidate = await FindDedupCandidateAsync(track.MelodyId, track.Id, ct);
+        var candidate = await _linker.FindCandidateAsync(track.MelodyId, track.Id, ct);
         if (candidate is null) return false;
 
         var playlist = await db.Playlists.AsNoTracking()
             .FirstOrDefaultAsync(p => p.Id == track.PlaylistEntityId, ct);
-        var musicPath = await _settings.GetAsync("music_path", "/music", ct);
-        var dir = PlaylistRules.ResolvePlaylistFolder(playlist?.TargetDirectory, musicPath, playlist?.Name);
-        if (string.IsNullOrWhiteSpace(dir)) return false;
-
-        try
-        {
-            var linkPath = Path.Combine(dir, Path.GetFileName(candidate.ExistingPath));
-            if (File.Exists(linkPath) && _hardLinks.LinkCount(linkPath) is not > 1)
-                File.Delete(linkPath);
-            Directory.CreateDirectory(dir);
-            _hardLinks.Create(linkPath, candidate.ExistingPath);
-
-            track.DownloadStatus = "downloaded";
-            track.IsHardLink = true;
-            track.CurrentPath = linkPath;
-            track.LastSeenAt = DateTime.UtcNow;
-            track.Bitrate = candidate.ExistingBitrateKbps;
-            track.MediaType = candidate.ExistingFormat;
-            AudioProbe.Fill(track, linkPath);
-            track.Warning = $"hardlinked from {candidate.SourcePlaylistId}: "
-                + $"{candidate.Describe()} (user accepted the quality difference)";
-            await db.SaveChangesAsync(ct);
-            return true;
-        }
-        catch (IOException ex)
+        var outcome = await _linker.TryLinkAsync(track, db,
+            PlaylistRules.ParseQuality(playlist?.PreferredFormat),
+            pauseOnQualityMismatch: false, ct,
+            candidate: candidate,
+            acceptQualityDifference: true,
+            warning: $"hardlinked from {candidate.SourcePlaylistId}: "
+                + $"{candidate.Describe()} (user accepted the quality difference)");
+        if (outcome != TrackLinkOutcome.Linked)
         {
             _logger.LogInformation(
-                "Hard link for review '{Title}' failed ({Reason}); leaving the track in review", track.Title, ex.Message);
+                "Hard link for review '{Title}' failed; leaving the track in review", track.Title);
             return false;
         }
+        await db.SaveChangesAsync(ct);
+        _changes.Bump();
+        return true;
     }
 
     /// <summary>
@@ -639,102 +502,10 @@ internal sealed class DownloadPipeline
         return trackId;
     }
 
-    /// <summary>
-    /// Produces the secondary archive copy of a just-downloaded track:
-    /// the playlist's archive folder (its own override or the app-wide
-    /// default plus a folder named after the playlist), a plain copy for
-    /// format auto, a local ffmpeg transcode otherwise. A playlist with
-    /// the archive switched off, or no archive path anywhere, gets no
-    /// copy and no archive path. Never throws and never touches the
-    /// primary: a failed archive becomes a track warning the next run can
-    /// repair, while the download stays "downloaded". Runs after the
-    /// integrity gate, so the archive path persists with the track row in
-    /// the same SaveChanges.
-    /// </summary>
-    private async Task ArchiveDownloadedTrackAsync(
+    /// <summary>See <see cref="TrackLinker.ArchiveDownloadedTrackAsync"/>.</summary>
+    private Task ArchiveDownloadedTrackAsync(
         TrackEntity track, MelodyBridgeDbContext db, CancellationToken ct)
-    {
-        var target = await ResolveArchiveTargetAsync(track.PlaylistEntityId, db, ct);
-        if (!target.Enabled || target.Folder is null)
-        {
-            // No archive target (or the playlist switched it off): clear
-            // a stale archive path from an earlier configuration so the
-            // UI never shows a file that no longer belongs to this setup.
-            track.ArchivePath = null;
-            return;
-        }
-
-        var result = Audio.ArchiveCopier.Copy(
-            track.CurrentPath!, target.Folder, target.Format,
-            melodyId: track.MelodyId,
-            title: track.Title, artist: track.Artist, album: track.Album,
-            trackNumber: (uint?)(track.Position + 1),
-            expectedDuration: track.DurationMs is > 0
-                ? TimeSpan.FromMilliseconds(track.DurationMs.Value)
-                : null);
-
-        if (result.Ok)
-        {
-            track.ArchivePath = result.ArchivePath;
-        }
-        else
-        {
-            // Failure isolation: the primary download stands; the
-            // archive problem rides along as a warning and the next
-            // run (or per-track retry) repairs the copy alone.
-            track.ArchivePath = null;
-            track.Warning = string.IsNullOrEmpty(track.Warning)
-                ? $"archive copy failed: {result.Reason}"
-                : $"{track.Warning}; archive copy failed: {result.Reason}";
-        }
-    }
-
-    /// <summary>
-    /// The playlist's effective archive target: whether the archive is on,
-    /// which folder (own override or the app-wide path plus a folder named
-    /// after the playlist) and which format (own override or the app-wide
-    /// default).
-    /// </summary>
-    private sealed record ArchiveTarget(bool Enabled, string? Folder, string? Format);
-
-    private async Task<ArchiveTarget> ResolveArchiveTargetAsync(
-        string? playlistId, MelodyBridgeDbContext db, CancellationToken ct)
-    {
-        PlaylistEntity? playlist = null;
-        if (playlistId is { Length: > 0 })
-        {
-            playlist = await db.Playlists.AsNoTracking()
-                .FirstOrDefaultAsync(p => p.Id == playlistId, ct);
-        }
-        if (playlist is { ArchiveEnabled: false })
-            return new ArchiveTarget(false, null, null);
-
-        var globalPath = await _settings.GetAsync("archive_path", "", ct);
-        var folder = PlaylistRules.ResolveArchiveFolder(
-            playlist?.ArchiveDirectory, globalPath, playlist?.Name);
-        var format = !string.IsNullOrWhiteSpace(playlist?.ArchiveFormat)
-            ? playlist!.ArchiveFormat!
-            : await _settings.GetAsync("archive_format", "auto", ct);
-        return new ArchiveTarget(true, folder.Length == 0 ? null : folder, format);
-    }
-
-    /// <summary>One hard link, best effort: false on any link failure.</summary>
-    private bool TryHardLink(string linkPath, string targetPath)
-    {
-        try
-        {
-            if (File.Exists(linkPath) && _hardLinks.LinkCount(linkPath) is not > 1)
-                File.Delete(linkPath);
-            var folder = Path.GetDirectoryName(linkPath);
-            if (!string.IsNullOrEmpty(folder)) Directory.CreateDirectory(folder);
-            _hardLinks.Create(linkPath, targetPath);
-            return true;
-        }
-        catch (IOException)
-        {
-            return false;
-        }
-    }
+        => _linker.ArchiveDownloadedTrackAsync(track, db, ct);
 
     /// <summary>
     /// Settles a flagged quality review (length mismatch, inflated
@@ -760,15 +531,31 @@ internal sealed class DownloadPipeline
             track.ReviewKind = null;
             track.ReviewText = null;
             await db.SaveChangesAsync(ct);
+            _changes.Bump();
             return true;
         }
 
         // Retry: replace the flagged file. The archive copy mirrors it, so
         // it goes too; the next download produces a fresh one. Deleting
         // first keeps the folder clean and stops plugins that refuse to
-        // overwrite an existing file.
-        if (track.CurrentPath is not null)
-            FileCleanup.DeleteQuietly(track.CurrentPath);
+        // overwrite an existing file. The deletion is verified: when the
+        // flagged bytes stay on disk, the library passes would re-link
+        // them as if a fresh download had landed, so the retry refuses
+        // instead and the row keeps its open review.
+        if (track.CurrentPath is not null && File.Exists(track.CurrentPath))
+        {
+            try
+            {
+                File.Delete(track.CurrentPath);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(
+                    "Quality review for '{Title}': could not delete the flagged file {Path} ({Reason}); retry refused",
+                    track.Title, track.CurrentPath, ex.Message);
+                return false;
+            }
+        }
         if (track.ArchivePath is not null)
             FileCleanup.DeleteQuietly(track.ArchivePath);
 
@@ -787,6 +574,7 @@ internal sealed class DownloadPipeline
         track.MediaType = null;
         track.AvoidPluginId = string.IsNullOrEmpty(avoid) ? null : avoid;
         await db.SaveChangesAsync(ct);
+        _changes.Bump();
         _logger.LogInformation(
             "Quality review for '{Title}': retrying{Elsewhere}",
             track.Title,
