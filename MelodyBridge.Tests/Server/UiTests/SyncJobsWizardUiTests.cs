@@ -53,6 +53,7 @@ public class SyncJobsWizardUiTests
             new MelodyBridge.Infrastructure.MediaServers.MediaServerDirectoryFactory(
                 sp.GetServices<IMediaServerDirectory>()));
         _ctx.Services.AddSingleton<IDbContextFactory<MelodyBridgeDbContext>>(_dbFactory);
+        _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Services.SettingsStore(_dbFactory));
         _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Services.MediaServerProfileStore(
             new MelodyBridge.Infrastructure.Services.SettingsStore(_dbFactory)));
         _ctx.Services.AddSingleton<MelodyBridge.Infrastructure.MediaServers.JellyfinLoginService>(
@@ -404,6 +405,22 @@ public class SyncJobsWizardUiTests
             "the hint explains the job's status");
         Assert.That(cut.Markup, Does.Not.Contain("No Jellyfin profile yet"),
             "the legacy connection is a usable path, not a missing-profile dead end");
+    }
+
+    [Test]
+    public void Step3_M3uPath_PrefilledFromThePlaylistOutputFolderSetting()
+    {
+        new MelodyBridge.Infrastructure.Services.SettingsStore(_dbFactory)
+            .SetAsync("playlist_path", "/srv/playlists").GetAwaiter().GetResult();
+        SeedScanLocations("/music");
+        SeedPlaylist("p1", "My List");
+        var cut = OpenWizard();
+        cut.FindAll("select")[1].Change("p1"); // the source playlist select
+        Next(cut, 2);
+
+        var value = cut.Find("input[placeholder='/app/playlists/playlist.m3u']").GetAttribute("value");
+        Assert.That(value, Is.EqualTo("/srv/playlists/My List.m3u"),
+            "the Playlist output folder setting names the folder, the job name the file");
     }
 
     // ── C3: multiple remap rules ────────────────────────────────────

@@ -5,6 +5,7 @@ using MelodyBridge.Infrastructure.Data;
 using MelodyBridge.Server.Components.Pages;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 
 namespace MelodyBridge.Tests.Server.UiTests;
@@ -59,8 +60,11 @@ public class SyncJobsLayoutUiTests
 
         _ctx.Services.AddSingleton<ISyncJobRunner>(_jobRunner.Object);
         _ctx.Services.AddSingleton<IDbContextFactory<MelodyBridgeDbContext>>(dbFactory);
+        _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Services.SettingsStore(dbFactory));
         _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Services.MediaServerProfileStore(
             new MelodyBridge.Infrastructure.Services.SettingsStore(dbFactory)));
+        _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Services.LibraryPathMover(dbFactory,
+            NullLogger<MelodyBridge.Infrastructure.Services.LibraryPathMover>.Instance));
         _ctx.Services.AddSingleton<MelodyBridge.Infrastructure.MediaServers.JellyfinLoginService>(
             new TestServices.StubJellyfinLogin());
     }
@@ -106,7 +110,9 @@ public class SyncJobsLayoutUiTests
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Next").Click();
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Next").Click();
         Assert.That(cut.Find(".wizard-header .eyebrow").TextContent, Does.Contain("Step 3"));
-        // no path filled: Next must stay on step 3 and show the error
+        // the field arrives prefilled from the Playlist output folder; clear
+        // it: Next must stay on step 3 and show the error
+        cut.Find("input[placeholder='/app/playlists/playlist.m3u']").Change("");
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Next").Click();
         Assert.That(cut.Find(".wizard-header .eyebrow").TextContent, Does.Contain("Step 3"));
         Assert.That(cut.Find(".wizard-error").TextContent, Does.Contain("M3U output path"));

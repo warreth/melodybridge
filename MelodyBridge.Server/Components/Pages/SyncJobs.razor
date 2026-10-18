@@ -5,6 +5,7 @@
 @inject ISyncJobRunner JobRunner
 @inject IDbContextFactory<MelodyBridgeDbContext> DbFactory
 @inject MediaServerProfileStore ServerProfiles
+@inject SettingsStore Settings
 @implements IDisposable
 
 <PageTitle>Sync jobs - MelodyBridge</PageTitle>
@@ -478,9 +479,12 @@
     private List<RemapRule> extRules = new();
     /// <summary>Media server profiles the wizard can pick from (Settings, Media servers).</summary>
     private List<MediaServerProfile> mediaServerProfiles = new();
+    /// <summary>The Playlist output folder setting: the M3U path prefill.</summary>
+    private string defaultM3uFolder = "/app/playlists";
 
     protected override async Task OnInitializedAsync()
     {
+        defaultM3uFolder = await Settings.GetAsync("playlist_path", "/app/playlists");
         await LoadDataAsync();
         await ReloadProfiles();
     }
@@ -519,6 +523,24 @@
     private void OnOutputTargetChanged()
     {
         if (SelectedProfile is null) draft.MediaServerProfileId = null;
+        PrefillM3uPath();
+    }
+
+    /// <summary>
+    /// The M3U path starts from the Playlist output folder setting plus the
+    /// job name, so the folder from Settings really is where files land.
+    /// Only fills an empty field; anything typed or stored stays.
+    /// </summary>
+    private void PrefillM3uPath()
+    {
+        if (draft.OutputTarget != OutputTargetType.M3uFile) return;
+        if (!string.IsNullOrWhiteSpace(draft.M3uOutputPath)) return;
+        if (string.IsNullOrWhiteSpace(defaultM3uFolder)) return;
+
+        var name = string.IsNullOrWhiteSpace(draft.Name) ? "playlist" : draft.Name.Trim();
+        var safeName = string.Concat(name.Select(c =>
+            Path.GetInvalidFileNameChars().Contains(c) ? '_' : c));
+        draft.M3uOutputPath = Path.Combine(defaultM3uFolder.TrimEnd('/', '\\'), safeName + ".m3u");
     }
 
     private async Task ReloadProfiles()
@@ -628,6 +650,9 @@
             // the delete dialog and the failure toasts always have a title.
             if (string.IsNullOrWhiteSpace(draft.Name))
                 draft.Name = SuggestedJobName();
+            // Now the name is known: an empty M3U path gets its default
+            // from the Playlist output folder setting.
+            PrefillM3uPath();
             if (sourceType == "playlist" && string.IsNullOrWhiteSpace(selectedSourceId))
             {
                 stepError = "Choose a folder or a playlist first.";

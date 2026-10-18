@@ -28,7 +28,7 @@ checked to search every folder for matching files.
 
 | Output | What it needs |
 |---|---|
-| M3U File | An output path inside the container, for example `/app/playlists/summer.m3u` |
+| M3U File | An output path inside the container. It starts from the **Playlist output folder** setting plus the job name; type a different path when this job should land elsewhere |
 | Jellyfin API | A Jellyfin profile from **Settings, Media servers**. **Test connection** checks it and lets you pick the user |
 | Plex API | A Plex profile. The token holder is the only account there is, so there is no user picker |
 | Subsonic API | A Subsonic or Navidrome profile. Navidrome, gonic, Airsonic, Ampache, Funkwhale and Nextcloud Music all speak this API; there are no API keys |
