@@ -13,10 +13,17 @@ public class SearchTermsTests
 {
     [TestCase("Nightshift (Original Mix)", "Nightshift")]
     [TestCase("Nightshift [Radio Edit]", "Nightshift")]
-    [TestCase("Around the World (La La La La La) (Radio Version)", "Around the World")]
+    [TestCase("Around the World (La La La La La) (Radio Version)", "Around the World La La La La La")]
     [TestCase("One More Time - Radio Edit", "One More Time - Radio Edit")]
     public void CleanTitle_DropsParentheticalClutter(string input, string expected)
         => Assert.That(SearchTerms.CleanTitle(input), Is.EqualTo(expected));
+
+    [TestCase("The Last Airbender (VIP)", "The Last Airbender VIP")]
+    [TestCase("Song (Acoustic)", "Song Acoustic")]
+    [TestCase("Love Story (Taylor's Version)", "Love Story Taylor's Version")]
+    public void CleanTitle_KeepsVersionMarkers(string input, string expected)
+        => Assert.That(SearchTerms.CleanTitle(input), Is.EqualTo(expected),
+            "a version marker distinguishes recordings; dropping it made searches return the wrong one");
 
     [TestCase("Temperature ft. Sasha", "Temperature")]
     [TestCase("Temperature feat. Sasha", "Temperature")]

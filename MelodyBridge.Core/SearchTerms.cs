@@ -12,15 +12,18 @@ public static partial class SearchTerms
 {
     /// <summary>
     /// Clean title text for provider search: drops parenthetical/bracket
-    /// clutter and featuring tags, folds diacritics to their base
-    /// letters and collapses whitespace. Designed to never empty the
-    /// term: when everything would be stripped, the original title
-    /// (folded, whitespace-collapsed) is kept so the query stays
-    /// meaningful.
+    /// clutter that is promotional ("[Official Video]", "(Original Mix)")
+    /// and featuring tags, folds diacritics to their base letters and
+    /// collapses whitespace. Parentheses that name a version ("(VIP)",
+    /// "(Acoustic)") stay: they are what tells one recording from another,
+    /// and dropping them made searches return the wrong version. Designed
+    /// to never empty the term: when everything would be stripped, the
+    /// original title (folded, whitespace-collapsed) is kept so the query
+    /// stays meaningful.
     /// </summary>
     public static string CleanTitle(string title)
     {
-        var cleaned = DropFeaturing(DropParentheticals(title));
+        var cleaned = DropFeaturing(DropPromotionalParentheticals(title));
         cleaned = FoldDiacritics(cleaned);
         cleaned = CollapseWhitespace(cleaned).Trim();
         return cleaned.Length == 0 ? CollapseWhitespace(FoldDiacritics(title)).Trim() : cleaned;
@@ -50,13 +53,34 @@ public static partial class SearchTerms
             .Where(s => s.Length > 0));
 
     /// <summary>
-    /// Removes "(...)" and "[...]" groups. Keeps text when the group is
-    /// the entire title: "("(Original Mix)")" alone would otherwise
-    /// produce an empty query.
+    /// The first word a parenthesis may open with to count as promotional
+    /// clutter. "(VIP)", "(Acoustic)" and "(Taylor's Version)" are not in
+    /// this list and stay in the query.
     /// </summary>
-    private static string DropParentheticals(string title)
+    private static readonly HashSet<string> PromotionalParentheticals = new(StringComparer.Ordinal)
     {
-        var without = ParentheticalRegex().Replace(title, " ");
+        "feat", "ft", "featuring", "with", "official", "video", "audio", "music",
+        "lyrics", "lyric", "visualizer", "visualiser", "hd", "hq", "4k",
+        "remaster", "remastered", "explicit", "clean", "original", "album",
+        "radio", "edit", "single", "bonus", "deluxe",
+    };
+
+    /// <summary>
+    /// Removes "(...)" and "[...]" groups that open with promotional
+    /// clutter; version markers stay as plain words ("(VIP)" becomes
+    /// "VIP"), because they distinguish recordings and search indexes do
+    /// not need the brackets. Keeps text when the group is the entire
+    /// title: "(Original Mix)" alone would otherwise produce an empty
+    /// query.
+    /// </summary>
+    private static string DropPromotionalParentheticals(string title)
+    {
+        var without = ParentheticalRegex().Replace(title, match =>
+        {
+            var inner = match.Value.Trim().TrimStart('(', '[').TrimEnd(')', ']').Trim();
+            var word = new string(inner.TakeWhile(char.IsLetterOrDigit).ToArray()).ToLowerInvariant();
+            return PromotionalParentheticals.Contains(word) ? " " : $" {inner} ";
+        });
         return without.Trim().Length == 0 ? title : without;
     }
 

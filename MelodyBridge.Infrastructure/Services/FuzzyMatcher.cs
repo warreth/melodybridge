@@ -42,6 +42,36 @@ public static class FuzzyMatcher
          + 0.3 * ArtistScore(requestedArtist, hitArtist);
 
     /// <summary>
+    /// True when a hit is close enough to download at all. High confidence
+    /// passes; so does a near-exact title with a different or unknown
+    /// uploader (label channels, "Topic" uploads, an artist name prefixed
+    /// to the title), and a strongly matching artist with at least half
+    /// the title. Everything else is a different recording: a miss is
+    /// honest, a wrong download is not.
+    /// </summary>
+    public static bool IsAcceptableMatch(
+        string requestedArtist, string requestedTitle,
+        string? hitArtist, string? hitTitle)
+    {
+        if (Confidence(requestedArtist, requestedTitle, hitArtist, hitTitle) == MatchConfidence.High)
+            return true;
+
+        // Titles are often "Artist - Song" on upload platforms: compare
+        // the hit against both spellings of the request and keep the
+        // better one.
+        var plainTitleScore = Similarity(requestedTitle, hitTitle);
+        var titleScore = Math.Max(
+            plainTitleScore,
+            Similarity($"{requestedArtist} {requestedTitle}", hitTitle));
+        if (titleScore >= 0.70) return true;
+
+        // A clearly matching artist with a recognisable part of the
+        // title is a different spelling of the same track, not a miss.
+        return plainTitleScore >= 0.50
+            && ArtistScore(requestedArtist, hitArtist) >= 0.85;
+    }
+
+    /// <summary>
     /// Score with a duration-proximity penalty: when the expected length
     /// is known and the hit deviates from it, equally-named candidates
     /// (a remix, a live cut, a longer album version) lose against the
@@ -90,8 +120,55 @@ public static class FuzzyMatcher
     {
         "karaoke", "cover", "tribute", "instrumental", "remix", "live",
         "acoustic", "reprise", "demo", "orchestral", "piano", "8d",
-        "sped", "slowed", "nightcore", "mashup",
+        "sped", "slowed", "nightcore", "mashup", "review", "reaction",
     };
+
+    /// <summary>
+    /// Recording markers: words in parentheses that name a specific
+    /// version of a song. A hit that lacks a marker the request names is
+    /// a different recording ("The Last Airbender" is not "The Last
+    /// Airbender (VIP)"), not a fallback. Words a parenthesis may open
+    /// with without being a marker are handled by the promotional list in
+    /// SearchTerms; "version", "radio" and "edit" stay out on purpose:
+    /// platforms drop them freely, and the length gate covers the
+    /// differences they stand for.
+    /// </summary>
+    private static readonly HashSet<string> RecordingMarkers = new(StringComparer.Ordinal)
+    {
+        "vip", "acoustic", "live", "remix", "remaster", "remastered",
+        "instrumental", "demo", "extended", "slowed", "sped", "nightcore",
+        "cover", "karaoke", "piano", "orchestral", "8d", "mashup", "reprise",
+    };
+
+    /// <summary>
+    /// True when the request names a specific recording, by a marker in
+    /// parentheses, that the hit does not carry. This is the mirror of
+    /// <see cref="AddsUnrequestedModifier"/>: one rejects extra markers,
+    /// this one rejects a dropped marker.
+    /// </summary>
+    public static bool DropsRequestedMarker(string requestedTitle, string? hitTitle)
+    {
+        var markers = MarkersIn(requestedTitle);
+        if (markers.Count == 0) return false;
+        var hit = WordSet(hitTitle);
+        foreach (var marker in markers)
+            if (!hit.Contains(marker)) return true;
+        return false;
+    }
+
+    /// <summary>The recording markers the title carries in parentheses or brackets.</summary>
+    private static HashSet<string> MarkersIn(string? title)
+    {
+        var markers = new HashSet<string>(StringComparer.Ordinal);
+        if (string.IsNullOrWhiteSpace(title)) return markers;
+        foreach (System.Text.RegularExpressions.Match match in
+                 System.Text.RegularExpressions.Regex.Matches(title, @"[([][^)\]]*[)\]]"))
+        {
+            foreach (var token in WordSet(match.Value))
+                if (RecordingMarkers.Contains(token)) markers.Add(token);
+        }
+        return markers;
+    }
 
     /// <summary>
     /// True when the hit title carries a modifier the requested title

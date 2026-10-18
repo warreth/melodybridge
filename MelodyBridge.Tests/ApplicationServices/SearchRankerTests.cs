@@ -159,6 +159,70 @@ public class SearchRankerTests
     }
 
     [Test]
+    public void SharedWordsWithAWrongArtist_ReturnNoHit()
+    {
+        // The reported case: "SLVL - The Last Airbender (VIP)" must never
+        // resolve to an Avatar soundtrack upload that shares two words.
+        var result = SearchRanker.Rank("SLVL", "The Last Airbender (VIP)", null,
+            new[]
+            {
+                Hit("Avatar: The Last Airbender Book 1 Water", "Avatar", "https://x/avatar",
+                    300, MatchConfidence.Low),
+                Hit("The Last Airbender Review", "Some Reviewer", "https://x/review",
+                    600, MatchConfidence.Low),
+            });
+
+        Assert.That(result, Is.Null,
+            "a wrong song is worse than a miss; the manual picker is the fallback");
+    }
+
+    [Test]
+    public void HitThatDropsARequestedVersionMarker_ReturnNoHit()
+    {
+        // A soundtrack track is actually titled "The Last Airbender": the
+        // words match, the recording does not.
+        var result = SearchRanker.Rank("SLVL", "The Last Airbender (VIP)", null,
+            new[] { Hit("The Last Airbender", "Avatar", "https://x/avatar", 217) });
+
+        Assert.That(result, Is.Null, "the (VIP) marker is the difference between the two songs");
+    }
+
+    [Test]
+    public void HitThatKeepsTheVersionMarker_IsAccepted()
+    {
+        var result = SearchRanker.Rank("SLVL", "The Last Airbender (VIP)", null,
+            new[] { Hit("SLVL - The Last Airbender (VIP)", "SLVL", "https://x/real", 217) });
+
+        Assert.That(result, Is.Not.Null);
+        Assert.That(result!.SourceUrl, Is.EqualTo("https://x/real"));
+    }
+
+    [Test]
+    public void ExactTitle_FromAnUnknownUploadChannel_IsAccepted()
+    {
+        // Upload platforms prefix the artist and channel names rarely
+        // match the credit: the exact title is the signal that matters.
+        var result = SearchRanker.Rank("SLVL", "The Last Airbender (VIP)", null,
+            new[]
+            {
+                Hit("SLVL - The Last Airbender (VIP)", "Some Upload Channel", "https://x/real", 210),
+            });
+
+        Assert.That(result, Is.Not.Null);
+        Assert.That(result!.SourceUrl, Is.EqualTo("https://x/real"));
+    }
+
+    [Test]
+    public void StrongArtistMatch_WithPartOfTheTitle_IsAccepted()
+    {
+        var result = SearchRanker.Rank("Rick Astley", "Never Gonna Give You Up", null,
+            new[] { Hit("Never Gonna", "Rick Astley", "https://x/short") });
+
+        Assert.That(result, Is.Not.Null,
+            "the right artist with half the title is a spelling difference, not a miss");
+    }
+
+    [Test]
     public void NoCandidates_ReturnsNull()
         => Assert.That(SearchRanker.Rank("A", "T", null, Array.Empty<DownloaderSearchHit>()), Is.Null);
 }

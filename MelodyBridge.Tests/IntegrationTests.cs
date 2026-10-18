@@ -1,5 +1,6 @@
 using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.Data;
+using MelodyBridge.Infrastructure.Files;
 using MelodyBridge.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -86,26 +87,36 @@ public class IntegrationTests
     public async Task DownloadManager_Waterfall_SkipsUnavailableAndUsesFirstHit()
     {
         var factory = CreateDbContextFactory();
-        var downloaders = new IDownloader[]
+        // The manager sniffs the produced bytes: a stub path must be real audio.
+        var hitFile = Path.Combine(Path.GetTempPath(), $"mb-waterfall-{Guid.NewGuid():N}.mp3");
+        await File.WriteAllBytesAsync(hitFile, TestAudio.MinimalMp3());
+        try
         {
-            new StubDownloader("unavailable", "Never Works", available: false),
-            new StubDownloader("second", "Second Plugin", available: true, downloadPath: null),
-            new StubDownloader("third", "Third Plugin", available: true,
-                downloadPath: "/tmp/waterfall-hit.mp3"),
-        };
+            var downloaders = new IDownloader[]
+            {
+                new StubDownloader("unavailable", "Never Works", available: false),
+                new StubDownloader("second", "Second Plugin", available: true, downloadPath: null),
+                new StubDownloader("third", "Third Plugin", available: true,
+                    downloadPath: hitFile),
+            };
 
-        var registry = new DownloaderRegistry(downloaders, factory,
-            new PluginConfigStore(factory),
-            NullLogger<DownloaderRegistry>.Instance);
+            var registry = new DownloaderRegistry(downloaders, factory,
+                new PluginConfigStore(factory),
+                NullLogger<DownloaderRegistry>.Instance);
 
-        var manager = new Application.Services.DownloadManager(
-            registry,
-            NullLogger<Application.Services.DownloadManager>.Instance);
+            var manager = new Application.Services.DownloadManager(
+                registry,
+                NullLogger<Application.Services.DownloadManager>.Instance);
 
-        var path = await manager.DownloadAsync("https://example.com/x", "/tmp", "mid");
+            var path = await manager.DownloadAsync("https://example.com/x", "/tmp", "mid");
 
-        Assert.That(path, Is.EqualTo("/tmp/waterfall-hit.mp3"),
-            "waterfall must skip the unavailable plugin and the failing one, then use the third");
+            Assert.That(path, Is.EqualTo(hitFile),
+                "waterfall must skip the unavailable plugin and the failing one, then use the third");
+        }
+        finally
+        {
+            FileCleanup.DeleteQuietly(hitFile);
+        }
     }
 
     /// <summary>
@@ -115,27 +126,37 @@ public class IntegrationTests
     public async Task DownloadManager_TrackFlow_SearchesThenDownloads()
     {
         var factory = CreateDbContextFactory();
-        var downloaders = new IDownloader[]
+        var hitFile = Path.Combine(Path.GetTempPath(), $"mb-track-flow-{Guid.NewGuid():N}.mp3");
+        await File.WriteAllBytesAsync(hitFile, TestAudio.MinimalMp3());
+        try
         {
-            new StubDownloader("nosearch", "No Search", available: true, searchHit: null),
-            new StubDownloader("full", "Full Plugin", available: true,
-                searchHit: new DownloaderSearchHit("Hit", "Artist", "https://example.com/hit", null),
-                downloadPath: "/tmp/track-flow.mp3"),
-        };
+            var downloaders = new IDownloader[]
+            {
+                new StubDownloader("nosearch", "No Search", available: true, searchHit: null),
+                new StubDownloader("full", "Full Plugin", available: true,
+                    // A realistic hit: the same artist and title the query asks for.
+                    searchHit: new DownloaderSearchHit("Some Title", "Artist", "https://example.com/hit", null),
+                    downloadPath: hitFile),
+            };
 
-        var registry = new DownloaderRegistry(downloaders, factory,
-            new PluginConfigStore(factory),
-            NullLogger<DownloaderRegistry>.Instance);
-        var manager = new Application.Services.DownloadManager(
-            registry,
-            NullLogger<Application.Services.DownloadManager>.Instance);
+            var registry = new DownloaderRegistry(downloaders, factory,
+                new PluginConfigStore(factory),
+                NullLogger<DownloaderRegistry>.Instance);
+            var manager = new Application.Services.DownloadManager(
+                registry,
+                NullLogger<Application.Services.DownloadManager>.Instance);
 
-        var path = await manager.DownloadTrackAsync(new TrackQuery("Artist", "Some Title", DownloadQuality.Any), "/tmp", "mid2");
+            var path = await manager.DownloadTrackAsync(new TrackQuery("Artist", "Some Title", DownloadQuality.Any), "/tmp", "mid2");
 
-        Assert.That(path, Is.EqualTo("/tmp/track-flow.mp3"));
-        var progress = manager.SnapshotProgress().Single(p => p.MelodyId == "mid2");
-        Assert.That(progress.Status, Is.EqualTo("done"));
-        Assert.That(progress.Plugin, Is.EqualTo("Full Plugin"));
+            Assert.That(path, Is.EqualTo(hitFile));
+            var progress = manager.SnapshotProgress().Single(p => p.MelodyId == "mid2");
+            Assert.That(progress.Status, Is.EqualTo("done"));
+            Assert.That(progress.Plugin, Is.EqualTo("Full Plugin"));
+        }
+        finally
+        {
+            FileCleanup.DeleteQuietly(hitFile);
+        }
     }
 
     /// <summary>

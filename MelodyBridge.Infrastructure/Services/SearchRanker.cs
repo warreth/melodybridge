@@ -8,7 +8,10 @@ namespace MelodyBridge.Infrastructure.Services;
 /// remix, a lyric video or a live cut), every candidate is scored on
 /// title/artist similarity plus duration proximity, grossly mismatched
 /// lengths are dropped, and the runner-ups travel along as alternatives
-/// so a dead first choice does not cost the whole plugin.
+/// so a dead first choice does not cost the whole plugin. Candidates that
+/// are not a plausible version of the requested track at all (a shared
+/// word or two with a different artist) are dropped before ranking: a
+/// miss the user can fix by hand beats a wrong download.
 /// </summary>
 public static class SearchRanker
 {
@@ -33,6 +36,13 @@ public static class SearchRanker
             // Karaoke, covers and unrequested remixes/live cuts are the
             // wrong recording, not a fallback: drop them entirely.
             .Where(c => !FuzzyMatcher.AddsUnrequestedModifier(title, c.Title))
+            // A requested marker the hit dropped ("(VIP)", "(Acoustic)")
+            // means a different recording of the same song.
+            .Where(c => !FuzzyMatcher.DropsRequestedMarker(title, c.Title))
+            // Shared words and nothing else: an Avatar soundtrack for a
+            // track that merely says "The Last Airbender" is not a miss
+            // to paper over, it is the wrong song.
+            .Where(c => FuzzyMatcher.IsAcceptableMatch(artist, title, c.Artist, c.Title))
             .Select(c => (candidate: c, score: FuzzyMatcher.ScoreWithDuration(
                 artist, title, expectedDuration, c.Artist, c.Title, c.Duration)))
             .OrderByDescending(x => x.score)

@@ -74,10 +74,46 @@ public class FuzzyMatcherTests
     [TestCase("Cover Me", "Cover Me (Official Audio)", false)]
     // Token boundaries: "Alive" is not "live".
     [TestCase("Stayin' Alive", "Stayin' Alive", false)]
+    // Promo content is not the song.
+    [TestCase("The Last Airbender", "The Last Airbender Review", true)]
+    [TestCase("Song", "Song (Reaction)", true)]
     public void AddsUnrequestedModifier_FlagsOnlyNewModifiers(
         string requested, string hit, bool expected)
     {
         Assert.That(FuzzyMatcher.AddsUnrequestedModifier(requested, hit), Is.EqualTo(expected),
             $"{requested} vs {hit}");
+    }
+
+    [TestCase("The Last Airbender (VIP)", "The Last Airbender", true)]
+    [TestCase("The Last Airbender (VIP)", "SLVL - The Last Airbender (VIP)", false)]
+    [TestCase("Song (Acoustic)", "Song", true)]
+    [TestCase("Song (Acoustic)", "Song (Acoustic Version)", false)]
+    [TestCase("Song (Live)", "Song (Live at Wembley)", false)]
+    [TestCase("Song", "Song (Live)", false)]
+    // Promotional parentheses are not version markers; the search text
+    // drops them on purpose, so a plain hit must stay acceptable.
+    [TestCase("Nightshift (Original Mix)", "Nightshift", false)]
+    [TestCase("Nightshift [Radio Edit]", "Nightshift", false)]
+    // A vocal hook in parentheses is part of the title, not a marker.
+    [TestCase("Around the World (La La La La La)", "Around the World", false)]
+    public void DropsRequestedMarker_FlagsLostVersions(
+        string requested, string hit, bool expected)
+    {
+        Assert.That(FuzzyMatcher.DropsRequestedMarker(requested, hit), Is.EqualTo(expected),
+            $"{requested} vs {hit}");
+    }
+
+    [TestCase("Ludwig van Beethoven", "Für Elise", "Rousseau", "Beethoven - Für Elise", true)]
+    [TestCase("Frédéric Chopin", "Nocturne in E-flat major, Op. 9 No. 2",
+        "Traum", "Chopin - Nocturne Op. 9 No. 2", true)]
+    [TestCase("SLVL", "The Last Airbender", "Avatar", "Avatar: The Last Airbender Book 1 Water", false)]
+    [TestCase("SLVL", "The Last Airbender", "Trailer Music", "Last Airbender Trailer Music", false)]
+    // The (VIP) case is rejected by DropsRequestedMarker, not by this gate:
+    // see the test above.
+    public void IsAcceptableMatch_KeepsRealHits_DropsUnrelatedTitles(
+        string artist, string title, string hitArtist, string hitTitle, bool expected)
+    {
+        Assert.That(FuzzyMatcher.IsAcceptableMatch(artist, title, hitArtist, hitTitle),
+            Is.EqualTo(expected), $"{artist} - {title} vs {hitArtist} - {hitTitle}");
     }
 }
