@@ -325,13 +325,16 @@ public class SyncJobRunnerTests
                 SourceId = "pl-job",
                 OutputTarget = OutputTargetType.SubsonicApi,
                 MediaServerProfileId = "prof-sv",
+                // A legacy Subsonic job carried the username in this field;
+                // the profile's username and password are the credential now.
+                JellyfinUserId = "old-username",
             };
 
             var log = await runner.RunJobAsync(job);
 
             Assert.That(log.Status, Is.EqualTo(SyncStatus.Completed));
             Assert.That(server.Connection!.UserId, Is.EqualTo("admin"),
-                "Subsonic authenticates with the profile's username");
+                "the profile's username pairs with the profile's password");
             Assert.That(server.Connection.ApiKey, Is.EqualTo("secret"));
         }
         finally

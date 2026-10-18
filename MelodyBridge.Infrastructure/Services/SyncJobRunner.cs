@@ -185,11 +185,18 @@ public class SyncJobRunner : ISyncJobRunner
                                 $"Profile '{profile.Name}' is a {profile.Kind} server, but this job targets {job.OutputTarget}. Pick a matching profile in the job's settings.");
                             break;
                         }
-                        // Subsonic authenticates with its username; a
-                        // Jellyfin profile pairs with the job's user id.
+                        // Subsonic authenticates with the username stored
+                        // on the profile; the password comes from the same
+                        // profile, so its username wins over a legacy job's
+                        // user field (the old wizard stored the username
+                        // there). Jellyfin keeps the job's user id: it
+                        // selects whose favorites get marked.
                         var userId = job.JellyfinUserId;
-                        if (string.IsNullOrWhiteSpace(userId) && MediaServerKinds.IsSubsonic(profile.Kind))
+                        if (MediaServerKinds.IsSubsonic(profile.Kind)
+                            && !string.IsNullOrWhiteSpace(profile.Username))
+                        {
                             userId = profile.Username;
+                        }
                         connection = new MediaServerConnection(profile.BaseUrl, profile.ApiKey, userId);
                     }
                     else if (!string.IsNullOrWhiteSpace(job.JellyfinServerUrl))
