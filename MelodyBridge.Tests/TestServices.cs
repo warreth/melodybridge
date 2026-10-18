@@ -24,11 +24,13 @@ public static class TestServices
             : new EmptyRegistry();
         var manager = new DownloadManager(registry,
             NullLogger<DownloadManager>.Instance);
+        var changes = new DataChangeTracker();
         var store = new PlaylistStore(dbFactory,
             Array.Empty<ISourceProvider>(), manager,
-            NullLogger<PlaylistStore>.Instance);
+            NullLogger<PlaylistStore>.Instance, changes: changes);
         services.AddSingleton<IDownloadManager>(manager);
         services.AddSingleton(registry);
+        services.AddSingleton(changes);
         services.AddSingleton<IDbContextFactory<MelodyBridgeDbContext>>(dbFactory);
         services.AddSingleton(store);
         // The coordinator resolves the scoped store per run from the

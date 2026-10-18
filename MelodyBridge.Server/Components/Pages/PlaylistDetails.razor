@@ -308,6 +308,7 @@ else
             <TrackTable Tracks="@FilteredTracks().ToList()"
                         ShowFilenameColumn="@showFilenameColumn"
                         ShowArchiveState="@(editArchiveEnabled && HasArchiveTarget)"
+                        ArchiveStates="@archiveStates"
                         Busy="@busy"
                         QueueLabel="@TrackQueueLabel"
                         OnRetry="RetryTrack"
@@ -413,6 +414,10 @@ else
     private string resolvedDefaultArchiveFormat = "auto";
     private Timer? refreshTimer;
     private Application.Services.DownloadRun? observedRun;
+    /// <summary>The store's write stamp the last reload observed.</summary>
+    private long observedVersion;
+    /// <summary>Queue title -> first index, rebuilt per tick instead of scanning per row.</summary>
+    private Dictionary<string, int> queuePositions = new(StringComparer.Ordinal);
 
     /// <summary>The coordinator's run for this playlist, kept current by the poll.</summary>
     private Application.Services.DownloadRun? run => observedRun;
@@ -431,22 +436,31 @@ else
     protected override async Task OnInitializedAsync()
     {
         await Load();
-        // Poll the coordinator: the snapshot lives in the singleton, so the
-        // bar survives navigation and never just "disappears".
+        // Poll the coordinator for the progress bar and the store's write
+        // stamp for everything else: a download this page did not start,
+        // a background reconcile or another circuit's retry moves the
+        // stamp, and the rows reload when it moved. An idle tick changes
+        // nothing, so a thousand-row table is not re-rendered every
+        // second while nothing happens.
         refreshTimer = new Timer(_ => InvokeAsync(async () =>
         {
             var observed = Coordinator.RunFor(PlaylistId);
             // Reload while a run is active, and once more when it just
-            // finished: the final status write can land between two ticks,
-            // and the table must not keep showing in_progress afterwards.
+            // finished: the final status write can land between two ticks.
             var justFinished = observedRun is { State: not Application.Services.DownloadRunState.Finished }
                 && observed is null or { State: Application.Services.DownloadRunState.Finished };
+            var active = observed is { State: not Application.Services.DownloadRunState.Finished };
             observedRun = observed;
-            if (observed is { State: not Application.Services.DownloadRunState.Finished } || justFinished)
+            UpdateQueuePositions();
+            var version = Store.DataVersion;
+            var reload = active || justFinished || version != observedVersion;
+            if (reload)
             {
-                await LoadCountsOnlyAsync();
+                await ReloadTracksAsync();
+                observedVersion = Store.DataVersion;
             }
-            StateHasChanged();
+            if (reload || active)
+                StateHasChanged();
         }), null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
     }
 
@@ -485,24 +499,104 @@ else
             editAutoDownload = playlist.AutoDownloadEnabled;
             editStrictQuality = playlist.StrictQuality;
             editAllowContainerChange = playlist.AllowContainerChange;
-            await LoadCountsOnlyAsync();
+            ApplyCounts();
+            StartArchiveProbe();
         }
         persisted = (editName, editTargetDirectory, editQuality, editArchiveDirectory, editArchiveFormat, editSchedule, editSyncMode, editAutoDownload, editStrictQuality, editAllowContainerChange, editArchiveEnabled);
         formReady = true;
         observedRun = Coordinator.RunFor(PlaylistId);
+        observedVersion = Store.DataVersion;
+        UpdateQueuePositions();
         loading = false;
     }
 
-    private async Task LoadCountsOnlyAsync()
+    /// <summary>
+    /// One re-query of the playlist after the store reported a change:
+    /// the rows and the download stats both come from the freshly loaded
+    /// list, so nothing is materialized twice.
+    /// </summary>
+    private async Task ReloadTracksAsync()
     {
         playlist = await Store.GetByIdAsync(PlaylistId);
         if (playlist is null) return;
-        downloadedCount = playlist.Tracks.Count(t => t.DownloadStatus == "downloaded");
-        downloadedSizeBytes = playlist.Tracks
-            .Where(t => t.DownloadStatus == "downloaded")
-            .Sum(t => t.FileSizeBytes ?? 0);
-        reviewCount = playlist.Tracks.Count(t =>
-            t.DownloadStatus == "downloaded" && t.ReviewKind is not null);
+        ApplyCounts();
+        StartArchiveProbe();
+    }
+
+    /// <summary>The stat cards and the review hint, from the loaded rows.</summary>
+    private void ApplyCounts()
+    {
+        downloadedCount = 0;
+        downloadedSizeBytes = 0;
+        reviewCount = 0;
+        foreach (var track in playlist?.Tracks ?? Enumerable.Empty<TrackEntity>())
+        {
+            if (track.DownloadStatus != "downloaded") continue;
+            downloadedCount++;
+            downloadedSizeBytes += track.FileSizeBytes ?? 0;
+            if (track.ReviewKind is not null) reviewCount++;
+        }
+    }
+
+    // ── Archive checks, off the render path ────────────────────────
+
+    /// <summary>Archive-file existence per path, checked by a background task.</summary>
+    private Dictionary<string, bool> archiveStates = new(StringComparer.Ordinal);
+    private bool archiveProbeRunning;
+    private DateTime archiveProbedAtUtc = DateTime.MinValue;
+    private bool disposed;
+
+    /// <summary>
+    /// Checks the distinct archive paths of the downloaded rows on a
+    /// background task and re-renders when the verdicts are in. The table
+    /// must never stat a thousand files while it renders: on a network
+    /// mount that is what made opening the page take seconds.
+    /// </summary>
+    private void StartArchiveProbe()
+    {
+        var paths = (playlist?.Tracks ?? Enumerable.Empty<TrackEntity>())
+            .Where(t => t.DownloadStatus == "downloaded" && !string.IsNullOrWhiteSpace(t.ArchivePath))
+            .Select(t => t.ArchivePath!)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        if (paths.Count == 0)
+        {
+            archiveStates.Clear();
+            return;
+        }
+
+        // Debounce: a running download reloads the rows per track, and a
+        // stat sweep on every reload would just busy the mount. A verdict
+        // stays valid for a short window, then the next reload re-checks.
+        if (archiveProbeRunning
+            || (DateTime.UtcNow - archiveProbedAtUtc < TimeSpan.FromSeconds(15)
+                && paths.All(archiveStates.ContainsKey)))
+        {
+            return;
+        }
+
+        archiveProbeRunning = true;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var fresh = new Dictionary<string, bool>(StringComparer.Ordinal);
+                foreach (var path in paths)
+                    fresh[path] = File.Exists(path);
+                await InvokeAsync(() =>
+                {
+                    archiveProbeRunning = false;
+                    if (disposed) return;
+                    archiveStates = fresh;
+                    archiveProbedAtUtc = DateTime.UtcNow;
+                    StateHasChanged();
+                });
+            }
+            catch
+            {
+                archiveProbeRunning = false;
+            }
+        });
     }
 
     /// <summary>
@@ -675,14 +769,53 @@ else
         });
     }
 
-    private void StartDownload() => Coordinator.Start(PlaylistId);
-    private void PauseDownload() => Coordinator.Pause(PlaylistId);
-    private void ResumeDownload() => Coordinator.Start(PlaylistId);
+    private void StartDownload()
+    {
+        Coordinator.Start(PlaylistId);
+        OnRunStateChanged();
+    }
+
+    private void PauseDownload()
+    {
+        Coordinator.Pause(PlaylistId);
+        OnRunStateChanged();
+    }
+
+    private void ResumeDownload()
+    {
+        Coordinator.Start(PlaylistId);
+        OnRunStateChanged();
+    }
 
     private void CancelDownload()
     {
         Coordinator.Cancel(PlaylistId);
         Notifications.Info("Download run cancelled.");
+        OnRunStateChanged();
+    }
+
+    /// <summary>Makes a header click show immediately, without waiting for the poll tick.</summary>
+    private void OnRunStateChanged()
+    {
+        observedRun = Coordinator.RunFor(PlaylistId);
+        UpdateQueuePositions();
+        StateHasChanged();
+    }
+
+    /// <summary>The queue label lookup: title -> first queue index, once per tick.</summary>
+    private void UpdateQueuePositions()
+    {
+        if (run is null || run.State is not (Application.Services.DownloadRunState.Running
+            or Application.Services.DownloadRunState.Paused))
+        {
+            queuePositions = new Dictionary<string, int>(StringComparer.Ordinal);
+            return;
+        }
+        var positions = new Dictionary<string, int>(StringComparer.Ordinal);
+        var queue = Coordinator.QueueFor(PlaylistId);
+        for (var i = 0; i < queue.Count; i++)
+            positions.TryAdd(queue[i], i);
+        queuePositions = positions;
     }
 
     private async Task ExportCsv()
@@ -912,6 +1045,7 @@ else
 
     public void Dispose()
     {
+        disposed = true;
         refreshTimer?.Dispose();
         debounceCts?.Cancel();
         debounceCts?.Dispose();
@@ -966,14 +1100,7 @@ else
         if (run is null || run.State is not (Application.Services.DownloadRunState.Running
             or Application.Services.DownloadRunState.Paused)) return null;
         if (track.DownloadStatus is "downloaded" or "removed-from-source") return null;
-        var queue = Coordinator.QueueFor(PlaylistId);
-        var title = track.Title ?? "";
-        var index = -1;
-        for (var i = 0; i < queue.Count; i++)
-        {
-            if (queue[i] == title) { index = i; break; }
-        }
-        if (index < 0) return null;
+        if (!queuePositions.TryGetValue(track.Title ?? "", out var index)) return null;
         return index == 0 && run.State == Application.Services.DownloadRunState.Running
             ? "downloading"
             : $"in queue · #{index + 1}";

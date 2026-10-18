@@ -37,6 +37,7 @@ public class TrackTableTests
         bool busy = false,
         bool fileColumn = false,
         bool archiveState = false,
+        IReadOnlyDictionary<string, bool>? archiveStates = null,
         Func<TrackEntity, string?>? queueLabel = null,
         Action<TrackEntity>? onRetry = null,
         Action<TrackEntity>? onRemove = null)
@@ -46,6 +47,7 @@ public class TrackTableTests
             pb.Add(t => t.Busy, busy);
             pb.Add(t => t.ShowFilenameColumn, fileColumn);
             pb.Add(t => t.ShowArchiveState, archiveState);
+            if (archiveStates is not null) pb.Add(t => t.ArchiveStates, archiveStates);
             if (queueLabel is not null) pb.Add(t => t.QueueLabel, queueLabel);
             if (onRetry is not null) pb.Add(t => t.OnRetry, t => { onRetry(t); return Task.CompletedTask; });
             if (onRemove is not null) pb.Add(t => t.OnRemove, t => { onRemove(t); return Task.CompletedTask; });
@@ -188,7 +190,10 @@ public class TrackTableTests
         {
             var tracks = SampleTracks();
             tracks[0].ArchivePath = archiveFile;
-            var cut = Render(tracks, archiveState: true);
+            // The page stats the paths off the render path and passes the
+            // verdicts in; the table itself must never touch the disk.
+            var cut = Render(tracks, archiveState: true,
+                archiveStates: new Dictionary<string, bool> { [archiveFile] = true });
 
             var row = cut.FindAll("tbody tr").Single(tr => tr.TextContent.Contains("Charlie"));
             var pill = row.QuerySelectorAll("span.pill")
@@ -217,12 +222,27 @@ public class TrackTableTests
         // A recorded copy that vanished is the real problem: warn, and
         // say which file is gone.
         tracks[0].ArchivePath = "/does/not/exist.mp3";
-        var cut2 = Render(tracks, archiveState: true);
+        var cut2 = Render(tracks, archiveState: true,
+            archiveStates: new Dictionary<string, bool> { ["/does/not/exist.mp3"] = false });
         var warn = cut2.FindAll("tbody tr").Single(tr => tr.TextContent.Contains("Charlie"))
             .QuerySelectorAll("span.pill")
             .Single(p => p.GetAttribute("title")?.Contains("missing from disk") == true);
         Assert.That(warn.ClassList, Does.Contain("warn"));
         Assert.That(warn.GetAttribute("title"), Does.Contain("/does/not/exist.mp3"));
+    }
+
+    [Test]
+    public void Archive_Check_UnknownPath_RendersNoPillYet()
+    {
+        // The check is still running: a wrong state would be worse than
+        // none, so the pill appears with the verdict (next render).
+        var tracks = SampleTracks();
+        tracks[0].ArchivePath = "/music/archive/charlie.mp3";
+        var cut = Render(tracks, archiveState: true);
+
+        var row = cut.FindAll("tbody tr").Single(tr => tr.TextContent.Contains("Charlie"));
+        Assert.That(row.QuerySelectorAll("span.pill")
+            .Any(p => p.GetAttribute("title")?.Contains("Archive copy") == true), Is.False);
     }
 
     [Test]

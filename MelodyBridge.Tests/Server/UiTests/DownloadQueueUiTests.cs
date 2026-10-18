@@ -200,6 +200,43 @@ public class DownloadQueueUiTests
         });
     }
 
+    [Test]
+    public async Task NeedsAttention_FollowsAStateChangeMadeOutsideThePage()
+    {
+        // No run is started here: the page must still pick up a row change
+        // another circuit or a background pass made (the write stamp it
+        // polls moved). This is the stale "Needs attention" filter.
+        var cut = _ctx.Render<PlaylistDetails>(p => p.Add(p => p.PlaylistId, "pl-queue"));
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("Alpha")), TimeSpan.FromSeconds(5));
+        Assert.That(cut.Markup, Does.Not.Contain("Needs attention"),
+            "three pending tracks need nobody yet");
+
+        var factory = _ctx.Services.GetRequiredService<IDbContextFactory<MelodyBridgeDbContext>>();
+        // A failed download written by another circuit: the row changes
+        // and the write stamp moves, but this page never sees a run.
+        await using (var db = await factory.CreateDbContextAsync())
+        {
+            var track = await db.Tracks.SingleAsync(t => t.Title == "Alpha");
+            track.DownloadStatus = "failed";
+            track.DownloadError = "simulated failure from another circuit";
+            await db.SaveChangesAsync();
+        }
+        _ctx.Services.GetRequiredService<DataChangeTracker>().Bump();
+
+        var ok = await WaitMarkupAsync(
+            m => m.Contains("Needs attention (1)"), TimeSpan.FromSeconds(10), () => cut.Markup);
+        Assert.That(ok, Is.True, "an out-of-band state change must reach an open page");
+
+        // The filter itself is honest: only the row that needs a human stays.
+        cut.Find(".filter-chip").Click();
+        Assert.Multiple(() =>
+        {
+            Assert.That(cut.FindAll("tbody tr"), Has.Count.EqualTo(1));
+            Assert.That(RowText(cut, "Alpha"), Does.Contain("failed"));
+        });
+    }
+
     /// <summary>The table row of a track, as plain text.</summary>
     private static string RowText(IRenderedComponent<PlaylistDetails> cut, string title)
         => cut.FindAll("tr").First(r => r.TextContent.Contains(title)).TextContent;

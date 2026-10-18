@@ -333,6 +333,41 @@ public class ArchiveCopyUiTests
     }
 
     [Test]
+    public void ArchiveCheckPill_AppearsAfterTheBackgroundProbe()
+    {
+        // The page stats the archive files off the render path (a stat per
+        // row on a network mount made the page crawl): the pill shows up
+        // with the verdict instead of during the first render.
+        var archiveFile = Path.Combine(Path.GetTempPath(), $"mb-arc-probe-{Guid.NewGuid():N}.opus");
+        File.WriteAllText(archiveFile, "archive bytes");
+        try
+        {
+            using (var db = _factory.CreateDbContext())
+            {
+                db.Playlists.Find("pl-1")!.ArchiveDirectory = "/playlist-archive";
+                db.Tracks.First(t => t.MelodyId == "m1").ArchivePath = archiveFile;
+                db.SaveChanges();
+            }
+
+            var cut = RenderPage();
+
+            cut.WaitForAssertion(() =>
+            {
+                var pill = cut.FindAll("span.pill")
+                    .FirstOrDefault(p => p.GetAttribute("title")?.StartsWith("Archive copy present") == true);
+                Assert.That(pill, Is.Not.Null,
+                    "the probe verdict must reach the table without a click");
+                Assert.That(pill!.ClassList, Does.Contain("ok"));
+                Assert.That(pill.GetAttribute("title"), Does.Contain(archiveFile));
+            }, TimeSpan.FromSeconds(5));
+        }
+        finally
+        {
+            try { File.Delete(archiveFile); } catch { /* best effort */ }
+        }
+    }
+
+    [Test]
     public void ArchiveFailureWarning_RendersWarnPillWithTheReason()
     {
         var cut = RenderPage();

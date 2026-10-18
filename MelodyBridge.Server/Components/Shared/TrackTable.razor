@@ -60,7 +60,7 @@
             }
             @foreach (var track in SortedTracks)
             {
-                <tr>
+                <tr @key="RowKey(track)">
                     <td class="text-muted col-position">@(track.Position + 1)</td>
                     <td class="cell-title col-title"><strong title="@(track.Title ?? "Unknown")">@(track.Title ?? "Unknown")</strong></td>
                     <td class="cell-artist col-artist" title="@(track.Artist ?? "Unknown artist")">@(track.Artist ?? "Unknown artist")</td>
@@ -101,17 +101,30 @@
                             // The tiny archive check: a green check when the
                             // copy exists, a calm note when this track has
                             // none yet, a warning when the recorded copy
-                            // vanished from disk.
+                            // vanished from disk. Existence comes from the
+                            // page (checked off the render path): the table
+                            // must never stat the disk while it renders.
                             var hasArchivePath = !string.IsNullOrWhiteSpace(track.ArchivePath);
-                            var archiveOk = hasArchivePath && ArchiveCopyExists(track.ArchivePath!);
-                            <StatusPill Variant="@(archiveOk ? "ok" : hasArchivePath ? "warn" : "neutral")" Class="pill-tight"
-                                        Title="@(archiveOk
-                                            ? $"Archive copy present: {track.ArchivePath}"
-                                            : hasArchivePath
-                                                ? $"Archive copy missing from disk: {track.ArchivePath}"
-                                                : "No archive copy for this track yet")">
-                                <Icon Name="@(archiveOk ? "check" : hasArchivePath ? "alert" : "minus")" Size="12" />
-                            </StatusPill>
+                            if (!hasArchivePath)
+                            {
+                                <StatusPill Variant="neutral" Class="pill-tight"
+                                            Title="No archive copy for this track yet">
+                                    <Icon Name="minus" Size="12" />
+                                </StatusPill>
+                            }
+                            else if (ArchiveStates is not null
+                                && ArchiveStates.TryGetValue(track.ArchivePath!, out var archiveExists))
+                            {
+                                <StatusPill Variant="@(archiveExists ? "ok" : "warn")" Class="pill-tight"
+                                            Title="@(archiveExists
+                                                ? $"Archive copy present: {track.ArchivePath}"
+                                                : $"Archive copy missing from disk: {track.ArchivePath}")">
+                                    <Icon Name="@(archiveExists ? "check" : "alert")" Size="12" />
+                                </StatusPill>
+                            }
+                            @* Unknown (still being checked): render nothing
+                               rather than a state that may be wrong a moment
+                               later. *@
                         }
                     </td>
                     @if (ShowFilenameColumn)
@@ -191,6 +204,11 @@
     [Parameter] public bool ShowFilenameColumn { get; set; }
     /// <summary>Shows the archive check next to the status pill (downloaded rows only).</summary>
     [Parameter] public bool ShowArchiveState { get; set; }
+    /// <summary>
+    /// Archive-file existence per path, checked by the page off the render
+    /// path. A path that is absent is still being checked: no pill yet.
+    /// </summary>
+    [Parameter] public IReadOnlyDictionary<string, bool>? ArchiveStates { get; set; }
     /// <summary>Live queue label for a track while a run is active; null means the plain pill.</summary>
     [Parameter] public Func<TrackEntity, string?>? QueueLabel { get; set; }
     /// <summary>Download this one track.</summary>
@@ -211,28 +229,11 @@
     [Parameter] public EventCallback OnSortChanged { get; set; }
 
     /// <summary>
-    /// The archive check's existence cache. The playlist page polls while a
-    /// run is active and re-renders the whole table every second, which
-    /// would otherwise stat every downloaded row on a possibly
-    /// network-backed mount. The TTL is short and a fresh archive path is a
-    /// new key, so the hint stays honest while the load stays bounded.
+    /// The archive check's existence cache is owned by the page now: the
+    /// page stats the distinct archive paths on a background task and
+    /// passes the verdicts in, so rendering a thousand rows never touches
+    /// the disk (a stat per row on a network mount made the table crawl).
     /// </summary>
-    private readonly Dictionary<string, (DateTime CheckedAtUtc, bool Exists)> archiveCheckCache = new();
-
-    private bool ArchiveCopyExists(string path)
-    {
-        var now = DateTime.UtcNow;
-        if (archiveCheckCache.TryGetValue(path, out var cached)
-            && now - cached.CheckedAtUtc < TimeSpan.FromSeconds(5))
-        {
-            return cached.Exists;
-        }
-
-        var exists = System.IO.File.Exists(path);
-        if (archiveCheckCache.Count > 2000) archiveCheckCache.Clear();
-        archiveCheckCache[path] = (now, exists);
-        return exists;
-    }
 
     /// <summary>Sort key shared with the page so tests can drive it.</summary>
     public enum TrackSortColumn { Position, Title, Artist, Duration, Size, Status }
@@ -256,6 +257,29 @@
     private TrackSortColumn sortColumn = TrackSortColumn.Position;
     private bool sortDescending;
 
+    /// <summary>
+    /// The sorted rows, computed once per parameter set or sort change:
+    /// the page re-renders during a run, and sorting a thousand rows on
+    /// every markup access was measurable work.
+    /// </summary>
+    private IReadOnlyList<TrackEntity>? sortedCache;
+    private IReadOnlyList<TrackEntity>? sortedCacheTracks;
+    private TrackSortColumn sortedCacheColumn;
+    private bool sortedCacheDescending;
+
+    protected override void OnParametersSet()
+    {
+        if (!ReferenceEquals(sortedCacheTracks, Tracks)
+            || sortedCacheColumn != sortColumn
+            || sortedCacheDescending != sortDescending)
+        {
+            sortedCacheTracks = Tracks;
+            sortedCacheColumn = sortColumn;
+            sortedCacheDescending = sortDescending;
+            sortedCache = SortTracks();
+        }
+    }
+
     /// <summary>Current sort key, exposed for tests and the page.</summary>
     public string SortKey => sortColumn.ToString();
     public bool SortDescending => sortDescending;
@@ -269,29 +293,36 @@
             sortColumn = column;
             sortDescending = false;
         }
+        sortedCache = null; // the next render re-sorts once
         OnSortChanged.InvokeAsync(StateHasChanged);
     }
 
-    private IReadOnlyList<TrackEntity> SortedTracks
+    private IReadOnlyList<TrackEntity> SortedTracks => sortedCache ??= SortTracks();
+
+    /// <summary>
+    /// Stable row identity for the diff: the database id for stored rows,
+    /// the instance itself for unsaved ones (tests, previews), so the key
+    /// is always unique.
+    /// </summary>
+    private static object RowKey(TrackEntity track) => track.Id != 0 ? track.Id : track;
+
+    private IReadOnlyList<TrackEntity> SortTracks()
     {
-        get
+        Func<TrackEntity, object?> key = sortColumn switch
         {
-            Func<TrackEntity, object?> key = sortColumn switch
-            {
-                TrackSortColumn.Title => t => t.Title ?? "",
-                TrackSortColumn.Artist => t => t.Artist ?? "",
-                TrackSortColumn.Duration => t => t.DurationMs ?? 0,
-                TrackSortColumn.Size => t => t.FileSizeBytes ?? 0,
-                TrackSortColumn.Status => t => StatusOrder(t),
-                _ => t => t.Position ?? 0,
-            };
-            // Position is the stable tiebreak in both directions, so rows
-            // with equal sort keys never shuffle between renders.
-            var sorted = sortDescending
-                ? Tracks.OrderByDescending(key, KeyComparer)
-                : Tracks.OrderBy(key, KeyComparer);
-            return sorted.ThenBy(t => t.Position ?? 0).ToList();
-        }
+            TrackSortColumn.Title => t => t.Title ?? "",
+            TrackSortColumn.Artist => t => t.Artist ?? "",
+            TrackSortColumn.Duration => t => t.DurationMs ?? 0,
+            TrackSortColumn.Size => t => t.FileSizeBytes ?? 0,
+            TrackSortColumn.Status => t => StatusOrder(t),
+            _ => t => t.Position ?? 0,
+        };
+        // Position is the stable tiebreak in both directions, so rows
+        // with equal sort keys never shuffle between renders.
+        var sorted = sortDescending
+            ? Tracks.OrderByDescending(key, KeyComparer)
+            : Tracks.OrderBy(key, KeyComparer);
+        return sorted.ThenBy(t => t.Position ?? 0).ToList();
     }
 
     /// <summary>Compares the boxed sort keys: strings ignore case, the rest compare natively.</summary>
