@@ -158,13 +158,20 @@ public static class ArchiveCopier
     /// (Auto keeps the primary's). Deterministic: a re-run replaces.
     /// </summary>
     private static string BuildTargetName(string primaryPath, string? archiveFormat)
+        => Path.GetFileNameWithoutExtension(primaryPath) + TargetExtension(primaryPath, archiveFormat);
+
+    /// <summary>
+    /// The extension an archive copy lands with: the format's (AAC lands
+    /// as .m4a), or the primary's own for Auto. Callers outside the copier
+    /// use it to tell whether an existing archive file already matches
+    /// this playlist's configured format.
+    /// </summary>
+    public static string TargetExtension(string primaryPath, string? archiveFormat)
     {
-        var stem = Path.GetFileNameWithoutExtension(primaryPath);
         var format = archiveFormat?.Trim().ToLowerInvariant();
-        var extension = format is null || format == "auto"
+        return format is null || format == "auto"
             ? Path.GetExtension(primaryPath)
             : format == "aac" ? ".m4a" : "." + format;
-        return stem + extension;
     }
 
     /// <summary>ffmpeg path on this host, mirroring FindFfprobe's discovery.</summary>

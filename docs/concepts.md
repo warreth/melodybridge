@@ -283,6 +283,12 @@ two libraries never mix one playlist's files with another's. That separation is
 what makes the duplicate handling below possible: a linked file lands in the
 playlist's own folder, never somewhere shared.
 
+Files that were downloaded before their playlist had a folder still sit loose
+under the music path or archive path. On startup MelodyBridge moves those into
+the playlist's folder and updates its bookkeeping, so the old layout heals by
+itself. Files outside those paths, and destinations that already hold a file,
+are left alone.
+
 Type a folder on the playlist page to override the location. A folder you type
 is used as it is; leave the field empty and the default music path plus the
 playlist folder applies.

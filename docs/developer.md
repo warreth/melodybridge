@@ -303,7 +303,9 @@ the app-wide default counts as "no choice" and gets a subfolder named after the
 playlist, so every playlist owns its folder, liked songs included.
 `ResolveArchiveFolder` applies the same rule under the archive path, and the
 playlist row carries an `ArchiveEnabled` switch that skips the copy entirely when
-off.
+off. `LibraryReconciler` moves downloaded files (archive copies included) that
+still sit loose under a playlist's base folder into the playlist folder during
+startup reconciliation, never overwriting what a destination already holds.
 
 The identity tag powers deduplication. Before any download,
 `PlaylistStore` looks for another playlist's row with the same MelodyId
@@ -315,8 +317,9 @@ the requested band:
   .NET 11) places a second name for the same bytes into this
   playlist's folder. `IsHardLink` marks the row, no network call runs.
   An archive copy the original owns is linked into this playlist's own
-  archive folder the same way; only a cross-device link falls back to
-  producing this playlist's copy locally.
+  archive folder the same way, but only when it already matches this
+  playlist's configured format; a different format gets this playlist's
+  own local copy, and only a cross-device link falls back that way.
 - Quality difference: the row pauses as `needs-review` with a warning;
   the UI offers "Download new version" and "Hardlink existing version"
   (`ResolveReviewAsync`). The store never picks for the user. "Download

@@ -204,6 +204,49 @@ public class PlaylistStoreDedupTests
     }
 
     [Test]
+    public async Task Dedup_DifferentArchiveFormat_MakesThisPlaylistsOwnCopy()
+    {
+        // The original's archive is an mp3; this playlist wants flac. The
+        // bytes must not be linked in, or the green archive check would be
+        // green for the wrong format.
+        var ffmpeg = MelodyBridge.Infrastructure.Audio.SpectrumAnalyzer.FindBinary("ffmpeg");
+        if (ffmpeg is null) Assert.Ignore("ffmpeg is not installed on this machine");
+
+        var (dirA, dirB, _) = SetupTwoPlaylists();
+        var sourceFile = Path.Combine(dirA, "song.mp3");
+        File.WriteAllBytes(sourceFile, TestAudio.MinimalMp3());
+
+        var archiveDir = Path.Combine(_root, "archive");
+        Directory.CreateDirectory(archiveDir);
+        var aArchive = Path.Combine(archiveDir, "Shared Song.mp3");
+        File.Copy(sourceFile, aArchive);
+
+        var (trackAId, trackBId) = await SeedSharedTrack(dirA, dirB, sourceFile);
+        await using (var db = _factory.CreateDbContext())
+        {
+            var a = await db.Tracks.FirstAsync(t => t.Id == trackAId);
+            a.ArchivePath = aArchive;
+            var b = await db.Playlists.FirstAsync(p => p.Id == "pl-b");
+            b.ArchiveDirectory = archiveDir;
+            b.ArchiveFormat = "flac";
+            await db.SaveChangesAsync();
+        }
+
+        var store = NewStore(new ThrowingDownloader());
+        var (downloaded, failed) = await store.DownloadMissingAsync("pl-b");
+
+        Assert.That((downloaded, failed), Is.EqualTo((1, 0)));
+        var row = ReadTrack(_factory, trackBId);
+        Assert.That(row!.ArchivePath, Is.Not.EqualTo(aArchive),
+            "a differently formatted archive is not linked in silently");
+        Assert.That(row.ArchivePath, Does.EndWith(".flac"),
+            "this playlist gets its own copy in its configured format");
+        Assert.That(File.Exists(row.ArchivePath), Is.True);
+        Assert.That(new HardLinkService().LinkCount(aArchive), Is.EqualTo(1),
+            "the original's archive copy is untouched");
+    }
+
+    [Test]
     public async Task QualityMismatch_PausesForReviewInsteadOfGuessing()
     {
         // Playlist A holds an mp3 at 320; playlist B wants flac.

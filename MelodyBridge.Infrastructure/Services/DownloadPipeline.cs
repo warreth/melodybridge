@@ -468,22 +468,27 @@ internal sealed class DownloadPipeline
         track.SourcePluginId = null;
 
         // The archive copy belongs to the track, but each playlist keeps
-        // its own archive folder: when the original already has one, its
-        // bytes are linked under this playlist's archive name instead of
-        // writing a second copy. Without one (or when this playlist
-        // switched the archive off), the normal archive pass runs.
+        // its own archive folder: when the original already has one in the
+        // format this playlist wants, its bytes are linked under this
+        // playlist's archive name instead of writing a second copy. A
+        // different format (or no copy yet) gets this playlist's own copy
+        // from its primary, so the configured format is never silently
+        // bypassed.
         var archiveTarget = await ResolveArchiveTargetAsync(track.PlaylistEntityId, db, ct);
         if (!archiveTarget.Enabled || archiveTarget.Folder is null)
         {
             track.ArchivePath = null;
         }
-        else if (!string.IsNullOrWhiteSpace(candidate.ExistingArchivePath)
-            && File.Exists(candidate.ExistingArchivePath))
+        else if (candidate.ExistingArchivePath is { Length: > 0 } existingArchive
+            && File.Exists(existingArchive)
+            && Path.GetExtension(existingArchive).Equals(
+                Audio.ArchiveCopier.TargetExtension(track.CurrentPath ?? existingArchive, archiveTarget.Format),
+                StringComparison.OrdinalIgnoreCase))
         {
-            var archiveFileName = Path.GetFileName(candidate.ExistingArchivePath);
+            var archiveFileName = Path.GetFileName(existingArchive);
             var archiveLink = Path.Combine(archiveTarget.Folder, archiveFileName);
-            if (PathsEqual(archiveLink, candidate.ExistingArchivePath)
-                || TryHardLink(archiveLink, candidate.ExistingArchivePath!))
+            if (PlaylistRules.PathEquals(archiveLink, existingArchive)
+                || TryHardLink(archiveLink, existingArchive))
             {
                 track.ArchivePath = archiveLink;
             }
@@ -684,11 +689,15 @@ internal sealed class DownloadPipeline
         }
     }
 
-    /// <summary>The playlist's effective archive target: whether the
-    /// archive is on, which folder (own override or the app-wide path
-    /// plus a folder named after the playlist) and which format (own
-    /// override or the app-wide default).</summary>
-    private async Task<(bool Enabled, string? Folder, string? Format)> ResolveArchiveTargetAsync(
+    /// <summary>
+    /// The playlist's effective archive target: whether the archive is on,
+    /// which folder (own override or the app-wide path plus a folder named
+    /// after the playlist) and which format (own override or the app-wide
+    /// default).
+    /// </summary>
+    private sealed record ArchiveTarget(bool Enabled, string? Folder, string? Format);
+
+    private async Task<ArchiveTarget> ResolveArchiveTargetAsync(
         string? playlistId, MelodyBridgeDbContext db, CancellationToken ct)
     {
         PlaylistEntity? playlist = null;
@@ -698,7 +707,7 @@ internal sealed class DownloadPipeline
                 .FirstOrDefaultAsync(p => p.Id == playlistId, ct);
         }
         if (playlist is { ArchiveEnabled: false })
-            return (false, null, null);
+            return new ArchiveTarget(false, null, null);
 
         var globalPath = await _settings.GetAsync("archive_path", "", ct);
         var folder = PlaylistRules.ResolveArchiveFolder(
@@ -706,7 +715,7 @@ internal sealed class DownloadPipeline
         var format = !string.IsNullOrWhiteSpace(playlist?.ArchiveFormat)
             ? playlist!.ArchiveFormat!
             : await _settings.GetAsync("archive_format", "auto", ct);
-        return (true, folder.Length == 0 ? null : folder, format);
+        return new ArchiveTarget(true, folder.Length == 0 ? null : folder, format);
     }
 
     /// <summary>One hard link, best effort: false on any link failure.</summary>
@@ -726,15 +735,6 @@ internal sealed class DownloadPipeline
             return false;
         }
     }
-
-    /// <summary>Full-path comparison; case-insensitive on Windows/macOS-style filesystems.</summary>
-    private static bool PathsEqual(string first, string second)
-        => string.Equals(
-            Path.GetFullPath(first),
-            Path.GetFullPath(second),
-            OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
-                ? StringComparison.OrdinalIgnoreCase
-                : StringComparison.Ordinal);
 
     /// <summary>
     /// Settles a flagged quality review (length mismatch, inflated

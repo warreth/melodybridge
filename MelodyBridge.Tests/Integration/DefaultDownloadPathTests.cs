@@ -316,6 +316,44 @@ public class DefaultDownloadPathTests
     }
 
     [Test]
+    public async Task Archive_GlobalFormat_ConvertsTheCopy()
+    {
+        var dbPath = NewDbPath();
+        var musicDir = Path.Combine(Path.GetTempPath(), $"mb-default-fmt-music-{Guid.NewGuid():N}");
+        var archiveDir = Path.Combine(Path.GetTempPath(), $"mb-default-fmt-arc-{Guid.NewGuid():N}");
+        try
+        {
+            if (MelodyBridge.Infrastructure.Audio.SpectrumAnalyzer.FindBinary("ffmpeg") is null)
+                Assert.Ignore("ffmpeg is not installed on this machine");
+
+            var factory = await NewDbFactory(dbPath);
+            var settings = new SettingsStore(factory);
+            await settings.SetAsync("music_path", musicDir);
+            await settings.SetAsync("archive_path", archiveDir);
+            await settings.SetAsync("archive_format", "flac");
+            await SeedPlaylistWithoutFolderAsync(factory);
+
+            var (downloaded, failed) = await NewStore(factory, new FileWritingDownloader())
+                .DownloadMissingAsync("pl-default");
+
+            Assert.That((downloaded, failed), Is.EqualTo((1, 0)));
+            await using var db = await factory.CreateDbContextAsync();
+            var track = await db.Tracks.AsNoTracking().SingleAsync(t => t.MelodyId == "mel-d1");
+            var expectedArchive = Path.Combine(archiveDir, "Default Path", "mel-d1.flac");
+            Assert.That(track.ArchivePath, Is.EqualTo(expectedArchive),
+                "the app-wide archive format default reaches the copier, extension included");
+            Assert.That(System.IO.File.Exists(expectedArchive), Is.True,
+                "the transcoded copy really exists");
+        }
+        finally
+        {
+            TryDelete(dbPath);
+            try { Directory.Delete(musicDir, recursive: true); } catch { /* best effort */ }
+            try { Directory.Delete(archiveDir, recursive: true); } catch { /* best effort */ }
+        }
+    }
+
+    [Test]
     public async Task Archive_SwitchedOff_MakesNoCopyEvenWithGlobalPath()
     {
         var dbPath = NewDbPath();

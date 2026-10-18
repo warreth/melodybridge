@@ -8,9 +8,10 @@ namespace MelodyBridge.Infrastructure.Services;
 /// <summary>
 /// The pure rules of the playlist domain: quality parsing, sync-mode
 /// parsing, the quality wording, the post-download warning, filename
-/// slugging and the source-track to row mapping. No database, no network,
-/// no state, so every caller (the store, the snapshots service and the
-/// download pipeline) shares one implementation.
+/// slugging, the per-playlist folder names and path resolution, and the
+/// source-track to row mapping. No database, no network, no state, so
+/// every caller (the store, the snapshots service, the download pipeline
+/// and the reconciler) shares one implementation.
 /// </summary>
 internal static class PlaylistRules
 {
@@ -81,21 +82,27 @@ internal static class PlaylistRules
     /// Readable (keeps case and spaces), only characters a filesystem
     /// rejects are replaced, and Windows' reserved device names get a
     /// prefix so a playlist called "aux" cannot break a library scan.
+    /// The invalid set is the Windows one everywhere, so a library on a
+    /// case- or character-sensitive filesystem still produces names that
+    /// survive a copy to Windows.
     /// </summary>
     internal static string FolderNameFor(string? playlistName)
     {
         var raw = playlistName?.Trim() ?? "";
         if (raw.Length == 0) return "playlist";
 
-        var invalid = Path.GetInvalidFileNameChars();
         var name = new StringBuilder(raw.Length);
         foreach (var ch in raw)
-            name.Append(invalid.Contains(ch) ? '_' : ch);
+            name.Append(IsInvalidFolderChar(ch) ? '_' : ch);
         var safe = name.ToString().Trim().Trim(' ', '.');
         if (safe.Length == 0) return "playlist";
         if (safe.Length > 100) safe = safe[..100].TrimEnd(' ', '.');
         return ReservedDeviceNames.Contains(safe) ? "_" + safe : safe;
     }
+
+    /// <summary>The union of characters Windows rejects plus control characters.</summary>
+    private static bool IsInvalidFolderChar(char ch)
+        => ch < ' ' || ch is '<' or '>' or ':' or '"' or '/' or '\\' or '|' or '?' or '*';
 
     private static readonly HashSet<string> ReservedDeviceNames = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -133,7 +140,7 @@ internal static class PlaylistRules
     }
 
     /// <summary>Path equality ignoring a trailing separator; case-insensitive on Windows/macOS.</summary>
-    private static bool PathEquals(string? first, string? second)
+    internal static bool PathEquals(string? first, string? second)
     {
         if (string.IsNullOrWhiteSpace(first) || string.IsNullOrWhiteSpace(second)) return false;
         var a = first.Trim().TrimEnd('/', '\\');
