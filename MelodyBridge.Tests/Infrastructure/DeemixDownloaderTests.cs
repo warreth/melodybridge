@@ -57,6 +57,42 @@ public class DeemixDownloaderTests
     // ── Default folders ─────────────────────────────────────────────────
 
     [Test]
+    public async Task Search_WithAnIsrc_AsksDeezerForTheCodeFirst()
+    {
+        var handler = new ScriptedHandler()
+            .On("/search?q=isrc", _ => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    """{"data":[{"id":222,"title":"The Last Airbender (VIP)","duration":217,"isrc":"USRC17607839","artist":{"name":"SLVL"}}]}""",
+                    System.Text.Encoding.UTF8, "application/json"),
+            })
+            .On("/search?q=", _ => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    """{"data":[{"id":999,"title":"The Last Airbender","duration":300,"isrc":"OTHER00000001","artist":{"name":"Avatar Soundtrack"}}]}""",
+                    System.Text.Encoding.UTF8, "application/json"),
+            });
+        var http = new HttpClient(handler) { BaseAddress = new Uri("https://api.deezer.com") };
+        var plugin = new DeemixDownloader(
+            new DeezerClient(http, NullLogger<DeezerClient>.Instance),
+            new StubPluginConfig(), NullLogger<DeemixDownloader>.Instance,
+            NewDir(), NewDir());
+
+        var hit = await plugin.SearchAsync(new TrackQuery(
+            "SLVL", "The Last Airbender (VIP)", DownloadQuality.Any,
+            ExpectedDuration: TimeSpan.FromSeconds(217), Isrc: "USRC17607839"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(handler.Requests.First().Url, Does.Contain("isrc"),
+                "the code is the first request");
+            Assert.That(handler.Requests.First().Url, Does.Contain("USRC17607839"));
+            Assert.That(hit, Is.Not.Null);
+            Assert.That(hit!.SourceUrl, Is.EqualTo("https://www.deezer.com/track/222"));
+        });
+    }
+
+    [Test]
     public void LocalDataRoot_FallsBackToTheHomeDirectory_WhenLocalAppDataIsEmpty()
     {
         // Linux reports LocalApplicationData as empty until ~/.local/share

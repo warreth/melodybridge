@@ -420,7 +420,7 @@ public class SpotifyAccountProvider : IAccountSourceProvider
     /// GET /v1/tracks?ids= (50 ids per call). Tracks without a known id,
     /// without an ISRC or from a failed batch simply keep a null ISRC.
     /// </summary>
-    private static async Task FillIsrcsAsync(
+    private async Task FillIsrcsAsync(
         string accessToken, IReadOnlyList<Track> tracks, CancellationToken ct)
     {
         var ids = tracks
@@ -432,6 +432,17 @@ public class SpotifyAccountProvider : IAccountSourceProvider
         if (ids.Count == 0) return;
 
         var isrcs = await FetchIsrcsAsync(accessToken, ids, ct);
+        ApplyIsrcs(tracks, isrcs);
+    }
+
+    /// <summary>
+    /// Attaches the id → ISRC pairs to the tracks. Internal for tests: this
+    /// is the step that made the code reach the download at all, so it is
+    /// pinned separately from the HTTP batch.
+    /// </summary>
+    internal static void ApplyIsrcs(
+        IReadOnlyList<Track> tracks, IReadOnlyDictionary<string, string> isrcs)
+    {
         foreach (var track in tracks)
         {
             var id = track.PlatformSongID?.ID ?? track.SongID?.ID;
@@ -445,7 +456,7 @@ public class SpotifyAccountProvider : IAccountSourceProvider
     /// answers 50 ids per call; a failed batch is skipped (the tracks
     /// keep working without an ISRC).
     /// </summary>
-    private static async Task<Dictionary<string, string>> FetchIsrcsAsync(
+    private async Task<Dictionary<string, string>> FetchIsrcsAsync(
         string accessToken, IReadOnlyList<string> trackIds, CancellationToken ct)
     {
         var isrcs = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -471,6 +482,12 @@ public class SpotifyAccountProvider : IAccountSourceProvider
 
             if (!response.IsSuccessStatusCode)
             {
+                // The tracks keep working without an ISRC (the pipeline's
+                // Deezer resolver tries again per download), but a failed
+                // batch is worth a line: without it the loss is silent.
+                _logger.LogWarning(
+                    "Spotify ISRC batch failed with {Status}; those tracks download without one",
+                    (int)response.StatusCode);
                 response.Dispose();
                 continue;
             }

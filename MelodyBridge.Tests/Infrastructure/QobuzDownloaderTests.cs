@@ -87,6 +87,58 @@ public class QobuzDownloaderTests
             homeRoot);
     }
 
+    private static string QueryValue(Uri uri, string key)
+        => uri.Query.TrimStart('?').Split('&')
+            .Select(part => part.Split('=', 2))
+            .Where(part => part.Length == 2 && part[0] == key)
+            .Select(part => Uri.UnescapeDataString(part[1]))
+            .FirstOrDefault() ?? "";
+
+    [Test]
+    public async Task Search_WithAnIsrc_AsksTheCatalogueForTheCodeFirst()
+    {
+        // The text search would return a soundtrack that shares the words;
+        // the ISRC search must run first and win with the exact recording.
+        var queries = new List<string>();
+        var http = new HttpClient(new StubHttpMessageHandler
+        {
+            Respond = request =>
+            {
+                var url = request.RequestUri!.ToString();
+                if (url.Contains("track/search"))
+                {
+                    var query = QueryValue(request.RequestUri, "query");
+                    queries.Add(query);
+                    return query == "USRC17607839"
+                        ? Text("""{"tracks":{"items":[{"id":222,"title":"The Last Airbender (VIP)","performer":{"name":"SLVL"},"duration":217,"isrc":"USRC17607839"}]}}""", "application/json")
+                        : Text("""{"tracks":{"items":[{"id":999,"title":"The Last Airbender","performer":{"name":"Avatar Soundtrack"},"duration":300,"isrc":"OTHER00000001"}]}}""", "application/json");
+                }
+                // The page and the bundle the client needs for its app id.
+                return BundleRespond(request);
+            }
+        })
+        { BaseAddress = new Uri("https://play.qobuz.com") };
+        var config = new StubPluginConfig();
+        config.Set("qobuz", "user_auth_token", "token-xyz");
+        var plugin = new QobuzDownloader(
+            new QobuzClient(http, NullLogger<QobuzClient>.Instance), config,
+            NullLogger<QobuzDownloader>.Instance);
+
+        var hit = await plugin.SearchAsync(new TrackQuery(
+            "SLVL", "The Last Airbender (VIP)", DownloadQuality.Any,
+            ExpectedDuration: TimeSpan.FromSeconds(217), Isrc: "USRC17607839"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(queries, Is.Not.Empty);
+            Assert.That(queries[0], Is.EqualTo("USRC17607839"),
+                "the code is the first catalogue query");
+            Assert.That(hit, Is.Not.Null);
+            Assert.That(hit!.SourceUrl, Is.EqualTo("https://play.qobuz.com/track/222"),
+                "the ISRC recording wins over the soundtrack");
+        });
+    }
+
     // ── Ranking ──────────────────────────────────────────────────────────
 
     [Test]

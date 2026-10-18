@@ -137,6 +137,15 @@ public class DeemixDownloader : CliToolDownloader
     public override async Task<DownloaderSearchHit?> SearchAsync(
         TrackQuery query, CancellationToken ct = default)
     {
+        // Deezer's advanced search indexes ISRCs (isrc:"..."): the code
+        // finds the exact recording even when the text search does not
+        // return it. Only an exact match from that call is accepted.
+        if (query.HasIsrc)
+        {
+            var byIsrc = await _deezer.SearchAsync($"isrc:\"{query.Isrc!}\"", 5, ct);
+            if (Rank(byIsrc, query, requireIsrcMatch: true) is { } exact) return exact;
+        }
+
         var searchText = query.SearchText;
         if (searchText.Length == 0) return null;
 
@@ -150,7 +159,8 @@ public class DeemixDownloader : CliToolDownloader
     /// tests.
     /// </summary>
     internal static DownloaderSearchHit? Rank(
-        IReadOnlyList<DeezerClient.DeezerTrack> tracks, TrackQuery query)
+        IReadOnlyList<DeezerClient.DeezerTrack> tracks, TrackQuery query,
+        bool requireIsrcMatch = false)
     {
         var candidates = new List<(DownloaderSearchHit Hit, string? Isrc)>();
         foreach (var track in tracks)
@@ -171,6 +181,7 @@ public class DeemixDownloader : CliToolDownloader
             !string.IsNullOrWhiteSpace(query.Isrc) &&
             !string.IsNullOrWhiteSpace(c.Isrc) &&
             string.Equals(query.Isrc.Trim(), c.Isrc.Trim(), StringComparison.OrdinalIgnoreCase)).ToList();
+        if (requireIsrcMatch && isrcPool.Count == 0) return null;
         var pool = isrcPool.Count > 0 ? isrcPool : candidates;
         return SearchRanker.Rank(query.Artist, query.Title, query.ExpectedDuration,
             pool.Select(c => c.Hit));

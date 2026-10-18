@@ -245,11 +245,22 @@ public class QobuzDownloader : CliToolDownloader
     public override async Task<DownloaderSearchHit?> SearchAsync(
         TrackQuery query, CancellationToken ct = default)
     {
-        var searchText = query.SearchText;
-        if (searchText.Length == 0) return null;
-
         var token = await TokenAsync(ct);
         if (token is null) return null;
+
+        // The Qobuz catalogue indexes ISRCs: searching the code itself
+        // finds the exact recording even when the text search never
+        // returns it (a soundtrack sharing words, a decorated title).
+        // Only an exact ISRC match is accepted from that call; anything
+        // else falls through to the text search.
+        if (query.HasIsrc)
+        {
+            var byIsrc = await _qobuz.SearchTracksAsync(query.Isrc!, 5, token, ct);
+            if (Rank(byIsrc, query, requireIsrcMatch: true) is { } exact) return exact;
+        }
+
+        var searchText = query.SearchText;
+        if (searchText.Length == 0) return null;
 
         var tracks = await _qobuz.SearchTracksAsync(searchText, 10, token, ct);
         return Rank(tracks, query);
@@ -260,7 +271,8 @@ public class QobuzDownloader : CliToolDownloader
     /// narrows the pool to the recording itself. Internal for tests.
     /// </summary>
     internal static DownloaderSearchHit? Rank(
-        IReadOnlyList<QobuzClient.QobuzTrack> tracks, TrackQuery query)
+        IReadOnlyList<QobuzClient.QobuzTrack> tracks, TrackQuery query,
+        bool requireIsrcMatch = false)
     {
         var candidates = new List<(DownloaderSearchHit Hit, string? Isrc)>();
         foreach (var track in tracks)
@@ -281,6 +293,7 @@ public class QobuzDownloader : CliToolDownloader
             !string.IsNullOrWhiteSpace(query.Isrc) &&
             !string.IsNullOrWhiteSpace(c.Isrc) &&
             string.Equals(query.Isrc.Trim(), c.Isrc.Trim(), StringComparison.OrdinalIgnoreCase)).ToList();
+        if (requireIsrcMatch && isrcPool.Count == 0) return null;
         var pool = isrcPool.Count > 0 ? isrcPool : candidates;
         return SearchRanker.Rank(query.Artist, query.Title, query.ExpectedDuration,
             pool.Select(c => c.Hit));

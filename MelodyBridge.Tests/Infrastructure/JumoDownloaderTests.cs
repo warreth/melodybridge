@@ -77,6 +77,46 @@ public class JumoDownloaderTests
     }
 
     [Test]
+    public void SearchQueries_PutTheIsrcFirst_ThenTheText()
+    {
+        var withIsrc = JumoDownloader.SearchQueries(new TrackQuery(
+            "SLVL", "The Last Airbender (VIP)", DownloadQuality.Any, Isrc: "USRC17607839"));
+        Assert.Multiple(() =>
+        {
+            Assert.That(withIsrc[0], Is.EqualTo("USRC17607839"), "the catalogue indexes the code");
+            Assert.That(withIsrc[1], Is.EqualTo("SLVL The Last Airbender VIP"),
+                "the cleaned text is the fallback");
+        });
+
+        var noIsrc = JumoDownloader.SearchQueries(
+            new TrackQuery("A", "Song", DownloadQuality.Any));
+        Assert.That(noIsrc, Is.EqualTo(new[] { "A Song" }),
+            "without a code only the text is searched");
+    }
+
+    [Test]
+    public void ParseSearchTracks_IsrcSearchRequiresAnExactMatch()
+    {
+        // Same title and artist, a different recording: only the strict
+        // ISRC pass rejects it, the text pass may still rank it.
+        const string json = """
+        {
+          "tracks": { "items": [
+            { "id": 1, "title": "The Last Airbender (VIP)", "duration": 217, "isrc": "OTHER00000001",
+              "performer": { "name": "SLVL" }, "album": { "id": "a" } }
+          ] }
+        }
+        """;
+
+        Assert.That(JumoDownloader.ParseSearchTracks(json, "SLVL", "The Last Airbender (VIP)",
+            null, "USRC17607839", requireIsrcMatch: true), Is.Null,
+            "an ISRC search without the code in the response resolves nothing");
+        Assert.That(JumoDownloader.ParseSearchTracks(json, "SLVL", "The Last Airbender (VIP)",
+            null, "USRC17607839"), Is.Not.Null,
+            "the text pass still ranks what it got");
+    }
+
+    [Test]
     public void ParseSearchTracks_IsrcNarrowsToTheExactRecording()
     {
         // Same title twice with different recordings: the ISRC pool must

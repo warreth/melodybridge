@@ -130,37 +130,46 @@ public class JumoDownloader : IDownloader
         {
             var region = await EffectiveRegionAsync(ct);
 
-            // A small page keeps the request light; the service throttles
-            // heavy API use (live probing saw 503s for a limit of 30 while
-            // smaller pages passed in the same window).
-            var url = JumoClient.Origin + JumoClient.SearchPath
-                + "?query=" + Uri.EscapeDataString(searchText)
-                + "&offset=0&limit=10&region=" + Uri.EscapeDataString(region) + "&view=ui";
-
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            timeout.CancelAfter(SearchTimeout);
-            var response = await _client.ApiGetAsync(url, timeout.Token);
-            if (response.Status != 200)
+            foreach (var term in SearchQueries(query))
             {
-                _logger.LogDebug("Jumo search returned {Status}", response.Status);
+                // A small page keeps the request light; the service throttles
+                // heavy API use (live probing saw 503s for a limit of 30 while
+                // smaller pages passed in the same window).
+                var url = JumoClient.Origin + JumoClient.SearchPath
+                    + "?query=" + Uri.EscapeDataString(term)
+                    + "&offset=0&limit=10&region=" + Uri.EscapeDataString(region) + "&view=ui";
 
-                // A refused or throttled search means the service is not
-                // usable right now. Report that as unavailable (the short
-                // negative TTL makes the waterfall skip the plugin for a
-                // while) instead of letting every track of a run fail as a
-                // bare "no source" miss.
-                if (response.Status is 403 or 429 or 503)
+                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                timeout.CancelAfter(SearchTimeout);
+                var response = await _client.ApiGetAsync(url, timeout.Token);
+                if (response.Status != 200)
                 {
-                    LastUnavailableReason = response.Status is 403
-                        ? "The service refused the search (HTTP 403); it guards its API against non-browser clients"
-                        : $"The service is throttling requests (HTTP {response.Status})";
-                    _availability.Store(false);
-                }
-                return null;
-            }
+                    _logger.LogDebug("Jumo search returned {Status}", response.Status);
 
-            return ParseSearchTracks(response.Body, query.Artist, query.Title,
-                query.ExpectedDuration, query.Isrc);
+                    // A refused or throttled search means the service is not
+                    // usable right now. Report that as unavailable (the short
+                    // negative TTL makes the waterfall skip the plugin for a
+                    // while) instead of letting every track of a run fail as a
+                    // bare "no source" miss. No second query is tried: the
+                    // next one would be throttled too.
+                    if (response.Status is 403 or 429 or 503)
+                    {
+                        LastUnavailableReason = response.Status is 403
+                            ? "The service refused the search (HTTP 403); it guards its API against non-browser clients"
+                            : $"The service is throttling requests (HTTP {response.Status})";
+                        _availability.Store(false);
+                    }
+                    return null;
+                }
+
+                // An ISRC term only counts when the response carries that
+                // exact code; otherwise the text term gets its turn.
+                var hit = ParseSearchTracks(response.Body, query.Artist, query.Title,
+                    query.ExpectedDuration, query.Isrc,
+                    requireIsrcMatch: query.HasIsrc && term == query.Isrc);
+                if (hit is not null) return hit;
+            }
+            return null;
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
@@ -179,13 +188,29 @@ public class JumoDownloader : IDownloader
     }
 
     /// <summary>
+    /// The search terms in order: the ISRC first when the query carries
+    /// one (the service's catalogue is Qobuz, which indexes the code),
+    /// then the cleaned text. The first term with a hit wins, so a track
+    /// whose text search drowns in soundtracks still finds its recording.
+    /// </summary>
+    internal static IReadOnlyList<string> SearchQueries(TrackQuery query)
+    {
+        var terms = new List<string>(2);
+        if (query.HasIsrc) terms.Add(query.Isrc!);
+        var text = query.SearchText;
+        if (text.Length > 0 && !terms.Contains(text, StringComparer.Ordinal)) terms.Add(text);
+        return terms;
+    }
+
+    /// <summary>
     /// Ranks the search response's track items with the shared ranker and
     /// maps them onto source identifiers. The album id travels along so
     /// the download can refetch fresh descriptor URLs later.
     /// </summary>
     internal static DownloaderSearchHit? ParseSearchTracks(
         string json, string artist, string fallbackTitle,
-        TimeSpan? expectedDuration = null, string? expectedIsrc = null)
+        TimeSpan? expectedDuration = null, string? expectedIsrc = null,
+        bool requireIsrcMatch = false)
     {
         try
         {
@@ -229,6 +254,7 @@ public class JumoDownloader : IDownloader
             var isrcPool = candidates
                 .Where(c => IsrcEquals(expectedIsrc, c.Isrc))
                 .ToList();
+            if (requireIsrcMatch && isrcPool.Count == 0) return null;
             var pool = isrcPool.Count > 0 ? isrcPool : candidates;
 
             return SearchRanker.Rank(artist, fallbackTitle, expectedDuration,

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.Accounts;
 
 namespace MelodyBridge.Tests.Accounts;
@@ -30,6 +31,38 @@ public class SpotifyIsrcBatchTests
             ("4uLU6hMCjMI75M1A2tKUQC", "GBARL9300135"),
             ("7GhIk7Il098yCjg4BQjzvb", "USRC17607839"),
         }));
+    }
+
+    [Test]
+    public void ApplyIsrcs_AttachesMatchingIds_AndLeavesTheRestAlone()
+    {
+        var withPlatform = new Track
+        {
+            Title = "One",
+            SongID = new SongID(Platform.Spotify, "id-1"),
+            PlatformSongID = new SongID(Platform.Spotify, "id-1"),
+        };
+        var withSongOnly = new Track
+        {
+            Title = "Two",
+            SongID = new SongID(Platform.Spotify, "id-2"),
+        };
+        var unknown = new Track
+        {
+            Title = "Three",
+            SongID = new SongID(Platform.Spotify, "id-3"),
+        };
+
+        SpotifyAccountProvider.ApplyIsrcs(new[] { withPlatform, withSongOnly, unknown },
+            new Dictionary<string, string> { ["id-1"] = "AAA111", ["id-2"] = "BBB222" });
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(withPlatform.Isrc, Is.EqualTo("AAA111"));
+            Assert.That(withSongOnly.Isrc, Is.EqualTo("BBB222"),
+                "a track with only a SongID is matched too");
+            Assert.That(unknown.Isrc, Is.Null, "no pair means no ISRC, not a guessed one");
+        });
     }
 
     [Test]
