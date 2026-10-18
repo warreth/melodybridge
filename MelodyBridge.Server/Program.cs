@@ -142,7 +142,15 @@ if (!app.Environment.IsDevelopment())
 }
 
 app.UseStatusCodePagesWithReExecute("/not-found");
-app.UseHttpsRedirection();
+// HTTPS redirection only makes sense when the app itself has an HTTPS
+// listener (a direct certificate setup). Behind a reverse proxy the
+// container speaks HTTP only: the middleware would log "Failed to
+// determine the https port" on every start and can never redirect, so
+// the proxy owns that redirect there.
+if (HasHttpsEndpoint(app.Configuration))
+{
+    app.UseHttpsRedirection();
+}
 app.UseStaticFiles();
 
 app.MapBlazorHub();
@@ -161,3 +169,20 @@ app.MapGet("/api/logs/export", (LogExporter exporter) =>
 app.MapFallbackToPage("/_Host");
 
 app.Run();
+
+/// <summary>
+/// True when configuration adds an HTTPS listener: the URLS setting
+/// (ASPNETCORE_URLS / URLS / appsettings) or a Kestrel endpoint.
+/// </summary>
+static bool HasHttpsEndpoint(IConfiguration configuration)
+{
+    if ((configuration["urls"] ?? configuration["ASPNETCORE_URLS"] ?? string.Empty)
+        .Contains("https://", StringComparison.OrdinalIgnoreCase))
+    {
+        return true;
+    }
+
+    return configuration.GetSection("Kestrel:Endpoints").GetChildren()
+        .Any(endpoint => endpoint["Url"] is { } url
+            && url.StartsWith("https://", StringComparison.OrdinalIgnoreCase));
+}
