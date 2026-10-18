@@ -1663,7 +1663,8 @@ td.file-path {
 }
 
 /* ── Connections profiles ─────────────────────────────────────── */
-.profile-list { display: grid; gap: .6rem; margin-top: .75rem; }.profile-row {
+.profile-list { display: grid; gap: .6rem; margin-top: .75rem; }
+.profile-row {
     display: flex;
     align-items: center;
     gap: .75rem;

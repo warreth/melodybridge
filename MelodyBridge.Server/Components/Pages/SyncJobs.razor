@@ -181,7 +181,7 @@
                         </div>
                         @if (draft.OutputTarget != OutputTargetType.M3uFile)
                         {
-                            @if (ProfilesForTarget().Count == 0)
+                            @if (ProfilesForTarget().Count == 0 && !HasLegacyInlineConnection)
                             {
                                 <div class="hint-box">
                                     No @TargetKind() profile yet. Create one under
@@ -193,13 +193,26 @@
                             {
                                 <MediaServerUserPicker ServerUrl="@chosen.BaseUrl"
                                                        ApiKey="@chosen.ApiKey"
-                                                       Username="@(IsSubsonicKind(chosen.Kind) ? chosen.Username : draft.JellyfinUserId)"
+                                                       Username="@(MediaServerKinds.IsSubsonic(chosen.Kind) ? chosen.Username : draft.JellyfinUserId)"
                                                        Kind="@chosen.Kind"
                                                        ShowUserList="@(draft.OutputTarget == OutputTargetType.JellyfinApi)"
                                                        UserLabel="Jellyfin user"
                                                        @bind-UserId="draft.JellyfinUserId" />
                             }
-                            else if (!HasLegacyInlineConnection)
+                            else if (HasLegacyInlineConnection)
+                            {
+                                @* A job from before profiles: keep its own
+                                   connection testable and its Jellyfin user
+                                   pickable until a profile replaces it. *@
+                                <MediaServerUserPicker ServerUrl="@draft.JellyfinServerUrl"
+                                                       ApiKey="@draft.JellyfinApiKey"
+                                                       Username="@(draft.OutputTarget == OutputTargetType.SubsonicApi ? draft.JellyfinUserId : null)"
+                                                       Kind="@TargetKind()"
+                                                       ShowUserList="@(draft.OutputTarget == OutputTargetType.JellyfinApi)"
+                                                       UserLabel="Jellyfin user"
+                                                       @bind-UserId="draft.JellyfinUserId" />
+                            }
+                            else
                             {
                                 <div class="hint-box">Pick a profile above to sync to.</div>
                             }
@@ -476,17 +489,8 @@
     private List<MediaServerProfile> ProfilesForTarget()
         => mediaServerProfiles.Where(p => ProfileMatchesTarget(p.Kind)).ToList();
 
-    private bool ProfileMatchesTarget(string? kind) => draft.OutputTarget switch
-    {
-        OutputTargetType.PlexApi => string.Equals(kind, "Plex", StringComparison.OrdinalIgnoreCase),
-        OutputTargetType.SubsonicApi => IsSubsonicKind(kind),
-        _ => string.Equals(kind, "Jellyfin", StringComparison.OrdinalIgnoreCase),
-    };
-
-    /// <summary>True for the kinds that speak the Subsonic/OpenSubsonic API.</summary>
-    private static bool IsSubsonicKind(string? kind)
-        => string.Equals(kind, "Subsonic", StringComparison.OrdinalIgnoreCase)
-        || string.Equals(kind, "Navidrome", StringComparison.OrdinalIgnoreCase);
+    private bool ProfileMatchesTarget(string? kind)
+        => MediaServerKinds.MatchesOutputTarget(kind, draft.OutputTarget);
 
     /// <summary>The profile the wizard currently selects, when it still exists.</summary>
     private MediaServerProfile? SelectedProfile

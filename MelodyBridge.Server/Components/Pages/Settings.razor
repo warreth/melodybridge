@@ -284,8 +284,8 @@ else if (activeTab == "media-servers")
                         </select>
                     </label>
                     <label>Base URL (required) <input @bind="editingProfile.BaseUrl"
-                           placeholder="@(editingProfile.Kind == "Plex" ? "http://plex:32400" : IsSubsonicKind(editingProfile.Kind) ? "http://navidrome:4533" : "http://jellyfin:8096")" /></label>
-                    @if (IsSubsonicKind(editingProfile.Kind))
+                           placeholder="@(editingProfile.Kind == "Plex" ? "http://plex:32400" : MediaServerKinds.IsSubsonic(editingProfile.Kind) ? "http://navidrome:4533" : "http://jellyfin:8096")" /></label>
+                    @if (MediaServerKinds.IsSubsonic(editingProfile.Kind))
                     {
                         <label>Username <input @bind="editingProfile.Username" placeholder="admin" /></label>
                         <label class="hint-text">Subsonic servers have no API key: username and password are the credentials. Navidrome, gonic, Airsonic, Ampache, Funkwhale and Nextcloud Music all speak this API.</label>
@@ -303,8 +303,8 @@ else if (activeTab == "media-servers")
                     }
                     else
                     {
-                        <label>@(IsSubsonicKind(editingProfile.Kind) ? "Password" : "Plex token")
-                            <input @bind="editingProfile.ApiKey" type="password" placeholder="@(IsSubsonicKind(editingProfile.Kind) ? "password" : "X-Plex-Token")" />
+                        <label>@(MediaServerKinds.IsSubsonic(editingProfile.Kind) ? "Password" : "Plex token")
+                            <input @bind="editingProfile.ApiKey" type="password" placeholder="@(MediaServerKinds.IsSubsonic(editingProfile.Kind) ? "password" : "X-Plex-Token")" />
                         </label>
                     }
                 </div>
@@ -1204,17 +1204,13 @@ else if (activeTab == "about")
 
     /// <summary>True when this profile's values are the app-wide jellyfin_* rows.</summary>
     /// <summary>Settings keys each server kind reads (url row first).</summary>
-    private static (string UrlKey, string SecretKey) KindKeys(string kind) => kind switch
-    {
-        "Plex" => ("plex_url", "plex_key"),
-        "Navidrome" or "Subsonic" => ("navidrome_url", "navidrome_password"),
-        _ => ("jellyfin_url", "jellyfin_key"),
-    };
-
-    /// <summary>True for the kinds that speak the Subsonic/OpenSubsonic API.</summary>
-    private static bool IsSubsonicKind(string? kind)
-        => string.Equals(kind, "Navidrome", StringComparison.OrdinalIgnoreCase)
-        || string.Equals(kind, "Subsonic", StringComparison.OrdinalIgnoreCase);
+    private static (string UrlKey, string SecretKey) KindKeys(string kind)
+        => MediaServerKinds.Canonical(kind) switch
+        {
+            MediaServerKinds.Plex => ("plex_url", "plex_key"),
+            MediaServerKinds.Subsonic => ("navidrome_url", "navidrome_password"),
+            _ => ("jellyfin_url", "jellyfin_key"),
+        };
 
     private bool IsAppDefault(MediaServerProfile profile)
     {
@@ -1239,7 +1235,7 @@ else if (activeTab == "about")
         var (urlKey, secretKey) = KindKeys(profile.Kind);
         await TourReset.SetAsync(urlKey, profile.BaseUrl);
         await TourReset.SetAsync(secretKey, profile.ApiKey);
-        if (IsSubsonicKind(profile.Kind)
+        if (MediaServerKinds.IsSubsonic(profile.Kind)
             && !string.IsNullOrWhiteSpace(profile.Username))
         {
             await TourReset.SetAsync("navidrome_user", profile.Username!);
@@ -1356,7 +1352,7 @@ else if (activeTab == "about")
                 var (urlKey, secretKey) = KindKeys(profile.Kind);
                 await TourReset.SetAsync(urlKey, "");
                 await TourReset.SetAsync(secretKey, "");
-                if (IsSubsonicKind(profile.Kind))
+                if (MediaServerKinds.IsSubsonic(profile.Kind))
                     await TourReset.SetAsync("navidrome_user", "");
                 await LoadInitSettingsAsync();
                 Notifications.Warn($"Deleted '{deleteProfileName}': it was the app default, which is now cleared.");

@@ -363,6 +363,49 @@ public class SyncJobsWizardUiTests
         Assert.That(ProfileSelect(cut).TextContent, Does.Not.Contain("PX"));
     }
 
+    [Test]
+    public void Step3_LegacyJob_KeepsItsConnectionTestable_AndItsUserPickable()
+    {
+        _userDirectory.SetupGet(d => d.Kind).Returns("Jellyfin");
+        SeedPlaylist("p1", "My List");
+        using (var db = _dbFactory.CreateDbContext())
+        {
+            db.SyncJobs.Add(new SyncJobEntity
+            {
+                Id = "job-legacy",
+                Name = "Legacy",
+                SourceId = "p1",
+                SearchLocationPaths = "[]",
+                OutputTarget = "JellyfinApi",
+                JellyfinServerUrl = "http://old:8096",
+                JellyfinApiKey = "old-key",
+                JellyfinUserId = "u2",
+                Schedule = "Manual",
+            });
+            db.SaveChanges();
+        }
+
+        var cut = _ctx.Render<SyncJobs>();
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Edit").Click();
+        Next(cut, 2);
+        cut.FindAll("select").First(s => s.TextContent.Contains("M3U File")).Change("JellyfinApi");
+
+        // The job's own connection stays testable, and the Jellyfin user
+        // stays pickable, until a profile replaces it.
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Test connection").Click();
+        _userDirectory.Verify(
+            d => d.TestConnectionAsync(
+                It.Is<MediaServerConnection>(c => c.BaseUrl == "http://old:8096" && c.ApiKey == "old-key"),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+        Assert.That(cut.Markup, Does.Contain("Jellyfin user"));
+        Assert.That(cut.Markup, Does.Contain("Bob"), "the user list renders for the legacy job");
+        Assert.That(cut.Markup, Does.Contain("still carries the connection"),
+            "the hint explains the job's status");
+        Assert.That(cut.Markup, Does.Not.Contain("No Jellyfin profile yet"),
+            "the legacy connection is a usable path, not a missing-profile dead end");
+    }
+
     // ── C3: multiple remap rules ────────────────────────────────────
 
     [Test]

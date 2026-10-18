@@ -161,8 +161,14 @@ public class SyncJobRunner : ISyncJobRunner
                     // applies here; legacy jobs with inline values keep
                     // working. Without either, the app-wide settings apply.
                     MediaServerConnection? connection = null;
-                    if (!string.IsNullOrWhiteSpace(job.MediaServerProfileId) && _profiles is not null)
+                    if (!string.IsNullOrWhiteSpace(job.MediaServerProfileId))
                     {
+                        if (_profiles is null)
+                        {
+                            errors.Add(
+                                $"Media server profile '{job.MediaServerProfileId}' cannot be resolved: no profile store is available.");
+                            break;
+                        }
                         var profile = await _profiles.FindAsync(job.MediaServerProfileId!, ct);
                         if (profile is null)
                         {
@@ -170,7 +176,7 @@ public class SyncJobRunner : ISyncJobRunner
                                 $"Media server profile '{job.MediaServerProfileId}' no longer exists. Pick another one in the job's settings.");
                             break;
                         }
-                        if (!KindMatchesTarget(profile.Kind, job.OutputTarget))
+                        if (!MediaServerKinds.MatchesOutputTarget(profile.Kind, job.OutputTarget))
                         {
                             // The profile kind can be edited after the job
                             // was created; a Plex profile must not be fed
@@ -182,7 +188,7 @@ public class SyncJobRunner : ISyncJobRunner
                         // Subsonic authenticates with its username; a
                         // Jellyfin profile pairs with the job's user id.
                         var userId = job.JellyfinUserId;
-                        if (string.IsNullOrWhiteSpace(userId) && IsSubsonicKind(profile.Kind))
+                        if (string.IsNullOrWhiteSpace(userId) && MediaServerKinds.IsSubsonic(profile.Kind))
                             userId = profile.Username;
                         connection = new MediaServerConnection(profile.BaseUrl, profile.ApiKey, userId);
                     }
@@ -267,18 +273,4 @@ public class SyncJobRunner : ISyncJobRunner
             return new SyncJobRunLog(DateTime.UtcNow, SyncStatus.Failed, ex.Message, 0, totalTracks);
         }
     }
-
-    /// <summary>True for the kinds that speak the Subsonic/OpenSubsonic API.</summary>
-    private static bool IsSubsonicKind(string? kind)
-        => string.Equals(kind, "Subsonic", StringComparison.OrdinalIgnoreCase)
-        || string.Equals(kind, "Navidrome", StringComparison.OrdinalIgnoreCase);
-
-    /// <summary>True when a profile kind can serve an output target.</summary>
-    private static bool KindMatchesTarget(string? kind, OutputTargetType target) => target switch
-    {
-        OutputTargetType.PlexApi => string.Equals(kind, "Plex", StringComparison.OrdinalIgnoreCase),
-        OutputTargetType.SubsonicApi => IsSubsonicKind(kind),
-        OutputTargetType.JellyfinApi => string.Equals(kind, "Jellyfin", StringComparison.OrdinalIgnoreCase),
-        _ => true,
-    };
 }
