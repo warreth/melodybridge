@@ -54,8 +54,8 @@ public class SpotifyPlaylistItemsTests
         Assert.That(track.Album, Is.EqualTo("What Dreams Are Made Of"));
         Assert.That(track.AlbumArtist, Is.EqualTo("R. City"),
             "the album's own artist credit is the release credit");
-        Assert.That(track.CoverUrl, Is.EqualTo("https://i.scdn.co/image/small"),
-            "Spotify lists the smallest image first; the URL is what matters");
+        Assert.That(track.CoverUrl, Is.EqualTo("https://i.scdn.co/image/large"),
+            "the largest image is the one worth embedding, whatever order Spotify lists");
     }
 
     [Test]

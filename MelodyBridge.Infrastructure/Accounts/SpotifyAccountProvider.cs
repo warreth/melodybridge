@@ -229,26 +229,10 @@ public class SpotifyAccountProvider : IAccountSourceProvider
         {
             var track = saved.Track;
             if (track is null) continue;
-            TimeSpan? duration = track.DurationMs > 0
-                ? TimeSpan.FromMilliseconds(track.DurationMs)
-                : null;
 
-            tracks.Add(new Track
-            {
-                Title = track.Name,
-                Artist = string.Join(", ",
-                    (track.Artists ?? []).Select(a => a.Name)),
-                Duration = duration,
-                SongID = new SongID(Platform.Spotify, track.Id),
-                PlatformSongID = new SongID(Platform.Spotify, track.Id),
-                SourcePlatform = Platform.Spotify,
-                SyncStatus = SyncStatus.Pending,
-                MediaType = MediaType.MP3,
-                CurrentTrackLocation = new FileLocation(
-                    $"https://open.spotify.com/track/{track.Id}"),
-                IsLiked = true,
-            });
-            if (duration is { } d) totalDuration += d;
+            var mapped = MapSavedTrack(track);
+            tracks.Add(mapped);
+            if (mapped.Duration is { } d) totalDuration += d;
         }
 
         // Liked songs come back as full track objects, but the SDK shape
@@ -269,6 +253,47 @@ public class SpotifyAccountProvider : IAccountSourceProvider
             Tracks = tracks,
             TrackCount = tracks.Count,
             Duration = totalDuration,
+        };
+    }
+
+    /// <summary>
+    /// The liked-songs row for one saved track. The saved track carries
+    /// its album object (name, release credit, images), so a liked-songs
+    /// download lands with proper album tags and art instead of an empty
+    /// album and no cover; the largest image wins.
+    /// </summary>
+    internal static Track MapSavedTrack(SpotifyAPI.Web.FullTrack track)
+    {
+        var album = track.Album;
+        var albumArtist = album?.Artists is { Count: > 0 } albumArtists
+            ? string.Join(", ", albumArtists
+                .Select(a => a.Name)
+                .Where(n => !string.IsNullOrWhiteSpace(n)))
+            : null;
+        var coverUrl = album?.Images is { Count: > 0 } images
+            ? images
+                .OrderByDescending(i => (long)i.Width * i.Height)
+                .First().Url
+            : null;
+
+        return new Track
+        {
+            Title = track.Name,
+            Artist = string.Join(", ", (track.Artists ?? []).Select(a => a.Name)),
+            Album = album?.Name,
+            AlbumArtist = string.IsNullOrWhiteSpace(albumArtist) ? null : albumArtist,
+            CoverUrl = coverUrl,
+            Duration = track.DurationMs > 0
+                ? TimeSpan.FromMilliseconds(track.DurationMs)
+                : null,
+            SongID = new SongID(Platform.Spotify, track.Id),
+            PlatformSongID = new SongID(Platform.Spotify, track.Id),
+            SourcePlatform = Platform.Spotify,
+            SyncStatus = SyncStatus.Pending,
+            MediaType = MediaType.MP3,
+            CurrentTrackLocation = new FileLocation(
+                $"https://open.spotify.com/track/{track.Id}"),
+            IsLiked = true,
         };
     }
 

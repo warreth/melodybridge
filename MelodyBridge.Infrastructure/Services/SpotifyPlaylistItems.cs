@@ -69,14 +69,29 @@ internal static class SpotifyPlaylistItems
 
             if (albumObj.TryGetProperty("images", out var images) && images.ValueKind == JsonValueKind.Array)
             {
+                // Spotify does not promise an order: take the largest copy
+                // instead of whatever happens to be listed first (the old
+                // code embedded the smallest one).
+                string? bestUrl = null;
+                var bestPixels = long.MinValue;
                 foreach (var image in images.EnumerateArray())
                 {
-                    if (image.TryGetProperty("url", out var url) && url.ValueKind == JsonValueKind.String)
+                    if (!image.TryGetProperty("url", out var url) || url.ValueKind != JsonValueKind.String)
+                        continue;
+                    var width = image.TryGetProperty("width", out var w) && w.ValueKind == JsonValueKind.Number
+                        ? w.GetInt64() : 0;
+                    var height = image.TryGetProperty("height", out var h) && h.ValueKind == JsonValueKind.Number
+                        ? h.GetInt64() : 0;
+                    // Some payloads carry only one dimension; a square of
+                    // the known side is the honest comparison then.
+                    var pixels = width * (height > 0 ? height : width);
+                    if (bestUrl is null || pixels > bestPixels)
                     {
-                        coverUrl = url.GetString();
-                        break;
+                        bestUrl = url.GetString();
+                        bestPixels = pixels;
                     }
                 }
+                coverUrl = bestUrl;
             }
         }
 
