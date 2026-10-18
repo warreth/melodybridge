@@ -455,4 +455,39 @@ public class LibraryReconcilerTests
         Assert.That(Directory.GetFiles(Path.Combine(_dir, "arc"), "mb-shared-archive.flac", SearchOption.AllDirectories),
             Has.Length.EqualTo(1));
     }
+
+    [Test]
+    public async Task PlaylistWithoutItsOwnFolder_RelinksByMelodyId_UnderTheMusicPath()
+    {
+        // The playlist page normalizes a stored default folder to null on
+        // save; the relink index must still cover the music path, or a
+        // manual file move becomes an unnecessary re-download for every
+        // active playlist after the update.
+        var moved = WriteTaggedFile("Reconcile/moved", "mb-recon-null");
+        await SeedPlaylistAsync(tracks => tracks.Add(new TrackEntity
+        {
+            MelodyId = "mb-recon-null",
+            Title = "Moved",
+            Artist = "A",
+            Position = 0,
+            DownloadStatus = "downloaded",
+            CurrentPath = Path.Combine(_dir, "Reconcile", "gone.mp3"),
+        }));
+        await using (var db = await _factory.CreateDbContextAsync())
+        {
+            (await db.Playlists.SingleAsync()).TargetDirectory = null;
+            await db.SaveChangesAsync();
+        }
+
+        var reconciler = new LibraryReconciler(
+            _factory, NullLogger<LibraryReconciler>.Instance, OldLayoutSettings());
+        var (relinked, lost) = await reconciler.ReconcileAllAsync();
+
+        Assert.That((relinked, lost), Is.EqualTo((1, 0)),
+            "the file is found under the music path, not queued for re-download");
+        await using var check = await _factory.CreateDbContextAsync();
+        var track = await check.Tracks.AsNoTracking().SingleAsync(t => t.MelodyId == "mb-recon-null");
+        Assert.That(track.CurrentPath, Is.EqualTo(moved));
+        Assert.That(track.DownloadStatus, Is.EqualTo("downloaded"));
+    }
 }

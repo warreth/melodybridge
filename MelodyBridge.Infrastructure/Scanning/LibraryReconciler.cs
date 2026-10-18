@@ -41,13 +41,23 @@ public class LibraryReconciler
             .Include(p => p.Tracks)
             .ToListAsync(ct);
 
+        // The relink index needs the same base the folder rules use: a
+        // playlist without its own folder lives under the music path, so
+        // its files must still be found there by MELODY_ID. Indexing only
+        // the raw TargetDirectory made every such row re-download after a
+        // manual file move once the page normalized the stored default to
+        // null.
+        var musicPath = _settings is null
+            ? string.Empty
+            : await _settings.GetAsync("music_path", "/music", ct);
+
         var relinked = 0;
         var lost = 0;
 
         foreach (var playlist in playlists)
         {
-            var dir = playlist.TargetDirectory;
-            var filesByMelodyId = dir is null
+            var dir = FirstNonEmpty(playlist.TargetDirectory, musicPath);
+            var filesByMelodyId = string.IsNullOrWhiteSpace(dir)
                 ? new Dictionary<string, string>()
                 : IndexDirectory(dir);
 
