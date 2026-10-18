@@ -501,6 +501,43 @@ public class DefaultDownloadPathTests
         }
     }
 
+    [Test]
+    public async Task DeleteTrackFiles_KeepsTheRowAndResetsItToPending()
+    {
+        var dbPath = NewDbPath();
+        var musicDir = Path.Combine(Path.GetTempPath(), $"mb-default-rst-{Guid.NewGuid():N}");
+        try
+        {
+            var factory = await NewDbFactory(dbPath);
+            var (trackId, primary, archive) = await SeedTrackWithArchiveAsync(factory, musicDir);
+            var store = NewStore(factory);
+
+            var deleted = await store.DeleteTrackFilesAsync("pl-rm", trackId);
+
+            Assert.That(deleted, Is.True);
+            Assert.Multiple(() =>
+            {
+                Assert.That(File.Exists(primary), Is.False, "the file goes");
+                Assert.That(File.Exists(archive), Is.False, "and its archive copy with it");
+            });
+            await using var db = await factory.CreateDbContextAsync();
+            var track = await db.Tracks.AsNoTracking().SingleAsync();
+            Assert.Multiple(() =>
+            {
+                Assert.That(track.DownloadStatus, Is.EqualTo("pending"),
+                    "the track stays and asks to be downloaded again");
+                Assert.That(track.CurrentPath, Is.Null);
+                Assert.That(track.ArchivePath, Is.Null);
+                Assert.That(track.MelodyId, Is.EqualTo("mel-rm"), "the row keeps its identity");
+            });
+        }
+        finally
+        {
+            TryDelete(dbPath);
+            try { Directory.Delete(musicDir, recursive: true); } catch { /* best effort */ }
+        }
+    }
+
     /// <summary>A playlist folder with a downloaded track, a real file and an archive copy.</summary>
     private static async Task<(int TrackId, string Primary, string Archive)> SeedTrackWithArchiveAsync(
         IDbContextFactory<MelodyBridgeDbContext> factory, string root)

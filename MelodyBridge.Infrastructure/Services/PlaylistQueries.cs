@@ -129,6 +129,51 @@ internal sealed class PlaylistQueries
             .Select(p => p!)
             .Distinct(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// Deletes one track's local files (the primary download and its
+    /// archive copy) but keeps the row: it returns to "pending" so a later
+    /// download restores it, with every measured fact cleared. Name-wise
+    /// like every delete, so a path another row still references (a hard
+    /// link twin) survives for that row. Returns false when the track is
+    /// not in this playlist or has no files worth deleting.
+    /// </summary>
+    public async Task<bool> DeleteTrackFilesAsync(
+        string playlistId, int trackId, CancellationToken ct = default)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var track = await db.Tracks
+            .FirstOrDefaultAsync(t => t.Id == trackId && t.PlaylistEntityId == playlistId, ct);
+        if (track is null) return false;
+
+        var hadFiles = false;
+        foreach (var path in OwnPaths([track]))
+        {
+            hadFiles = true;
+            if (await PathReferencedByOthersAsync(db, track.Id, path, ct)) continue;
+            try { System.IO.File.Delete(path); } catch { /* best effort */ }
+        }
+
+        track.CurrentPath = null;
+        track.ArchivePath = null;
+        track.IsHardLink = false;
+        track.DownloadStatus = "pending";
+        track.DownloadError = null;
+        track.Warning = null;
+        track.ReviewKind = null;
+        track.ReviewText = null;
+        track.SourcePluginId = null;
+        track.AvoidPluginId = null;
+        track.SkipDedup = false;
+        track.Bitrate = null;
+        track.SampleRateHz = null;
+        track.FileSizeBytes = null;
+        track.MediaType = null;
+        track.LastSeenAt = null;
+        await db.SaveChangesAsync(ct);
+        _changes.Bump();
+        return hadFiles;
+    }
+
     /// <summary>True when any other row still references the exact path,
     /// as its primary file or as its archive copy.</summary>
     private static async Task<bool> PathReferencedByOthersAsync(

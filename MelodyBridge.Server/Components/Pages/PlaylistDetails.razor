@@ -321,32 +321,43 @@ else
     @if (removeTrack is { } doomed)
     {
         <ConfirmDialog Show="true"
-                       Eyebrow="Remove track"
-                       Title=@($"Remove '{doomed.Title}'?")
-                       Message="The track leaves this playlist. Choose what happens to the downloaded file."
-                       ConfirmLabel="Remove track"
+                       Eyebrow="Track options"
+                       Title=@($"What should happen to '{doomed.Title}'?")
+                       Message="Choose what happens to the track and its downloaded file."
+                       ConfirmLabel="@RemoveConfirmLabel"
                        Busy="busy"
                        OnConfirm="ConfirmRemoveTrack"
                        OnCancel="CancelRemoveTrack">
             <div class="choice-list">
                 <label class="choice-row">
                     <input type="radio" name="remove-file-choice"
-                           checked="@(!removeDeleteFile)"
-                           @onchange="() => removeDeleteFile = false" />
+                           checked="@(removeChoice == RemoveChoice.KeepFile)"
+                           @onchange="() => removeChoice = RemoveChoice.KeepFile" />
                     <span>
-                        <strong>Keep the file on disk</strong>
-                        <small>The track disappears from the playlist; the music stays where it is.</small>
+                        <strong>Remove from the playlist</strong>
+                        <small>The track disappears from this playlist; the music file stays where it is.</small>
                     </span>
                 </label>
                 <label class="choice-row">
                     <input type="radio" name="remove-file-choice"
-                           checked="@removeDeleteFile"
-                           @onchange="() => removeDeleteFile = true" />
+                           checked="@(removeChoice == RemoveChoice.DeleteFile)"
+                           @onchange="() => removeChoice = RemoveChoice.DeleteFile" />
                     <span>
-                        <strong>Delete the downloaded file</strong>
+                        <strong>Delete the file, keep the track</strong>
                         <small>
-                            The file goes, its archive copy too. A file another playlist
-                            still uses through a hard link survives there.
+                            The file and its archive copy go; the track stays in the playlist and can be
+                            downloaded again later.
+                        </small>
+                    </span>
+                </label>
+                <label class="choice-row">
+                    <input type="radio" name="remove-file-choice"
+                           checked="@(removeChoice == RemoveChoice.DeleteFilesAndTrack)"
+                           @onchange="() => removeChoice = RemoveChoice.DeleteFilesAndTrack" />
+                    <span>
+                        <strong>Delete the file and remove the track</strong>
+                        <small>
+                            Both go. A file another playlist still uses through a hard link survives there.
                         </small>
                     </span>
                 </label>
@@ -404,9 +415,12 @@ else
     private int reviewCount;
     private bool confirmDelete;
     private bool deleteFilesWithPlaylist;
-    /// <summary>The track waiting in the remove dialog, and the chosen file handling.</summary>
+    /// <summary>The track waiting in the remove/replace dialog.</summary>
     private TrackEntity? removeTrack;
-    private bool removeDeleteFile;
+
+    /// <summary>What the dialog will do with the track and its files.</summary>
+    private enum RemoveChoice { KeepFile, DeleteFile, DeleteFilesAndTrack }
+    private RemoveChoice removeChoice = RemoveChoice.KeepFile;
     private string resolvedDefaultMusicPath = "/music";
     /// <summary>Global archive default, shown as the placeholder hint.</summary>
     private string resolvedDefaultArchivePath = "";
@@ -896,15 +910,16 @@ else
 
     private async Task RemoveTrack(TrackEntity track)
     {
-        // Downloaded tracks offer the choice (keep the file or delete it);
-        // tracks without a file just leave the playlist.
+        // Tracks with a local file offer the choice (keep the file, delete
+        // it but keep the track, or both go); tracks without one just
+        // leave the playlist.
         if (track.DownloadStatus != "downloaded")
         {
-            await RemoveTrackNow(track, deleteFile: false);
+            await RemoveTrackNow(track, RemoveChoice.KeepFile);
             return;
         }
         removeTrack = track;
-        removeDeleteFile = false; // safe default: never delete bytes unasked
+        removeChoice = RemoveChoice.KeepFile; // safe default: never delete bytes unasked
         StateHasChanged();
     }
 
@@ -917,16 +932,35 @@ else
     private Task ConfirmRemoveTrack()
     {
         if (removeTrack is not { } track) return Task.CompletedTask;
-        var deleteFile = removeDeleteFile;
+        var choice = removeChoice;
         removeTrack = null;
-        return RemoveTrackNow(track, deleteFile);
+        return RemoveTrackNow(track, choice);
     }
 
-    private async Task RemoveTrackNow(TrackEntity track, bool deleteFile)
+    /// <summary>The confirm button names what it will do, not a generic "OK".</summary>
+    private string RemoveConfirmLabel => removeChoice switch
+    {
+        RemoveChoice.DeleteFile => "Delete the file",
+        RemoveChoice.DeleteFilesAndTrack => "Delete file and track",
+        _ => "Remove from playlist",
+    };
+
+    private async Task RemoveTrackNow(TrackEntity track, RemoveChoice choice)
     {
         busy = true;
         try
         {
+            if (choice == RemoveChoice.DeleteFile)
+            {
+                if (await Store.DeleteTrackFilesAsync(PlaylistId, track.Id))
+                    Notifications.Success($"Deleted the file of '{track.Title}'; download it again whenever you want.");
+                else
+                    Notifications.Info($"'{track.Title}' had no files to delete.");
+                await Load();
+                return;
+            }
+
+            var deleteFile = choice == RemoveChoice.DeleteFilesAndTrack;
             if (await Store.RemoveTrackAsync(PlaylistId, track.Id, deleteFile))
             {
                 Notifications.Success(deleteFile

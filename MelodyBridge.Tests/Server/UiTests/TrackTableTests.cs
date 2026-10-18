@@ -171,7 +171,7 @@ public class TrackTableTests
         var cut = Render(tracks, onRemove: t => removePayload = t);
 
         var row = cut.FindAll("tbody tr").Single(tr => tr.TextContent.Contains("Charlie"));
-        row.QuerySelector("button[title='Remove from the playlist; choose whether the downloaded file goes too']")!.Click();
+        row.QuerySelector("button[title='Remove the track or delete its file: choose in the dialog']")!.Click();
         Assert.That(ReferenceEquals(removePayload, tracks[0]), Is.True);
 
         var pendingRow = cut.FindAll("tbody tr").Single(tr => tr.TextContent.Contains("Delta"));

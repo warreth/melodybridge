@@ -190,7 +190,7 @@ public class PlaylistDeleteUiTests
     }
 
     [Test]
-    public void Details_RemoveDownloadedTrack_AsksKeepOrDelete_AndDefaultKeepsTheFile()
+    public void Details_RemoveDownloadedTrack_AsksTheThreeChoices_AndDefaultKeepsTheFile()
     {
         var file = SeedWithFile();
         var cut = _ctx.Render<PlaylistDetails>(p => p.Add(p => p.PlaylistId, "pl-del"));
@@ -199,13 +199,14 @@ public class PlaylistDeleteUiTests
 
         cut.FindAll("button").Single(b => b.TextContent.Trim() == "Remove").Click();
 
-        Assert.That(cut.Markup, Does.Contain("The track leaves this playlist"),
+        Assert.That(cut.Markup, Does.Contain("Choose what happens to the track and its downloaded file"),
             "the dialog explains the choice");
-        Assert.That(cut.Markup, Does.Contain("Keep the file on disk"));
-        Assert.That(cut.Markup, Does.Contain("Delete the downloaded file"));
+        Assert.That(cut.Markup, Does.Contain("Remove from the playlist"));
+        Assert.That(cut.Markup, Does.Contain("Delete the file, keep the track"));
+        Assert.That(cut.Markup, Does.Contain("Delete the file and remove the track"));
 
         // Confirm without touching the radios: the safe default keeps the file.
-        cut.FindAll("button").Single(b => b.TextContent.Trim() == "Remove track").Click();
+        cut.FindAll("button").Single(b => b.TextContent.Trim() == "Remove from playlist").Click();
 
         cut.WaitForAssertion(() =>
         {
@@ -213,6 +214,33 @@ public class PlaylistDeleteUiTests
             Assert.That(db.Tracks.Count(), Is.EqualTo(0), "the track row is gone");
         }, TimeSpan.FromSeconds(3));
         Assert.That(File.Exists(file), Is.True, "the default choice keeps the music file");
+    }
+
+    [Test]
+    public void Details_DeleteTheFileButKeepTheTrack_ResetsItToPending()
+    {
+        var file = SeedWithFile();
+        var cut = _ctx.Render<PlaylistDetails>(p => p.Add(p => p.PlaylistId, "pl-del"));
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("The end")), TimeSpan.FromSeconds(3));
+
+        cut.FindAll("button").Single(b => b.TextContent.Trim() == "Remove").Click();
+        // Radio 1 is "Delete the file, keep the track".
+        cut.FindAll(".confirm-modal input[type='radio']")[1].Change(true);
+        cut.FindAll("button").Single(b => b.TextContent.Trim() == "Delete the file").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(File.Exists(file), Is.False, "the file goes");
+            using var db = new TestSqliteFactory(_dbPath).CreateDbContext();
+            var track = db.Tracks.AsNoTracking().Single();
+            Assert.That(track.DownloadStatus, Is.EqualTo("pending"),
+                "the track stays in the playlist so it can be downloaded again");
+            Assert.That(track.CurrentPath, Is.Null);
+            Assert.That(track.ArchivePath, Is.Null);
+        }, TimeSpan.FromSeconds(3));
+        Assert.That(cut.Markup, Does.Contain("The end"),
+            "the row is still in the table");
     }
 
     [Test]
@@ -224,8 +252,9 @@ public class PlaylistDeleteUiTests
             Assert.That(cut.Markup, Does.Contain("The end")), TimeSpan.FromSeconds(3));
 
         cut.FindAll("button").Single(b => b.TextContent.Trim() == "Remove").Click();
-        cut.FindAll(".confirm-modal input[type='radio']")[1].Change(true);
-        cut.FindAll("button").Single(b => b.TextContent.Trim() == "Remove track").Click();
+        // Radio 2 is "Delete the file and remove the track".
+        cut.FindAll(".confirm-modal input[type='radio']")[2].Change(true);
+        cut.FindAll("button").Single(b => b.TextContent.Trim() == "Delete file and track").Click();
 
         cut.WaitForAssertion(() =>
         {

@@ -174,6 +174,10 @@ public class PlaylistStore
     public Task<bool> RemoveTrackAsync(string playlistId, int trackId, bool deleteFile, CancellationToken ct = default)
         => _queries.RemoveTrackAsync(playlistId, trackId, deleteFile, ct);
 
+    /// <summary>Deletes a track's files but keeps the row, back to pending.</summary>
+    public Task<bool> DeleteTrackFilesAsync(string playlistId, int trackId, CancellationToken ct = default)
+        => _queries.DeleteTrackFilesAsync(playlistId, trackId, ct);
+
     public Task<PlaylistEntity?> GetByIdAsync(string id, CancellationToken ct = default)
         => _queries.GetByIdAsync(id, ct);
 

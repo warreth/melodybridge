@@ -181,7 +181,7 @@
                             {
                                 <button class="btn-modern small ghost"
                                         title="@(track.DownloadStatus == "downloaded"
-                                            ? "Remove from the playlist; choose whether the downloaded file goes too"
+                                            ? "Remove the track or delete its file: choose in the dialog"
                                             : "Remove from the playlist")"
                                         @onclick="() => OnRemove.InvokeAsync(track)" disabled="@Busy">
                                     <Icon Name="x" Size="14" /> <span class="btn-label">Remove</span>
