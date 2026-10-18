@@ -131,36 +131,43 @@
                 else if (currentStep == 2)
                 {
                     <div class="wizard-step">
-                        <div class="settings-section">
+                        <div class="settings-section target-picker">
                             <span class="eyebrow">Targets</span>
-                            <div class="toggle-row">
-                                <label class="toggle-switch wide">
+                            <p class="target-lead">
+                                One job can publish to several places at once. Tick every target it should reach.
+                            </p>
+                            <div class="target-list">
+                                <label class="target-option @(draftM3uEnabled ? "on" : null)">
                                     <input type="checkbox" checked="@draftM3uEnabled" @onchange="OnM3uEnabledChanged" />
-                                    <span class="toggle-slider"></span>
-                                    <span>M3U file</span>
+                                    <span class="target-option-body">
+                                        <span class="target-option-title"><Icon Name="list-music" Size="16" /> M3U file</span>
+                                        <span class="target-option-note">Write the playlist as an .m3u file on disk.</span>
+                                    </span>
                                 </label>
-                                <span class="text-muted">Write the playlist as an .m3u file.</span>
+                                @foreach (var profile in mediaServerProfiles)
+                                {
+                                    <label class="target-option @(selectedProfileIds.Contains(profile.Id) ? "on" : null)">
+                                        <input type="checkbox"
+                                               checked="@selectedProfileIds.Contains(profile.Id)"
+                                               @onchange="e => ToggleProfile(profile.Id, e)" />
+                                        <span class="target-option-body">
+                                            <span class="target-option-title"><Icon Name="@TargetIcon(profile.Kind)" Size="16" /> @profile.Name</span>
+                                            <span class="target-option-note">@TargetLabel(profile.Kind) <span class="target-url">@profile.BaseUrl</span></span>
+                                        </span>
+                                    </label>
+                                }
+                                @if (keepLegacyConnection)
+                                {
+                                    <label class="target-option on">
+                                        <input type="checkbox" checked="@keepLegacyConnection"
+                                               @onchange="e => keepLegacyConnection = e.Value is true" />
+                                        <span class="target-option-body">
+                                            <span class="target-option-title"><Icon Name="@TargetIcon(legacyConnectionKind.ToString())" Size="16" /> @TargetLabel(legacyConnectionKind.ToString())</span>
+                                            <span class="target-option-note">Connection saved in this job. Leave it ticked or replace it with a profile.</span>
+                                        </span>
+                                    </label>
+                                }
                             </div>
-                            @if (draftM3uEnabled)
-                            {
-                                <label>
-                                    M3U output path
-                                    <input @bind="draft.M3uOutputPath" placeholder="/app/playlists/playlist.m3u" />
-                                </label>
-                            }
-                            <div class="toggle-row">
-                                <span class="text-muted">
-                                    One job can publish to several targets at once: tick every media server
-                                    it should reach.
-                                </span>
-                            </div>
-                            @if (droppedMissingTargets)
-                            {
-                                <div class="hint-box">
-                                    A media server target was removed because its profile no longer exists.
-                                    Tick a replacement below, then save the job.
-                                </div>
-                            }
                             @if (mediaServerProfiles.Count == 0 && !keepLegacyConnection)
                             {
                                 <div class="hint-box">
@@ -169,30 +176,21 @@
                                     then reload the list here.
                                 </div>
                             }
-                            @foreach (var profile in mediaServerProfiles)
+                            @if (droppedMissingTargets)
                             {
-                                <label class="choice-row">
-                                    <input type="checkbox"
-                                           checked="@selectedProfileIds.Contains(profile.Id)"
-                                           @onchange="e => ToggleProfile(profile.Id, e)" />
-                                    <span>
-                                        <strong>@profile.Name</strong>
-                                        <small>@TargetLabel(profile.Kind) · @profile.BaseUrl</small>
-                                    </span>
+                                <div class="hint-box">
+                                    A media server target was removed because its profile no longer exists.
+                                    Tick a replacement above, then save the job.
+                                </div>
+                            }
+                            @if (draftM3uEnabled)
+                            {
+                                <label class="target-path">
+                                    M3U output path
+                                    <input @bind="draft.M3uOutputPath" placeholder="/app/playlists/playlist.m3u" />
                                 </label>
                             }
-                            @if (keepLegacyConnection)
-                            {
-                                <label class="choice-row">
-                                    <input type="checkbox" checked="@keepLegacyConnection"
-                                           @onchange="e => keepLegacyConnection = e.Value is true" />
-                                    <span>
-                                        <strong>@TargetLabel(legacyConnectionKind.ToString()) (connection saved in this job)</strong>
-                                        <small>A job from before profiles; leave it ticked or replace it with a profile.</small>
-                                    </span>
-                                </label>
-                            }
-                            <div class="flex-actions">
+                            <div class="target-actions">
                                 <a class="btn-modern ghost small" href="/settings#media-servers" target="_blank" rel="noopener">
                                     <Icon Name="plus" Size="14" /> Add a profile
                                 </a>
@@ -200,7 +198,7 @@
                                     <Icon Name="refresh" Size="14" /> Reload profiles
                                 </button>
                             </div>
-                            <div class="hint-box">Targets: @TargetsSummary</div>
+                            <div class="target-summary"><Icon Name="check" Size="14" /> <span>@TargetsSummary</span></div>
                         </div>
                         @{
                             var jellyfinProfile = SelectedProfiles.FirstOrDefault(
@@ -726,6 +724,14 @@
     };
 
     private static string TargetLabel(OutputTargetType target) => TargetLabel(target.ToString());
+
+    /// <summary>A small kind icon for a target row.</summary>
+    private static string TargetIcon(string? kind) => kind?.Trim().ToLowerInvariant() switch
+    {
+        "plex" => "hard-drive",
+        "subsonic" or "navidrome" => "globe",
+        _ => "server",
+    };
 
     /// <summary>The output kind a media server profile publishes to.</summary>
     private static OutputTargetType KindOf(string? profileKind) => profileKind?.Trim().ToLowerInvariant() switch

@@ -38,3 +38,87 @@
 @media (max-width: 720px) {
     .form-grid.sync-split { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* Layout switch: card grid or compact rows, next to the page actions. */
+.view-switch {
+    display: inline-flex;
+    gap: .15rem;
+    padding: .15rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--surface-2);
+}
+.view-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: .35rem;
+    padding: .32rem .6rem;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--muted);
+    font: inherit;
+    font-size: .82rem;
+    cursor: pointer;
+}
+.view-chip:hover { color: inherit; }
+.view-chip.on { background: var(--surface-raised); color: inherit; }
+
+/* Compact rows: small cover, one line of facts, status pills. */
+.playlist-rows { display: grid; gap: .5rem; }
+.playlist-row {
+    display: flex;
+    align-items: center;
+    gap: .75rem;
+    min-width: 0;
+    padding: .5rem .65rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface-raised);
+}
+.playlist-row:hover { border-color: var(--border-strong); }
+.playlist-row-link {
+    display: flex;
+    align-items: center;
+    flex: 1;
+    gap: .75rem;
+    min-width: 0;
+    color: inherit;
+    text-decoration: none;
+}
+.playlist-row-cover {
+    flex: 0 0 auto;
+    display: grid;
+    place-items: center;
+    width: 42px;
+    height: 42px;
+    overflow: hidden;
+    border-radius: 8px;
+    background: var(--surface-3);
+    color: var(--muted);
+}
+.playlist-row-cover img { width: 100%; height: 100%; object-fit: cover; }
+.playlist-row-main { flex: 1; display: grid; gap: .05rem; min-width: 0; }
+.playlist-row-main strong {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.playlist-row-main small { color: var(--muted); }
+.playlist-row-state { display: flex; align-items: center; flex-wrap: wrap; gap: .3rem; }
+.playlist-row-meta {
+    display: flex;
+    gap: .5rem;
+    color: var(--muted);
+    font-size: .8rem;
+    white-space: nowrap;
+}
+@media (max-width: 640px) {
+    .playlist-row-meta { display: none; }
+}
+
+@media (max-width: 640px) {
+    /* The switch stays icon-only so Import and Add playlist fit a phone. */
+    .view-chip span { display: none; }
+    .view-chip { padding: .38rem; }
+}

@@ -83,7 +83,8 @@
                     }
                     else
                     {
-                        <div class="oauth-steps">
+                        <details class="oauth-steps">
+                            <summary>How to create a Spotify app</summary>
                             <ol>
                                 <li>
                                     Open <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener">developer.spotify.com/dashboard</a>
@@ -105,7 +106,7 @@
                                 </li>
                                 <li>Copy the <em>Client ID</em> from the same settings page, paste it below and click Connect.</li>
                             </ol>
-                        </div>
+                        </details>
                         <p class="account-note">
                             New Spotify apps start in <em>development mode</em>: that is fine for
                             personal use: you are the owner. Your Spotify account must have
@@ -143,7 +144,8 @@
                     }
                     else
                     {
-                        <div class="oauth-steps">
+                        <details class="oauth-steps">
+                            <summary>How to create a YouTube app</summary>
                             <ol>
                                 <li>
                                     Open <a href="https://console.cloud.google.com" target="_blank" rel="noopener">console.cloud.google.com</a>,
@@ -164,7 +166,7 @@
                                 </li>
                                 <li>Paste the client ID and secret here and click Connect.</li>
                             </ol>
-                        </div>
+                        </details>
                         <p class="account-note">
                             Before the first login, open the OAuth consent screen
                             (APIs &amp; Services, OAuth consent screen) and add your own Google
@@ -337,18 +339,33 @@ else if (activeTab == "paths")
             <div class="form-grid single">
                 <label>
                     Music path
-                    <input @bind="musicPath" @bind:after="ValidatePaths"
-                           aria-invalid="@(musicPathWarning is { Length: > 0 } ? "true" : null)"
-                           aria-describedby="@(musicPathWarning is { Length: > 0 } ? "music-path-warning" : null)" />
+                    <span class="path-field">
+                        <input @bind="musicPath" @bind:after="ValidatePaths"
+                               aria-invalid="@(musicPathWarning is { Length: > 0 } ? "true" : null)"
+                               aria-describedby="@(musicPathWarning is { Length: > 0 } ? "music-path-warning" : null)" />
+                        @if (playlistFolders)
+                        {
+                            <span class="path-suffix" title="Added to every playlist's own folder name">{playlist}</span>
+                        }
+                    </span>
                     @if (musicPathWarning is { Length: > 0 })
                     {
                         <small class="text-warn" id="music-path-warning">@musicPathWarning</small>
                     }
                     <small class="text-muted">
-                        Downloads land here, one folder per playlist. Changing this path
-                        moves the whole library to the new folder when you save.
+                        Downloads land here. Changing this path moves the whole library
+                        to the new folder when you save.
                     </small>
                 </label>
+                <div class="toggle-with-help">
+                    <label class="toggle-switch wide">
+                        <input type="checkbox" @bind="playlistFolders" @bind:after="MarkDirty" />
+                        <span class="toggle-slider"></span>
+                        <span>Sort downloads into a folder per playlist</span>
+                    </label>
+                    <HelpTip Path="reference#settings" Text="On: every playlist gets its own folder under the music path, which keeps dedup links and archive copies apart. Off: all downloads land directly in the music path." />
+                </div>
+                <small class="text-muted">@PlaylistFoldersHint</small>
                 <label>
                     Playlist output folder
                     <input @bind="playlistPath" @bind:after="ValidatePaths"
@@ -377,9 +394,15 @@ else if (activeTab == "paths")
             <div class="form-grid single">
                 <label>
                     Archive path
-                    <input @bind="archivePath" @bind:after="ValidatePaths" placeholder="/archive-music"
-                           aria-invalid="@(archivePathWarning is { Length: > 0 } ? "true" : null)"
-                           aria-describedby="@(archivePathWarning is { Length: > 0 } ? "archive-path-warning" : null)" />
+                    <span class="path-field">
+                        <input @bind="archivePath" @bind:after="ValidatePaths" placeholder="/archive-music"
+                               aria-invalid="@(archivePathWarning is { Length: > 0 } ? "true" : null)"
+                               aria-describedby="@(archivePathWarning is { Length: > 0 } ? "archive-path-warning" : null)" />
+                        @if (playlistFolders && !string.IsNullOrWhiteSpace(archivePath))
+                        {
+                            <span class="path-suffix" title="Added to every playlist's own archive folder name">{playlist}</span>
+                        }
+                    </span>
                     @if (archivePathWarning is { Length: > 0 })
                     {
                         <small class="text-warn" id="archive-path-warning">@archivePathWarning</small>
@@ -911,6 +934,7 @@ else if (activeTab == "about")
         lengthTolerancePercent = FindSetting(settings, "quality_length_tolerance_percent", "10");
         flaresolverrUrl = FindSetting(settings, "flaresolverr_url", Config?["FlareSolverr:Url"] ?? "auto");
         spotifyCookie = FindSetting(settings, "spotify_cookie", string.Empty);
+        playlistFolders = await TourReset.GetBoolAsync("playlist_folders", true);
         notifyDownloads = await TourReset.GetBoolAsync("notify_downloads", true);
         notifyFailures = await TourReset.GetBoolAsync("notify_failures", true);
         ntfyEnabled = await TourReset.GetBoolAsync("ntfy_enabled", false);
@@ -932,6 +956,8 @@ else if (activeTab == "about")
     private bool _youtubeConnected;
     private string spotifyClientId = string.Empty;
     private string spotifyCookie = string.Empty;
+    /// <summary>One folder per playlist under the music path (default on).</summary>
+    private bool playlistFolders = true;
     private string youtubeClientId = string.Empty;
     private string youtubeClientSecret = string.Empty;
 
@@ -1120,6 +1146,7 @@ else if (activeTab == "about")
             await Upsert(db, "music_path", musicPath);
             await Upsert(db, "playlist_path", playlistPath);
             await Upsert(db, "archive_path", archivePath);
+            await Upsert(db, "playlist_folders", playlistFolders ? "true" : "false");
             await Upsert(db, "archive_format", archiveFormat);
             await Upsert(db, "default_quality", defaultQuality);
             await Upsert(db, "spectrum_mode", spectrumMode);
@@ -1222,6 +1249,20 @@ else if (activeTab == "about")
     }
 
     /// <summary>Advisory path checks: warnings, never a blocked save.</summary>
+    /// <summary>What the toggle means, with the live path example.</summary>
+    private string PlaylistFoldersHint
+    {
+        get
+        {
+            var root = musicPath.Trim().TrimEnd('/', '\\');
+            if (!playlistFolders)
+                return "All downloads land directly in the music path, in one flat library.";
+            return root.Length == 0
+                ? "Every playlist gets its own folder under the music path."
+                : $"Every playlist gets its own folder, for example {root}/My playlist.";
+        }
+    }
+
     private void ValidatePaths()
     {
         MarkDirty();

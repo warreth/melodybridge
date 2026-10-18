@@ -150,7 +150,7 @@
                         <div class="btn-group">
                             @if (OnChooseSource.HasDelegate)
                             {
-                                <button class="btn-modern small ghost"
+                                <button class="btn-modern small ghost" aria-label="Choose source"
                                         title="Search every plugin by hand and pick the source yourself"
                                         @onclick="() => OnChooseSource.InvokeAsync(track)" disabled="@Busy">
                                     <Icon Name="search" Size="14" /> <span class="btn-label">Choose source</span>
@@ -158,11 +158,11 @@
                             }
                             @if (track.DownloadStatus == "needs-review")
                             {
-                                <button class="btn-modern small ghost" title="Download a fresh file in this playlist's quality"
+                                <button class="btn-modern small ghost" aria-label="Download new" title="Download a fresh file in this playlist's quality"
                                         @onclick="() => OnResolveReview.InvokeAsync((track, false))" disabled="@Busy">
                                     <Icon Name="download" Size="14" /> <span class="btn-label">Download new</span>
                                 </button>
-                                <button class="btn-modern small ghost" title="Link the file another playlist already has (keeps its quality)"
+                                <button class="btn-modern small ghost" aria-label="Hardlink existing" title="Link the file another playlist already has (keeps its quality)"
                                         @onclick="() => OnResolveReview.InvokeAsync((track, true))" disabled="@Busy">
                                     <Icon Name="hard-drive" Size="14" /> <span class="btn-label">Hardlink existing</span>
                                 </button>
@@ -187,7 +187,7 @@
                             }
                             @if (track.DownloadStatus is not null)
                             {
-                                <button class="btn-modern small ghost"
+                                <button class="btn-modern small ghost" aria-label="Remove"
                                         title="@(track.DownloadStatus == "downloaded"
                                             ? "Remove the track or delete its file: choose in the dialog"
                                             : "Remove from the playlist")"

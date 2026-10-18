@@ -198,8 +198,12 @@ public class ArchiveCopyUiTests
         var archiveInput = ArchiveFolderInput(cut);
         Assert.That(archiveInput.GetAttribute("value"), Is.Empty,
             "the same rule for the archive folder");
-        Assert.That(archiveInput.GetAttribute("placeholder"), Does.Contain("/archive/Archive UI test"),
-            "the placeholder names the effective per-playlist archive folder");
+        Assert.That(archiveInput.GetAttribute("placeholder"), Is.EqualTo("/archive"),
+            "the placeholder is the archive root; the playlist folder shows as a grey suffix");
+        Assert.That(cut.Markup, Does.Contain("{playlist name}"),
+            "the suffix says the playlist folder is appended");
+        Assert.That(cut.Markup, Does.Contain("/archive/Archive UI test"),
+            "the hint names the effective per-playlist archive folder");
     }
 
     private bool? DbArchiveEnabled()

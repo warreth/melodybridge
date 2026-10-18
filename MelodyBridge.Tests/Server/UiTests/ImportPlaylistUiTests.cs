@@ -173,4 +173,22 @@ public class ImportPlaylistUiTests
             "the patcher moves legacy import rows so they stop acting like Spotify playlists");
         Assert.That(row.IsManualImport, Is.True);
     }
+    [Test]
+    public void ImportList_OwnPlaylistsFirst_ThenAlphabetical()
+    {
+        var items = new[]
+        {
+            new UserPlaylist("1", "Zebra", "me", 1, false, IsOwned: true),
+            new UserPlaylist("2", "Apple", "someone", 1, false),
+            new UserPlaylist("3", "banana", "me", 1, false, IsOwned: true),
+        };
+
+        var ordered = MelodyBridge.Server.Components.Pages.Playlists.OrderImportList(items)
+            .Select(p => p.Name)
+            .ToArray();
+
+        Assert.That(ordered, Is.EqualTo(new[] { "banana", "Zebra", "Apple" }),
+            "own playlists come first, each group alphabetical");
+    }
+
 }

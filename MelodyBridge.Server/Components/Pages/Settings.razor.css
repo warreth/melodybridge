@@ -139,3 +139,24 @@
     /* Phones stack the title; a permanent sticky block would eat the screen. */
     .page-title { position: static; padding-block: 0; margin-bottom: 1rem; }
 }
+
+/* Path fields with the grey {playlist} suffix the folder rule appends. */
+.path-field { display: flex; align-items: center; gap: .5rem; min-width: 0; }
+.path-field input { flex: 1; min-width: 0; }
+.path-suffix {
+    flex: 0 0 auto;
+    color: var(--muted);
+    font-size: .85rem;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+/* The setup steps stay available but collapsed: the Client ID field and
+   Connect button are the useful part once the app exists. */
+.oauth-steps summary {
+    cursor: pointer;
+    font-weight: 600;
+    font-size: .9rem;
+    padding: .35rem 0;
+}
+.oauth-steps[open] summary { margin-bottom: .35rem; }

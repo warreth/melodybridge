@@ -67,3 +67,44 @@
     display: flex;
     gap: .75rem;
 }
+
+/* Target picker: one tappable row card per place a job publishes to. */
+.target-picker { gap: .6rem; }
+.target-lead { margin: 0; color: var(--muted); font-size: .85rem; }
+.target-list { display: grid; gap: .5rem; }
+.target-option {
+    display: flex;
+    align-items: flex-start;
+    gap: .7rem;
+    min-width: 0;
+    padding: .65rem .75rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface-2);
+    cursor: pointer;
+}
+.target-option:hover { border-color: var(--border-strong); }
+.target-option.on { border-color: var(--accent-strong); background: var(--accent-soft); }
+.target-option input[type="checkbox"] {
+    flex: 0 0 auto;
+    inline-size: 1.05rem;
+    block-size: 1.05rem;
+    margin: .1rem 0 0;
+    accent-color: var(--accent-strong);
+}
+.target-option-body { flex: 1; display: grid; gap: .1rem; min-width: 0; }
+.target-option-title { display: flex; align-items: center; gap: .4rem; min-width: 0; font-weight: 600; }
+.target-option-note { color: var(--muted); font-size: .82rem; overflow-wrap: anywhere; }
+.target-url { color: var(--muted-2); }
+.target-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
+.target-summary {
+    display: flex;
+    align-items: flex-start;
+    gap: .45rem;
+    padding: .55rem .7rem;
+    border-radius: var(--radius);
+    background: var(--surface-3);
+    color: var(--muted);
+    font-size: .85rem;
+}
+.target-summary ::deep .icon { flex: 0 0 auto; margin-top: .15rem; color: var(--accent-strong); }

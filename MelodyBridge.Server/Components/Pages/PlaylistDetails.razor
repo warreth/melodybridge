@@ -146,11 +146,14 @@ else
                     </label>
                     <label>
                         Download folder
-                        <input value="@editTargetDirectory" @oninput="OnFolderInput" placeholder="@resolvedDefaultMusicPath" />
-                        <small class="text-muted">
-                            Leave empty to use the default music path; every playlist gets its own
-                            folder below it (@resolvedDefaultPlaylistPath). A folder typed here is used as it is.
-                        </small>
+                        <span class="path-field">
+                            <input value="@editTargetDirectory" @oninput="OnFolderInput" placeholder="@resolvedDefaultMusicPath" />
+                            @if (playlistFolders && string.IsNullOrWhiteSpace(editTargetDirectory))
+                            {
+                                <span class="path-suffix" title="Added to the music path">{playlist name}</span>
+                            }
+                        </span>
+                        <small class="text-muted">@DownloadFolderHint</small>
                     </label>
                 </div>
             </div>
@@ -196,8 +199,14 @@ else
                     <div class="form-grid single">
                         <label>
                             Archive folder
-                            <input value="@editArchiveDirectory" @oninput="OnArchiveFolderInput"
-                                   placeholder="@archiveFolderPlaceholder" />
+                            <span class="path-field">
+                                <input value="@editArchiveDirectory" @oninput="OnArchiveFolderInput"
+                                       placeholder="@archiveFolderPlaceholder" />
+                                @if (playlistFolders && string.IsNullOrWhiteSpace(editArchiveDirectory))
+                                {
+                                    <span class="path-suffix" title="Added to the archive path">{playlist name}</span>
+                                }
+                            </span>
                             <small class="text-muted">@archiveFolderHint</small>
                         </label>
                         @if (HasArchiveTarget)
@@ -323,23 +332,43 @@ else
     {
         <div class="wizard-overlay" @onclick="CloseSourcePicker">
             <div class="wizard-modal source-picker-modal" @onclick:stopPropagation="true">
-                <div class="wizard-header">
-                    <div>
+                <div class="wizard-header source-picker-head">
+                    <div class="source-picker-title">
                         <span class="eyebrow">Choose source</span>
                         <h2>@(chooser.Title ?? "Track")</h2>
+                        <p class="source-original">
+                            <span>@(string.IsNullOrWhiteSpace(chooser.Artist) ? "Unknown artist" : chooser.Artist)</span>
+                            @if (chooser.DurationMs is > 0)
+                            {
+                                <span class="source-length">Original @TrackDisplay.Duration(chooser.DurationMs.Value)</span>
+                            }
+                        </p>
                         <p class="text-muted">
-                            Every enabled plugin's results, best guess first. Pick the one that is the
-                            right recording; the automatic match refused all of these.
+                            Compare the length, then pick the right recording. Best guess first;
+                            the automatic match refused all of these.
                         </p>
                     </div>
                     <button class="icon-button" title="Close" @onclick="CloseSourcePicker">
                         <Icon Name="x" Size="18" />
                     </button>
                 </div>
-                <div class="wizard-body">
+                @if (downloadingCandidate)
+                {
+                    <div class="source-progress" aria-hidden="true"><span></span></div>
+                }
+                <div class="wizard-body source-results">
                     @if (searchingSources)
                     {
-                        <p class="text-muted">Searching every enabled plugin…</p>
+                        <div class="source-searching">
+                            <span class="spinner"></span>
+                            <span>
+                                Searching every enabled plugin…
+                                @if (sourceCandidates.Count > 0)
+                                {
+                                    <span>@sourceCandidates.Count result@(sourceCandidates.Count == 1 ? "" : "s") so far</span>
+                                }
+                            </span>
+                        </div>
                     }
                     else if (sourceCandidates.Count == 0)
                     {
@@ -348,40 +377,54 @@ else
                             (tokens, tools) or try again later.
                         </div>
                     }
-                    else
+                    @foreach (var candidate in sourceCandidates)
                     {
-                        @foreach (var candidate in sourceCandidates)
-                        {
-                            <div class="source-candidate">
-                                <div class="source-candidate-main">
-                                    <strong title="@candidate.Title">@candidate.Title</strong>
-                                    <small>
-                                        @(candidate.Artist ?? "Unknown artist")
-                                        @if (candidate.Duration is { } length)
+                        var busy = downloadingCandidateUrl == candidate.SourceUrl;
+                        <div class="source-candidate @(busy ? "busy" : null)">
+                            <div class="source-candidate-main">
+                                <strong title="@candidate.Title">@candidate.Title</strong>
+                                <small>
+                                    @(candidate.Artist ?? "Unknown artist")
+                                    @if (candidate.Duration is { } length)
+                                    {
+                                        <span> · <span class="source-length">@TrackDisplay.Duration((long)length.TotalMilliseconds)</span></span>
+                                        var delta = LengthDelta(chooser, length);
+                                        @if (delta.Length > 0)
                                         {
-                                            <span> · @TrackDisplay.Duration((long)length.TotalMilliseconds)</span>
+                                            <span class="source-delta" title="Compared to the original length">@delta</span>
                                         }
-                                        @if (candidate.BitrateKbps is { } kbps)
-                                        {
-                                            <span> · @kbps kbps</span>
-                                        }
-                                    </small>
-                                </div>
-                                <StatusPill Variant="@(candidate.Confidence == MatchConfidence.High ? "ok" : "warn")"
-                                            Class="pill-tight"
-                                            Title="@(candidate.Confidence == MatchConfidence.High
-                                                ? "The plugin is confident this is the requested track"
-                                                : "The plugin is not sure; listen before you keep it")">
-                                    @(candidate.Confidence == MatchConfidence.High ? "likely" : "unsure")
-                                </StatusPill>
-                                <StatusPill Variant="neutral">@candidate.PluginName</StatusPill>
+                                    }
+                                    @if (candidate.BitrateKbps is { } kbps)
+                                    {
+                                        <span> · @kbps kbps</span>
+                                    }
+                                </small>
+                                @if (sourceFailures.TryGetValue(candidate.SourceUrl, out var failure))
+                                {
+                                    <small class="source-failure">This source failed: @failure</small>
+                                }
+                            </div>
+                            <StatusPill Variant="@(candidate.Confidence == MatchConfidence.High ? "ok" : "warn")"
+                                        Class="pill-tight"
+                                        Title="@(candidate.Confidence == MatchConfidence.High
+                                            ? "The plugin is confident this is the requested track"
+                                            : "The plugin is not sure; listen before you keep it")">
+                                @(candidate.Confidence == MatchConfidence.High ? "likely" : "unsure")
+                            </StatusPill>
+                            <StatusPill Variant="neutral">@candidate.PluginName</StatusPill>
+                            @if (busy)
+                            {
+                                <span class="source-downloading"><span class="spinner"></span> Downloading… @downloadElapsedSeconds s</span>
+                            }
+                            else
+                            {
                                 <button class="btn-modern small primary"
                                         disabled="@downloadingCandidate"
                                         @onclick="() => DownloadPickedCandidate(candidate)">
                                     <Icon Name="download" Size="14" /> Download
                                 </button>
-                            </div>
-                        }
+                            }
+                        </div>
                     }
                 </div>
                 <div class="wizard-footer">
@@ -397,6 +440,17 @@ else
                 </div>
             </div>
         </div>
+    }
+
+    @if (hardlinkTrack is { } link)
+    {
+        <ConfirmDialog Show="true"
+                       Eyebrow="Hardlink existing"
+                       Title=@($"Link another playlist's copy of '{link.Title}'?")
+                       Message="@HardlinkConfirmMessage(link)"
+                       ConfirmLabel="Hardlink existing"
+                       OnConfirm="ConfirmHardlink"
+                       OnCancel="() => hardlinkTrack = null" />
     }
 
     @if (removeTrack is { } doomed)
@@ -503,6 +557,8 @@ else
     private enum RemoveChoice { KeepFile, DeleteFile, DeleteFilesAndTrack }
     private RemoveChoice removeChoice = RemoveChoice.KeepFile;
     private string resolvedDefaultMusicPath = "/music";
+    /// <summary>One folder per playlist under the music path (default on).</summary>
+    private bool playlistFolders = true;
     /// <summary>Global archive default, shown as the placeholder hint.</summary>
     private string resolvedDefaultArchivePath = "";
     /// <summary>Global archive format default, shown in the format select.</summary>
@@ -564,6 +620,7 @@ else
         loading = true;
         showFilenameColumn = await Settings.GetBoolAsync("show_filename", fallback: false);
         resolvedDefaultMusicPath = await Settings.GetAsync("music_path", "/music");
+        playlistFolders = await Settings.GetBoolAsync("playlist_folders", true);
         resolvedDefaultArchivePath = await Settings.GetAsync("archive_path", "");
         resolvedDefaultArchiveFormat = await Settings.GetAsync("archive_format", "auto");
         playlist = await Store.GetByIdAsync(PlaylistId);
@@ -965,26 +1022,65 @@ else
     }
 
     /// <summary>
-    /// Resolves a paused dedup conflict for one track the way the user
-    /// picked: hardlink the existing file from the other playlist, or
-    /// queue a fresh download in this playlist's own quality.
+    /// Resolves a paused dedup conflict for one track: the hardlink half
+    /// asks for confirmation first (what gets linked and that the quality
+    /// is the other file's), "download new" queues immediately.
     /// </summary>
-    private async Task ResolveDedupReview((TrackEntity Track, bool HardlinkExisting) choice)
+    private Task ResolveDedupReview((TrackEntity Track, bool HardlinkExisting) choice)
+    {
+        if (!choice.HardlinkExisting)
+            return ResolveDedupNow(choice.Track, hardlinkExisting: false);
+
+        hardlinkTrack = choice.Track;
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+
+    /// <summary>The track whose hardlink confirmation dialog is open.</summary>
+    private TrackEntity? hardlinkTrack;
+
+    private async Task ConfirmHardlink()
+    {
+        if (hardlinkTrack is not { } track) return;
+        hardlinkTrack = null;
+        await ResolveDedupNow(track, hardlinkExisting: true);
+    }
+
+    /// <summary>What the confirmation explains: the warning already names
+    /// the quality difference, so the dialog adds what linking does.</summary>
+    private static string HardlinkConfirmMessage(TrackEntity track)
+    {
+        // The dedup warning carries the quality difference; strip its
+        // "dedup conflict:" label and its own "Choose ... or ..." tail:
+        // this dialog is that choice, it does not need to repeat it.
+        var detail = track.Warning ?? "";
+        if (detail.StartsWith("dedup conflict: ", StringComparison.Ordinal))
+            detail = detail["dedup conflict: ".Length..];
+        var tail = detail.IndexOf(". Choose ", StringComparison.Ordinal);
+        if (tail > 0) detail = detail[..tail];
+        var what = detail.Length > 0
+            ? $"{char.ToUpper(detail[0])}{detail[1..]}. "
+            : "Another playlist already has this track. ";
+        return what
+            + "Hardlinking points both playlists at the same bytes on disk: no new download runs, the file keeps its current quality, and deleting one playlist's copy leaves the other in place.";
+    }
+
+    private async Task ResolveDedupNow(TrackEntity track, bool hardlinkExisting)
     {
         busy = true;
         try
         {
-            if (await Store.ResolveReviewAsync(choice.Track.Id, choice.HardlinkExisting))
+            if (await Store.ResolveReviewAsync(track.Id, hardlinkExisting))
             {
-                Notifications.Success(choice.HardlinkExisting
-                    ? $"Linked the existing file for '{choice.Track.Title}'."
-                    : $"Queued '{choice.Track.Title}' for a fresh download.");
-                if (!choice.HardlinkExisting)
-                    await Store.DownloadTrackAsync(choice.Track.Id);
+                Notifications.Success(hardlinkExisting
+                    ? $"Linked the existing file for '{track.Title}'."
+                    : $"Queued '{track.Title}' for a fresh download.");
+                if (!hardlinkExisting)
+                    await Store.DownloadTrackAsync(track.Id);
             }
             else
             {
-                Notifications.Warn($"Could not resolve '{choice.Track.Title}': the other playlist's file is gone, or it is still waiting for a quality decision. Retry the download.");
+                Notifications.Warn($"Could not resolve '{track.Title}': the other playlist's file is gone, or it is still waiting for a quality decision. Retry the download.");
             }
             await Load();
         }
@@ -999,6 +1095,15 @@ else
     private IReadOnlyList<DownloadCandidate> sourceCandidates = Array.Empty<DownloadCandidate>();
     private bool searchingSources;
     private bool downloadingCandidate;
+    /// <summary>The candidate URL currently downloading, so only its row
+    /// shows the progress state.</summary>
+    private string? downloadingCandidateUrl;
+    /// <summary>Seconds the current pick has been running, ticked while
+    /// the dialog waits so the UI never looks frozen.</summary>
+    private int downloadElapsedSeconds;
+    private CancellationTokenSource? downloadTicker;
+    /// <summary>Per-candidate failure text after a pick did not deliver.</summary>
+    private readonly Dictionary<string, string> sourceFailures = new(StringComparer.Ordinal);
     /// <summary>
     /// A search can run for minutes (every plugin has its own budget) and
     /// the dialog can be closed or reopened for another track meanwhile:
@@ -1018,7 +1123,12 @@ else
     {
         // A search still in flight must not write into a later dialog.
         sourceSearchGeneration++;
+        downloadTicker?.Cancel();
         searchingSources = false;
+        downloadingCandidate = false;
+        downloadingCandidateUrl = null;
+        sourceCandidates = Array.Empty<DownloadCandidate>();
+        sourceFailures.Clear();
         chooseSourceTrack = null;
     }
 
@@ -1030,11 +1140,26 @@ else
         var generation = ++sourceSearchGeneration;
         var trackId = track.Id;
         searchingSources = true;
+        sourceCandidates = Array.Empty<DownloadCandidate>();
+        sourceFailures.Clear();
         StateHasChanged();
         IReadOnlyList<DownloadCandidate>? candidates = null;
         try
         {
-            candidates = await Store.SearchCandidatesAsync(trackId);
+            // Providers run at the same time and each hit lands here the
+            // moment its provider answers, so the list fills in instead of
+            // staring at a spinner until the slowest plugin is done.
+            candidates = await Store.SearchCandidatesAsync(trackId, candidate =>
+            {
+                if (generation != sourceSearchGeneration || chooseSourceTrack?.Id != trackId) return;
+                _ = InvokeAsync(() =>
+                {
+                    if (generation != sourceSearchGeneration || chooseSourceTrack?.Id != trackId) return;
+                    if (sourceCandidates.Any(c => c.SourceUrl == candidate.SourceUrl)) return;
+                    sourceCandidates = sourceCandidates.Append(candidate).ToList();
+                    StateHasChanged();
+                });
+            });
         }
         finally
         {
@@ -1058,7 +1183,12 @@ else
         if (chooseSourceTrack is not { } track) return;
         var trackId = track.Id;
         downloadingCandidate = true;
+        downloadingCandidateUrl = candidate.SourceUrl;
+        downloadElapsedSeconds = 0;
         retryingTrackIds.Add(trackId);
+        downloadTicker?.Cancel();
+        downloadTicker = new CancellationTokenSource();
+        _ = TickDownloadProgressAsync(downloadTicker.Token);
         try
         {
             var result = await Store.DownloadCandidateAsync(trackId, candidate);
@@ -1074,16 +1204,57 @@ else
                     Notifications.Info("This track is already being downloaded by a running batch.");
                     break;
                 default:
+                    // Keep the dialog open with the real reason on that row:
+                    // the next pick must be an informed one.
+                    await Load();
+                    var row = playlist?.Tracks?.FirstOrDefault(t => t.Id == trackId);
+                    sourceFailures[candidate.SourceUrl] = row?.DownloadError is { Length: > 0 } error
+                        ? error
+                        : $"{candidate.PluginName} did not deliver this pick";
                     Notifications.Warn($"'{candidate.PluginName}' could not deliver '{track.Title}'. Try another result.");
                     break;
             }
-            await Load();
+            if (result == "downloaded") await Load();
         }
         finally
         {
+            downloadTicker?.Cancel();
+            downloadingCandidateUrl = null;
             downloadingCandidate = false;
             retryingTrackIds.Remove(trackId);
         }
+    }
+
+    private async Task TickDownloadProgressAsync(CancellationToken ct)
+    {
+        try
+        {
+            while (!ct.IsCancellationRequested)
+            {
+                await Task.Delay(1000, ct);
+                downloadElapsedSeconds++;
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // The pick landed or the dialog closed: nothing left to tick.
+        }
+    }
+
+    /// <summary>
+    /// The candidate length next to the original's: "same length" or the
+    /// signed difference, so a preview or a longer edit stands out before
+    /// the click. Empty when either side has no length.
+    /// </summary>
+    private static string LengthDelta(TrackEntity track, TimeSpan candidate)
+    {
+        if (track.DurationMs is not > 0) return "";
+        var delta = (int)Math.Round(
+            (candidate - TimeSpan.FromMilliseconds(track.DurationMs.Value)).TotalSeconds);
+        if (Math.Abs(delta) < 5) return "same length";
+        var abs = Math.Abs(delta);
+        return $"{(delta > 0 ? "+" : "-")}{abs / 60}:{abs % 60:00}";
     }
 
     private async Task RemoveTrack(TrackEntity track)
@@ -1304,20 +1475,33 @@ else
 
     /// <summary>The folder an empty download folder field resolves to.</summary>
     private string resolvedDefaultPlaylistPath
-        => PlaylistStore.EffectivePlaylistFolder(null, resolvedDefaultMusicPath, editName);
+        => PlaylistStore.EffectivePlaylistFolder(null, resolvedDefaultMusicPath, editName, playlistFolders);
+
+    /// <summary>The hint under the download folder field, with the path it
+    /// actually resolves to today.</summary>
+    private string DownloadFolderHint => playlistFolders
+        ? $"Leave empty to use the music path plus this playlist's own folder ({resolvedDefaultPlaylistPath}). A folder typed here is used as it is."
+        : $"Leave empty to drop this playlist's files directly in the music path ({resolvedDefaultMusicPath}). A folder typed here is used as it is.";
 
     /// <summary>The archive folder an empty archive folder field resolves to.</summary>
     private string resolvedDefaultArchiveFolder
-        => PlaylistStore.EffectiveArchiveFolder(null, resolvedDefaultArchivePath, editName);
+        => PlaylistStore.EffectiveArchiveFolder(null, resolvedDefaultArchivePath, editName, playlistFolders);
 
     private string archiveFolderPlaceholder
         => string.IsNullOrWhiteSpace(resolvedDefaultArchivePath)
-            ? "/archive-music" : resolvedDefaultArchiveFolder;
+            ? "/archive-music" : resolvedDefaultArchivePath;
 
     private string archiveFolderHint
-        => string.IsNullOrWhiteSpace(resolvedDefaultArchivePath)
-            ? "Leave empty for no archive copy."
-            : $"Leave empty to use the default archive path ({resolvedDefaultArchiveFolder}).";
+    {
+        get
+        {
+            if (string.IsNullOrWhiteSpace(resolvedDefaultArchivePath))
+                return "Leave empty for no archive copy.";
+            return playlistFolders
+                ? $"Leave empty to use the archive path plus this playlist's own folder ({resolvedDefaultArchiveFolder})."
+                : $"Leave empty to drop archive copies directly in the archive path ({resolvedDefaultArchivePath}).";
+        }
+    }
 
     /// <summary>True when an archive folder exists: the playlist's own or the app default.</summary>
     private bool HasArchiveTarget

@@ -240,7 +240,7 @@ public class SyncJobsWizardUiTests
 
     /// <summary>The target row of a media server profile on the output step.</summary>
     private static AngleSharp.Dom.IElement ProfileRow(IRenderedComponent<SyncJobs> cut, string profileName)
-        => cut.FindAll("label.choice-row").Single(l => l.TextContent.Contains(profileName));
+        => cut.FindAll("label.target-option").Single(l => l.TextContent.Contains(profileName));
 
     /// <summary>Ticks a media server profile as an additional target.</summary>
     private static void TickProfile(IRenderedComponent<SyncJobs> cut, string profileName)
@@ -264,7 +264,8 @@ public class SyncJobsWizardUiTests
         Assert.That(ProfileRow(cut, "Homelab").TextContent, Does.Contain("http://jf:8096"));
         Assert.That(ProfileRow(cut, "Homelab").TextContent, Does.Contain("Jellyfin"),
             "the row names the server kind");
-        Assert.That(cut.Markup, Does.Contain("Targets:"));
+        Assert.That(cut.FindAll(".target-summary").Single().TextContent,
+            Does.Contain("M3U file"), "the summary names the chosen targets");
         Assert.That(cut.Markup, Does.Not.Contain("http://host.docker.internal:8096"),
             "the wizard no longer offers a raw server URL");
         Assert.That(cut.Markup, Does.Not.Contain("password (not stored)"),
@@ -314,7 +315,7 @@ public class SyncJobsWizardUiTests
         Next(cut, 2); // targets step, no profiles exist
 
         // Switch the default M3U target off: nothing is left to publish to.
-        cut.FindAll("label.toggle-switch.wide")
+        cut.FindAll("label.target-option")
             .Single(l => l.TextContent.Contains("M3U file"))
             .QuerySelector("input[type='checkbox']")!.Change(false);
         Next(cut);
@@ -438,7 +439,7 @@ public class SyncJobsWizardUiTests
 
         // The job's own connection stays a ticked target, testable, and the
         // Jellyfin user stays pickable, until a profile replaces it.
-        Assert.That(cut.Markup, Does.Contain("connection saved in this job"),
+        Assert.That(cut.Markup, Does.Contain("saved in this job"),
             "the legacy target names itself");
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Test connection").Click();
         _userDirectory.Verify(
@@ -536,7 +537,7 @@ public class SyncJobsWizardUiTests
         var cut = _ctx.Render<SyncJobs>();
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Edit").Click();
         Next(cut, 2);
-        Assert.That(cut.Markup, Does.Contain("connection saved in this job"));
+        Assert.That(cut.Markup, Does.Contain("saved in this job"));
         Next(cut); // remaps
         Next(cut); // review
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Save changes").Click();
@@ -582,8 +583,8 @@ public class SyncJobsWizardUiTests
         Next(cut, 2);
 
         // Untick the saved connection, tick the profile, save.
-        cut.FindAll("label.choice-row")
-            .Single(l => l.TextContent.Contains("connection saved in this job"))
+        cut.FindAll("label.target-option")
+            .Single(l => l.TextContent.Contains("saved in this job"))
             .QuerySelector("input[type='checkbox']")!.Change(false);
         TickProfile(cut, "Homelab");
         Next(cut);

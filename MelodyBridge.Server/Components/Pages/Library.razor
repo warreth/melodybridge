@@ -58,6 +58,7 @@
             {
                 <LibraryLocationCard Location="loc"
                                      FileCount="@FileCount(loc)"
+                                     IsArchive="@IsArchivePath(loc)"
                                      Schedule="@LocationSchedule.Of(loc)"
                                      OnEdit="ShowEditLocation"
                                      OnRemove="AskRemoveLocation" />
@@ -120,6 +121,8 @@
 
 @code {
     private List<ScanLocationEntity> locations = new();
+    /// <summary>Archive roots (global plus per playlist) for the folder badge.</summary>
+    private List<string> archiveRoots = new();
     private Dictionary<int, int> filesPerLocation = new();
     private bool scanning;
     private string? scanResult;
@@ -137,6 +140,18 @@
     {
         await using var db = await DbFactory.CreateDbContextAsync();
         locations = await db.ScanLocations.ToListAsync();
+
+        // Archive roots mark folders whose files are copies, not tracks.
+        var playlistArchiveDirs = await db.Playlists.AsNoTracking()
+            .Where(p => p.ArchiveDirectory != null && p.ArchiveDirectory != "")
+            .Select(p => p.ArchiveDirectory!)
+            .ToListAsync();
+        var globalArchive = await db.DownloaderSettings.AsNoTracking()
+            .Where(s => s.Key == "archive_path")
+            .Select(s => s.Value)
+            .FirstOrDefaultAsync();
+        archiveRoots = playlistArchiveDirs;
+        if (!string.IsNullOrWhiteSpace(globalArchive)) archiveRoots.Add(globalArchive);
 
         // Files with a MELODY_ID per location: a track belongs to the folder
         // its current path lives under. Counted in memory: location paths are
@@ -158,6 +173,15 @@
 
     private int FileCount(ScanLocationEntity loc)
         => filesPerLocation.TryGetValue(loc.Id, out var n) ? n : 0;
+
+    /// <summary>A scan location inside an archive root: its files are copies,
+    /// never adopted as a track's main file.</summary>
+    private bool IsArchivePath(ScanLocationEntity loc)
+        => loc.Path is { Length: > 0 } path
+           && archiveRoots.Any(root =>
+               LocationContains(root, path)
+               || string.Equals(path.TrimEnd('/', '\\'), root.TrimEnd('/', '\\'),
+                   StringComparison.OrdinalIgnoreCase));
 
     private async Task RunScan()
     {

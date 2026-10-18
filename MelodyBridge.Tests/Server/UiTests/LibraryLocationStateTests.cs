@@ -62,6 +62,28 @@ public class LibraryLocationStateTests
         }
     }
 
+    [Test]
+    public void ScanLocationInsideAnArchiveRoot_IsMarkedAsArchiveFolder()
+    {
+        using (var db = _factory.CreateDbContext())
+        {
+            db.DownloaderSettings.Add(new DownloaderSettingEntity { Key = "archive_path", Value = "/archive" });
+            db.ScanLocations.Add(new ScanLocationEntity { Path = "/archive", LiveMonitoring = false });
+            db.SaveChanges();
+        }
+
+        var cut = _ctx.Render<Library>();
+
+        cut.WaitForAssertion(() =>
+        {
+            var card = cut.FindAll(".location-card").Single(c => c.TextContent.Contains("/archive"));
+            Assert.That(card.TextContent, Does.Contain("archive folder"),
+                "the folder is marked so its files are understood as copies");
+        }, TimeSpan.FromSeconds(5));
+        var normal = cut.FindAll(".location-card").Single(c => c.TextContent.Contains("/music/rock"));
+        Assert.That(normal.TextContent, Does.Not.Contain("archive folder"));
+    }
+
     private void OpenAddModal(IRenderedComponent<Library> cut)
     {
         cut.FindAll("button").Single(b => b.TextContent.Trim() == "Add location").Click();

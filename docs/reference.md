@@ -36,17 +36,23 @@ picked.
 
 ### Default paths
 
-- **Music path** (`/music` in the Docker image): the root for downloads. Each
-  playlist gets its own folder below it, named after the playlist, so one
-  playlist's files never mix with another's. Saving a new path moves your
-  existing library along with it.
+- **Music path** (`/music` in the Docker image): the root for downloads. With
+  **Sort downloads into a folder per playlist** on, the default, each playlist
+  gets its own folder below it named after the playlist, so one playlist's
+  files never mix with another's. Turn the toggle off and every download lands
+  directly in the music path. Saving a new path moves your existing library
+  along with it.
 - **Playlist output folder** (`/app/playlists`): where M3U files are written.
   A new sync job starts with `<folder>/<job name>.m3u`; type a different path
   in the wizard when a job should land elsewhere.
 - **Archive path** and **Archive format**: the defaults for archive copies.
   Leave the path empty for no archive. Per-playlist values override these, and
-  the playlist page shows what the app default currently is. Saving a new
-  archive path moves the existing archive copies along with it.
+  the playlist page shows what the app default currently is. Each playlist gets
+  its own folder under the archive path while the sort toggle is on. Saving a
+  new archive path moves the existing archive copies along with it.
+
+The path fields show a grey `{playlist}` suffix when the folder rule appends a
+playlist name, so what a field resolves to is visible before you save.
 
 Remember that these are paths inside the container, not on your host. The page
 shows a reminder next to the fields. Changing a path moves the tracked files,
@@ -164,11 +170,15 @@ tracks** on the Advanced page to see the file names, including
   and tracks waiting for a dedup or quality decision.
 - **Choose source** opens the manual picker: every enabled plugin's search
   results for that track, best guess first, each with the plugin name and a
-  likely/unsure pill. Use it when the automatic match picked the wrong
-  recording or found nothing; the pick downloads through the normal pipeline
-  and replaces an existing file. The automatic search refuses results it cannot
-  vouch for, so a wrong song is a miss you repair here instead of a silent
-  download.
+  likely/unsure pill. The track's own length sits at the top and every hit
+  shows its length and the difference, so a preview or a longer edit stands
+  out before the click. Plugins search at the same time and results appear as
+  they arrive; the pick itself shows a progress bar and a running timer. Use it
+  when the automatic match picked the wrong recording or found nothing; the
+  pick downloads through the normal pipeline and replaces an existing file.
+  A source that fails stays in the list with the reason, ready for another
+  pick. The automatic search refuses results it cannot vouch for, so a wrong
+  song is a miss you repair here instead of a silent download.
 - A flagged track row (wrong length or inflated bitrate) shows a **!** pill and
   two buttons: **Keep** accepts the file as it is, **Retry** downloads it again
   while skipping the provider that delivered the flagged file. The file stays
@@ -225,7 +235,9 @@ automatically.
 - The scanner reads tags, not filenames, and matches files to playlist tracks by
   their `MELODY_ID` tag, so a song you already have is never downloaded again.
   Location cards show how many files with a `MELODY_ID` they hold, the schedule,
-  the last scan, and a **path missing** pill when the folder went away.
+  the last scan, and a **path missing** pill when the folder went away. A folder
+  that sits in a configured archive path is marked **archive folder**: its files
+  are copies and are never adopted as a track's main file.
 - The **Track identity** panel on the right repeats the short version of how
   matching works. The long version is in [How it works](/concepts).
 

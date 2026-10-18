@@ -36,6 +36,10 @@ public class SourcePickerUiTests
         public int DownloadCalls { get; private set; }
         /// <summary>When set, the search waits for it: races can be staged.</summary>
         public TaskCompletionSource? SearchGate { get; set; }
+        /// <summary>When set, the download waits for it: progress is staged.</summary>
+        public TaskCompletionSource? DownloadGate { get; set; }
+        /// <summary>When true every download reports a dead source link.</summary>
+        public bool FailDownload { get; set; }
         /// <summary>Gates per requested title, for two overlapping searches.</summary>
         public Dictionary<string, TaskCompletionSource> GatesByTitle { get; } = new(StringComparer.Ordinal);
 
@@ -74,15 +78,19 @@ public class SourcePickerUiTests
                 await searchGate.Task.WaitAsync(TimeSpan.FromSeconds(10));
         }
 
-        public Task<DownloaderDownloadResult> DownloadAsync(
+        public async Task<DownloaderDownloadResult> DownloadAsync(
             string sourceUrl, string outputDirectory, string? melodyId,
             DownloadQuality? quality = null, CancellationToken ct = default)
         {
             DownloadCalls++;
+            if (DownloadGate is { } gate)
+                await gate.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            if (FailDownload)
+                return new DownloaderDownloadResult(false, null, "link expired");
             Directory.CreateDirectory(outputDirectory);
             var path = Path.Combine(outputDirectory, $"picked-{melodyId}.mp3");
             File.WriteAllBytes(path, TestAudio.MinimalMp3());
-            return Task.FromResult(new DownloaderDownloadResult(true, path, null));
+            return new DownloaderDownloadResult(true, path, null);
         }
     }
 
@@ -113,7 +121,9 @@ public class SourcePickerUiTests
                         Title = "The Real Song",
                         Artist = "The Artist",
                         Position = 0,
-                        DurationMs = 210_000,
+                        // 5:00 while the stub hit is 3:30, so the picker
+                        // shows a length comparison.
+                        DurationMs = 300_000,
                         DownloadStatus = "pending",
                     },
                 },
@@ -268,4 +278,99 @@ public class SourcePickerUiTests
                 "the replacement takes the row over");
         }, TimeSpan.FromSeconds(10));
     }
+    [Test]
+    public void Picker_ShowsTheOriginalLength_AndHowEachHitDiffers()
+    {
+        var cut = RenderPage();
+
+        cut.FindAll("button").Single(b => b.TextContent.Trim() == "Choose source").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.Markup, Does.Contain("Original 05:00"),
+                "the playlist's own length is visible for comparison");
+            Assert.That(cut.Markup, Does.Contain("-1:30"),
+                "the 3:30 hit is 1:30 shorter than the original");
+        }, TimeSpan.FromSeconds(5));
+    }
+
+    [Test]
+    public void Picker_ShowsProgressWhileAPickDownloads()
+    {
+        var gate = new TaskCompletionSource();
+        _plugin.DownloadGate = gate;
+        var cut = RenderPage();
+
+        cut.FindAll("button").Single(b => b.TextContent.Trim() == "Choose source").Click();
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.FindAll(".source-candidate"), Has.Count.EqualTo(1)), TimeSpan.FromSeconds(5));
+
+        cut.Find(".source-candidate button").Click();
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.Markup, Does.Contain("Downloading…"),
+                "the pick shows progress instead of looking frozen");
+            Assert.That(cut.FindAll(".source-progress"), Has.Count.EqualTo(1));
+        }, TimeSpan.FromSeconds(5));
+
+        gate.SetResult();
+        cut.WaitForAssertion(() =>
+        {
+            var row = cut.FindAll("tr").First(r => r.TextContent.Contains("The Real Song"));
+            Assert.That(row.TextContent, Does.Contain("downloaded"));
+            Assert.That(cut.FindAll(".source-candidate"), Is.Empty, "the dialog closes on success");
+        }, TimeSpan.FromSeconds(10));
+    }
+
+    [Test]
+    public void Picker_KeepsTheDialogOpen_AndNamesTheFailingSource()
+    {
+        _plugin.FailDownload = true;
+        var cut = RenderPage();
+
+        cut.FindAll("button").Single(b => b.TextContent.Trim() == "Choose source").Click();
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.FindAll(".source-candidate"), Has.Count.EqualTo(1)), TimeSpan.FromSeconds(5));
+
+        cut.Find(".source-candidate button").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.FindAll(".source-candidate"), Has.Count.EqualTo(1),
+                "a dead link keeps the dialog open for another pick");
+            Assert.That(cut.Markup, Does.Contain("This source failed:"),
+                "the failing row says so inline");
+            Assert.That(cut.Markup, Does.Contain("link expired"));
+        }, TimeSpan.FromSeconds(10));
+    }
+
+    [Test]
+    public void HardlinkButton_AsksForConfirmationBeforeLinking()
+    {
+        using (var db = new TestSqliteFactory(_dbPath).CreateDbContext())
+        {
+            var row = db.Tracks.Single();
+            row.DownloadStatus = "needs-review";
+            row.Warning = "dedup conflict: playlist wants flac, any bitrate, existing file is opus, different from this playlist's target. Choose hardlink existing or download new.";
+            db.SaveChanges();
+        }
+
+        var cut = RenderPage();
+        cut.FindAll("button").Single(b => b.TextContent.Trim() == "Hardlink existing").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            var dialog = cut.FindAll(".confirm-modal").Single();
+            Assert.That(dialog.TextContent, Does.Contain("same bytes on disk"),
+                "the dialog explains what a hardlink does before it runs");
+            Assert.That(dialog.TextContent, Does.Not.Contain("dedup conflict:"),
+                "the raw warning label is not repeated inside the dialog");
+        }, TimeSpan.FromSeconds(5));
+
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Cancel").Click();
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.FindAll(".confirm-modal"), Is.Empty),
+            TimeSpan.FromSeconds(5));
+    }
+
 }

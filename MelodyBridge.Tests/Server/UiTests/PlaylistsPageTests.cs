@@ -357,4 +357,27 @@ public class PlaylistsPageTests
     public Task<string> GetConfigAsync(string id, string key, CancellationToken ct = default) => Task.FromResult("");
     public Task SetConfigAsync(string id, string key, string? value, CancellationToken ct = default) => Task.CompletedTask;
     }
+    [Test]
+    public void Playlists_RowsToggle_RendersCompactRows_AndPersists()
+    {
+        SeedOnePlaylist("Test Mix", 12, Platform.Spotify);
+        var cut = _ctx.Render<Playlists>();
+
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.FindAll(".panel-card"), Is.Not.Empty), TimeSpan.FromSeconds(5));
+
+        cut.FindAll(".view-chip").Single(b => b.TextContent.Contains("Rows")).Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.FindAll(".playlist-row"), Has.Count.EqualTo(1),
+                "the compact row replaces the card");
+            Assert.That(cut.FindAll(".panel-card"), Is.Empty);
+        }, TimeSpan.FromSeconds(5));
+
+        using var db = new SqliteFactory(_dbPath).CreateDbContext();
+        Assert.That(db.DownloaderSettings.Any(s => s.Key == "playlists_view" && s.Value == "rows"),
+            Is.True, "the choice sticks for the next visit");
+    }
+
 }

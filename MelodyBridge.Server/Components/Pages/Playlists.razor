@@ -25,6 +25,16 @@
         <p>Save a public Spotify or YouTube playlist here, or import from your account or an export file.</p>
     </div>
     <div class="topbar-actions">
+        <div class="view-switch" role="group" aria-label="Playlist layout">
+            <button class="view-chip @(playlistsView == "cards" ? "on" : null)" title="Card view"
+                    @onclick='() => SetPlaylistsView("cards")' >
+                <Icon Name="layout-grid" Size="15" /> <span>Cards</span>
+            </button>
+            <button class="view-chip @(playlistsView == "rows" ? "on" : null)" title="Compact rows"
+                    @onclick='() => SetPlaylistsView("rows")' >
+                <Icon Name="rows" Size="15" /> <span>Rows</span>
+            </button>
+        </div>
         <button class="btn-modern ghost" @onclick="ShowAccountPanel">Import</button>
         <button class="btn-modern primary" @onclick="ShowAddForm">Add playlist</button>
     </div>
@@ -42,6 +52,78 @@
 else if (playlists.Count == 0)
 {
     <EmptyState IconName="list-music" Title="No playlists yet">Paste a public Spotify or YouTube playlist link to save its tracks locally.</EmptyState>
+}
+else if (playlistsView == "rows")
+{
+    <section class="playlist-rows">
+        @foreach (var playlist in playlists)
+        {
+            var (downloaded, failed, total, sizeBytes) = downloadStats.GetValueOrDefault(playlist.Id, (0, 0, 0, 0));
+            var run = Coordinator.RunFor(playlist.Id);
+            <div class="playlist-row">
+                <a class="playlist-row-link" href="/playlists/@playlist.Id" title="Open @playlist.Name">
+                    <span class="playlist-row-cover">
+                        @if (!string.IsNullOrEmpty(playlist.CoverImageUrl))
+                        {
+                            <img src="@playlist.CoverImageUrl" alt="@playlist.Name" loading="lazy" />
+                        }
+                        else
+                        {
+                            <Icon Name="music" Size="18" />
+                        }
+                    </span>
+                    <span class="playlist-row-main">
+                        <strong>@playlist.Name</strong>
+                        <small>
+                            @(playlist.IsManualImport ? "Imported" : playlist.SourcePlatform.ToString())
+                            · @playlist.TrackCount track@(playlist.TrackCount == 1 ? "" : "s")
+                            @if (!string.IsNullOrEmpty(playlist.Owner))
+                            {
+                                <span> · by @playlist.Owner</span>
+                            }
+                        </small>
+                    </span>
+                    <span class="playlist-row-state">
+                        @if (run is { State: Application.Services.DownloadRunState.Running })
+                        {
+                            <StatusPill Variant="warn">@run.Percent% downloading</StatusPill>
+                        }
+                        else if (run is { State: Application.Services.DownloadRunState.Paused })
+                        {
+                            <StatusPill Variant="warn">paused</StatusPill>
+                        }
+                        else if (downloaded == total && total > 0)
+                        {
+                            <StatusPill Variant="ok">complete</StatusPill>
+                        }
+                        else if (downloaded > 0)
+                        {
+                            <StatusPill Variant="neutral">@downloaded/@total</StatusPill>
+                        }
+                        else
+                        {
+                            <StatusPill Variant="neutral">not downloaded</StatusPill>
+                        }
+                        @if (playlist.SyncWarning is { Length: > 0 })
+                        {
+                            <StatusPill Variant="warn" Title="@playlist.SyncWarning">partial</StatusPill>
+                        }
+                    </span>
+                    <span class="playlist-row-meta">
+                        @if (sizeBytes > 0)
+                        {
+                            <span>@TrackDisplay.Size(sizeBytes)</span>
+                        }
+                        <span>@(playlist.LastSyncAt?.ToLocalTime().ToString("d") ?? "never")</span>
+                    </span>
+                </a>
+                <CardMenu Label="Playlist actions">
+                    <button class="danger" title="Remove this playlist"
+                            @onclick="() => AskDelete(playlist)"><Icon Name="trash" Size="14" /> Remove</button>
+                </CardMenu>
+            </div>
+        }
+    </section>
 }
 else
 {
@@ -142,7 +224,7 @@ else
                     <label class="wide">
                         Download folder (optional)
                         <input @bind="newTargetDirectory" placeholder="@resolvedDefaultMusicPath" />
-                        <small class="text-muted">Leave empty to use the default music path (currently @resolvedDefaultMusicPath).</small>
+                        <small class="text-muted">@newFolderHint</small>
                     </label>
                     <div class="quality-field wide">
                         <QualityPicker @bind-Value="newQuality" />
@@ -389,6 +471,10 @@ else
 
     private string newUrl = string.Empty;
     private string newTargetDirectory = string.Empty;
+    /// <summary>Card grid or compact rows, kept in settings across visits.</summary>
+    private string playlistsView = "cards";
+    /// <summary>One folder per playlist under the music path (default on).</summary>
+    private bool playlistFolders = true;
     private string resolvedDefaultMusicPath = "/music";
     private string newQuality = "auto";
     private ScanSchedule newSchedule = ScanSchedule.Manual;
@@ -469,11 +555,35 @@ else
     /// must not rewrite itself while the user changes the picker.</summary>
     private string savedDefaultQualityLabel = "auto";
 
+    /// <summary>
+    /// The import dialog's order: the account's own playlists first, then
+    /// alphabetical. Public for the ordering test.
+    /// </summary>
+    public static IEnumerable<UserPlaylist> OrderImportList(IEnumerable<UserPlaylist> playlists)
+        => playlists
+            .OrderByDescending(p => p.IsOwned)
+            .ThenBy(p => p.Name, StringComparer.CurrentCultureIgnoreCase);
+
+    /// <summary>What an empty download folder resolves to for a new playlist.</summary>
+    private string newFolderHint => playlistFolders
+        ? $"Leave empty to use the default music path; this playlist gets its own folder there ({resolvedDefaultMusicPath}/playlist name)."
+        : $"Leave empty to drop the files directly in the default music path ({resolvedDefaultMusicPath}).";
+
+    private async Task SetPlaylistsView(string view)
+    {
+        if (playlistsView == view) return;
+        playlistsView = view;
+        await Settings.SetAsync("playlists_view", view);
+    }
+
     protected override async Task OnInitializedAsync()
     {
         await Load();
         await LoadDefaultQualityAsync();
         resolvedDefaultMusicPath = await Settings.GetAsync("music_path", "/music");
+        playlistFolders = await Settings.GetBoolAsync("playlist_folders", true);
+        playlistsView = await Settings.GetAsync("playlists_view", "cards");
+        if (playlistsView is not ("cards" or "rows")) playlistsView = "cards";
         // Live badge refresh while any run is active.
         refreshTimer = new Timer(_ => InvokeAsync(async () =>
         {
@@ -552,7 +662,7 @@ else
         {
             var account = providerName == SpotifyAccountProvider.ProviderName
                 ? SpotifyAccount : (IAccountSourceProvider)YouTubeAccount;
-            accountPlaylists = (await account.GetUserPlaylistsAsync()).ToList();
+            accountPlaylists = OrderImportList(await account.GetUserPlaylistsAsync()).ToList();
             accountListProvider = providerName;
             // Already-saved playlists get their pill and an Update label;
             // the same platform + external id pair a re-import updates.

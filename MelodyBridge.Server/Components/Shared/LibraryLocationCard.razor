@@ -9,6 +9,13 @@
         {
             <StatusPill Variant="err">path missing</StatusPill>
         }
+        @if (IsArchive)
+        {
+            <StatusPill Variant="warn"
+                        Title="Archive copies live here. The scanner reads the tags but never adopts one as a track's main file.">
+                archive folder
+            </StatusPill>
+        }
         <small class="location-meta">
             <span>@FileCount files with MELODY_ID</span>
             <span>@ScheduleText</span>
@@ -28,6 +35,8 @@
 @code {
     [Parameter, EditorRequired] public ScanLocationEntity Location { get; set; } = null!;
     [Parameter] public int FileCount { get; set; }
+    /// <summary>True when the location sits inside a configured archive root.</summary>
+    [Parameter] public bool IsArchive { get; set; }
     /// <summary>Pass the resolved schedule so the card never parses the row twice.</summary>
     [Parameter, EditorRequired] public ScanSchedule Schedule { get; set; }
     [Parameter] public EventCallback<ScanLocationEntity> OnEdit { get; set; }

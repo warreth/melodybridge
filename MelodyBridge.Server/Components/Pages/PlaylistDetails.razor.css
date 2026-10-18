@@ -87,3 +87,115 @@
 ::deep .source-candidate-main small {
     color: var(--muted);
 }
+
+/* Source picker: original length, live results and per-pick progress. */
+.source-picker-title { min-width: 0; }
+.source-original {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: .35rem .6rem;
+    margin: .15rem 0 0;
+    color: var(--muted);
+    font-size: .85rem;
+}
+.source-length { font-variant-numeric: tabular-nums; }
+.source-original .source-length {
+    padding: .1rem .5rem;
+    border-radius: 999px;
+    background: var(--surface-3);
+    color: inherit;
+}
+.source-searching {
+    display: flex;
+    align-items: center;
+    gap: .55rem;
+    color: var(--muted);
+    font-size: .9rem;
+}
+.spinner {
+    flex: 0 0 auto;
+    width: 14px;
+    height: 14px;
+    border: 2px solid var(--border-strong);
+    border-top-color: var(--accent-strong);
+    border-radius: 50%;
+    animation: mb-spin .8s linear infinite;
+}
+@keyframes mb-spin { to { transform: rotate(360deg); } }
+.source-progress {
+    height: 3px;
+    margin: 0 1.25rem;
+    overflow: hidden;
+    border-radius: 999px;
+    background: var(--surface-3);
+}
+.source-progress span {
+    display: block;
+    width: 35%;
+    height: 100%;
+    border-radius: 999px;
+    background: var(--accent-strong);
+    animation: mb-slide 1.2s ease-in-out infinite;
+}
+@keyframes mb-slide {
+    0% { transform: translateX(-120%); }
+    100% { transform: translateX(320%); }
+}
+::deep .source-candidate.busy { border-color: var(--accent-strong); background: var(--accent-soft); }
+.source-delta {
+    margin-left: .35rem;
+    padding: .05rem .4rem;
+    border-radius: 999px;
+    background: var(--surface-3);
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+}
+.source-downloading {
+    display: flex;
+    align-items: center;
+    gap: .4rem;
+    white-space: nowrap;
+    color: var(--accent-text);
+    font-size: .85rem;
+}
+::deep .source-failure { display: block; margin-top: .15rem; color: var(--danger); }
+
+/* Folder fields with the grey {playlist name} suffix the rule appends. */
+.path-field { display: flex; align-items: center; gap: .5rem; min-width: 0; }
+.path-field input { flex: 1; min-width: 0; }
+.path-suffix {
+    flex: 0 0 auto;
+    color: var(--muted);
+    font-size: .85rem;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+/* Folder fields with the grey {playlist name} suffix the rule appends. */
+.path-field { display: flex; align-items: center; gap: .5rem; min-width: 0; }
+.path-field input { flex: 1; min-width: 0; }
+.path-suffix {
+    flex: 0 0 auto;
+    color: var(--muted);
+    font-size: .85rem;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+/* The picker must never touch the viewport edges, and on a phone each
+   candidate wraps its pills and button under the title instead of
+   pushing them off the screen. */
+.source-picker-modal {
+    width: min(720px, calc(100vw - 2rem));
+}
+@media (max-width: 640px) {
+    ::deep .source-candidate {
+        flex-wrap: wrap;
+        align-items: flex-start;
+    }
+    ::deep .source-candidate-main { flex: 1 1 100%; }
+    ::deep .source-candidate .btn-modern { margin-left: auto; }
+    .source-downloading { margin-left: auto; }
+    .source-picker-title p { overflow-wrap: anywhere; }
+}

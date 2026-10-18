@@ -138,10 +138,15 @@ all, so for those the ranking rules above are the whole gate.
 When the automatic match is wrong or finds nothing, every track row has a
 **Choose source** button: the manual picker lists what every enabled plugin
 found, including the hits the automatic search refused, each with its plugin
-name and a likely/unsure pill. Picking one downloads it through the normal
+name and a likely/unsure pill. The track's own length sits at the top and every
+hit shows its length with the difference, so a preview or a longer edit stands
+out. The plugins search at the same time, results appear as each one answers
+instead of waiting for the slowest, and a pick shows a progress bar and a
+running timer while it downloads. Picking one downloads it through the normal
 pipeline, files and archive copy included, and replaces whatever the row held
-before. Automatic matching cannot be perfect on sources that carry no ISRC and
-no trustworthy artist name; the picker is the honest way out of that.
+before; a source that fails stays in the list with the reason. Automatic
+matching cannot be perfect on sources that carry no ISRC and no trustworthy
+artist name; the picker is the honest way out of that.
 
 <img src="/screens/plugins.webp" alt="Plugins page with the waterfall order, capability badges and live downloads" width="800">
 
@@ -313,7 +318,10 @@ removed, a folder with anything else in it stays.
 
 Type a folder on the playlist page to override the location. A folder you type
 is used as it is; leave the field empty and the default music path plus the
-playlist folder applies.
+playlist folder applies. A grey `{playlist}` suffix next to the field shows
+when the playlist folder is what gets appended, and **Sort downloads into a
+folder per playlist** under Settings turns the per-playlist folders off for a
+flat library.
 
 ## Duplicate tracks <Badge type="tip" text="Optional" />
 
@@ -326,7 +334,9 @@ the same `MELODY_ID` is already sitting in another playlist folder:
   folders stay normal folders with normal files in them.
 - **Different quality.** Nothing is guessed. The track pauses as **needs
   review** with two buttons: **Download new** fetches a fresh file in this
-  playlist's quality, **Hardlink existing** accepts the other file as-is.
+  playlist's quality, **Hardlink existing** asks for confirmation first and
+  then accepts the other file as-is. The dialog names the quality difference
+  and explains that both playlists will share the same bytes.
 - **Different drive.** A hard link only works within one filesystem. When the
   folders sit on different drives the track simply downloads the normal way; a
   copy pretending to be a link is never used.
@@ -355,7 +365,11 @@ AAC files. Or the other way around, your call.
 Set an archive folder and format on the playlist page (**Archive copy**), or set
 the defaults under **Settings, Default paths**. Each playlist has its own folder
 under the archive path (`/archive/My Summer Hits/...`), and the playlist's format
-select says what the app default currently does. The switch on the playlist page
+select says what the app default currently does. Archive folders are never
+mistaken for a track's main file: a library scan skips them and a scan that finds
+one already pointed at by a row clears that pointer. Downloading a track again
+replaces its old file and its old archive copy, so a retry cannot leave orphaned
+bytes behind. The switch on the playlist page
 turns the copy off for that playlist: the folder and format fields disappear, and
 no copy is made, even when an app-wide archive path is set.
 
