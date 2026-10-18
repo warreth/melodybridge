@@ -118,28 +118,43 @@ Advanced page.
 Matching uses more than the title. Search results are ranked on title and artist
 similarity with a penalty for duration drift, so a live version or a radio edit
 loses against the studio track. Candidates that carry an unrequested modifier
-(karaoke, cover, remix, live cut and the like) are dropped before they can win,
-and the playlist's own duration is re-checked against the hit before any bytes
-are downloaded.
+(karaoke, cover, remix, live cut, review and the like) are dropped before they
+can win, a version marker the playlist asks for must be present in the hit
+("(VIP)", "(Acoustic)"), and a hit that is not a plausible version of the track
+at all is a miss: it is never downloaded just because it was the best of five.
+The playlist's own duration is re-checked against the hit before any bytes are
+downloaded.
 
 The strongest signal is the ISRC, the recording's international audio
-fingerprint. Spotify accounts provide it for their tracks; for everything else
-MelodyBridge looks it up through Deezer's public search and only accepts a
-confident, duration-plausible match. Sources that index ISRCs (the Qobuz-backed
-ones) search by that code first, which is how messy titles still land on the
-exact recording.
+fingerprint. Spotify accounts provide it for their tracks, liked songs and
+playlists alike; for everything else MelodyBridge looks it up through Deezer's
+public search and only accepts a confident, duration-plausible match. Sources
+that index ISRCs (the Qobuz-backed ones) search by that code first, which is how
+messy titles still land on the exact recording. YouTube and SoundCloud do not
+index ISRCs, so for those the ranking rules above are the whole gate.
+
+When the automatic match is wrong or finds nothing, every track row has a
+**Choose source** button: the manual picker lists what every enabled plugin
+found, including the hits the automatic search refused, each with its plugin
+name and a likely/unsure pill. Picking one downloads it through the normal
+pipeline, files and archive copy included, and replaces whatever the row held
+before. Automatic matching cannot be perfect on sources that carry no ISRC and
+no trustworthy artist name; the picker is the honest way out of that.
 
 <img src="/screens/plugins.webp" alt="Plugins page with the waterfall order, capability badges and live downloads" width="800">
 
 ### Cover art and lyrics
 
-A downloaded file gets what the source really knows. Spotify accounts, Deezer
-playlists and ListenBrainz playlists carry a cover URL, so the artwork is
-embedded after the download unless the plugin already wrote its own. Lyrics
-come from LRCLIB, one lookup per track, stored on the row and written as the
-lyrics tag. Both are best effort: a dead cover URL or a missed lyric leaves the
-file exactly as it was, and neither can fail a download. The Advanced page can
-fill the same fields on files that were downloaded before this existed.
+A downloaded file gets what the source really knows. Spotify accounts (liked
+songs included), Deezer playlists and ListenBrainz playlists carry a cover URL
+and the album, so the artwork is embedded and the album tag written unless the
+plugin already wrote its own. The album tag is what a media server groups on:
+files without one fall back to their folder, which is why a playlist full of
+YouTube rips shows up as one album. Lyrics come from LRCLIB, one lookup per
+track, stored on the row and written as the lyrics tag. All of it is best
+effort: a dead cover URL or a missed lyric leaves the file exactly as it was,
+and none of it can fail a download. The Advanced page can fill the same fields
+on files that were downloaded before this existed.
 
 ## Quality checks
 

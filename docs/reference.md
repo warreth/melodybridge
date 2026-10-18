@@ -162,14 +162,23 @@ tracks** on the Advanced page to see the file names, including
 
 - The filter box narrows the list; **Needs attention** shows only failed tracks
   and tracks waiting for a dedup or quality decision.
+- **Choose source** opens the manual picker: every enabled plugin's search
+  results for that track, best guess first, each with the plugin name and a
+  likely/unsure pill. Use it when the automatic match picked the wrong
+  recording or found nothing; the pick downloads through the normal pipeline
+  and replaces an existing file. The automatic search refuses results it cannot
+  vouch for, so a wrong song is a miss you repair here instead of a silent
+  download.
 - A flagged track row (wrong length or inflated bitrate) shows a **!** pill and
   two buttons: **Keep** accepts the file as it is, **Retry** downloads it again
   while skipping the provider that delivered the flagged file. The file stays
   in the library until you decide. See
   [the quality review](/concepts#the-quality-review).
-- **Remove** takes a row out of the playlist. For a downloaded track the dialog
-  asks what happens to the files: keep them on disk, or delete the download
-  and its archive copy too. Tracks without a file leave right away.
+- **Remove** opens three choices for a downloaded track: remove it from the
+  playlist but keep the file, delete the file and its archive copy but keep the
+  track (it goes back to pending for a later download, handy after a wrong
+  match), or delete the file and remove the track. Tracks without a file leave
+  right away.
 - **Export CSV** downloads the whole track list as a spreadsheet.
 - **Refresh** fetches the playlist again and applies the sync mode.
 - **Download missing** starts a download run. While one is live, the button is

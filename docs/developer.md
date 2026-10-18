@@ -138,6 +138,11 @@ archive) and `PlaylistTransfer` (JSON and CSV export/import). `PlaylistRules`
 holds the pure rules they share. New behaviour belongs in the service that owns
 it; the facade keeps its public surface so pages and tests do not move.
 
+A plugin that can list more than its ranked winner overrides
+`SearchAllAsync` (the yt-dlp backed ones do): the manual source picker shows
+those raw candidates, so a hit the ranker refused stays reachable for a human.
+The default returns the ranked hit plus its alternatives.
+
 Implement this to add a download source. Built-in plugins:
 
 | Plugin | Id | Source | Notes |
@@ -202,11 +207,25 @@ public interface IDownloadManager
     Task<string?> DownloadAsync(string sourceUrl, string outputDirectory, string melodyId, CancellationToken ct = default);
     Task<string?> DownloadTrackAsync(TrackQuery query, string outputDirectory, string melodyId,
         DownloadFallback? fallback = null, string? avoidPluginId = null, CancellationToken ct = default);
+    Task<IReadOnlyList<DownloadCandidate>> SearchCandidatesAsync(
+        TrackQuery query, CancellationToken ct = default);
+    Task<string?> DownloadCandidateAsync(DownloadCandidate candidate, TrackQuery query,
+        string outputDirectory, string melodyId, CancellationToken ct = default);
     IReadOnlyList<DownloadProgress> SnapshotProgress();
     string? LastPluginId(string melodyId);
     string? LastFailure(string melodyId);
 }
 ```
+
+`SearchCandidatesAsync` and `DownloadCandidateAsync` are the manual picker's
+pair: the search runs every enabled plugin's `SearchAllAsync` with no
+acceptance gate and no quality routing (guarded per plugin, best first), and
+the download fetches exactly the picked candidate. The pick overrides the
+ranking, never the sanity: bytes must sniff as audio and the MELODY_ID tag is
+written. `DownloadPipeline.DownloadChosenTrackAsync` wraps it with the usual
+claim and the shared post-download steps (`CompleteDownloadAsync`: tags,
+integrity, enrichment, archive), deletes the row's old primary and archive
+name-wise first, and refuses when those cannot go.
 
 `DownloadTrackAsync` routes the enabled plugins through `QualityRouter` first: incompatible plugins are excluded before any network call, survivors are ranked for the request, and the first successful download wins. Without a fallback policy the request is strict: exactly the requested quality or nothing. With a `DownloadFallback` (a non-strict playlist) a miss walks the `QualityLadder`, stepping down through the levels the enabled plugins declare. Every plugin call is individually guarded (a plugin that throws on availability, search or download is skipped, never fatal), each hit is duration-checked before any bytes are spent, and each produced file must sniff as real audio. When every plugin is excluded the track fails fast with "your quality filters excluded every plugin". On success the manager writes the MELODY_ID tag and records `LastPluginId` for the retry path. `DownloadAsync` passes a direct URL to the plugins that can handle it.
 
@@ -352,10 +371,12 @@ leaves a mismatch pending.
 Deletion is name-wise by hard link semantics: removing one playlist's
 row removes that playlist's file name only, and both `RemoveTrackAsync`
 and `DeleteAsync` keep any path another row still references (primary
-and archive paths both count). The per-track remove
-dialog on the playlist page picks between "remove from the playlist" and
-"delete the files too"; the latter takes the primary download and its
-archive copy. No central pool exists; playlist folders stay standard.
+and archive paths both count). The per-track remove dialog on the
+playlist page picks between "remove from the playlist", "delete the
+file but keep the track" (`DeleteTrackFilesAsync`: the files go, the row
+resets to pending) and "delete the file and remove the track"; the latter
+takes the primary download and its archive copy. No central pool exists;
+playlist folders stay standard.
 
 The setting `dedup_enabled` (default on) toggles the whole feature from
 the Advanced page. `Tracks.MelodyId` carries a plain (non-unique) index:
