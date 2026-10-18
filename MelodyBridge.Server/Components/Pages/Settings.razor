@@ -1162,6 +1162,14 @@ else if (activeTab == "about")
                 Notifications.Warn(
                     $"Settings saved. Moved {move.Files} file(s); {move.FailedFiles} kept their old path because the destination was taken.");
             }
+            else if (move.MusicMoveRefused || move.ArchiveMoveRefused)
+            {
+                // The hint promises the library moves; when the new root
+                // sits inside the old one, nothing can move. Say so.
+                Notifications.Warn(move.Files > 0
+                    ? $"Settings saved. Moved {move.Files} file(s), but the rest was not moved: the new folder sits inside the old one (or the other way around). Pick a folder outside the current one; existing playlists keep using their current folder."
+                    : "Settings saved, but the library was not moved: the new folder sits inside the old one (or the other way around). Pick a folder outside the current one to move the library; existing playlists keep using their current folder.");
+            }
             else if (move.MovedAnything)
             {
                 Notifications.Success(

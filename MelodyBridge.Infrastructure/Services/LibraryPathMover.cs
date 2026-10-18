@@ -8,9 +8,11 @@ namespace MelodyBridge.Infrastructure.Services;
 /// <summary>What one settings save moved: files relocated, and the rows
 /// (playlists, scan locations) that followed the new root. Failed files
 /// kept their old path when a destination was already taken or a move
-/// went wrong.</summary>
+/// went wrong. A refused change (the new root sits inside the old one, or
+/// the other way around) moves nothing and says so.</summary>
 public readonly record struct LibraryMoveResult(
-    int Files, int FailedFiles, int Playlists, int ScanLocations)
+    int Files, int FailedFiles, int Playlists, int ScanLocations,
+    bool MusicMoveRefused = false, bool ArchiveMoveRefused = false)
 {
     public bool MovedAnything => Files > 0 || Playlists > 0 || ScanLocations > 0;
 }
@@ -43,6 +45,10 @@ public sealed class LibraryPathMover
     {
         var moveMusic = FileRelocator.CanMove(oldMusicPath, newMusicPath);
         var moveArchive = FileRelocator.CanMove(oldArchivePath, newArchivePath);
+        // A nested root change moves nothing: report it so the settings
+        // page can say so instead of promising a move that never happened.
+        var refusedMusic = !moveMusic && IsNestedChange(oldMusicPath, newMusicPath);
+        var refusedArchive = !moveArchive && IsNestedChange(oldArchivePath, newArchivePath);
 
         var files = 0;
         var failed = 0;
@@ -53,7 +59,11 @@ public sealed class LibraryPathMover
 
         // Files: every tracked path that sat under an old root moves to the
         // same relative spot under the new root. A shared path moves once,
-        // and every row pointing at it follows.
+        // and every row pointing at it follows. Progress is persisted in
+        // small batches: a crash mid-pass then leaves at most the last
+        // batch unrecorded (a few re-downloads) instead of the whole
+        // library while the files are already gone from the old root.
+        const int SaveEveryMoves = 20;
         if (moveMusic || moveArchive)
         {
             var moved = new Dictionary<string, string>(FileRelocator.PathComparer);
@@ -61,9 +71,11 @@ public sealed class LibraryPathMover
                 .Where(t => t.CurrentPath != null || t.ArchivePath != null)
                 .ToListAsync(ct);
 
+            var pendingMoves = 0;
             foreach (var track in tracks)
             {
                 ct.ThrowIfCancellationRequested();
+                var movedBefore = files;
                 if (moveMusic && track.CurrentPath is { Length: > 0 } primary
                     && Relocate(primary, oldMusicPath!, newMusicPath!, moved, ref files, ref failed) is { } newPrimary)
                 {
@@ -73,6 +85,13 @@ public sealed class LibraryPathMover
                     && Relocate(archive, oldArchivePath!, newArchivePath!, moved, ref files, ref failed) is { } newArchive)
                 {
                     track.ArchivePath = newArchive;
+                }
+
+                pendingMoves += files - movedBefore;
+                if (pendingMoves >= SaveEveryMoves)
+                {
+                    await db.SaveChangesAsync(ct);
+                    pendingMoves = 0;
                 }
             }
         }
@@ -127,9 +146,24 @@ public sealed class LibraryPathMover
                 "Library move {Old} -> {New}: {Files} file(s) moved ({Failed} failed), {Playlists} playlist(s), {Locations} scan location(s)",
                 oldMusicPath, newMusicPath, files, failed, playlists, scanLocations);
         }
+        if (refusedMusic || refusedArchive)
+        {
+            _logger.LogWarning(
+                "Library move refused: the new root sits inside the old one (music: {OldMusic} -> {NewMusic}, archive: {OldArchive} -> {NewArchive})",
+                oldMusicPath, newMusicPath, oldArchivePath, newArchivePath);
+        }
 
-        return new LibraryMoveResult(files, failed, playlists, scanLocations);
+        return new LibraryMoveResult(
+            files, failed, playlists, scanLocations, refusedMusic, refusedArchive);
     }
+
+    /// <summary>True when both roots are given, differ, and one sits inside
+    /// the other: a move that would be ambiguous and is refused.</summary>
+    private static bool IsNestedChange(string? oldRoot, string? newRoot)
+        => !string.IsNullOrWhiteSpace(oldRoot)
+           && !string.IsNullOrWhiteSpace(newRoot)
+           && !FileRelocator.PathsEqual(oldRoot, newRoot)
+           && (FileRelocator.IsUnder(newRoot, oldRoot) || FileRelocator.IsUnder(oldRoot, newRoot));
 
     /// <summary>Moves one file into the new root; returns its new path, or
     /// null when it was not under the old root or could not move.</summary>

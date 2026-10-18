@@ -80,6 +80,7 @@ public class LibraryPathMoverTests
         Assert.That(result.Files, Is.EqualTo(1));
         Assert.That(result.Playlists, Is.EqualTo(1));
         Assert.That(result.ScanLocations, Is.EqualTo(1));
+        Assert.That(result.MusicMoveRefused, Is.False, "a normal move is not refused");
         Assert.That(File.Exists(file), Is.False, "the old name is gone");
         Assert.That(File.Exists(expected), Is.True, "the file lands at the same relative spot");
         Assert.That(File.ReadAllText(expected), Is.EqualTo("audio bytes"));
@@ -239,6 +240,8 @@ public class LibraryPathMoverTests
         var result = await NewMover().MoveAsync(oldRoot, nested, null, null);
 
         Assert.That(result.Files, Is.EqualTo(0), "moving a root inside itself is ambiguous and refused");
+        Assert.That(result.MusicMoveRefused, Is.True,
+            "a refused change must be reported, or the settings page promises a move that never happens");
         Assert.That(result.Playlists, Is.EqualTo(0),
             "a refused move must not leave folders pointing at a tree that was never relocated");
         Assert.That(result.ScanLocations, Is.EqualTo(0));
