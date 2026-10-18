@@ -3,6 +3,7 @@ using MelodyBridge.Infrastructure.Data;
 using MelodyBridge.Infrastructure.Scanning;
 using MelodyBridge.Infrastructure.Services;
 using MelodyBridge.Infrastructure.Tagging;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace MelodyBridge.Tests.Infrastructure;
@@ -349,5 +350,109 @@ public class LibraryReconcilerTests
         await using var db = _factory.CreateDbContext();
         Assert.That(db.Tracks.First(t => t.MelodyId == "mb-recon-clash").CurrentPath,
             Is.EqualTo(loose), "the row keeps the path that still holds its file");
+    }
+
+    // ── Shared paths: one physical move, every row follows ──────────
+
+    /// <summary>Two playlists on the same base, each holding a row for the
+    /// same track pointing at the same files (the v1.1.1 shared-folder
+    /// layout: same music path, dedup stored the same path twice).</summary>
+    private async Task SeedSharedRowsAsync(string melodyId, string primary, string? archive)
+    {
+        await using var db = _factory.CreateDbContext();
+        foreach (var (id, name) in new[] { ("pl-a", "Playlist A"), ("pl-b", "Playlist B") })
+        {
+            db.Playlists.Add(new PlaylistEntity
+            {
+                Id = id,
+                Name = name,
+                SourceUrl = "stub:" + id,
+                TargetDirectory = _dir,
+                Tracks = new List<TrackEntity>
+                {
+                    new()
+                    {
+                        MelodyId = melodyId,
+                        Title = "Shared",
+                        Artist = "A",
+                        Position = 0,
+                        DownloadStatus = "downloaded",
+                        CurrentPath = primary,
+                        ArchivePath = archive,
+                    },
+                },
+            });
+        }
+        await db.SaveChangesAsync();
+    }
+
+    [Test]
+    public async Task SharedPrimaryPath_MovesOnce_AndStaysPutAcrossPasses()
+    {
+        var loose = WriteTaggedFile("", "mb-shared-primary");
+        await SeedSharedRowsAsync("mb-shared-primary", loose, null);
+
+        var reconciler = new LibraryReconciler(
+            _factory, NullLogger<LibraryReconciler>.Instance, OldLayoutSettings());
+        await reconciler.ReconcileAllAsync();
+
+        var expected = Path.Combine(_dir, "Playlist A", "mb-shared-primary.mp3");
+        await using (var db = _factory.CreateDbContext())
+        {
+            var paths = db.Tracks.AsNoTracking().Select(t => t.CurrentPath).ToList();
+            Assert.That(paths, Is.All.EqualTo(expected),
+                "both rows follow the one physical move");
+        }
+        Assert.That(File.Exists(expected), Is.True);
+        Assert.That(File.Exists(loose), Is.False);
+
+        // Repeated passes must not rename the same file between the two
+        // playlist folders; without the shared-path rule each pass moved it
+        // to the other playlist and left one row pointing at nothing.
+        await reconciler.ReconcileAllAsync();
+        await reconciler.ReconcileAllAsync();
+
+        await using (var db = _factory.CreateDbContext())
+        {
+            Assert.That(db.Tracks.AsNoTracking().Select(t => t.CurrentPath),
+                Is.All.EqualTo(expected), "the path is stable across passes");
+        }
+        Assert.That(Directory.GetFiles(_dir, "mb-shared-primary.mp3", SearchOption.AllDirectories),
+            Has.Length.EqualTo(1), "one file, not a growing set of renames");
+    }
+
+    [Test]
+    public async Task SharedArchivePath_MovesOnce_AndStaysPutAcrossPasses()
+    {
+        var primary = WriteTaggedFile("", "mb-shared-archive");
+        var looseArchive = Path.Combine(_dir, "arc", "mb-shared-archive.flac");
+        Directory.CreateDirectory(Path.GetDirectoryName(looseArchive)!);
+        File.Copy(RealMp3(), looseArchive);
+
+        await SeedSharedRowsAsync("mb-shared-archive", primary, looseArchive);
+        var settings = OldLayoutSettings();
+        await settings.SetAsync("archive_path", Path.Combine(_dir, "arc"));
+
+        var reconciler = new LibraryReconciler(_factory, NullLogger<LibraryReconciler>.Instance, settings);
+        await reconciler.ReconcileAllAsync();
+
+        var expected = Path.Combine(_dir, "arc", "Playlist A", "mb-shared-archive.flac");
+        await using (var db = _factory.CreateDbContext())
+        {
+            Assert.That(db.Tracks.AsNoTracking().Select(t => t.ArchivePath),
+                Is.All.EqualTo(expected), "both rows follow the archive move");
+        }
+        Assert.That(File.Exists(expected), Is.True);
+
+        await reconciler.ReconcileAllAsync();
+        await reconciler.ReconcileAllAsync();
+
+        await using (var db = _factory.CreateDbContext())
+        {
+            Assert.That(db.Tracks.AsNoTracking().Select(t => t.ArchivePath),
+                Is.All.EqualTo(expected), "the archive path is stable across passes");
+        }
+        Assert.That(Directory.GetFiles(Path.Combine(_dir, "arc"), "mb-shared-archive.flac", SearchOption.AllDirectories),
+            Has.Length.EqualTo(1));
     }
 }

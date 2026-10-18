@@ -108,10 +108,15 @@ public class LibraryReconciler
     /// Moves downloaded files that sit loose under a playlist's base folder
     /// (the layout from before playlists had their own folder) into the
     /// playlist's own folder; archive copies follow the same rule under the
-    /// archive path. Files outside the base folder, and destinations that
-    /// already hold a file, are left alone: nothing is overwritten and
-    /// nothing the user organized elsewhere moves. One failed move never
-    /// stops the pass; its row simply keeps the old path.
+    /// archive path. The decision is made once per physical path: a file
+    /// several playlists share (the old shared-folder layout) moves once and
+    /// every referencing row follows it, and a file that already sits in the
+    /// folder of any playlist that references it stays there, so repeated
+    /// passes never rename the same file between two playlist folders.
+    /// Files outside the base folder, and destinations that already hold a
+    /// file, are left alone: nothing is overwritten and nothing the user
+    /// organized elsewhere moves. One failed move never stops the pass; its
+    /// rows simply keep the old path.
     /// </summary>
     private async Task<int> RelocateLooseFilesAsync(
         List<PlaylistEntity> playlists, CancellationToken ct)
@@ -120,62 +125,100 @@ public class LibraryReconciler
 
         var musicPath = await _settings.GetAsync("music_path", "/music", ct);
         var archivePath = await _settings.GetAsync("archive_path", "", ct);
-        var moved = 0;
 
+        var layout = new Dictionary<string, PlaylistLayout>(StringComparer.Ordinal);
         foreach (var playlist in playlists)
         {
+            layout[playlist.Id] = new PlaylistLayout(
+                Base: FirstNonEmpty(playlist.TargetDirectory, musicPath),
+                Folder: PlaylistRules.ResolvePlaylistFolder(
+                    playlist.TargetDirectory, musicPath, playlist.Name),
+                ArchiveBase: FirstNonEmpty(playlist.ArchiveDirectory, archivePath),
+                ArchiveFolder: playlist.ArchiveEnabled
+                    ? PlaylistRules.ResolveArchiveFolder(
+                        playlist.ArchiveDirectory, archivePath, playlist.Name)
+                    : string.Empty);
+        }
+
+        var moved = 0;
+
+        foreach (var (path, refs) in CollectRefs(playlists, track => track.CurrentPath))
+        {
             ct.ThrowIfCancellationRequested();
-
-            var baseFolder = !string.IsNullOrWhiteSpace(playlist.TargetDirectory)
-                ? playlist.TargetDirectory
-                : musicPath;
-            var playlistFolder = PlaylistRules.ResolvePlaylistFolder(
-                playlist.TargetDirectory, musicPath, playlist.Name);
-            var archiveBase = !string.IsNullOrWhiteSpace(playlist.ArchiveDirectory)
-                ? playlist.ArchiveDirectory!
-                : archivePath;
-            var archiveFolder = playlist.ArchiveEnabled
-                ? PlaylistRules.ResolveArchiveFolder(
-                    playlist.ArchiveDirectory, archivePath, playlist.Name)
-                : string.Empty;
-
-            foreach (var track in playlist.Tracks)
+            var owner = PickOwner(path, refs, layout, archive: false);
+            if (owner is null) continue;
+            if (refs.Any(r => layout[r.PlaylistId].Folder is { Length: > 0 } folder
+                              && FileRelocator.IsUnder(path, folder)))
             {
-                if (track.CurrentPath is { Length: > 0 } primary
-                    && File.Exists(primary)
-                    && ShouldRelocate(primary, baseFolder, playlistFolder))
-                {
-                    if (FileRelocator.TryMove(primary, Path.Combine(playlistFolder, Path.GetFileName(primary)), _logger))
-                    {
-                        track.CurrentPath = Path.Combine(playlistFolder, Path.GetFileName(primary));
-                        moved++;
-                    }
-                }
-
-                if (track.ArchivePath is { Length: > 0 } archive
-                    && File.Exists(archive)
-                    && ShouldRelocate(archive, archiveBase, archiveFolder))
-                {
-                    if (FileRelocator.TryMove(archive, Path.Combine(archiveFolder, Path.GetFileName(archive)), _logger))
-                    {
-                        track.ArchivePath = Path.Combine(archiveFolder, Path.GetFileName(archive));
-                        moved++;
-                    }
-                }
+                continue; // already home in the folder of a playlist that owns it
             }
+
+            var destination = Path.Combine(layout[owner.PlaylistId].Folder, Path.GetFileName(path));
+            if (!FileRelocator.TryMove(path, destination, _logger)) continue;
+            foreach (var (track, _) in refs) track.CurrentPath = destination;
+            moved++;
+        }
+
+        foreach (var (path, refs) in CollectRefs(playlists, track => track.ArchivePath))
+        {
+            ct.ThrowIfCancellationRequested();
+            var owner = PickOwner(path, refs, layout, archive: true);
+            if (owner is null) continue;
+            if (refs.Any(r => layout[r.PlaylistId].ArchiveFolder is { Length: > 0 } folder
+                              && FileRelocator.IsUnder(path, folder)))
+            {
+                continue;
+            }
+
+            var destination = Path.Combine(layout[owner.PlaylistId].ArchiveFolder, Path.GetFileName(path));
+            if (!FileRelocator.TryMove(path, destination, _logger)) continue;
+            foreach (var (track, _) in refs) track.ArchivePath = destination;
+            moved++;
         }
 
         return moved;
     }
 
-    /// <summary>True when a file sits under the base folder but not yet in
-    /// the playlist's own folder.</summary>
-    private static bool ShouldRelocate(string path, string? baseFolder, string targetFolder)
-        => !string.IsNullOrWhiteSpace(targetFolder)
-           && !string.IsNullOrWhiteSpace(baseFolder)
-           && !FileRelocator.PathsEqual(targetFolder, baseFolder)
-           && FileRelocator.IsUnder(path, baseFolder)
-           && !FileRelocator.IsUnder(path, targetFolder);
+    /// <summary>Every existing file referenced by a track path, grouped by
+    /// the exact path, with the playlist each referencing row belongs to.</summary>
+    private static Dictionary<string, List<PathRef>> CollectRefs(
+        List<PlaylistEntity> playlists, Func<TrackEntity, string?> pathSelector)
+    {
+        var refs = new Dictionary<string, List<PathRef>>(FileRelocator.PathComparer);
+        foreach (var playlist in playlists)
+        {
+            foreach (var track in playlist.Tracks)
+            {
+                if (pathSelector(track) is not { Length: > 0 } path || !File.Exists(path)) continue;
+                if (!refs.TryGetValue(path, out var list)) refs[path] = list = new List<PathRef>();
+                list.Add(new PathRef(track, playlist.Id));
+            }
+        }
+        return refs;
+    }
+
+    /// <summary>The playlist whose own folder receives a loose file: the
+    /// first referencing playlist (stable id order) that has such a folder
+    /// and whose base contains the file. Null when no referencing playlist
+    /// wants or owns it, which leaves the file where it is.</summary>
+    private static PathRef? PickOwner(
+        string path, List<PathRef> refs, Dictionary<string, PlaylistLayout> layout, bool archive)
+        => refs
+            .Where(r => archive
+                ? layout[r.PlaylistId].ArchiveFolder is { Length: > 0 }
+                  && FileRelocator.IsUnder(path, layout[r.PlaylistId].ArchiveBase)
+                : layout[r.PlaylistId].Folder is { Length: > 0 }
+                  && FileRelocator.IsUnder(path, layout[r.PlaylistId].Base))
+            .OrderBy(r => r.PlaylistId, StringComparer.Ordinal)
+            .FirstOrDefault();
+
+    private static string FirstNonEmpty(string? first, string second)
+        => string.IsNullOrWhiteSpace(first) ? second : first;
+
+    private sealed record PathRef(TrackEntity Track, string PlaylistId);
+
+    private readonly record struct PlaylistLayout(
+        string Base, string Folder, string ArchiveBase, string ArchiveFolder);
 
     /// <summary>MELODY_ID tag -> path, one entry per audio file in the tree.</summary>
     private static Dictionary<string, string> IndexDirectory(string dir)
