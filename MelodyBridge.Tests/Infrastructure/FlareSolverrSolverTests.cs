@@ -53,6 +53,27 @@ public class FlareSolverrSolverTests
         }), Encoding.UTF8, "application/json"),
     };
 
+    /// <summary>The shape current FlareSolverr returns: solution.status is
+    /// the HTTP status as a number, which used to break deserialization and
+    /// silently disable the Lucida plugin.</summary>
+    private static HttpResponseMessage SolveJsonWithNumericStatus(string cookie, string userAgent) => new(HttpStatusCode.OK)
+    {
+        Content = new StringContent(JsonSerializer.Serialize(new
+        {
+            status = "ok",
+            message = "Challenge solved!",
+            solution = new
+            {
+                url = "https://lucida.to",
+                status = 200,
+                headers = new { },
+                response = "<html></html>",
+                userAgent,
+                cookies = new[] { new { name = "cf_clearance", value = cookie } },
+            },
+        }), Encoding.UTF8, "application/json"),
+    };
+
     private static string[] HealthUrls =
     {
         "http://flaresolverr:8191/health",
@@ -136,6 +157,27 @@ public class FlareSolverrSolverTests
         Assert.That(await solver.IsAvailableAsync(), Is.True);
         Assert.That(handler.Requests.Count, Is.EqualTo(before + 4),
             "an expired negative cache must trigger a fresh sweep");
+    }
+
+    [Test]
+    public async Task Solve_WithNumericSolutionStatus_StillReturnsCredentials()
+    {
+        // The exact response shape that produced "The JSON value could not
+        // be converted to ...FlareSolverrSolution. Path: $.solution.status"
+        // in the app log.
+        using var handler = new StubHttpMessageHandler();
+        handler.Routes["http://solver.lan:8191/v1"] = () => SolveJsonWithNumericStatus("num", "ua-num");
+        var solver = new FlareSolverrSolver(
+            new HttpClient(handler),
+            Microsoft.Extensions.Options.Options.Create(
+                new FlareSolverrOptions { Url = "http://solver.lan:8191" }),
+            NullLogger<FlareSolverrSolver>.Instance);
+
+        var result = await solver.SolveAsync("https://lucida.to");
+
+        Assert.That(result, Is.Not.Null, "a numeric solution.status must not fail the solve");
+        Assert.That(result!.CookieHeader, Is.EqualTo("cf_clearance=num"));
+        Assert.That(result.UserAgent, Is.EqualTo("ua-num"));
     }
 
     [Test]

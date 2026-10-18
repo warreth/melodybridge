@@ -200,11 +200,16 @@ public class FlareSolverrSolver : IChallengeSolver
         return null;
     }
 
-    // FlareSolverr response shape (only the fields we read).
+    // FlareSolverr response shape (only the fields we read). The
+    // solution's status is a JSON number on current releases and a string
+    // on older ones, and nothing here reads it: a JsonElement accepts
+    // either shape, where a string caused every solve to fail with a
+    // deserialization error.
     private record FlareSolverrResponse(
         string Status, string? Message, FlareSolverrSolution? Solution);
     private record FlareSolverrSolution(
-        string Url, string Status, FlareSolverrCookie[]? Cookies, string UserAgent);
+        string? Url, System.Text.Json.JsonElement Status,
+        FlareSolverrCookie[]? Cookies, string? UserAgent);
     private record FlareSolverrCookie(string Name, string Value, string? Domain);
 }
 
