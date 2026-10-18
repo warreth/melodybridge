@@ -24,17 +24,20 @@ public sealed class TrackLinker
     private readonly SettingsStore _settings;
     private readonly HardLinkService _hardLinks;
     private readonly ILogger<TrackLinker> _logger;
+    private readonly DataChangeTracker? _changes;
 
     public TrackLinker(
         IDbContextFactory<MelodyBridgeDbContext> dbFactory,
         SettingsStore settings,
         HardLinkService hardLinks,
-        ILogger<TrackLinker> logger)
+        ILogger<TrackLinker> logger,
+        DataChangeTracker? changes = null)
     {
         _dbFactory = dbFactory;
         _settings = settings;
         _hardLinks = hardLinks;
         _logger = logger;
+        _changes = changes;
     }
 
     /// <summary>
@@ -178,6 +181,7 @@ public sealed class TrackLinker
         if (linked > 0)
         {
             await db.SaveChangesAsync(ct);
+            _changes?.Bump();
             _logger.LogInformation(
                 "Linked {Count} shared {Word} of '{Playlist}' to existing files (zero new bytes)",
                 linked, linked == 1 ? "track" : "tracks", playlist.Name);

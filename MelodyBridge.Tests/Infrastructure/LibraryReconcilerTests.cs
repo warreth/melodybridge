@@ -279,6 +279,86 @@ public class LibraryReconcilerTests
     }
 
     [Test]
+    public async Task OwnFileInThePlaylistFolder_IsAdopted_InsteadOfLinkingTheOtherCopy()
+    {
+        // The playlist's own file already sits in its folder: adoption is
+        // free, and the linker must not delete it to make room for a link
+        // to another playlist's copy of the same track.
+        var musicDir = Path.Combine(_dir, "music");
+        var dirA = Path.Combine(musicDir, "Playlist A");
+        Directory.CreateDirectory(dirA);
+        var settings = new SettingsStore(_factory);
+        await settings.SetAsync("music_path", musicDir);
+
+        var fileA = WriteTaggedFile("music/Playlist A", "mb-recon-own");
+        var ownFile = WriteTaggedFile("music/Playlist B", "mb-recon-own");
+        await using (var db = _factory.CreateDbContext())
+        {
+            db.Playlists.Add(new PlaylistEntity
+            {
+                Id = "pl-a",
+                Name = "Playlist A",
+                SourceUrl = "https://example.com/a",
+                SourcePlatform = Platform.Spotify,
+                TargetDirectory = dirA,
+                Tracks = new List<TrackEntity>
+                {
+                    new()
+                    {
+                        MelodyId = "mb-recon-own",
+                        Title = "Own",
+                        Artist = "A",
+                        Position = 0,
+                        DownloadStatus = "downloaded",
+                        CurrentPath = fileA,
+                        Bitrate = 320,
+                        MediaType = "mp3",
+                    },
+                },
+            });
+            db.Playlists.Add(new PlaylistEntity
+            {
+                Id = "pl-b",
+                Name = "Playlist B",
+                SourceUrl = "https://example.com/b",
+                SourcePlatform = Platform.Spotify,
+                PreferredFormat = "mp3:320",
+                Tracks = new List<TrackEntity>
+                {
+                    new()
+                    {
+                        MelodyId = "mb-recon-own",
+                        Title = "Own",
+                        Artist = "A",
+                        Position = 0,
+                        DownloadStatus = "pending",
+                    },
+                },
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var reconciler = new LibraryReconciler(
+            _factory, NullLogger<LibraryReconciler>.Instance, settings, NewLinker());
+        await reconciler.ReconcileAllAsync();
+
+        await using (var db = _factory.CreateDbContext())
+        {
+            var row = db.Tracks.Single(t => t.PlaylistEntityId == "pl-b");
+            Assert.Multiple(() =>
+            {
+                Assert.That(row.CurrentPath, Is.EqualTo(ownFile),
+                    "the playlist's own file wins over a link to another copy");
+                Assert.That(row.IsHardLink, Is.False);
+                Assert.That(File.Exists(ownFile), Is.True,
+                    "the own file must not be deleted to make room for a link");
+                Assert.That(new HardLinkService().LinkCount(fileA), Is.EqualTo(1),
+                    "playlist A's file stays untouched");
+            });
+        }
+    }
+
+    [Test]
     public async Task ArchiveCopy_IsNotAdoptedAsTheTrack()
     {
         // The archive root sits under the playlist's base folder, so the

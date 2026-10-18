@@ -82,9 +82,11 @@ public class LibraryReconciler
         foreach (var playlist in playlists)
         {
             var dir = FirstNonEmpty(playlist.TargetDirectory, musicPath);
+            var ownFolder = PlaylistRules.ResolvePlaylistFolder(
+                playlist.TargetDirectory, musicPath, playlist.Name);
             var filesByMelodyId = string.IsNullOrWhiteSpace(dir)
                 ? new Dictionary<string, string>()
-                : IndexDirectory(dir, archiveRoots);
+                : IndexDirectory(dir, archiveRoots, ownFolder);
 
             var preferred = playlist.PreferredFormat;
             if (string.IsNullOrWhiteSpace(preferred) && _settings is not null)
@@ -109,12 +111,25 @@ public class LibraryReconciler
                     continue;
                 }
 
+                // The file found under the base folder: it is this
+                // playlist's own when it sits in the playlist's folder,
+                // and a foreign path to adopt only as a last resort.
+                var found = track.MelodyId is not null
+                    && filesByMelodyId.TryGetValue(track.MelodyId, out var candidate)
+                    && !archivePaths.Contains(candidate)
+                        ? candidate
+                        : null;
+                var foundIsOwn = found is not null
+                    && ownFolder.Length > 0
+                    && FileRelocator.IsUnder(found, ownFolder);
+
                 // Another playlist already holds this track: link its
                 // bytes into this playlist's own folder (archive copy
-                // included) instead of adopting the foreign path. A
-                // quality difference is left for a real download: the
-                // user never asked for one here.
-                if (_linker is not null
+                // included) instead of adopting a foreign path. A quality
+                // difference is left for a real download: the user never
+                // asked for one here.
+                if (!foundIsOwn
+                    && _linker is not null
                     && track.MelodyId is not null
                     && track.DownloadStatus is null or "pending" or "failed")
                 {
@@ -127,12 +142,10 @@ public class LibraryReconciler
                     }
                 }
 
-                // Slow path: find the file by its MELODY_ID tag under the
-                // playlist folder (files move, ids do not). An archive
-                // copy is not the track; it stays out.
-                if (track.MelodyId is not null
-                    && filesByMelodyId.TryGetValue(track.MelodyId, out var found)
-                    && !archivePaths.Contains(found))
+                // Slow path: the file found by its MELODY_ID tag under the
+                // playlist folder (files move, ids do not). An archive copy
+                // is not the track; it stays out.
+                if (found is not null)
                 {
                     track.CurrentPath = found;
                     track.DownloadStatus = "downloaded";
@@ -288,11 +301,16 @@ public class LibraryReconciler
         string Base, string Folder, string ArchiveBase, string ArchiveFolder);
 
     /// <summary>MELODY_ID tag -> path, one entry per audio file in the tree.
-    /// Files under an archive folder never enter the index.</summary>
-    private static Dictionary<string, string> IndexDirectory(string dir, List<string> excludedRoots)
+    /// Files under an archive folder never enter the index, and a file
+    /// inside the playlist's own folder wins over one that merely sits
+    /// under the shared base root (the playlist's own copy is the one its
+    /// row should adopt).</summary>
+    private static Dictionary<string, string> IndexDirectory(
+        string dir, List<string> excludedRoots, string preferUnder)
     {
         var index = new Dictionary<string, string>(StringComparer.Ordinal);
         var extensions = new[] { ".mp3", ".flac", ".ogg", ".opus", ".m4a", ".aac", ".wav", ".webm" };
+        var hasPreference = !string.IsNullOrWhiteSpace(preferUnder);
         try
         {
             foreach (var file in Directory.EnumerateFiles(dir, "*.*", SearchOption.AllDirectories))
@@ -302,8 +320,17 @@ public class LibraryReconciler
                 if (excludedRoots.Any(root => FileRelocator.IsUnder(file, root)))
                     continue;
                 var id = TaglibHelper.ReadMelodyId(file);
-                if (!string.IsNullOrWhiteSpace(id))
-                    index.TryAdd(id, file);
+                if (string.IsNullOrWhiteSpace(id)) continue;
+                if (!index.TryGetValue(id, out var existing))
+                {
+                    index[id] = file;
+                }
+                else if (hasPreference
+                    && !FileRelocator.IsUnder(existing, preferUnder)
+                    && FileRelocator.IsUnder(file, preferUnder))
+                {
+                    index[id] = file;
+                }
             }
         }
         catch (Exception)

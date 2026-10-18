@@ -98,14 +98,14 @@ public class PlaylistStore
         // The OS hard link wrapper has no state; one instance shared by
         // every store, or a private one for tests that never inject it.
         _hardLinks = hardLinks ?? new HardLinkService();
+        // The write stamp the pages poll: one instance app-wide in
+        // production, a private one for tests that never wire it.
+        _changes = changes ?? new DataChangeTracker();
         // The linking half of dedup (hardlink shared tracks and their
         // archive copies) is one module: DI injects the singleton, tests
         // that never wire one still get a working private instance.
         _linker = linker ?? new TrackLinker(
-            dbFactory, _settings, _hardLinks, NullLogger<TrackLinker>.Instance);
-        // The write stamp the pages poll: one instance app-wide in
-        // production, a private one for tests that never wire it.
-        _changes = changes ?? new DataChangeTracker();
+            dbFactory, _settings, _hardLinks, NullLogger<TrackLinker>.Instance, _changes);
         // Optional: without a resolver, tracks simply download without an
         // ISRC like before.
         _isrcResolver = isrcResolver;
