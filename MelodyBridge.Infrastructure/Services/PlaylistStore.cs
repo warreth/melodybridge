@@ -66,6 +66,10 @@ public class PlaylistStore
     public static string EffectiveArchiveFolder(string? archiveDirectory, string archivePath, string? playlistName)
         => PlaylistRules.ResolveArchiveFolder(archiveDirectory, archivePath, playlistName);
 
+    /// <summary>Path equality as the folder rules apply it (UI hint).</summary>
+    public static bool PathsEqual(string? first, string? second)
+        => PlaylistRules.PathEquals(first, second);
+
     public PlaylistStore(
         IDbContextFactory<MelodyBridgeDbContext> dbFactory,
         IEnumerable<ISourceProvider> providers,
@@ -123,19 +127,6 @@ public class PlaylistStore
         int trackId, QualityReviewAction action, CancellationToken ct = default)
         => _pipeline.ResolveQualityReviewAsync(trackId, action, ct);
 
-
-
-
-
-
-
-
-
-
-
-
-
-
     /// <summary>
     /// Maps a playlist's PreferredFormat to the waterfall quality. The rules
     /// live in <see cref="PlaylistRules"/>; this keeps the name the pages
@@ -164,6 +155,11 @@ public class PlaylistStore
 
     public Task<PlaylistEntity?> GetByIdAsync(string id, CancellationToken ct = default)
         => _queries.GetByIdAsync(id, ct);
+
+    /// <summary>The files and bytes a playlist deletion with files touches.</summary>
+    public Task<(int Files, long Bytes)> GetDeleteImpactAsync(
+        string playlistId, CancellationToken ct = default)
+        => _queries.GetDeleteImpactAsync(playlistId, ct);
 
     public Task<bool> DeleteAsync(string playlistId, bool deleteFiles = false, CancellationToken ct = default)
         => _queries.DeleteAsync(playlistId, deleteFiles, ct);

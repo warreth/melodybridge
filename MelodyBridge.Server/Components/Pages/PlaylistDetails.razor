@@ -78,12 +78,12 @@ else
                        Busy="busy"
                        OnConfirm="ConfirmDelete"
                        OnCancel="CancelDelete">
-            @if (downloadedCount > 0)
+            @if (deleteFileCount > 0)
             {
                 <label class="toggle-switch wide">
                     <input type="checkbox" @bind="deleteFilesWithPlaylist" />
                     <span class="toggle-slider"></span>
-                    <span>Delete the downloaded music files too (@downloadedCount @(downloadedCount == 1 ? "file" : "files"), @TrackDisplay.Size(downloadedSizeBytes))</span>
+                    <span>Delete the downloaded music files too, archive copies included (@deleteFileCount @(deleteFileCount == 1 ? "file" : "files"), @TrackDisplay.Size(deleteFileSizeBytes))</span>
                 </label>
             }
         </ConfirmDialog>
@@ -395,6 +395,10 @@ else
 
     private int downloadedCount;
     private long downloadedSizeBytes;
+    /// <summary>What the delete dialog would remove: existing primary and
+    /// archive files, counted when the dialog opens.</summary>
+    private int deleteFileCount;
+    private long deleteFileSizeBytes;
     private readonly HashSet<int> retryingTrackIds = new();
     private int reviewCount;
     private bool confirmDelete;
@@ -457,9 +461,18 @@ else
         if (playlist is not null)
         {
             editName = playlist.Name;
-            editTargetDirectory = playlist.TargetDirectory ?? string.Empty;
+            // A stored path equal to the app-wide default is not an explicit
+            // choice: show the field empty so the placeholder names the
+            // effective per-playlist folder (a later save normalizes the row).
+            editTargetDirectory = playlist.TargetDirectory is { } storedDir
+                && !PlaylistStore.PathsEqual(storedDir, resolvedDefaultMusicPath)
+                    ? storedDir
+                    : string.Empty;
             editQuality = PlaylistStore.IsValidFormat(playlist.PreferredFormat) ? playlist.PreferredFormat : "auto";
-            editArchiveDirectory = playlist.ArchiveDirectory ?? string.Empty;
+            editArchiveDirectory = playlist.ArchiveDirectory is { } storedArchive
+                && !PlaylistStore.PathsEqual(storedArchive, resolvedDefaultArchivePath)
+                    ? storedArchive
+                    : string.Empty;
             editArchiveFormat = string.IsNullOrWhiteSpace(playlist.ArchiveFormat) ? "default" : playlist.ArchiveFormat;
             editArchiveEnabled = playlist.ArchiveEnabled;
             editSchedule = playlist.ScheduleCron is { Length: > 0 }
@@ -846,10 +859,13 @@ else
     private void OnFilterChanged(ChangeEventArgs e) => trackFilter = e.Value?.ToString() ?? string.Empty;
 
     // Delete flow: the topbar asks, the dialog confirms, files optional.
-    private void AskDelete()
+    private async Task AskDelete()
     {
         confirmDelete = true;
         deleteFilesWithPlaylist = false;
+        var impact = await Store.GetDeleteImpactAsync(PlaylistId);
+        deleteFileCount = impact.Files;
+        deleteFileSizeBytes = impact.Bytes;
     }
 
     private void CancelDelete()

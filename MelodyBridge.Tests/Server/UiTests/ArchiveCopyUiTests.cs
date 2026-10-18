@@ -171,6 +171,37 @@ public class ArchiveCopyUiTests
             "the select spells out what the app default currently converts to");
     }
 
+    [Test]
+    public void DefaultFolders_ShowAsEmptyFields_SoThePlaylistFolderApplies()
+    {
+        using (var db = _factory.CreateDbContext())
+        {
+            db.DownloaderSettings.Add(new DownloaderSettingEntity
+                { Key = "music_path", Value = "/music" });
+            db.DownloaderSettings.Add(new DownloaderSettingEntity
+                { Key = "archive_path", Value = "/archive" });
+            var playlist = db.Playlists.Find("pl-1")!;
+            playlist.TargetDirectory = "/music";
+            playlist.ArchiveDirectory = "/archive";
+            db.SaveChanges();
+        }
+
+        var cut = RenderPage();
+
+        var downloadInput = cut.FindAll("label")
+            .Single(l => l.TextContent.Contains("Download folder"))
+            .QuerySelector("input")!;
+        Assert.That(downloadInput.GetAttribute("value"), Is.Empty,
+            "a stored path equal to the app-wide default is not an explicit choice");
+        Assert.That(downloadInput.GetAttribute("placeholder"), Is.EqualTo("/music"));
+
+        var archiveInput = ArchiveFolderInput(cut);
+        Assert.That(archiveInput.GetAttribute("value"), Is.Empty,
+            "the same rule for the archive folder");
+        Assert.That(archiveInput.GetAttribute("placeholder"), Does.Contain("/archive/Archive UI test"),
+            "the placeholder names the effective per-playlist archive folder");
+    }
+
     private bool? DbArchiveEnabled()
     {
         using var db = _factory.CreateDbContext();

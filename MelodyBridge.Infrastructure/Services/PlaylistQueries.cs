@@ -133,6 +133,46 @@ internal sealed class PlaylistQueries
             .AnyAsync(t => t.Id != trackId
                 && (t.CurrentPath == path || t.ArchivePath == path), ct);
 
+    /// <summary>
+    /// What deleting a playlist with its files touches: the distinct
+    /// primary and archive paths of its tracks that exist on disk, and the
+    /// bytes they take. Missing files are not counted: they cannot be
+    /// deleted. Used for the delete dialog's honest count and size.
+    /// </summary>
+    public async Task<(int Files, long Bytes)> GetDeleteImpactAsync(
+        string playlistId, CancellationToken ct = default)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var tracks = await db.Tracks.AsNoTracking()
+            .Where(t => t.PlaylistEntityId == playlistId)
+            .Select(t => new { t.CurrentPath, t.ArchivePath })
+            .ToListAsync(ct);
+
+        var paths = tracks
+            .SelectMany(t => new[] { t.CurrentPath, t.ArchivePath })
+            .Where(p => !string.IsNullOrWhiteSpace(p))
+            .Select(p => p!)
+            .Distinct(StringComparer.OrdinalIgnoreCase);
+
+        var files = 0;
+        var bytes = 0L;
+        foreach (var path in paths)
+        {
+            try
+            {
+                var info = new FileInfo(path);
+                if (!info.Exists) continue;
+                files++;
+                bytes += info.Length;
+            }
+            catch (Exception)
+            {
+                // An unreadable path cannot be judged: leave it out.
+            }
+        }
+        return (files, bytes);
+    }
+
     /// <summary>One persisted playlist including its current track snapshot.</summary>
     public async Task<PlaylistEntity?> GetByIdAsync(string id, CancellationToken ct = default)
     {

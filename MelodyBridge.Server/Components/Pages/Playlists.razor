@@ -373,7 +373,7 @@ else
             <label class="toggle-switch wide">
                 <input type="checkbox" @bind="deleteFilesWithPlaylist" />
                 <span class="toggle-slider"></span>
-                <span>Delete the downloaded music files too (@deleteFileCount @(deleteFileCount == 1 ? "file" : "files"), @(TrackDisplay.Size(deleteFileSizeBytes)))</span>
+                <span>Delete the downloaded music files too, archive copies included (@deleteFileCount @(deleteFileCount == 1 ? "file" : "files"), @(TrackDisplay.Size(deleteFileSizeBytes)))</span>
             </label>
         }
     </ConfirmDialog>
@@ -427,15 +427,16 @@ else
     private int deleteFileCount;
     private long deleteFileSizeBytes;
 
-    /// <summary>Offered as a card action: remove the list, files optional.</summary>
-    private void AskDelete(PlaylistEntity playlist)
+    /// <summary>Offered as a card action: remove the list, files optional.
+    /// The dialog counts the existing primary and archive files.</summary>
+    private async Task AskDelete(PlaylistEntity playlist)
     {
         confirmDeleteId = playlist.Id;
         confirmDeleteName = playlist.Name;
         deleteFilesWithPlaylist = false;
-        var stats = downloadStats.GetValueOrDefault(playlist.Id, (0, 0, 0, 0));
-        deleteFileCount = stats.downloaded;
-        deleteFileSizeBytes = stats.sizeBytes;
+        var impact = await Store.GetDeleteImpactAsync(playlist.Id);
+        deleteFileCount = impact.Files;
+        deleteFileSizeBytes = impact.Bytes;
     }
 
     private void CancelDelete()

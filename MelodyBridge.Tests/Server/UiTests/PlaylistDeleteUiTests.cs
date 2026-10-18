@@ -112,6 +112,30 @@ public class PlaylistDeleteUiTests
     }
 
     [Test]
+    public void Card_DeleteDialog_CountsArchiveCopies()
+    {
+        SeedWithFile();
+        var archive = Path.Combine(_musicDir, "track.flac");
+        File.WriteAllText(archive, "archived bytes");
+        using (var db = new TestSqliteFactory(_dbPath).CreateDbContext())
+        {
+            var track = db.Tracks.Single(t => t.MelodyId == "m-del");
+            track.ArchivePath = archive;
+            db.SaveChanges();
+        }
+
+        var cut = RenderLoaded();
+        cut.Find("button[title='Remove this playlist']").Click();
+
+        Assert.That(cut.Markup, Does.Contain("Delete the downloaded music files too"),
+            "the choice keeps its lead wording");
+        Assert.That(cut.Markup, Does.Contain("archive copies included"),
+            "the label says what else goes");
+        Assert.That(cut.Markup, Does.Contain("2 files"),
+            "the primary and its archive copy both count");
+    }
+
+    [Test]
     public void Cancel_KeepsPlaylistAndFile()
     {
         var file = SeedWithFile();
