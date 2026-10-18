@@ -162,8 +162,9 @@ public class JellyfinSync : IMediaServerSync
         /// file under a path the remap rules do not reach (a different
         /// Docker mount, a rename after the scan). The title is the index
         /// key; the artist and runtime pick the right item when several
-        /// share it. A title that is ambiguous without either signal is
-        /// left to the server search instead of guessing.
+        /// share it. A title the index cannot settle, because several
+        /// items share it without a separating signal or because the one
+        /// item contradicts the track, is left to the server search.
         /// </summary>
         public string? FindByMetadata(Track track)
         {
@@ -172,8 +173,14 @@ public class JellyfinSync : IMediaServerSync
                 return null;
             var best = PickBest(candidates, track);
             if (best?.Id is not { Length: > 0 } id) return null;
-            if (candidates.Count > 1 && ScoreItem(best, track) == 0) return null;
-            return id;
+            // The only item with this exact title is still the wrong
+            // recording when its artist or length contradicts the track
+            // (the server may hold the right one under a longer title),
+            // so that goes to the search too. Several items always need a
+            // positive signal.
+            if (candidates.Count == 1)
+                return DisagreesWith(best, track) ? null : id;
+            return ScoreItem(best, track) > 0 ? id : null;
         }
     }
 
@@ -400,6 +407,28 @@ public class JellyfinSync : IMediaServerSync
             score += 1;
         }
         return score;
+    }
+
+    /// <summary>
+    /// True when the item carries a field that contradicts the track: the
+    /// walk did return that field, so the mismatch is real and the item is
+    /// a different recording. A field the item does not carry cannot
+    /// disagree, so a sparse walk does not reject valid matches.
+    /// </summary>
+    private static bool DisagreesWith(JellyfinItem item, Track track)
+    {
+        if (!string.IsNullOrEmpty(track.Artist) && item.Artists is { Length: > 0 }
+            && !item.Artists.Any(a => a.Contains(track.Artist, StringComparison.OrdinalIgnoreCase)
+                || track.Artist.Contains(a, StringComparison.OrdinalIgnoreCase)))
+        {
+            return true;
+        }
+        if (track.Duration is { } duration && item.RunTimeTicks is { } ticks
+            && Math.Abs(TimeSpan.FromTicks(ticks).TotalSeconds - duration.TotalSeconds) > 5)
+        {
+            return true;
+        }
+        return false;
     }
 
     /// <summary>Updates the named playlist in place, or creates it.</summary>

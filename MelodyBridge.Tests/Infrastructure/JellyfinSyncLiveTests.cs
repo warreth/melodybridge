@@ -85,6 +85,33 @@ public class JellyfinSyncLiveTests
     // ── tests ───────────────────────────────────────────────────────
 
     [Test]
+    public async Task LibraryWalk_CarriesTheFieldsTheMetadataIndexReliesOn()
+    {
+        // The local resolution falls back to the walk's Name, Artists and
+        // RunTimeTicks when a path does not line up. Assert the server
+        // really returns them, so a Jellyfin that stopped would fail here
+        // instead of quietly sending every track to the search.
+        var body = await _server.Api.GetFromJsonAsync<JsonElement>(
+            JellyfinLiveServer.BaseUrl +
+            "/Items?Recursive=true&IncludeItemTypes=Audio&Fields=Path&StartIndex=0&Limit=1000");
+        var items = body.GetProperty("Items").EnumerateArray().ToList();
+        Assert.That(items, Is.Not.Empty, "the walk returns the scanned tracks");
+
+        var alpha = items.FirstOrDefault(i => i.GetProperty("Name").GetString() == "Alpha Song");
+        Assert.That(alpha.ValueKind, Is.Not.EqualTo(JsonValueKind.Undefined),
+            "the scanned track is in the walk");
+        Assert.Multiple(() =>
+        {
+            Assert.That(alpha.TryGetProperty("Artists", out var artists)
+                && artists.ValueKind == JsonValueKind.Array && artists.GetArrayLength() > 0,
+                Is.True, "the walk carries Artists, the metadata index's tie-breaker");
+            Assert.That(alpha.TryGetProperty("RunTimeTicks", out var ticks)
+                && ticks.ValueKind == JsonValueKind.Number && ticks.GetInt64() > 0,
+                Is.True, "the walk carries RunTimeTicks, the metadata index's tie-breaker");
+        });
+    }
+
+    [Test]
     public async Task Sync_CreatesPlaylist_WithBothTracks()
     {
         var sync = NewSync(_server.Token);

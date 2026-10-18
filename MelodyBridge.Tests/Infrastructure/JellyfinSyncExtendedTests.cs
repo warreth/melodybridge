@@ -418,6 +418,87 @@ public class JellyfinSyncExtendedTests
     }
 
     [Test]
+    public async Task SyncPlaylistAsync_SingleCandidateWithTheWrongArtist_FallsBackToSearch()
+    {
+        // The only item with this exact title is by another artist; the
+        // right recording sits under a longer title. The index refuses the
+        // contradicting match and the server search finds the longer title.
+        var handler = new ScriptedHandler()
+            .On("EnableTotalRecordCount=false", """
+                {"Items":[{"Id":"wrong","Name":"Home","Path":"/srv/home.flac",
+                           "Artists":["Other"],"RunTimeTicks":2000000000}]}
+                """)
+            .On("SearchTerm=", """{"Items":[{"Id":"right","Name":"Home (Live)","Artists":["The Artist"]}]}""")
+            .On("IncludeItemTypes=Playlist", """{"Items":[]}""")
+            .On("/Playlists", """{"Id":"pl-1","Name":"Home"}""");
+
+        var sync = NewSync(handler);
+        var playlist = new Playlist
+        {
+            Name = "Home",
+            Tracks = new List<Track>
+            {
+                new()
+                {
+                    Title = "Home",
+                    Artist = "The Artist",
+                    Duration = TimeSpan.FromSeconds(200),
+                    CurrentTrackLocation = new FileLocation("/music/home.flac"),
+                },
+            },
+        };
+
+        await sync.SyncPlaylistAsync(playlist, new PlaylistOutputOptions("/tmp/out.m3u", false, null));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(sync.LastReport!.ResolvedCount, Is.EqualTo(1));
+            Assert.That(handler.Requests.Any(r => r.Url.Contains("SearchTerm")), Is.True,
+                "a contradicting artist sends the track to the search");
+            var body = handler.Recorded.Single(r => r.Method == "POST").Body;
+            Assert.That(body, Does.Contain("right"), "the search finds the longer-titled recording");
+            Assert.That(body, Does.Not.Contain("wrong"));
+        });
+    }
+
+    [Test]
+    public async Task SyncPlaylistAsync_SingleCandidateWithoutMetadataFields_ResolvesLocally()
+    {
+        // A walk that returns no artist or runtime still resolves the only
+        // item with that title: nothing contradicts it, so no search.
+        var handler = new ScriptedHandler()
+            .On("EnableTotalRecordCount=false", """{"Items":[{"Id":"only","Name":"Bare","Path":"/srv/bare.flac"}]}""")
+            .On("SearchTerm=", """{"status":"unexpected search"}""")
+            .On("IncludeItemTypes=Playlist", """{"Items":[]}""")
+            .On("/Playlists", """{"Id":"pl-1","Name":"Bare"}""");
+
+        var sync = NewSync(handler);
+        var playlist = new Playlist
+        {
+            Name = "Bare",
+            Tracks = new List<Track>
+            {
+                new()
+                {
+                    Title = "Bare",
+                    Artist = "Whoever",
+                    Duration = TimeSpan.FromSeconds(100),
+                    CurrentTrackLocation = new FileLocation("/music/bare.flac"),
+                },
+            },
+        };
+
+        await sync.SyncPlaylistAsync(playlist, new PlaylistOutputOptions("/tmp/out.m3u", false, null));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(sync.LastReport!.ResolvedCount, Is.EqualTo(1));
+            Assert.That(handler.Requests.Any(r => r.Url.Contains("SearchTerm")), Is.False,
+                "an item with no contradicting field stays a local match");
+        });
+    }
+
+    [Test]
     public async Task SyncPlaylistAsync_TitleGoesFirstInTheSearchFallback()
     {
         // Jellyfin resolves real tracks by title; the title term goes first
