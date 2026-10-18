@@ -147,9 +147,10 @@ them means re-importing the file.
 
 Each track row shows its state and, once downloaded, the real quality: bitrate,
 sample rate, format and file size. Next to the status pill sits a small archive
-check: a green check when this track's archive copy exists, a quiet dash when
-this playlist has no archive path, and a warning when the recorded copy is gone
-from disk. Enable **Show the file column on playlist
+check: a green check when this track's archive copy is on disk, a quiet dash when
+the track has no copy yet, and a warning when the recorded copy has vanished.
+With no archive path configured for the playlist the check stays away. Enable
+**Show the file column on playlist
 tracks** on the Advanced page to see the file names, including
 `archive: <name>` chips for archive copies.
 
