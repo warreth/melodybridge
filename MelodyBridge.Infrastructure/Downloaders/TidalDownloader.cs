@@ -229,8 +229,10 @@ public class TidalDownloader : CliToolDownloader
     }
 
     /// <summary>
-    /// Ranks the Tidal results with the shared rules; an exact ISRC match
-    /// narrows the pool to the recording itself. Internal for tests.
+    /// Ranks the Tidal results with the shared rules. An exact ISRC
+    /// narrows the pool to the recording itself and is accepted on that
+    /// code (the catalogue may spell the title differently), with the
+    /// length still checked. Internal for tests.
     /// </summary>
     internal static DownloaderSearchHit? Rank(
         IReadOnlyList<TidalClient.TidalTrack> tracks, TrackQuery query)
@@ -256,9 +258,11 @@ public class TidalDownloader : CliToolDownloader
             !string.IsNullOrWhiteSpace(query.Isrc) &&
             !string.IsNullOrWhiteSpace(c.Isrc) &&
             string.Equals(query.Isrc.Trim(), c.Isrc.Trim(), StringComparison.OrdinalIgnoreCase)).ToList();
-        var pool = isrcPool.Count > 0 ? isrcPool : candidates;
+        if (isrcPool.Count > 0)
+            return SearchRanker.RankExactRecording(query.Artist, query.Title,
+                query.ExpectedDuration, isrcPool.Select(c => c.Hit));
         return SearchRanker.Rank(query.Artist, query.Title, query.ExpectedDuration,
-            pool.Select(c => c.Hit));
+            candidates.Select(c => c.Hit));
     }
 
     // ── Download ─────────────────────────────────────────────────────────

@@ -62,6 +62,47 @@ public class SearchRankerTests
     }
 
     [Test]
+    public void ExactRecording_AcceptsTheCodesHit_EvenWhenTheTitleWordingDiffers()
+    {
+        // The caller already narrowed the pool to the exact ISRC. A
+        // catalogue that spells the title without the "(VIP)" marker is
+        // still the same recording; the title gate must not veto it.
+        var result = SearchRanker.RankExactRecording("SLVL", "The Last Airbender (VIP)",
+            TimeSpan.FromSeconds(217),
+            new[] { Hit("The Last Airbender", "SLVL", "https://x/a", 217) });
+
+        Assert.That(result, Is.Not.Null);
+        Assert.That(result!.SourceUrl, Is.EqualTo("https://x/a"));
+    }
+
+    [Test]
+    public void ExactRecording_StillRejectsAGrosslyImplausibleLength()
+    {
+        // A 30 second clip is not the track, whatever code the catalogue
+        // attached to it; the caller's text search gets another chance.
+        var result = SearchRanker.RankExactRecording("SLVL", "The Last Airbender (VIP)",
+            TimeSpan.FromSeconds(217),
+            new[] { Hit("The Last Airbender", "SLVL", "https://x/clip", 30) });
+
+        Assert.That(result, Is.Null);
+    }
+
+    [Test]
+    public void ExactRecording_PrefersTheClosestLengthAmongTheCodesEditions()
+    {
+        var result = SearchRanker.RankExactRecording("Daft Punk", "One More Time",
+            TimeSpan.FromSeconds(320),
+            new[]
+            {
+                Hit("One More Time", "Daft Punk", "https://x/long", 420),
+                Hit("One More Time", "Daft Punk", "https://x/studio", 321),
+            });
+
+        Assert.That(result, Is.Not.Null);
+        Assert.That(result!.SourceUrl, Is.EqualTo("https://x/studio"));
+    }
+
+    [Test]
     public void OnlyImplausibleCandidates_SurviveAsALastResort()
     {
         // The waterfall's own duration gate rejects this before any

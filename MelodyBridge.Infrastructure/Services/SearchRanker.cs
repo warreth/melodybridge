@@ -72,4 +72,43 @@ public static class SearchRanker
             .ToList();
         return alternatives.Count == 0 ? primary : primary with { Alternatives = alternatives };
     }
+
+    /// <summary>
+    /// Picks from a pool the caller narrowed to one exact ISRC. The code
+    /// identifies the recording, not its spelling: catalogues routinely
+    /// title the same recording slightly differently (a dropped "(VIP)",
+    /// an extra mix tag, another featured credit). Running the title
+    /// acceptance and marker gates on that pool would throw away the one
+    /// hit the code just proved correct, so only the duration signal ranks
+    /// here. A grossly implausible length still rejects the pool and leaves
+    /// the caller to its text search; an unknown length is allowed.
+    /// </summary>
+    public static DownloaderSearchHit? RankExactRecording(
+        string artist, string title, TimeSpan? expectedDuration,
+        IEnumerable<DownloaderSearchHit> candidates, int maxAlternatives = 2,
+        Func<DownloaderSearchHit, int>? tieBreaker = null)
+    {
+        var scored = candidates
+            .Where(c => !string.IsNullOrEmpty(c.SourceUrl))
+            .Where(c => FuzzyMatcher.DurationPlausible(expectedDuration, c.Duration))
+            .Select(c => (candidate: c, score: FuzzyMatcher.ScoreWithDuration(
+                artist, title, expectedDuration, c.Artist, c.Title, c.Duration)))
+            .OrderByDescending(x => x.score)
+            .ThenByDescending(x => tieBreaker?.Invoke(x.candidate) ?? 0)
+            .ThenByDescending(x => x.candidate.MatchConfidence == MatchConfidence.High)
+            .ToList();
+
+        if (scored.Count == 0) return null;
+
+        var primary = scored[0].candidate;
+        // Other hits carrying the same code are other editions of this
+        // recording, so they make honest fallbacks when the first URL dies.
+        var alternatives = scored
+            .Skip(1)
+            .Select(x => x.candidate)
+            .Where(c => c.SourceUrl != primary.SourceUrl)
+            .Take(maxAlternatives)
+            .ToList();
+        return alternatives.Count == 0 ? primary : primary with { Alternatives = alternatives };
+    }
 }

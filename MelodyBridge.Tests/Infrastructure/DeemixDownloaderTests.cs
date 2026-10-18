@@ -63,7 +63,7 @@ public class DeemixDownloaderTests
             .On("/search?q=isrc", _ => new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(
-                    """{"data":[{"id":222,"title":"The Last Airbender (VIP)","duration":217,"isrc":"USRC17607839","artist":{"name":"SLVL"}}]}""",
+                    """{"data":[{"id":222,"title":"The Last Airbender","duration":217,"isrc":"USRC17607839","artist":{"name":"SLVL"}}]}""",
                     System.Text.Encoding.UTF8, "application/json"),
             })
             .On("/search?q=", _ => new HttpResponseMessage(HttpStatusCode.OK)
@@ -87,6 +87,8 @@ public class DeemixDownloaderTests
             Assert.That(handler.Requests.First().Url, Does.Contain("isrc"),
                 "the code is the first request");
             Assert.That(handler.Requests.First().Url, Does.Contain("USRC17607839"));
+            Assert.That(handler.Requests, Has.Count.EqualTo(1),
+                "the exact code resolved it; the text search must not run");
             Assert.That(hit, Is.Not.Null);
             Assert.That(hit!.SourceUrl, Is.EqualTo("https://www.deezer.com/track/222"));
         });

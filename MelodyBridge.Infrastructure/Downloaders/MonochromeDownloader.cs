@@ -155,8 +155,9 @@ public class MonochromeDownloader : IDownloader
     /// Parses a /search/tracks response ({"tracks":[…]}) into the best hit:
     /// every item is ranked by title/artist confidence plus duration
     /// proximity. An exact ISRC match (when the query carries one) narrows
-    /// the pool to the recording itself, so a noisy title cannot pick a
-    /// different master. Null when there are no usable items.
+    /// the pool to the recording itself and is accepted on that code even
+    /// when the catalogue spells the title differently, so a noisy title
+    /// cannot pick a different master. Null when there are no usable items.
     /// </summary>
     internal static DownloaderSearchHit? ParseSearchTracks(
         string json, string baseUrl, string artist, string fallbackTitle,
@@ -212,10 +213,12 @@ public class MonochromeDownloader : IDownloader
             // query carries one and any candidate matches, the others are
             // a different master even when their titles look closer.
             var isrcPool = candidates.Where(c => IsrcEquals(expectedIsrc, c.Isrc)).ToList();
-            var pool = isrcPool.Count > 0 ? isrcPool : candidates;
+            if (isrcPool.Count > 0)
+                return SearchRanker.RankExactRecording(artist, fallbackTitle,
+                    expectedDuration, isrcPool.Select(c => c.Hit));
 
             return SearchRanker.Rank(artist, fallbackTitle, expectedDuration,
-                pool.Select(c => c.Hit));
+                candidates.Select(c => c.Hit));
         }
         catch (JsonException)
         {

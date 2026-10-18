@@ -154,9 +154,10 @@ public class DeemixDownloader : CliToolDownloader
     }
 
     /// <summary>
-    /// Ranks the public Deezer results with the shared rules; an exact
-    /// ISRC match narrows the pool to the recording itself. Internal for
-    /// tests.
+    /// Ranks the public Deezer results with the shared rules. An exact
+    /// ISRC narrows the pool to the recording itself and is accepted on
+    /// that code (the title wording differs across catalogues), with the
+    /// length still checked. Internal for tests.
     /// </summary>
     internal static DownloaderSearchHit? Rank(
         IReadOnlyList<DeezerClient.DeezerTrack> tracks, TrackQuery query,
@@ -181,10 +182,12 @@ public class DeemixDownloader : CliToolDownloader
             !string.IsNullOrWhiteSpace(query.Isrc) &&
             !string.IsNullOrWhiteSpace(c.Isrc) &&
             string.Equals(query.Isrc.Trim(), c.Isrc.Trim(), StringComparison.OrdinalIgnoreCase)).ToList();
-        if (requireIsrcMatch && isrcPool.Count == 0) return null;
-        var pool = isrcPool.Count > 0 ? isrcPool : candidates;
+        if (isrcPool.Count > 0)
+            return SearchRanker.RankExactRecording(query.Artist, query.Title,
+                query.ExpectedDuration, isrcPool.Select(c => c.Hit));
+        if (requireIsrcMatch) return null;
         return SearchRanker.Rank(query.Artist, query.Title, query.ExpectedDuration,
-            pool.Select(c => c.Hit));
+            candidates.Select(c => c.Hit));
     }
 
     // ── Download ─────────────────────────────────────────────────────────

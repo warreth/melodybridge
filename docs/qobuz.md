@@ -27,9 +27,10 @@ the plugin reads its token file instead.
 
 ## How a download runs
 
-The search runs against the official Qobuz API with your token and picks the
-best match on title, artist and duration, with the ISRC as the strongest
-signal. The download runs as `qobuz-dlp dl` into a hidden per-track folder,
+The search runs against the official Qobuz API with your token and asks for
+the ISRC itself first, which is how a decorated title still finds the exact
+recording; without a code it falls back to title, artist and duration. The
+download runs as `qobuz-dlp dl` into a hidden per-track folder,
 and the finished file moves into the playlist folder. qobuz-dlp falls back
 to a lower quality when the requested tier is not available; a FLAC request
 that ends up as MP3 is rejected and the waterfall moves on.

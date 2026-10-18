@@ -198,6 +198,21 @@ public class TidalDownloaderTests
     }
 
     [Test]
+    public void Rank_ExactIsrc_AcceptsADifferentlyWordedTitle()
+    {
+        // Tidal titles the same recording without the requested marker.
+        // The code is the identity, so the title gate must not veto it.
+        var hit = TidalDownloader.Rank(new[]
+        {
+            Track(222, "The Last Airbender", "SLVL", 217, "USRC17607839"),
+        }, new TrackQuery("SLVL", "The Last Airbender (VIP)", DownloadQuality.Any,
+            ExpectedDuration: TimeSpan.FromSeconds(217), Isrc: "USRC17607839"));
+
+        Assert.That(hit, Is.Not.Null);
+        Assert.That(hit!.SourceUrl, Is.EqualTo("https://tidal.com/browse/track/222"));
+    }
+
+    [Test]
     public void Rank_ExactIsrc_WinsOverACloserTitle()
     {
         var hit = TidalDownloader.Rank(new[]

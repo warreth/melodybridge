@@ -110,7 +110,7 @@ public class QobuzDownloaderTests
                     var query = QueryValue(request.RequestUri, "query");
                     queries.Add(query);
                     return query == "USRC17607839"
-                        ? Text("""{"tracks":{"items":[{"id":222,"title":"The Last Airbender (VIP)","performer":{"name":"SLVL"},"duration":217,"isrc":"USRC17607839"}]}}""", "application/json")
+                        ? Text("""{"tracks":{"items":[{"id":222,"title":"The Last Airbender","performer":{"name":"SLVL"},"duration":217,"isrc":"USRC17607839"}]}}""", "application/json")
                         : Text("""{"tracks":{"items":[{"id":999,"title":"The Last Airbender","performer":{"name":"Avatar Soundtrack"},"duration":300,"isrc":"OTHER00000001"}]}}""", "application/json");
                 }
                 // The page and the bundle the client needs for its app id.
@@ -133,6 +133,8 @@ public class QobuzDownloaderTests
             Assert.That(queries, Is.Not.Empty);
             Assert.That(queries[0], Is.EqualTo("USRC17607839"),
                 "the code is the first catalogue query");
+            Assert.That(queries, Has.Count.EqualTo(1),
+                "the exact code resolved it; the text search must not run");
             Assert.That(hit, Is.Not.Null);
             Assert.That(hit!.SourceUrl, Is.EqualTo("https://play.qobuz.com/track/222"),
                 "the ISRC recording wins over the soundtrack");

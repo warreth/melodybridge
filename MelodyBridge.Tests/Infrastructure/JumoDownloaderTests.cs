@@ -95,6 +95,28 @@ public class JumoDownloaderTests
     }
 
     [Test]
+    public void ParseSearchTracks_ExactIsrc_AcceptsADifferentlyWordedTitle()
+    {
+        // The catalogue titles the same recording without "(VIP)"; the
+        // exact code must still resolve, or the text search would get a
+        // second chance to pick the wrong soundtrack.
+        const string json = """
+        {
+          "tracks": { "items": [
+            { "id": 2, "title": "The Last Airbender", "duration": 217, "isrc": "USRC17607839",
+              "performer": { "name": "SLVL" }, "album": { "id": "b" } }
+          ] }
+        }
+        """;
+
+        var hit = JumoDownloader.ParseSearchTracks(json, "SLVL", "The Last Airbender (VIP)",
+            TimeSpan.FromSeconds(217), "USRC17607839", requireIsrcMatch: true);
+
+        Assert.That(hit, Is.Not.Null);
+        Assert.That(hit!.SourceUrl, Is.EqualTo("jumo:b:2"));
+    }
+
+    [Test]
     public void ParseSearchTracks_IsrcSearchRequiresAnExactMatch()
     {
         // Same title and artist, a different recording: only the strict

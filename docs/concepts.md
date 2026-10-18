@@ -129,9 +129,11 @@ The strongest signal is the ISRC, the recording's international audio
 fingerprint. Spotify accounts provide it for their tracks, liked songs and
 playlists alike; for everything else MelodyBridge looks it up through Deezer's
 public search and only accepts a confident, duration-plausible match. Sources
-that index ISRCs (the Qobuz-backed ones) search by that code first, which is how
-messy titles still land on the exact recording. YouTube and SoundCloud do not
-index ISRCs, so for those the ranking rules above are the whole gate.
+that index ISRCs use it wherever they can: Qobuz, Deezer, Jumo and Lucida's
+services search by the code itself, and Qobuz, Deezer, Jumo, Monochrome and
+Tidal accept a hit carrying the exact code as that recording, even when its
+title is spelled differently. YouTube and SoundCloud do not index ISRCs at
+all, so for those the ranking rules above are the whole gate.
 
 When the automatic match is wrong or finds nothing, every track row has a
 **Choose source** button: the manual picker lists what every enabled plugin

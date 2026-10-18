@@ -42,9 +42,11 @@ updates.
 ## How a download runs
 
 The search runs against Tidal's public v1 API with your stored token and picks
-the best match on title, artist and duration, with the ISRC as the strongest
-signal. The download runs as `tiddl download url` into a private per-track
-folder, and the finished file moves into the playlist folder.
+the best match on title, artist and duration. A hit carrying the same ISRC is
+accepted as that recording even when the title is spelled differently, the
+strongest signal the public text search offers. The download runs as
+`tiddl download url` into a private per-track folder, and the finished file
+moves into the playlist folder.
 
 | Request | Tidal tier | Result |
 |---|---|---|

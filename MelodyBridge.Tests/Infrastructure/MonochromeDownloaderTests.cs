@@ -201,6 +201,24 @@ public class MonochromeDownloaderTests
     }
 
     [Test]
+    public async Task SearchAsync_ExactIsrc_AcceptsADifferentlyWordedTitle()
+    {
+        // The catalogue titles the same recording without the requested
+        // marker; the exact code must still resolve it.
+        var handler = new StubHttpMessageHandler();
+        handler.Respond = _ => Json(HttpStatusCode.OK, TracksJson(
+            Track("222", "The Last Airbender", "SLVL", 217000, isrc: "USRC17607839")));
+        var downloader = Create(handler);
+
+        var hit = await downloader.SearchAsync(new TrackQuery(
+            "SLVL", "The Last Airbender (VIP)", DownloadQuality.Any,
+            ExpectedDuration: TimeSpan.FromSeconds(217), Isrc: "USRC17607839"));
+
+        Assert.That(hit, Is.Not.Null);
+        Assert.That(hit!.SourceUrl, Is.EqualTo($"{MonochromeDownloader.DefaultBaseUrl}/track/222"));
+    }
+
+    [Test]
     public async Task SearchAsync_ExactIsrc_WinsOverACloserTitle()
     {
         // Two masters of the same song: the first looks like a better

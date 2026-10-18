@@ -105,11 +105,13 @@ runner-ups travel along in `DownloaderSearchHit.Alternatives` so a dead
 first choice (deleted video, geo-block) does not lose the plugin.
 `DownloadManager` re-checks every candidate before spending bytes.
 
-Plugins whose catalog indexes ISRCs use it as the strongest signal: Lucida
-searches Qobuz and Amazon by `query.Isrc` first, and Monochrome, Qobuz and
-Deezer narrow their candidate pool to the exact recording when a search hit
-carries the same ISRC. YouTube, SoundCloud, Archive.org and the DoubleDouble
-endpoint do not index ISRCs and ignore the field.
+Plugins whose catalog indexes ISRCs use it as the strongest signal. Qobuz,
+Deezer and Jumo search the code itself, and Qobuz, Deezer, Jumo, Tidal and
+Monochrome accept a hit carrying the exact code even when the catalogue spells
+the title differently (the length is still checked). Lucida searches its
+services by the code too, but its hits carry no ISRC to verify against, so it
+still requires a confident title match. YouTube, SoundCloud, Archive.org and
+the DoubleDouble endpoint do not index ISRCs and ignore the field.
 
 `PluginCapabilities` is the plugin's honest manifest: every quality level it
 can deliver (container, the bitrate band it arrives in, whether the content is
@@ -147,11 +149,11 @@ Implement this to add a download source. Built-in plugins:
 
 | Plugin | Id | Source | Notes |
 |---|---|---|---|
-| `LucidaDownloader` | `lucida` | lucida.to (Tidal, Qobuz, Amazon Music) | High quality rips; needs a Cloudflare solver, otherwise skipped; Qobuz/Amazon are searched by ISRC first; the load API has no quality parameter, so its manifest is honest-but-uncontrollable |
-| `MonochromeDownloader` | `monochrome` | tracks.monochrome.st (official Monochrome API) | Lossless FLAC streams over a plain GET, no account needed; search hits carry an ISRC, which narrows the pool to the exact recording; the base URL is configurable per plugin for mirrors |
+| `LucidaDownloader` | `lucida` | lucida.to (Tidal, Qobuz, Amazon Music) | High quality rips; needs a Cloudflare solver, otherwise skipped; Qobuz/Amazon are searched by ISRC first, but its hits carry no ISRC, so a confident title match is still required; the load API has no quality parameter, so its manifest is honest-but-uncontrollable |
+| `MonochromeDownloader` | `monochrome` | tracks.monochrome.st (official Monochrome API) | Lossless FLAC streams over a plain GET, no account needed; search hits carry an ISRC, and an exact match is accepted as that recording even when the title differs; the base URL is configurable per plugin for mirrors |
 | `SlskdDownloader` | `slskd` | Soulseek, through the user's own slskd instance | Lossless FLAC and high-bitrate MP3/AAC from peers; search and transfer run over slskd's REST API with an API key; locked files and undeclared containers are skipped; the finished file moves out of slskd's downloads folder, whose path the plugin reads from slskd's own options; unavailable until the URL and key are set and slskd is logged in |
 | `QobuzDownloader` | `qobuz` | qobuz-dlp (shipped in the Docker image) | Lossless and hi-res from a paid Qobuz plan; the search runs natively (bundle scrape plus a user token), the download through the CLI into a hidden per-track folder; the plugin seeds the CLI config (app id, private key, secrets) and its token file, so no interactive login is needed; unavailable until the command and a valid token are found |
-| `TidalDownloader` | `tidal` | tiddl (shipped in the Docker image) | Lossless and hi-res from the user's own Tidal session; the search runs against Tidal's v1 API with the token out of tiddl's `auth.json` (ISRC-first, like Qobuz), the download through `tiddl download url` with the tier mapped onto the requested band; unavailable until the command and a logged-in tiddl session are found, or when that session expired |
+| `TidalDownloader` | `tidal` | tiddl (shipped in the Docker image) | Lossless and hi-res from the user's own Tidal session; the search runs against Tidal's v1 API with the token out of tiddl's `auth.json` (a text search that accepts an exact ISRC hit as the recording, even when the title differs), the download through `tiddl download url` with the tier mapped onto the requested band; unavailable until the command and a logged-in tiddl session are found, or when that session expired |
 | `DeemixDownloader` | `deemix` | deemix CLI (shipped in the Docker image, runs on Node) | Deezer MP3/FLAC with the user's ARL; the search runs against Deezer's public API, the download through the CLI; the ARL setting is written into deemix's config (through `DEEMIX_DATA_DIR`) before every run, so the CLI never prompts; runs are serialized and the finished file moves out of the downloads folder |
 | `JumoDownloader` | `jumo` | jumo-dl.pages.dev (community Qobuz front-end) | No account needed; search and stream descriptors come from the service's guarded API (request-context headers plus ECDH/AES-GCM encrypted responses), the audio comes direct from the signed Qobuz CDN URLs and is AES-CTR decrypted locally; lossless lands as native FLAC, MP3 320 as plain MP3; the service rate limits (429) and can refuse some networks (403), so the plugin reports unavailability instead of hammering it |
 | `DoubleDoubleDownloader` | `doubledouble` | us./eu.doubledouble.top | Retired from the shipped order: the site is captcha-gated on every submission, so `IsAvailableAsync` only reports ready when its captcha config says `active: false`. Submit-and-poll rips of direct track URLs; `SearchAsync` returns null by design |
@@ -248,7 +250,8 @@ Recording Code when it is known. Two sources fill it:
 1. **The Spotify account path** batches `GET /v1/tracks?ids=` (50 ids
    per call) after fetching playlist items or liked songs, because
    playlist items carry simplified tracks without `external_ids`. A
-   failed batch just leaves those tracks without an ISRC.
+   failed batch logs a warning and leaves those tracks without an ISRC;
+   the resolver below gets a second chance per download.
 2. **`IsrcResolver`** (Infrastructure) fills the gap for everything else
    (the Spotify embed scrape, YouTube, CSV imports) through Deezer's
    public search API, which returns the ISRC of every hit and needs no
@@ -262,8 +265,9 @@ Recording Code when it is known. Two sources fill it:
 `PlaylistStore.DownloadClaimedTrackAsync` resolves a missing ISRC right
 before the download, persists it with the track status, and passes it
 in the `TrackQuery`. A snapshot refresh carries the resolved ISRC over
-when the source does not provide one. The Qobuz-backed plugins search
-by ISRC first (see above); nothing else changes for the other plugins.
+when the source does not provide one. Qobuz, Deezer and Jumo search by
+ISRC first; Tidal and Monochrome accept an exact hit from their text
+search; the rest ignore it.
 
 Spotify's public web endpoints were checked and do not expose ISRCs:
 the embed page and the track page carry none, `get_access_token` is

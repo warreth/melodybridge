@@ -250,16 +250,21 @@ public class JumoDownloader : IDownloader
 
             if (candidates.Count == 0) return null;
 
-            // An exact ISRC is the recording itself, not a guess.
+            // An exact ISRC is the recording itself, not a guess: the
+            // catalogue's title wording may differ, so the code carries
+            // that pool while the length still has to be plausible.
             var isrcPool = candidates
                 .Where(c => IsrcEquals(expectedIsrc, c.Isrc))
                 .ToList();
-            if (requireIsrcMatch && isrcPool.Count == 0) return null;
-            var pool = isrcPool.Count > 0 ? isrcPool : candidates;
+            if (isrcPool.Count > 0)
+                return SearchRanker.RankExactRecording(artist, fallbackTitle,
+                    expectedDuration, isrcPool.Select(c => c.Hit),
+                    tieBreaker: hit => isrcPool.First(p => ReferenceEquals(p.Hit, hit)).Hires ? 1 : 0);
+            if (requireIsrcMatch) return null;
 
             return SearchRanker.Rank(artist, fallbackTitle, expectedDuration,
-                pool.Select(c => c.Hit),
-                tieBreaker: hit => pool.First(p => ReferenceEquals(p.Hit, hit)).Hires ? 1 : 0);
+                candidates.Select(c => c.Hit),
+                tieBreaker: hit => candidates.First(p => ReferenceEquals(p.Hit, hit)).Hires ? 1 : 0);
         }
         catch (JsonException)
         {
