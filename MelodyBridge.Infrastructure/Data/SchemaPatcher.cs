@@ -66,6 +66,10 @@ public static class SchemaPatcher
         // Sync jobs select a media server profile instead of carrying
         // raw credentials; legacy inline values still work.
         ("SyncJobs", "MediaServerProfileId", "TEXT NULL"),
+        // First-run anchor: a new scheduled job waits for its next fire.
+        // Rows from before this column keep their old semantics (no anchor
+        // at all means due immediately on the next poll).
+        ("SyncJobs", "CreatedAt", "TEXT NULL"),
     };
 
     public static async Task PatchAsync(MelodyBridgeDbContext db, CancellationToken ct = default)

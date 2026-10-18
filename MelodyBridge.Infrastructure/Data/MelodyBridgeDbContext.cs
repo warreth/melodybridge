@@ -339,6 +339,13 @@ public class SyncJobEntity
     public string ExtensionRemapRules { get; set; } = "{}";
     public string Schedule { get; set; } = "Manual";
     public string? CronExpression { get; set; }
+    /// <summary>
+    /// When the job was created. The scheduler anchors a never-run job
+    /// here, so a new scheduled job waits for its next fire instead of
+    /// running within a minute of being saved. Null on rows from before
+    /// the column existed: those have no anchor and stay due at once.
+    /// </summary>
+    public DateTime? CreatedAt { get; set; }
     public string LastRunStatus { get; set; } = "Pending";
     public DateTime? LastRunAt { get; set; }
     public string? LastRunSummary { get; set; }

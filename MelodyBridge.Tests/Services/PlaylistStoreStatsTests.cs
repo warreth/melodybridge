@@ -378,6 +378,48 @@ public class PlaylistStoreStatsTests
     }
 
     [Test]
+    public async Task SchemaPatcher_OldSyncJobs_GainTheCreatedAtColumn()
+    {
+        var dbPath = NewDbPath();
+        try
+        {
+            var factory = await NewDbFactory(dbPath);
+
+            await using (var db = factory.CreateDbContext())
+            {
+                db.SyncJobs.Add(new SyncJobEntity
+                {
+                    Id = "old-job-anchor",
+                    Name = "Old job without an anchor",
+                    Schedule = "Daily",
+                });
+                await db.SaveChangesAsync();
+
+                // Simulate the pre-column schema.
+                await db.Database.ExecuteSqlRawAsync("ALTER TABLE SyncJobs DROP COLUMN CreatedAt");
+            }
+
+            await using (var db = factory.CreateDbContext())
+                await SchemaPatcher.PatchAsync(db);
+
+            await using (var check = factory.CreateDbContext())
+            {
+                var row = await check.SyncJobs.AsNoTracking().SingleAsync(j => j.Id == "old-job-anchor");
+                Assert.Multiple(() =>
+                {
+                    Assert.That(row.Name, Is.EqualTo("Old job without an anchor"), "data survives the patch");
+                    Assert.That(row.CreatedAt, Is.Null,
+                        "a row from before the column has no anchor; the scheduler treats it as due at once");
+                });
+            }
+        }
+        finally
+        {
+            File.Delete(dbPath);
+        }
+    }
+
+    [Test]
     public async Task SchemaPatcher_OldPlaylists_GainTheStrictQualityColumns()
     {
         var dbPath = NewDbPath();

@@ -169,6 +169,105 @@ public class BackgroundServiceExecuteTests
     }
 
     [Test]
+    public async Task SyncJobScheduler_NewScheduledJob_WaitsForItsNextFire()
+    {
+        // A job saved right now with a daily schedule must not run on the
+        // first poll: it waits for its next scheduled time. The creation
+        // stamp is the anchor, just like the Sync jobs page writes it.
+        var m3u = Path.Combine(_root, "too-early.m3u");
+        await using (var db = _factory.CreateDbContext())
+        {
+            db.SyncJobs.Add(new SyncJobEntity
+            {
+                Id = "job-fresh", Name = "Fresh", SourceId = "missing",
+                OutputTarget = "M3uFile", M3uOutputPath = m3u, Schedule = "Daily",
+                CreatedAt = DateTime.UtcNow,
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var runner = new SyncJobRunner(_factory,
+            new M3uGenerator(NullLogger<M3uGenerator>.Instance),
+            Array.Empty<IMediaServerSync>(), NullLogger<SyncJobRunner>.Instance);
+        var sp = Provider(
+            (typeof(IDbContextFactory<MelodyBridgeDbContext>), _factory),
+            (typeof(ISyncJobRunner), runner));
+
+        using (var cts = new CancellationTokenSource())
+        {
+            var service = new FastSyncJobScheduler(sp);
+            await service.StartAsync(cts.Token);
+            // Several poll cycles: the old rule ran it within one.
+            await Task.Delay(500);
+            cts.Cancel();
+            await service.StopAsync(CancellationToken.None);
+        }
+
+        await using var verify = _factory.CreateDbContext();
+        var job = await verify.SyncJobs.AsNoTracking().SingleAsync(j => j.Id == "job-fresh");
+        Assert.Multiple(() =>
+        {
+            Assert.That(job.LastRunAt, Is.Null, "a new daily job must wait for its next fire");
+            Assert.That(File.Exists(m3u), Is.False);
+        });
+    }
+
+    [Test]
+    public async Task SyncJobScheduler_NeverRunJob_CreatedWhileTheAppWasOff_CatchesUp()
+    {
+        // Created two days ago, never run: the next fire after creation is
+        // in the past, so the first poll runs it (a missed window is not
+        // lost just because the app was off).
+        var dir = Path.Combine(_root, "catchup-music");
+        Directory.CreateDirectory(dir);
+        var trackPath = Path.Combine(dir, "song.mp3");
+        await File.WriteAllBytesAsync(trackPath, TestAudio.MinimalMp3());
+        var m3u = Path.Combine(_root, "catchup.m3u");
+
+        await using (var db = _factory.CreateDbContext())
+        {
+            db.Playlists.Add(new PlaylistEntity
+            {
+                Id = "pl-catchup",
+                Name = "Catchup",
+                SourceUrl = "stub:catchup",
+                TargetDirectory = dir,
+                Tracks = new List<TrackEntity>
+                {
+                    new()
+                    {
+                        MelodyId = "mel-catchup", Title = "Song", Artist = "A",
+                        DownloadStatus = "downloaded", CurrentPath = trackPath, Position = 0,
+                    },
+                },
+            });
+            db.SyncJobs.Add(new SyncJobEntity
+            {
+                Id = "job-old", Name = "Old", SourceId = "pl-catchup",
+                OutputTarget = "M3uFile", M3uOutputPath = m3u, Schedule = "Daily",
+                CreatedAt = DateTime.UtcNow.AddDays(-2),
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var runner = new SyncJobRunner(_factory,
+            new M3uGenerator(NullLogger<M3uGenerator>.Instance),
+            Array.Empty<IMediaServerSync>(), NullLogger<SyncJobRunner>.Instance);
+        var sp = Provider(
+            (typeof(IDbContextFactory<MelodyBridgeDbContext>), _factory),
+            (typeof(ISyncJobRunner), runner));
+
+        await RunUntilAsync(new FastSyncJobScheduler(sp), async () =>
+        {
+            await using var db = _factory.CreateDbContext();
+            var job = await db.SyncJobs.AsNoTracking().SingleOrDefaultAsync(j => j.Id == "job-old");
+            return job?.LastRunAt is not null;
+        }, TimeSpan.FromSeconds(15));
+
+        Assert.That(File.Exists(m3u), Is.True, "the missed run catches up on the first poll");
+    }
+
+    [Test]
     public void Composition_HostsTheSyncJobScheduler()
     {
         // The wiring is part of the fix: a service class nobody starts

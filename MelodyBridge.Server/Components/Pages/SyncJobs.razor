@@ -171,6 +171,10 @@
                                     <option value="@SyncJobSchedule.Monthly">Monthly</option>
                                     <option value="@SyncJobSchedule.Cron">Cron</option>
                                 </select>
+                                <small class="text-muted">
+                                    A scheduled job first runs at its next scheduled time, not when you save it.
+                                    Use Run now on the card to trigger it immediately.
+                                </small>
                             </label>
                             @if (draft.Schedule == SyncJobSchedule.Cron)
                             {
@@ -372,7 +376,7 @@
             <p>@job.LastRunSummary</p>
             <div class="job-meta">
                 <small>Last run: @(job.LastRunAt?.ToString("g") ?? "never")</small>
-                <small>Schedule: @job.Schedule</small>
+                <small>Schedule: @job.Schedule@(nextRunLabels.GetValueOrDefault(job.Id, ""))</small>
             </div>
             <div class="job-footer">
                 <button class="btn-modern primary" @onclick="() => RunJobNow(job.Id)" disabled="@runningJobs.Contains(job.Id)">
@@ -467,6 +471,9 @@
     private string logJobName = "";
     private List<SyncJobRunEntity> logEntries = new();
     private HashSet<string> runningJobs = new();
+    /// <summary>" · next run ..." per job, computed once per load (the cron
+    /// walk is not free and the card re-renders often).</summary>
+    private Dictionary<string, string> nextRunLabels = new();
     private bool isEditing;
     private string? stepError;
 
@@ -563,6 +570,7 @@
         }
         jobs = loaded;
         jobOrder = jobs.Select(j => j.Id).ToList();
+        nextRunLabels = jobs.ToDictionary(j => j.Id, NextRunSuffix);
         sources = await db.Playlists.ToListAsync();
         scanFolders = await db.ScanLocations.Select(l => l.Path).ToListAsync();
     }
@@ -741,7 +749,9 @@
             var entity = await db.SyncJobs.FindAsync(draft.Id);
             if (entity == null)
             {
-                entity = new SyncJobEntity { Id = draft.Id };
+                // The scheduler anchors a never-run job here: it first runs
+                // at its next scheduled time, not within a minute of saving.
+                entity = new SyncJobEntity { Id = draft.Id, CreatedAt = DateTime.UtcNow };
                 db.SyncJobs.Add(entity);
             }
             entity.Name = draft.Name;
@@ -788,6 +798,35 @@
         Platform.Deezer => "Deezer",
         _ => "Unknown",
     };
+
+    /// <summary>
+    /// The next fire the scheduler will act on, or null for a manual job.
+    /// A never-run job is anchored at its creation time, exactly like the
+    /// scheduler does; a job with no anchor at all (a row from before the
+    /// CreatedAt column) is due at the next poll.
+    /// </summary>
+    private static DateTimeOffset? NextRunOf(SyncJobEntity job)
+    {
+        var schedule = SyncJobMapping.ScheduleOf(job);
+        if (schedule.Mode == ScanScheduleMode.Manual) return null;
+
+        var anchor = job.LastRunAt ?? job.CreatedAt;
+        var from = anchor is { } at ? new DateTimeOffset(at, TimeSpan.Zero) : DateTimeOffset.MinValue;
+        if (schedule.Mode == ScanScheduleMode.Interval)
+            return from.AddMinutes(schedule.IntervalMinutes ?? 0);
+
+        var next = schedule.NextAfter(from);
+        return next is { } fire && fire != DateTimeOffset.MaxValue ? fire : null;
+    }
+
+    /// <summary>" · next run &lt;time&gt;" for a scheduled job, nothing for manual.</summary>
+    private static string NextRunSuffix(SyncJobEntity job)
+    {
+        if (SyncJobMapping.ScheduleOf(job).Mode == ScanScheduleMode.Manual) return "";
+        if (NextRunOf(job) is not { } next) return " · no upcoming run";
+        var local = next.ToLocalTime();
+        return local <= DateTimeOffset.Now ? " · due now" : $" · next run {local:g}";
+    }
 
     private static Dictionary<string, string> RulesToDictionary(List<RemapRule> rules) =>
         rules

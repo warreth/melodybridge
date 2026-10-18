@@ -54,7 +54,15 @@ public class SyncJobSchedulingBackgroundService : BackgroundService
                     if (schedule.Mode == Core.ScanScheduleMode.Manual)
                         continue;
 
-                    var lastRun = job.LastRunAt is { } at
+                    // A never-run job is anchored at its creation time:
+                    // it waits for its next natural fire instead of
+                    // running within a minute of being saved. A job
+                    // created while the app was off catches up on the
+                    // first poll after startup. Rows from before the
+                    // CreatedAt column have no anchor and stay due at
+                    // once, exactly as they behaved before.
+                    var anchor = job.LastRunAt ?? job.CreatedAt;
+                    var lastRun = anchor is { } at
                         ? new DateTimeOffset(at, TimeSpan.Zero)
                         : DateTimeOffset.MinValue;
                     if (!schedule.IsDue(lastRun, DateTimeOffset.UtcNow))

@@ -143,6 +143,18 @@ public class SyncJobsLayoutUiTests
     }
 
     [Test]
+    public void JobCard_ShowsTheNextRun()
+    {
+        var cut = _ctx.Render<SyncJobs>();
+        var card = cut.FindAll(".panel-card").First(c => c.TextContent.Contains("Layout Job"));
+        var meta = card.QuerySelector(".job-meta");
+        Assert.That(meta, Is.Not.Null);
+        Assert.That(meta!.TextContent, Does.Contain("Schedule: Daily"));
+        Assert.That(meta.TextContent, Does.Contain("next run").Or.Contain("due now"),
+            "a scheduled job must say when it runs next");
+    }
+
+    [Test]
     public async Task JobCard_RunNow_ShowsRunningState_ThenRecovers()
     {
         // gate the runner so the run is observably in flight when asserted
