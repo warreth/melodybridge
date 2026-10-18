@@ -74,8 +74,9 @@ public class JellyfinFavoritesTests
         // flow reaches the favorites marking.
         handler.Respond = url =>
         {
+            if (url.Contains("Filters=IsFavorite")) return Json("""{"Items": []}""");
             if (url.StartsWith("/Items?")) return Json(
-                $$"""{"Items": [{"Id": "item-1"}]}""");
+                $$"""{"Items": [{"Id": "item-1", "Path": "/music/a.mp3"}]}""");
             return new HttpResponseMessage(HttpStatusCode.OK);
         };
         var sync = NewSync(handler, userId: "user-42");
@@ -96,8 +97,9 @@ public class JellyfinFavoritesTests
         var handler = new RecordingHandler();
         handler.Respond = url =>
         {
+            if (url.Contains("Filters=IsFavorite")) return Json("""{"Items": []}""");
             if (url.StartsWith("/Items?")) return Json(
-                """{"Items": [{"Id": "item-1"}]}""");
+                """{"Items": [{"Id": "item-1", "Path": "/music/a.mp3"}]}""");
             return new HttpResponseMessage(HttpStatusCode.OK);
         };
         var sync = NewSync(handler, userId: "user-42");
@@ -116,8 +118,9 @@ public class JellyfinFavoritesTests
         var handler = new RecordingHandler();
         handler.Respond = url =>
         {
+            if (url.Contains("Filters=IsFavorite")) return Json("""{"Items": []}""");
             if (url.StartsWith("/Items?")) return Json(
-                """{"Items": [{"Id": "item-1"}]}""");
+                """{"Items": [{"Id": "item-1", "Path": "/music/a.mp3"}]}""");
             // Modern route rejects; legacy route accepts.
             if (url.EndsWith("/FavoriteItems/item-1"))
                 return new HttpResponseMessage(HttpStatusCode.NotFound);
@@ -142,8 +145,9 @@ public class JellyfinFavoritesTests
         {
             if (url == "/Users") return Json(
                 """[{"Id": "sys", "Name": "system"}, {"Id": "real-user", "Name": "me"}]""");
+            if (url.Contains("Filters=IsFavorite")) return Json("""{"Items": []}""");
             if (url.StartsWith("/Items?")) return Json(
-                """{"Items": [{"Id": "item-1"}]}""");
+                """{"Items": [{"Id": "item-1", "Path": "/music/a.mp3"}]}""");
             return new HttpResponseMessage(HttpStatusCode.OK);
         };
         var sync = NewSync(handler);
@@ -181,8 +185,9 @@ public class JellyfinFavoritesTests
         {
             if (url == "/Users") return Json(
                 """[{"Id": "real-user", "Name": "me"}]""");
+            if (url.Contains("Filters=IsFavorite")) return Json("""{"Items": []}""");
             if (url.StartsWith("/Items?")) return Json(
-                """{"Items": [{"Id": "item-1"}]}""");
+                """{"Items": [{"Id": "item-1", "Path": "/music/a.mp3"}]}""");
             return new HttpResponseMessage(HttpStatusCode.OK);
         };
 
@@ -196,6 +201,28 @@ public class JellyfinFavoritesTests
 
         Assert.That(handler.Requests[0].Url, Does.StartWith("/"),
             "the request went through the re-pointed client");
+    }
+
+    [Test]
+    public async Task AlreadyFavorited_IsNotPostedAgain()
+    {
+        var handler = new RecordingHandler();
+        handler.Respond = url =>
+        {
+            if (url.Contains("Filters=IsFavorite"))
+                return Json("""{"Items": [{"Id": "item-1"}]}""");
+            if (url.StartsWith("/Items?")) return Json(
+                """{"Items": [{"Id": "item-1", "Path": "/music/a.mp3"}]}""");
+            return new HttpResponseMessage(HttpStatusCode.OK);
+        };
+        var sync = NewSync(handler, userId: "user-42");
+
+        await sync.SyncPlaylistAsync(
+            LikedPlaylist(Track("/music/a.mp3", liked: true)),
+            new PlaylistOutputOptions("/tmp/out.m3u", false, null));
+
+        Assert.That(handler.Requests.Any(r => r.Url.Contains("FavoriteItems")), Is.False,
+            "a like that is already a favorite is not posted again");
     }
 
     private static HttpResponseMessage Json(string body)

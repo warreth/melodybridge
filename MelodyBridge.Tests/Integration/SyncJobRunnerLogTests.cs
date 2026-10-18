@@ -220,8 +220,9 @@ public class SyncJobRunnerLogTests
         handler.Respond = url => url switch
         {
             "/Users" => Json("""[{"Id": "u1", "Name": "Alice"}, {"Id": "u2", "Name": "Bob"}]"""),
+            var items when items.Contains("Filters=IsFavorite") => Json("""{"Items": []}"""),
             var items when items.StartsWith("/Items?") => Json(
-                """{"Items": [{"Id": "item-1", "Name": "Song"}]}"""),
+                """{"Items": [{"Id": "item-1", "Name": "Song", "Path": "/music/song.flac"}]}"""),
             _ => new HttpResponseMessage(System.Net.HttpStatusCode.OK),
         };
         var jellyfin = new JellyfinSync(

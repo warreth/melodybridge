@@ -40,9 +40,11 @@ public class JellyfinPlaylistPayloadTests
     [Test]
     public async Task Create_SendsTheItemIdsInIds()
     {
+        // The library walk resolves the track by path: no per-track
+        // lookup requests at all.
         var handler = new ScriptedHandler()
-            .On("/Items/ByPath", """{"Id":"item-1","Name":"Alpha"}""")
-            .On("/Items?Recursive=true&IncludeItemTypes=Playlist", """{"Items":[]}""")
+            .On("IncludeItemTypes=Audio", """{"Items":[{"Id":"item-1","Name":"Alpha","Path":"/media/alpha.flac"}]}""")
+            .On("IncludeItemTypes=Playlist", """{"Items":[]}""")
             .On("/Playlists", """{"Id":"new-id","Name":"List"}""");
 
         await NewSync(handler).SyncPlaylistAsync(OneTrackPlaylist(),
@@ -57,6 +59,10 @@ public class JellyfinPlaylistPayloadTests
                 "the resolved item id must travel in the payload");
             Assert.That(create.Body, Does.Not.Contain("PlaylistItems").IgnoreCase,
                 "PlaylistItems is an unknown property Jellyfin ignores");
+            Assert.That(handler.Requests.Any(r => r.Url.Contains("ByPath")), Is.False,
+                "current Jellyfin has no ByPath route; it must not be probed when the library was read");
+            Assert.That(handler.Requests.Any(r => r.Url.Contains("SearchTerm")), Is.False,
+                "a path the library holds needs no search");
         });
     }
 
@@ -64,14 +70,16 @@ public class JellyfinPlaylistPayloadTests
     public async Task Update_PostsTheIdsToThePlaylistRoute()
     {
         var handler = new ScriptedHandler()
-            .On("/Items/ByPath", """{"Id":"item-1","Name":"Alpha"}""")
-            .On("/Items?Recursive=true&IncludeItemTypes=Playlist", """{"Items":[{"Id":"existing-id","Name":"List"}]}""")
-            .On("/Playlists/existing-id", "");
+            .On("IncludeItemTypes=Audio", """{"Items":[{"Id":"item-1","Name":"Alpha","Path":"/media/alpha.flac"}]}""")
+            .On("IncludeItemTypes=Playlist", """{"Items":[{"Id":"existing-id","Name":"List"}]}""")
+            // The read answers a different membership, so the update runs.
+            .On("/Playlists/existing-id", """{"ItemIds":["stale-id"]}""");
 
         await NewSync(handler).SyncPlaylistAsync(OneTrackPlaylist(),
             new PlaylistOutputOptions("/tmp/out.m3u", false, null));
 
-        var update = handler.Recorded.Single(r => r.Url.Contains("/Playlists/existing-id"));
+        var update = handler.Recorded
+            .Single(r => r.Method == "POST" && r.Url.Contains("/Playlists/existing-id"));
         Assert.Multiple(() =>
         {
             Assert.That(update.Method, Is.EqualTo("POST"),
@@ -81,6 +89,27 @@ public class JellyfinPlaylistPayloadTests
                 "no PUT route exists");
             Assert.That(handler.Recorded.Any(r => r.Method == "POST" && r.Url == "/Playlists"), Is.False,
                 "an update must never create a second playlist");
+        });
+    }
+
+    [Test]
+    public async Task Update_WhenTheMembersAreUnchanged_SkipsTheWrite()
+    {
+        var handler = new ScriptedHandler()
+            .On("IncludeItemTypes=Audio", """{"Items":[{"Id":"item-1","Name":"Alpha","Path":"/media/alpha.flac"}]}""")
+            .On("IncludeItemTypes=Playlist", """{"Items":[{"Id":"existing-id","Name":"List"}]}""")
+            .On("/Playlists/existing-id", """{"ItemIds":["item-1"]}""");
+
+        var sync = NewSync(handler);
+        await sync.SyncPlaylistAsync(OneTrackPlaylist(),
+            new PlaylistOutputOptions("/tmp/out.m3u", false, null));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(handler.Recorded.Any(r => r.Method == "POST" && r.Url.Contains("/Playlists")), Is.False,
+                "an unchanged playlist is not rewritten on every run");
+            Assert.That(sync.LastReport!.Message, Does.Contain("unchanged"));
+            Assert.That(sync.LastReport.Succeeded, Is.True);
         });
     }
 }

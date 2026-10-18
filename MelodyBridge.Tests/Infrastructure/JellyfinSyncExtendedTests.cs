@@ -38,28 +38,6 @@ public class JellyfinSyncExtendedTests
         return mock;
     }
 
-    private Mock<HttpMessageHandler> CreateSequenceMock(
-        List<(HttpStatusCode StatusCode, string Content, string? PathContains)> responses)
-    {
-        var mock = new Mock<HttpMessageHandler>(MockBehavior.Strict);
-        var setup = mock.Protected()
-            .SetupSequence<Task<HttpResponseMessage>>(
-                "SendAsync",
-                ItExpr.IsAny<HttpRequestMessage>(),
-                ItExpr.IsAny<CancellationToken>());
-
-        foreach (var (status, content, _) in responses)
-        {
-            setup.ReturnsAsync(new HttpResponseMessage
-            {
-                StatusCode = status,
-                Content = new StringContent(content),
-            });
-        }
-
-        return mock;
-    }
-
     private JellyfinSync CreateSync(Mock<HttpMessageHandler> mockHandler)
     {
         var client = new HttpClient(mockHandler.Object) { BaseAddress = new Uri("http://jellyfin:8096") };
@@ -68,15 +46,24 @@ public class JellyfinSyncExtendedTests
             _settings);
     }
 
+    private JellyfinSync NewSync(ScriptedHandler handler)
+    {
+        var client = new HttpClient(handler) { BaseAddress = new Uri("http://jellyfin:8096") };
+        return new JellyfinSync(client,
+            new Microsoft.Extensions.Logging.Abstractions.NullLogger<JellyfinSync>(),
+            _settings);
+    }
+
     [Test]
     public async Task SyncPlaylistAsync_PathRemap_TranslatesPaths()
     {
-        // Create a handler that returns success for ByPath lookup
-        var mock = CreateMockHandler(HttpStatusCode.OK,
-            """{"Id": "item1", "Name": "Test", "Path": "/data/music/song.flac"}""",
-            "/Items/ByPath");
+        // The server holds the file under the remapped path: the library
+        // walk resolves it there, no per-track lookup needed.
+        var handler = new ScriptedHandler()
+            .On("IncludeItemTypes=Audio", """{"Items":[{"Id":"item1","Name":"Test","Path":"/data/music/song.flac"}]}""")
+            .On("/Playlists", """{"Id":"pl-1","Name":"Remap Test"}""");
 
-        var sync = CreateSync(mock);
+        var sync = NewSync(handler);
         var remap = new Dictionary<string, string>
         {
             { "/host/music", "/data/music" }
@@ -95,9 +82,16 @@ public class JellyfinSyncExtendedTests
             }
         };
 
-        Assert.DoesNotThrowAsync(async () =>
-            await sync.SyncPlaylistAsync(playlist,
-                new PlaylistOutputOptions("/tmp/out.m3u", false, remap)));
+        await sync.SyncPlaylistAsync(playlist,
+            new PlaylistOutputOptions("/tmp/out.m3u", false, remap));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(sync.LastReport!.ResolvedCount, Is.EqualTo(1),
+                "the remapped path must resolve");
+            Assert.That(handler.Requests.Any(r => r.Url.Contains("SearchTerm")), Is.False,
+                "a resolved path needs no search");
+        });
     }
 
     [Test]
@@ -164,12 +158,10 @@ public class JellyfinSyncExtendedTests
     [Test]
     public async Task SyncPlaylistAsync_AllLookupsFail_CreatesEmptyPlaylist()
     {
-        var mock = CreateSequenceMock(new List<(HttpStatusCode, string, string?)>
-        {
-            (HttpStatusCode.NotFound, """{"Items":[]}""", null),
-        });
-
-        var sync = CreateSync(mock);
+        // A server that knows nothing: every route answers 404. The sync
+        // still completes, reports the failure honestly, and never throws.
+        var handler = new ScriptedHandler(); // no routes: everything is a 404
+        var sync = NewSync(handler);
 
         var playlist = new Playlist
         {
@@ -184,23 +176,27 @@ public class JellyfinSyncExtendedTests
             }
         };
 
-        Assert.DoesNotThrowAsync(async () =>
-            await sync.SyncPlaylistAsync(playlist,
-                new PlaylistOutputOptions("/tmp/out.m3u", false, null)));
+        await sync.SyncPlaylistAsync(playlist,
+            new PlaylistOutputOptions("/tmp/out.m3u", false, null));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(sync.LastReport, Is.Not.Null);
+            Assert.That(sync.LastReport!.Succeeded, Is.False,
+                "nothing was created, the report says so");
+            Assert.That(sync.LastReport.UnresolvedPaths, Is.Not.Empty);
+        });
     }
 
     [Test]
     public async Task SyncPlaylistAsync_ExistingPlaylist_UpdatesInsteadOfCreating()
     {
-        var mock = CreateSequenceMock(new List<(HttpStatusCode, string, string?)>
-        {
-            (HttpStatusCode.OK, """{"Id": "existing-id", "Name": "Existing"}""", null),
-            (HttpStatusCode.OK, """{"Items": [{"Id": "item1", "Name": "Test", "Path": "/music/song.flac"}]}""", null),
-            (HttpStatusCode.OK, """{"Items": [{"Id": "existing-playlist", "Name": "Test Playlist"}]}""", null),
-            (HttpStatusCode.OK, "", null),
-        });
+        var handler = new ScriptedHandler()
+            .On("IncludeItemTypes=Audio", """{"Items":[{"Id":"item1","Path":"/music/song.flac"}]}""")
+            .On("IncludeItemTypes=Playlist", """{"Items":[{"Id":"existing-playlist","Name":"Test Playlist"}]}""")
+            .On("/Playlists/existing-playlist", """{"ItemIds":[]}""");
 
-        var sync = CreateSync(mock);
+        var sync = NewSync(handler);
 
         var playlist = new Playlist
         {
@@ -215,9 +211,49 @@ public class JellyfinSyncExtendedTests
             }
         };
 
-        Assert.DoesNotThrowAsync(async () =>
-            await sync.SyncPlaylistAsync(playlist,
-                new PlaylistOutputOptions("/tmp/out.m3u", false, null)));
+        await sync.SyncPlaylistAsync(playlist,
+            new PlaylistOutputOptions("/tmp/out.m3u", false, null));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(handler.Recorded.Any(r => r.Method == "POST" && r.Url == "/Playlists"), Is.False,
+                "an existing playlist is never duplicated");
+            var update = handler.Recorded.Single(r => r.Method == "POST");
+            Assert.That(update.Url, Does.Contain("/Playlists/existing-playlist"));
+            Assert.That(update.Body, Does.Contain("item1"));
+        });
+    }
+
+    [Test]
+    public async Task SyncPlaylistAsync_UnreadableLibrary_FallsBackToByPathAndSearch()
+    {
+        // An older server (or a library the account cannot read): the walk
+        // fails, so the exact-path route gets its chance again.
+        var handler = new ScriptedHandler()
+            .On("IncludeItemTypes=Audio", """{"status":400}""", HttpStatusCode.BadRequest)
+            .On("/Items/ByPath", """{"Id":"item1","Name":"Test"}""")
+            .On("IncludeItemTypes=Playlist", """{"Items":[]}""")
+            .On("/Playlists", """{"Id":"pl-1","Name":"Legacy"}""");
+
+        var sync = NewSync(handler);
+        var playlist = new Playlist
+        {
+            Name = "Legacy",
+            Tracks = new List<Track>
+            {
+                new() { Title = "Test", CurrentTrackLocation = new FileLocation("/music/song.flac") }
+            }
+        };
+
+        await sync.SyncPlaylistAsync(playlist,
+            new PlaylistOutputOptions("/tmp/out.m3u", false, null));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(sync.LastReport!.ResolvedCount, Is.EqualTo(1));
+            Assert.That(handler.Requests.Any(r => r.Url.Contains("/Items/ByPath")), Is.True,
+                "without a library index the exact-path route is the first try");
+        });
     }
 
     [Test]

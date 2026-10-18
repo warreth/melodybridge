@@ -62,9 +62,17 @@ public class JellyfinSync : IMediaServerSync
 
         var (baseUrl, apiKey) = await ConnectionAsync(options, ct);
 
+        // One walk of the audio library resolves the tracks by path. Only
+        // items the library does not hold (a file the server has not
+        // scanned yet, a path the remap rules do not reach) reach the
+        // per-track search below, so a normal sync costs a handful of
+        // requests instead of five per track.
+        var library = await LoadLibraryIndexAsync(baseUrl, apiKey, ct);
+
         var itemIds = new List<string>();
         var likedItemIds = new List<string>();
         var unresolved = new List<string>();
+        var searched = 0;
 
         if (playlist.Tracks != null)
         {
@@ -77,7 +85,14 @@ public class JellyfinSync : IMediaServerSync
                     continue;
                 }
 
-                var itemId = await ResolveItemIdAsync(baseUrl, apiKey, lookupPath, track, ct);
+                var itemId = library.Find(lookupPath);
+                if (itemId is null)
+                {
+                    searched++;
+                    itemId = await ResolveItemIdBySearchAsync(
+                        baseUrl, apiKey, lookupPath, track, library.Loaded, ct);
+                }
+
                 if (itemId is null)
                 {
                     _logger.LogInformation("Could not resolve item for path {path}", lookupPath);
@@ -88,6 +103,10 @@ public class JellyfinSync : IMediaServerSync
                 if (track.IsLiked) likedItemIds.Add(itemId);
             }
         }
+
+        _logger.LogInformation(
+            "Jellyfin sync for '{Name}': {Resolved} of {Total} tracks resolved ({Searched} needed a search)",
+            playlist.Name, itemIds.Count, playlist.Tracks?.Count ?? 0, searched);
 
         await UpsertPlaylistAsync(baseUrl, apiKey, playlist.Name, itemIds, unresolved, ct);
 
@@ -104,36 +123,106 @@ public class JellyfinSync : IMediaServerSync
         => string.IsNullOrEmpty(path) ? null : PlaylistPathMapper.Apply(path, options);
 
     /// <summary>
-    /// Resolves one local path to a Jellyfin item id, trying progressively
-    /// looser lookups: exact path, full-path search, filename search, then
-    /// metadata search. Returns null when the server does not know the track.
+    /// The audio library of the server as a path -> item id lookup. The
+    /// server answers with its own view of the paths; the playlist's remap
+    /// rules point ours at the same names. Loaded: false when the walk
+    /// could not be made at all (the per-track lookups then fall back to
+    /// the search route, which is also what older servers need).
     /// </summary>
-    private async Task<string?> ResolveItemIdAsync(
-        string baseUrl, string apiKey, string lookupPath, Track track, CancellationToken ct)
+    private sealed record LibraryIndex(Dictionary<string, string> ByPath, bool Loaded)
     {
-        // 1) Exact path. Jellyfin 10.11 removed this route (it now answers
-        //    400 for /Items/ByPath), so this stays as a cheap try for older
-        //    servers and falls through immediately on new ones.
+        public string? Find(string path)
+            => ByPath.TryGetValue(NormalizePath(path), out var id) ? id : null;
+    }
+
+    private async Task<LibraryIndex> LoadLibraryIndexAsync(
+        string baseUrl, string apiKey, CancellationToken ct)
+    {
+        var items = await LoadItemsAsync(
+            baseUrl, apiKey, "Recursive=true&IncludeItemTypes=Audio&Fields=Path", ct);
+        if (items is null) return new LibraryIndex(new Dictionary<string, string>(StringComparer.Ordinal), Loaded: false);
+
+        var byPath = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var item in items)
+        {
+            if (item.Id is { Length: > 0 } id && item.Path is { Length: > 0 } path)
+                byPath.TryAdd(NormalizePath(path), id);
+        }
+        return new LibraryIndex(byPath, Loaded: true);
+    }
+
+    /// <summary>
+    /// One paged walk of an item query ("{route}?{query}"). Null when the
+    /// server refused the first page; a later failed page keeps what was
+    /// read so far instead of dropping the whole list.
+    /// </summary>
+    private async Task<List<JellyfinItem>?> LoadItemsAsync(
+        string baseUrl, string apiKey, string query, CancellationToken ct, string route = "/Items")
+    {
+        const int pageSize = 1000;
+        var items = new List<JellyfinItem>();
+        var startIndex = 0;
         try
         {
-            using var resp = await SendAsync(baseUrl, apiKey,
-                $"/Items/ByPath?path={System.Net.WebUtility.UrlEncode(lookupPath)}", ct: ct);
-            if (resp.IsSuccessStatusCode)
+            while (true)
             {
-                var item = await resp.Content.ReadFromJsonAsync<JellyfinItem>(cancellationToken: ct);
-                if (!string.IsNullOrEmpty(item?.Id)) return item.Id;
+                using var resp = await SendAsync(baseUrl, apiKey,
+                    $"{route}?{query}&EnableTotalRecordCount=false&StartIndex={startIndex}&Limit={pageSize}",
+                    ct: ct);
+                if (!resp.IsSuccessStatusCode)
+                {
+                    _logger.LogDebug(
+                        "Jellyfin answered {Status} for the item query '{Query}'", resp.StatusCode, query);
+                    return startIndex == 0 ? null : items;
+                }
+                var page = await resp.Content.ReadFromJsonAsync<JellyfinItemsResult>(cancellationToken: ct);
+                var pageItems = page?.Items;
+                if (pageItems is not { Length: > 0 }) return items;
+                items.AddRange(pageItems);
+                if (pageItems.Length < pageSize) return items;
+                startIndex += pageItems.Length;
             }
         }
-        catch (Exception ex) { _logger.LogDebug(ex, "ByPath lookup failed for {path}", lookupPath); }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Jellyfin item query failed for '{Query}'", query);
+            return startIndex == 0 ? null : items;
+        }
+    }
 
-        // 2) Search by full path, 3) by filename, 4) by title/artist, 5) by
-        // title alone. Current Jellyfin does not index file names and its
-        // search does not match a combined "title artist" term, so the
-        // title search is the one that resolves real tracks; the artist and
-        // duration pick the right item when the title is not unique.
+    /// <summary>
+    /// Resolves one local path to a Jellyfin item id when the library walk
+    /// did not already resolve it: the exact-path route on older servers
+    /// (10.11+ answers 400 for it), then the metadata search. Returns null
+    /// when the server does not know the track.
+    /// </summary>
+    private async Task<string?> ResolveItemIdBySearchAsync(
+        string baseUrl, string apiKey, string lookupPath, Track track, bool libraryLoaded, CancellationToken ct)
+    {
+        // With a library index, a path that is not in it is genuinely
+        // unknown to the server; the path route (dead on current Jellyfin)
+        // is only worth a try when no index could be read.
+        if (!libraryLoaded)
+        {
+            try
+            {
+                using var resp = await SendAsync(baseUrl, apiKey,
+                    $"/Items/ByPath?path={System.Net.WebUtility.UrlEncode(lookupPath)}", ct: ct);
+                if (resp.IsSuccessStatusCode)
+                {
+                    var item = await resp.Content.ReadFromJsonAsync<JellyfinItem>(cancellationToken: ct);
+                    if (!string.IsNullOrEmpty(item?.Id)) return item.Id;
+                }
+            }
+            catch (Exception ex) { _logger.LogDebug(ex, "ByPath lookup failed for {path}", lookupPath); }
+        }
+
+        // Jellyfin does not index file names and its search does not match
+        // a combined "title artist" term, so the title search is the one
+        // that resolves real tracks; the artist and duration pick the right
+        // item when the title is not unique.
         var terms = new[]
         {
-            lookupPath,
             Path.GetFileName(lookupPath),
             string.Join(' ', new[] { track.Title, track.Artist }.Where(t => !string.IsNullOrEmpty(t))),
             track.Title
@@ -155,6 +244,13 @@ public class JellyfinSync : IMediaServerSync
             catch (Exception ex) { _logger.LogDebug(ex, "Search lookup failed for {term}", term); }
         }
         return null;
+    }
+
+    /// <summary>Paths compare on one spelling: separators unified, no trailing slash.</summary>
+    private static string NormalizePath(string path)
+    {
+        var normalized = path.Trim().Replace('\\', '/');
+        return normalized.Length > 1 ? normalized.TrimEnd('/') : normalized;
     }
 
     /// <summary>
@@ -217,6 +313,18 @@ public class JellyfinSync : IMediaServerSync
 
             if (existingId is not null)
             {
+                // A playlist whose members and order already match stays
+                // untouched: rewriting a 1000-item list on every run is
+                // the expensive part of an otherwise unchanged sync.
+                var current = await GetPlaylistItemIdsAsync(baseUrl, apiKey, existingId, ct);
+                if (current is not null && current.SequenceEqual(itemIds))
+                {
+                    _logger.LogInformation("Playlist '{name}' is unchanged ({Count} items)", name, itemIds.Count);
+                    _lastReport = new MediaServerSyncReport(itemIds.Count, unresolved.ToArray(),
+                        existingId, "Playlist unchanged");
+                    return;
+                }
+
                 _logger.LogInformation("Updating existing playlist {name}", name);
                 // Jellyfin updates a playlist with POST /Playlists/{id}:
                 // there is no PUT route, and no route deletes a playlist
@@ -278,9 +386,38 @@ public class JellyfinSync : IMediaServerSync
     }
 
     /// <summary>
+    /// The member item ids of an existing playlist (GET /Playlists/{id}),
+    /// or null when the server does not answer that route (API-key calls
+    /// may be refused a playlist read): the caller then writes like before.
+    /// </summary>
+    private async Task<List<string>?> GetPlaylistItemIdsAsync(
+        string baseUrl, string apiKey, string playlistId, CancellationToken ct)
+    {
+        try
+        {
+            using var resp = await SendAsync(baseUrl, apiKey,
+                $"/Playlists/{Uri.EscapeDataString(playlistId)}", ct: ct);
+            if (!resp.IsSuccessStatusCode)
+            {
+                _logger.LogDebug("Jellyfin answered {Status} reading playlist {Id}", resp.StatusCode, playlistId);
+                return null;
+            }
+            var detail = await resp.Content.ReadFromJsonAsync<JellyfinPlaylistDetail>(cancellationToken: ct);
+            return detail?.ItemIds?.ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Playlist read failed for {Id}", playlistId);
+            return null;
+        }
+    }
+
+    /// <summary>
     /// Marks the given items as favorites for the configured Jellyfin user
     /// (POST /Users/{userId}/FavoriteItems/{itemId}, with the older
-    /// /Users/{userId}/Items/{itemId}/Favorite route as fallback).
+    /// /Users/{userId}/Items/{itemId}/Favorite route as fallback). The
+    /// user's current favorites are read once, so an unchanged liked song
+    /// is not re-posted on every run.
     /// </summary>
     private async Task MarkFavoritesAsync(string baseUrl, string apiKey, List<string> likedItemIds,
         string? overrideUserId, CancellationToken ct)
@@ -296,9 +433,17 @@ public class JellyfinSync : IMediaServerSync
             return;
         }
 
+        var favorites = await LoadFavoriteIdsAsync(baseUrl, apiKey, userId, ct);
+
         var marked = 0;
+        var already = 0;
         foreach (var itemId in likedItemIds)
         {
+            if (favorites?.Contains(itemId) == true)
+            {
+                already++;
+                continue;
+            }
             try
             {
                 using var modern = await SendAsync(baseUrl, apiKey,
@@ -315,8 +460,31 @@ public class JellyfinSync : IMediaServerSync
                 _logger.LogDebug(ex, "Favorite mark failed for {ItemId}", itemId);
             }
         }
-        _logger.LogInformation("Marked {Marked}/{Total} liked songs as Jellyfin favorites",
-            marked, likedItemIds.Count);
+        _logger.LogInformation(
+            "Marked {Marked}/{Total} liked songs as Jellyfin favorites ({Already} were already marked)",
+            marked, likedItemIds.Count, already);
+    }
+
+    /// <summary>
+    /// The item ids the user already marked as favorites; null when the
+    /// server does not answer the query (the caller then posts like before).
+    /// </summary>
+    private async Task<HashSet<string>?> LoadFavoriteIdsAsync(
+        string baseUrl, string apiKey, string userId, CancellationToken ct)
+    {
+        var id = Uri.EscapeDataString(userId);
+        // The per-user route is the historical spelling and what the
+        // settings wizard's test connection reads; the modern Item query
+        // with an explicit userId is the fallback.
+        var items = await LoadItemsAsync(baseUrl, apiKey,
+            "Recursive=true&IncludeItemTypes=Audio&Filters=IsFavorite", ct,
+            route: $"/Users/{id}/Items");
+        items ??= await LoadItemsAsync(baseUrl, apiKey,
+            $"Recursive=true&IncludeItemTypes=Audio&Filters=IsFavorite&userId={id}", ct);
+        return items?
+            .Where(i => i.Id is { Length: > 0 })
+            .Select(i => i.Id!)
+            .ToHashSet(StringComparer.Ordinal);
     }
 
     /// <summary>
@@ -355,9 +523,11 @@ public class JellyfinSync : IMediaServerSync
     {
         public string? Id { get; set; }
         public string? Name { get; set; }
+        public string? Path { get; set; }
         public string[]? Artists { get; set; }
         public long? RunTimeTicks { get; set; }
     }
     private class JellyfinItemsResult { public JellyfinItem[]? Items { get; set; } }
     private class JellyfinPlaylist { public string? Id { get; set; } public string? Name { get; set; } }
+    private class JellyfinPlaylistDetail { public string[]? ItemIds { get; set; } }
 }
