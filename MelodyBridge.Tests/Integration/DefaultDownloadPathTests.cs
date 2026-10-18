@@ -588,6 +588,116 @@ public class DefaultDownloadPathTests
         }
     }
 
+    [Test]
+    public async Task DeleteTrackFiles_WhenTheArchiveCannotBeDeleted_KeepsThePrimaryAndTheRow()
+    {
+        if (OperatingSystem.IsWindows())
+            Assert.Ignore("needs POSIX directory permissions");
+
+        var dbPath = NewDbPath();
+        var musicDir = Path.Combine(Path.GetTempPath(), $"mb-default-rmarch-{Guid.NewGuid():N}");
+        try
+        {
+            var factory = await NewDbFactory(dbPath);
+            var (trackId, primary, archive) = await SeedTrackWithArchiveAsync(factory, musicDir);
+            var store = NewStore(factory);
+            var archiveDir = Path.GetDirectoryName(archive)!;
+
+            File.SetUnixFileMode(archiveDir, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+            try
+            {
+                var outcome = await store.DeleteTrackFilesAsync("pl-rm", trackId);
+
+                Assert.Multiple(() =>
+                {
+                    Assert.That(outcome.Deleted, Is.False);
+                    Assert.That(outcome.Error, Does.Contain("could not delete"));
+                    Assert.That(File.Exists(primary), Is.True,
+                        "the primary is attempted last, so a failed archive leaves it untouched");
+                    Assert.That(File.Exists(archive), Is.True);
+                });
+                await using var db = await factory.CreateDbContextAsync();
+                var track = await db.Tracks.AsNoTracking().SingleAsync();
+                Assert.Multiple(() =>
+                {
+                    Assert.That(track.DownloadStatus, Is.EqualTo("downloaded"));
+                    Assert.That(track.CurrentPath, Is.EqualTo(primary));
+                    Assert.That(track.ArchivePath, Is.EqualTo(archive));
+                });
+            }
+            finally
+            {
+                File.SetUnixFileMode(archiveDir,
+                    UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            }
+        }
+        finally
+        {
+            TryDelete(dbPath);
+            try { Directory.Delete(musicDir, recursive: true); } catch { /* best effort */ }
+        }
+    }
+
+    [Test]
+    public async Task DeleteTrackFiles_WhenThePrimaryCannotBeDeleted_ClearsTheGoneArchivePointer()
+    {
+        if (OperatingSystem.IsWindows())
+            Assert.Ignore("needs POSIX directory permissions");
+
+        var dbPath = NewDbPath();
+        var musicDir = Path.Combine(Path.GetTempPath(), $"mb-default-rmprim-{Guid.NewGuid():N}");
+        try
+        {
+            var factory = await NewDbFactory(dbPath);
+            var (trackId, primary, archive) = await SeedTrackWithArchiveAsync(factory, musicDir);
+            var store = NewStore(factory);
+            var primaryDir = Path.GetDirectoryName(primary)!;
+            await using (var seed = await factory.CreateDbContextAsync())
+            {
+                var row = await seed.Tracks.SingleAsync();
+                row.IsHardLink = true;
+                await seed.SaveChangesAsync();
+            }
+
+            File.SetUnixFileMode(primaryDir, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+            try
+            {
+                var outcome = await store.DeleteTrackFilesAsync("pl-rm", trackId);
+
+                Assert.Multiple(() =>
+                {
+                    Assert.That(outcome.Deleted, Is.False);
+                    Assert.That(outcome.Error, Does.Contain("could not delete"));
+                    Assert.That(File.Exists(archive), Is.False,
+                        "the archive copy was deleted before the primary was tried");
+                    Assert.That(File.Exists(primary), Is.True,
+                        "the row still points at a real file");
+                });
+                await using var db = await factory.CreateDbContextAsync();
+                var track = await db.Tracks.AsNoTracking().SingleAsync();
+                Assert.Multiple(() =>
+                {
+                    Assert.That(track.DownloadStatus, Is.EqualTo("downloaded"));
+                    Assert.That(track.CurrentPath, Is.EqualTo(primary));
+                    Assert.That(track.ArchivePath, Is.Null,
+                        "the pointer to the deleted archive is cleared");
+                    Assert.That(track.IsHardLink, Is.True,
+                        "the primary is still a hardlink twin; only the archive went");
+                });
+            }
+            finally
+            {
+                File.SetUnixFileMode(primaryDir,
+                    UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            }
+        }
+        finally
+        {
+            TryDelete(dbPath);
+            try { Directory.Delete(musicDir, recursive: true); } catch { /* best effort */ }
+        }
+    }
+
     /// <summary>A playlist folder with a downloaded track, a real file and an archive copy.</summary>
     private static async Task<(int TrackId, string Primary, string Archive)> SeedTrackWithArchiveAsync(
         IDbContextFactory<MelodyBridgeDbContext> factory, string root)

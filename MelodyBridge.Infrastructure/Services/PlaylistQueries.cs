@@ -148,7 +148,12 @@ internal sealed class PlaylistQueries
         if (track is null) return new TrackFileDeleteResult(false, null);
 
         var hadFiles = false;
-        foreach (var path in OwnPaths([track]))
+        var deleted = new List<string>();
+        // Archive copies first: when one of them cannot be deleted, the
+        // primary file the row points at is still on disk and the row stays
+        // honest. The primary goes last.
+        foreach (var path in OwnPaths([track])
+                     .OrderBy(p => string.Equals(p, track.CurrentPath, StringComparison.Ordinal) ? 1 : 0))
         {
             hadFiles = true;
             // Another row on the same path owns the name now: nothing of
@@ -158,9 +163,22 @@ internal sealed class PlaylistQueries
             try
             {
                 System.IO.File.Delete(path);
+                deleted.Add(path);
             }
             catch (Exception ex)
             {
+                // The primary only fails after its archive copies went, so
+                // clear the pointer to the copy that is gone: the row must
+                // not claim an archive it no longer has.
+                if (string.Equals(path, track.CurrentPath, StringComparison.Ordinal)
+                    && deleted.Count > 0)
+                {
+                    // Only the archive pointer is stale: IsHardLink
+                    // describes the primary file, which is still on disk.
+                    track.ArchivePath = null;
+                    await db.SaveChangesAsync(ct);
+                    _changes.Bump();
+                }
                 _logger.LogWarning(
                     "Could not delete {Path} of '{Title}': {Reason}", path, track.Title, ex.Message);
                 return new TrackFileDeleteResult(false, $"could not delete {path}: {ex.Message}");
