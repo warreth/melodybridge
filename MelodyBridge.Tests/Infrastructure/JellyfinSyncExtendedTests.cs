@@ -1,6 +1,7 @@
 using System.Net;
 using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.MediaServers;
+using Microsoft.Extensions.Logging;
 using Moq;
 using Moq.Protected;
 
@@ -290,6 +291,214 @@ public class JellyfinSyncExtendedTests
         Assert.That(handler.PlaylistPostBody, Does.Contain("real-id"),
             "the artist match must win over the cover: " + handler.PlaylistPostBody);
         Assert.That(handler.PlaylistPostBody, Does.Not.Contain("cover-id"));
+    }
+
+    [Test]
+    public async Task SyncPlaylistAsync_PathMiss_ResolvesByMetadataWithoutASearch()
+    {
+        // The server holds the track under a path the remap rules do not
+        // reach (a different Docker mount, a rename after the scan). The
+        // walk already carries the metadata, so the track resolves from
+        // the single walk with no per-track search.
+        var handler = new ScriptedHandler()
+            .On("EnableTotalRecordCount=false", """
+                {"Items":[{"Id":"meta-1","Name":"Meta Song","Path":"/srv/media/metasong.flac",
+                           "Artists":["The Artist"],"RunTimeTicks":2100000000}]}
+                """)
+            .On("SearchTerm=", """{"status":"unexpected search"}""")
+            .On("IncludeItemTypes=Playlist", """{"Items":[]}""")
+            .On("/Playlists", """{"Id":"pl-1","Name":"Meta"}""");
+
+        var sync = NewSync(handler);
+        var playlist = new Playlist
+        {
+            Name = "Meta",
+            Tracks = new List<Track>
+            {
+                new()
+                {
+                    Title = "Meta Song",
+                    Artist = "The Artist",
+                    Duration = TimeSpan.FromSeconds(210),
+                    CurrentTrackLocation = new FileLocation("/music/metasong.flac"),
+                },
+            },
+        };
+
+        await sync.SyncPlaylistAsync(playlist, new PlaylistOutputOptions("/tmp/out.m3u", false, null));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(sync.LastReport!.ResolvedCount, Is.EqualTo(1),
+                "the metadata match resolves the track");
+            Assert.That(handler.Requests.Any(r => r.Url.Contains("SearchTerm")), Is.False,
+                "the walk already named the track, so no search is sent");
+            Assert.That(handler.Recorded.Single(r => r.Method == "POST").Body, Does.Contain("meta-1"),
+                "the resolved item id joins the playlist");
+        });
+    }
+
+    [Test]
+    public async Task SyncPlaylistAsync_PathMiss_MetadataPicksByArtistAndDuration()
+    {
+        // Two library items share the title; the track's artist and length
+        // pick the right one locally, still without a search.
+        var handler = new ScriptedHandler()
+            .On("EnableTotalRecordCount=false", """
+                {"Items":[
+                    {"Id":"wrong","Name":"Twin","Path":"/srv/wrong.flac","Artists":["Other"],"RunTimeTicks":1200000000},
+                    {"Id":"right","Name":"Twin","Path":"/srv/right.flac","Artists":["Good"],"RunTimeTicks":2100000000}]}
+                """)
+            .On("SearchTerm=", """{"status":"unexpected search"}""")
+            .On("IncludeItemTypes=Playlist", """{"Items":[]}""")
+            .On("/Playlists", """{"Id":"pl-1","Name":"Twin"}""");
+
+        var sync = NewSync(handler);
+        var playlist = new Playlist
+        {
+            Name = "Twin",
+            Tracks = new List<Track>
+            {
+                new()
+                {
+                    Title = "Twin",
+                    Artist = "Good",
+                    Duration = TimeSpan.FromSeconds(210),
+                    CurrentTrackLocation = new FileLocation("/music/twin.flac"),
+                },
+            },
+        };
+
+        await sync.SyncPlaylistAsync(playlist, new PlaylistOutputOptions("/tmp/out.m3u", false, null));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(sync.LastReport!.ResolvedCount, Is.EqualTo(1));
+            var body = handler.Recorded.Single(r => r.Method == "POST").Body;
+            Assert.That(body, Does.Contain("right"), "the artist and runtime pick the right item");
+            Assert.That(body, Does.Not.Contain("wrong"));
+            Assert.That(handler.Requests.Any(r => r.Url.Contains("SearchTerm")), Is.False);
+        });
+    }
+
+    [Test]
+    public async Task SyncPlaylistAsync_AmbiguousTitleWithoutSignal_FallsBackToSearch()
+    {
+        // Two items share the title and neither the artist nor the runtime
+        // separates them: the index refuses to guess and the server search
+        // decides instead.
+        var handler = new ScriptedHandler()
+            .On("EnableTotalRecordCount=false", """
+                {"Items":[{"Id":"twin-a","Name":"Twin","Path":"/srv/a.flac"},
+                          {"Id":"twin-b","Name":"Twin","Path":"/srv/b.flac"}]}
+                """)
+            .On("SearchTerm=", """{"Items":[{"Id":"search-hit","Name":"Twin"}]}""")
+            .On("IncludeItemTypes=Playlist", """{"Items":[]}""")
+            .On("/Playlists", """{"Id":"pl-1","Name":"Twin"}""");
+
+        var sync = NewSync(handler);
+        var playlist = new Playlist
+        {
+            Name = "Twin",
+            Tracks = new List<Track>
+            {
+                new() { Title = "Twin", CurrentTrackLocation = new FileLocation("/music/twin.flac") },
+            },
+        };
+
+        await sync.SyncPlaylistAsync(playlist, new PlaylistOutputOptions("/tmp/out.m3u", false, null));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(sync.LastReport!.ResolvedCount, Is.EqualTo(1));
+            Assert.That(handler.Requests.Any(r => r.Url.Contains("SearchTerm")), Is.True,
+                "an ambiguous title with no signal is left to the search");
+            Assert.That(handler.Recorded.Single(r => r.Method == "POST").Body, Does.Contain("search-hit"));
+        });
+    }
+
+    [Test]
+    public async Task SyncPlaylistAsync_TitleGoesFirstInTheSearchFallback()
+    {
+        // Jellyfin resolves real tracks by title; the title term goes first
+        // so a hit costs one request, not the three the filename and
+        // combined terms used to spend on every unresolved track.
+        var handler = new ScriptedHandler()
+            .On("EnableTotalRecordCount=false", """{"Items":[]}""")
+            .On("SearchTerm=", """{"Items":[{"Id":"found","Name":"OnlyHere"}]}""")
+            .On("IncludeItemTypes=Playlist", """{"Items":[]}""")
+            .On("/Playlists", """{"Id":"pl-1","Name":"Order"}""");
+
+        var sync = NewSync(handler);
+        var playlist = new Playlist
+        {
+            Name = "Order",
+            Tracks = new List<Track>
+            {
+                new() { Title = "OnlyHere", CurrentTrackLocation = new FileLocation("/music/01. OnlyHere.flac") },
+            },
+        };
+
+        await sync.SyncPlaylistAsync(playlist, new PlaylistOutputOptions("/tmp/out.m3u", false, null));
+
+        var searches = handler.Requests.Where(r => r.Url.Contains("SearchTerm=")).ToList();
+        Assert.Multiple(() =>
+        {
+            Assert.That(sync.LastReport!.ResolvedCount, Is.EqualTo(1));
+            Assert.That(searches, Has.Count.EqualTo(1),
+                "a title hit stops the loop; the dead terms are never sent");
+            Assert.That(searches[0].Url, Does.EndWith("SearchTerm=OnlyHere"),
+                "the title term, not the filename, is sent first");
+        });
+    }
+
+    [Test]
+    public async Task SyncPlaylistAsync_LibraryWithoutPaths_LogsTheReasonAndMatchesByMetadata()
+    {
+        // A non-admin profile user gets library items without paths: the
+        // sync says so and still resolves the track from the walk's own
+        // metadata instead of falling back to a search.
+        var logs = new CollectingLoggerProvider();
+        using var factory = LoggerFactory.Create(
+            builder => builder.AddProvider(logs).SetMinimumLevel(LogLevel.Debug));
+
+        var handler = new ScriptedHandler()
+            .On("EnableTotalRecordCount=false", """
+                {"Items":[{"Id":"meta-1","Name":"NoPath","Artists":["The Artist"],"RunTimeTicks":1000000000}]}
+                """)
+            .On("SearchTerm=", """{"status":"unexpected search"}""")
+            .On("IncludeItemTypes=Playlist", """{"Items":[]}""")
+            .On("/Playlists", """{"Id":"pl-1","Name":"NoPath"}""");
+
+        var sync = new JellyfinSync(
+            new HttpClient(handler) { BaseAddress = new Uri("http://jellyfin:8096") },
+            factory.CreateLogger<JellyfinSync>(), _settings);
+
+        var playlist = new Playlist
+        {
+            Name = "NoPath",
+            Tracks = new List<Track>
+            {
+                new()
+                {
+                    Title = "NoPath",
+                    Artist = "The Artist",
+                    Duration = TimeSpan.FromSeconds(100),
+                    CurrentTrackLocation = new FileLocation("/music/nopath.flac"),
+                },
+            },
+        };
+
+        await sync.SyncPlaylistAsync(playlist, new PlaylistOutputOptions("/tmp/out.m3u", false, null));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(sync.LastReport!.ResolvedCount, Is.EqualTo(1),
+                "the metadata match resolves the track without a path");
+            Assert.That(handler.Requests.Any(r => r.Url.Contains("SearchTerm")), Is.False);
+            Assert.That(logs.Snapshot().Any(l => l.Contains("no file paths")), Is.True,
+                "the log names the reason instead of leaving the user guessing");
+        });
     }
 
     /// <summary>

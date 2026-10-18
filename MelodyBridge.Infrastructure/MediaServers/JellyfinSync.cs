@@ -62,16 +62,19 @@ public class JellyfinSync : IMediaServerSync
 
         var (baseUrl, apiKey) = await ConnectionAsync(options, ct);
 
-        // One walk of the audio library resolves the tracks by path. Only
-        // items the library does not hold (a file the server has not
-        // scanned yet, a path the remap rules do not reach) reach the
-        // per-track search below, so a normal sync costs a handful of
-        // requests instead of five per track.
+        // One walk of the audio library resolves the tracks by path, then
+        // by the metadata the walk already carries when the paths do not
+        // line up. Only items the library does not hold at all (a file the
+        // server has not scanned yet) reach the per-track search below, so
+        // a normal sync costs a handful of requests instead of several per
+        // track.
         var library = await LoadLibraryIndexAsync(baseUrl, apiKey, ct);
 
         var itemIds = new List<string>();
         var likedItemIds = new List<string>();
         var unresolved = new List<string>();
+        var byPath = 0;
+        var byMetadata = 0;
         var searched = 0;
 
         if (playlist.Tracks != null)
@@ -85,8 +88,21 @@ public class JellyfinSync : IMediaServerSync
                     continue;
                 }
 
-                var itemId = library.Find(lookupPath);
-                if (itemId is null)
+                string? itemId = null;
+                if (library.Find(lookupPath) is { } pathHit)
+                {
+                    itemId = pathHit;
+                    byPath++;
+                }
+                else if (library.FindByMetadata(track) is { } metaHit)
+                {
+                    // The library holds the track under another path (a
+                    // different mount, a file renamed after the scan): its
+                    // own metadata already names it, so no search request.
+                    itemId = metaHit;
+                    byMetadata++;
+                }
+                else
                 {
                     searched++;
                     itemId = await ResolveItemIdBySearchAsync(
@@ -105,8 +121,9 @@ public class JellyfinSync : IMediaServerSync
         }
 
         _logger.LogInformation(
-            "Jellyfin sync for '{Name}': {Resolved} of {Total} tracks resolved ({Searched} needed a search)",
-            playlist.Name, itemIds.Count, playlist.Tracks?.Count ?? 0, searched);
+            "Jellyfin sync for '{Name}': {Resolved} of {Total} tracks resolved "
+            + "({ByPath} by path, {ByMetadata} by metadata, {Searched} needed a search)",
+            playlist.Name, itemIds.Count, playlist.Tracks?.Count ?? 0, byPath, byMetadata, searched);
 
         await UpsertPlaylistAsync(baseUrl, apiKey, playlist.Name, itemIds, unresolved, ct);
 
@@ -123,16 +140,41 @@ public class JellyfinSync : IMediaServerSync
         => string.IsNullOrEmpty(path) ? null : PlaylistPathMapper.Apply(path, options);
 
     /// <summary>
-    /// The audio library of the server as a path -> item id lookup. The
-    /// server answers with its own view of the paths; the playlist's remap
-    /// rules point ours at the same names. Loaded: false when the walk
-    /// could not be made at all (the per-track lookups then fall back to
-    /// the search route, which is also what older servers need).
+    /// The audio library of the server as a path -> item id lookup, plus a
+    /// title -> items lookup for the tracks whose path does not line up.
+    /// The server answers with its own view of the paths; the playlist's
+    /// remap rules point ours at the same names, and a path the rules miss
+    /// still resolves through the metadata the walk carries. Loaded: false
+    /// when the walk could not be made at all (the per-track lookups then
+    /// fall back to the search route, which is also what older servers
+    /// need).
     /// </summary>
-    private sealed record LibraryIndex(Dictionary<string, string> ByPath, bool Loaded)
+    private sealed record LibraryIndex(
+        Dictionary<string, string> ByPath,
+        Dictionary<string, List<JellyfinItem>> ByTitle,
+        bool Loaded)
     {
         public string? Find(string path)
             => ByPath.TryGetValue(NormalizePath(path), out var id) ? id : null;
+
+        /// <summary>
+        /// Finds the item this track names, for when the library holds the
+        /// file under a path the remap rules do not reach (a different
+        /// Docker mount, a rename after the scan). The title is the index
+        /// key; the artist and runtime pick the right item when several
+        /// share it. A title that is ambiguous without either signal is
+        /// left to the server search instead of guessing.
+        /// </summary>
+        public string? FindByMetadata(Track track)
+        {
+            if (string.IsNullOrWhiteSpace(track.Title)) return null;
+            if (!ByTitle.TryGetValue(track.Title.Trim(), out var candidates) || candidates.Count == 0)
+                return null;
+            var best = PickBest(candidates, track);
+            if (best?.Id is not { Length: > 0 } id) return null;
+            if (candidates.Count > 1 && ScoreItem(best, track) == 0) return null;
+            return id;
+        }
     }
 
     /// <summary>
@@ -167,19 +209,47 @@ public class JellyfinSync : IMediaServerSync
         {
             // A failed walk is not cached: the next playlist retries instead
             // of degrading to search fallbacks for the whole window.
-            return new LibraryIndex(new Dictionary<string, string>(StringComparer.Ordinal), Loaded: false);
+            return new LibraryIndex(
+                new Dictionary<string, string>(StringComparer.Ordinal),
+                new Dictionary<string, List<JellyfinItem>>(StringComparer.OrdinalIgnoreCase),
+                Loaded: false);
         }
 
         var byPath = new Dictionary<string, string>(StringComparer.Ordinal);
+        var byTitle = new Dictionary<string, List<JellyfinItem>>(StringComparer.OrdinalIgnoreCase);
         foreach (var item in items)
         {
-            if (item.Id is { Length: > 0 } id && item.Path is { Length: > 0 } path)
-                byPath.TryAdd(NormalizePath(path), id);
+            if (item.Id is not { Length: > 0 })
+                continue;
+            if (item.Path is { Length: > 0 } path)
+                byPath.TryAdd(NormalizePath(path), item.Id);
+            if (!string.IsNullOrWhiteSpace(item.Name))
+            {
+                var title = item.Name.Trim();
+                if (!byTitle.TryGetValue(title, out var list))
+                    byTitle[title] = list = new List<JellyfinItem>();
+                list.Add(item);
+            }
         }
-        var index = new LibraryIndex(byPath, Loaded: true);
+        var index = new LibraryIndex(byPath, byTitle, Loaded: true);
         lock (_libraryCacheGate)
         {
             _libraryCache = (key, DateTime.UtcNow, index);
+        }
+        _logger.LogDebug(
+            "Jellyfin library index: {Items} audio items, {Paths} with a path, {Titles} titled",
+            items.Count, byPath.Count, byTitle.Count);
+        if (items.Count > 0 && byPath.Count == 0)
+        {
+            // Audio items came back without a single file path: the
+            // profile's user may lack the permission that reveals paths,
+            // or the server omits them. The title index still resolves
+            // the tracks, so the sync stays correct, just without the
+            // exact path check.
+            _logger.LogInformation(
+                "Jellyfin returned no file paths for {Items} library items; matching tracks by metadata. "
+                + "Check the profile user's permissions",
+                items.Count);
         }
         return index;
     }
@@ -252,13 +322,15 @@ public class JellyfinSync : IMediaServerSync
 
         // Jellyfin does not index file names and its search does not match
         // a combined "title artist" term, so the title search is the one
-        // that resolves real tracks; the artist and duration pick the right
-        // item when the title is not unique.
+        // that resolves real tracks. It goes first so a hit costs a single
+        // request; the looser terms stay as the fallback for servers that
+        // index more than their metadata. The artist and duration pick the
+        // right item when the title is not unique.
         var terms = new[]
         {
-            Path.GetFileName(lookupPath),
+            track.Title,
             string.Join(' ', new[] { track.Title, track.Artist }.Where(t => !string.IsNullOrEmpty(t))),
-            track.Title
+            Path.GetFileName(lookupPath)
         };
         foreach (var term in terms)
         {
@@ -291,26 +363,15 @@ public class JellyfinSync : IMediaServerSync
     /// otherwise the artist and the duration decide. A title search can
     /// return covers and live versions, so the first hit is not enough.
     /// </summary>
-    private static JellyfinItem? PickBest(JellyfinItem[] items, Track track)
+    private static JellyfinItem? PickBest(IReadOnlyList<JellyfinItem> items, Track track)
     {
-        if (items.Length == 1) return items[0];
+        if (items.Count == 1) return items[0];
 
         JellyfinItem? best = null;
         var bestScore = -1;
         foreach (var item in items)
         {
-            var score = 0;
-            if (!string.IsNullOrEmpty(track.Artist) && item.Artists is { Length: > 0 }
-                && item.Artists.Any(a => a.Contains(track.Artist, StringComparison.OrdinalIgnoreCase)
-                    || track.Artist.Contains(a, StringComparison.OrdinalIgnoreCase)))
-            {
-                score += 2;
-            }
-            if (track.Duration is { } duration && item.RunTimeTicks is { } ticks
-                && Math.Abs(TimeSpan.FromTicks(ticks).TotalSeconds - duration.TotalSeconds) <= 5)
-            {
-                score += 1;
-            }
+            var score = ScoreItem(item, track);
             if (score > bestScore)
             {
                 bestScore = score;
@@ -318,6 +379,27 @@ public class JellyfinSync : IMediaServerSync
             }
         }
         return best;
+    }
+
+    /// <summary>
+    /// How well one library item fits the track. The artist and a close
+    /// runtime are the only signals, so an item with neither scores zero.
+    /// </summary>
+    private static int ScoreItem(JellyfinItem item, Track track)
+    {
+        var score = 0;
+        if (!string.IsNullOrEmpty(track.Artist) && item.Artists is { Length: > 0 }
+            && item.Artists.Any(a => a.Contains(track.Artist, StringComparison.OrdinalIgnoreCase)
+                || track.Artist.Contains(a, StringComparison.OrdinalIgnoreCase)))
+        {
+            score += 2;
+        }
+        if (track.Duration is { } duration && item.RunTimeTicks is { } ticks
+            && Math.Abs(TimeSpan.FromTicks(ticks).TotalSeconds - duration.TotalSeconds) <= 5)
+        {
+            score += 1;
+        }
+        return score;
     }
 
     /// <summary>Updates the named playlist in place, or creates it.</summary>
