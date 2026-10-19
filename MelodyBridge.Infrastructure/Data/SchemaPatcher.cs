@@ -76,6 +76,9 @@ public static class SchemaPatcher
         // Auto-sync attempt stamp: a failed refresh waits for the next
         // interval instead of retrying on every scheduler poll.
         ("Playlists", "LastAttemptAt", "TEXT NULL"),
+        // A spectrum review the user settled with Keep: recompute must not
+        // reopen it for the same file.
+        ("Tracks", "SpectrumAccepted", "INTEGER NOT NULL DEFAULT 0"),
     };
 
     public static async Task PatchAsync(MelodyBridgeDbContext db, CancellationToken ct = default)

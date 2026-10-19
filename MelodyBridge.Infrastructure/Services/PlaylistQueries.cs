@@ -199,6 +199,7 @@ internal sealed class PlaylistQueries
         track.Warning = null;
         track.ReviewKind = null;
         track.ReviewText = null;
+        track.SpectrumAccepted = false;
         track.SourcePluginId = null;
         track.AvoidPluginId = null;
         track.SkipDedup = false;
@@ -580,48 +581,79 @@ internal sealed class PlaylistQueries
     /// is queued for a re-download. Returns (recomputed, missing, flagged):
     /// files read, files gone, and rows that ended the pass with a fresh
     /// quality review.
+    ///
+    /// The work runs in small batches off the circuit, each with its own
+    /// DbContext and only ids carried across: a big library does not block
+    /// the UI for minutes, and a download that lands between batches is
+    /// seen as it is instead of being overwritten from a stale snapshot.
     /// </summary>
     public async Task<(int recomputed, int missing, int flagged)> RecomputeMissingFactsAsync(
         CancellationToken ct = default)
     {
-        await using var db = await _dbFactory.CreateDbContextAsync(ct);
-        var rows = await db.Tracks
-            .Where(t => t.DownloadStatus == "downloaded" && t.CurrentPath != null)
-            .ToListAsync(ct);
+        List<int> ids;
+        await using (var db = await _dbFactory.CreateDbContextAsync(ct))
+        {
+            ids = await db.Tracks
+                .Where(t => t.DownloadStatus == "downloaded" && t.CurrentPath != null)
+                .Select(t => t.Id)
+                .ToListAsync(ct);
+        }
 
         var verification = _verification();
         var recomputed = 0;
         var missing = 0;
         var flagged = 0;
-        foreach (var track in rows)
+
+        foreach (var batch in ids.Chunk(25))
         {
-            if (!File.Exists(track.CurrentPath))
+            ct.ThrowIfCancellationRequested();
+            var batchIds = batch.ToList();
+            var counts = await Task.Run(async () =>
             {
-                // Same wording LibraryReconciler uses: the UI explains it once.
-                track.DownloadStatus = "pending";
-                track.Warning = "file missing on disk, will re-download";
-                track.ReviewKind = null;
-                track.ReviewText = null;
-                track.SourcePluginId = null;
-                missing++;
-                continue;
-            }
+                await using var db = await _dbFactory.CreateDbContextAsync(ct);
+                var rows = await db.Tracks
+                    .Where(t => batchIds.Contains(t.Id))
+                    .ToListAsync(ct);
 
-            if (track.Bitrate == null || track.SampleRateHz == null || track.FileSizeBytes == null)
-            {
-                track.Bitrate = Audio.BitrateProbe.MeasureKbps(track.CurrentPath!);
-                AudioProbe.Fill(track, track.CurrentPath!);
-                recomputed++;
-            }
+                var localRecomputed = 0;
+                var localMissing = 0;
+                var localFlagged = 0;
+                foreach (var track in rows)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    if (!File.Exists(track.CurrentPath))
+                    {
+                        // Same wording LibraryReconciler uses: the UI explains it once.
+                        track.DownloadStatus = "pending";
+                        track.Warning = "file missing on disk, will re-download";
+                        track.ReviewKind = null;
+                        track.ReviewText = null;
+                        track.SpectrumAccepted = false;
+                        track.SourcePluginId = null;
+                        localMissing++;
+                        continue;
+                    }
 
-            if (ApplySpectrumVerdict(track, verification)) flagged++;
+                    if (track.Bitrate == null || track.SampleRateHz == null || track.FileSizeBytes == null)
+                    {
+                        track.Bitrate = Audio.BitrateProbe.MeasureKbps(track.CurrentPath!);
+                        AudioProbe.Fill(track, track.CurrentPath!);
+                        localRecomputed++;
+                    }
+
+                    if (ApplySpectrumVerdict(track, verification)) localFlagged++;
+                }
+
+                if (rows.Count > 0) await db.SaveChangesAsync(ct);
+                return (localRecomputed, localMissing, localFlagged);
+            }, ct);
+
+            recomputed += counts.Item1;
+            missing += counts.Item2;
+            flagged += counts.Item3;
         }
 
-        if (rows.Count > 0)
-        {
-            await db.SaveChangesAsync(ct);
-            _changes.Bump();
-        }
+        if (ids.Count > 0) _changes.Bump();
         return (recomputed, missing, flagged);
     }
 
@@ -630,14 +662,18 @@ internal sealed class PlaylistQueries
     /// file gains the spectrum review, a stale one is cleared when the
     /// current file no longer looks inflated, and the informational hint
     /// is refreshed. Other warning segments (an archive failure, a dedup
-    /// note) are never touched. Returns true when the row ends with the
-    /// spectrum review open.
+    /// note) are never touched. A file the user settled with Keep is not
+    /// reopened for the same verdict. Returns true when the row ends with
+    /// the spectrum review open.
     /// </summary>
     private static bool ApplySpectrumVerdict(TrackEntity track, Audio.VerificationOptions verification)
     {
         var result = Audio.SpectrumAnalyzer.Verify(
             track.CurrentPath!, verification.Spectrum, verification.SpectrumClassGap);
         if (result is null) return TrackReview.Has(track.ReviewKind, TrackReview.Spectrum);
+
+        var accepted = track.SpectrumAccepted;
+        if (!result.LooksInflated) track.SpectrumAccepted = false;
 
         // Rebuild only the spectrum parts: the length review, the dedup
         // warning and everything else stay exactly as they were.
@@ -650,7 +686,7 @@ internal sealed class PlaylistQueries
             .Where(t => !t.StartsWith("bitrate looks inflated:", StringComparison.Ordinal))
             .ToList();
 
-        if (result.LooksInflated)
+        if (result.LooksInflated && !accepted)
         {
             kinds.Add(TrackReview.Spectrum);
             texts.Add($"bitrate looks inflated: {result.Note}");
@@ -671,6 +707,6 @@ internal sealed class PlaylistQueries
             warnings.Add($"quality hint: {result.Note}");
         track.Warning = warnings.Count == 0 ? null : string.Join("; ", warnings);
 
-        return result.LooksInflated;
+        return result.LooksInflated && !accepted;
     }
 }

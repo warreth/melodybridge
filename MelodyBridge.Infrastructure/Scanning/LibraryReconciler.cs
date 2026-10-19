@@ -183,6 +183,7 @@ public class LibraryReconciler
                     track.Warning = "file missing on disk, will re-download";
                     track.ReviewKind = null;
                     track.ReviewText = null;
+                    track.SpectrumAccepted = false;
                     track.SourcePluginId = null;
                     lost++;
                 }

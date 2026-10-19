@@ -173,6 +173,7 @@ public sealed class TrackLinker
         // carries over, and there is no provider to avoid.
         track.ReviewKind = null;
         track.ReviewText = null;
+        track.SpectrumAccepted = false;
         track.SourcePluginId = null;
         track.Warning = warning;
 

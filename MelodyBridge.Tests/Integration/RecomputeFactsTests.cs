@@ -313,6 +313,68 @@ public class RecomputeFactsTests
     }
 
     [Test]
+    public async Task Recompute_DoesNotReopenASpectrumReviewSettledWithKeep()
+    {
+        if (!FfmpegAvailable()) Assert.Ignore("ffmpeg not installed");
+        if (MelodyBridge.Infrastructure.Audio.SpectrumAnalyzer.FindFfprobe() is null)
+            Assert.Ignore("ffprobe not installed");
+
+        var source = Path.Combine(_dir, "src-kept.mp3");
+        var fakeFlac = Path.Combine(_dir, "kept.flac");
+        Assert.That(RunFfmpeg(
+            $"-y -f lavfi -i \"anoisesrc=color=pink:duration=4:seed=4\" -b:a 64k \"{source}\""), Is.Empty);
+        Assert.That(RunFfmpeg($"-y -i \"{source}\" -c:a flac \"{fakeFlac}\""), Is.Empty);
+
+        var store = await SeedAndCreateStoreAsync(
+            ("mel-kept", fakeFlac, "downloaded", null, null, null));
+        var trackId = await TrackIdAsync("mel-kept");
+
+        var previous = PlaylistStore.Verification;
+        PlaylistStore.Verification = () =>
+            new MelodyBridge.Infrastructure.Audio.VerificationOptions(
+                MelodyBridge.Infrastructure.Audio.SpectrumMode.Fast);
+        try
+        {
+            var (_, _, first) = await store.RecomputeMissingFactsAsync();
+            Assert.That(first, Is.EqualTo(1), "the fake FLAC is flagged first");
+
+            Assert.That(await store.ResolveQualityReviewAsync(trackId, QualityReviewAction.Keep),
+                Is.True);
+            await using (var afterKeep = _factory.CreateDbContext())
+            {
+                var kept = afterKeep.Tracks.AsNoTracking().Single(t => t.Id == trackId);
+                Assert.Multiple(() =>
+                {
+                    Assert.That(kept.SpectrumAccepted, Is.True,
+                        "the Keep decision is remembered for this file");
+                    Assert.That(kept.ReviewKind, Is.Null, "Keep clears the open review");
+                });
+            }
+
+            var (_, _, second) = await store.RecomputeMissingFactsAsync();
+            await using var afterRecheck = _factory.CreateDbContext();
+            var track = afterRecheck.Tracks.AsNoTracking().Single(t => t.Id == trackId);
+            Assert.Multiple(() =>
+            {
+                Assert.That(second, Is.EqualTo(0),
+                    "a recheck must not reopen a review the user settled");
+                Assert.That(track.ReviewKind, Is.Null);
+                Assert.That(track.SpectrumAccepted, Is.True);
+            });
+        }
+        finally
+        {
+            PlaylistStore.Verification = previous;
+        }
+    }
+
+    private async Task<int> TrackIdAsync(string melodyId)
+    {
+        await using var db = _factory.CreateDbContext();
+        return db.Tracks.AsNoTracking().Single(t => t.MelodyId == melodyId).Id;
+    }
+
+    [Test]
     public void AdvancedPage_RecomputeButton_RunsStoreAndToasts()
     {
         if (!FfmpegAvailable()) Assert.Ignore("ffmpeg not installed");

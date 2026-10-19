@@ -401,6 +401,7 @@ internal sealed class PlaylistSnapshots
                     // decision or the one-shot avoid hint.
                     mapped.ReviewKind = prior.ReviewKind;
                     mapped.ReviewText = prior.ReviewText;
+                    mapped.SpectrumAccepted = prior.SpectrumAccepted;
                     mapped.SourcePluginId = prior.SourcePluginId;
                     mapped.AvoidPluginId = prior.AvoidPluginId;
                     if (!string.IsNullOrEmpty(prior.MediaType))

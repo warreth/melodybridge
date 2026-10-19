@@ -191,6 +191,13 @@ public class TrackEntity
     public string? ReviewText { get; set; }
 
     /// <summary>
+    /// True when the user settled a spectrum review with Keep. A later
+    /// recheck (Recompute audio facts) must not reopen the same verdict
+    /// for the same file; a fresh download clears it.
+    /// </summary>
+    public bool SpectrumAccepted { get; set; }
+
+    /// <summary>
     /// One-shot: the next download attempt for this track skips this
     /// plugin. Set by Retry on a flagged track (from SourcePluginId) and
     /// consumed when the attempt starts, so a failed retry never traps

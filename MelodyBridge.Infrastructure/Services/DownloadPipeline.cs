@@ -481,6 +481,7 @@ internal sealed class DownloadPipeline
                     .SetProperty(t => t.Warning, (string?)null)
                     .SetProperty(t => t.ReviewKind, (string?)null)
                     .SetProperty(t => t.ReviewText, (string?)null)
+                    .SetProperty(t => t.SpectrumAccepted, false)
                     .SetProperty(t => t.Bitrate, (int?)null)
                     .SetProperty(t => t.SampleRateHz, (int?)null)
                     .SetProperty(t => t.FileSizeBytes, (long?)null)
@@ -834,6 +835,10 @@ internal sealed class DownloadPipeline
         {
             _logger.LogInformation(
                 "Quality review for '{Title}': file kept as it is ({Reason})", track.Title, track.ReviewText);
+            // Remember a settled spectrum verdict so the next recompute
+            // does not reopen the same decision for the same file.
+            if (TrackReview.Has(track.ReviewKind, TrackReview.Spectrum))
+                track.SpectrumAccepted = true;
             track.ReviewKind = null;
             track.ReviewText = null;
             await db.SaveChangesAsync(ct);
@@ -874,6 +879,7 @@ internal sealed class DownloadPipeline
         track.Warning = null;
         track.ReviewKind = null;
         track.ReviewText = null;
+        track.SpectrumAccepted = false;
         track.Bitrate = null;
         track.SampleRateHz = null;
         track.FileSizeBytes = null;
@@ -901,6 +907,10 @@ internal sealed class DownloadPipeline
         var kinds = new List<string>();
         var texts = new List<string>();
         string? warning = null;
+
+        // This file is new: a Keep decision for a previous file does not
+        // carry over to it.
+        track.SpectrumAccepted = false;
 
         if (integrity.Issue == Audio.IntegrityIssue.DurationMismatch && integrity.Reason is { } lengthReason)
         {
