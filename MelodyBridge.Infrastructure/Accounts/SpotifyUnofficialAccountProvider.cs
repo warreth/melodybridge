@@ -24,12 +24,16 @@ namespace MelodyBridge.Infrastructure.Accounts;
 ///   credential of their account: anyone holding it can act as them
 /// - Spotify can change the internal API without notice: this path breaks
 ///   when it does, and the maintainers of the secret list have to catch up
-/// - massive exposure is for Spotify to define; a burner account removes it
+/// - what an account that trips Spotify's radar is theirs to decide; a
+///   burner account removes most of that risk
 ///
-/// The API itself is the one the web player uses, with pinned query hashes,
-/// the same approach as the Jellyfin Spotify import plugin (Viperinius,
-/// GPL-3.0). MelodyBridge never asks for a password and never refreshes
-/// tokens on Spotify's behalf: the session cookie is the whole credential.
+/// The API itself is the one the web player uses, with pinned query hashes.
+/// This is a C# port of the approach in the GPL-3.0 Jellyfin Spotify import
+/// plugin by Viperinius
+/// (https://github.com/Viperinius/jellyfin-plugin-spotify-import), modified
+/// for MelodyBridge in October 2026, not a fork of it. MelodyBridge never
+/// asks for a password and never refreshes tokens on Spotify's behalf: the
+/// session cookie is the whole credential.
 /// </summary>
 public class SpotifyUnofficialAccountProvider : IAccountSourceProvider
 {
@@ -60,6 +64,13 @@ public class SpotifyUnofficialAccountProvider : IAccountSourceProvider
     private readonly ILogger<SpotifyUnofficialAccountProvider> _logger;
 
     public string Name => ProviderName;
+
+    /// <summary>
+    /// Pause between library pages. The web player spaces its own requests
+    /// and a burst is the quickest way to get this unofficial route rate
+    /// limited; tests set it to zero.
+    /// </summary>
+    internal TimeSpan PageDelay { get; set; } = TimeSpan.FromMilliseconds(250);
 
     public SpotifyUnofficialAccountProvider(
         AccountTokenStore settings,
@@ -148,6 +159,8 @@ public class SpotifyUnofficialAccountProvider : IAccountSourceProvider
     {
         var result = new List<UserPlaylist>();
         var offset = 0;
+        var scanned = 0;
+        var total = 0;
         while (offset < MaxItems)
         {
             var data = await QueryAsync(SpotifyWebGraphQl.LibraryPlaylistsBody(PageSize, offset), ct);
@@ -155,8 +168,9 @@ public class SpotifyUnofficialAccountProvider : IAccountSourceProvider
                 throw new InvalidOperationException(
                     "Spotify's library answer had an unknown shape; the unofficial connection needs an update.");
 
-            var total = SpotifyWebGraphQl.TotalCount(container);
+            total = SpotifyWebGraphQl.TotalCount(container);
             var page = SpotifyWebGraphQl.Items(container).ToList();
+            scanned += page.Count;
 
             foreach (var item in page)
             {
@@ -168,9 +182,20 @@ public class SpotifyUnofficialAccountProvider : IAccountSourceProvider
                     result.Add(playlist);
             }
 
-            if (page.Count == 0 || result.Count >= total || page.Count < PageSize) break;
-            offset += PageSize;
+            // The cursor follows the page the API returned, and the count is
+            // the items scanned, not the playlists kept: the liked-songs row
+            // must not turn a full page into an extra empty request.
+            if (page.Count == 0 || total > 0 && scanned >= total
+                || total <= 0 && page.Count < PageSize)
+                break;
+            offset += page.Count;
+            await DelayBetweenPagesAsync(ct);
         }
+
+        if (total > 0 && scanned < total)
+            _logger.LogWarning(
+                "Spotify web session listed {Count} playlists but read only {Scanned} of {Total} library items",
+                result.Count, scanned, total);
 
         _logger.LogInformation("Spotify web session listed {Count} playlists", result.Count);
         return result;
@@ -180,6 +205,8 @@ public class SpotifyUnofficialAccountProvider : IAccountSourceProvider
     {
         var tracks = new List<Track>();
         var offset = 0;
+        var scanned = 0;
+        var total = 0;
         while (offset < MaxItems)
         {
             var data = await QueryAsync(SpotifyWebGraphQl.LikedTracksBody(PageSize, offset), ct);
@@ -187,8 +214,9 @@ public class SpotifyUnofficialAccountProvider : IAccountSourceProvider
                 throw new InvalidOperationException(
                     "Spotify's liked-songs answer had an unknown shape; the unofficial connection needs an update.");
 
-            var total = SpotifyWebGraphQl.TotalCount(container);
+            total = SpotifyWebGraphQl.TotalCount(container);
             var page = SpotifyWebGraphQl.Items(container).ToList();
+            scanned += page.Count;
 
             foreach (var item in page)
             {
@@ -198,8 +226,11 @@ public class SpotifyUnofficialAccountProvider : IAccountSourceProvider
                     tracks.Add(track);
             }
 
-            if (page.Count == 0 || tracks.Count >= total || page.Count < PageSize) break;
-            offset += PageSize;
+            if (page.Count == 0 || total > 0 && scanned >= total
+                || total <= 0 && page.Count < PageSize)
+                break;
+            offset += page.Count;
+            await DelayBetweenPagesAsync(ct);
         }
 
         _logger.LogInformation("Spotify web session fetched {Count} liked songs", tracks.Count);
@@ -214,6 +245,11 @@ public class SpotifyUnofficialAccountProvider : IAccountSourceProvider
             Tracks = tracks,
             TrackCount = tracks.Count,
             Duration = Sum(tracks),
+            // A short answer is not a small library: say so, the store keeps
+            // the snapshot marked as partial instead of clean.
+            Warning = total > 0 && scanned < total
+                ? $"partial fetch: read {scanned} of {total} items"
+                : null,
         };
     }
 
@@ -236,6 +272,8 @@ public class SpotifyUnofficialAccountProvider : IAccountSourceProvider
             var tracks = new List<Track>();
             JsonElement playlistNode = default;
             var offset = 0;
+            var scanned = 0;
+            var total = 0;
             while (offset < MaxItems)
             {
                 var data = await QueryAsync(SpotifyWebGraphQl.PlaylistBody(PageSize, offset, uri), ct);
@@ -245,8 +283,9 @@ public class SpotifyUnofficialAccountProvider : IAccountSourceProvider
                 if (!playlistNode.TryGetProperty("content", out var content))
                     return null;
 
-                var total = SpotifyWebGraphQl.TotalCount(content);
+                total = SpotifyWebGraphQl.TotalCount(content);
                 var page = SpotifyWebGraphQl.Items(content).ToList();
+                scanned += page.Count;
 
                 foreach (var item in page)
                 {
@@ -256,13 +295,26 @@ public class SpotifyUnofficialAccountProvider : IAccountSourceProvider
                         tracks.Add(track);
                 }
 
-                if (page.Count == 0 || tracks.Count >= total || page.Count < PageSize) break;
-                offset += PageSize;
+                if (page.Count == 0 || total > 0 && scanned >= total
+                    || total <= 0 && page.Count < PageSize)
+                    break;
+                offset += page.Count;
+                await DelayBetweenPagesAsync(ct);
             }
 
             var playlist = SpotifyWebGraphQl.MapPlaylist(playlistNode, tracks);
-            if (playlist is not null && string.IsNullOrEmpty(playlist.Id))
-                playlist.Id = playlistId;
+            if (playlist is not null)
+            {
+                if (string.IsNullOrEmpty(playlist.Id))
+                    playlist.Id = playlistId;
+                if (total > 0 && scanned < total)
+                {
+                    playlist.Warning = $"partial fetch: read {scanned} of {total} items";
+                    _logger.LogWarning(
+                        "Spotify web session read {Scanned} of {Total} items in playlist {PlaylistId}",
+                        scanned, total, playlistId);
+                }
+            }
 
             return playlist;
         }
@@ -285,52 +337,86 @@ public class SpotifyUnofficialAccountProvider : IAccountSourceProvider
         var secretsUrl = await _settings.GetSettingAsync(ProviderName, SecretsUrlKey, ct);
         var token = await _session.GetAccessTokenAsync(cookie, secretsUrl, ct);
 
-        using var request = new HttpRequestMessage(HttpMethod.Post, SpotifyWebGraphQl.QueryUrl)
+        HttpResponseMessage? response = null;
+        try
         {
-            Content = new StringContent(body, Encoding.UTF8, "application/json"),
-        };
-        request.Headers.TryAddWithoutValidation("User-Agent", BrowserUserAgent);
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            for (var attempt = 0; ; attempt++)
+            {
+                using var request = new HttpRequestMessage(HttpMethod.Post, SpotifyWebGraphQl.QueryUrl)
+                {
+                    Content = new StringContent(body, Encoding.UTF8, "application/json"),
+                };
+                request.Headers.TryAddWithoutValidation("User-Agent", BrowserUserAgent);
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
-        using var response = await _http.SendAsync(request, ct);
-        if (response.StatusCode == HttpStatusCode.Unauthorized)
-        {
-            // The token can be revoked mid-session: drop it so the next
-            // attempt mints a fresh one from the cookie.
-            _session.ForgetToken();
-            throw new InvalidOperationException(
-                "Spotify refused the web session (401). The cookie may have been logged out; "
-                + "copy a fresh sp_dc value in the account settings.");
+                response = await _http.SendAsync(request, ct);
+
+                // One backoff per query, honoring Retry-After. The web player
+                // paces itself; a burst of pages is what trips the limit.
+                if ((int)response.StatusCode != 429 || attempt >= 1) break;
+
+                var wait = response.Headers.RetryAfter?.Delta ?? TimeSpan.FromSeconds(5);
+                wait = TimeSpan.FromTicks(Math.Min(wait.Ticks, TimeSpan.FromSeconds(30).Ticks));
+                response.Dispose();
+                response = null;
+                _logger.LogInformation(
+                    "Spotify rate limited the web session; retrying in {Wait}", wait);
+                await Task.Delay(wait, ct);
+            }
+
+            if (response is null)
+                throw new InvalidOperationException("Spotify did not answer the web request.");
+
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                // The token can be revoked mid-session: drop it so the next
+                // attempt mints a fresh one from the cookie.
+                _session.ForgetToken();
+                throw new InvalidOperationException(
+                    "Spotify refused the web session (401). The cookie may have been logged out; "
+                    + "copy a fresh sp_dc value in the account settings.");
+            }
+            if (!response.IsSuccessStatusCode)
+                throw new InvalidOperationException(
+                    $"Spotify's web API answered {(int)response.StatusCode} for the unofficial connection.");
+
+            using var doc = JsonDocument.Parse(await response.Content.ReadAsStreamAsync(ct));
+            var root = doc.RootElement;
+
+            // A GraphQL errors answer is not a shape change: surface it as such
+            // (a playlist the account cannot see lands here too, and the caller
+            // treats it as "no playlist from this path").
+            if (root.ValueKind == JsonValueKind.Object
+                && root.TryGetProperty("errors", out var errors)
+                && errors.ValueKind == JsonValueKind.Array
+                && errors.GetArrayLength() > 0)
+            {
+                var message = errors[0].ValueKind == JsonValueKind.Object
+                    && errors[0].TryGetProperty("message", out var first)
+                        ? first.GetString()
+                        : null;
+                throw new InvalidOperationException(
+                    $"Spotify's web API refused the request: {message ?? "unknown error"}.");
+            }
+
+            if (!SpotifyWebGraphQl.TryGetData(root, out var data))
+                throw new InvalidOperationException(
+                    "Spotify's web API answered without data; the unofficial connection may need an update.");
+
+            return data.Clone();
         }
-        if (!response.IsSuccessStatusCode)
-            throw new InvalidOperationException(
-                $"Spotify's web API answered {(int)response.StatusCode} for the unofficial connection.");
-
-        using var doc = JsonDocument.Parse(await response.Content.ReadAsStreamAsync(ct));
-        var root = doc.RootElement;
-
-        // A GraphQL errors answer is not a shape change: surface it as such
-        // (a playlist the account cannot see lands here too, and the caller
-        // treats it as "no playlist from this path").
-        if (root.ValueKind == JsonValueKind.Object
-            && root.TryGetProperty("errors", out var errors)
-            && errors.ValueKind == JsonValueKind.Array
-            && errors.GetArrayLength() > 0)
+        finally
         {
-            var message = errors[0].ValueKind == JsonValueKind.Object
-                && errors[0].TryGetProperty("message", out var first)
-                    ? first.GetString()
-                    : null;
-            throw new InvalidOperationException(
-                $"Spotify's web API refused the request: {message ?? "unknown error"}.");
+            response?.Dispose();
         }
-
-        if (!SpotifyWebGraphQl.TryGetData(root, out var data))
-            throw new InvalidOperationException(
-                "Spotify's web API answered without data; the unofficial connection may need an update.");
-
-        return data.Clone();
     }
+
+    /// <summary>
+    /// The pause between library pages. Zero in tests, 250 ms in the app,
+    /// the same spacing the Jellyfin plugin uses against this API.
+    /// </summary>
+    private Task DelayBetweenPagesAsync(CancellationToken ct)
+        => PageDelay > TimeSpan.Zero ? Task.Delay(PageDelay, ct) : Task.CompletedTask;
 
     private static TimeSpan? Sum(IReadOnlyList<Track> tracks)
     {

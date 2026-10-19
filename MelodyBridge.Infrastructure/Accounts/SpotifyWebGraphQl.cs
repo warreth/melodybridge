@@ -11,7 +11,9 @@ namespace MelodyBridge.Infrastructure.Accounts;
 /// persisted query hashes). The hashes are pinned constants: when Spotify
 /// ships a new bundle the old hash stops answering, which is exactly why
 /// this whole path is documented as unstable. The request and response
-/// shapes follow the Jellyfin Spotify import plugin (Viperinius, GPL-3.0).
+/// shapes were ported to C# from the Jellyfin Spotify import plugin by
+/// Viperinius (https://github.com/Viperinius/jellyfin-plugin-spotify-import,
+/// GPL-3.0) and modified for MelodyBridge in October 2026.
 ///
 /// The parsers are deliberately tolerant: field wrappers (itemV2/track),
 /// uri/_uri and duration/trackDuration all appear in the wild.

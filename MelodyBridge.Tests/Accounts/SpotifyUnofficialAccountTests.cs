@@ -155,10 +155,18 @@ public class SpotifyUnofficialAccountTests
     }
 
     private SpotifyUnofficialAccountProvider ProviderWith(FakeSpotifyWeb web)
-        => new(_tokens,
+    {
+        var provider = new SpotifyUnofficialAccountProvider(
+            _tokens,
             new SpotifyWebSession(web.Client, NullLogger<SpotifyWebSession>.Instance),
             web.Client,
-            NullLogger<SpotifyUnofficialAccountProvider>.Instance);
+            NullLogger<SpotifyUnofficialAccountProvider>.Instance)
+        {
+            // The 250 ms pacing is right for Spotify, pointless in tests.
+            PageDelay = TimeSpan.Zero,
+        };
+        return provider;
+    }
 
     [Test]
     public async Task NotEnabled_IsNotConnected_AndNothingIsFetched()
@@ -197,6 +205,88 @@ public class SpotifyUnofficialAccountTests
         Assert.That(System.Text.RegularExpressions.Regex.IsMatch(tokenUrl, @"totp=\d{6}"), Is.True,
             "the TOTP is a six digit code");
         Assert.That(web.TokenRequests[0].Cookie, Is.EqualTo("sp_dc=real-cookie-value"));
+    }
+
+    [Test]
+    public async Task LikedSongs_ClampedPages_ArePagedByWhatCameBack()
+    {
+        // Spotify answers 20 per page although 50 were asked: stepping by 50
+        // would silently skip 30 tracks on every page.
+        var web = new FakeSpotifyWeb { LikedTotal = 60, LikedPageCap = 20 };
+        var provider = ProviderWith(web);
+        await provider.SaveSettingAsync("cookie", "cookie");
+        await provider.SetEnabledAsync(true);
+
+        var liked = await provider.GetLikedPlaylistAsync();
+
+        Assert.That(liked.Tracks, Has.Count.EqualTo(60));
+        Assert.That(web.PageRequests, Is.EqualTo(new[] { (0, 50), (20, 50), (40, 50) }),
+            "the cursor advances by the page the API returned");
+        Assert.That(liked.Warning, Is.Null, "a clamped but complete answer is not partial");
+    }
+
+    [Test]
+    public async Task LikedSongs_ShortAnswer_IsMarkedPartial()
+    {
+        var web = new FakeSpotifyWeb { LikedTotal = 60, LikedStopAfter = 20 };
+        var provider = ProviderWith(web);
+        await provider.SaveSettingAsync("cookie", "cookie");
+        await provider.SetEnabledAsync(true);
+
+        var liked = await provider.GetLikedPlaylistAsync();
+
+        Assert.That(liked.Tracks, Has.Count.EqualTo(20));
+        Assert.That(liked.Warning, Is.Not.Null,
+            "a short answer must not look like a small library");
+        Assert.That(liked.Warning, Does.Contain("20 of 60"));
+    }
+
+    [Test]
+    public async Task LibraryAtAnExactPageBoundary_DoesNotAskForAnEmptyPage()
+    {
+        // 50 library items including the liked-songs row: the old loop
+        // compared the kept playlists (49) with the total and asked again.
+        var web = new FakeSpotifyWeb { LibraryTotal = 50 };
+        var provider = ProviderWith(web);
+        await provider.SaveSettingAsync("cookie", "cookie");
+        await provider.SetEnabledAsync(true);
+
+        var playlists = await provider.GetUserPlaylistsAsync();
+
+        Assert.That(playlists, Has.Count.EqualTo(49));
+        Assert.That(web.LibraryRequests, Is.EqualTo(new[] { (0, 50) }),
+            "the liked row counts toward the page, so no second request is owed");
+    }
+
+    [Test]
+    public async Task Playlist_ShortAnswer_IsMarkedPartial()
+    {
+        var web = new FakeSpotifyWeb { PlaylistTotal = 60, PlaylistStopAfter = 20 };
+        var provider = ProviderWith(web);
+        await provider.SaveSettingAsync("cookie", "cookie");
+        await provider.SetEnabledAsync(true);
+
+        var playlist = await provider.TryGetPlaylistViaAccountAsync("55V41RYWVdALRiiN1onkUr");
+
+        Assert.That(playlist, Is.Not.Null);
+        Assert.That(playlist!.Tracks, Has.Count.EqualTo(20));
+        Assert.That(playlist.Warning, Does.Contain("20 of 60"),
+            "the store turns this into a partial snapshot instead of a clean one");
+    }
+
+    [Test]
+    public async Task RateLimitedQuery_IsRetriedOnce()
+    {
+        var web = new FakeSpotifyWeb { RateLimitOnce = true };
+        var provider = ProviderWith(web);
+        await provider.SaveSettingAsync("cookie", "cookie");
+        await provider.SetEnabledAsync(true);
+
+        var liked = await provider.GetLikedPlaylistAsync();
+
+        Assert.That(liked.Tracks, Has.Count.EqualTo(2), "the retry fetched the page");
+        Assert.That(web.LikedAttempts, Is.EqualTo(2),
+            "one 429 is retried once, not surfaced as a failed import");
     }
 
     [Test]
@@ -327,13 +417,17 @@ public class SpotifyUnofficialAccountTests
     /// <summary>The store with the unofficial session as the only account.</summary>
     private PlaylistStore StoreWith(
         SpotifyUnofficialAccountProvider account, ISourceProvider[]? sources = null)
+        => StoreWith(new IAccountSourceProvider[] { account }, sources);
+
+    private PlaylistStore StoreWith(
+        IAccountSourceProvider[] accounts, ISourceProvider[]? sources = null)
         => new(_dbFactory!,
             sources ?? Array.Empty<ISourceProvider>(),
             new MelodyBridge.Application.Services.DownloadManager(
                 new EmptyRegistry(),
                 NullLogger<MelodyBridge.Application.Services.DownloadManager>.Instance),
             NullLogger<PlaylistStore>.Instance,
-            new IAccountSourceProvider[] { account });
+            accounts);
 
     [Test]
     public async Task LikedImport_ThroughTheStore_PersistsAndUpdates()
@@ -383,7 +477,14 @@ public class SpotifyUnofficialAccountTests
         var publicSpotify = new MelodyBridge.Infrastructure.Services.SpotifySourceProvider(
             NullLogger<MelodyBridge.Infrastructure.Services.SpotifySourceProvider>.Instance,
             null, unreachable);
-        var store = StoreWith(provider, new ISourceProvider[] { publicSpotify });
+
+        // The official connection is registered too and comes first, but it
+        // has no tokens: the store must skip it and try the session.
+        var official = new SpotifyAccountProvider(
+            _tokens, NullLogger<SpotifyAccountProvider>.Instance);
+        var store = StoreWith(
+            new IAccountSourceProvider[] { official, provider },
+            new ISourceProvider[] { publicSpotify });
 
         var saved = await store.AddOrRefreshAsync(
             "https://open.spotify.com/playlist/55V41RYWVdALRiiN1onkUr");
@@ -430,7 +531,21 @@ public class SpotifyUnofficialAccountTests
     private sealed class FakeSpotifyWeb : HttpMessageHandler
     {
         public int LikedTotal { get; set; } = 2;
+        public int LibraryTotal { get; set; } = 2;
         public int PlaylistTotal { get; set; } = 1;
+
+        /// <summary>Clamps what a liked-songs page returns, to mimic a tight API.</summary>
+        public int LikedPageCap { get; set; }
+
+        /// <summary>Stops serving liked songs after this many, leaving a short answer.</summary>
+        public int LikedStopAfter { get; set; } = int.MaxValue;
+
+        /// <summary>Stops serving playlist items after this many.</summary>
+        public int PlaylistStopAfter { get; set; } = int.MaxValue;
+
+        /// <summary>Answers the first liked-songs query with a 429.</summary>
+        public bool RateLimitOnce { get; set; }
+
         public bool Anonymous { get; set; }
         public bool BreakPlaylistQuery { get; set; }
         public List<(string Url, string? Cookie)> TokenRequests { get; } = new();
@@ -438,8 +553,16 @@ public class SpotifyUnofficialAccountTests
         /// <summary>Offset and limit of every liked-songs page request.</summary>
         public List<(int Offset, int Limit)> PageRequests { get; } = new();
 
+        /// <summary>Offset and limit of every library page request.</summary>
+        public List<(int Offset, int Limit)> LibraryRequests { get; } = new();
+
         /// <summary>Offset and limit of every playlist page request.</summary>
         public List<(int Offset, int Limit)> PlaylistPageRequests { get; } = new();
+
+        /// <summary>Every liked-songs query, including rate-limited retries.</summary>
+        public int LikedAttempts { get; private set; }
+
+        private bool _rateLimited;
 
         public HttpClient Client => new(this) { Timeout = TimeSpan.FromSeconds(10) };
 
@@ -493,19 +616,35 @@ public class SpotifyUnofficialAccountTests
                     && variables.TryGetProperty("limit", out var l)
                         ? l.GetInt32()
                         : 50;
-                if (operation == "fetchLibraryTracks") PageRequests.Add((offset, limit));
+                if (operation == "fetchLibraryTracks")
+                {
+                    PageRequests.Add((offset, limit));
+                    LikedAttempts++;
+                }
                 if (operation == "fetchPlaylist") PlaylistPageRequests.Add((offset, limit));
+                if (operation == "libraryV3") LibraryRequests.Add((offset, limit));
+
+                // One rate-limited attempt, with a Retry-After the provider
+                // has to honor (zero, so the test does not wait).
+                if (RateLimitOnce && !_rateLimited && operation == "fetchLibraryTracks")
+                {
+                    _rateLimited = true;
+                    var limited = new HttpResponseMessage((HttpStatusCode)429);
+                    limited.Headers.RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(TimeSpan.Zero);
+                    return limited;
+                }
 
                 if (!request.Headers.Authorization?.Parameter?.Equals("session-token") ?? true)
                     return new HttpResponseMessage(HttpStatusCode.Unauthorized);
 
                 return operation switch
                 {
-                    "fetchLibraryTracks" => await Json(LikedTracksResponse(LikedTotal, offset, limit)),
-                    "libraryV3" => await Json(LibraryResponse),
+                    "fetchLibraryTracks" => await Json(LikedTracksResponse(
+                        LikedTotal, offset, limit, LikedPageCap, LikedStopAfter)),
+                    "libraryV3" => await Json(LibraryResponse(LibraryTotal, offset, limit)),
                     "fetchPlaylist" => BreakPlaylistQuery
                         ? await Json("""{ "errors": [ { "message": "not found" } ] }""")
-                        : await Json(PlaylistResponse(PlaylistTotal, offset, limit)),
+                        : await Json(PlaylistResponse(PlaylistTotal, offset, limit, PlaylistStopAfter)),
                     _ => new HttpResponseMessage(HttpStatusCode.BadRequest),
                 };
             }
@@ -513,10 +652,14 @@ public class SpotifyUnofficialAccountTests
             return new HttpResponseMessage(HttpStatusCode.NotFound);
         }
 
-        private static string LikedTracksResponse(int total, int offset, int limit)
+        private static string LikedTracksResponse(
+            int total, int offset, int limit, int pageCap, int stopAfter)
         {
-            var count = Math.Clamp(total - offset, 0, limit);
-            var items = string.Join(",", Enumerable.Range(offset, count).Select(i => $$"""
+            var pageLimit = pageCap > 0 ? Math.Min(limit, pageCap) : limit;
+            var start = Math.Min(offset, stopAfter);
+            var end = Math.Min(Math.Min(offset + pageLimit, total), stopAfter);
+            var count = Math.Max(0, end - start);
+            var items = string.Join(",", Enumerable.Range(start, count).Select(i => $$"""
               { "addedAt": { "isoString": "2026-04-16T13:29:22Z" },
                 "track": { "_uri": "spotify:track:track-{{i}}",
                            "data": { "__typename": "Track", "name": "Daar Gaat Ze {{i}}",
@@ -537,28 +680,32 @@ public class SpotifyUnofficialAccountTests
             """;
         }
 
-        private const string LibraryResponse = """
-        {
-          "data": { "me": { "libraryV3": {
-            "totalCount": 2,
-            "items": [
-              { "item": { "_uri": "spotify:collection:tracks",
-                          "data": { "name": "Liked Songs", "count": 1844 } } },
-              { "item": { "_uri": "spotify:playlist:55V41RYWVdALRiiN1onkUr",
-                          "data": { "name": "Techno", "description": "hard and fast", "count": 104,
-                                    "ownerV2": { "data": { "name": "Warre", "username": "warre" } },
-                                    "images": { "items": [ { "sources": [
-                                      { "url": "https://i.scdn.co/image/playlist64", "width": 64, "height": 64 },
-                                      { "url": "https://i.scdn.co/image/playlist640", "width": 640, "height": 640 } ] } ] } } } }
-            ]
-          } } }
-        }
-        """;
-
-        private static string PlaylistResponse(int total, int offset, int limit)
+        private static string LibraryResponse(int total, int offset, int limit)
         {
             var count = Math.Clamp(total - offset, 0, limit);
-            var items = string.Join(",", Enumerable.Range(offset, count).Select(i => $$"""
+            var items = string.Join(",", Enumerable.Range(offset, count).Select(i => i switch
+            {
+                0 => """{ "item": { "_uri": "spotify:collection:tracks", "data": { "name": "Liked Songs", "count": 1844 } } }""",
+                1 => """{ "item": { "_uri": "spotify:playlist:55V41RYWVdALRiiN1onkUr", "data": { "name": "Techno", "description": "hard and fast", "count": 104, "ownerV2": { "data": { "name": "Warre", "username": "warre" } }, "images": { "items": [ { "sources": [ { "url": "https://i.scdn.co/image/playlist64", "width": 64, "height": 64 }, { "url": "https://i.scdn.co/image/playlist640", "width": 640, "height": 640 } ] } ] } } } }""",
+                _ => $$"""{ "item": { "_uri": "spotify:playlist:playlist-{{i}}", "data": { "name": "Playlist {{i}}", "count": {{i}} } } }""",
+            }));
+
+            return $$"""
+            {
+              "data": { "me": { "libraryV3": {
+                "totalCount": {{total}},
+                "items": [ {{items}} ]
+              } } }
+            }
+            """;
+        }
+
+        private static string PlaylistResponse(int total, int offset, int limit, int stopAfter)
+        {
+            var start = Math.Min(offset, stopAfter);
+            var end = Math.Min(Math.Min(offset + limit, total), stopAfter);
+            var count = Math.Max(0, end - start);
+            var items = string.Join(",", Enumerable.Range(start, count).Select(i => $$"""
               { "itemV2": { "__typename": "TrackResponseWrapper",
                             "data": { "__typename": "Track", "name": "Bonzai Channel One {{i}}",
                                       "uri": "spotify:track:track-{{i}}",

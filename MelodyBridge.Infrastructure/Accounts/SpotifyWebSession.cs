@@ -17,8 +17,11 @@ namespace MelodyBridge.Infrastructure.Accounts;
 /// can change) feeds a TOTP that the token endpoint accepts next to the
 /// session cookie.
 ///
-/// The derivation and the endpoints follow the Jellyfin Spotify import
-/// plugin (Viperinius), GPL-3.0, and the spotify_monitor project it credits.
+/// The TOTP derivation and the endpoints were ported to C# from the
+/// Jellyfin Spotify import plugin by Viperinius
+/// (https://github.com/Viperinius/jellyfin-plugin-spotify-import, GPL-3.0)
+/// and modified for MelodyBridge in October 2026. That plugin credits
+/// misiektoja/spotify_monitor for the TOTP math.
 /// Everything here can break the moment Spotify rotates the secret format,
 /// so callers must treat failures as normal and fall back.
 /// </summary>

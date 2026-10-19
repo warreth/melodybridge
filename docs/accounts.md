@@ -100,16 +100,22 @@ What you get, and what to know:
 - Liked songs and every playlist the account can see, including private ones,
   with the same Import button and the same Update behaviour as the official
   connection.
-- Playlists you save from a Spotify link also try this session first, which is
-  what makes private playlists work. If the session cannot serve a playlist,
-  MelodyBridge falls back to public scraping.
+- A Spotify link saved from the Playlists page tries the connected accounts
+  first, the official app and then this session, which is what makes private
+  playlists work. If no account can serve it, MelodyBridge falls back to public
+  scraping.
 - Nothing is written to your account, and no password is ever asked for or
   stored. Disconnecting deletes the cookie.
 - The path depends on TOTP secrets that the community keeps in a public list.
   When Spotify rotates the format, the list has to move with it; the **TOTP
   secrets URL** field under the cookie input is there so you can point the app
-  at a newer list without waiting for a release.
-- The cookie dies when your browser session ends. Paste a fresh one any time.
+  at a newer list without waiting for a release. The protocol knowledge comes
+  from the GPL-3.0 Jellyfin Spotify import plugin by Viperinius and the
+  projects it credits.
+- The cookie stops working when you log out of Spotify in that browser. Paste a
+  fresh one any time.
+
+## Why the unofficial route is opt-in
 
 ## YouTube
 
@@ -133,7 +139,7 @@ as favorites on the target: per user in Jellyfin, a top rating on the Plex
 token-holder's account, and a star on the Subsonic side. See
 [Publishing playlists](/publishing).
 
-## Why there is no passwordless login
+## Why the unofficial route is opt-in
 
 Some tools advertise "log in with Spotify, no Client ID needed". Under the hood
 they open Spotify in an embedded web view, ask for your username and password,
@@ -141,7 +147,6 @@ scrape the session cookies and trade them for a web-player token through an
 undocumented endpoint.
 
 MelodyBridge does not do that. It never shows a Spotify login form, never asks
-for a password and never reads cookies out of your browser. The unofficial web
-session above is the deliberate, opt-in version of the same idea: you paste one
-cookie yourself, you are told what it costs you, and the official OAuth
-connection remains the supported path.
+for a password and never reads cookies out of your browser. The web session
+above is the manual, opt-in version: you copy one cookie yourself, you are told
+what it costs you, and the official OAuth connection stays the supported path.
