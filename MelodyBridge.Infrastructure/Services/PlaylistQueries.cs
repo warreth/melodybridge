@@ -388,13 +388,6 @@ internal sealed class PlaylistQueries
     }
 
     /// <summary>
-    /// All playlists whose auto-sync schedule is due. The schedule is the
-    /// shared ScanSchedule string; the legacy boolean is still honoured for
-    /// rows that predate it (converted by the schema patcher, but a row
-    /// saved by an older build in between gets one more interval run).
-    /// Used by the background scheduler.
-    /// </summary>
-    /// <summary>
     /// Stamps the auto-sync attempt. Called after every try, success or
     /// failure, so a failing source waits for its next interval.
     /// </summary>
@@ -408,6 +401,13 @@ internal sealed class PlaylistQueries
         _changes.Bump();
     }
 
+    /// <summary>
+    /// All playlists whose auto-sync schedule is due. The schedule is the
+    /// shared ScanSchedule string; the legacy boolean is still honoured for
+    /// rows that predate it (converted by the schema patcher, but a row
+    /// saved by an older build in between gets one more interval run).
+    /// Used by the background scheduler.
+    /// </summary>
     public async Task<List<PlaylistEntity>> GetDueForAutoSyncAsync(CancellationToken ct = default)
     {
         await using var db = await _dbFactory.CreateDbContextAsync(ct);

@@ -2,6 +2,7 @@ using System.Text;
 using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.Audio;
 using MelodyBridge.Infrastructure.Data;
+using MelodyBridge.Infrastructure.Files;
 
 namespace MelodyBridge.Infrastructure.Services;
 
@@ -150,13 +151,14 @@ internal static class PlaylistRules
     internal static bool PathIsUnder(string? path, IEnumerable<string> roots)
     {
         if (string.IsNullOrWhiteSpace(path)) return false;
-        var full = path.Trim();
         foreach (var root in roots)
         {
             if (string.IsNullOrWhiteSpace(root)) continue;
-            if (PathEquals(full, root)) return true;
-            var prefix = root.Trim().TrimEnd('/', '\\') + Path.DirectorySeparatorChar;
-            if (full.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) return true;
+            // Same semantics as the mover: full-path normalization and the
+            // filesystem's own case rules, so a sibling differing only in
+            // case is not mistaken for an archive copy on Linux.
+            if (FileRelocator.IsUnder(path, root) || FileRelocator.PathsEqual(path, root))
+                return true;
         }
         return false;
     }

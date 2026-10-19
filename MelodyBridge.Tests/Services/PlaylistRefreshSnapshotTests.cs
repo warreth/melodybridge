@@ -328,6 +328,83 @@ public class PlaylistRefreshSnapshotTests
     }
 
     [Test]
+    public async Task AddingAPlaylist_DoesNotLinkFromAnArchiveSittingRow()
+    {
+        // Playlist A's row points into the archive root (for example after
+        // an archive path change, before the next reconcile clears it).
+        // The eager add/refresh pass must not hardlink it as B's primary.
+        var dbPath = NewDbPath();
+        var root = Path.Combine(Path.GetTempPath(), $"mb-addlink-arch-{Guid.NewGuid():N}");
+        var musicDir = Path.Combine(root, "music");
+        var archiveDir = Path.Combine(root, "archive");
+        var dirA = Path.Combine(musicDir, "Playlist A");
+        var archiveA = Path.Combine(archiveDir, "Playlist A");
+        Directory.CreateDirectory(dirA);
+        Directory.CreateDirectory(archiveA);
+        try
+        {
+            var factory = await NewDbFactory(dbPath);
+            var settings = new SettingsStore(factory);
+            await settings.SetAsync("music_path", musicDir);
+            await settings.SetAsync("archive_path", archiveDir);
+
+            var archiveFileA = Path.Combine(archiveA, "Shared Song.mp3");
+            File.WriteAllText(archiveFileA, "archive bytes");
+            await using (var db = await factory.CreateDbContextAsync())
+            {
+                db.Playlists.Add(new PlaylistEntity
+                {
+                    Id = "pl-a",
+                    Name = "Playlist A",
+                    SourceUrl = "https://example.com/a",
+                    SourcePlatform = Platform.Spotify,
+                    TargetDirectory = dirA,
+                    PreferredFormat = "mp3:320",
+                    Tracks = new List<TrackEntity>
+                    {
+                        new()
+                        {
+                            MelodyId = "spotify:t1",
+                            Title = "Shared Song",
+                            Artist = "Artist A",
+                            Position = 0,
+                            DownloadStatus = "downloaded",
+                            CurrentPath = archiveFileA,
+                            Bitrate = 320,
+                            MediaType = "mp3",
+                        },
+                    },
+                });
+                await db.SaveChangesAsync();
+            }
+
+            var store = NewStore(factory, new StubSourceProvider(("t1", "Shared Song", "Artist A")));
+            var playlist = await store.AddOrRefreshAsync("stub:playlist");
+
+            await using (var db = await factory.CreateDbContextAsync())
+            {
+                var row = await db.Tracks.AsNoTracking()
+                    .SingleAsync(t => t.PlaylistEntityId == playlist.Id);
+                Assert.Multiple(() =>
+                {
+                    Assert.That(row.CurrentPath, Is.Null,
+                        "an archive copy never becomes another playlist's primary");
+                    Assert.That(row.IsHardLink, Is.False);
+                    Assert.That(row.DownloadStatus, Is.EqualTo("pending"),
+                        "the row stays for a real download or a later reconcile");
+                });
+            }
+            Assert.That(new HardLinkService().LinkCount(archiveFileA), Is.EqualTo(1),
+                "the archive file gained no playlist name");
+        }
+        finally
+        {
+            try { Directory.Delete(root, true); } catch { /* best effort */ }
+            TryDelete(dbPath);
+        }
+    }
+
+    [Test]
     public async Task AddingAPlaylist_QualityMismatch_LeavesTheRowForALaterDownload()
     {
         var dbPath = NewDbPath();

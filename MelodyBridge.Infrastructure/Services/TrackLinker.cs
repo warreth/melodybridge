@@ -311,9 +311,14 @@ public sealed class TrackLinker
             .ThenByDescending(t => t.LastSeenAt ?? DateTime.MinValue)
             .ToListAsync(ct);
 
+        // The eager add/refresh pass must skip archive-sitting rows just
+        // like FindCandidateAsync does, or an archive copy becomes the
+        // linked primary before the next reconcile can clear the pointer.
+        var archiveRoots = await ArchiveRootsAsync(db, ct);
         var map = new Dictionary<string, List<CandidateRow>>(StringComparer.Ordinal);
         foreach (var row in rows)
         {
+            if (PlaylistRules.PathIsUnder(row.CurrentPath, archiveRoots)) continue;
             if (!map.TryGetValue(row.MelodyId!, out var list))
                 map[row.MelodyId!] = list = new List<CandidateRow>();
             list.Add(new CandidateRow(row.Id, ToMatch(row)));

@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using MelodyBridge.Application.Services;
 using MelodyBridge.Core;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -191,7 +192,8 @@ public class DownloadManagerCandidateTests
             new ListDownloaderRegistry(alpha, beta),
             NullLogger<DownloadManager>.Instance);
 
-        var streamed = new List<DownloadCandidate>();
+        // Callbacks arrive from each provider's task: collect them safely.
+        var streamed = new ConcurrentBag<DownloadCandidate>();
         var all = await manager.SearchCandidatesAsync(
             new TrackQuery("Artist", "Song", DownloadQuality.Any),
             streamed.Add);

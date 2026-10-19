@@ -1186,9 +1186,9 @@ else
         downloadingCandidateUrl = candidate.SourceUrl;
         downloadElapsedSeconds = 0;
         retryingTrackIds.Add(trackId);
-        downloadTicker?.Cancel();
-        downloadTicker = new CancellationTokenSource();
-        _ = TickDownloadProgressAsync(downloadTicker.Token);
+        var ticker = new CancellationTokenSource();
+        downloadTicker = ticker;
+        _ = TickDownloadProgressAsync(ticker.Token);
         try
         {
             var result = await Store.DownloadCandidateAsync(trackId, candidate);
@@ -1218,7 +1218,11 @@ else
         }
         finally
         {
-            downloadTicker?.Cancel();
+            // Only this pick's ticker, and only this pick's state: a later
+            // pick must keep running when an earlier one lands late.
+            ticker.Cancel();
+            ticker.Dispose();
+            if (ReferenceEquals(downloadTicker, ticker)) downloadTicker = null;
             downloadingCandidateUrl = null;
             downloadingCandidate = false;
             retryingTrackIds.Remove(trackId);
@@ -1236,9 +1240,9 @@ else
                 await InvokeAsync(StateHasChanged);
             }
         }
-        catch (OperationCanceledException)
+        catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException)
         {
-            // The pick landed or the dialog closed: nothing left to tick.
+            // The pick landed or the page went away: nothing left to tick.
         }
     }
 
@@ -1468,6 +1472,9 @@ else
         debounceCts?.Dispose();
         savedPillCts?.Cancel();
         savedPillCts?.Dispose();
+        downloadTicker?.Cancel();
+        downloadTicker?.Dispose();
+        downloadTicker = null;
     }
 
     /// <summary>True for a public source URL. Liked songs are stored under a

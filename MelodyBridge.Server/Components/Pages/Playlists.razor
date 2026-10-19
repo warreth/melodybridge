@@ -27,10 +27,12 @@
     <div class="topbar-actions">
         <div class="view-switch" role="group" aria-label="Playlist layout">
             <button class="view-chip @(playlistsView == "cards" ? "on" : null)" title="Card view"
+                    aria-pressed="@(playlistsView == "cards" ? "true" : "false")"
                     @onclick='() => SetPlaylistsView("cards")' >
                 <Icon Name="layout-grid" Size="15" /> <span>Cards</span>
             </button>
             <button class="view-chip @(playlistsView == "rows" ? "on" : null)" title="Compact rows"
+                    aria-pressed="@(playlistsView == "rows" ? "true" : "false")"
                     @onclick='() => SetPlaylistsView("rows")' >
                 <Icon Name="rows" Size="15" /> <span>Rows</span>
             </button>
