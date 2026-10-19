@@ -355,8 +355,8 @@ else
                             {
                                 <strong>@QualityLabel(editQuality)</strong>
                                 <span class="text-muted">
-                                    Results below it are saved as-is, never re-encoded into
-                                    another quality.
+                                    Results below it keep their source quality unless the
+                                    plugin can convert them to your target.
                                 </span>
                             }
                             else
@@ -1393,10 +1393,12 @@ else
     {
         if (candidateQualities.TryGetValue(candidate.SourceUrl, out var quality))
         {
-            // Per-hit facts (Qobuz reports the track's maximum) win over
-            // the plugin's tier: the tier is only a ceiling.
-            var depth = candidate.BitDepth ?? quality.BitDepth;
-            var rate = candidate.SampleRateHz ?? quality.SampleRateHz;
+            // The delivered file is the lower of the track's own ceiling
+            // (a catalog fact, Qobuz) and the configured tier (the probe).
+            // Showing the track maximum alone overstated the pick when the
+            // tier is lower.
+            var depth = Lower(candidate.BitDepth, quality.BitDepth);
+            var rate = Lower(candidate.SampleRateHz, quality.SampleRateHz);
             var parts = new List<string>();
             var codec = CodecLabel(quality.Codec);
             if (codec.Length > 0) parts.Add(codec);
@@ -1417,6 +1419,10 @@ else
             ? $"{candidate.PluginName} delivers {declared}"
             : $"{candidate.PluginName} did not report its quality";
     }
+
+    /// <summary>The lower of two optional facts; null means unknown.</summary>
+    private static int? Lower(int? first, int? second)
+        => first is null ? second : second is null ? first : Math.Min(first.Value, second.Value);
 
     /// <summary>
     /// The target match pill for one candidate, or null while its probe

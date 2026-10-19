@@ -289,10 +289,10 @@ public class QobuzDownloader : CliToolDownloader
                 // The catalog already knows this track's ceiling. A
                 // CD-only track reports 44.1 kHz even when the configured
                 // tier allows hi-res, so the picker shows the real file
-                // instead of the tier.
-                BitDepth: track.MaximumBitDepth,
-                SampleRateHz: track.MaximumSamplingRate
-                    ?? (track.HiresStreamable ? null : 44100));
+                // instead of the tier. When hi-res is not streamable,
+                // CD quality is the ceiling whatever the master holds.
+                BitDepth: track.HiresStreamable ? track.MaximumBitDepth : 16,
+                SampleRateHz: track.HiresStreamable ? track.MaximumSamplingRate : 44100);
             candidates.Add((hit, track.Isrc));
         }
 

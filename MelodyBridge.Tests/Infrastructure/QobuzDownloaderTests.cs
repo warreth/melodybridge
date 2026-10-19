@@ -212,6 +212,24 @@ public class QobuzDownloaderTests
     }
 
     [Test]
+    public void Rank_NonStreamableHires_ReportsTheCdCeiling()
+    {
+        var hit = QobuzDownloader.Rank(new[]
+        {
+            new QobuzClient.QobuzTrack(444, "Around the World", "Daft Punk",
+                TimeSpan.FromSeconds(429), null, 24, HiresStreamable: false, MaximumSamplingRate: 96000),
+        }, new TrackQuery("Daft Punk", "Around the World", DownloadQuality.Any));
+
+        Assert.That(hit, Is.Not.Null);
+        Assert.Multiple(() =>
+        {
+            Assert.That(hit!.BitDepth, Is.EqualTo(16),
+                "a track whose hi-res is not streamable is a CD download");
+            Assert.That(hit.SampleRateHz, Is.EqualTo(44100));
+        });
+    }
+
+    [Test]
     public void Rank_Empty_IsNull()
         => Assert.That(QobuzDownloader.Rank(Array.Empty<QobuzClient.QobuzTrack>(),
             new TrackQuery("A", "T", DownloadQuality.Any)), Is.Null);

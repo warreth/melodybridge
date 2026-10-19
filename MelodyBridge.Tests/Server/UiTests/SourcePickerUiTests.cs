@@ -428,6 +428,29 @@ public class SourcePickerUiTests
     }
 
     [Test]
+    public void Picker_ClampsTheTrackMaximumToTheConfiguredTier()
+    {
+        SetPreferredFormat("auto");
+        _plugin.Capabilities = PluginCapabilities.LosslessSources();
+        _plugin.HitBitDepth = 24;
+        _plugin.HitSampleRate = 96000;
+        _plugin.ProbeResult = new CandidateAudioQuality(
+            "flac", null, 44100, 16, Lossless: true, Note: "up to your configured Qobuz tier");
+
+        var cut = RenderPage();
+        cut.FindAll("button").Single(b => b.TextContent.Trim() == "Choose source").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.Markup, Does.Contain("FLAC · 16-bit · 44.1 kHz"),
+                "the download is capped by the configured tier");
+            Assert.That(cut.Markup, Does.Not.Contain("24-bit"),
+                "the track maximum must not promise more than the tier delivers");
+            Assert.That(cut.Markup, Does.Not.Contain("96 kHz"));
+        }, TimeSpan.FromSeconds(5));
+    }
+
+    [Test]
     public void Picker_ShowsProgressWhileAPickDownloads()
     {
         var gate = new TaskCompletionSource();
