@@ -241,6 +241,15 @@ enable or disable it.
 - An unavailable plugin (missing binary, dead service) is skipped by the
   waterfall. The card says what is missing, in one line, and **Refresh status**
   re-checks everything.
+- A saved login that stopped working gets a red mark: a red exclamation on the
+  plugin icon, a red card border, and a status pill naming the problem (token
+  expired, token rejected, account blocked, plan restricted). A banner at the top
+  of the page lists every affected plugin with an **Open settings** button, the
+  Plugins link in the sidebar carries the same mark, and a toast names the
+  plugin when the problem is found. A login that was never set up is not a red
+  alert: the card only says what to add.
+- **Save settings** tests the new token or ARL immediately instead of reusing
+  the previous "unavailable" answer.
 - **Live downloads** shows each running playlist with its progress and the track
   it is on, plus **Pause**, **Resume** and **Cancel** buttons. Several tracks of
   a playlist download in parallel; the limit is set on the Advanced page. Every
@@ -301,8 +310,11 @@ The event stream shows playlist syncs, downloads, scans and errors. When there
 are errors, a banner at the top lists them; click one to jump to that area.
 
 - Filter by area (Playlists, Downloads, Sources, Library, Sync, Database,
-  System) or level (Info, Warning, Error). The search box also matches the
-  friendly area names.
+  System) or level (Info+, Warning, Error, Debug). Every area chip shows how
+  many entries it holds. The search box also matches the friendly area names.
+- The page opens on **Info+**, so debug and trace noise stays out until you ask
+  for it. Framework chatter from ASP.NET, the host and `System.*` loggers is
+  kept out as well; their warnings and errors still appear.
 - **Show only problems** narrows everything down to errors. **Copy** puts the
   filtered entries on your clipboard, **Export** writes them to a file, and
   **Clear** empties the buffer.
@@ -319,6 +331,9 @@ The error on a track row is the reason the waterfall gave up:
 | *sources only had versions with the wrong length* | Nothing matched the expected duration, likely a different edit of the track |
 | *sources returned files that are not audio* | The plugin got junk; it was deleted. Retry, the waterfall may pick another source next run |
 | *no source had this track* | Nothing matched at all. Check the spelling in the source playlist |
+| *Qobuz: Qobuz blocked this account (USER_BLOCKED)* | The token is valid, but Qobuz refuses downloads for this account. Use another account or ask Qobuz support |
+| *Tidal: The Tidal token expired* / *Tidal rejected the session* | Paste a fresh token on the Plugins page, or run `tiddl auth login` |
+| *Deezer: The Deezer ARL is no longer signed in* | Copy a fresh `arl` cookie from deezer.com and paste it on the Plugins page |
 | *no other provider is available: X delivered the flagged file and was skipped* | You chose Retry and X was the only enabled plugin left, so there was nothing else to try. Enable another plugin; a later Download attempt may use X again |
 | *corrupt download: ffprobe failed* | The file could not be read at all, so it was deleted and the track marked failed; the next run retries |
 | *archive copy failed: ffmpeg not found on this host* | The download itself is fine; install ffmpeg if you want archive copies |

@@ -39,6 +39,14 @@ command refreshes the session. In Docker the session lives on the state
 mount (`./data/app/home/.tiddl/auth.json` on the host), so it survives image
 updates.
 
+## When the card turns red
+
+The card checks the stored session when you save a token and during the
+periodic plugin status sweep. An expired or rejected session shows as **token
+expired** or **token rejected**, with a red exclamation, a red card border and a
+banner at the top of the Plugins page. Paste a fresh token, or run
+`tiddl auth login`; saving tests the login immediately.
+
 ## How a download runs
 
 The search runs against Tidal's public v1 API with your stored token and picks

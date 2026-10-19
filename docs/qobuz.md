@@ -25,6 +25,18 @@ Qobuz web player) into qobuz-dlp's config, so the CLI never asks for a
 login. The token field can stay empty when qobuz-dlp is logged in elsewhere:
 the plugin reads its token file instead.
 
+## When the card turns red
+
+MelodyBridge checks the token when you save it and during the periodic plugin
+status sweep. A stale token, a rejected session and a blocked account are
+different states, and the card says which one it is. A red exclamation on the
+icon and a banner at the top of the Plugins page mean the plugin is skipped.
+
+If the card says **account blocked** (`USER_BLOCKED`), the token itself still
+works. Qobuz refuses catalogue and download requests for that account, so a new
+token from the same account will not help. Use another account, or ask Qobuz
+support.
+
 ## How a download runs
 
 The search runs against the official Qobuz API with your token and asks for

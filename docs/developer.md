@@ -132,6 +132,17 @@ Plugins do not write the MELODY_ID tag themselves. `DownloadManager`
 writes it once for every plugin after the file passes the quality band;
 a plugin's tagging code only handles its own metadata.
 
+A plugin that owns a login implements `IPluginAuthStatusProvider` and keeps
+`AuthStatus` current (valid, missing, expired, rejected, blocked or plan
+restricted). The default interface member rule applies here too: the property
+and its setter live on `CliToolDownloader`, not on the three subclasses. The
+`PluginAuthMonitor` singleton is the app-wide register of problems; the
+waterfall, the Plugins page and the periodic `PluginAuthWatchService` feed it,
+and the sidebar mark, the warning banner and the toast read it. A missing login
+is not a red alert, only a login that stopped working is. `AuthStatus` is
+separate from `IsAvailableAsync` because a dead service and a stale token need
+different words and a different fix.
+
 The store itself is a facade. The implementation lives in four services next to
 it: `PlaylistQueries` (reads, lifecycle, settings and the two maintenance
 passes), `PlaylistSnapshots` (source fetching, snapshot reconciliation, refresh,

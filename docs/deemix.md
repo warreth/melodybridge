@@ -26,6 +26,17 @@ Downloads land in a folder MelodyBridge manages, so there is nothing else to
 set up. The command and downloads folder fields under **Advanced** are only
 for setups where deemix runs somewhere else.
 
+## When the card turns red
+
+A saved ARL is checked against Deezer's own web session when you save it and
+during the periodic plugin status sweep. A logged-out or refused ARL shows as
+**token expired** on the card, with a red exclamation and a banner at the top of
+the Plugins page. Paste a fresh `arl` cookie and save; the token is tested right
+away.
+
+An account without a lossless plan is not an error: the card keeps its normal
+state and notes that FLAC requests fall back to the account's tier.
+
 ## How a download runs
 
 The plugin searches Deezer's public API, ranks the results, and runs deemix
