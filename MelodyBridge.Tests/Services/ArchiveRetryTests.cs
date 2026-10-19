@@ -146,6 +146,66 @@ public class ArchiveRetryTests
     }
 
     [Test]
+    public async Task Retry_FailedRebuild_KeepsThePreviousCopyOnTheRow()
+    {
+        var trackId = await SeedDownloadedTrackAsync();
+        var (first, _) = await _store.RetryArchiveAsync(trackId);
+        Assert.That(first, Is.True);
+
+        var track = await ReadTrackAsync(trackId);
+        var archive = track.ArchivePath!;
+        var archiveBytes = await File.ReadAllBytesAsync(archive);
+
+        // A rebuild that needs ffmpeg, with ffmpeg hidden: the old copy
+        // stays on disk and must stay on the row too.
+        await using (var db = _factory.CreateDbContext())
+        {
+            db.DownloaderSettings.Single(s => s.Key == "archive_format").Value = "opus";
+            await db.SaveChangesAsync();
+        }
+        var oldPath = Environment.GetEnvironmentVariable("PATH");
+        var emptyPath = Path.Combine(_root, "empty-path");
+        Directory.CreateDirectory(emptyPath);
+        Environment.SetEnvironmentVariable("PATH", emptyPath);
+        try
+        {
+            var (ok, reason) = await _store.RetryArchiveAsync(trackId);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(ok, Is.False);
+                Assert.That(reason, Does.Contain("previous copy was kept"));
+            });
+            var after = await ReadTrackAsync(trackId);
+            var afterBytes = await File.ReadAllBytesAsync(archive);
+            Assert.Multiple(() =>
+            {
+                Assert.That(after.ArchivePath, Is.EqualTo(archive),
+                    "the row still points at the copy that is on disk");
+                Assert.That(File.Exists(archive), Is.True);
+                Assert.That(afterBytes, Is.EqualTo(archiveBytes));
+                Assert.That(after.Warning, Does.Contain("archive copy failed"));
+            });
+
+            var impact = await _store.GetDeleteImpactAsync("pl-arc");
+            Assert.That(impact.Files, Is.EqualTo(2),
+                "deleting the playlist files counts the primary and the kept archive");
+
+            Assert.That(await _store.DeleteAsync("pl-arc", deleteFiles: true), Is.True);
+            Assert.Multiple(() =>
+            {
+                Assert.That(File.Exists(track.CurrentPath!), Is.False);
+                Assert.That(File.Exists(archive), Is.False,
+                    "the kept archive is deleted with the playlist");
+            });
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("PATH", oldPath);
+        }
+    }
+
+    [Test]
     public async Task Retry_KeepsOtherWarningSegments()
     {
         var trackId = await SeedDownloadedTrackAsync();

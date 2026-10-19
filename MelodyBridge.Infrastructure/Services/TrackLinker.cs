@@ -456,13 +456,22 @@ public sealed class TrackLinker
             return ArchiveOutcome.Written;
         }
 
-        // Failure isolation: the primary download stands; the
-        // archive problem rides along as a warning and the next
-        // run (or per-track retry) repairs the copy alone.
-        track.ArchivePath = null;
-        track.Warning = string.IsNullOrEmpty(track.Warning)
+        // Failure isolation: the primary download stands. The copier writes
+        // through a temp file, so a failed rebuild leaves an earlier archive
+        // (same target or the previous format's file) untouched. Keep the
+        // row pointing at it when it is still on disk: the UI, the delete
+        // impact and the delete-files action must still see that file.
+        var keptPrevious = new[] { result.ArchivePath, track.ArchivePath }
+            .FirstOrDefault(path => !string.IsNullOrWhiteSpace(path)
+                && File.Exists(path)
+                && !PlaylistRules.PathEquals(path, track.CurrentPath));
+        track.ArchivePath = keptPrevious;
+        var failure = keptPrevious is null
             ? $"archive copy failed: {result.Reason}"
-            : $"{track.Warning}; archive copy failed: {result.Reason}";
+            : $"archive copy failed: {result.Reason} (the previous copy was kept)";
+        track.Warning = string.IsNullOrEmpty(track.Warning)
+            ? failure
+            : $"{track.Warning}; {failure}";
         return ArchiveOutcome.Failed;
     }
 

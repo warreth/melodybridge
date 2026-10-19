@@ -170,9 +170,11 @@ track has no copy yet, and a warning when the recorded copy has vanished. With
 no archive path configured for the playlist the check stays away. Click the
 check to open the archive dialog: it shows the copy's state, repeats any
 archive failure in full, and offers **Create archive copy** or **Recreate
-archive copy**, which rebuilds the file from the current download. The **!**
-pill beside the status opens the same dialog, so a failed copy is one click
-from being repaired. Enable **Show the file column on playlist tracks** on the
+archive copy**, which rebuilds the file from the current download. A failed
+rebuild leaves the previous copy in place and keeps it on the row, so
+deleting the playlist files still removes it. The **!** pill beside the
+status opens the same dialog, so a failed copy is one click from being
+repaired. Enable **Show the file column on playlist tracks** on the
 Advanced page to see the file names, including `archive: <name>` chips for
 archive copies.
 

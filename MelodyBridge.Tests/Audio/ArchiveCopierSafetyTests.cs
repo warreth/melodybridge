@@ -145,20 +145,41 @@ public class ArchiveCopierSafetyTests
         var result = ArchiveCopier.Copy(primary, aliasDir, "auto",
             melodyId: null, title: null, artist: null, album: null, trackNumber: null);
 
-        if (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS())
+        try
         {
-            Assert.Multiple(() =>
+            if (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS())
             {
-                Assert.That(result.Ok, Is.False,
-                    "a case-only alias of the same folder is the primary's path");
-                Assert.That(File.ReadAllBytes(primary), Is.EqualTo(before),
-                    "the primary's bytes stay untouched");
-            });
+                Assert.Multiple(() =>
+                {
+                    Assert.That(result.Ok, Is.False,
+                        "a case-only alias of the same folder is the primary's path");
+                    Assert.That(File.ReadAllBytes(primary), Is.EqualTo(before),
+                        "the primary's bytes stay untouched");
+                });
+            }
+            else
+            {
+                Assert.That(result.Ok, Is.True,
+                    "a case-sensitive host treats the alias as another folder");
+            }
         }
-        else
+        finally
         {
-            Assert.That(result.Ok, Is.True,
-                "a case-sensitive host treats the alias as another folder");
+            // On a case-sensitive host the alias is a sibling directory
+            // the fixture teardown does not know about.
+            try
+            {
+                if (Directory.Exists(aliasDir)
+                    && !string.Equals(
+                        Path.GetFullPath(aliasDir), Path.GetFullPath(_dir),
+                        OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
+                            ? StringComparison.OrdinalIgnoreCase
+                            : StringComparison.Ordinal))
+                {
+                    Directory.Delete(aliasDir, recursive: true);
+                }
+            }
+            catch { /* best effort */ }
         }
     }
 }
