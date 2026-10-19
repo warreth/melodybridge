@@ -11,6 +11,8 @@
 @inject SpotifyAccountProvider SpotifyAccount
 @inject YouTubeAccountProvider YouTubeAccount
 @inject Application.Services.DownloadCoordinator Coordinator
+@inject IDbContextFactory<MelodyBridgeDbContext> DbFactory
+@inject MediaServerProfileStore ServerProfiles
 @implements IDisposable
 
 <PageTitle>Playlists - MelodyBridge</PageTitle>
@@ -38,6 +40,9 @@
             </button>
         </div>
         <button class="btn-modern ghost" @onclick="ShowAccountPanel">Import</button>
+        <button class="btn-modern secondary" @onclick="ShowPublishPanelAsync" title="Create sync jobs for these playlists in a few clicks">
+            <Icon Name="send" Size="15" /> Publish
+        </button>
         <button class="btn-modern primary" @onclick="ShowAddForm">Add playlist</button>
     </div>
 </section>
@@ -45,6 +50,14 @@
 @if (!string.IsNullOrEmpty(message))
 {
     <div class="result-box @(messageIsError ? "error" : "ok")">@message</div>
+}
+
+@if (!string.IsNullOrEmpty(publishMessage))
+{
+    <div class="result-box ok">
+        @publishMessage
+        <a href="/sync-jobs">Open Sync jobs</a> to change schedules, remaps or add more targets.
+    </div>
 }
 
 @if (loading)
@@ -57,14 +70,14 @@ else if (playlists.Count == 0)
 }
 else if (playlistsView == "rows")
 {
-    <section class="playlist-rows">
+    <section class="entity-rows">
         @foreach (var playlist in playlists)
         {
             var (downloaded, failed, total, sizeBytes) = downloadStats.GetValueOrDefault(playlist.Id, (0, 0, 0, 0));
             var run = Coordinator.RunFor(playlist.Id);
-            <div class="playlist-row">
-                <a class="playlist-row-link" href="/playlists/@playlist.Id" title="Open @playlist.Name">
-                    <span class="playlist-row-cover">
+            <div class="entity-row">
+                <a class="entity-row-link" href="/playlists/@playlist.Id" title="Open @playlist.Name">
+                    <span class="entity-row-cover">
                         @if (!string.IsNullOrEmpty(playlist.CoverImageUrl))
                         {
                             <img src="@playlist.CoverImageUrl" alt="@playlist.Name" loading="lazy" />
@@ -74,7 +87,7 @@ else if (playlistsView == "rows")
                             <Icon Name="music" Size="18" />
                         }
                     </span>
-                    <span class="playlist-row-main">
+                    <span class="entity-row-main">
                         <strong>@playlist.Name</strong>
                         <small>
                             @(playlist.IsManualImport ? "Imported" : playlist.SourcePlatform.ToString())
@@ -85,7 +98,7 @@ else if (playlistsView == "rows")
                             }
                         </small>
                     </span>
-                    <span class="playlist-row-state">
+                    <span class="entity-row-state">
                         @if (run is { State: Application.Services.DownloadRunState.Running })
                         {
                             <StatusPill Variant="warn">@run.Percent% downloading</StatusPill>
@@ -111,7 +124,7 @@ else if (playlistsView == "rows")
                             <StatusPill Variant="warn" Title="@playlist.SyncWarning">partial</StatusPill>
                         }
                     </span>
-                    <span class="playlist-row-meta">
+                    <span class="entity-row-meta">
                         @if (sizeBytes > 0)
                         {
                             <span>@TrackDisplay.Size(sizeBytes)</span>
@@ -442,6 +455,98 @@ else
     </div>
 }
 
+@if (showPublishPanel)
+{
+    <div class="wizard-overlay" @onclick="ClosePublishPanel">
+        <div class="wizard-modal" @onclick:stopPropagation="true">
+            <div class="wizard-header">
+                <div>
+                    <span class="eyebrow">Quick publish</span>
+                    <h2>Send playlists to your servers</h2>
+                    <p class="text-muted">
+                        The quick path: each playlist gets its own sync job with the same
+                        name, publishing to the servers you tick. Need schedules, path
+                        remaps, an M3U file or different targets per playlist? Do it on
+                        the Sync jobs page.
+                    </p>
+                </div>
+                <button class="icon-button" title="Close" @onclick="ClosePublishPanel"><Icon Name="x" Size="18" /></button>
+            </div>
+            <div class="wizard-body">
+                @if (publishProfiles.Count == 0)
+                {
+                    <div class="hint-box">
+                        No media server profiles yet. Create one under
+                        <a href="/settings#media-servers">Settings, Media servers</a>, then come back.
+                    </div>
+                }
+                else if (publishablePlaylists.Count == 0)
+                {
+                    <div class="hint-box">
+                        Every playlist already has a sync job. Manage them on the
+                        <a href="/sync-jobs">Sync jobs</a> page.
+                    </div>
+                }
+                else
+                {
+                    <h3>Playlists</h3>
+                    <div class="publish-list">
+                        @foreach (var playlist in publishablePlaylists)
+                        {
+                            var on = publishPlaylistIds.Contains(playlist.Id);
+                            <label class="publish-option @(on ? "on" : null)">
+                                <input type="checkbox" checked="@on"
+                                       @onchange="e => TogglePublishPlaylist(playlist.Id, e)" />
+                                <span class="publish-option-body">
+                                    <strong>@playlist.Name</strong>
+                                    <small>
+                                        @(playlist.IsManualImport ? "Imported" : playlist.SourcePlatform.ToString())
+                                        · @playlist.TrackCount track@(playlist.TrackCount == 1 ? "" : "s")
+                                        @if (!string.IsNullOrEmpty(playlist.Owner))
+                                        {
+                                            <span> · by @playlist.Owner</span>
+                                        }
+                                    </small>
+                                </span>
+                            </label>
+                        }
+                    </div>
+                    @if (alreadyPublishedCount > 0)
+                    {
+                        <p class="publish-option-note">
+                            @alreadyPublishedCount playlist@(alreadyPublishedCount == 1 ? "" : "s")
+                            already has a sync job and @(alreadyPublishedCount == 1 ? "is" : "are") not listed again.
+                        </p>
+                    }
+                    <h3>Send to</h3>
+                    <div class="publish-list">
+                        @foreach (var profile in publishProfiles)
+                        {
+                            var on = publishProfileIds.Contains(profile.Id);
+                            <label class="publish-option @(on ? "on" : null)">
+                                <input type="checkbox" checked="@on"
+                                       @onchange="e => TogglePublishProfile(profile.Id, e)" />
+                                <span class="publish-option-body">
+                                    <strong>@profile.Name</strong>
+                                    <small>@profile.Kind <span class="text-muted">@profile.BaseUrl</span></small>
+                                </span>
+                            </label>
+                        }
+                    </div>
+                }
+            </div>
+            <div class="wizard-footer">
+                <button class="btn-modern ghost" @onclick="ClosePublishPanel">Cancel</button>
+                <span></span>
+                <button class="btn-modern primary" @onclick="CreatePublishJobs"
+                        disabled="@(publishing || !CanPublish)">
+                    @(publishing ? "Creating…" : PublishButtonLabel)
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
 @if (confirmDeleteId is { } id)
 {
     <ConfirmDialog Show="true"
@@ -507,6 +612,85 @@ else
     private HashSet<string> savedYouTubeIds = new();
 
     private Timer? refreshTimer;
+
+    // Quick publish: one sync job per ticked playlist, named after it,
+    // targeting the ticked media server profiles. Playlists that already
+    // have a job are hidden, so nothing is duplicated.
+    private bool showPublishPanel;
+    private bool publishing;
+    private string publishMessage = string.Empty;
+    private List<MediaServerProfile> publishProfiles = new();
+    private readonly HashSet<string> publishPlaylistIds = new(StringComparer.Ordinal);
+    private readonly HashSet<string> publishProfileIds = new(StringComparer.Ordinal);
+    private HashSet<string> jobPlaylistIds = new(StringComparer.Ordinal);
+
+    private List<PlaylistEntity> publishablePlaylists
+        => playlists.Where(p => !jobPlaylistIds.Contains(p.Id)).ToList();
+
+    private int alreadyPublishedCount => playlists.Count - publishablePlaylists.Count;
+
+    private bool CanPublish => publishPlaylistIds.Count > 0 && publishProfileIds.Count > 0;
+
+    private string PublishButtonLabel => publishPlaylistIds.Count switch
+    {
+        0 => "Create sync jobs",
+        1 => "Create 1 sync job",
+        var n => $"Create {n} sync jobs",
+    };
+
+    private async Task ShowPublishPanelAsync()
+    {
+        publishMessage = string.Empty;
+        publishPlaylistIds.Clear();
+        publishProfileIds.Clear();
+        publishing = false;
+        publishProfiles = (await ServerProfiles.GetAllAsync()).ToList();
+        jobPlaylistIds = await QuickSyncJobs.PlaylistsWithJobAsync(DbFactory);
+        showPublishPanel = true;
+    }
+
+    private void ClosePublishPanel() => showPublishPanel = false;
+
+    private void TogglePublishPlaylist(string playlistId, ChangeEventArgs e)
+    {
+        if (e.Value is true) publishPlaylistIds.Add(playlistId);
+        else publishPlaylistIds.Remove(playlistId);
+    }
+
+    private void TogglePublishProfile(string profileId, ChangeEventArgs e)
+    {
+        if (e.Value is true) publishProfileIds.Add(profileId);
+        else publishProfileIds.Remove(profileId);
+    }
+
+    private async Task CreatePublishJobs()
+    {
+        if (!CanPublish) return;
+        publishing = true;
+        try
+        {
+            var selected = playlists
+                .Where(p => publishPlaylistIds.Contains(p.Id))
+                .Select(p => (p.Id, p.Name))
+                .ToList();
+            var profiles = publishProfiles
+                .Where(p => publishProfileIds.Contains(p.Id))
+                .ToList();
+            var created = await QuickSyncJobs.CreateAsync(DbFactory, selected, profiles);
+            publishMessage = created.Count switch
+            {
+                0 => "Nothing to create: those playlists already have sync jobs.",
+                1 => $"Created the sync job '{created[0].Name}'.",
+                _ => $"Created {created.Count} sync jobs, one per playlist.",
+            };
+            showPublishPanel = false;
+            jobPlaylistIds = await QuickSyncJobs.PlaylistsWithJobAsync(DbFactory);
+        }
+        finally
+        {
+            publishing = false;
+        }
+    }
 
     // Delete flow: the card asks, the dialog confirms.
     private string? confirmDeleteId;

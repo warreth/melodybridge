@@ -299,6 +299,89 @@ public class PlaylistsPageTests
             "the import modal carries the table, so it gets the wide variant");
     }
 
+    [Test]
+    public void Playlists_PublishWizard_CreatesOneNamedJobPerTickedPlaylist()
+    {
+        SeedOnePlaylist("Jazz Classics", 3, Platform.Spotify);
+        SeedProfile("Home Jellyfin");
+
+        var cut = _ctx.Render<Playlists>();
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("Jazz Classics")), TimeSpan.FromSeconds(3));
+
+        cut.FindAll("button").Single(b => b.TextContent.Contains("Publish")).Click();
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.Markup, Does.Contain("Send playlists to your servers"));
+            Assert.That(cut.Markup, Does.Contain("Sync jobs page"),
+                "the dialog says where the full options live");
+        }, TimeSpan.FromSeconds(3));
+
+        cut.FindAll(".publish-option").Single(o => o.TextContent.Contains("Jazz Classics"))
+            .QuerySelector("input")!.Change(true);
+        cut.FindAll(".publish-option").Single(o => o.TextContent.Contains("Home Jellyfin"))
+            .QuerySelector("input")!.Change(true);
+        cut.FindAll("button").Single(b => b.TextContent.Contains("Create 1 sync job")).Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            using var db = new SqliteFactory(_dbPath).CreateDbContext();
+            var job = db.SyncJobs.Single();
+            Assert.That(job.Name, Is.EqualTo("Jazz Classics"),
+                "the job takes the playlist name");
+            Assert.That(job.Schedule, Is.EqualTo("Manual"),
+                "the quick path never guesses a schedule");
+            var targets = MelodyBridge.Infrastructure.Services.SyncJobMapping.TargetsOf(job);
+            Assert.That(targets.Select(t => t.Kind),
+                Is.EqualTo(new[] { OutputTargetType.JellyfinApi }));
+        }, TimeSpan.FromSeconds(5));
+
+        Assert.That(cut.Markup, Does.Contain("Created the sync job 'Jazz Classics'"));
+        Assert.That(cut.Markup, Does.Contain("Open Sync jobs"),
+            "the result points at the full sync jobs page");
+    }
+
+    [Test]
+    public void Playlists_PublishWizard_HidesPlaylistsThatAlreadyHaveAJob()
+    {
+        SeedOnePlaylist("Already Published", 1, Platform.Spotify);
+        SeedOnePlaylist("Fresh Mix", 1, Platform.Spotify);
+        using (var db = new SqliteFactory(_dbPath).CreateDbContext())
+        {
+            var taken = db.Playlists.Single(p => p.Name == "Already Published");
+            db.SyncJobs.Add(new SyncJobEntity { Name = "Already Published", SourceId = taken.Id });
+            db.SaveChanges();
+        }
+        SeedProfile("Home Jellyfin");
+
+        var cut = _ctx.Render<Playlists>();
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("Fresh Mix")), TimeSpan.FromSeconds(3));
+        cut.FindAll("button").Single(b => b.TextContent.Contains("Publish")).Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            var list = cut.FindAll(".publish-list").First().TextContent;
+            Assert.That(list, Does.Contain("Fresh Mix"));
+            Assert.That(list, Does.Not.Contain("Already Published"),
+                "a playlist with a job is never offered a second one");
+            Assert.That(cut.Markup, Does.Contain("already has a sync job"),
+                "the dialog says why a playlist is missing");
+        }, TimeSpan.FromSeconds(3));
+    }
+
+    private void SeedProfile(string name)
+    {
+        using var db = new SqliteFactory(_dbPath).CreateDbContext();
+        db.DownloaderSettings.Add(new DownloaderSettingEntity
+        {
+            Key = "media_server_profiles",
+            Value = "[{\"Id\":\"px1\",\"Name\":\"" + name
+                + "\",\"BaseUrl\":\"http://jellyfin:8096\",\"ApiKey\":\"key\",\"Kind\":\"Jellyfin\"}]",
+        });
+        db.SaveChanges();
+    }
+
     private void SeedOnePlaylist(string name, int trackCount, Platform platform,
         string? coverUrl = null, string? owner = null)
     {
@@ -370,7 +453,7 @@ public class PlaylistsPageTests
 
         cut.WaitForAssertion(() =>
         {
-            Assert.That(cut.FindAll(".playlist-row"), Has.Count.EqualTo(1),
+            Assert.That(cut.FindAll(".entity-row"), Has.Count.EqualTo(1),
                 "the compact row replaces the card");
             Assert.That(cut.FindAll(".panel-card"), Is.Empty);
         }, TimeSpan.FromSeconds(5));

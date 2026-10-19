@@ -45,4 +45,13 @@ public static class MediaServerKinds
         OutputTargetType.SubsonicApi => IsSubsonic(kind),
         _ => false,
     };
+
+    /// <summary>The API target a profile kind publishes to. Unknown kinds
+    /// read as Jellyfin, the wizard's historical default.</summary>
+    public static OutputTargetType OutputTargetFor(string? kind)
+    {
+        if (MatchesOutputTarget(kind, OutputTargetType.PlexApi)) return OutputTargetType.PlexApi;
+        if (MatchesOutputTarget(kind, OutputTargetType.SubsonicApi)) return OutputTargetType.SubsonicApi;
+        return OutputTargetType.JellyfinApi;
+    }
 }

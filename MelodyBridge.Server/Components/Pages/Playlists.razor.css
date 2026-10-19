@@ -1,5 +1,6 @@
 /* Playlists page scoped styles: the card tag row under each title
-   (owner, format, size as small muted badges), and cover mosaic styling. */
+   (owner, format, size as small muted badges). The view switch and the
+   compact rows come from the shared app.css (used by Sync jobs too). */
 
 .card-tags {
     display: flex;
@@ -39,86 +40,30 @@
     .form-grid.sync-split { grid-template-columns: minmax(0, 1fr); }
 }
 
-/* Layout switch: card grid or compact rows, next to the page actions. */
-.view-switch {
-    display: inline-flex;
-    gap: .15rem;
-    padding: .15rem;
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    background: var(--surface-2);
-}
-.view-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: .35rem;
-    padding: .32rem .6rem;
-    border: 0;
-    border-radius: 999px;
-    background: transparent;
-    color: var(--muted);
-    font: inherit;
-    font-size: .82rem;
-    cursor: pointer;
-}
-.view-chip:hover { color: inherit; }
-.view-chip.on { background: var(--surface-raised); color: inherit; }
-
-/* Compact rows: small cover, one line of facts, status pills. */
-.playlist-rows { display: grid; gap: .5rem; }
-.playlist-row {
+/* Quick publish dialog: one row per playlist and per target, with the
+   checkbox and the copy on one line. */
+.publish-list { display: grid; gap: .4rem; }
+.publish-option {
     display: flex;
-    align-items: center;
-    gap: .75rem;
-    min-width: 0;
-    padding: .5rem .65rem;
+    align-items: flex-start;
+    gap: .6rem;
+    padding: .55rem .65rem;
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    background: var(--surface-raised);
+    background: var(--surface-2);
+    cursor: pointer;
 }
-.playlist-row:hover { border-color: var(--border-strong); }
-.playlist-row-link {
-    display: flex;
-    align-items: center;
-    flex: 1;
-    gap: .75rem;
-    min-width: 0;
-    color: inherit;
-    text-decoration: none;
-}
-.playlist-row-cover {
+.publish-option:hover { border-color: var(--border-strong); }
+.publish-option.on { border-color: var(--accent-strong); background: var(--accent-soft); }
+.publish-option.excluded { opacity: .6; cursor: default; }
+.publish-option input[type="checkbox"] {
     flex: 0 0 auto;
-    display: grid;
-    place-items: center;
-    width: 42px;
-    height: 42px;
-    overflow: hidden;
-    border-radius: 8px;
-    background: var(--surface-3);
-    color: var(--muted);
+    inline-size: 1.05rem;
+    block-size: 1.05rem;
+    margin: .15rem 0 0;
+    accent-color: var(--accent-strong);
 }
-.playlist-row-cover img { width: 100%; height: 100%; object-fit: cover; }
-.playlist-row-main { flex: 1; display: grid; gap: .05rem; min-width: 0; }
-.playlist-row-main strong {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-.playlist-row-main small { color: var(--muted); }
-.playlist-row-state { display: flex; align-items: center; flex-wrap: wrap; gap: .3rem; }
-.playlist-row-meta {
-    display: flex;
-    gap: .5rem;
-    color: var(--muted);
-    font-size: .8rem;
-    white-space: nowrap;
-}
-@media (max-width: 640px) {
-    .playlist-row-meta { display: none; }
-}
-
-@media (max-width: 640px) {
-    /* The switch stays icon-only so Import and Add playlist fit a phone. */
-    .view-chip span { display: none; }
-    .view-chip { padding: .38rem; }
-}
+.publish-option-body { flex: 1; display: grid; gap: .1rem; min-width: 0; }
+.publish-option-body strong { overflow-wrap: anywhere; }
+.publish-option-body small { color: var(--muted); }
+.publish-option-note { color: var(--muted); font-size: .8rem; }
