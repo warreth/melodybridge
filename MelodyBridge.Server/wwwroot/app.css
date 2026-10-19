@@ -176,7 +176,7 @@ h1:focus { outline: none; }
 
 /* The topbar used to repeat the page h1; that duplication is gone, so
    only the action-row helper remains (pages put their buttons in it). */
-.topbar-actions { display: flex; align-items: center; gap: .65rem; }
+.topbar-actions { display: flex; align-items: center; gap: .65rem; flex-shrink: 0; flex-wrap: wrap; justify-content: flex-end; }
 .app-content { width: min(1180px, calc(100vw - var(--sidebar-width) - 3rem)); padding: 1.5rem; }
 
 .brand-block {
@@ -444,6 +444,25 @@ a:focus-visible {
     border-radius: 999px;
     background: currentColor;
     animation: pill-dot-pulse 1.4s ease-in-out infinite;
+}
+/* A pill with an action behind it: the button chrome disappears, the
+   pill keeps its colors, and hover/focus make it read as clickable. */
+.pill-button {
+    display: inline-flex;
+    align-items: center;
+    padding: 0;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+}
+.pill-button .pill { transition: border-color .15s ease, filter .15s ease; }
+.pill-button:hover .pill { border-color: var(--border-strong); filter: brightness(1.08); }
+.pill-button:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
 }
 @keyframes pill-dot-pulse {
     0%, 100% { opacity: 1; transform: scale(1); }
@@ -892,6 +911,90 @@ select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-s
     display: flex;
     gap: 1rem;
     margin-top: .35rem;
+}
+/* -- List layouts shared by Playlists and Sync jobs ----------------
+   A page that can grow many entities offers two shapes: cards (the
+   default) and one compact row per entity. The switch and the rows are
+   shared so both pages stay visually identical. */
+.view-switch {
+    display: inline-flex;
+    gap: .15rem;
+    padding: .15rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--surface-2);
+}
+.view-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: .35rem;
+    padding: .32rem .6rem;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--muted);
+    font: inherit;
+    font-size: .82rem;
+    cursor: pointer;
+}
+.view-chip:hover { color: inherit; }
+.view-chip.on { background: var(--surface-raised); color: inherit; }
+
+.entity-rows { display: grid; gap: .5rem; margin-top: 1rem; }
+.entity-row {
+    display: flex;
+    align-items: center;
+    gap: .75rem;
+    min-width: 0;
+    padding: .5rem .65rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface-raised);
+}
+.entity-row:hover { border-color: var(--border-strong); }
+.entity-row-link {
+    display: flex;
+    align-items: center;
+    flex: 1;
+    gap: .75rem;
+    min-width: 0;
+    color: inherit;
+    text-decoration: none;
+}
+.entity-row-cover {
+    flex: 0 0 auto;
+    display: grid;
+    place-items: center;
+    width: 42px;
+    height: 42px;
+    overflow: hidden;
+    border-radius: 8px;
+    background: var(--surface-3);
+    color: var(--muted);
+}
+.entity-row-cover img { width: 100%; height: 100%; object-fit: cover; }
+.entity-row-main { flex: 1; display: grid; gap: .05rem; min-width: 0; }
+.entity-row-main strong {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.entity-row-main small { color: var(--muted); }
+.entity-row-state { display: flex; align-items: center; flex-wrap: wrap; gap: .3rem; }
+.entity-row-meta {
+    display: flex;
+    gap: .5rem;
+    color: var(--muted);
+    font-size: .8rem;
+    white-space: nowrap;
+}
+/* Row actions: keep buttons on one line, shrink to icons on phones. */
+.entity-row-actions { display: flex; align-items: center; gap: .35rem; flex-wrap: wrap; }
+@media (max-width: 640px) {
+    .entity-row-meta { display: none; }
+    .entity-row-actions .btn-label { display: none; }
+    .view-chip span { display: none; }
+    .view-chip { padding: .38rem; }
 }
 textarea {
     width: 100%;
@@ -1792,18 +1895,25 @@ input[type="file"].btn-modern::file-selector-button {
 
 /* ── Track table: stable columns, sortable headers, pill status cells ── */
 /* Fixed layout plus explicit col widths: rows cannot wobble, borders
-   line up, and the actions column never gets squeezed off screen. */
+   line up, and the actions column never gets squeezed off screen. The
+   fixed widths stay lean so the title and artist columns keep real room
+   at laptop widths: when they outgrow the table, fixed layout shrinks
+   the percentage columns first and those two collapse. */
 .track-table { table-layout: fixed; }
 .track-table .col-pos { width: 2.25rem; }
 .track-table .col-title { width: 19%; }
 .track-table .col-artist { width: 15%; }
-.track-table .col-num { width: 4.5rem; }
-.track-table .col-format { width: 4.5rem; }
-.track-table .col-status { width: 8rem; }
-.track-table .col-file { width: 12rem; }
-/* Wide enough for a three-button row (Keep / Retry / Remove); the dedup
-   pair wraps onto a second line instead of getting clipped. */
-.track-table .col-actions { width: 17rem; }
+.track-table .col-num { width: 4.25rem; }
+.track-table .col-format { width: 4.25rem; }
+.track-table .col-status { width: 7rem; }
+.track-table .col-file { width: 9rem; }
+/* Wide enough for one button line: Choose source plus the icon-sized
+   Remove, and a review row's Keep / Retry / Remove trio fits too. */
+.track-table .col-actions { width: 12.5rem; }
+/* Remove stays icon-only inside the track table (its tooltip and
+   aria-label carry the word): the row actions then fit on one line and
+   the title and artist columns keep real room. */
+.track-table .track-actions button[aria-label="Remove"] .btn-label { display: none; }
 
 /* Row actions are pinned to the right edge of the scroll container: the
    table is wider than most laptop windows, and the per-track buttons must

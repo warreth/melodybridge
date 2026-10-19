@@ -64,6 +64,7 @@ public class SyncJobsPageTests
         _ctx.Services.AddSingleton<ISyncJobRunner>(_jobRunner.Object);
         _ctx.Services.AddSingleton<IDbContextFactory<MelodyBridgeDbContext>>(dbFactory);
         _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Services.SettingsStore(dbFactory));
+        _ctx.Services.AddSingleton(new MelodyBridge.Server.Services.NotificationService());
         _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Services.MediaServerProfileStore(
             new MelodyBridge.Infrastructure.Services.SettingsStore(dbFactory)));
         _ctx.Services.AddSingleton<MelodyBridge.Infrastructure.MediaServers.JellyfinLoginService>(
@@ -131,6 +132,91 @@ public class SyncJobsPageTests
         var cut = _ctx.Render<SyncJobs>();
         Assert.That(cut.Markup, Does.Contain("Weekly Sync"));
         Assert.That(cut.Markup, Does.Contain("Failed Job"));
+    }
+
+    [Test]
+    public async Task RunAllNow_RunsEveryJobOnce_OneAfterTheOther()
+    {
+        var order = new List<string>();
+        _jobRunner.Setup(r => r.RunJobAsync(It.IsAny<SyncJob>(), It.IsAny<CancellationToken>()))
+            .Callback<SyncJob, CancellationToken>((job, _) => order.Add(job.Id))
+            .ReturnsAsync(new SyncJobRunLog(DateTime.UtcNow, SyncStatus.Completed, "ok", 0, 0));
+
+        var cut = _ctx.Render<SyncJobs>();
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("Run all now")), TimeSpan.FromSeconds(3));
+
+        cut.FindAll("button").Single(b => b.TextContent.Trim() == "Run all now").Click();
+
+        cut.WaitForAssertion(() =>
+            Assert.That(order, Has.Count.EqualTo(2), "both stored jobs ran"),
+            TimeSpan.FromSeconds(5));
+        Assert.That(order, Is.EquivalentTo(new[] { "j1", "j2" }));
+    }
+
+    [Test]
+    public async Task RunAllNow_ReportsAFailingJob_WithoutStoppingTheRest()
+    {
+        var ran = new List<string>();
+        _jobRunner.Setup(r => r.RunJobAsync(It.IsAny<SyncJob>(), It.IsAny<CancellationToken>()))
+            .Callback<SyncJob, CancellationToken>((job, _) => ran.Add(job.Id))
+            .ReturnsAsync((SyncJob job, CancellationToken _) => new SyncJobRunLog(
+                DateTime.UtcNow,
+                job.Id == "j2" ? SyncStatus.Failed : SyncStatus.Completed,
+                job.Id == "j2" ? "boom" : "ok", 0, 0));
+
+        var cut = _ctx.Render<SyncJobs>();
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("Run all now")), TimeSpan.FromSeconds(3));
+        cut.FindAll("button").Single(b => b.TextContent.Trim() == "Run all now").Click();
+
+        cut.WaitForAssertion(() =>
+            Assert.That(ran, Has.Count.EqualTo(2), "a failed job does not stop the sweep"),
+            TimeSpan.FromSeconds(5));
+    }
+
+    [Test]
+    public void SyncJobs_RowsToggle_RendersCompactRows_AndPersists()
+    {
+        var cut = _ctx.Render<SyncJobs>();
+
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.FindAll(".panel-card"), Is.Not.Empty), TimeSpan.FromSeconds(3));
+
+        cut.FindAll(".view-chip").Single(b => b.TextContent.Contains("Rows")).Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            var rows = cut.FindAll(".entity-row");
+            Assert.That(rows, Has.Count.EqualTo(2), "one row per job");
+            Assert.That(cut.FindAll(".panel-card"), Is.Empty, "the cards give way to the rows");
+            var weekly = rows.Single(r => r.TextContent.Contains("Weekly Sync"));
+            Assert.That(weekly.TextContent, Does.Contain("M3U file"),
+                "the row names the targets");
+            Assert.That(weekly.QuerySelectorAll("button").Any(b => b.TextContent.Contains("Run now")),
+                Is.True, "the row keeps the run action");
+        }, TimeSpan.FromSeconds(5));
+
+        using var db = _dbFactory.CreateDbContext();
+        Assert.That(db.DownloaderSettings.Any(s => s.Key == "syncjobs_view" && s.Value == "rows"),
+            Is.True, "the choice sticks for the next visit");
+    }
+
+    [Test]
+    public void SyncJobs_WithoutJobs_HidesRunAllNow()
+    {
+        using (var db = _dbFactory.CreateDbContext())
+        {
+            db.SyncJobs.RemoveRange(db.SyncJobs);
+            db.SaveChanges();
+        }
+
+        var cut = _ctx.Render<SyncJobs>();
+
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("No sync jobs yet")), TimeSpan.FromSeconds(3));
+        Assert.That(cut.Markup, Does.Not.Contain("Run all now"),
+            "nothing to run means no run-all button");
     }
 
     [Test]

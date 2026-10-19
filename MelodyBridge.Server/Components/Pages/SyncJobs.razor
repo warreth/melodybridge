@@ -6,6 +6,7 @@
 @inject IDbContextFactory<MelodyBridgeDbContext> DbFactory
 @inject MediaServerProfileStore ServerProfiles
 @inject SettingsStore Settings
+@inject MelodyBridge.Server.Services.NotificationService Notifications
 @implements IDisposable
 
 <PageTitle>Sync jobs - MelodyBridge</PageTitle>
@@ -20,6 +21,27 @@
         <p>A sync job turns a saved playlist into an M3U file for your music player, or pushes it to Jellyfin, Plex or a Subsonic server.</p>
     </div>
     <div class="topbar-actions">
+        @if (jobs.Count > 0)
+        {
+            <div class="view-switch" role="group" aria-label="Sync job layout">
+                <button class="view-chip @(syncJobsView == "cards" ? "on" : null)" title="Card view"
+                        aria-pressed="@(syncJobsView == "cards" ? "true" : "false")"
+                        @onclick='() => SetSyncJobsView("cards")'>
+                    <Icon Name="layout-grid" Size="15" /> <span>Cards</span>
+                </button>
+                <button class="view-chip @(syncJobsView == "rows" ? "on" : null)" title="Compact rows"
+                        aria-pressed="@(syncJobsView == "rows" ? "true" : "false")"
+                        @onclick='() => SetSyncJobsView("rows")'>
+                    <Icon Name="rows" Size="15" /> <span>Rows</span>
+                </button>
+            </div>
+            <button class="btn-modern secondary" @onclick="RunAllNow"
+                    disabled="@(runningAll || runningJobs.Count > 0)"
+                    title="Run every sync job once, one after the other">
+                <Icon Name="play" Size="16" />
+                @(runningAll ? $"Running {runAllDone}/{runAllTotal}…" : "Run all now")
+            </button>
+        }
         <button class="btn-modern primary" @onclick="StartNewJob"><Icon Name="plus" Size="16" /> New sync job</button>
     </div>
 </section>
@@ -374,6 +396,45 @@
     </div>
 }
 
+@if (jobs.Count > 0 && syncJobsView == "rows")
+{
+    <section class="entity-rows">
+        @foreach (var job in jobs)
+        {
+            <div class="entity-row">
+                <span class="entity-row-main">
+                    <strong>@job.Name</strong>
+                    <small>@JobTargetsLabel(job)</small>
+                </span>
+                <span class="entity-row-state">
+                    <StatusPill Variant="@StatusVariant(job)">@StatusLabel(job)</StatusPill>
+                </span>
+                <span class="entity-row-meta">
+                    <span>Last run: @(job.LastRunAt?.ToString("g") ?? "never")</span>
+                    <span>Schedule: @job.Schedule@(nextRunLabels.GetValueOrDefault(job.Id, ""))</span>
+                </span>
+                <span class="entity-row-actions">
+                    <button class="btn-modern small primary" title="Run this job now"
+                            @onclick="() => RunJobNow(job.Id)" disabled="@(runningAll || runningJobs.Contains(job.Id))">
+                        <Icon Name="play" Size="14" />
+                        <span class="btn-label">@(runningJobs.Contains(job.Id) ? "Running…" : "Run now")</span>
+                    </button>
+                    <button class="btn-modern small ghost" title="Run history" @onclick="() => ViewJobLog(job)">
+                        <Icon Name="terminal" Size="14" /> <span class="btn-label">Log</span>
+                    </button>
+                    <button class="btn-modern small ghost" title="Edit this job" @onclick="() => StartEditJob(job)">
+                        <Icon Name="pencil" Size="14" /> <span class="btn-label">Edit</span>
+                    </button>
+                    <button class="btn-modern small ghost" title="Delete this job" @onclick="() => AskDeleteJob(job)">
+                        <Icon Name="trash" Size="14" /> <span class="btn-label">Delete</span>
+                    </button>
+                </span>
+            </div>
+        }
+    </section>
+}
+else
+{
 <section class="content-grid two">
     @foreach (var job in jobs)
     {
@@ -383,19 +444,8 @@
                     <span class="eyebrow">@JobTargetsLabel(job)</span>
                     <h2>@job.Name</h2>
                 </div>
-                @{
-                    // A "Completed" run that resolved nothing is not the same
-                    // story as one that delivered; the run history shows the
-                    // same amber for it.
-                    var barren = job.LastRunStatus == "Completed"
-                        && job.LastRunTotalTracks > 0
-                        && job.LastRunResolvedTracks == 0;
-                    var pillVariant = job.LastRunStatus == "Completed" ? (barren ? "warn" : "ok")
-                        : job.LastRunStatus == "Failed" ? "err"
-                        : "neutral";
-                }
-                <StatusPill Variant="@pillVariant">
-                    @(string.IsNullOrEmpty(job.LastRunStatus) ? "never run" : job.LastRunStatus)
+                <StatusPill Variant="@StatusVariant(job)">
+                    @StatusLabel(job)
                 </StatusPill>
             </div>
             <p>@job.LastRunSummary</p>
@@ -404,7 +454,7 @@
                 <small>Schedule: @job.Schedule@(nextRunLabels.GetValueOrDefault(job.Id, ""))</small>
             </div>
             <div class="job-footer">
-                <button class="btn-modern primary" @onclick="() => RunJobNow(job.Id)" disabled="@runningJobs.Contains(job.Id)">
+                <button class="btn-modern primary" @onclick="() => RunJobNow(job.Id)" disabled="@(runningAll || runningJobs.Contains(job.Id))">
                     <Icon Name="play" Size="14" />
                     @(runningJobs.Contains(job.Id) ? "Running..." : "Run now")
                 </button>
@@ -415,6 +465,7 @@
         </div>
     }
 </section>
+}
 
 @if (deleteJobId is { } doomedJobId)
 {
@@ -496,6 +547,13 @@
     private string logJobName = "";
     private List<SyncJobRunEntity> logEntries = new();
     private HashSet<string> runningJobs = new();
+    /// <summary>True while "Run all now" walks every job; the buttons and
+    /// the header label read it.</summary>
+    private bool runningAll;
+    private int runAllDone;
+    private int runAllTotal;
+    /// <summary>Card grid or compact rows, kept in settings across visits.</summary>
+    private string syncJobsView = "cards";
     /// <summary>" · next run ..." per job, computed once per load (the cron
     /// walk is not free and the card re-renders often).</summary>
     private Dictionary<string, string> nextRunLabels = new();
@@ -526,8 +584,95 @@
     protected override async Task OnInitializedAsync()
     {
         defaultM3uFolder = await Settings.GetAsync("playlist_path", "/app/playlists");
+        syncJobsView = await Settings.GetAsync("syncjobs_view", "cards");
+        if (syncJobsView is not ("cards" or "rows")) syncJobsView = "cards";
         await LoadDataAsync();
         await ReloadProfiles();
+    }
+
+    private async Task SetSyncJobsView(string view)
+    {
+        if (syncJobsView == view) return;
+        syncJobsView = view;
+        await Settings.SetAsync("syncjobs_view", view);
+    }
+
+    /// <summary>The card pill: running wins over the last recorded run.</summary>
+    private string StatusLabel(SyncJobEntity job)
+    {
+        if (runningJobs.Contains(job.Id)) return "running";
+        return string.IsNullOrEmpty(job.LastRunStatus) ? "never run" : job.LastRunStatus;
+    }
+
+    /// <summary>
+    /// The pill variant. A "Completed" run that resolved nothing is not the
+    /// same story as one that delivered, so it reads amber; a live run is
+    /// amber too.
+    /// </summary>
+    private string StatusVariant(SyncJobEntity job)
+    {
+        if (runningJobs.Contains(job.Id)) return "warn";
+        if (job.LastRunStatus == "Completed")
+        {
+            var barren = job.LastRunTotalTracks > 0 && job.LastRunResolvedTracks == 0;
+            return barren ? "warn" : "ok";
+        }
+        return job.LastRunStatus == "Failed" ? "err" : "neutral";
+    }
+
+    /// <summary>
+    /// Runs every job once, one after the other, keeping the page's live
+    /// state per card. Sequential on purpose: the jobs share the database
+    /// and the media servers, and a parallel sweep would only pile load on
+    /// both. A job that fails does not stop the rest; the toast sums up.
+    /// </summary>
+    private async Task RunAllNow()
+    {
+        if (runningAll || jobs.Count == 0) return;
+        runningAll = true;
+        runAllDone = 0;
+        runAllTotal = jobs.Count;
+        var failed = 0;
+        StateHasChanged();
+        try
+        {
+            foreach (var job in jobs.ToList())
+            {
+                runningJobs.Add(job.Id);
+                StateHasChanged();
+                try
+                {
+                    await using var db = await DbFactory.CreateDbContextAsync();
+                    var entity = await db.SyncJobs.FindAsync(job.Id);
+                    if (entity is null) continue;
+                    var log = await JobRunner.RunJobAsync(SyncJobMapping.MapToDomain(entity));
+                    if (log is { Status: MelodyBridge.Core.SyncStatus.Failed }) failed++;
+                }
+                catch (Exception)
+                {
+                    // RunJobAsync records its own failures; anything thrown
+                    // past it still only costs this one job.
+                    failed++;
+                }
+                finally
+                {
+                    runningJobs.Remove(job.Id);
+                    runAllDone++;
+                    StateHasChanged();
+                }
+            }
+            await LoadDataAsync(preserveOrder: true);
+        }
+        finally
+        {
+            runningAll = false;
+            StateHasChanged();
+        }
+
+        if (failed > 0)
+            Notifications.Warn($"Ran {runAllDone} sync job{(runAllDone == 1 ? "" : "s")}; {failed} failed. Open a job's Log for the details.");
+        else
+            Notifications.Success($"Ran {runAllDone} sync job{(runAllDone == 1 ? "" : "s")}; every one completed.");
     }
 
     /// <summary>The profiles the wizard currently has ticked, in profile-list order.</summary>
