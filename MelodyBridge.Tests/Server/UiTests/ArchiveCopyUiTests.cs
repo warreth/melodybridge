@@ -386,6 +386,106 @@ public class ArchiveCopyUiTests
             "the pill tooltip spells out the archive failure");
     }
 
+    // ── Archive dialog: the pill opens the create/retry action ─────
+
+    /// <summary>The archive dialog's primary button label, or null when
+    /// no archive dialog is open.</summary>
+    private static string? ArchiveDialogAction(IRenderedComponent<PlaylistDetails> cut)
+    {
+        var modal = cut.FindAll(".confirm-modal").FirstOrDefault();
+        return modal?.QuerySelectorAll(".wizard-footer button").LastOrDefault()?.TextContent.Trim();
+    }
+
+    [Test]
+    public void ArchiveMinusPill_Click_OpensDialog_WithTheCreateAction()
+    {
+        using (var db = _factory.CreateDbContext())
+        {
+            db.DownloaderSettings.Add(new DownloaderSettingEntity
+                { Key = "archive_path", Value = "/archive-global" });
+            db.SaveChanges();
+        }
+        var cut = RenderPage();
+
+        var row = cut.FindAll("tbody tr").Single(tr => tr.TextContent.Contains("Archived track"));
+        var minus = row.QuerySelectorAll("span.pill")
+            .Single(p => p.GetAttribute("title")?.Contains("No archive copy") == true);
+        var button = minus.Ancestors().OfType<IElement>().First(e => e.TagName == "BUTTON");
+        Assert.That(button.GetAttribute("class"), Does.Contain("pill-button"),
+            "the minus pill is clickable when the page offers the archive action");
+        button.Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.Markup, Does.Contain("No archive copy yet"));
+            Assert.That(ArchiveDialogAction(cut), Is.EqualTo("Create archive copy"));
+        }, TimeSpan.FromSeconds(3));
+    }
+
+    [Test]
+    public void WarningPill_Click_OpensTheArchiveDialog_WithTheFailureText()
+    {
+        var cut = RenderPage();
+
+        var row = cut.FindAll("tbody tr").Single(tr => tr.TextContent.Contains("Warning track"));
+        var bang = row.QuerySelector("span.pill.warn")!;
+        var button = bang.Ancestors().OfType<IElement>().First(e => e.TagName == "BUTTON");
+        button.Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.Markup, Does.Contain("archive copy failed: ffmpeg not found on this host"),
+                "the dialog repeats the real failure cause");
+            Assert.That(ArchiveDialogAction(cut), Is.EqualTo("Create archive copy"));
+        }, TimeSpan.FromSeconds(3));
+    }
+
+    [Test]
+    public void ArchiveDialog_Create_WritesTheCopyAndCloses()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"mb-arc-dialog-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        var primary = Path.Combine(root, "track.mp3");
+        File.WriteAllBytes(primary, new byte[] { 9, 8, 7 });
+        try
+        {
+            using (var db = _factory.CreateDbContext())
+            {
+                db.DownloaderSettings.Add(new DownloaderSettingEntity
+                    { Key = "archive_path", Value = Path.Combine(root, "archive") });
+                db.DownloaderSettings.Add(new DownloaderSettingEntity
+                    { Key = "archive_format", Value = "auto" });
+                db.Tracks.Single(t => t.MelodyId == "m2").Warning = null;
+                db.Tracks.Single(t => t.MelodyId == "m2").CurrentPath = primary;
+                db.SaveChanges();
+            }
+            var cut = RenderPage();
+
+            var row = cut.FindAll("tbody tr").Single(tr => tr.TextContent.Contains("Warning track"));
+            row.QuerySelector("button.pill-button")!.Click();
+            cut.WaitForAssertion(() =>
+                Assert.That(ArchiveDialogAction(cut), Is.EqualTo("Create archive copy")),
+                TimeSpan.FromSeconds(3));
+
+            cut.FindAll(".confirm-modal .wizard-footer button")
+                .Single(b => b.TextContent.Contains("Create archive copy")).Click();
+
+            cut.WaitForAssertion(() =>
+            {
+                using var db = _factory.CreateDbContext();
+                var track = db.Tracks.AsNoTracking().Single(t => t.MelodyId == "m2");
+                Assert.That(track.ArchivePath, Is.Not.Null.And.Not.Empty,
+                    "the click created the copy and persisted its path");
+                Assert.That(File.Exists(track.ArchivePath), Is.True);
+                Assert.That(cut.FindAll(".confirm-modal"), Is.Empty, "the dialog closes on success");
+            }, TimeSpan.FromSeconds(5));
+        }
+        finally
+        {
+            try { Directory.Delete(root, recursive: true); } catch { /* best effort */ }
+        }
+    }
+
     [Test]
     public async Task ArchiveFolderInput_DebouncedSave_PersistsToTheDbRow()
     {

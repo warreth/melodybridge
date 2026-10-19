@@ -324,7 +324,9 @@ else
                         OnChooseSource="OpenSourcePicker"
                         OnResolveReview="ResolveDedupReview"
                         OnQualityReview="ResolveQualityReview"
-                        OnRemove="RemoveTrack" />
+                        OnRemove="RemoveTrack"
+                        OnArchiveAction="OpenArchiveDialog"
+                        OnWarning="OpenArchiveDialog" />
         }
     </section>
 
@@ -346,6 +348,21 @@ else
                         <p class="text-muted">
                             Compare the length, then pick the right recording. Best guess first;
                             the automatic match refused all of these.
+                        </p>
+                        <p class="source-target">
+                            <span class="eyebrow">Target quality</span>
+                            @if (pickerTargetQuality.HasConstraints)
+                            {
+                                <strong>@QualityLabel(editQuality)</strong>
+                                <span class="text-muted">
+                                    Results below it are saved as-is, never re-encoded into
+                                    another quality.
+                                </span>
+                            }
+                            else
+                            {
+                                <span class="text-muted">No filter: any source quality is accepted.</span>
+                            }
                         </p>
                     </div>
                     <button class="icon-button" title="Close" @onclick="CloseSourcePicker">
@@ -399,6 +416,23 @@ else
                                         <span> · @kbps kbps</span>
                                     }
                                 </small>
+                                <div class="source-quality">
+                                    @if (!probedCandidateUrls.Contains(candidate.SourceUrl))
+                                    {
+                                        <span class="source-quality-checking">
+                                            <span class="spinner"></span> checking exact quality…
+                                        </span>
+                                    }
+                                    else
+                                    {
+                                        <span class="source-quality-facts">@CandidateQualityText(candidate)</span>
+                                        @if (CandidateVerdict(candidate) is { } verdict)
+                                        {
+                                            <StatusPill Variant="@verdict.Variant" Class="pill-tight"
+                                                        Title="@verdict.Title">@verdict.Label</StatusPill>
+                                        }
+                                    }
+                                </div>
                                 @if (sourceFailures.TryGetValue(candidate.SourceUrl, out var failure))
                                 {
                                     <small class="source-failure">This source failed: @failure</small>
@@ -437,6 +471,53 @@ else
                             <Icon Name="refresh" Size="14" /> Search again
                         </button>
                     </div>
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (archiveTrack is { } archive)
+    {
+        <div class="wizard-overlay" @onclick="CloseArchiveDialog">
+            <div class="wizard-modal confirm-modal" @onclick:stopPropagation="true">
+                <div class="wizard-header">
+                    <div>
+                        <span class="eyebrow">Track file</span>
+                        <h2>@(archive.Title ?? "Track")</h2>
+                        <span class="text-muted">@(archive.Artist ?? "Unknown artist")</span>
+                    </div>
+                    <button class="icon-button" title="Close" @onclick="CloseArchiveDialog"><Icon Name="x" Size="18" /></button>
+                </div>
+                <div class="wizard-body">
+                    <div class="archive-state-card">
+                        <Icon Name="archive" Size="18" Class="archive-state-icon" />
+                        <div>
+                            <strong>@ArchiveDialogHeadline(archive)</strong>
+                            <p>@ArchiveDialogDetail(archive)</p>
+                        </div>
+                    </div>
+                    @if (!string.IsNullOrWhiteSpace(archive.Warning))
+                    {
+                        <div class="hint-box archive-warning">
+                            <Icon Name="alert" Size="14" Class="inline-icon" />
+                            @archive.Warning
+                        </div>
+                    }
+                    @if (!HasArchiveTarget)
+                    {
+                        <div class="hint-box">
+                            This playlist has no archive folder. Turn the archive copy on and
+                            set a folder in the settings on the left, then try again.
+                        </div>
+                    }
+                </div>
+                <div class="wizard-footer">
+                    <button class="btn-modern secondary" @onclick="CloseArchiveDialog">Close</button>
+                    <span></span>
+                    <button class="btn-modern primary" @onclick="RetryArchive"
+                            disabled="@(busy || !HasArchiveTarget)">
+                        <Icon Name="archive" Size="14" /> @ArchiveDialogAction(archive)
+                    </button>
                 </div>
             </div>
         </div>
@@ -1039,6 +1120,78 @@ else
     /// <summary>The track whose hardlink confirmation dialog is open.</summary>
     private TrackEntity? hardlinkTrack;
 
+    // ── Archive copy dialog ────────────────────────────────────────
+    // Opened from the archive pill (no copy yet, missing from disk) and
+    // from the warning pill: it shows the state and lets the copy be
+    // created or rebuilt from the primary file.
+
+    /// <summary>The track whose archive dialog is open.</summary>
+    private TrackEntity? archiveTrack;
+
+    private void OpenArchiveDialog(TrackEntity track)
+    {
+        archiveTrack = track;
+        StateHasChanged();
+    }
+
+    private void CloseArchiveDialog() => archiveTrack = null;
+
+    /// <summary>Headline per state: present, gone, or never made.</summary>
+    private static string ArchiveDialogHeadline(TrackEntity track)
+    {
+        if (string.IsNullOrWhiteSpace(track.ArchivePath)) return "No archive copy yet";
+        return track.ArchivePath is { } path && File.Exists(path)
+            ? "Archive copy present"
+            : "Archive copy missing from disk";
+    }
+
+    /// <summary>What the state means, and what the button will do.</summary>
+    private static string ArchiveDialogDetail(TrackEntity track)
+    {
+        if (string.IsNullOrWhiteSpace(track.ArchivePath))
+        {
+            return "This track has no archive copy. Creating one copies the downloaded file "
+                + "into the playlist's archive folder, converted to the configured format when one is set.";
+        }
+        return File.Exists(track.ArchivePath)
+            ? $"The copy exists at {track.ArchivePath}. Recreating it rebuilds the file from the current download."
+            : $"The copy is recorded at {track.ArchivePath}, but the file is gone from disk. "
+                + "Recreating it copies the current music file again.";
+    }
+
+    private string ArchiveDialogAction(TrackEntity track)
+        => string.IsNullOrWhiteSpace(track.ArchivePath) ? "Create archive copy" : "Recreate archive copy";
+
+    /// <summary>
+    /// Rebuilds the archive copy and reports the outcome: on success the
+    /// dialog closes, on failure it stays open with the real reason (the
+    /// fresh warning is on the row after the reload).
+    /// </summary>
+    private async Task RetryArchive()
+    {
+        if (archiveTrack is not { } track) return;
+        busy = true;
+        try
+        {
+            var (ok, reason) = await Store.RetryArchiveAsync(track.Id);
+            await Load();
+            if (ok)
+            {
+                archiveTrack = null;
+                Notifications.Success($"Archive copy created for '{track.Title}'.");
+            }
+            else
+            {
+                archiveTrack = playlist?.Tracks.FirstOrDefault(t => t.Id == track.Id) ?? track;
+                Notifications.Warn($"Could not create the archive copy for '{track.Title}': {reason}");
+            }
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
     private async Task ConfirmHardlink()
     {
         if (hardlinkTrack is not { } track) return;
@@ -1105,6 +1258,18 @@ else
     /// <summary>Per-candidate failure text after a pick did not deliver.</summary>
     private readonly Dictionary<string, string> sourceFailures = new(StringComparer.Ordinal);
     /// <summary>
+    /// Exact source facts per candidate URL, filled in as each plugin's
+    /// probe answers. <see cref="probedCandidateUrls"/> marks a URL whose
+    /// probe finished, so "still checking" is distinguishable from "the
+    /// plugin cannot tell".
+    /// </summary>
+    private readonly Dictionary<string, CandidateAudioQuality> candidateQualities = new(StringComparer.Ordinal);
+    private readonly HashSet<string> probedCandidateUrls = new(StringComparer.Ordinal);
+    private readonly HashSet<string> probingCandidateUrls = new(StringComparer.Ordinal);
+    /// <summary>The quality this playlist asks for, shown in the picker
+    /// header and compared against every candidate.</summary>
+    private DownloadQuality pickerTargetQuality = DownloadQuality.Any;
+    /// <summary>
     /// A search can run for minutes (every plugin has its own budget) and
     /// the dialog can be closed or reopened for another track meanwhile:
     /// only the newest generation may write its result.
@@ -1129,6 +1294,9 @@ else
         downloadingCandidateUrl = null;
         sourceCandidates = Array.Empty<DownloadCandidate>();
         sourceFailures.Clear();
+        candidateQualities.Clear();
+        probedCandidateUrls.Clear();
+        probingCandidateUrls.Clear();
         chooseSourceTrack = null;
     }
 
@@ -1142,6 +1310,10 @@ else
         searchingSources = true;
         sourceCandidates = Array.Empty<DownloadCandidate>();
         sourceFailures.Clear();
+        candidateQualities.Clear();
+        probedCandidateUrls.Clear();
+        probingCandidateUrls.Clear();
+        pickerTargetQuality = PlaylistStore.ParseQuality(editQuality);
         StateHasChanged();
         IReadOnlyList<DownloadCandidate>? candidates = null;
         try
@@ -1157,6 +1329,7 @@ else
                     if (generation != sourceSearchGeneration || chooseSourceTrack?.Id != trackId) return;
                     if (sourceCandidates.Any(c => c.SourceUrl == candidate.SourceUrl)) return;
                     sourceCandidates = sourceCandidates.Append(candidate).ToList();
+                    StartCandidateProbe(candidate, generation, trackId);
                     StateHasChanged();
                 });
             });
@@ -1167,12 +1340,143 @@ else
             // again pressed) changes nothing: not the list, not the flag.
             if (generation == sourceSearchGeneration && chooseSourceTrack?.Id == trackId)
             {
-                if (candidates is not null) sourceCandidates = candidates;
+                if (candidates is not null)
+                {
+                    sourceCandidates = candidates;
+                    foreach (var candidate in candidates)
+                        StartCandidateProbe(candidate, generation, trackId);
+                }
                 searchingSources = false;
                 StateHasChanged();
             }
         }
     }
+
+    /// <summary>
+    /// Asks the candidate's plugin for the exact source facts, off the UI
+    /// thread, and fills the row in when the answer lands. A probe that
+    /// yields nothing leaves the row on the manifest line; the row never
+    /// waits for it to enable Download.
+    /// </summary>
+    private void StartCandidateProbe(DownloadCandidate candidate, int generation, int trackId)
+    {
+        var url = candidate.SourceUrl;
+        if (probingCandidateUrls.Contains(url) || probedCandidateUrls.Contains(url)) return;
+        probingCandidateUrls.Add(url);
+        _ = Task.Run(async () =>
+        {
+            CandidateAudioQuality? quality = null;
+            try
+            {
+                quality = await Store.ProbeCandidateQualityAsync(candidate.PluginId, url);
+            }
+            catch
+            {
+                // A probe is best effort; the row falls back to the manifest.
+            }
+            await InvokeAsync(() =>
+            {
+                probingCandidateUrls.Remove(url);
+                if (generation != sourceSearchGeneration || chooseSourceTrack?.Id != trackId) return;
+                probedCandidateUrls.Add(url);
+                if (quality is not null) candidateQualities[url] = quality;
+                StateHasChanged();
+            });
+        });
+    }
+
+    /// <summary>
+    /// What one candidate really is: the exact probe facts when they
+    /// arrived, otherwise what the plugin declares it can deliver.
+    /// </summary>
+    private string CandidateQualityText(DownloadCandidate candidate)
+    {
+        if (candidateQualities.TryGetValue(candidate.SourceUrl, out var quality))
+        {
+            var parts = new List<string>();
+            var codec = CodecLabel(quality.Codec);
+            if (codec.Length > 0) parts.Add(codec);
+            if (quality.BitDepth is { } depth) parts.Add($"{depth}-bit");
+            if (quality.SampleRateHz is { } rate) parts.Add($"{rate / 1000.0:0.#} kHz");
+            if (quality.BitrateKbps is { } kbps && !quality.Lossless) parts.Add($"{kbps} kbps");
+            if (parts.Count == 0) parts.Add(quality.Lossless ? "lossless" : "unknown");
+            var text = string.Join(" · ", parts);
+            return quality.Note is { Length: > 0 } note ? $"{text} ({note})" : text;
+        }
+
+        var declared = candidate.DeclaredQuality;
+        return declared is { Length: > 0 }
+            ? $"{candidate.PluginName} delivers {declared}"
+            : $"{candidate.PluginName} did not report its quality";
+    }
+
+    /// <summary>
+    /// The target match pill for one candidate, or null while its probe
+    /// still runs. With exact facts the verdict is a comparison; without
+    /// them it reads the plugin's own declaration, never a guess.
+    /// </summary>
+    private (string Variant, string Label, string Title)? CandidateVerdict(DownloadCandidate candidate)
+    {
+        if (!pickerTargetQuality.HasConstraints) return null;
+        var targetLabel = QualityLabel(editQuality);
+
+        if (candidateQualities.TryGetValue(candidate.SourceUrl, out var quality))
+        {
+            if (QualityMatchesTarget(quality, pickerTargetQuality))
+            {
+                return ("ok", "matches target",
+                    $"This source delivers {targetLabel}, the playlist's quality.");
+            }
+            return candidate.CanServeRequested
+                ? ("warn", "off target",
+                    $"This source does not deliver {targetLabel}. The pick is saved as-is.")
+                : ("warn", "saved as-is",
+                    $"{candidate.PluginName} cannot deliver {targetLabel}; the pick keeps its source quality instead of being re-encoded.");
+        }
+
+        if (!probedCandidateUrls.Contains(candidate.SourceUrl)) return null;
+        return candidate.CanServeRequested
+            ? ("ok", "target OK", $"{candidate.PluginName} declares it can deliver {targetLabel}.")
+            : ("warn", "saved as-is",
+                $"{candidate.PluginName} cannot deliver {targetLabel}; the pick keeps its source quality instead of being re-encoded.");
+    }
+
+    /// <summary>True when the probed facts satisfy the requested quality.</summary>
+    private static bool QualityMatchesTarget(CandidateAudioQuality quality, DownloadQuality target)
+    {
+        if (target.Format == AudioFormat.Flac) return quality.Lossless;
+        if (target.Format != AudioFormat.Auto && AudioFormatOf(quality.Codec) != target.Format)
+            return false;
+        // Unknown bitrates pass the pre-check: only the downloaded file can
+        // prove the band, exactly like the waterfall's own gate.
+        return target.IsWithinBand(quality.BitrateKbps);
+    }
+
+    /// <summary>The container a raw codec name stands for.</summary>
+    private static AudioFormat AudioFormatOf(string? codec) => codec?.ToLowerInvariant() switch
+    {
+        "flac" => AudioFormat.Flac,
+        "mp3" => AudioFormat.Mp3,
+        "opus" => AudioFormat.Opus,
+        var c when c is not null && (c.StartsWith("mp4a", StringComparison.Ordinal)
+            || c.StartsWith("aac", StringComparison.Ordinal)) => AudioFormat.Aac,
+        _ => AudioFormat.Auto,
+    };
+
+    /// <summary>Readable codec names; ffprobe/yt-dlp names are not.</summary>
+    private static string CodecLabel(string? codec) => codec?.ToLowerInvariant() switch
+    {
+        null or "" or "none" => "",
+        "flac" => "FLAC",
+        "alac" => "ALAC",
+        "mp3" => "MP3",
+        "opus" => "Opus",
+        "vorbis" => "Vorbis",
+        var c when c.StartsWith("mp4a", StringComparison.Ordinal)
+            || c.StartsWith("aac", StringComparison.Ordinal) => "AAC",
+        var c when c.StartsWith("pcm", StringComparison.Ordinal) => "PCM",
+        _ => codec?.ToUpperInvariant() ?? "",
+    };
 
     /// <summary>
     /// Downloads the candidate the user picked; the row and the table

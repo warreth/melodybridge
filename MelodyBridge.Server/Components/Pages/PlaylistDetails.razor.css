@@ -123,6 +123,36 @@
     animation: mb-spin .8s linear infinite;
 }
 @keyframes mb-spin { to { transform: rotate(360deg); } }
+
+/* Picker header: the playlist's target quality, spelled out. */
+.source-target {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: .35rem .5rem;
+    margin: .5rem 0 0;
+    font-size: .85rem;
+}
+.source-target .eyebrow { margin: 0; }
+
+/* Per-candidate quality line: the exact source facts plus the target
+   verdict pill, filled in as each plugin's probe answers. */
+.source-quality {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: .4rem;
+    margin-top: .25rem;
+    font-size: .82rem;
+}
+.source-quality-facts { color: var(--accent-text); font-weight: 600; }
+.source-quality-checking {
+    display: inline-flex;
+    align-items: center;
+    gap: .4rem;
+    color: var(--muted);
+}
+.source-quality-checking .spinner { width: 11px; height: 11px; }
 .source-progress {
     height: 3px;
     margin: 0 1.25rem;
@@ -199,3 +229,19 @@
     .source-downloading { margin-left: auto; }
     .source-picker-title p { overflow-wrap: anywhere; }
 }
+
+/* Archive dialog: one state card above the optional failure note, so the
+   reason and the fix button read as one story. */
+.archive-state-card {
+    display: flex;
+    gap: .75rem;
+    align-items: flex-start;
+    padding: .8rem .9rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface-3);
+}
+::deep .archive-state-icon { flex: 0 0 auto; margin-top: .1rem; color: var(--accent-strong); }
+.archive-state-card strong { display: block; margin-bottom: .15rem; }
+.archive-state-card p { margin: 0; color: var(--muted); font-size: .88rem; overflow-wrap: anywhere; }
+.archive-warning { margin: .75rem 0 0; }

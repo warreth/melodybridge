@@ -31,7 +31,7 @@ public class SourcePickerUiTests
     {
         public string Id => "pick";
         public string Name => "Pick plugin";
-        public PluginCapabilities Capabilities => PluginCapabilities.Any;
+        public PluginCapabilities Capabilities { get; set; } = PluginCapabilities.Any;
         public string? HitTitle { get; set; } = "The Real Song";
         public int DownloadCalls { get; private set; }
         /// <summary>When set, the search waits for it: races can be staged.</summary>
@@ -42,8 +42,16 @@ public class SourcePickerUiTests
         public bool FailDownload { get; set; }
         /// <summary>Gates per requested title, for two overlapping searches.</summary>
         public Dictionary<string, TaskCompletionSource> GatesByTitle { get; } = new(StringComparer.Ordinal);
+        /// <summary>What the exact-quality probe reports; null = cannot tell.</summary>
+        public CandidateAudioQuality? ProbeResult { get; set; }
+        /// <summary>The quality the last download was asked for.</summary>
+        public DownloadQuality? LastQuality { get; private set; }
 
         public Task<bool> IsAvailableAsync(CancellationToken ct = default) => Task.FromResult(true);
+
+        public Task<CandidateAudioQuality?> ProbeQualityAsync(
+            string sourceUrl, CancellationToken ct = default)
+            => Task.FromResult(ProbeResult);
 
         public async Task<DownloaderSearchHit?> SearchAsync(TrackQuery query, CancellationToken ct = default)
         {
@@ -83,6 +91,7 @@ public class SourcePickerUiTests
             DownloadQuality? quality = null, CancellationToken ct = default)
         {
             DownloadCalls++;
+            LastQuality = quality;
             if (DownloadGate is { } gate)
                 await gate.Task.WaitAsync(TimeSpan.FromSeconds(10));
             if (FailDownload)
@@ -95,6 +104,7 @@ public class SourcePickerUiTests
     }
 
     private PickPlugin _plugin = null!;
+    private TestSqliteFactory _factory = null!;
 
     [SetUp]
     public void Setup()
@@ -132,6 +142,7 @@ public class SourcePickerUiTests
         }
 
         _plugin = new PickPlugin();
+        _factory = factory;
         _ctx.Services.AddSingleton<IDbContextFactory<MelodyBridgeDbContext>>(factory);
         _ctx.Services.AddDownloadPages(factory, _plugin);
     }
@@ -291,6 +302,60 @@ public class SourcePickerUiTests
                 "the playlist's own length is visible for comparison");
             Assert.That(cut.Markup, Does.Contain("-1:30"),
                 "the 3:30 hit is 1:30 shorter than the original");
+        }, TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>Sets the seeded playlist's quality before a render.</summary>
+    private void SetPreferredFormat(string format)
+    {
+        using var db = _factory.CreateDbContext();
+        db.Playlists.Single(p => p.Id == "pl-pick").PreferredFormat = format;
+        db.SaveChanges();
+    }
+
+    [Test]
+    public void Picker_ShowsTheExactSourceQuality_AndFlagsALossyPickBelowTheFlacTarget()
+    {
+        SetPreferredFormat("preset:lossless");
+        _plugin.Capabilities = PluginCapabilities.Lossy(AudioFormat.Aac, 128, 320);
+        _plugin.ProbeResult = new CandidateAudioQuality(
+            "mp4a.40.2", 160, 44100, null, Lossless: false);
+
+        var cut = RenderPage();
+        cut.FindAll("button").Single(b => b.TextContent.Trim() == "Choose source").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.Markup, Does.Contain("Target quality"));
+            Assert.That(cut.Markup, Does.Contain("Lossless"),
+                "the dialog names the playlist's target");
+            Assert.That(cut.Markup, Does.Contain("AAC · 44.1 kHz · 160 kbps"),
+                "the row shows the exact source facts, never a guess");
+            Assert.That(cut.FindAll(".source-candidate .pill")
+                    .Any(p => p.TextContent.Contains("saved as-is")),
+                Is.True,
+                "a lossy pick cannot satisfy the FLAC target and says so");
+        }, TimeSpan.FromSeconds(5));
+    }
+
+    [Test]
+    public void Picker_FlagsAMatchingLosslessSource()
+    {
+        SetPreferredFormat("preset:lossless");
+        _plugin.Capabilities = PluginCapabilities.LosslessSources();
+        _plugin.ProbeResult = new CandidateAudioQuality("flac", null, 44100, 16, Lossless: true);
+
+        var cut = RenderPage();
+        cut.FindAll("button").Single(b => b.TextContent.Trim() == "Choose source").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.Markup, Does.Contain("FLAC · 16-bit · 44.1 kHz"),
+                "lossless facts carry bit depth and sample rate");
+            Assert.That(cut.FindAll(".source-candidate .pill")
+                    .Any(p => p.TextContent.Contains("matches target")),
+                Is.True,
+                "a real lossless source is marked as matching");
         }, TimeSpan.FromSeconds(5));
     }
 
