@@ -72,11 +72,26 @@ public sealed class DevPanelLogger : ILogger
         // The Advanced page turns them on only when hunting a database
         // problem. Warnings and errors from EF always pass: only the
         // info-level chatter is gated.
-        if (!DatabaseLogSwitch.Enabled
-            && _categoryName.StartsWith(DatabaseLogSwitch.EfCommandPrefix, StringComparison.Ordinal)
+        var efCommand = _categoryName.StartsWith(
+            DatabaseLogSwitch.EfCommandPrefix, StringComparison.Ordinal);
+
+        if (efCommand
+            && !DatabaseLogSwitch.Enabled
             && logLevel is Microsoft.Extensions.Logging.LogLevel.Trace
                 or Microsoft.Extensions.Logging.LogLevel.Debug
                 or Microsoft.Extensions.Logging.LogLevel.Information)
+            return;
+
+        // Framework chatter is not what this page is for. ASP.NET, the
+        // host and System.* diagnostics produce a lot of Information and
+        // Debug lines (especially with the dev compose's Debug defaults)
+        // that bury the app's own work. Warnings and errors still pass,
+        // and the host's one-line startup notice is kept.
+        if (!efCommand
+            && logLevel < Microsoft.Extensions.Logging.LogLevel.Warning
+            && (IsFrameworkCategory(_categoryName))
+            && !(_categoryName == "Microsoft.Hosting.Lifetime"
+                 && logLevel == Microsoft.Extensions.Logging.LogLevel.Information))
             return;
 
         var level = LevelMap.TryGetValue(logLevel, out var mapped) ? mapped : CoreLogLevel.Info;
@@ -85,4 +100,9 @@ public sealed class DevPanelLogger : ILogger
 
         _collector.Log(level, _categoryName, message, detail);
     }
+
+    /// <summary>Framework and BCL loggers, not the app's own types.</summary>
+    private static bool IsFrameworkCategory(string category)
+        => category.StartsWith("Microsoft.", StringComparison.Ordinal)
+           || category.StartsWith("System.", StringComparison.Ordinal);
 }

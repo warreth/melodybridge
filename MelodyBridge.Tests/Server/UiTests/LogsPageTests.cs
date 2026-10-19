@@ -45,8 +45,9 @@ public class LogsPageTests
         Assert.That(cut.Markup, Does.Contain("Added playlist Techno with 101 tracks"));
         Assert.That(cut.Markup, Does.Contain("Playlists"), "raw type names must be shown as areas");
         Assert.That(cut.Markup, Does.Contain("Downloads"));
-        Assert.That(cut.Markup, Does.Not.Contain("MelodyBridge.Infrastructure"),
-            "raw namespaces must not appear in the UI");
+        Assert.That(cut.FindAll(".log-category").Select(c => c.TextContent),
+            Does.Not.Contain("MelodyBridge.Infrastructure"),
+            "the visible category cell shows the friendly area, not the raw namespace");
     }
 
     [Test]
@@ -82,10 +83,10 @@ public class LogsPageTests
         var cut = _ctx.Render<Logs>();
 
         var chips = cut.FindAll(".filter-chip");
-        Assert.That(chips.Count, Is.EqualTo(LogAreas.All.Length + 1 + 3 + 1),
-            "one chip per area plus All areas, plus Info/Warning/Error plus All levels");
+        Assert.That(chips.Count, Is.EqualTo(LogAreas.All.Length + 1 + 4 + 1),
+            "one chip per area plus All areas, plus Info+/Warning/Error/Debug plus All levels");
 
-        cut.FindAll(".filter-chip").Single(c => c.TextContent == "Downloads").Click();
+        cut.FindAll(".filter-chip").Single(c => c.GetAttribute("data-area") == "Downloads").Click();
 
         Assert.That(cut.Markup, Does.Contain("download finished"));
         Assert.That(cut.Markup, Does.Not.Contain("playlist synced"),
@@ -101,7 +102,7 @@ public class LogsPageTests
         var cut = _ctx.Render<Logs>();
 
         // Warning only: the stream keeps the warning and hides the info row.
-        cut.FindAll(".filter-chip").Single(c => c.TextContent == "Warning").Click();
+        cut.FindAll(".filter-chip").Single(c => c.GetAttribute("data-level") == "Warning").Click();
         Assert.That(cut.Markup, Does.Contain("bitrate looks inflated"));
         Assert.That(cut.FindAll(".logs-list .log-row").Count(), Is.EqualTo(1),
             "Info must be hidden from the stream");
@@ -111,7 +112,7 @@ public class LogsPageTests
         // Error chip must cover Critical too.
         _collector.Log(LogLevel.Error, "MelodyBridge.Infrastructure.Services.PlaylistStore", "download failed hard");
         _collector.Log(LogLevel.Critical, "MelodyBridge.Infrastructure.Services.PlaylistStore", "fatal crash");
-        cut.FindAll(".filter-chip").Single(c => c.TextContent == "Error").Click();
+        cut.FindAll(".filter-chip").Single(c => c.GetAttribute("data-level") == "Error").Click();
 
         var levels = cut.FindAll(".logs-list .log-level").Select(l => l.TextContent).ToList();
         Assert.That(levels, Is.EqualTo(new[] { "CRITICAL", "ERROR" }),
@@ -146,6 +147,78 @@ public class LogsPageTests
 
         Assert.That(cut.Markup, Does.Contain("scan of /music done"));
         Assert.That(cut.Markup, Does.Not.Contain("soundcloud search failed"));
+    }
+
+    [Test]
+    public void Logs_DefaultInfoPlus_HidesDebugAndTrace()
+    {
+        _collector.Log(LogLevel.Info, "MelodyBridge.Application.Services.DownloadManager", "an info row");
+        _collector.Log(LogLevel.Warn, "MelodyBridge.Application.Services.DownloadManager", "a warn row");
+        _collector.Log(LogLevel.Error, "MelodyBridge.Application.Services.DownloadManager", "an error row");
+        _collector.Log(LogLevel.Debug, "MelodyBridge.Application.Services.DownloadManager", "a debug row");
+        _collector.Log(LogLevel.Trace, "MelodyBridge.Application.Services.DownloadManager", "a trace row");
+
+        var cut = _ctx.Render<Logs>();
+
+        var text = cut.Find(".logs-list").TextContent;
+        Assert.Multiple(() =>
+        {
+            Assert.That(text, Does.Contain("an info row"));
+            Assert.That(text, Does.Contain("a warn row"));
+            Assert.That(text, Does.Contain("an error row"));
+            Assert.That(text, Does.Not.Contain("a debug row"),
+                "the default level is Info+, so debug noise stays out");
+            Assert.That(text, Does.Not.Contain("a trace row"));
+        });
+
+        cut.FindAll(".filter-chip").Single(c => c.GetAttribute("data-level") == "Debug").Click();
+        var debug = cut.Find(".logs-list").TextContent;
+        Assert.Multiple(() =>
+        {
+            Assert.That(debug, Does.Contain("a debug row"));
+            Assert.That(debug, Does.Contain("a trace row"));
+            Assert.That(debug, Does.Not.Contain("an info row"));
+        });
+    }
+
+    [Test]
+    public void Logs_AreaChipsShowTheirEntryCounts()
+    {
+        _collector.Log(LogLevel.Info, "MelodyBridge.Application.Services.DownloadManager", "download one");
+        _collector.Log(LogLevel.Info, "MelodyBridge.Application.Services.DownloadManager", "download two");
+        _collector.Log(LogLevel.Info, "MelodyBridge.Infrastructure.Services.PlaylistStore", "playlist one");
+
+        var cut = _ctx.Render<Logs>();
+
+        var downloads = cut.FindAll(".filter-chip").Single(c => c.GetAttribute("data-area") == "Downloads");
+        var playlists = cut.FindAll(".filter-chip").Single(c => c.GetAttribute("data-area") == "Playlists");
+        Assert.Multiple(() =>
+        {
+            Assert.That(downloads.QuerySelector(".chip-count")?.TextContent, Is.EqualTo("2"));
+            Assert.That(playlists.QuerySelector(".chip-count")?.TextContent, Is.EqualTo("1"));
+            Assert.That(downloads.GetAttribute("title"), Does.Contain("2 entries"));
+        });
+    }
+
+    [Test]
+    public void Logs_DevPanelDownloadCategory_LandsInDownloads()
+    {
+        _collector.Log(LogLevel.Info, "Download", "a dev panel download row");
+        _collector.Log(LogLevel.Info, "Queue", "a dev panel queue row");
+
+        var cut = _ctx.Render<Logs>();
+
+        var downloads = cut.FindAll(".filter-chip").Single(c => c.GetAttribute("data-area") == "Downloads");
+        Assert.That(downloads.QuerySelector(".chip-count")?.TextContent, Is.EqualTo("2"),
+            "the Dev panel's short category names must not fall into System");
+
+        downloads.Click();
+        var text = cut.Find(".logs-list").TextContent;
+        Assert.Multiple(() =>
+        {
+            Assert.That(text, Does.Contain("a dev panel download row"));
+            Assert.That(text, Does.Contain("a dev panel queue row"));
+        });
     }
 
     [Test]
@@ -221,14 +294,14 @@ public class LogsPageTests
 
         var cut = _ctx.Render<Logs>();
 
-        cut.FindAll(".filter-chip").Single(c => c.TextContent == "Downloads").Click();
+        cut.FindAll(".filter-chip").Single(c => c.GetAttribute("data-area") == "Downloads").Click();
 
         var rows = cut.FindAll(".logs-list .log-row");
         Assert.That(rows.Count(), Is.EqualTo(1), "only the downloads row stays");
         Assert.That(cut.Find(".logs-list").TextContent, Does.Contain("downloads area entry"));
         Assert.That(cut.Find(".logs-list").TextContent, Does.Not.Contain("playlists area entry"));
 
-        cut.FindAll(".filter-chip").Single(c => c.TextContent.Trim() == "All areas").Click();
+        cut.FindAll(".filter-chip").Single(c => c.GetAttribute("data-area") == "all").Click();
 
         var restored = cut.FindAll(".logs-list .log-row");
         Assert.That(restored.Count(), Is.EqualTo(2), "All areas must restore both rows");
@@ -244,14 +317,14 @@ public class LogsPageTests
 
         var cut = _ctx.Render<Logs>();
 
-        cut.FindAll(".filter-chip").Single(c => c.TextContent == "Warning").Click();
+        cut.FindAll(".filter-chip").Single(c => c.GetAttribute("data-level") == "Warning").Click();
 
         var warnRows = cut.FindAll(".logs-list .log-row");
         Assert.That(warnRows.Count(), Is.EqualTo(1), "only the warn row stays");
         Assert.That(cut.Find(".logs-list").TextContent, Does.Contain("the warn entry"));
         Assert.That(cut.Find(".logs-list").TextContent, Does.Not.Contain("the info entry"));
 
-        cut.FindAll(".filter-chip").Single(c => c.TextContent.Trim() == "All levels").Click();
+        cut.FindAll(".filter-chip").Single(c => c.GetAttribute("data-level") == "all").Click();
 
         var restored = cut.FindAll(".logs-list .log-row");
         Assert.That(restored.Count(), Is.EqualTo(2), "All levels must restore both rows");

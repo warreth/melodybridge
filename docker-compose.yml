@@ -39,9 +39,12 @@ services:
       - ASPNETCORE_ENVIRONMENT=Development
       - ASPNETCORE_DETAILEDERRORS=true
       - ASPNETCORE_URLS=http://+:80
+      # The Logs page is for the app's own work. Framework Debug lines
+      # (HTTP, hosting, EF) used to bury every plugin message; warnings
+      # and errors still reach the page.
       - Logging__LogLevel__Default=Information
-      - Logging__LogLevel__Microsoft=Debug
-      - Logging__LogLevel__System=Debug
+      - Logging__LogLevel__Microsoft=Warning
+      - Logging__LogLevel__System=Warning
       - DevPanel__Enabled=true
       - MELODYBRIDGE_DB=/app/state/melodybridge.db
     # Volumes map a HOST path (left of the colon) to a CONTAINER path

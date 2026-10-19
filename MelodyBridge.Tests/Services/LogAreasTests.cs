@@ -11,8 +11,16 @@ namespace MelodyBridge.Tests.Services;
 [TestFixture]
 public class LogAreasTests
 {
+    // Dev panel short categories (no namespace): these used to land in System
+    [TestCase("Download", "Downloads")]
+    [TestCase("Queue", "Downloads")]
+    [TestCase("Search", "Sources")]
+    [TestCase("Sync", "Sync")]
+    [TestCase("Scanner", "Library")]
+
     // Playlists
     [TestCase("MelodyBridge.Infrastructure.Services.PlaylistStore", "Playlists")]
+    [TestCase("MelodyBridge.Infrastructure.Playlists.PlaylistTransfer", "Playlists")]
 
     // Sources: public providers, account providers, token store
     [TestCase("MelodyBridge.Infrastructure.Services.SpotifySourceProvider", "Sources")]
@@ -37,6 +45,11 @@ public class LogAreasTests
     [TestCase("MelodyBridge.Infrastructure.Cloudflare.FlareSolverrSolver", "Downloads")]
     [TestCase("MelodyBridge.Infrastructure.Qobuz.QobuzClient", "Downloads")]
     [TestCase("MelodyBridge.Infrastructure.Tidal.TidalClient", "Downloads")]
+    [TestCase("MelodyBridge.Infrastructure.Deezer.DeezerClient", "Downloads")]
+    [TestCase("MelodyBridge.Infrastructure.Downloaders.MonochromeDownloader", "Downloads")]
+    [TestCase("MelodyBridge.Infrastructure.Downloaders.SlskdDownloader", "Downloads")]
+    [TestCase("MelodyBridge.Infrastructure.Jumo.JumoClient", "Downloads")]
+    [TestCase("MelodyBridge.Infrastructure.Jumo.JumoDownloader", "Downloads")]
 
     // Library: scanning, reconciliation, folder watching, scheduling
     [TestCase("MelodyBridge.Infrastructure.Scanning.LibraryScanner", "Library")]
@@ -44,6 +57,10 @@ public class LogAreasTests
     [TestCase("MelodyBridge.Infrastructure.Services.FileSystemMonitor", "Library")]
     [TestCase("MelodyBridge.Infrastructure.Services.FileSystemMonitoringBackgroundService", "Library")]
     [TestCase("MelodyBridge.Infrastructure.Services.ScanSchedulingBackgroundService", "Library")]
+    [TestCase("MelodyBridge.Infrastructure.Services.TrackLinker", "Library")]
+    [TestCase("MelodyBridge.Infrastructure.Services.LibraryPathMover", "Library")]
+    [TestCase("MelodyBridge.Infrastructure.Services.CoverArtFetcher", "Library")]
+    [TestCase("MelodyBridge.Infrastructure.Services.LyricsResolver", "Library")]
 
     // Sync: runner, engine, controller, background service, outputs
     [TestCase("MelodyBridge.Infrastructure.Services.SyncJobRunner", "Sync")]
@@ -54,13 +71,19 @@ public class LogAreasTests
     [TestCase("MelodyBridge.Infrastructure.MediaServers.PlexSync", "Sync")]
     [TestCase("MelodyBridge.Infrastructure.MediaServers.SubsonicSync", "Sync")]
     [TestCase("MelodyBridge.Infrastructure.Playlists.M3uGenerator", "Sync")]
+    [TestCase("MelodyBridge.Infrastructure.Services.SyncJobSchedulingBackgroundService", "Sync")]
 
     // Database: EF Core internals and our context
     [TestCase("Microsoft.EntityFrameworkCore.Database.Command", "Database")]
     [TestCase("MelodyBridge.Infrastructure.Data.MelodyBridgeDbContext", "Database")]
+    [TestCase("MelodyBridge.Infrastructure.Services.DatabaseBackupService", "Database")]
 
-    // System: anything unmatched falls back here
+    // System: startup, notifications and anything unmatched
     [TestCase("MelodyBridge.Server.Program", "System")]
+    [TestCase("MelodyBridge.Server.Services.ToastObserverService", "System")]
+    [TestCase("MelodyBridge.Server.Services.NtfyNotifier", "System")]
+    [TestCase("MelodyBridge.Server.Services.NotificationService", "System")]
+    [TestCase("MelodyBridge.Server.Services.BackgroundFailureSink", "System")]
     [TestCase("Some.Unknown.Thing", "System")]
     [TestCase("", "System")]
     public void FromCategory_MapsRealCategories(string category, string expected)

@@ -16,12 +16,17 @@ public static class LogAreas
     };
 
     /// <summary>
-    /// Maps a raw category name to one of <see cref="All"/>. Matching is
-    /// substring-based on the short class name, so namespace renames do
-    /// not break the mapping.
+    /// Maps a raw category name to one of <see cref="All"/>. The exact
+    /// names used by the Dev panel's own logger win first, then matching
+    /// is substring-based on the short class name, so namespace renames
+    /// do not break the mapping.
     /// </summary>
     public static string FromCategory(string category)
     {
+        if (string.IsNullOrWhiteSpace(category)) return "System";
+
+        if (Exact.TryGetValue(category, out var exact)) return exact;
+
         foreach (var (keyword, area) in Keywords)
         {
             if (category.Contains(keyword, StringComparison.OrdinalIgnoreCase))
@@ -30,64 +35,95 @@ public static class LogAreas
         return "System";
     }
 
+    // The Dev panel logs under short names ("Download", "Queue",
+    // "Search") instead of a type name. Mapping them here is what keeps
+    // those rows out of "System".
+    private static readonly Dictionary<string, string> Exact =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Download"] = "Downloads",
+            ["Queue"] = "Downloads",
+            ["Search"] = "Sources",
+            ["Sync"] = "Sync",
+            ["Scanner"] = "Library",
+            ["Database"] = "Database",
+        };
+
     // One row per logger the app actually creates, ordered so the most
     // specific keyword wins (substring matching walks top to bottom).
     private static readonly (string Keyword, string Area)[] Keywords =
     {
-        // Playlists: the store that fetches and downloads playlist tracks.
-        ("PlaylistStore", "Playlists"),
+        // The M3U writer sits in the Playlists namespace but belongs to
+        // publishing, the page where its output is scheduled.
+        ("M3u", "Sync"),
 
-        // Sources: playlist import providers (public and account).
-        ("SpotifySourceProvider", "Sources"),
-        ("YouTubeSourceProvider", "Sources"),
-        ("SpotifyAccountProvider", "Sources"),
-        ("YouTubeAccountProvider", "Sources"),
-        ("AccountTokenStore", "Sources"),
-        ("IsrcResolver", "Sources"),
+        // Playlists: the store, queries, transfers and the playlist pages.
+        ("Playlist", "Playlists"),
+
+        // Sources: playlist import providers (public and account), the
+        // token stores and the ISRC lookup that feeds them.
         ("SourceProvider", "Sources"),
+        ("Spotify", "Sources"),
+        ("YouTube", "Sources"),
+        ("AccountToken", "Sources"),
+        ("Account", "Sources"),
+        ("IsrcResolver", "Sources"),
+        ("ListenBrainz", "Sources"),
 
-        // Downloads: the manager, coordinator, registry and every plugin.
-        ("DownloadManager", "Downloads"),
-        ("DownloadCoordinator", "Downloads"),
-        ("DownloaderRegistry", "Downloads"),
+        // Downloads: the manager, coordinator, registry, every plugin,
+        // the quality probes and the Cloudflare solver they share.
+        ("Download", "Downloads"),
+        ("Queue", "Downloads"),
+        ("Downloader", "Downloads"),
+        ("Qobuz", "Downloads"),
+        ("Tidal", "Downloads"),
+        ("Deezer", "Downloads"),
+        ("Jumo", "Downloads"),
+        ("Slskd", "Downloads"),
+        ("Monochrome", "Downloads"),
         ("Lucida", "Downloads"),
         ("SoundCloud", "Downloads"),
         ("ArchiveOrg", "Downloads"),
         ("YtDlp", "Downloads"),
-        ("Downloader", "Downloads"),
-        ("BitrateProbe", "Downloads"),
+        ("Bitrate", "Downloads"),
         ("Spectrum", "Downloads"),
         ("FlareSolverr", "Downloads"),
-        ("QobuzClient", "Downloads"),
-        ("DeezerClient", "Downloads"),
-        ("TidalClient", "Downloads"),
+        ("PythonRunner", "Downloads"),
 
-        // Library: scanning the disk and watching folders.
-        ("LibraryScanner", "Library"),
-        ("LibraryReconciler", "Library"),
+        // Library: scanning the disk, watching folders, the metadata
+        // passes and the file links a playlist folder holds.
+        ("Library", "Library"),
+        ("Scanner", "Library"),
         ("FileSystemMonitor", "Library"),
         ("FileSystemMonitoring", "Library"),
         ("ScanScheduling", "Library"),
+        ("TrackLinker", "Library"),
+        ("CoverArt", "Library"),
+        ("Lyrics", "Library"),
 
         // Sync: jobs, the engine, the background services, outputs.
-        ("SyncJobRunner", "Sync"),
+        ("SyncJob", "Sync"),
         ("SyncEngine", "Sync"),
         ("SyncController", "Sync"),
         ("AutoSync", "Sync"),
-        ("JellyfinSync", "Sync"),
         ("Jellyfin", "Sync"),
-        ("PlexSync", "Sync"),
-        ("PlexDirectory", "Sync"),
         ("Plex", "Sync"),
-        ("SubsonicSync", "Sync"),
-        ("SubsonicDirectory", "Sync"),
         ("Subsonic", "Sync"),
-        ("M3uGenerator", "Sync"),
+        ("M3u", "Sync"),
 
-        // Database: EF Core internals and our context.
+        // Database: EF Core internals, our context and backups.
         ("MelodyBridgeDbContext", "Database"),
         ("DbContext", "Database"),
         ("Database", "Database"),
         ("Command", "Database"),
+
+        // System: startup, the Dev panel, toasts and notifications.
+        ("Program", "System"),
+        ("DevPanel", "System"),
+        ("Toast", "System"),
+        ("Notification", "System"),
+        ("Ntfy", "System"),
+        ("BackgroundFailure", "System"),
+        ("UpdateCheck", "System"),
     };
 }

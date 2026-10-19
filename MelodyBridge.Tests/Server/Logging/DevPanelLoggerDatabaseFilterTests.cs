@@ -88,6 +88,45 @@ public class DevPanelLoggerDatabaseFilterTests
             "the filter only touches EF command categories, nothing else");
     }
 
+    [Test]
+    public void FrameworkInformation_IsHidden_ButWarningsAndAppLogsPass()
+    {
+        DatabaseLogSwitch.Set(false);
+        var collector = NewCollector();
+        var aspNet = LoggerFor(collector, "Microsoft.AspNetCore.Components.Server.Circuits");
+        var http = LoggerFor(collector, "System.Net.Http.HttpClient.qobuz");
+        var app = LoggerFor(collector, "MelodyBridge.Infrastructure.Downloaders.QobuzDownloader");
+
+        aspNet.LogInformation("circuit opened");
+        http.LogDebug("sending request");
+        app.LogDebug("Qobuz search started");
+        aspNet.LogWarning("circuit failed");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(EntryFor(collector, "circuit opened"), Is.Null,
+                "framework Information is noise on the Logs page");
+            Assert.That(EntryFor(collector, "sending request"), Is.Null);
+            Assert.That(EntryFor(collector, "Qobuz search started"), Is.Not.Null,
+                "the app's own Debug lines still reach the page");
+            Assert.That(EntryFor(collector, "circuit failed"), Is.Not.Null,
+                "framework warnings and errors still matter");
+        });
+    }
+
+    [Test]
+    public void HostLifetimeInformation_IsKept()
+    {
+        DatabaseLogSwitch.Set(false);
+        var collector = NewCollector();
+        var logger = LoggerFor(collector, "Microsoft.Hosting.Lifetime");
+
+        logger.LogInformation("Application started");
+
+        Assert.That(EntryFor(collector, "Application started"), Is.Not.Null,
+            "the one-line startup notice is useful and stays");
+    }
+
     /// <summary>
     /// The real composition: a LoggerFactory with the appsettings filter
     /// (EF command pinned to Warning for the console's sake) and the dev
