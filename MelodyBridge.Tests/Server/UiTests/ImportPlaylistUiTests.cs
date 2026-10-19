@@ -3,9 +3,12 @@ using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.Data;
 using MelodyBridge.Infrastructure.Services;
 using MelodyBridge.Server.Components.Pages;
+using Microsoft.AspNetCore.Components.Forms;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
+using System.IO.Compression;
+using System.Text;
 
 namespace MelodyBridge.Tests.Server.UiTests;
 
@@ -173,6 +176,58 @@ public class ImportPlaylistUiTests
             "the patcher moves legacy import rows so they stop acting like Spotify playlists");
         Assert.That(row.IsManualImport, Is.True);
     }
+    [Test]
+    public void UploadingAZip_ImportsEveryPlaylist_ThroughTheRealPage()
+    {
+        var cut = _ctx.Render<Playlists>();
+        cut.Find("div.topbar-actions button.ghost").Click();
+        cut.Find("button[data-tab='files']").Click();
+
+        // The first file input is the Exportify card; both go through the
+        // same handler, and the real InputFile component is driven here,
+        // not a hand-called page method.
+        var input = cut.FindComponents<InputFile>()[0];
+        var zip = BuildZip(
+            ("Exportify/Liked_Songs.csv", MiniCsv),
+            ("Exportify/Summer 2024.csv", MiniCsv));
+        input.UploadFiles(InputFileContent.CreateFromBinary(zip, "Exportify.zip"));
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.Markup, Does.Contain("Imported 2 playlists"),
+                "the page counts both entries of the archive");
+        }, TimeSpan.FromSeconds(5));
+
+        using var db = _factory.CreateDbContext();
+        var saved = db.Playlists
+            .Include(p => p.Tracks)
+            .Where(p => p.SourceUrl.StartsWith("spotify:import:"))
+            .ToList();
+        Assert.That(saved, Has.Count.EqualTo(2), "each CSV in the zip is its own playlist");
+        Assert.That(saved.Select(p => p.Name),
+            Is.EquivalentTo(new[] { "Liked_Songs", "Summer 2024" }));
+        Assert.That(saved.All(p => p.Tracks.Count == 1), Is.True);
+    }
+
+    private const string MiniCsv =
+        "Track URI,Track Name,Album Name,Artist Name(s),Duration (ms)\n" +
+        "spotify:track:2jpKZFnBk98Ud3EoZiBOTf,Here With Me,Here With Me,Marshmello;CHVRCHES,156313\n";
+
+    private static byte[] BuildZip(params (string Name, string Content)[] entries)
+    {
+        using var stream = new MemoryStream();
+        using (var archive = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            foreach (var (name, content) in entries)
+            {
+                var entry = archive.CreateEntry(name);
+                using var writer = new StreamWriter(entry.Open(), Encoding.UTF8);
+                writer.Write(content);
+            }
+        }
+        return stream.ToArray();
+    }
+
     [Test]
     public void ImportList_OwnPlaylistsFirst_ThenAlphabetical()
     {
