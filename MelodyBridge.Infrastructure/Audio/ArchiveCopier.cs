@@ -59,90 +59,89 @@ public static class ArchiveCopier
         {
             Directory.CreateDirectory(archiveDirectory);
 
-            // Replace by name, never through an existing inode: an archive
-            // copy can be a hardlink to another playlist's archive, so
-            // truncating the target in place (ffmpeg or File.Copy with
-            // overwrite) would corrupt the twin when this attempt fails.
-            // Unlinking first leaves every other name on the old bytes.
-            if (File.Exists(targetPath))
+            // Build under a unique temp name that keeps the target's
+            // extension (ffmpeg infers the muxer from it) and move it over
+            // the target only when everything succeeded. The old archive
+            // stays in place on any failure, and the rename replaces the
+            // directory entry instead of truncating the inode a hardlinked
+            // twin still points at.
+            var tempPath = Path.Combine(archiveDirectory,
+                Path.GetFileNameWithoutExtension(targetName)
+                + ".mb-tmp-" + Guid.NewGuid().ToString("N")
+                + Path.GetExtension(targetName));
+            try
             {
-                try
+                if (string.IsNullOrWhiteSpace(archiveFormat)
+                    || archiveFormat.Trim().Equals("auto", StringComparison.OrdinalIgnoreCase))
                 {
-                    File.Delete(targetPath);
+                    // Auto archive: byte-for-byte copy, no transcode, no
+                    // quality change.
+                    File.Copy(primaryPath, tempPath, overwrite: false);
                 }
-                catch (Exception ex)
+                else
                 {
-                    return new(false, targetPath,
-                        $"could not replace the existing archive file: {ex.Message}");
-                }
-            }
+                    var ffmpeg = FindFfmpeg();
+                    if (ffmpeg is null)
+                        return new(false, targetPath, "ffmpeg not found on this host");
 
-            if (string.IsNullOrWhiteSpace(archiveFormat)
-                || archiveFormat.Trim().Equals("auto", StringComparison.OrdinalIgnoreCase))
-            {
-                // Auto archive: byte-for-byte copy, no transcode, no
-                // quality change. The old name is already gone.
-                File.Copy(primaryPath, targetPath, overwrite: false);
+                    var args = BuildArgs(primaryPath, tempPath, archiveFormat);
+                    var (exit, _, stderr) = Run(ffmpeg, args,
+                        expectedDuration is { } d ? (int)d.TotalMilliseconds + 30000 : 120000);
+
+                    if (exit != 0)
+                        return new(false, targetPath, $"ffmpeg exited {exit}: {Truncate(stderr, 300)}");
+
+                    // The file must exist and be parseable, exactly like the
+                    // primary's integrity gate. A zero-byte or corrupt output
+                    // is removed so the next run starts clean.
+                    if (!File.Exists(tempPath) || new FileInfo(tempPath).Length == 0)
+                        return new(false, targetPath, "ffmpeg produced no output");
+
+                    // The archive mirrors the primary, so the primary's own
+                    // measured length is the yardstick, never the playlist's
+                    // expectation: a flagged wrong-length file must still get
+                    // its archive copy, while a silently truncated transcode
+                    // is caught. The tight window allows codec padding; only
+                    // unreadable output counts as corrupt.
+                    var primaryDuration = FileIntegrity.MeasureDuration(primaryPath);
+                    var tolerance = primaryDuration is { } source
+                        ? TimeSpan.FromSeconds(Math.Max(2, source.TotalSeconds * 0.02))
+                        : (TimeSpan?)null;
+                    var integrity = FileIntegrity.Check(tempPath, primaryDuration, tolerance);
+                    // A missing ffprobe is not proof that the copy is broken: keep it.
+                    if (!integrity.Ok && !integrity.ToolMissing)
+                    {
+                        return new(false, targetPath,
+                            integrity.Issue == IntegrityIssue.Corrupt
+                                ? $"archive transcode looks corrupt: {integrity.Reason}"
+                                : $"archive transcode does not match the source: {integrity.Reason}");
+                    }
+
+                    // Metadata handover: ffmpeg keeps Vorbis and ID3 tags in
+                    // most conversions, but a container switch can drop them.
+                    // When the MELODY_ID survived, everything meaningful did
+                    // (reconciliation joins on it); when it did not, write the
+                    // full tag set the same way the primary path does.
+                    if (!string.IsNullOrEmpty(melodyId)
+                        && TaglibHelper.ReadMelodyId(tempPath) != melodyId)
+                    {
+                        TaglibHelper.WriteTags(tempPath, title, artist, album, track: trackNumber);
+                        TaglibHelper.WriteMelodyId(tempPath, melodyId);
+                    }
+                }
+
+                File.Move(tempPath, targetPath, overwrite: true);
                 return new(true, targetPath, null);
             }
-
-            var ffmpeg = FindFfmpeg();
-            if (ffmpeg is null)
-                return new(false, targetPath, "ffmpeg not found on this host");
-
-            var args = BuildArgs(primaryPath, targetPath, archiveFormat);
-            var (exit, _, stderr) = Run(ffmpeg, args, expectedDuration is { } d ? (int)d.TotalMilliseconds + 30000 : 120000);
-
-            if (exit != 0)
+            finally
             {
-                TryDelete(targetPath);
-                return new(false, targetPath, $"ffmpeg exited {exit}: {Truncate(stderr, 300)}");
+                // A failed attempt leaves no partial file behind; on success
+                // the move already consumed the temp name.
+                TryDelete(tempPath);
             }
-
-            // The file must exist and be parseable, exactly like the
-            // primary's integrity gate. A zero-byte or corrupt output
-            // is removed so the next run starts clean.
-            if (!File.Exists(targetPath) || new FileInfo(targetPath).Length == 0)
-                return new(false, targetPath, "ffmpeg produced no output");
-
-            // The archive mirrors the primary, so the primary's own
-            // measured length is the yardstick, never the playlist's
-            // expectation: a flagged wrong-length file must still get its
-            // archive copy, while a silently truncated transcode is
-            // caught. The tight window allows codec padding; only
-            // unreadable output counts as corrupt.
-            var primaryDuration = FileIntegrity.MeasureDuration(primaryPath);
-            var tolerance = primaryDuration is { } source
-                ? TimeSpan.FromSeconds(Math.Max(2, source.TotalSeconds * 0.02))
-                : (TimeSpan?)null;
-            var integrity = FileIntegrity.Check(targetPath, primaryDuration, tolerance);
-            // A missing ffprobe is not proof that the copy is broken: keep it.
-            if (!integrity.Ok && !integrity.ToolMissing)
-            {
-                TryDelete(targetPath);
-                return new(false, targetPath,
-                    integrity.Issue == IntegrityIssue.Corrupt
-                        ? $"archive transcode looks corrupt: {integrity.Reason}"
-                        : $"archive transcode does not match the source: {integrity.Reason}");
-            }
-
-            // Metadata handover: ffmpeg keeps Vorbis and ID3 tags in most
-            // conversions, but a container switch can drop them. When the
-            // MELODY_ID survived, everything meaningful did (reconciliation
-            // joins on it); when it did not, write the full tag set the
-            // same way the primary path does.
-            if (!string.IsNullOrEmpty(melodyId)
-                && TaglibHelper.ReadMelodyId(targetPath) != melodyId)
-            {
-                TaglibHelper.WriteTags(targetPath, title, artist, album, track: trackNumber);
-                TaglibHelper.WriteMelodyId(targetPath, melodyId);
-            }
-
-            return new(true, targetPath, null);
         }
         catch (Exception ex)
         {
-            TryDelete(targetPath);
             return new(false, targetPath, Truncate(ex.Message, 300));
         }
     }
@@ -210,7 +209,9 @@ public static class ArchiveCopier
         var a = Path.GetFullPath(first);
         var b = Path.GetFullPath(second);
         return string.Equals(a, b,
-            OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
+            OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
+                ? StringComparison.OrdinalIgnoreCase
+                : StringComparison.Ordinal);
     }
 
     private static void TryDelete(string path)

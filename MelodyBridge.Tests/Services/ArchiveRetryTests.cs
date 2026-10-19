@@ -117,7 +117,7 @@ public class ArchiveRetryTests
     }
 
     [Test]
-    public async Task Retry_UnlinksTheTarget_BeforeWriting_SoHardlinkedTwinsKeepTheirBytes()
+    public async Task Retry_ReplacesTheTarget_SoHardlinkedTwinsKeepTheirBytes()
     {
         var trackId = await SeedDownloadedTrackAsync();
         var (first, _) = await _store.RetryArchiveAsync(trackId);
@@ -140,6 +140,8 @@ public class ArchiveRetryTests
                 "the archive was rebuilt from the current primary");
             Assert.That(File.ReadAllBytes(twin), Is.EqualTo(new byte[] { 1, 2, 3, 4, 5 }),
                 "the other name keeps the old bytes instead of being overwritten through the shared inode");
+            Assert.That(Directory.EnumerateFiles(Path.GetDirectoryName(archive)!, "*.mb-tmp-*"),
+                Is.Empty, "the rebuild leaves no temp file behind");
         });
     }
 

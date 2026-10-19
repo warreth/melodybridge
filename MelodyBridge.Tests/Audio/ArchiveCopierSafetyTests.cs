@@ -95,4 +95,70 @@ public class ArchiveCopierSafetyTests
             Assert.That(File.Exists(result.ArchivePath), Is.True);
         });
     }
+
+    [Test]
+    public void MissingFfmpeg_LeavesAnExistingArchiveCopyAlone()
+    {
+        var primary = MakeSilentWav("primary.wav");
+        var archiveDir = Path.Combine(_dir, "archive");
+        Directory.CreateDirectory(archiveDir);
+        var target = Path.Combine(archiveDir, "primary.opus");
+        var oldBytes = new byte[] { 7, 7, 7 };
+        File.WriteAllBytes(target, oldBytes);
+
+        var oldPath = Environment.GetEnvironmentVariable("PATH");
+        var emptyPath = Path.Combine(_dir, "empty-path");
+        Directory.CreateDirectory(emptyPath);
+        Environment.SetEnvironmentVariable("PATH", emptyPath);
+        try
+        {
+            var result = ArchiveCopier.Copy(primary, archiveDir, "opus",
+                melodyId: null, title: null, artist: null, album: null, trackNumber: null);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(result.Ok, Is.False);
+                Assert.That(result.Reason, Does.Contain("ffmpeg"));
+                Assert.That(File.Exists(target), Is.True,
+                    "a rebuild that cannot run must not delete the old copy");
+                Assert.That(File.ReadAllBytes(target), Is.EqualTo(oldBytes));
+                Assert.That(Directory.EnumerateFiles(archiveDir, "*.mb-tmp-*"), Is.Empty,
+                    "a failed attempt leaves no temp file behind");
+            });
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("PATH", oldPath);
+        }
+    }
+
+    [Test]
+    public void SameDirectory_DifferentCase_IsRefusedOnCaseInsensitiveHosts()
+    {
+        var primary = MakeSilentWav("primary.wav");
+        var before = File.ReadAllBytes(primary);
+        // The same folder with a differently cased leaf. On a
+        // case-insensitive filesystem this is the primary's own path.
+        var aliasDir = Path.Combine(
+            Path.GetDirectoryName(_dir)!, Path.GetFileName(_dir).ToUpperInvariant());
+
+        var result = ArchiveCopier.Copy(primary, aliasDir, "auto",
+            melodyId: null, title: null, artist: null, album: null, trackNumber: null);
+
+        if (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS())
+        {
+            Assert.Multiple(() =>
+            {
+                Assert.That(result.Ok, Is.False,
+                    "a case-only alias of the same folder is the primary's path");
+                Assert.That(File.ReadAllBytes(primary), Is.EqualTo(before),
+                    "the primary's bytes stay untouched");
+            });
+        }
+        else
+        {
+            Assert.That(result.Ok, Is.True,
+                "a case-sensitive host treats the alias as another folder");
+        }
+    }
 }
