@@ -249,11 +249,12 @@ A flag writes `Tracks.ReviewKind` (`length`, `spectrum`, or both joined by `+`, 
 `Track.Isrc` and `Tracks.Isrc` carry the International Standard
 Recording Code when it is known. Two sources fill it:
 
-1. **The Spotify account path** batches `GET /v1/tracks?ids=` (50 ids
-   per call) after fetching playlist items or liked songs, because
-   playlist items carry simplified tracks without `external_ids`. A
-   failed batch logs a warning and leaves those tracks without an ISRC;
-   the resolver below gets a second chance per download.
+1. **The Spotify account path** reads `external_ids.isrc` out of the
+   payload it already has: the saved-track object for liked songs and the
+   playlist item for playlists. Spotify removed the `GET /v1/tracks?ids=`
+   batch endpoint for development-mode apps in February 2026, so there is
+   no second pass; a track without the field stays without an ISRC and the
+   resolver below gets a second chance per download.
 2. **`IsrcResolver`** (Infrastructure) fills the gap for everything else
    (the Spotify embed scrape, YouTube, CSV imports) through Deezer's
    public search API, which returns the ISRC of every hit and needs no

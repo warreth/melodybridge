@@ -80,6 +80,18 @@ public class SpotifyAccountLiveTests
                 "every liked track is flagged for Jellyfin favorites");
             Assert.That(liked.Tracks.All(t => t.SourcePlatform == Platform.Spotify), Is.True);
 
+            // The ISRC has to come out of the saved-track payload itself:
+            // the batch endpoint that used to fill it is gone for
+            // development-mode apps (February 2026).
+            var withIsrc = liked.Tracks.Count(t => !string.IsNullOrWhiteSpace(t.Isrc));
+            Assert.That(withIsrc, Is.GreaterThan(liked.Tracks.Count / 2),
+                "most liked songs must carry an ISRC from the payload");
+            Assert.That(liked.Tracks
+                    .Where(t => !string.IsNullOrWhiteSpace(t.Isrc))
+                    .Select(t => t.Isrc!)
+                    .All(IsrcShaped),
+                Is.True, "an ISRC is a 12 character recording code");
+
             // A private playlist (if the account has one) comes back whole.
             // The track assertions are the regression guard for Spotify's
             // playlist item rename: the account used to return the playlist
@@ -101,6 +113,9 @@ public class SpotifyAccountLiveTests
             File.Delete(dbPath);
         }
     }
+
+    private static bool IsrcShaped(string isrc)
+        => isrc.Length == 12 && isrc.All(char.IsLetterOrDigit);
 
     [Test]
     public async Task ExpiredAccessToken_RefreshesViaRealSpotify()

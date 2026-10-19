@@ -35,6 +35,16 @@ internal static class SpotifyPlaylistItems
         if (track.TryGetProperty("episode", out var episode) && episode.ValueKind == JsonValueKind.True)
             return null;
 
+        // The item carries a full track object, external_ids included, so
+        // the ISRC needs no second lookup.
+        var isrc = (string?)null;
+        if (track.TryGetProperty("external_ids", out var externalIds)
+            && externalIds.ValueKind == JsonValueKind.Object
+            && externalIds.TryGetProperty("isrc", out var isrcProp)
+            && isrcProp.ValueKind == JsonValueKind.String
+            && !string.IsNullOrWhiteSpace(isrcProp.GetString()))
+            isrc = isrcProp.GetString();
+
         long? durationMs = track.TryGetProperty("duration_ms", out var dur) && dur.ValueKind == JsonValueKind.Number
             ? dur.GetInt64()
             : null;
@@ -106,6 +116,7 @@ internal static class SpotifyPlaylistItems
             SongID = new SongID(Platform.Spotify, id),
             PlatformSongID = new SongID(Platform.Spotify, id),
             SourcePlatform = Platform.Spotify,
+            Isrc = isrc,
         };
     }
 }

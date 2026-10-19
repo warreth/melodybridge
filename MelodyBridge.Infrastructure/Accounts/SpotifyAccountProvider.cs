@@ -244,12 +244,6 @@ public class SpotifyAccountProvider : IAccountSourceProvider
             if (mapped.Duration is { } d) totalDuration += d;
         }
 
-        // Liked songs come back as full track objects, but the SDK shape
-        // has changed repeatedly; the raw batch endpoint is the stable
-        // source for external_ids.isrc.
-        var accessToken = (await _tokens.GetTokensAsync(ProviderName, ct))!.AccessToken;
-        await FillIsrcsAsync(accessToken, tracks, ct);
-
         _logger.LogInformation("Fetched Spotify liked songs: {Count}", tracks.Count);
 
         return new Playlist
@@ -303,6 +297,14 @@ public class SpotifyAccountProvider : IAccountSourceProvider
             CurrentTrackLocation = new FileLocation(
                 $"https://open.spotify.com/track/{track.Id}"),
             IsLiked = true,
+            // The saved-track payload already carries external_ids, so the
+            // ISRC rides along instead of costing a second request. The SDK
+            // still marks the field obsolete from Spotify's February 2026
+            // removal notice; the March 2026 changelog reverted that and the
+            // API keeps sending it.
+#pragma warning disable CS0618
+            Isrc = ReadIsrc(track.ExternalIds),
+#pragma warning restore CS0618
         };
     }
 
@@ -334,10 +336,6 @@ public class SpotifyAccountProvider : IAccountSourceProvider
             var tokens = await _tokens.GetTokensAsync(ProviderName, ct);
             var tracks = await FetchItemsAsync(
                 tokens!.AccessToken, playlistId, ct);
-
-            // Playlist items carry simplified tracks without external_ids,
-            // so ISRCs come from a second pass over /v1/tracks?ids=.
-            await FillIsrcsAsync(tokens.AccessToken, tracks, ct);
 
             return new Playlist
             {
@@ -425,122 +423,16 @@ public class SpotifyAccountProvider : IAccountSourceProvider
     }
 
     /// <summary>
-    /// Fills <see cref="Track.Isrc"/> on the given tracks from
-    /// GET /v1/tracks?ids= (50 ids per call). Tracks without a known id,
-    /// without an ISRC or from a failed batch simply keep a null ISRC.
+    /// Reads the ISRC out of a track's external ids. Spotify lists it for
+    /// every full track object, so no second call is needed; a missing or
+    /// blank value simply leaves the track without an ISRC.
     /// </summary>
-    private async Task FillIsrcsAsync(
-        string accessToken, IReadOnlyList<Track> tracks, CancellationToken ct)
-    {
-        var ids = tracks
-            .Select(t => t.PlatformSongID?.ID ?? t.SongID?.ID)
-            .Where(id => !string.IsNullOrEmpty(id))
-            .Select(id => id!)
-            .Distinct()
-            .ToList();
-        if (ids.Count == 0) return;
-
-        var isrcs = await FetchIsrcsAsync(accessToken, ids, ct);
-        ApplyIsrcs(tracks, isrcs);
-    }
-
-    /// <summary>
-    /// Attaches the id → ISRC pairs to the tracks. Internal for tests: this
-    /// is the step that made the code reach the download at all, so it is
-    /// pinned separately from the HTTP batch.
-    /// </summary>
-    internal static void ApplyIsrcs(
-        IReadOnlyList<Track> tracks, IReadOnlyDictionary<string, string> isrcs)
-    {
-        foreach (var track in tracks)
-        {
-            var id = track.PlatformSongID?.ID ?? track.SongID?.ID;
-            if (id is not null && isrcs.TryGetValue(id, out var isrc))
-                track.Isrc = isrc;
-        }
-    }
-
-    /// <summary>
-    /// Batches GET /v1/tracks?ids= and collects id → ISRC. The endpoint
-    /// answers 50 ids per call; a failed batch is skipped (the tracks
-    /// keep working without an ISRC).
-    /// </summary>
-    private async Task<Dictionary<string, string>> FetchIsrcsAsync(
-        string accessToken, IReadOnlyList<string> trackIds, CancellationToken ct)
-    {
-        var isrcs = new Dictionary<string, string>(StringComparer.Ordinal);
-        using var http = new HttpClient();
-        http.DefaultRequestHeaders.Authorization =
-            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
-
-        foreach (var batch in trackIds.Chunk(50))
-        {
-            var url = $"https://api.spotify.com/v1/tracks?ids={string.Join(",", batch)}";
-            HttpResponseMessage response;
-            for (var attempt = 0; ; attempt++)
-            {
-                response = await http.GetAsync(url, ct);
-                if ((int)response.StatusCode != 429 || attempt >= 1) break;
-
-                var wait = response.Headers.RetryAfter?.Delta
-                    ?? TimeSpan.FromSeconds(5);
-                wait = TimeSpan.FromTicks(Math.Min(wait.Ticks, TimeSpan.FromSeconds(30).Ticks));
-                response.Dispose();
-                await Task.Delay(wait, ct);
-            }
-
-            if (!response.IsSuccessStatusCode)
-            {
-                // The tracks keep working without an ISRC (the pipeline's
-                // Deezer resolver tries again per download), but a failed
-                // batch is worth a line: without it the loss is silent.
-                _logger.LogWarning(
-                    "Spotify ISRC batch failed with {Status}; those tracks download without one",
-                    (int)response.StatusCode);
-                response.Dispose();
-                continue;
-            }
-
-            using var doc = await System.Text.Json.JsonDocument.ParseAsync(
-                await response.Content.ReadAsStreamAsync(), cancellationToken: ct);
-            foreach (var (id, isrc) in ParseIsrcBatch(doc.RootElement))
-                isrcs[id] = isrc;
-        }
-
-        return isrcs;
-    }
-
-    /// <summary>
-    /// Reads id + external_ids.isrc pairs out of a GET /v1/tracks
-    /// response. Internal for tests.
-    /// </summary>
-    internal static IEnumerable<(string Id, string Isrc)> ParseIsrcBatch(System.Text.Json.JsonElement root)
-    {
-        if (!root.TryGetProperty("tracks", out var tracks)
-            || tracks.ValueKind != System.Text.Json.JsonValueKind.Array)
-            yield break;
-
-        foreach (var track in tracks.EnumerateArray())
-        {
-            if (track.ValueKind != System.Text.Json.JsonValueKind.Object) continue;
-
-            if (!track.TryGetProperty("id", out var idProp)
-                || idProp.ValueKind != System.Text.Json.JsonValueKind.String)
-                continue;
-            var id = idProp.GetString();
-            if (string.IsNullOrEmpty(id)) continue;
-
-            if (!track.TryGetProperty("external_ids", out var external)
-                || external.ValueKind != System.Text.Json.JsonValueKind.Object)
-                continue;
-            if (!external.TryGetProperty("isrc", out var isrcProp)
-                || isrcProp.ValueKind != System.Text.Json.JsonValueKind.String)
-                continue;
-            var isrc = isrcProp.GetString();
-            if (!string.IsNullOrWhiteSpace(isrc))
-                yield return (id, isrc);
-        }
-    }
+    internal static string? ReadIsrc(IReadOnlyDictionary<string, string>? externalIds)
+        => externalIds is not null
+           && externalIds.TryGetValue("isrc", out var isrc)
+           && !string.IsNullOrWhiteSpace(isrc)
+            ? isrc
+            : null;
 
     private Task<string?> ReadClientIdAsync(CancellationToken ct)
         => _tokens.GetSettingAsync(ProviderName, "client_id", ct);
