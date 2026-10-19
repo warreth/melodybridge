@@ -40,7 +40,9 @@ public class TrackTableTests
         IReadOnlyDictionary<string, bool>? archiveStates = null,
         Func<TrackEntity, string?>? queueLabel = null,
         Action<TrackEntity>? onRetry = null,
-        Action<TrackEntity>? onRemove = null)
+        Action<TrackEntity>? onRemove = null,
+        Action<TrackEntity>? onArchive = null,
+        Action<TrackEntity>? onWarning = null)
         => _ctx.Render<TrackTable>(pb =>
         {
             pb.Add(t => t.Tracks, tracks ?? SampleTracks());
@@ -51,6 +53,8 @@ public class TrackTableTests
             if (queueLabel is not null) pb.Add(t => t.QueueLabel, queueLabel);
             if (onRetry is not null) pb.Add(t => t.OnRetry, t => { onRetry(t); return Task.CompletedTask; });
             if (onRemove is not null) pb.Add(t => t.OnRemove, t => { onRemove(t); return Task.CompletedTask; });
+            if (onArchive is not null) pb.Add(t => t.OnArchiveAction, t => { onArchive(t); return Task.CompletedTask; });
+            if (onWarning is not null) pb.Add(t => t.OnWarning, t => { onWarning(t); return Task.CompletedTask; });
         });
 
     private IElement ThFor(IRenderedComponent<TrackTable> cut, string label)
@@ -313,6 +317,23 @@ public class TrackTableTests
         var cut = Render(SampleTracks());
         Assert.That(cut.Markup, Does.Not.Contain("Archive copy present"));
         Assert.That(cut.Markup, Does.Not.Contain("No archive copy"));
+    }
+
+    [Test]
+    public void ClickablePills_HaveAnAccessibleName()
+    {
+        var cut = Render(archiveState: true,
+            onArchive: _ => { }, onWarning: _ => { });
+
+        var warning = cut.FindAll("button.pill-button")
+            .Single(b => b.GetAttribute("aria-label")?.StartsWith("Issue:") == true);
+        Assert.That(warning.GetAttribute("aria-label"), Does.Contain("low match confidence"),
+            "the warning button names the problem instead of reading as an exclamation mark");
+
+        var archive = cut.FindAll("button.pill-button")
+            .Single(b => b.GetAttribute("aria-label") == "No archive copy for this track yet");
+        Assert.That(archive, Is.Not.Null,
+            "the icon-only archive button has an accessible name");
     }
 
     [Test]

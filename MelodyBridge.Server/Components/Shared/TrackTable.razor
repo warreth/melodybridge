@@ -108,6 +108,7 @@
                             if (OnWarning.HasDelegate)
                             {
                                 <button class="pill-button" type="button" title="@warnTitle"
+                                        aria-label="@($"Issue: {warnTitle}")"
                                         @onclick="() => OnWarning.InvokeAsync(track)">
                                     <StatusPill Variant="warn" Class="pill-tight" Title="@warnTitle">!</StatusPill>
                                 </button>
@@ -132,6 +133,7 @@
                             if (OnArchiveAction.HasDelegate)
                             {
                                 <button class="pill-button" type="button" title="@archiveState.Title"
+                                        aria-label="@archiveState.Title"
                                         @onclick="() => OnArchiveAction.InvokeAsync(track)">
                                     <StatusPill Variant="@archiveState.Variant" Class="pill-tight"
                                                 Title="@archiveState.Title">
