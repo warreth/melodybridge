@@ -1219,8 +1219,11 @@ else
         finally
         {
             // Only this pick's ticker, and only this pick's state: a later
-            // pick must keep running when an earlier one lands late.
-            ticker.Cancel();
+            // pick must keep running when an earlier one lands late. The
+            // page may already have been disposed by navigating away, and
+            // Cancel after Dispose throws.
+            try { ticker.Cancel(); }
+            catch (ObjectDisposedException) { /* the page disposed it first */ }
             ticker.Dispose();
             if (ReferenceEquals(downloadTicker, ticker)) downloadTicker = null;
             downloadingCandidateUrl = null;
@@ -1472,8 +1475,9 @@ else
         debounceCts?.Dispose();
         savedPillCts?.Cancel();
         savedPillCts?.Dispose();
+        // Cancel only: the pick's own finally disposes its source, so its
+        // Cancel can never hit a disposed CancellationTokenSource.
         downloadTicker?.Cancel();
-        downloadTicker?.Dispose();
         downloadTicker = null;
     }
 

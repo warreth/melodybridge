@@ -374,6 +374,34 @@ public class SourcePickerUiTests
     }
 
     [Test]
+    public async Task Picker_DisposingThePageWhileAPickRuns_DoesNotThrowOnCompletion()
+    {
+        var gate = new TaskCompletionSource();
+        _plugin.DownloadGate = gate;
+        var cut = RenderPage();
+
+        cut.FindAll("button").Single(b => b.TextContent.Trim() == "Choose source").Click();
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.FindAll(".source-candidate"), Has.Count.EqualTo(1)), TimeSpan.FromSeconds(5));
+
+        cut.Find(".source-candidate button").Click();
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("Downloading…")), TimeSpan.FromSeconds(5));
+
+        // Navigating away disposes the page while the pick is still
+        // running; its completion must not throw out of the continuation.
+        cut.Instance.Dispose();
+        gate.SetResult();
+
+        var unhandled = _ctx.Renderer.UnhandledException;
+        var first = await Task.WhenAny(unhandled, Task.Delay(1500));
+        Assert.That(first, Is.Not.SameAs(unhandled),
+            unhandled.IsCompleted
+                ? $"a pick completing after navigation threw: {unhandled.Result}"
+                : "a pick completing after navigation must not throw");
+    }
+
+    [Test]
     public void LikedSongsSourceMarker_DoesNotRenderAnOpenSourceLink()
     {
         using (var db = new TestSqliteFactory(_dbPath).CreateDbContext())
