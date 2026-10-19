@@ -599,6 +599,9 @@ select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-s
 .account-head { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
 .account-head strong { font-size: 1rem; }
 .account-head .btn-modern { margin-left: auto; }
+/* Two state pills (unofficial + connection) wrap as one unit, so a narrow
+   card never leaves one pill stranded on its own line. */
+.account-badges { display: inline-flex; align-items: center; gap: .35rem; flex-wrap: wrap; }
 /* Explanatory line inside an account card: muted, normal weight. */
 .account-note { color: var(--muted); font-size: .85rem; line-height: 1.5; }
 /* The credential fields and their connect button as one block. */

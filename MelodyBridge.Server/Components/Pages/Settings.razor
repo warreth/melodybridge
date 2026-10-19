@@ -128,10 +128,12 @@
                 <div class="account-card">
                     <div class="account-head">
                         <strong>Spotify (unofficial)</strong>
-                        <StatusPill Variant="warn">unofficial</StatusPill>
-                        <StatusPill Variant="@(_spotifyWebConnected ? "connected" : "neutral")">
-                            @(_spotifyWebConnected ? "connected" : "not connected")
-                        </StatusPill>
+                        <span class="account-badges">
+                            <StatusPill Variant="warn">unofficial</StatusPill>
+                            <StatusPill Variant="@(_spotifyWebConnected ? "connected" : "neutral")">
+                                @(_spotifyWebConnected ? "connected" : "not connected")
+                            </StatusPill>
+                        </span>
                         @if (_spotifyWebConnected)
                         {
                             <button class="btn-modern subtle small" @onclick="DisconnectSpotifyWeb">Disconnect</button>

@@ -46,8 +46,8 @@ internal sealed class PlaylistSnapshots
     /// account breaks.
     ///
     /// Spotify can have two connections at once: the official OAuth app and
-    /// the unofficial web session. Both are tried, official first, so a
-    /// connected session still serves playlists when no app is registered.
+    /// the unofficial web session. Both are tried, official first, in that
+    /// order regardless of how DI listed them.
     /// </summary>
     private async Task<Playlist> FetchWithAccountFallbackAsync(
         ISourceProvider provider, string sourceIdentifier, CancellationToken ct)
@@ -56,13 +56,19 @@ internal sealed class PlaylistSnapshots
             .Where(a => a.Name.Equals(provider.Name, StringComparison.OrdinalIgnoreCase)
                         || provider.Platform == Platform.Spotify
                         && a is SpotifyUnofficialAccountProvider)
+            .OrderBy(a => a is SpotifyAccountProvider ? 0
+                : a is SpotifyUnofficialAccountProvider ? 1
+                : 2)
             .ToList();
 
         foreach (var account in candidates)
         {
-            if (!await account.IsConnectedAsync(ct)) continue;
             try
             {
+                // A settings read can fail too; the public path must not be
+                // lost because one account could not answer that question.
+                if (!await account.IsConnectedAsync(ct)) continue;
+
                 var viaAccount = provider.Platform switch
                 {
                     Platform.Spotify when account is SpotifyAccountProvider spotify =>
@@ -77,15 +83,16 @@ internal sealed class PlaylistSnapshots
                     _ => null,
                 };
                 if (viaAccount is not null) return viaAccount;
+
                 _logger.LogInformation(
-                    "Account fetch for '{Source}' returned nothing; falling back to the public path",
-                    sourceIdentifier);
+                    "Account fetch for '{Source}' through {Account} returned nothing; trying the next path",
+                    sourceIdentifier, account.Name);
             }
             catch (Exception ex)
             {
                 _logger.LogInformation(
-                    "Account fetch for '{Source}' failed ({Message}); falling back to the public path",
-                    sourceIdentifier, ex.Message);
+                    "Account fetch for '{Source}' through {Account} failed ({Message}); trying the next path",
+                    sourceIdentifier, account.Name, ex.Message);
             }
         }
 

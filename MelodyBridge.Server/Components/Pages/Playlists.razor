@@ -317,11 +317,19 @@ else
                                     <strong>@entry.Name</strong>
                                     @if (entry.Unofficial)
                                     {
-                                        <StatusPill Variant="warn">unofficial</StatusPill>
+                                        <span class="account-badges">
+                                            <StatusPill Variant="warn">unofficial</StatusPill>
+                                            <StatusPill Variant="@(entry.Connected ? "ok" : "neutral")">
+                                                @(entry.Connected ? "connected" : "not connected")
+                                            </StatusPill>
+                                        </span>
                                     }
-                                    <StatusPill Variant="@(entry.Connected ? "ok" : "neutral")">
-                                        @(entry.Connected ? "connected" : "not connected")
-                                    </StatusPill>
+                                    else
+                                    {
+                                        <StatusPill Variant="@(entry.Connected ? "ok" : "neutral")">
+                                            @(entry.Connected ? "connected" : "not connected")
+                                        </StatusPill>
+                                    }
                                 </div>
                                 @if (entry.Connected)
                                 {
