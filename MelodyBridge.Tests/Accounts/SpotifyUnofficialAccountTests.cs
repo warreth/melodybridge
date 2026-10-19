@@ -267,6 +267,23 @@ public class SpotifyUnofficialAccountTests
     }
 
     [Test]
+    public async Task PlaylistFetch_PagesUntilTheAdvertisedTotal()
+    {
+        var web = new FakeSpotifyWeb { PlaylistTotal = 104 };
+        var provider = ProviderWith(web);
+        await provider.SaveSettingAsync("cookie", "cookie");
+        await provider.SetEnabledAsync(true);
+
+        var playlist = await provider.TryGetPlaylistViaAccountAsync("55V41RYWVdALRiiN1onkUr");
+
+        Assert.That(playlist, Is.Not.Null);
+        Assert.That(playlist!.Tracks, Has.Count.EqualTo(104),
+            "a playlist longer than one page arrives whole");
+        Assert.That(web.PlaylistPageRequests, Is.EqualTo(new[] { (0, 50), (50, 50), (100, 50) }),
+            "the offsets follow the page size and the last page stops the loop");
+    }
+
+    [Test]
     public async Task PlaylistFetch_WithoutASession_IsNull_SoThePublicPathRuns()
     {
         var web = new FakeSpotifyWeb();
@@ -378,7 +395,7 @@ public class SpotifyUnofficialAccountTests
         await using var db = _dbFactory!.CreateDbContext();
         var tracks = await db.Tracks.Where(t => t.PlaylistEntityId == saved.Id).ToListAsync();
         Assert.That(tracks, Has.Count.EqualTo(1));
-        Assert.That(tracks[0].ExternalId, Is.EqualTo("1pdoK6VJe8wwp86SrfByx0"));
+        Assert.That(tracks[0].ExternalId, Is.EqualTo("track-0"));
     }
 
     /// <summary>Answers 404 everywhere: the public scrape cannot help.</summary>
@@ -413,12 +430,16 @@ public class SpotifyUnofficialAccountTests
     private sealed class FakeSpotifyWeb : HttpMessageHandler
     {
         public int LikedTotal { get; set; } = 2;
+        public int PlaylistTotal { get; set; } = 1;
         public bool Anonymous { get; set; }
         public bool BreakPlaylistQuery { get; set; }
         public List<(string Url, string? Cookie)> TokenRequests { get; } = new();
 
         /// <summary>Offset and limit of every liked-songs page request.</summary>
         public List<(int Offset, int Limit)> PageRequests { get; } = new();
+
+        /// <summary>Offset and limit of every playlist page request.</summary>
+        public List<(int Offset, int Limit)> PlaylistPageRequests { get; } = new();
 
         public HttpClient Client => new(this) { Timeout = TimeSpan.FromSeconds(10) };
 
@@ -473,6 +494,7 @@ public class SpotifyUnofficialAccountTests
                         ? l.GetInt32()
                         : 50;
                 if (operation == "fetchLibraryTracks") PageRequests.Add((offset, limit));
+                if (operation == "fetchPlaylist") PlaylistPageRequests.Add((offset, limit));
 
                 if (!request.Headers.Authorization?.Parameter?.Equals("session-token") ?? true)
                     return new HttpResponseMessage(HttpStatusCode.Unauthorized);
@@ -483,7 +505,7 @@ public class SpotifyUnofficialAccountTests
                     "libraryV3" => await Json(LibraryResponse),
                     "fetchPlaylist" => BreakPlaylistQuery
                         ? await Json("""{ "errors": [ { "message": "not found" } ] }""")
-                        : await Json(PlaylistResponse),
+                        : await Json(PlaylistResponse(PlaylistTotal, offset, limit)),
                     _ => new HttpResponseMessage(HttpStatusCode.BadRequest),
                 };
             }
@@ -533,27 +555,33 @@ public class SpotifyUnofficialAccountTests
         }
         """;
 
-        private const string PlaylistResponse = """
+        private static string PlaylistResponse(int total, int offset, int limit)
         {
-          "data": { "playlistV2": {
-            "name": "Techno", "description": "hard and fast", "uri": "spotify:playlist:55V41RYWVdALRiiN1onkUr",
-            "ownerV2": { "data": { "name": "Warre", "username": "warre" } },
-            "images": { "items": [ { "sources": [
-              { "url": "https://i.scdn.co/image/playlist64", "width": 64, "height": 64 },
-              { "url": "https://i.scdn.co/image/playlist640", "width": 640, "height": 640 } ] } ] },
-            "content": { "totalCount": 1, "items": [
+            var count = Math.Clamp(total - offset, 0, limit);
+            var items = string.Join(",", Enumerable.Range(offset, count).Select(i => $$"""
               { "itemV2": { "__typename": "TrackResponseWrapper",
-                            "data": { "__typename": "Track", "name": "Bonzai Channel One - Original Remastered Mix",
-                                      "uri": "spotify:track:1pdoK6VJe8wwp86SrfByx0",
+                            "data": { "__typename": "Track", "name": "Bonzai Channel One {{i}}",
+                                      "uri": "spotify:track:track-{{i}}",
                                       "trackDuration": { "totalMilliseconds": 251793 },
                                       "albumOfTrack": { "name": "Bonzai Channel One",
                                                         "artists": { "items": [ { "profile": { "name": "Thunderball" } } ] },
                                                         "coverArt": { "sources": [ { "url": "https://i.scdn.co/image/track640", "width": 640, "height": 640 } ] } },
                                       "artists": { "items": [ { "profile": { "name": "Thunderball" } } ] } } } }
-            ] }
-          } }
+            """));
+
+            return $$"""
+            {
+              "data": { "playlistV2": {
+                "name": "Techno", "description": "hard and fast", "uri": "spotify:playlist:55V41RYWVdALRiiN1onkUr",
+                "ownerV2": { "data": { "name": "Warre", "username": "warre" } },
+                "images": { "items": [ { "sources": [
+                  { "url": "https://i.scdn.co/image/playlist64", "width": 64, "height": 64 },
+                  { "url": "https://i.scdn.co/image/playlist640", "width": 640, "height": 640 } ] } ] },
+                "content": { "totalCount": {{total}}, "items": [ {{items}} ] }
+              } }
+            }
+            """;
         }
-        """;
 
         private static Task<HttpResponseMessage> Json(string body)
             => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)

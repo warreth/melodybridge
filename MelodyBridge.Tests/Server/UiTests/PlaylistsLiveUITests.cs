@@ -52,6 +52,9 @@ public class PlaylistsLiveUITests
             _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Accounts.YouTubeAccountProvider(
                 tokenStore, Microsoft.Extensions.Logging.Abstractions.NullLogger<
                     MelodyBridge.Infrastructure.Accounts.YouTubeAccountProvider>.Instance));
+            _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Accounts.SpotifyUnofficialAccountProvider(
+                tokenStore, Microsoft.Extensions.Logging.Abstractions.NullLogger<
+                    MelodyBridge.Infrastructure.Accounts.SpotifyUnofficialAccountProvider>.Instance));
             var store = new PlaylistStore(factory, providers, downloadManager, NullLogger<PlaylistStore>.Instance);
         _ctx.Services.AddSingleton(store);
         // The coordinator resolves the store and db factory from the
