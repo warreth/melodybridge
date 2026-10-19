@@ -44,6 +44,9 @@ public class SourcePickerUiTests
         public Dictionary<string, TaskCompletionSource> GatesByTitle { get; } = new(StringComparer.Ordinal);
         /// <summary>What the exact-quality probe reports; null = cannot tell.</summary>
         public CandidateAudioQuality? ProbeResult { get; set; }
+        /// <summary>Per-hit facts the catalog already knows, like Qobuz.</summary>
+        public int? HitBitDepth { get; set; }
+        public int? HitSampleRate { get; set; }
         /// <summary>The quality the last download was asked for.</summary>
         public DownloadQuality? LastQuality { get; private set; }
 
@@ -59,7 +62,8 @@ public class SourcePickerUiTests
             if (HitTitle is null) return null;
             return new DownloaderSearchHit(
                 $"Hit for {query.Title}", "The Artist", $"https://pick.example/{query.Title}",
-                TimeSpan.FromSeconds(210), MatchConfidence: MatchConfidence.Low);
+                TimeSpan.FromSeconds(210), MatchConfidence: MatchConfidence.Low,
+                BitDepth: HitBitDepth, SampleRateHz: HitSampleRate);
         }
 
         public async Task<IReadOnlyList<DownloaderSearchHit>> SearchAllAsync(
@@ -71,7 +75,8 @@ public class SourcePickerUiTests
             {
                 new DownloaderSearchHit(
                     $"Hit for {query.Title}", "The Artist", $"https://pick.example/{query.Title}",
-                    TimeSpan.FromSeconds(210), MatchConfidence: MatchConfidence.Low),
+                    TimeSpan.FromSeconds(210), MatchConfidence: MatchConfidence.Low,
+                    BitDepth: HitBitDepth, SampleRateHz: HitSampleRate),
             };
         }
 
@@ -397,6 +402,28 @@ public class SourcePickerUiTests
                 .Single(p => p.TextContent.Contains("off target"));
             Assert.That(offTarget.GetAttribute("title"), Does.Contain("converted to"),
                 "a plugin that can serve the container converts the pick, it does not save the source as-is");
+        }, TimeSpan.FromSeconds(5));
+    }
+
+    [Test]
+    public void Picker_PrefersTheTracksOwnFactsOverTheConfiguredTier()
+    {
+        SetPreferredFormat("auto");
+        _plugin.Capabilities = PluginCapabilities.LosslessSources();
+        _plugin.HitBitDepth = 16;
+        _plugin.HitSampleRate = 44100;
+        _plugin.ProbeResult = new CandidateAudioQuality(
+            "flac", null, 96000, 24, Lossless: true, Note: "up to your configured Qobuz tier");
+
+        var cut = RenderPage();
+        cut.FindAll("button").Single(b => b.TextContent.Trim() == "Choose source").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.Markup, Does.Contain("FLAC · 16-bit · 44.1 kHz"),
+                "a CD-only track shows its own maximum, not the tier");
+            Assert.That(cut.Markup, Does.Not.Contain("up to your configured Qobuz tier"),
+                "the tier note is dropped when the track facts are exact");
         }, TimeSpan.FromSeconds(5));
     }
 
