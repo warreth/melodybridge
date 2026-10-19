@@ -1,4 +1,6 @@
+using System.IO.Compression;
 using System.Runtime.CompilerServices;
+using System.Text;
 using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.Data;
 using MelodyBridge.Infrastructure.Services;
@@ -119,8 +121,130 @@ public class PlaylistFileImporterTests
             "each file imports as its own playlist instead of one merged export");
     }
 
-    // ── Spotify privacy export ───────────────────────────────────────────
+    // ── zips: Exportify "Export All" and Spotify's data export ──────────
 
+    /// <summary>Builds a real zip in memory, the way the exporters deliver it.</summary>
+    private static MemoryStream NewZip(params (string Name, string Content)[] entries)
+    {
+        var stream = new MemoryStream();
+        using (var archive = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            foreach (var (name, content) in entries)
+            {
+                var entry = archive.CreateEntry(name);
+                using var writer = new StreamWriter(entry.Open());
+                writer.Write(content);
+            }
+        }
+        stream.Position = 0;
+        return stream;
+    }
+
+    [Test]
+    public async Task ExportAllZip_ReadsEveryCsvAsItsOwnPlaylist()
+    {
+        using var zip = NewZip(
+            ("Exportify/Liked_Songs.csv", "\uFEFF" + ExportifyFiveRows),
+            ("Exportify/Summer 2024.csv", ExportifyFiveRows),
+            ("Exportify/notes.txt", "not a playlist"));
+
+        var upload = await PlaylistFileImporter.ParseStreamAsync("Exportify.zip", zip);
+
+        Assert.That(upload.Warning, Is.Null);
+        Assert.That(upload.Files, Has.Count.EqualTo(2), "the txt entry is skipped");
+        Assert.That(upload.Files.Select(f => f.Playlists[0].Name),
+            Is.EquivalentTo(new[] { "Liked_Songs", "Summer 2024" }),
+            "the entry name is the playlist name, not the zip name");
+        Assert.That(upload.Files.SelectMany(f => f.Playlists).SelectMany(p => p.Tracks).ToList(),
+            Has.Count.EqualTo(10), "the BOM-prefixed entry parses like a plain upload");
+    }
+
+    [Test]
+    public async Task DataExportZip_ReadsLikedSongsAndPlaylistsFromTheirFolder()
+    {
+        const string library = "{ \"tracks\": [ { \"artist\": \"The Cranberries\", \"album\": \"No Need To Argue\", \"track\": \"Zombie\", \"uri\": \"spotify:track:2IZZqH4K02UIYg5EohpNHF\" } ] }";
+        const string playlists = "{ \"playlists\": [ { \"name\": \"RR\", \"items\": [ { \"track\": { \"trackName\": \"Neon Pill\", \"artistName\": \"Cage The Elephant\", \"albumName\": \"Neon Pill\", \"trackUri\": \"spotify:track:0cgyeBU54kjmI54TflMANg\" } } ] } ] }";
+
+        using var zip = NewZip(
+            ("Spotify Account Data/YourLibrary.json", library),
+            ("Spotify Account Data/Playlist1.json", playlists),
+            ("Spotify Account Data/Identifiers.json", "{ \"identifierType\": \"spotify\" }"),
+            ("Spotify Account Data/Read Me First.pdf", "nope"));
+
+        var upload = await PlaylistFileImporter.ParseStreamAsync("my_spotify_data.zip", zip);
+
+        Assert.That(upload.Files, Has.Count.EqualTo(2), "the unrelated entries are skipped");
+        Assert.That(upload.Files.Select(f => f.Kind),
+            Is.EquivalentTo(new[] { "yourlibrary", "playlists1" }));
+        var all = upload.Files.SelectMany(f => f.Playlists).ToList();
+        Assert.That(all, Has.Count.EqualTo(2));
+        Assert.That(all.Single(p => p.Name == "Liked songs (Spotify)").Tracks, Has.Count.EqualTo(1));
+        Assert.That(all.Single(p => p.Name == "RR").Tracks[0].SongID,
+            Is.EqualTo(new SongID(Platform.Spotify, "0cgyeBU54kjmI54TflMANg")));
+    }
+
+    [Test]
+    public async Task PlainFile_StillParsesWithoutAZip()
+    {
+        using var stream = new MemoryStream(Encoding.UTF8.GetBytes(ExportifyFiveRows));
+
+        var upload = await PlaylistFileImporter.ParseStreamAsync("spotify.csv", stream);
+
+        Assert.That(upload.Files, Has.Count.EqualTo(1));
+        Assert.That(upload.Files[0].Playlists[0].Tracks, Has.Count.EqualTo(5));
+    }
+
+    [Test]
+    public async Task TextFileRenamedToZip_IsTreatedAsText()
+    {
+        using var stream = new MemoryStream(Encoding.UTF8.GetBytes(ExportifyFiveRows));
+
+        var upload = await PlaylistFileImporter.ParseStreamAsync("export.zip", stream);
+
+        Assert.That(upload.Files, Has.Count.EqualTo(1),
+            "the magic bytes decide, not the extension");
+    }
+
+    [Test]
+    public async Task ZipWithoutExports_ReturnsNothing()
+    {
+        using var zip = NewZip(("readme.txt", "hello"), ("cover.jpg", "x"));
+
+        var upload = await PlaylistFileImporter.ParseStreamAsync("archive.zip", zip);
+
+        Assert.That(upload.Files, Is.Empty);
+    }
+
+    [Test]
+    public async Task ZipPastTheEntryLimit_StopsAndWarns()
+    {
+        var entries = Enumerable.Range(0, 501)
+            .Select(i => ($"list-{i}.csv", ExportifyFiveRows))
+            .ToArray();
+        using var zip = NewZip(entries);
+
+        var upload = await PlaylistFileImporter.ParseStreamAsync("huge.zip", zip);
+
+        Assert.That(upload.Files, Has.Count.EqualTo(500),
+            "the cap keeps a hostile archive bounded");
+        Assert.That(upload.Warning, Is.Not.Null,
+            "the user is told the archive was only partly read");
+    }
+
+    [Test]
+    public async Task ZipEntryPastTheSizeLimit_IsSkippedAndWarns()
+    {
+        var oversized = ExportifyHeader + "\n" + new string('x', 17_000_000);
+        using var zip = NewZip(("huge.csv", oversized), ("good.csv", ExportifyFiveRows));
+
+        var upload = await PlaylistFileImporter.ParseStreamAsync("bomb.zip", zip);
+
+        Assert.That(upload.Files, Has.Count.EqualTo(1));
+        Assert.That(upload.Files[0].Playlists[0].Name, Is.EqualTo("good"));
+        Assert.That(upload.Warning, Is.Not.Null);
+    }
+
+    // ── Spotify privacy export ───────────────────────────────────────────
     [Test]
     public void YourLibrary_ParsesLikedSongs()
     {
@@ -242,6 +366,56 @@ public class PlaylistFileImporterTests
                     .ToListAsync();
                 Assert.That(playlists, Has.Count.EqualTo(1), "re-import updates, never duplicates");
                 Assert.That(playlists[0].Tracks, Has.Count.EqualTo(5), "re-import adds no track dupes");
+            }
+        }
+        finally
+        {
+            File.Delete(dbPath);
+        }
+    }
+
+    [Test]
+    public async Task ImportFilesAsync_PersistsEveryPlaylistInAZipAndReimportUpdates()
+    {
+        var dbPath = NewDbPath();
+        try
+        {
+            var factory = await NewDbFactoryAsync(dbPath);
+            var store = NewStore(factory);
+
+            using var zip = NewZip(
+                ("Exportify/Liked_Songs.csv", ExportifyFiveRows),
+                ("Exportify/Summer 2024.csv", ExportifyFiveRows));
+            var upload = await PlaylistFileImporter.ParseStreamAsync("Exportify.zip", zip);
+            Assert.That(upload.Files, Has.Count.EqualTo(2));
+
+            var result = await store.ImportFilesAsync(upload.Files);
+            Assert.That(result.playlists, Is.EqualTo(2));
+            Assert.That(result.tracks, Is.EqualTo(10));
+
+            await using (var db = factory.CreateDbContext())
+            {
+                var saved = await db.Playlists
+                    .Include(p => p.Tracks)
+                    .Where(p => p.SourceUrl.StartsWith("spotify:import:"))
+                    .ToListAsync();
+                Assert.That(saved, Has.Count.EqualTo(2), "each zip entry is its own playlist");
+                Assert.That(saved.Sum(p => p.Tracks.Count), Is.EqualTo(10));
+                Assert.That(saved.Select(p => p.Name),
+                    Is.EquivalentTo(new[] { "Liked_Songs", "Summer 2024" }));
+            }
+
+            // Same archive again: identity comes from the entry name, so the
+            // two playlists refresh instead of doubling.
+            await store.ImportFilesAsync(upload.Files);
+            await using (var db = factory.CreateDbContext())
+            {
+                var saved = await db.Playlists
+                    .Include(p => p.Tracks)
+                    .Where(p => p.SourceUrl.StartsWith("spotify:import:"))
+                    .ToListAsync();
+                Assert.That(saved, Has.Count.EqualTo(2), "re-import updates, never duplicates");
+                Assert.That(saved.Sum(p => p.Tracks.Count), Is.EqualTo(10));
             }
         }
         finally

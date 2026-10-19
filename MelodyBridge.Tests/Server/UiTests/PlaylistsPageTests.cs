@@ -188,6 +188,25 @@ public class PlaylistsPageTests
     }
 
     [Test]
+    public void Playlists_ImportModal_FileRoutesAcceptZips()
+    {
+        var cut = _ctx.Render<Playlists>();
+        cut.Find("div.topbar-actions button.ghost").Click();
+        cut.Find("button[data-tab='files']").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            var accepts = cut.FindAll("input[type=file]")
+                .Select(i => i.GetAttribute("accept") ?? string.Empty)
+                .ToList();
+            Assert.That(accepts, Has.Count.EqualTo(2));
+            Assert.That(accepts.All(a => a.Contains(".zip", StringComparison.Ordinal)), Is.True,
+                "both file routes take the archive the exporters deliver");
+            Assert.That(cut.Markup, Does.Contain("archives are read entry by entry"));
+        });
+    }
+
+    [Test]
     public void Playlists_ImportModal_TakeoutRow_SaysManual_AndNamesTheFile()
     {
         var cut = _ctx.Render<Playlists>();

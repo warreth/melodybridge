@@ -1,3 +1,5 @@
+using System.IO.Compression;
+using System.Text;
 using System.Text.Json;
 using MelodyBridge.Core;
 
@@ -10,15 +12,32 @@ public sealed record ImportedPlaylist(string Name, string? Owner, IReadOnlyList<
 public sealed record ImportedFile(string Kind, IReadOnlyList<ImportedPlaylist> Playlists);
 
 /// <summary>
+/// One uploaded file after parsing: every playlist found inside, plus a
+/// note when part of it was skipped (oversized zip entries).
+/// </summary>
+public sealed record ParsedUpload(IReadOnlyList<ImportedFile> Files, string? Warning = null);
+
+/// <summary>
 /// Parses the two file flavors a Spotify user without API access can
 /// produce: an Exportify CSV (exportify.net) and Spotify's official
 /// privacy data export (YourLibrary.json / Playlist1.json). Pure
 /// functions; never throws on malformed input: a bad row is skipped,
 /// an unrecognizable file returns null.
+///
+/// <see cref="ParseStreamAsync"/> takes the same flavors wrapped in the
+/// zips they are delivered in: Exportify's "Export All" and Spotify's
+/// "Download your data" both hand the user an archive.
 /// </summary>
 public static class PlaylistFileImporter
 {
     private static readonly JsonSerializerOptions Json = new() { PropertyNameCaseInsensitive = true };
+
+    // Zip guards: the point is that a hostile or silly archive cannot
+    // exhaust the server. The biggest real file, Spotify's Playlist1.json
+    // for a very large library, stays well under these.
+    private const int MaxArchiveEntries = 500;
+    private const int MaxEntryChars = 16_000_000;
+    private const int MaxTotalChars = 64_000_000;
 
     /// <summary>Detects and parses the file flavor from its content.</summary>
     public static ImportedFile? Parse(string fileName, string content)
@@ -40,6 +59,104 @@ public static class PlaylistFileImporter
             return ParseExportifyCsv(fileName, content);
 
         return null;
+    }
+
+    /// <summary>
+    /// Parses one uploaded file that may be a zip. A zip is walked entry by
+    /// entry with the same per-entry parsing as a plain file, so an
+    /// Exportify "Export All" archive arrives as one playlist per CSV and a
+    /// Spotify data export as the liked songs plus every playlist.
+    /// </summary>
+    public static async Task<ParsedUpload> ParseStreamAsync(
+        string fileName, Stream stream, CancellationToken ct = default)
+    {
+        using var buffer = new MemoryStream();
+        await stream.CopyToAsync(buffer, ct);
+        buffer.Position = 0;
+
+        if (!LooksLikeZip(buffer))
+        {
+            using var reader = new StreamReader(buffer, Encoding.UTF8);
+            var parsed = Parse(fileName, await reader.ReadToEndAsync(ct));
+            return new ParsedUpload(parsed is null ? [] : [parsed]);
+        }
+
+        return ParseArchive(buffer);
+    }
+
+    /// <summary>The local file header every zip starts with.</summary>
+    private static bool LooksLikeZip(Stream stream)
+    {
+        Span<byte> magic = stackalloc byte[4];
+        var read = stream.Read(magic);
+        stream.Position = 0;
+        return read == 4
+               && magic[0] == (byte)'P' && magic[1] == (byte)'K'
+               && magic[2] == 3 && magic[3] == 4;
+    }
+
+    private static ParsedUpload ParseArchive(Stream stream)
+    {
+        var files = new List<ImportedFile>();
+        var entries = 0;
+        var totalChars = 0;
+        var skipped = false;
+
+        using var archive = new ZipArchive(stream, ZipArchiveMode.Read, leaveOpen: true);
+        foreach (var entry in archive.Entries)
+        {
+            if (++entries > MaxArchiveEntries) { skipped = true; break; }
+
+            // Directories, macOS metadata forks and anything that is not an
+            // export file are not worth a second look.
+            if (entry.FullName.EndsWith('/') || entry.FullName.EndsWith('\\')) continue;
+            if (entry.FullName.StartsWith("__MACOSX/", StringComparison.Ordinal)) continue;
+            var extension = Path.GetExtension(entry.Name);
+            if (!extension.Equals(".csv", StringComparison.OrdinalIgnoreCase)
+                && !extension.Equals(".json", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            var text = ReadEntryText(entry, out var oversized);
+            if (text is null)
+            {
+                if (oversized) skipped = true;
+                continue;
+            }
+            if (totalChars + text.Length > MaxTotalChars) { skipped = true; break; }
+            totalChars += text.Length;
+
+            if (Parse(entry.Name, text) is { } parsed) files.Add(parsed);
+        }
+
+        return new ParsedUpload(files, skipped
+            ? "Large archives are read up to a limit; some files were skipped."
+            : null);
+    }
+
+    /// <summary>
+    /// Reads one entry as text, refusing entries past the size cap instead
+    /// of letting a zip bomb expand into memory.
+    /// </summary>
+    private static string? ReadEntryText(ZipArchiveEntry entry, out bool oversized)
+    {
+        oversized = false;
+        using var entryStream = entry.Open();
+        using var reader = new StreamReader(entryStream, Encoding.UTF8);
+
+        var builder = new StringBuilder();
+        var chunk = new char[8192];
+        int read;
+        while ((read = reader.Read(chunk, 0, chunk.Length)) > 0)
+        {
+            builder.Append(chunk, 0, read);
+            if (builder.Length > MaxEntryChars)
+            {
+                oversized = true;
+                return null;
+            }
+        }
+
+        return builder.ToString();
     }
 
     // ── Spotify privacy export: YourLibrary.json (liked songs) ─────────

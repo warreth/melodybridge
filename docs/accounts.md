@@ -25,17 +25,20 @@ page:
 
 - **Exportify CSV (recommended).** Log in at
   [exportify.net](https://exportify.net), click *Export Liked Songs* (or any
-  playlist), and upload the CSV. The file carries track names, artists, albums
-  and Spotify IDs.
+  playlist), and upload the CSV. *Export All* gives you a zip, which you can
+  upload as well. The file carries track names, artists, albums and Spotify
+  IDs.
 - **Spotify data export.** Request *Download your data* at
   [spotify.com/account/privacy](https://www.spotify.com/account/privacy) and
-  upload `YourLibrary.json` (liked songs) or `Playlist1.json` (all playlists)
-  once Spotify emails the package. This route is always manual, never
-  automatic.
+  upload the zip the moment Spotify emails it. The archive holds
+  `YourLibrary.json` (liked songs) and `Playlist1.json` (all playlists);
+  uploading the loose JSON files works too. This route is always manual,
+  never automatic.
 
-Each CSV becomes its own playlist, named after the file, so different exports
-stay apart. Re-uploading a file refreshes that playlist instead of duplicating
-it.
+Uploads are read file by file, and a zip is unpacked in memory: one CSV in an
+archive becomes one playlist. Each CSV becomes its own playlist, named after
+the file, so different exports stay apart. Re-uploading a file refreshes that
+playlist instead of duplicating it.
 
 Each provider has its own redirect URI, differing only in a `?provider=` marker
 that tells the callback which login to finish. Copy the exact URL from the

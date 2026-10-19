@@ -258,6 +258,10 @@ public class PlaylistStore
         ImportedFile file, string? targetDirectory = null, CancellationToken ct = default)
         => _snapshots.ImportFileAsync(file, targetDirectory, ct);
 
+    public Task<(int playlists, int tracks)> ImportFilesAsync(
+        IEnumerable<ImportedFile> files, string? targetDirectory = null, CancellationToken ct = default)
+        => _snapshots.ImportFilesAsync(files, targetDirectory, ct);
+
     public Task<PlaylistEntity> RefreshAsync(string playlistId, CancellationToken ct = default)
         => _snapshots.RefreshAsync(playlistId, ct);
 

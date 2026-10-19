@@ -189,6 +189,25 @@ internal sealed class PlaylistSnapshots
         return (imported, totalTracks);
     }
 
+    /// <summary>
+    /// Imports every playlist of one uploaded file (a zip holds several).
+    /// The counts are summed; each playlist keeps the identity of its own
+    /// file, so a re-upload still updates instead of duplicating.
+    /// </summary>
+    public async Task<(int playlists, int tracks)> ImportFilesAsync(
+        IEnumerable<ImportedFile> files, string? targetDirectory = null, CancellationToken ct = default)
+    {
+        var playlists = 0;
+        var tracks = 0;
+        foreach (var file in files)
+        {
+            var (filePlaylists, fileTracks) = await ImportFileAsync(file, targetDirectory, ct);
+            playlists += filePlaylists;
+            tracks += fileTracks;
+        }
+        return (playlists, tracks);
+    }
+
     private async Task<(PlaylistEntity Entity, bool NewlySaved)> SaveSnapshotAsync(
         Platform providerPlatform, Playlist playlist, string? sourceUrl,
         string? targetDirectory = null, CancellationToken ct = default)

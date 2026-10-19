@@ -405,6 +405,7 @@ else
                                     Liked songs or any playlist, exported at
                                     <a href="https://exportify.net" target="_blank" rel="noopener">exportify.net</a>.
                                     Log in there and click <em>Export Liked Songs</em> (or a playlist).
+                                    The <em>Export All</em> zip works too.
                                 </p>
                             </div>
                             <div class="import-option-action">
@@ -414,7 +415,7 @@ else
                                 }
                                 else
                                 {
-                                    <InputFile OnChange="ImportExportifyFile" accept=".csv,text/csv" class="btn-modern secondary" disabled="@busy" />
+                                    <InputFile OnChange="ImportExportifyFile" accept=".csv,.zip,text/csv,application/zip" class="btn-modern secondary" disabled="@busy" />
                                 }
                             </div>
                         </div>
@@ -425,7 +426,9 @@ else
                                 <p>
                                     Request <em>Download your data</em> at
                                     <a href="https://www.spotify.com/account/privacy" target="_blank" rel="noopener">spotify.com/account/privacy</a>.
-                                    Spotify emails the file within a few days.
+                                    Spotify emails the package within a few days. It holds
+                                    <code>YourLibrary.json</code> and <code>Playlist1.json</code>;
+                                    upload the zip as it comes.
                                 </p>
                             </div>
                             <div class="import-option-action">
@@ -435,15 +438,14 @@ else
                                 }
                                 else
                                 {
-                                    <InputFile OnChange="ImportTakeoutFile" accept=".json,application/json" class="btn-modern secondary" disabled="@busy" />
+                                    <InputFile OnChange="ImportTakeoutFile" accept=".json,.zip,application/json,application/zip" class="btn-modern secondary" disabled="@busy" />
                                 }
                             </div>
                         </div>
                     </div>
                     <div class="hint-box">
-                        Unzip the data export and upload <code>YourLibrary.json</code> for your liked
-                        songs, or <code>Playlist1.json</code> for every playlist. Uploaded files are read
-                        once; re-uploading the same file updates instead of duplicating.
+                        Upload the CSV, the JSON or the whole zip: archives are read entry by entry.
+                        Uploaded files are read once; re-uploading the same file updates instead of duplicating.
                     </div>
                     @if (fileImportError is not null)
                     {
@@ -975,19 +977,19 @@ else
         busy = true;
         try
         {
-            string content;
-            using (var stream = e.File.OpenReadStream(maxAllowedSize: 20 * 1024 * 1024))
-            using (var reader = new System.IO.StreamReader(stream))
-                content = await reader.ReadToEndAsync();
+            ParsedUpload upload;
+            using (var stream = e.File.OpenReadStream(maxAllowedSize: 64 * 1024 * 1024))
+                upload = await PlaylistFileImporter.ParseStreamAsync(e.File.Name, stream);
 
-            var file = PlaylistFileImporter.Parse(e.File.Name, content)
-                ?? throw new InvalidOperationException(
-                    "Could not read that file. Expected an Exportify CSV or a Spotify data export (YourLibrary.json / Playlist1.json).");
+            if (upload.Files.Count == 0)
+                throw new InvalidOperationException(
+                    "Could not read that file. Expected an Exportify CSV, a Spotify data export (YourLibrary.json / Playlist1.json), or a zip of either.");
 
-            var (playlists, tracks) = await Store.ImportFileAsync(file, TargetOrNull());
+            var (playlists, tracks) = await Store.ImportFilesAsync(upload.Files, TargetOrNull());
             message = playlists > 0
                 ? $"Imported {playlists} {(playlists == 1 ? "playlist" : "playlists")}, {tracks} {(tracks == 1 ? "track" : "tracks")}."
                 : "Nothing new to import.";
+            if (upload.Warning is { Length: > 0 }) message = $"{message} {upload.Warning}";
             messageIsError = false;
             HideAccountPanel();
             await Load();
