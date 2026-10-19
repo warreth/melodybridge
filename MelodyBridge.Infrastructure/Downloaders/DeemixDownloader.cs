@@ -124,12 +124,56 @@ public class DeemixDownloader : CliToolDownloader
         if (TryGetCachedAvailability(out var cached))
             return cached;
 
-        var available = await CommandExistsAsync(ct);
-        LastUnavailableReason = available ? null : "The deemix command was not found";
-        if (!available)
+        if (!await CommandExistsAsync(ct))
+        {
+            LastUnavailableReason = "The deemix command was not found";
+            SetAuth(PluginAuthState.Unknown);
             Logger.LogDebug("deemix: the command is not configured or not on PATH");
-        StoreAvailability(available);
-        return available;
+            StoreAvailability(false);
+            return false;
+        }
+
+        var arl = await ConfigValueAsync(ArlKey, ct);
+        if (arl.Length == 0)
+        {
+            // Without an ARL deemix uses its own login, which this app
+            // cannot inspect. Let the CLI try.
+            LastUnavailableReason = null;
+            SetAuth(PluginAuthState.Unknown);
+            StoreAvailability(true);
+            return true;
+        }
+
+        var check = await _deezer.ValidateArlAsync(arl, ct);
+        if (check.Status == DeezerClient.DeezerArlStatus.Invalid)
+        {
+            LastUnavailableReason = check.Message
+                ?? "The Deezer ARL is no longer signed in; paste a fresh one";
+            SetAuth(PluginAuthState.Expired, LastUnavailableReason);
+            StoreAvailability(false);
+            return false;
+        }
+        if (check.Status == DeezerClient.DeezerArlStatus.Unreachable)
+        {
+            // Never block downloads over the check itself: deemix may
+            // still work while deezer.com blocks this network.
+            LastUnavailableReason = null;
+            SetAuth(PluginAuthState.Unknown,
+                "The Deezer login could not be checked; downloads still try deemix");
+            Logger.LogDebug("deemix: ARL check unavailable: {Reason}", check.Message);
+            StoreAvailability(true);
+            return true;
+        }
+
+        LastUnavailableReason = null;
+        SetAuth(PluginAuthState.Valid,
+            check.Lossless == false
+                ? "This Deezer account has no lossless plan; FLAC requests fall back to the account's tier"
+                : null);
+        if (check.Lossless == false)
+            Logger.LogInformation("Deezer: the ARL is signed in without lossless");
+        StoreAvailability(true);
+        return true;
     }
 
     // ── Search ───────────────────────────────────────────────────────────
@@ -270,6 +314,31 @@ public class DeemixDownloader : CliToolDownloader
 
         // Auto: the best the account allows; deemix falls back on its own.
         return "flac";
+    }
+
+    /// <summary>
+    /// deemix says when the ARL stopped working. Only those lines count;
+    /// a track missing at a tier is not a login problem.
+    /// </summary>
+    protected override void ObserveFailedRun(CliRunner.Result result)
+    {
+        var text = (result.StdErr + "\n" + result.StdOut).ToLowerInvariant();
+        if (text.Contains("arl", StringComparison.Ordinal)
+            && (text.Contains("invalid", StringComparison.Ordinal)
+                || text.Contains("expired", StringComparison.Ordinal)
+                || text.Contains("not logged", StringComparison.Ordinal)
+                || text.Contains("login", StringComparison.Ordinal)))
+        {
+            SetAuth(PluginAuthState.Expired,
+                "The Deezer ARL is no longer signed in; paste a fresh one");
+        }
+        else if (text.Contains("not logged in", StringComparison.Ordinal)
+                 || text.Contains("login required", StringComparison.Ordinal)
+                 || text.Contains("deezer connect", StringComparison.Ordinal))
+        {
+            SetAuth(PluginAuthState.Expired,
+                "The Deezer ARL is no longer signed in; paste a fresh one");
+        }
     }
 
     internal static bool TryExtractTrackId(string sourceUrl, out long trackId)

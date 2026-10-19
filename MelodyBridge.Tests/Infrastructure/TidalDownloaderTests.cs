@@ -315,6 +315,7 @@ public class TidalDownloaderTests
         {
             Assert.That(available, Is.False);
             Assert.That(downloader.LastUnavailableReason, Does.Contain("tiddl auth login"));
+            Assert.That(downloader.AuthStatus.State, Is.EqualTo(PluginAuthState.Missing));
         });
     }
 
@@ -336,6 +337,7 @@ public class TidalDownloaderTests
         {
             Assert.That(available, Is.False);
             Assert.That(downloader.LastUnavailableReason, Does.Contain("expired"));
+            Assert.That(downloader.AuthStatus.State, Is.EqualTo(PluginAuthState.Expired));
         });
     }
 
@@ -363,6 +365,7 @@ public class TidalDownloaderTests
         {
             Assert.That(available, Is.True);
             Assert.That(downloader.LastUnavailableReason, Is.Null);
+            Assert.That(downloader.AuthStatus.State, Is.EqualTo(PluginAuthState.Valid));
         });
     }
 
@@ -414,10 +417,38 @@ public class TidalDownloaderTests
         config.Set("tidal", "app_path",
             NewAppPath(expiresAt: DateTimeOffset.UtcNow.AddHours(-1).ToUnixTimeSeconds()));
 
-        var hit = await Create(config, handler).SearchAsync(
+        var downloader = Create(config, handler);
+        var hit = await downloader.SearchAsync(
             new TrackQuery("Daft Punk", "Around the World", DownloadQuality.Any));
 
-        Assert.That(hit, Is.Null);
+        Assert.Multiple(() =>
+        {
+            Assert.That(hit, Is.Null);
+            Assert.That(downloader.AuthStatus.State, Is.EqualTo(PluginAuthState.Expired));
+        });
+    }
+
+    [Test]
+    public async Task Search_RejectedSession_SetsTheRejectedAuthStatus()
+    {
+        var appPath = NewAppPath(token: "stale-token", country: "NL");
+        var handler = new StubHttpMessageHandler
+        {
+            Respond = _ => new HttpResponseMessage(HttpStatusCode.Unauthorized),
+        };
+        var config = new StubPluginConfig();
+        config.Set("tidal", "app_path", appPath);
+        var downloader = Create(config, handler);
+
+        var hit = await downloader.SearchAsync(
+            new TrackQuery("Daft Punk", "Around the World", DownloadQuality.Any));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(hit, Is.Null);
+            Assert.That(downloader.AuthStatus.State, Is.EqualTo(PluginAuthState.Rejected));
+            Assert.That(downloader.LastUnavailableReason, Does.Contain("rejected"));
+        });
     }
 
     // ── Download ─────────────────────────────────────────────────────────

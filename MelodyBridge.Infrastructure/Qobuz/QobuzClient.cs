@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -77,6 +78,12 @@ public class QobuzClient
         Rejected,
 
         /// <summary>
+        /// The token is real, but Qobuz blocks the account from searching
+        /// or downloading (the API's USER_BLOCKED answer).
+        /// </summary>
+        Blocked,
+
+        /// <summary>
         /// The check could not run: the web player was unreachable, the
         /// API answered with a server error, or the request timed out.
         /// The token may well be fine, so the UI must not call it stale.
@@ -85,7 +92,8 @@ public class QobuzClient
     }
 
     /// <summary>The outcome of a token check.</summary>
-    public record QobuzTokenCheck(QobuzTokenStatus Status, QobuzAccount? Account)
+    public record QobuzTokenCheck(
+        QobuzTokenStatus Status, QobuzAccount? Account, string? Message = null)
     {
         public static readonly QobuzTokenCheck Unreachable =
             new(QobuzTokenStatus.Unreachable, null);
@@ -94,6 +102,34 @@ public class QobuzClient
 
         public static QobuzTokenCheck Valid(QobuzAccount account) =>
             new(QobuzTokenStatus.Valid, account);
+    }
+
+    /// <summary>How one search ended, beyond "no hits".</summary>
+    public enum QobuzSearchStatus
+    {
+        /// <summary>The API answered; the list may be empty.</summary>
+        Ok,
+
+        /// <summary>The token was refused.</summary>
+        Rejected,
+
+        /// <summary>The token works but Qobuz blocks the account.</summary>
+        Blocked,
+
+        /// <summary>The API did not answer or returned a server error.</summary>
+        Unreachable,
+    }
+
+    /// <summary>The tracks plus the reason a search produced none.</summary>
+    public record QobuzSearchResult(
+        IReadOnlyList<QobuzTrack> Tracks,
+        QobuzSearchStatus Status,
+        string? Message = null)
+    {
+        public static readonly IReadOnlyList<QobuzTrack> Empty = Array.Empty<QobuzTrack>();
+
+        public static QobuzSearchResult Ok(IReadOnlyList<QobuzTrack> tracks) =>
+            new(tracks, QobuzSearchStatus.Ok);
     }
 
     // ── Bundle (app id, private key) ─────────────────────────────────────
@@ -238,7 +274,7 @@ public class QobuzClient
                 return QobuzTokenCheck.Unreachable;
             }
 
-            using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
+            using var doc = JsonDocument.Parse(await ReadBodyAsync(response, ct));
             string? label = null;
             var canDownload = true; // a valid token; the plan shows in parameters when present
             if (doc.RootElement.TryGetProperty("user", out var user) &&
@@ -251,7 +287,22 @@ public class QobuzClient
                     canDownload = false; // free plans have no parameters block
             }
 
-            return QobuzTokenCheck.Valid(new QobuzAccount(token, label, canDownload));
+            var account = new QobuzAccount(token, label, canDownload);
+
+            // The login call says the token is real, not that the account
+            // may use the catalogue. Qobuz answers a blocked account with
+            // a 403 USER_BLOCKED on a real search, so one tiny search is
+            // the only honest check.
+            var access = await SearchTracksAsync("a", 1, token, ct);
+            return access.Status switch
+            {
+                QobuzSearchStatus.Ok => QobuzTokenCheck.Valid(account),
+                QobuzSearchStatus.Blocked =>
+                    new QobuzTokenCheck(QobuzTokenStatus.Blocked, account, access.Message),
+                QobuzSearchStatus.Rejected =>
+                    new QobuzTokenCheck(QobuzTokenStatus.Rejected, null, access.Message),
+                _ => new QobuzTokenCheck(QobuzTokenStatus.Unreachable, account, access.Message),
+            };
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -266,12 +317,18 @@ public class QobuzClient
 
     // ── Search ───────────────────────────────────────────────────────────
 
-    /// <summary>Tracks matching the query, best-effort parsed.</summary>
-    public async Task<IReadOnlyList<QobuzTrack>> SearchTracksAsync(
+    /// <summary>
+    /// Tracks matching the query, best-effort parsed, plus the reason the
+    /// list is empty (a refused token, a blocked account, a dead API) so
+    /// the plugin can report the real problem instead of "no source".
+    /// </summary>
+    public async Task<QobuzSearchResult> SearchTracksAsync(
         string query, int limit, string token, CancellationToken ct = default)
     {
         var bundle = await GetBundleAsync(ct);
-        if (bundle is null) return Array.Empty<QobuzTrack>();
+        if (bundle is null)
+            return new(QobuzSearchResult.Empty, QobuzSearchStatus.Unreachable,
+                "The Qobuz web player could not be reached");
 
         try
         {
@@ -283,15 +340,18 @@ public class QobuzClient
             using var response = await _http.SendAsync(request, ct);
             if (!response.IsSuccessStatusCode)
             {
-                _logger.LogDebug("Qobuz search returned {Status}", (int)response.StatusCode);
-                return Array.Empty<QobuzTrack>();
+                var body = await ReadBodyAsync(response, ct);
+                var failure = ClassifySearchFailure((int)response.StatusCode, body);
+                _logger.LogDebug("Qobuz search returned {Status}: {Message}",
+                    (int)response.StatusCode, failure.Message);
+                return new(QobuzSearchResult.Empty, failure.Status, failure.Message);
             }
 
-            using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
+            using var doc = JsonDocument.Parse(await ReadBodyAsync(response, ct));
             if (!doc.RootElement.TryGetProperty("tracks", out var tracks) ||
                 !tracks.TryGetProperty("items", out var items) ||
                 items.ValueKind != JsonValueKind.Array)
-                return Array.Empty<QobuzTrack>();
+                return QobuzSearchResult.Ok(QobuzSearchResult.Empty);
 
             var results = new List<QobuzTrack>();
             foreach (var item in items.EnumerateArray())
@@ -302,7 +362,7 @@ public class QobuzClient
 
                 var duration = item.TryGetProperty("duration", out var d) &&
                                d.ValueKind == JsonValueKind.Number
-                    ? TimeSpan.FromSeconds(d.GetInt32())
+                    ? TimeSpan.FromSeconds(d.GetDouble())
                     : (TimeSpan?)null;
 
                 var artist = item.TryGetProperty("performer", out var performer) &&
@@ -311,14 +371,25 @@ public class QobuzClient
                     : null;
 
                 int? maxDepth = item.TryGetProperty("maximum_bit_depth", out var depth) &&
-                                depth.ValueKind == JsonValueKind.Number
-                    ? depth.GetInt32()
+                                depth.ValueKind == JsonValueKind.Number &&
+                                depth.TryGetInt32(out var depthValue)
+                    ? depthValue
                     : null;
 
-                int? maxRate = item.TryGetProperty("maximum_sampling_rate", out var rate) &&
-                               rate.ValueKind == JsonValueKind.Number
-                    ? rate.GetInt32()
-                    : null;
+                // Qobuz reports the sampling rate in kHz as a decimal
+                // (44.1, 96, 192), not in Hz. Older payloads and fixtures
+                // sometimes carry Hz; accept both so a CD track does not
+                // make GetInt32 throw and take the whole search with it.
+                int? maxRate = null;
+                if (item.TryGetProperty("maximum_sampling_rate", out var rate) &&
+                    rate.ValueKind == JsonValueKind.Number)
+                {
+                    var value = rate.GetDouble();
+                    if (value > 0)
+                        maxRate = value < 1000
+                            ? (int)Math.Round(value * 1000)
+                            : (int)Math.Round(value);
+                }
 
                 var hires = item.TryGetProperty("hires_streamable", out var h) &&
                             h.ValueKind == JsonValueKind.True;
@@ -333,7 +404,7 @@ public class QobuzClient
                     hires,
                     maxRate));
             }
-            return results;
+            return QobuzSearchResult.Ok(results);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -342,8 +413,61 @@ public class QobuzClient
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "Qobuz search failed");
-            return Array.Empty<QobuzTrack>();
+            return new(QobuzSearchResult.Empty, QobuzSearchStatus.Unreachable,
+                "The Qobuz API did not answer");
         }
+    }
+
+    /// <summary>
+    /// Reads Qobuz's error body. USER_BLOCKED is the account being banned
+    /// from search/download while the token itself is still valid; a plain
+    /// 401/403 is the token being refused; anything else is the API being
+    /// unavailable. Internal for tests.
+    /// </summary>
+    internal static (QobuzSearchStatus Status, string Message) ClassifySearchFailure(
+        int statusCode, string? body)
+    {
+        if (statusCode is 401 or 403)
+        {
+            if (body is not null &&
+                (body.Contains("USER_BLOCKED", StringComparison.OrdinalIgnoreCase)
+                 || body.Contains("Account is blocked", StringComparison.OrdinalIgnoreCase)))
+            {
+                return (QobuzSearchStatus.Blocked,
+                    "Qobuz blocked this account (USER_BLOCKED); the token is valid, but Qobuz refuses downloads for this account");
+            }
+
+            return (QobuzSearchStatus.Rejected,
+                "Qobuz rejected the token; paste a fresh one");
+        }
+
+        return (QobuzSearchStatus.Unreachable,
+            $"The Qobuz API answered HTTP {statusCode}");
+    }
+
+    /// <summary>
+    /// Reads a response body as text, unpacking gzip when the API sends it.
+    /// Qobuz compresses some catalogue answers (including the 403 that
+    /// carries USER_BLOCKED) even when the request did not ask for it, so
+    /// reading the raw bytes as UTF-8 used to turn every blocked account
+    /// into an unexplained rejection and every compressed hit into junk.
+    /// </summary>
+    internal static async Task<string> ReadBodyAsync(
+        HttpResponseMessage response, CancellationToken ct)
+    {
+        await using var stream = await response.Content.ReadAsStreamAsync(ct);
+        var gzip = response.Content.Headers.ContentEncoding
+            .Any(encoding => string.Equals(encoding, "gzip", StringComparison.OrdinalIgnoreCase));
+
+        if (!gzip)
+        {
+            using var plain = new StreamReader(stream, Encoding.UTF8);
+            return await plain.ReadToEndAsync(ct);
+        }
+
+        await using var decompressed = new GZipStream(stream, CompressionMode.Decompress);
+        using var reader = new StreamReader(decompressed, Encoding.UTF8);
+        return await reader.ReadToEndAsync(ct);
     }
 
     private static string? GetString(JsonElement element, string property)

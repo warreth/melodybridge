@@ -201,6 +201,83 @@ public class DeemixDownloaderTests
         Assert.That(await Create(config).IsAvailableAsync(), Is.True);
     }
 
+    [Test]
+    public async Task IsAvailable_LoggedOutArl_IsAnExpiredLogin()
+    {
+        if (OperatingSystem.IsWindows()) Assert.Ignore("POSIX shell stub");
+
+        var handler = new ScriptedHandler().On("gw-light.php",
+            """{"error":[],"results":{"USER":{"USER_ID":0,"OPTIONS":{"web_lossless":false}}}}""");
+        var http = new HttpClient(handler) { BaseAddress = new Uri("https://www.deezer.com") };
+        var config = new StubPluginConfig();
+        config.Set("deemix", "command", CliStub.Producing(NewDir()));
+        config.Set("deemix", "arl", "stale-arl");
+        var plugin = new DeemixDownloader(
+            new DeezerClient(http, NullLogger<DeezerClient>.Instance),
+            config, NullLogger<DeemixDownloader>.Instance, NewDir(), NewDir());
+
+        var available = await plugin.IsAvailableAsync();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(available, Is.False, "a logged-out ARL must not disappear into an empty search");
+            Assert.That(plugin.AuthStatus.State, Is.EqualTo(PluginAuthState.Expired));
+            Assert.That(plugin.LastUnavailableReason, Does.Contain("no longer signed in"));
+        });
+    }
+
+    [Test]
+    public async Task IsAvailable_SignedInArlWithoutLossless_CarriesAPlanNote()
+    {
+        if (OperatingSystem.IsWindows()) Assert.Ignore("POSIX shell stub");
+
+        var handler = new ScriptedHandler().On("gw-light.php",
+            """{"error":[],"results":{"USER":{"USER_ID":42,"OPTIONS":{"web_lossless":false}}}}""");
+        var http = new HttpClient(handler) { BaseAddress = new Uri("https://www.deezer.com") };
+        var config = new StubPluginConfig();
+        config.Set("deemix", "command", CliStub.Producing(NewDir()));
+        config.Set("deemix", "arl", "good-arl");
+        var plugin = new DeemixDownloader(
+            new DeezerClient(http, NullLogger<DeezerClient>.Instance),
+            config, NullLogger<DeemixDownloader>.Instance, NewDir(), NewDir());
+
+        var available = await plugin.IsAvailableAsync();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(available, Is.True);
+            Assert.That(plugin.AuthStatus.State, Is.EqualTo(PluginAuthState.Valid),
+                "a plan without lossless is a note, not a broken login");
+            Assert.That(plugin.AuthStatus.Message, Does.Contain("no lossless plan"));
+        });
+    }
+
+    [Test]
+    public async Task IsAvailable_UnreachableArlCheck_StillLetsDeemixTry()
+    {
+        if (OperatingSystem.IsWindows()) Assert.Ignore("POSIX shell stub");
+
+        var handler = new ScriptedHandler().On("gw-light.php", _ =>
+            new HttpResponseMessage(HttpStatusCode.InternalServerError));
+        var http = new HttpClient(handler) { BaseAddress = new Uri("https://www.deezer.com") };
+        var config = new StubPluginConfig();
+        config.Set("deemix", "command", CliStub.Producing(NewDir()));
+        config.Set("deemix", "arl", "some-arl");
+        var plugin = new DeemixDownloader(
+            new DeezerClient(http, NullLogger<DeezerClient>.Instance),
+            config, NullLogger<DeemixDownloader>.Instance, NewDir(), NewDir());
+
+        var available = await plugin.IsAvailableAsync();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(available, Is.True,
+                "a Deezer web check failure must not block the CLI");
+            Assert.That(plugin.AuthStatus.State, Is.EqualTo(PluginAuthState.Unknown));
+            Assert.That(plugin.AuthStatus.Message, Does.Contain("could not be checked"));
+        });
+    }
+
     // ── Download ─────────────────────────────────────────────────────────
 
     [Test]

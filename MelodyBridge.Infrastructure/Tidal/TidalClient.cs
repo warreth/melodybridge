@@ -31,6 +31,31 @@ public class TidalClient
         Unreachable,
     }
 
+    /// <summary>How one search ended, beyond "no hits".</summary>
+    public enum TidalSearchStatus
+    {
+        /// <summary>The API answered; the list may be empty.</summary>
+        Ok,
+
+        /// <summary>Tidal refused the session (401 or 403).</summary>
+        Rejected,
+
+        /// <summary>The API did not answer or returned a server error.</summary>
+        Unreachable,
+    }
+
+    /// <summary>The tracks plus the reason a search produced none.</summary>
+    public record TidalSearchResult(
+        IReadOnlyList<TidalTrack> Tracks,
+        TidalSearchStatus Status,
+        string? Message = null)
+    {
+        public static readonly IReadOnlyList<TidalTrack> Empty = Array.Empty<TidalTrack>();
+
+        public static TidalSearchResult Ok(IReadOnlyList<TidalTrack> tracks) =>
+            new(tracks, TidalSearchStatus.Ok);
+    }
+
     /// <summary>One search result, already reduced to what ranking needs.</summary>
     public record TidalTrack(
         long Id,
@@ -51,14 +76,15 @@ public class TidalClient
 
     /// <summary>
     /// Track search. An unauthorized answer (expired or rejected token) is
-    /// reported as an empty result: the plugin's availability check is the
-    /// place that explains a bad login, not every search.
+    /// reported as such, so the plugin can put the login problem on the
+    /// card instead of quietly missing every track.
     /// </summary>
-    public async Task<IReadOnlyList<TidalTrack>> SearchTracksAsync(
+    public async Task<TidalSearchResult> SearchTracksAsync(
         string query, int limit, string token, string countryCode, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(query) || string.IsNullOrWhiteSpace(token))
-            return Array.Empty<TidalTrack>();
+            return new(TidalSearchResult.Empty, TidalSearchStatus.Rejected,
+                "No Tidal session is available; paste a token or run tiddl auth login");
 
         var url = "https://api.tidal.com/v1/search?countryCode="
             + Uri.EscapeDataString(string.IsNullOrWhiteSpace(countryCode) ? "US" : countryCode)
@@ -72,19 +98,31 @@ public class TidalClient
             request.Headers.TryAddWithoutValidation("Accept", "application/json");
 
             using var response = await _http.SendAsync(request, ct);
+            if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+            {
+                _logger.LogDebug("Tidal rejected the search session ({Status})", (int)response.StatusCode);
+                return new(TidalSearchResult.Empty, TidalSearchStatus.Rejected,
+                    "Tidal rejected the session; paste a fresh token or run tiddl auth login");
+            }
             if (!response.IsSuccessStatusCode)
             {
                 _logger.LogDebug("Tidal search answered {Status}", (int)response.StatusCode);
-                return Array.Empty<TidalTrack>();
+                return new(TidalSearchResult.Empty, TidalSearchStatus.Unreachable,
+                    $"The Tidal API answered HTTP {(int)response.StatusCode}");
             }
 
             using var doc = JsonDocument.Parse(await response.Content.ReadAsStreamAsync(ct));
-            return ParseSearch(doc.RootElement);
+            return TidalSearchResult.Ok(ParseSearch(doc.RootElement));
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "Tidal search failed");
-            return Array.Empty<TidalTrack>();
+            return new(TidalSearchResult.Empty, TidalSearchStatus.Unreachable,
+                "The Tidal API did not answer");
         }
     }
 

@@ -24,17 +24,20 @@ public class DownloadManager : IDownloadManager
     private readonly ILogger<DownloadManager> _logger;
     private readonly ProviderHealth _health;
     private readonly SettingsStore? _settings;
+    private readonly PluginAuthMonitor? _auth;
 
     public DownloadManager(
         IDownloaderRegistry registry,
         ILogger<DownloadManager> logger,
         ProviderHealth? health = null,
-        SettingsStore? settings = null)
+        SettingsStore? settings = null,
+        PluginAuthMonitor? auth = null)
     {
         _registry = registry;
         _logger = logger;
         _health = health ?? new ProviderHealth();
         _settings = settings;
+        _auth = auth;
     }
 
     /// <summary>Plugin budget when the setting row is missing.</summary>
@@ -123,6 +126,7 @@ public class DownloadManager : IDownloadManager
             {
                 if (!await AvailableAsync(downloader, budget.Token)) return;
                 var hits = await downloader.SearchAllAsync(query, budget.Token);
+                _auth?.Observe(downloader);
                 var canServe = downloader.Capabilities.CanServe(query.Quality);
                 var declared = DescribeCapabilities(downloader.Capabilities);
                 foreach (var hit in hits)
@@ -201,6 +205,7 @@ public class DownloadManager : IDownloadManager
             var quality = canServe ? query.Quality : DownloadQuality.Any;
             var result = await DownloadAsync(
                 downloader, candidate.SourceUrl, outputDirectory, melodyId, quality, ct);
+            _auth?.Observe(downloader);
             if (result is null || !result.Success || result.FilePath is null)
             {
                 _health.RecordFailure(downloader.Id);
@@ -281,6 +286,7 @@ public class DownloadManager : IDownloadManager
             try
             {
                 var result = await downloader.DownloadAsync(sourceUrl, outputDirectory, melodyId, null, ct);
+                _auth?.Observe(downloader);
                 if (result.Success && result.FilePath is not null)
                 {
                     if (RejectNonAudio(result.FilePath, downloader.Name))
@@ -431,6 +437,7 @@ public class DownloadManager : IDownloadManager
         var skippedByDuration = 0;
         var skippedByInvalid = 0;
         var skippedByFormat = 0;
+        string? authFailure = null;
         try
         {
             // Quality-aware routing: plugins that cannot serve this request
@@ -468,11 +475,20 @@ public class DownloadManager : IDownloadManager
                 try
                 {
                     if (!await AvailableAsync(downloader, pluginCt))
+                    {
+                        authFailure ??= AuthProblem(downloader) is { } reason
+                            ? $"{downloader.Name}: {reason}"
+                            : null;
                         continue;
+                    }
 
                     var hit = await SearchAsync(downloader, query, pluginCt);
+                    _auth?.Observe(downloader);
                     if (hit is null)
                     {
+                        authFailure ??= AuthProblem(downloader) is { } reason
+                            ? $"{downloader.Name}: {reason}"
+                            : null;
                         _logger.LogDebug("{Name}: no search hit for '{Artist} - {Title}'",
                             downloader.Name, query.Artist, query.Title);
                         continue;
@@ -490,7 +506,7 @@ public class DownloadManager : IDownloadManager
                         if (!FuzzyMatcher.DurationPlausible(query.ExpectedDuration, candidate.Duration))
                         {
                             skippedByDuration++;
-                            _logger.LogInformation(
+                            _logger.LogDebug(
                                 "{Name} candidate '{Hit}' is {HitLength:0}s long, expected ~{Expected:0}s; skipping",
                                 downloader.Name, candidate.Title,
                                 candidate.Duration?.TotalSeconds ?? 0, query.ExpectedDuration?.TotalSeconds ?? 0);
@@ -501,7 +517,7 @@ public class DownloadManager : IDownloadManager
                         if (!quality.IsWithinBand(candidate.BitrateKbps))
                         {
                             skippedByBand++;
-                            _logger.LogInformation(
+                            _logger.LogDebug(
                                 "{Name} hit for '{Title}' is {Hit} kbps, outside the requested {Min}-{Max} kbps band; skipping",
                                 downloader.Name, query.Title, candidate.BitrateKbps,
                                 quality.MinKbps?.ToString() ?? "any", quality.MaxKbps?.ToString() ?? "any");
@@ -511,9 +527,13 @@ public class DownloadManager : IDownloadManager
                         _state.SetProgress(new DownloadProgress(
                             melodyId, query.Title, "downloading", downloader.Name, null, candidate.MatchConfidence));
                         var result = await DownloadAsync(downloader, candidate.SourceUrl!, outputDirectory, melodyId, quality, pluginCt);
+                        _auth?.Observe(downloader);
                         if (result is null || !result.Success || result.FilePath is null)
                         {
                             _health.RecordFailure(downloader.Id);
+                            authFailure ??= AuthProblem(downloader) is { } reason
+                                ? $"{downloader.Name}: {reason}"
+                                : null;
                             _logger.LogWarning("{Name} download failed for '{Artist} - {Title}': {Error}",
                                 downloader.Name, query.Artist, query.Title, result?.ErrorMessage ?? "no result");
                             continue;
@@ -602,7 +622,8 @@ public class DownloadManager : IDownloadManager
             // Distinguish "nothing matched your filters" from "nobody has
             // the track": the fix for the first is relaxing the filters.
             _state.SetFailure(melodyId,
-                plan.Plugins.Count == 0 && plan.Excluded.Count > 0
+                authFailure
+                    ?? (plan.Plugins.Count == 0 && plan.Excluded.Count > 0
                     ? "your quality filters excluded every plugin"
                     : skippedByBand > 0
                         ? $"sources had {skippedByBand} file(s) outside your quality filters"
@@ -612,7 +633,7 @@ public class DownloadManager : IDownloadManager
                                 ? "sources returned files that are not audio"
                                 : skippedByDuration > 0
                                     ? "sources only had versions with the wrong length"
-                                    : "no source had this track");
+                                    : "no source had this track"));
             return null;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -639,8 +660,14 @@ public class DownloadManager : IDownloadManager
     {
         try
         {
-            if (await downloader.IsAvailableAsync(ct)) return true;
-            _logger.LogDebug("Skipping {Name}: unavailable", downloader.Name);
+            var available = await downloader.IsAvailableAsync(ct);
+            _auth?.Observe(downloader);
+            if (available) return true;
+
+            if (AuthProblem(downloader) is { } problem)
+                _logger.LogWarning("{Name} needs a login fix: {Reason}", downloader.Name, problem);
+            else
+                _logger.LogDebug("Skipping {Name}: unavailable", downloader.Name);
             return false;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -649,6 +676,16 @@ public class DownloadManager : IDownloadManager
             return false;
         }
     }
+
+    /// <summary>
+    /// The plugin's short login problem, or null when its stored account
+    /// is fine. A missing login or an unreachable check is not an auth
+    /// problem; the card already calls that unavailable.
+    /// </summary>
+    private static string? AuthProblem(IDownloader downloader)
+        => downloader is IPluginAuthStatusProvider { AuthStatus.NeedsAttention: true } provider
+            ? provider.AuthStatus.Message ?? "The stored login no longer works"
+            : null;
 
     /// <summary>Search with its own guard; a throw is a miss for this plugin.</summary>
     private async Task<DownloaderSearchHit?> SearchAsync(

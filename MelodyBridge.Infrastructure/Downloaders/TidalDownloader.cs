@@ -148,6 +148,7 @@ public class TidalDownloader : CliToolDownloader
         if (!await CommandExistsAsync(ct))
         {
             LastUnavailableReason = "tiddl is not installed on this system";
+            SetAuth(PluginAuthState.Unknown);
             Logger.LogDebug("tidal: the tiddl command is not configured or not on PATH");
             StoreAvailability(false);
             return false;
@@ -156,12 +157,14 @@ public class TidalDownloader : CliToolDownloader
         var seed = await EnsureAuthSeededAsync(ct);
         if (seed == SeedState.Failed)
         {
+            SetAuth(PluginAuthState.Unknown, LastUnavailableReason);
             StoreAvailability(false);
             return false;
         }
         if (seed == SeedState.Unreadable)
         {
             LastUnavailableReason = "The Tidal token is not readable; paste the token or auth.json again";
+            SetAuth(PluginAuthState.Rejected, LastUnavailableReason);
             StoreAvailability(false);
             return false;
         }
@@ -170,6 +173,7 @@ public class TidalDownloader : CliToolDownloader
         if (session is null)
         {
             LastUnavailableReason = "Run tiddl auth login to connect Tidal, or paste a token in the settings";
+            SetAuth(PluginAuthState.Missing, LastUnavailableReason);
             Logger.LogDebug("tidal: tiddl has no stored session in its app folder");
             StoreAvailability(false);
             return false;
@@ -178,7 +182,7 @@ public class TidalDownloader : CliToolDownloader
         {
             LastUnavailableReason =
                 $"The Tidal token expired on {DateTimeOffset.FromUnixTimeSeconds(session.ExpiresAtUnix).ToLocalTime():yyyy-MM-dd HH:mm}; paste a fresh one";
-            Logger.LogDebug("tidal: the stored tiddl session is past its expiry");
+            SetAuth(PluginAuthState.Expired, LastUnavailableReason);
             StoreAvailability(false);
             return false;
         }
@@ -186,7 +190,7 @@ public class TidalDownloader : CliToolDownloader
         {
             LastUnavailableReason =
                 "The token did not carry the user id and country code; fill them under Advanced, or paste a full auth.json";
-            Logger.LogDebug("tidal: the session misses the user id or country");
+            SetAuth(PluginAuthState.Rejected, LastUnavailableReason);
             StoreAvailability(false);
             return false;
         }
@@ -195,17 +199,20 @@ public class TidalDownloader : CliToolDownloader
         if (check == TidalClient.TidalTokenStatus.Rejected)
         {
             LastUnavailableReason = "Tidal rejected the token; paste a fresh one";
+            SetAuth(PluginAuthState.Rejected, LastUnavailableReason);
             StoreAvailability(false);
             return false;
         }
         if (check == TidalClient.TidalTokenStatus.Unreachable)
         {
             LastUnavailableReason = "The Tidal API did not answer";
+            SetAuth(PluginAuthState.Unreachable, LastUnavailableReason);
             StoreAvailability(false);
             return false;
         }
 
         LastUnavailableReason = null;
+        SetAuth(PluginAuthState.Valid);
         StoreAvailability(true);
         return true;
     }
@@ -220,12 +227,68 @@ public class TidalDownloader : CliToolDownloader
 
         await EnsureAuthSeededAsync(ct);
         var session = TidalAuth.Read(await AppPathAsync(ct));
-        if (session is null || session.Expired || string.IsNullOrWhiteSpace(session.Token))
+        if (session is null || string.IsNullOrWhiteSpace(session.Token))
+        {
+            LastUnavailableReason = "Run tiddl auth login to connect Tidal, or paste a token in the settings";
+            SetAuth(PluginAuthState.Missing, LastUnavailableReason);
             return null;
+        }
+        if (session.Expired)
+        {
+            LastUnavailableReason =
+                $"The Tidal token expired on {DateTimeOffset.FromUnixTimeSeconds(session.ExpiresAtUnix).ToLocalTime():yyyy-MM-dd HH:mm}; paste a fresh one";
+            SetAuth(PluginAuthState.Expired, LastUnavailableReason);
+            StoreAvailability(false);
+            return null;
+        }
 
-        var tracks = await _tidal.SearchTracksAsync(
-            searchText, 10, session.Token!, session.CountryCode ?? "US", ct);
-        return Rank(tracks, query);
+        var result = await _tidal.SearchTracksAsync(
+            searchText, 10, session.Token, session.CountryCode ?? "US", ct);
+        if (result.Status == TidalClient.TidalSearchStatus.Rejected)
+        {
+            LastUnavailableReason = result.Message
+                ?? "Tidal rejected the token; paste a fresh one";
+            SetAuth(PluginAuthState.Rejected, LastUnavailableReason);
+            StoreAvailability(false);
+            Logger.LogDebug("Tidal: {Reason}", LastUnavailableReason);
+            return null;
+        }
+        if (result.Status == TidalClient.TidalSearchStatus.Unreachable)
+        {
+            LastUnavailableReason = result.Message ?? "The Tidal API did not answer";
+            SetAuth(PluginAuthState.Unreachable, LastUnavailableReason);
+            Logger.LogDebug("Tidal: {Reason}", LastUnavailableReason);
+            return null;
+        }
+
+        SetAuth(PluginAuthState.Valid);
+        LastUnavailableReason = null;
+        return Rank(result.Tracks, query);
+    }
+
+    /// <summary>
+    /// A tiddl failure can be an expired or revoked session. Only the
+    /// tool's own words count, so a network or quota error is not called
+    /// a login problem.
+    /// </summary>
+    protected override void ObserveFailedRun(CliRunner.Result result)
+    {
+        var text = (result.StdErr + "\n" + result.StdOut).ToLowerInvariant();
+        if (text.Contains("expired", StringComparison.Ordinal)
+            || text.Contains("token expired", StringComparison.Ordinal))
+        {
+            SetAuth(PluginAuthState.Expired,
+                "The Tidal token expired; paste a fresh one or run tiddl auth login");
+        }
+        else if (text.Contains("unauthorized", StringComparison.Ordinal)
+                 || text.Contains("401", StringComparison.Ordinal)
+                 || text.Contains("403", StringComparison.Ordinal)
+                 || text.Contains("invalid token", StringComparison.Ordinal)
+                 || text.Contains("not logged", StringComparison.Ordinal))
+        {
+            SetAuth(PluginAuthState.Rejected,
+                "Tidal rejected the session; paste a fresh token or run tiddl auth login");
+        }
     }
 
     /// <summary>

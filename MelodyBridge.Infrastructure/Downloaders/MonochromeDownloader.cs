@@ -40,6 +40,9 @@ public class MonochromeDownloader : IDownloader
     public string Name => "Monochrome (lossless)";
     public string Description => "Official Monochrome lossless API: FLAC streams, no account needed";
 
+    /// <inheritdoc />
+    public string? LastUnavailableReason { get; private set; }
+
     public IReadOnlyList<PluginConfigField> ConfigFields =>
     [
         new(BaseUrlKey, "API base URL", DefaultBaseUrl,
@@ -90,6 +93,9 @@ public class MonochromeDownloader : IDownloader
             var url = await BaseUrlAsync(ct) + "/health";
             using var resp = await _http.GetAsync(url, probe.Token);
             var available = resp.IsSuccessStatusCode;
+            LastUnavailableReason = available
+                ? null
+                : $"The Monochrome API answered HTTP {(int)resp.StatusCode}";
             if (!available)
                 _logger.LogDebug("Monochrome health probe returned {Status}", (int)resp.StatusCode);
             _availability.Store(available);
@@ -101,6 +107,7 @@ public class MonochromeDownloader : IDownloader
         }
         catch (Exception ex)
         {
+            LastUnavailableReason = "The Monochrome API did not answer";
             _logger.LogDebug(ex, "Monochrome health probe failed");
             _availability.Store(false);
             return false;

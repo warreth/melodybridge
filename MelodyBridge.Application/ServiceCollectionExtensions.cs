@@ -76,6 +76,11 @@ public static class ServiceCollectionExtensions
             c.DefaultRequestHeaders.UserAgent.ParseAdd(
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:83.0) Gecko/20100101 Firefox/83.0");
             c.Timeout = TimeSpan.FromSeconds(30);
+        }).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+        {
+            // Qobuz gzips catalogue responses (errors included) even
+            // without an Accept-Encoding request.
+            AutomaticDecompression = System.Net.DecompressionMethods.All,
         });
         services.AddSingleton<IDownloader>(sp =>
             new QobuzDownloader(
@@ -100,6 +105,9 @@ public static class ServiceCollectionExtensions
         {
             c.DefaultRequestHeaders.UserAgent.ParseAdd("MelodyBridge/1.0 (+https://melodybridge.app)");
             c.Timeout = TimeSpan.FromSeconds(20);
+        }).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+        {
+            AutomaticDecompression = System.Net.DecompressionMethods.All,
         });
         services.AddSingleton<TidalClient>(sp =>
             new TidalClient(
@@ -113,7 +121,11 @@ public static class ServiceCollectionExtensions
 
         // Monochrome streams lossless FLAC from its official API; the
         // client allows long transfers, the plugin caps each call itself.
-        services.AddHttpClient("monochrome", c => c.Timeout = TimeSpan.FromMinutes(10));
+        services.AddHttpClient("monochrome", c => c.Timeout = TimeSpan.FromMinutes(10))
+            .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+            {
+                AutomaticDecompression = System.Net.DecompressionMethods.All,
+            });
         services.AddSingleton<IDownloader>(sp =>
             new MonochromeDownloader(
                 sp.GetRequiredService<IHttpClientFactory>().CreateClient("monochrome"),
@@ -177,6 +189,9 @@ public static class ServiceCollectionExtensions
         {
             c.DefaultRequestHeaders.UserAgent.ParseAdd("MelodyBridge/1.0 (+https://melodybridge.app)");
             c.Timeout = TimeSpan.FromSeconds(15);
+        }).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+        {
+            AutomaticDecompression = System.Net.DecompressionMethods.All,
         });
         // ListenBrainz asks clients to identify themselves too.
         services.AddHttpClient("listenbrainz", c =>
@@ -248,6 +263,9 @@ public static class ServiceCollectionExtensions
         // Rolling health per plugin: the waterfall skips providers whose
         // recent attempts kept failing and demotes the shaky ones.
         services.AddSingleton<ProviderHealth>();
+        // Login health is separate from reachability: a stale token is a
+        // user problem, not a dead service, and the UI marks it red.
+        services.AddSingleton<MelodyBridge.Infrastructure.Services.PluginAuthMonitor>();
         services.AddSingleton<IDownloadManager, DownloadManager>();
         services.AddSingleton<DownloadCoordinator>();
         // The auto-sync scheduler starts runs through the Core trigger,

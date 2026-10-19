@@ -29,4 +29,11 @@ internal sealed class AvailabilityCache
         _result = available;
         _checkedAt = DateTimeOffset.UtcNow;
     }
+
+    /// <summary>
+    /// Drops the stored verdict. Settings that change a login or a host
+    /// must be checked for real on the next probe, not answered from the
+    /// old cache.
+    /// </summary>
+    public void Invalidate() => _checkedAt = DateTimeOffset.MinValue;
 }

@@ -45,9 +45,12 @@ public class QobuzLiveTests
         if (string.IsNullOrWhiteSpace(token))
             Assert.Ignore("QOBUZ_TOKEN or qobuz-dlp's token file is required");
 
-        var tracks = await Client().SearchTracksAsync(
+        var result = await Client().SearchTracksAsync(
             "Daft Punk Around the World", 5, token);
 
+        Assert.That(result.Status, Is.EqualTo(QobuzClient.QobuzSearchStatus.Ok),
+            result.Message ?? "the live Qobuz search must answer");
+        var tracks = result.Tracks;
         Assert.That(tracks, Is.Not.Empty, "the live Qobuz search must find this well-known track");
         var best = QobuzDownloader.Rank(tracks,
             new TrackQuery("Daft Punk", "Around the World", DownloadQuality.Any,

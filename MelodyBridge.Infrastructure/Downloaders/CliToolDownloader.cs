@@ -25,7 +25,7 @@ public sealed record CliToolRequest(IReadOnlyList<string> Arguments, string? Err
 /// instance, so one plugin never blocks another and two test instances
 /// never share state.
 /// </summary>
-public abstract class CliToolDownloader : IDownloader
+public abstract class CliToolDownloader : IDownloader, IPluginAuthStatusProvider, IPluginAvailabilityRefresh
 {
     // One CLI run at a time per plugin: the tools write into shared
     // config/database folders and serial runs keep those clean.
@@ -62,6 +62,50 @@ public abstract class CliToolDownloader : IDownloader
     /// IDownloader.
     /// </summary>
     public string? LastUnavailableReason { get; protected set; }
+
+    /// <summary>
+    /// The last login verdict of the tool. Declared here, not in the
+    /// subclasses, because the interface mapping trap would otherwise
+    /// serve readers the default value.
+    /// </summary>
+    public PluginAuthStatus AuthStatus { get; protected set; } = PluginAuthStatus.Unknown;
+
+    /// <summary>
+    /// Sets the login verdict and its short reason. A changed problem is
+    /// logged once; the periodic probes that keep returning the same
+    /// verdict stay quiet, and the card, banner and toast carry it.
+    /// </summary>
+    protected void SetAuth(PluginAuthState state, string? message = null)
+    {
+        var previous = AuthStatus.State;
+        AuthStatus = new PluginAuthStatus(state, message);
+
+        if (previous == state) return;
+
+        if (state is PluginAuthState.Expired
+            or PluginAuthState.Rejected
+            or PluginAuthState.Blocked
+            or PluginAuthState.PlanRestricted)
+        {
+            Logger.LogWarning("{Tool}: {Reason}", ToolLabel,
+                message ?? "the stored login needs attention");
+        }
+        else if (state == PluginAuthState.Valid
+                 && previous is PluginAuthState.Expired
+                     or PluginAuthState.Rejected
+                     or PluginAuthState.Blocked
+                     or PluginAuthState.PlanRestricted)
+        {
+            Logger.LogInformation("{Tool}: the stored login works again", ToolLabel);
+        }
+        else
+        {
+            Logger.LogDebug("{Tool}: login state {State}", ToolLabel, state);
+        }
+    }
+
+    /// <summary>Drops the cached availability verdict after a settings save.</summary>
+    public void RefreshAvailability() => _availability.Invalidate();
 
     public abstract Task<bool> IsAvailableAsync(CancellationToken ct = default);
     public abstract Task<DownloaderSearchHit?> SearchAsync(TrackQuery query, CancellationToken ct = default);
@@ -216,6 +260,7 @@ public abstract class CliToolDownloader : IDownloader
             {
                 var reason = DescribeFailure(result, ToolLabel);
                 Logger.LogWarning("{Tool} failed: {Reason}", ToolLabel, reason);
+                ObserveFailedRun(result);
                 return Fail(reason);
             }
 
@@ -261,6 +306,13 @@ public abstract class CliToolDownloader : IDownloader
             try { Directory.Delete(workDirectory, recursive: true); } catch { /* best effort */ }
         }
     }
+
+    /// <summary>
+    /// A hook for a subclass whose tool can fail because the login went
+    /// bad mid-run. The default does nothing: a command failure alone is
+    /// not proof that the token is stale.
+    /// </summary>
+    protected virtual void ObserveFailedRun(CliRunner.Result result) { }
 
     private static DownloaderDownloadResult Fail(string message)
         => new(false, null, message);

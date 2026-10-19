@@ -279,6 +279,47 @@ public class QobuzDownloaderTests
         Assert.That(await Create(config).IsAvailableAsync(), Is.False);
     }
 
+    [Test]
+    public async Task IsAvailable_BlockedAccount_SetsTheBlockedAuthStatus()
+    {
+        var handler = new StubHttpMessageHandler();
+        handler.Respond = request =>
+        {
+            var path = request.RequestUri!.AbsolutePath;
+            if (path.Contains("bundle.js")) return BundleRespond(request);
+            if (path.Contains("track/search"))
+                return new HttpResponseMessage(System.Net.HttpStatusCode.Forbidden)
+                {
+                    Content = new StringContent(
+                        """{"status":"error","code":403,"message":"Account is blocked","error_code":"USER_BLOCKED"}""",
+                        System.Text.Encoding.UTF8, "application/json"),
+                };
+            if (path.Contains("login") && request.Method == HttpMethod.Post)
+                return Text(
+                    """{"user":{"credential":{"parameters":{"short_label":"Studio"}}}}""",
+                    "application/json");
+            return BundleRespond(request);
+        };
+
+        var http = new HttpClient(handler) { BaseAddress = new Uri("https://play.qobuz.com") };
+        var config = new StubPluginConfig();
+        config.Set("qobuz", "command", CliStub.Producing(NewDir()));
+        config.Set("qobuz", "user_auth_token", "token-xyz");
+        var plugin = new QobuzDownloader(
+            new QobuzClient(http, NullLogger<QobuzClient>.Instance),
+            config, NullLogger<QobuzDownloader>.Instance, NewDir());
+
+        var available = await plugin.IsAvailableAsync();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(available, Is.False);
+            Assert.That(plugin.AuthStatus.State, Is.EqualTo(PluginAuthState.Blocked),
+                "a blocked account is an auth problem, not a dead service");
+            Assert.That(plugin.LastUnavailableReason, Does.Contain("USER_BLOCKED"));
+        });
+    }
+
     // ── Download ─────────────────────────────────────────────────────────
 
     [Test]

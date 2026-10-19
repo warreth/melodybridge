@@ -103,6 +103,7 @@ public class QobuzDownloader : CliToolDownloader
         if (!await CommandExistsAsync(ct))
         {
             LastUnavailableReason = "qobuz-dlp is not installed on this system";
+            SetAuth(PluginAuthState.Unknown);
             Logger.LogDebug("qobuz: the qobuz-dlp command is not configured or not on PATH");
             StoreAvailability(false);
             return false;
@@ -111,6 +112,7 @@ public class QobuzDownloader : CliToolDownloader
         if (await _qobuz.GetBundleAsync(ct) is null)
         {
             LastUnavailableReason = "The Qobuz web player could not be reached";
+            SetAuth(PluginAuthState.Unreachable, LastUnavailableReason);
             StoreAvailability(false);
             return false;
         }
@@ -119,33 +121,46 @@ public class QobuzDownloader : CliToolDownloader
         if (token is null)
         {
             LastUnavailableReason = "No Qobuz token yet";
+            SetAuth(PluginAuthState.Missing, LastUnavailableReason);
             Logger.LogDebug("qobuz: no token configured and qobuz-dlp has no token file");
             StoreAvailability(false);
             return false;
         }
 
         var check = await _qobuz.ValidateTokenAsync(token, ct);
-        if (check.Status == QobuzClient.QobuzTokenStatus.Unreachable)
+        if (check.Status == QobuzClient.QobuzTokenStatus.Blocked)
         {
-            LastUnavailableReason = "The Qobuz token could not be checked (the API did not answer)";
+            LastUnavailableReason = check.Message
+                ?? "Qobuz blocked this account from downloading";
+            SetAuth(PluginAuthState.Blocked, LastUnavailableReason);
             StoreAvailability(false);
             return false;
         }
-        if (check.Account is null)
+        if (check.Status == QobuzClient.QobuzTokenStatus.Unreachable)
         {
-            LastUnavailableReason = "The Qobuz token was rejected";
+            LastUnavailableReason = check.Message
+                ?? "The Qobuz token could not be checked (the API did not answer)";
+            SetAuth(PluginAuthState.Unreachable, LastUnavailableReason);
+            StoreAvailability(false);
+            return false;
+        }
+        if (check.Status == QobuzClient.QobuzTokenStatus.Rejected || check.Account is null)
+        {
+            LastUnavailableReason = check.Message ?? "The Qobuz token was rejected; paste a fresh one";
+            SetAuth(PluginAuthState.Rejected, LastUnavailableReason);
             StoreAvailability(false);
             return false;
         }
         if (!check.Account.CanDownload)
         {
             LastUnavailableReason = "This Qobuz plan cannot download (a paid plan is required)";
-            Logger.LogInformation("Qobuz: this account cannot download (a paid plan is required)");
+            SetAuth(PluginAuthState.PlanRestricted, LastUnavailableReason);
             StoreAvailability(false);
             return false;
         }
 
         LastUnavailableReason = null;
+        SetAuth(PluginAuthState.Valid);
         StoreAvailability(true);
         return true;
     }
@@ -256,14 +271,56 @@ public class QobuzDownloader : CliToolDownloader
         if (query.HasIsrc)
         {
             var byIsrc = await _qobuz.SearchTracksAsync(query.Isrc!, 5, token, ct);
-            if (Rank(byIsrc, query, requireIsrcMatch: true) is { } exact) return exact;
+            if (!AcceptSearchResult(byIsrc)) return null;
+            if (Rank(byIsrc.Tracks, query, requireIsrcMatch: true) is { } exact) return exact;
         }
 
         var searchText = query.SearchText;
         if (searchText.Length == 0) return null;
 
-        var tracks = await _qobuz.SearchTracksAsync(searchText, 10, token, ct);
-        return Rank(tracks, query);
+        var result = await _qobuz.SearchTracksAsync(searchText, 10, token, ct);
+        if (!AcceptSearchResult(result)) return null;
+        return Rank(result.Tracks, query);
+    }
+
+    /// <summary>
+    /// Reads a search outcome into the plugin's login state: a blocked or
+    /// refused token becomes the reason the plugin is skipped, so the
+    /// card, the nav mark and the download failure all say what is wrong
+    /// instead of "no source had this track".
+    /// </summary>
+    private bool AcceptSearchResult(QobuzClient.QobuzSearchResult result)
+    {
+        switch (result.Status)
+        {
+            case QobuzClient.QobuzSearchStatus.Ok:
+                SetAuth(PluginAuthState.Valid);
+                LastUnavailableReason = null;
+                return true;
+
+            case QobuzClient.QobuzSearchStatus.Blocked:
+                LastUnavailableReason = result.Message
+                    ?? "Qobuz blocked this account from downloading";
+                SetAuth(PluginAuthState.Blocked, LastUnavailableReason);
+                Logger.LogDebug("Qobuz: {Reason}", LastUnavailableReason);
+                StoreAvailability(false);
+                return false;
+
+            case QobuzClient.QobuzSearchStatus.Rejected:
+                LastUnavailableReason = result.Message
+                    ?? "The Qobuz token was rejected; paste a fresh one";
+                SetAuth(PluginAuthState.Rejected, LastUnavailableReason);
+                Logger.LogDebug("Qobuz: {Reason}", LastUnavailableReason);
+                StoreAvailability(false);
+                return false;
+
+            default:
+                LastUnavailableReason = result.Message
+                    ?? "The Qobuz API did not answer";
+                SetAuth(PluginAuthState.Unreachable, LastUnavailableReason);
+                Logger.LogDebug("Qobuz: {Reason}", LastUnavailableReason);
+                return false;
+        }
     }
 
     /// <summary>
@@ -394,6 +451,30 @@ public class QobuzDownloader : CliToolDownloader
 
         // Auto: the configured lossless tier.
         return NormalizeQuality(configuredQuality);
+    }
+
+    /// <summary>
+    /// A qobuz-dlp failure can be the account being blocked or the token
+    /// going stale mid-run. Only the tool's own words count: a network or
+    /// quota error must not be called a login problem.
+    /// </summary>
+    protected override void ObserveFailedRun(CliRunner.Result result)
+    {
+        var text = (result.StdErr + "\n" + result.StdOut).ToLowerInvariant();
+        if (text.Contains("blocked", StringComparison.Ordinal))
+        {
+            SetAuth(PluginAuthState.Blocked,
+                "Qobuz blocked this account (USER_BLOCKED); the token is valid, but Qobuz refuses downloads for this account");
+        }
+        else if (text.Contains("invalid credentials", StringComparison.Ordinal)
+                 || text.Contains("not logged", StringComparison.Ordinal)
+                 || text.Contains("invalid user auth token", StringComparison.Ordinal)
+                 || text.Contains("no user auth token", StringComparison.Ordinal)
+                 || text.Contains("unauthorized", StringComparison.Ordinal))
+        {
+            SetAuth(PluginAuthState.Rejected,
+                "The Qobuz token was rejected; paste a fresh one");
+        }
     }
 
     /// <summary>A valid quality id, or the CD-quality default.</summary>
