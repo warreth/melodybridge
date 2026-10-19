@@ -96,6 +96,21 @@ internal sealed class PlaylistSnapshots
     public async Task<(PlaylistEntity Playlist, bool NewlySaved)> AddOrRefreshDetailedAsync(
         string sourceUrl, string? targetDirectory = null, CancellationToken ct = default)
     {
+        // Liked songs have no public URL: they are fetched through the
+        // account they belong to, never through a public provider whose
+        // ID extractor would reject the marker and fail every refresh.
+        if (ResolveLikedAccount(sourceUrl) is { } likedAccount)
+        {
+            var liked = await likedAccount.GetLikedPlaylistAsync(ct);
+            var likedPlatform = likedAccount.Name switch
+            {
+                SpotifyAccountProvider.ProviderName => Platform.Spotify,
+                YouTubeAccountProvider.ProviderName => Platform.YouTubeMusic,
+                _ => throw new InvalidOperationException($"Unknown account '{likedAccount.Name}'."),
+            };
+            return await SaveSnapshotAsync(likedPlatform, liked, sourceUrl, targetDirectory, ct);
+        }
+
         var provider = ResolveProvider(sourceUrl)
             ?? throw new InvalidOperationException(
                 $"No source provider can handle '{sourceUrl}'. Supported: {string.Join(", ", _providers.Select(p => p.Name))}");
@@ -432,6 +447,23 @@ internal sealed class PlaylistSnapshots
             }
             throw;
         }
+    }
+
+    /// <summary>The account a liked-songs source belongs to, or null.</summary>
+    private IAccountSourceProvider? ResolveLikedAccount(string sourceUrl)
+    {
+        var source = sourceUrl.Trim();
+        if (source.Equals(SpotifyAccountProvider.LikedSourceUrl, StringComparison.OrdinalIgnoreCase))
+            return _accountProviders.FirstOrDefault(a => string.Equals(
+                a.Name, SpotifyAccountProvider.ProviderName, StringComparison.OrdinalIgnoreCase));
+        // "LL" is the raw likes list id older rows stored as the source.
+        if (source.Equals(YouTubeAccountProvider.LikedSourceUrl, StringComparison.OrdinalIgnoreCase)
+            || source.Equals("LL", StringComparison.OrdinalIgnoreCase))
+        {
+            return _accountProviders.FirstOrDefault(a => string.Equals(
+                a.Name, YouTubeAccountProvider.ProviderName, StringComparison.OrdinalIgnoreCase));
+        }
+        return null;
     }
 
     private ISourceProvider? ResolveProvider(string sourceUrl)

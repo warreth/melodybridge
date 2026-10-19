@@ -286,13 +286,18 @@ public class BackgroundServiceExecuteTests
         public string Name => "Stub";
         public Platform Platform => Platform.Spotify;
         public string? LastRequestedIdentifier { get; private set; }
+        public string? FailFor { get; init; }
+        public int Calls { get; private set; }
 
         public bool CanHandle(string sourceIdentifier)
             => sourceIdentifier.Contains("stub:", StringComparison.Ordinal);
 
         public Task<Playlist> GetPlaylistAsync(string sourceIdentifier)
         {
+            Calls++;
             LastRequestedIdentifier = sourceIdentifier;
+            if (FailFor is not null && sourceIdentifier == FailFor)
+                throw new InvalidOperationException("stub source failure");
             return Task.FromResult(new Playlist
             {
                 Id = "stub-auto",
@@ -419,6 +424,60 @@ public class BackgroundServiceExecuteTests
         var row = await verify.Playlists.AsNoTracking().SingleAsync(p => p.Id == "pl-auto");
         Assert.That(row.LastSyncAt, Is.Not.Null,
             "the refresh is stamped; service log: " + string.Join(" | ", serviceLog.Messages));
+    }
+
+    [Test]
+    public async Task AutoSync_FailedRefresh_IsStampedAndNotRetriedOnTheNextPoll()
+    {
+        await using (var db = _factory.CreateDbContext())
+        {
+            db.Playlists.Add(new PlaylistEntity
+            {
+                Id = "pl-fail",
+                Name = "Failing",
+                SourceUrl = "stub:fail",
+                SourcePlatform = Platform.Spotify,
+                ExternalId = "stub-fail",
+                TargetDirectory = Path.Combine(_root, "fail-music"),
+                ScheduleCron = "interval:10",
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var provider = new StubProvider { FailFor = "stub:fail" };
+        var services = new ServiceCollection();
+        services.AddSingleton<IDbContextFactory<MelodyBridgeDbContext>>(_factory);
+        services.AddScoped(_ => new PlaylistStore(
+            _factory,
+            new ISourceProvider[] { provider },
+            new MelodyBridge.Application.Services.DownloadManager(
+                new EmptyRegistry(),
+                NullLogger<MelodyBridge.Application.Services.DownloadManager>.Instance),
+            NullLogger<PlaylistStore>.Instance));
+        var sp = services.BuildServiceProvider();
+
+        DateTime? stampedAt = null;
+        await RunUntilAsync(new FastAutoSync(sp, NullLogger<AutoSyncBackgroundService>.Instance), async () =>
+        {
+            await using var db = _factory.CreateDbContext();
+            var row = await db.Playlists.AsNoTracking().SingleAsync(p => p.Id == "pl-fail");
+            if (row.LastAttemptAt is not { } at) return false;
+            stampedAt ??= at;
+            // Let several more polls pass: the failed attempt must not be
+            // due again inside the ten-minute interval.
+            return (DateTime.UtcNow - stampedAt.Value).TotalMilliseconds > 600;
+        }, TimeSpan.FromSeconds(15));
+
+        await using var check = _factory.CreateDbContext();
+        var failed = await check.Playlists.AsNoTracking().SingleAsync(p => p.Id == "pl-fail");
+        Assert.Multiple(() =>
+        {
+            Assert.That(failed.LastAttemptAt, Is.Not.Null,
+                "the failed try is stamped so the due check can back off");
+            Assert.That(failed.LastSyncAt, Is.Null, "a failure is not a successful sync");
+            Assert.That(provider.Calls, Is.EqualTo(1),
+                "the scheduler must not hammer a failing source every minute");
+        });
     }
 
     [Test]

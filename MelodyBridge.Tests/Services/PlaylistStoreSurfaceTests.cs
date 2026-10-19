@@ -71,10 +71,11 @@ public class PlaylistStoreSurfaceTests
     public void Facade_IsDelegationOnly()
     {
         // The point of the split: the facade must stay small. If it grows
-        // again, logic has crept back in.
+        // again, logic has crept back in. The limit tracks the delegations
+        // the app needs (auto-sync attempt stamping is the latest).
         var text = File.ReadAllText(SourceFile());
         var lines = text.Split('\n').Length;
-        Assert.That(lines, Is.LessThan(260),
+        Assert.That(lines, Is.LessThan(280),
             $"PlaylistStore should stay a thin facade; it is {lines} lines");
     }
 

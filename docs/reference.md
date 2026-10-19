@@ -143,7 +143,7 @@ Open a playlist card and the left panel holds everything specific to it:
 | Strict quality | On: only the exact quality is accepted. Off: the download steps down to the best lower quality the enabled plugins declare. See [strict quality](/concepts#strict-quality) |
 | Allow container changes | Shown when strict is off: whether a fallback step may leave the chosen container |
 | Archive copy | The switch turns the second copy on or off for this playlist. When it is off the folder and format fields disappear, and no copy is made, even when the app-wide archive path is set. When it is on, an empty folder means the default archive path plus a folder named after the playlist, and the format select says what the app default currently does |
-| Auto-sync schedule | Manual, hourly, daily, weekly, monthly or cron |
+| Auto-sync schedule | Manual, hourly, daily, weekly, monthly or cron. A refresh that fails is retried at the next interval, not on every check, so a broken source cannot hammer itself |
 | Download new tracks after auto-sync | Off by default. After a successful auto-sync refresh, a download run starts when there is pending work; failed tracks are retried every interval. Hidden for file imports |
 | Sync mode | Additive keeps removed tracks as history, Mirror matches the source |
 

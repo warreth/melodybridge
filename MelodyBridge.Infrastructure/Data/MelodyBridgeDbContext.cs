@@ -239,6 +239,12 @@ public class PlaylistEntity
     /// </summary>
     public string SyncMode { get; set; } = "Additive";
     public DateTime? LastSyncAt { get; set; }
+    /// <summary>
+    /// When the auto-sync last tried this playlist, success or failure.
+    /// The due check uses it so a failing source waits for the next
+    /// interval instead of retrying on every poll.
+    /// </summary>
+    public DateTime? LastAttemptAt { get; set; }
     public SyncStatus LastSyncStatus { get; set; }
     /// <summary>
     /// Why the last sync was incomplete (rate limiting, a failed page),

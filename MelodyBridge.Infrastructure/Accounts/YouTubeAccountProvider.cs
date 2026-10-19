@@ -27,6 +27,9 @@ namespace MelodyBridge.Infrastructure.Accounts;
 public class YouTubeAccountProvider : IAccountSourceProvider
 {
     public const string ProviderName = "YouTube";
+    /// <summary>The SourceUrl a liked-songs playlist is stored under. Older
+    /// rows stored the raw likes list id ("LL"); both are recognized.</summary>
+    public const string LikedSourceUrl = "youtube:liked";
     private const string LikedId = "LL";
 
     private readonly AccountTokenStore _tokens;
@@ -303,7 +306,7 @@ public class YouTubeAccountProvider : IAccountSourceProvider
             Name = "Liked songs (YouTube)",
             Owner = channel.Snippet?.Title,
             Description = "Your YouTube liked songs",
-            SourceUrl = likedId,
+            SourceUrl = LikedSourceUrl,
             Tracks = tracks,
             TrackCount = tracks.Count,
         };

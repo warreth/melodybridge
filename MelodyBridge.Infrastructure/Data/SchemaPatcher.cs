@@ -73,6 +73,9 @@ public static class SchemaPatcher
         // Multi-target jobs: the list of M3U paths and media server
         // profiles as JSON. Null rows keep the legacy single target.
         ("SyncJobs", "TargetsJson", "TEXT NULL"),
+        // Auto-sync attempt stamp: a failed refresh waits for the next
+        // interval instead of retrying on every scheduler poll.
+        ("Playlists", "LastAttemptAt", "TEXT NULL"),
     };
 
     public static async Task PatchAsync(MelodyBridgeDbContext db, CancellationToken ct = default)

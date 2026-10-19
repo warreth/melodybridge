@@ -59,7 +59,7 @@ else
             {
                 <span> · @QualityLabel(playlist.PreferredFormat)</span>
             }
-            @if (!playlist.IsManualImport)
+            @if (!playlist.IsManualImport && IsWebSource(playlist.SourceUrl))
             {
                 <a href="@playlist.SourceUrl" target="_blank" rel="noopener" class="hint">
                     Open source <Icon Name="external" Size="12" />
@@ -1469,6 +1469,12 @@ else
         savedPillCts?.Cancel();
         savedPillCts?.Dispose();
     }
+
+    /// <summary>True for a public source URL. Liked songs are stored under a
+    /// marker ("spotify:liked", "youtube:liked"), not a link to open.</summary>
+    private static bool IsWebSource(string? sourceUrl)
+        => Uri.TryCreate(sourceUrl, UriKind.Absolute, out var uri)
+           && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps);
 
     /// <summary>The header's quality line: preset names read as words, raw strings as-is.</summary>
     private static string QualityLabel(string stored) => QualityPresets.LabelFor(stored);

@@ -424,6 +424,34 @@ public class DefaultDownloadPathTests
     }
 
     [Test]
+    public async Task LikedSongsRefresh_GoesThroughTheAccountProvider()
+    {
+        var dbPath = NewDbPath();
+        try
+        {
+            var factory = await NewDbFactory(dbPath);
+            var store = NewStore(factory, new StubAccountProvider());
+            var liked = await store.AddOrRefreshLikedAsync("Spotify");
+
+            // Auto-sync and the Refresh button both pass the stored
+            // source URL. It must route to the account, not the public
+            // Spotify provider, whose ID extractor rejects this marker.
+            var refreshed = await store.AddOrRefreshAsync("spotify:liked");
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(refreshed.Id, Is.EqualTo(liked.Id), "the same row is refreshed");
+                Assert.That(refreshed.SourceUrl, Is.EqualTo("spotify:liked"));
+                Assert.That(refreshed.TrackCount, Is.EqualTo(1));
+            });
+            await using var db = await factory.CreateDbContextAsync();
+            Assert.That(db.Tracks.Count(t => t.PlaylistEntityId == liked.Id && t.IsLiked),
+                Is.EqualTo(1), "the liked tracks were fetched again");
+        }
+        finally { TryDelete(dbPath); }
+    }
+
+    [Test]
     public async Task NewPlaylist_StoresTheDefaultQualityFromSettings()
     {
         var dbPath = NewDbPath();

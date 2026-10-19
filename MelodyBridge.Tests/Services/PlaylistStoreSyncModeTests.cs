@@ -216,6 +216,17 @@ public class PlaylistStoreSyncModeTests
             var due = await store.GetDueForAutoSyncAsync();
             Assert.That(due.Select(p => p.Id), Does.Contain(added.Id), "overdue playlist is due");
 
+            // A failed attempt stamps LastAttemptAt: the playlist waits
+            // for its next interval instead of retrying on every poll.
+            await using (var db = await factory.CreateDbContextAsync())
+            {
+                var entity = await db.Playlists.SingleAsync(p => p.Id == added.Id);
+                entity.LastAttemptAt = DateTime.UtcNow;
+                await db.SaveChangesAsync();
+            }
+            Assert.That((await store.GetDueForAutoSyncAsync()).Select(p => p.Id),
+                Does.Not.Contain(added.Id), "a failed attempt is not due again immediately");
+
             // Never synced: due.
             await using (var db = await factory.CreateDbContextAsync())
             {

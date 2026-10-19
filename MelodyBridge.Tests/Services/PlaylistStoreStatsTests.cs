@@ -420,6 +420,50 @@ public class PlaylistStoreStatsTests
     }
 
     [Test]
+    public async Task SchemaPatcher_OldPlaylists_GainTheAttemptStamp()
+    {
+        var dbPath = NewDbPath();
+        try
+        {
+            var factory = await NewDbFactory(dbPath);
+
+            await using (var db = factory.CreateDbContext())
+            {
+                db.Playlists.Add(new PlaylistEntity
+                {
+                    Id = "old-playlist-attempt",
+                    Name = "Old playlist",
+                    SourceUrl = "stub:old",
+                    LastSyncAt = new DateTime(2026, 10, 1, 3, 0, 0, DateTimeKind.Utc),
+                });
+                await db.SaveChangesAsync();
+
+                // Simulate the pre-column schema.
+                await db.Database.ExecuteSqlRawAsync("ALTER TABLE Playlists DROP COLUMN LastAttemptAt");
+            }
+
+            await using (var db = factory.CreateDbContext())
+                await SchemaPatcher.PatchAsync(db);
+
+            await using (var check = factory.CreateDbContext())
+            {
+                var row = await check.Playlists.AsNoTracking()
+                    .SingleAsync(p => p.Id == "old-playlist-attempt");
+                Assert.Multiple(() =>
+                {
+                    Assert.That(row.LastSyncAt, Is.Not.Null, "data survives the patch");
+                    Assert.That(row.LastAttemptAt, Is.Null,
+                        "an old row was never attempted; the next due check starts it");
+                });
+            }
+        }
+        finally
+        {
+            File.Delete(dbPath);
+        }
+    }
+
+    [Test]
     public async Task SchemaPatcher_OldSyncJobs_GainTheTargetsColumn()
     {
         var dbPath = NewDbPath();

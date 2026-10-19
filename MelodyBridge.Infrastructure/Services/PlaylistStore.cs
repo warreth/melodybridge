@@ -220,6 +220,10 @@ public class PlaylistStore
     public Task<List<PlaylistEntity>> GetDueForAutoSyncAsync(CancellationToken ct = default)
         => _queries.GetDueForAutoSyncAsync(ct);
 
+    /// <summary>Stamps an auto-sync attempt (success or failure).</summary>
+    public Task RecordSyncAttemptAsync(string playlistId, CancellationToken ct = default)
+        => _queries.RecordSyncAttemptAsync(playlistId, ct);
+
     public virtual Task<(int updated, int skipped, int failed)> RetagLibraryAsync(CancellationToken ct = default)
         => _queries.RetagLibraryAsync(ct);
 

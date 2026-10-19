@@ -65,6 +65,21 @@ public class AutoSyncBackgroundService : BackgroundService
                         if (failures is not null)
                             await failures.ReportAsync($"Auto-sync failed for '{playlist.Name}': {ex.Message}");
                     }
+                    finally
+                    {
+                        // Stamp the try even when it failed: without this a
+                        // broken source is due again on the next poll and
+                        // the scheduler hammers it every minute.
+                        try
+                        {
+                            await store.RecordSyncAttemptAsync(playlist.Id, CancellationToken.None);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex,
+                                "Could not stamp the auto-sync attempt for {Playlist}", playlist.Name);
+                        }
+                    }
                 }
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)

@@ -394,6 +394,20 @@ internal sealed class PlaylistQueries
     /// saved by an older build in between gets one more interval run).
     /// Used by the background scheduler.
     /// </summary>
+    /// <summary>
+    /// Stamps the auto-sync attempt. Called after every try, success or
+    /// failure, so a failing source waits for its next interval.
+    /// </summary>
+    public async Task RecordSyncAttemptAsync(string playlistId, CancellationToken ct = default)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var row = await db.Playlists.FirstOrDefaultAsync(p => p.Id == playlistId, ct);
+        if (row is null) return;
+        row.LastAttemptAt = DateTime.UtcNow;
+        await db.SaveChangesAsync(ct);
+        _changes.Bump();
+    }
+
     public async Task<List<PlaylistEntity>> GetDueForAutoSyncAsync(CancellationToken ct = default)
     {
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
@@ -412,8 +426,11 @@ internal sealed class PlaylistQueries
                 var schedule = p.ScheduleCron is { Length: > 0 }
                     ? ScanSchedule.Parse(p.ScheduleCron)
                     : ScanSchedule.FromInterval(p.AutoSyncIntervalMinutes ?? 60);
-                var last = p.LastSyncAt is { } at ? new DateTimeOffset(at, TimeSpan.Zero)
-                    // Never synced: due immediately so the first run happens.
+                // A failed attempt stamps LastAttemptAt: the playlist then
+                // waits for the next interval instead of retrying every
+                // minute. Never attempted: due immediately.
+                var last = (p.LastAttemptAt ?? p.LastSyncAt) is { } at
+                    ? new DateTimeOffset(at, TimeSpan.Zero)
                     : DateTimeOffset.MinValue;
                 return schedule.IsDue(last, now);
             })

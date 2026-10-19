@@ -26,6 +26,8 @@ public class SpotifyAccountProvider : IAccountSourceProvider
 {
     public const string ProviderName = "Spotify";
     private const string LikedId = "spotify-liked";
+    /// <summary>The SourceUrl a liked-songs playlist is stored under.</summary>
+    public const string LikedSourceUrl = "spotify:liked";
 
     // Scopes: read private + collaborative playlists and the liked library.
     // Read-only: no playlist-modify, no user-modify.
@@ -256,7 +258,7 @@ public class SpotifyAccountProvider : IAccountSourceProvider
             Name = "Liked songs (Spotify)",
             Owner = "you",
             Description = "Your Spotify liked songs",
-            SourceUrl = "spotify:liked",
+            SourceUrl = LikedSourceUrl,
             Tracks = tracks,
             TrackCount = tracks.Count,
             Duration = totalDuration,

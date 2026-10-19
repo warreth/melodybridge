@@ -373,4 +373,19 @@ public class SourcePickerUiTests
             TimeSpan.FromSeconds(5));
     }
 
+    [Test]
+    public void LikedSongsSourceMarker_DoesNotRenderAnOpenSourceLink()
+    {
+        using (var db = new TestSqliteFactory(_dbPath).CreateDbContext())
+        {
+            db.Playlists.Single(p => p.Id == "pl-pick").SourceUrl = "spotify:liked";
+            db.SaveChanges();
+        }
+
+        var cut = RenderPage();
+
+        Assert.That(cut.Markup, Does.Not.Contain("Open source"),
+            "a liked-songs marker is not a web link to open");
+    }
+
 }
