@@ -117,6 +117,33 @@ public class ArchiveRetryTests
     }
 
     [Test]
+    public async Task Retry_UnlinksTheTarget_BeforeWriting_SoHardlinkedTwinsKeepTheirBytes()
+    {
+        var trackId = await SeedDownloadedTrackAsync();
+        var (first, _) = await _store.RetryArchiveAsync(trackId);
+        Assert.That(first, Is.True);
+
+        var track = await ReadTrackAsync(trackId);
+        var archive = track.ArchivePath!;
+        var twin = Path.Combine(_root, "twin-archive.mp3");
+        new MelodyBridge.Infrastructure.Files.HardLinkService().Create(twin, archive);
+        Assert.That(new MelodyBridge.Infrastructure.Files.HardLinkService().LinkCount(archive),
+            Is.EqualTo(2), "the twin really shares the archive inode");
+
+        await File.WriteAllBytesAsync(track.CurrentPath!, new byte[] { 9, 9, 9 });
+        var (second, reason) = await _store.RetryArchiveAsync(trackId);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(second, Is.True, reason);
+            Assert.That(File.ReadAllBytes(track.ArchivePath!), Is.EqualTo(new byte[] { 9, 9, 9 }),
+                "the archive was rebuilt from the current primary");
+            Assert.That(File.ReadAllBytes(twin), Is.EqualTo(new byte[] { 1, 2, 3, 4, 5 }),
+                "the other name keeps the old bytes instead of being overwritten through the shared inode");
+        });
+    }
+
+    [Test]
     public async Task Retry_KeepsOtherWarningSegments()
     {
         var trackId = await SeedDownloadedTrackAsync();

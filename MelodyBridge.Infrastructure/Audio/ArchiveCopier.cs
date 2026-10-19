@@ -59,12 +59,30 @@ public static class ArchiveCopier
         {
             Directory.CreateDirectory(archiveDirectory);
 
+            // Replace by name, never through an existing inode: an archive
+            // copy can be a hardlink to another playlist's archive, so
+            // truncating the target in place (ffmpeg or File.Copy with
+            // overwrite) would corrupt the twin when this attempt fails.
+            // Unlinking first leaves every other name on the old bytes.
+            if (File.Exists(targetPath))
+            {
+                try
+                {
+                    File.Delete(targetPath);
+                }
+                catch (Exception ex)
+                {
+                    return new(false, targetPath,
+                        $"could not replace the existing archive file: {ex.Message}");
+                }
+            }
+
             if (string.IsNullOrWhiteSpace(archiveFormat)
                 || archiveFormat.Trim().Equals("auto", StringComparison.OrdinalIgnoreCase))
             {
                 // Auto archive: byte-for-byte copy, no transcode, no
-                // quality change. Overwrites a stale earlier copy.
-                File.Copy(primaryPath, targetPath, overwrite: true);
+                // quality change. The old name is already gone.
+                File.Copy(primaryPath, targetPath, overwrite: false);
                 return new(true, targetPath, null);
             }
 
