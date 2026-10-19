@@ -183,10 +183,11 @@ archive copies.
   likely/unsure pill. The track's own length sits at the top and every hit
   shows its length and the difference, so a preview or a longer edit stands
   out before the click. Every hit also carries its quality: a catalog that
-  already knows the track's maximum reports it (Qobuz), the yt-dlp-backed
-  plugins probe the selected stream before anything downloads (codec,
-  bitrate, sample rate), and for the rest the row names what the plugin
-  declares it can deliver. A pill compares that with the playlist's
+  knows the track's ceiling reports the lower of that ceiling and your
+  configured tier (Qobuz), the yt-dlp-backed plugins probe the selected
+  stream before anything downloads (codec, bitrate, sample rate), and for
+  the rest the row names what the plugin declares it can deliver. A pill
+  compares that with the playlist's
   target: **matches target**, **saved as-is** when the plugin cannot deliver
   the target and the pick keeps its source quality, **outside target** when a
   source sits above a cap and keeps its quality, or **off target** when the

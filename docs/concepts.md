@@ -181,10 +181,10 @@ converted after the fact from the file you already have.
 A hand-picked source in **Choose source** is the one place the filter steps
 aside: you saw the hit and chose it. The picker shows what each candidate
 really is before you click (see [the track list](/reference#the-track-list)),
-and MelodyBridge still does not re-encode it. When the plugin cannot deliver
-your target quality, the pick is saved at its source quality and the row says
-"saved as-is", instead of turning a lossy stream into an oversized file that
-only looks lossless.
+and MelodyBridge never turns a lossy source into a lossless file. When the
+plugin cannot deliver your target quality, the pick is saved at its source
+quality and the row says "saved as-is"; when the plugin can serve your target
+container, the pick is converted to it. The row says which one will happen.
 
 ### Real files only
 
