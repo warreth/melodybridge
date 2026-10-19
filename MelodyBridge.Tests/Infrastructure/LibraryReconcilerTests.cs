@@ -131,6 +131,9 @@ public class LibraryReconcilerTests
             Position = 0,
             DownloadStatus = "downloaded",
             CurrentPath = oldPath,
+            ReviewKind = "spectrum",
+            ReviewText = "bitrate looks inflated: old",
+            SpectrumAccepted = true,
         }));
 
         var reconciler = new LibraryReconciler(_factory, NullLogger<LibraryReconciler>.Instance);
@@ -140,8 +143,15 @@ public class LibraryReconcilerTests
         Assert.That(lost, Is.EqualTo(0));
         await using var db = _factory.CreateDbContext();
         var track = db.Tracks.First(t => t.MelodyId == "mb-recon-2");
-        Assert.That(track.CurrentPath, Is.EqualTo(newPath));
-        Assert.That(track.DownloadStatus, Is.EqualTo("downloaded"));
+        Assert.Multiple(() =>
+        {
+            Assert.That(track.CurrentPath, Is.EqualTo(newPath));
+            Assert.That(track.DownloadStatus, Is.EqualTo("downloaded"));
+            Assert.That(track.ReviewKind, Is.Null,
+                "the old review described the vanished file");
+            Assert.That(track.SpectrumAccepted, Is.False,
+                "a Keep decision for the old file does not apply to the adopted bytes");
+        });
     }
 
     [Test]

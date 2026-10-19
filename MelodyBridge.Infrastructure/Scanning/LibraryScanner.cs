@@ -102,6 +102,15 @@ public class LibraryScanner : ILibraryScanner
                     }
                     else
                     {
+                        if (!PlaylistStore.PathsEqual(existing.CurrentPath, filePath))
+                        {
+                            // The row now points at different bytes: the
+                            // old review and any settled spectrum verdict
+                            // described the previous file.
+                            existing.ReviewKind = null;
+                            existing.ReviewText = null;
+                            existing.SpectrumAccepted = false;
+                        }
                         existing.CurrentPath = filePath;
                         existing.LastSeenAt = DateTime.UtcNow;
                         _db.Tracks.Update(existing);

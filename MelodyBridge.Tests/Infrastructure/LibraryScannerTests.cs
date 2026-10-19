@@ -213,6 +213,13 @@ public class LibraryScannerTests
             var scanner = new LibraryScanner(db, NullLogger<LibraryScanner>.Instance);
             await scanner.ScanAsync(new[] { new ScanLocation(dir1) });
 
+            // A settled review describes the file at the old path.
+            var seeded = db.Tracks.Single(t => t.MelodyId == "mel-scan-2");
+            seeded.ReviewKind = "spectrum";
+            seeded.ReviewText = "bitrate looks inflated: old";
+            seeded.SpectrumAccepted = true;
+            await db.SaveChangesAsync();
+
             // Simulate the user moving the file: same tag, new location.
             var newPath = Path.Combine(dir2, "renamed.mp3");
             System.IO.File.Move(oldPath, newPath);
@@ -220,8 +227,15 @@ public class LibraryScannerTests
 
             var tracks = db.Tracks.AsNoTracking().Where(t => t.MelodyId == "mel-scan-2").ToList();
             Assert.That(tracks, Has.Exactly(1).Items, "one row, not a duplicate");
-            Assert.That(tracks[0].CurrentPath, Is.EqualTo(newPath),
-                "the MELODY_ID is the identity: the path must follow the file");
+            Assert.Multiple(() =>
+            {
+                Assert.That(tracks[0].CurrentPath, Is.EqualTo(newPath),
+                    "the MELODY_ID is the identity: the path must follow the file");
+                Assert.That(tracks[0].ReviewKind, Is.Null,
+                    "the old review described the old file");
+                Assert.That(tracks[0].SpectrumAccepted, Is.False,
+                    "a Keep decision for the old file does not apply to the new bytes");
+            });
         }
         finally
         {

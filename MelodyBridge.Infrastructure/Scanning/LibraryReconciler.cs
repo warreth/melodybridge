@@ -170,6 +170,11 @@ public class LibraryReconciler
                     track.DownloadStatus = "downloaded";
                     track.DownloadError = null;
                     track.LastSeenAt = DateTime.UtcNow;
+                    // The row now points at different bytes than the ones
+                    // the old review and any Keep decision described.
+                    track.ReviewKind = null;
+                    track.ReviewText = null;
+                    track.SpectrumAccepted = false;
                     relinked++;
                     continue;
                 }
