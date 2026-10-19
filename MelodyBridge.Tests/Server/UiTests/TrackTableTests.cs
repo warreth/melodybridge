@@ -123,12 +123,74 @@ public class TrackTableTests
     }
 
     [Test]
-    public void NonSortable_Headers_Have_No_Button()
+    public void Every_Column_Header_Is_Sortable()
     {
         var cut = Render();
         var sortable = cut.FindAll(".th-sort").Select(b => b.TextContent.Replace("▴", "").Replace("▾", "").Trim()).ToList();
-        Assert.That(sortable, Is.EqualTo(new[] { "#", "Title", "Artist", "Length", "Size", "Status" }));
-        Assert.That(cut.Markup, Does.Not.Contain("Sort by bitrate"), "Bitrate, Rate and Format headers stay plain");
+        Assert.That(sortable, Is.EqualTo(new[]
+        {
+            "#", "Title", "Artist", "Length", "Size", "Bitrate", "Rate", "Format", "Status",
+        }));
+    }
+
+    [Test]
+    public void File_Column_Header_Is_Sortable_When_Shown()
+    {
+        var cut = Render(fileColumn: true);
+        var fileButton = cut.FindAll(".th-sort").Single(b => b.TextContent
+            .Replace("▴", "").Replace("▾", "").Trim() == "File");
+        fileButton.Click();
+        Assert.That(cut.Instance.SortKey, Is.EqualTo("File"),
+            "the optional File column joins the sort");
+    }
+
+    [Test]
+    public void Sort_By_Bitrate_Puts_Measured_Rows_First_Ascending()
+    {
+        var tracks = new List<TrackEntity>
+        {
+            new() { Title = "High", Position = 0, DownloadStatus = "downloaded", Bitrate = 320 },
+            new() { Title = "None", Position = 1, DownloadStatus = "pending" },
+            new() { Title = "Low", Position = 2, DownloadStatus = "downloaded", Bitrate = 128 },
+        };
+        var cut = Render(tracks);
+        SortButton(cut, "Bitrate").Click();
+        Assert.That(TitleCells(cut), Is.EqualTo(new[] { "None", "Low", "High" }));
+
+        SortButton(cut, "Bitrate").Click();
+        Assert.That(TitleCells(cut), Is.EqualTo(new[] { "High", "Low", "None" }));
+    }
+
+    [Test]
+    public void Sort_By_Rate_And_Format_Use_The_Stored_Facts()
+    {
+        var tracks = new List<TrackEntity>
+        {
+            new() { Title = "Cd", Position = 0, DownloadStatus = "downloaded", SampleRateHz = 44100, MediaType = "flac" },
+            new() { Title = "Hi", Position = 1, DownloadStatus = "downloaded", SampleRateHz = 96000, MediaType = "mp3" },
+            new() { Title = "Unknown", Position = 2, DownloadStatus = "downloaded" },
+        };
+        var byRate = Render(tracks);
+        SortButton(byRate, "Rate").Click();
+        Assert.That(TitleCells(byRate), Is.EqualTo(new[] { "Unknown", "Cd", "Hi" }));
+
+        var byFormat = Render(tracks);
+        SortButton(byFormat, "Format").Click();
+        Assert.That(TitleCells(byFormat), Is.EqualTo(new[] { "Unknown", "Cd", "Hi" }));
+    }
+
+    [Test]
+    public void Sort_By_File_Uses_The_Basename()
+    {
+        var tracks = new List<TrackEntity>
+        {
+            new() { Title = "B", Position = 0, DownloadStatus = "downloaded", CurrentPath = "/music/b.mp3" },
+            new() { Title = "A", Position = 1, DownloadStatus = "downloaded", CurrentPath = "/music/a.flac" },
+            new() { Title = "None", Position = 2, DownloadStatus = "pending" },
+        };
+        var cut = Render(tracks, fileColumn: true);
+        SortButton(cut, "File").Click();
+        Assert.That(TitleCells(cut), Is.EqualTo(new[] { "None", "A", "B" }));
     }
 
     [Test]
@@ -324,11 +386,11 @@ public class TrackTableTests
     public void Filename_Column_Optional_And_Shows_Basename()
     {
         var with = Render(fileColumn: true);
-        Assert.That(with.Markup, Does.Contain(">File<"));
+        Assert.That(with.FindAll("th.col-file"), Is.Not.Empty, "the File column header shows");
         Assert.That(with.Markup, Does.Contain("c.mp3"), "the cell shows the basename only");
 
         var without = Render();
-        Assert.That(without.Markup, Does.Not.Contain(">File<"));
+        Assert.That(without.FindAll("th.col-file"), Is.Empty, "the File column stays away");
     }
 
     [Test]

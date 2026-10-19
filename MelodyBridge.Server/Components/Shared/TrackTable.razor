@@ -48,7 +48,18 @@
                 }
                 @if (ShowFilenameColumn)
                 {
-                    <th class="col-file">File</th>
+                    <th class="col-file"
+                        aria-sort="@(SortKey == nameof(TrackSortColumn.File) ? (SortDescending ? "descending" : "ascending") : "none")">
+                        <button class="th-sort" type="button"
+                                @onclick="() => ToggleSort(nameof(TrackSortColumn.File))"
+                                title="Sort by file">
+                            File
+                            @if (SortKey == nameof(TrackSortColumn.File))
+                            {
+                                <span class="sort-arrow" aria-hidden="true">@(SortDescending ? "▾" : "▴")</span>
+                            }
+                        </button>
+                    </th>
                 }
                 <th class="col-actions"><span class="visually-hidden">Actions</span></th>
             </tr>
@@ -94,9 +105,20 @@
                         @{ var warnTitle = WarnTitle(track); }
                         @if (!string.IsNullOrWhiteSpace(warnTitle))
                         {
-                            <StatusPill Variant="warn" Title="@warnTitle" Class="pill-tight">!</StatusPill>
+                            if (OnWarning.HasDelegate)
+                            {
+                                <button class="pill-button" type="button" title="@warnTitle"
+                                        @onclick="() => OnWarning.InvokeAsync(track)">
+                                    <StatusPill Variant="warn" Class="pill-tight" Title="@warnTitle">!</StatusPill>
+                                </button>
+                            }
+                            else
+                            {
+                                <StatusPill Variant="warn" Title="@warnTitle" Class="pill-tight">!</StatusPill>
+                            }
                         }
-                        @if (ShowArchiveState && track.DownloadStatus == "downloaded")
+                        @if (ShowArchiveState && track.DownloadStatus == "downloaded"
+                             && ArchiveState(track) is { } archiveState)
                         {
                             // The tiny archive check: a green check when the
                             // copy exists, a calm note when this track has
@@ -104,27 +126,26 @@
                             // vanished from disk. Existence comes from the
                             // page (checked off the render path): the table
                             // must never stat the disk while it renders.
-                            var hasArchivePath = !string.IsNullOrWhiteSpace(track.ArchivePath);
-                            if (!hasArchivePath)
+                            // With an action handler the pill becomes a
+                            // button that opens the archive dialog, where a
+                            // missing or failed copy can be created again.
+                            if (OnArchiveAction.HasDelegate)
                             {
-                                <StatusPill Variant="neutral" Class="pill-tight"
-                                            Title="No archive copy for this track yet">
-                                    <Icon Name="minus" Size="12" />
+                                <button class="pill-button" type="button" title="@archiveState.Title"
+                                        @onclick="() => OnArchiveAction.InvokeAsync(track)">
+                                    <StatusPill Variant="@archiveState.Variant" Class="pill-tight"
+                                                Title="@archiveState.Title">
+                                        <Icon Name="@archiveState.Icon" Size="12" />
+                                    </StatusPill>
+                                </button>
+                            }
+                            else
+                            {
+                                <StatusPill Variant="@archiveState.Variant" Class="pill-tight"
+                                            Title="@archiveState.Title">
+                                    <Icon Name="@archiveState.Icon" Size="12" />
                                 </StatusPill>
                             }
-                            else if (ArchiveStates is not null
-                                && ArchiveStates.TryGetValue(track.ArchivePath!, out var archiveExists))
-                            {
-                                <StatusPill Variant="@(archiveExists ? "ok" : "warn")" Class="pill-tight"
-                                            Title="@(archiveExists
-                                                ? $"Archive copy present: {track.ArchivePath}"
-                                                : $"Archive copy missing from disk: {track.ArchivePath}")">
-                                    <Icon Name="@(archiveExists ? "check" : "alert")" Size="12" />
-                                </StatusPill>
-                            }
-                            @* Unknown (still being checked): render nothing
-                               rather than a state that may be wrong a moment
-                               later. *@
                         }
                     </td>
                     @if (ShowFilenameColumn)
@@ -238,6 +259,16 @@
     /// honest fallback when the automatic match is wrong or missing.
     /// </summary>
     [Parameter] public EventCallback<TrackEntity> OnChooseSource { get; set; }
+    /// <summary>
+    /// Open the archive dialog for this track: state, failure reason and
+    /// the create/retry action. The archive pills become buttons when set.
+    /// </summary>
+    [Parameter] public EventCallback<TrackEntity> OnArchiveAction { get; set; }
+    /// <summary>
+    /// Open the warning dialog for this track. The "!" pill becomes a
+    /// button when set, so a failure with a fix behind it is reachable.
+    /// </summary>
+    [Parameter] public EventCallback<TrackEntity> OnWarning { get; set; }
     /// <summary>Raised whenever the sort changes, so the page can keep the state.</summary>
     [Parameter] public EventCallback OnSortChanged { get; set; }
 
@@ -249,7 +280,7 @@
     /// </summary>
 
     /// <summary>Sort key shared with the page so tests can drive it.</summary>
-    public enum TrackSortColumn { Position, Title, Artist, Duration, Size, Status }
+    public enum TrackSortColumn { Position, Title, Artist, Duration, Size, Bitrate, Rate, Format, File, Status }
     public enum TrackColumnAlign { Left, Right }
 
     private sealed record ColumnSpec(string Key, string Label, bool Sortable, TrackColumnAlign Align);
@@ -261,9 +292,9 @@
         new("Artist", "Artist", true, TrackColumnAlign.Left),
         new("Duration", "Length", true, TrackColumnAlign.Right),
         new("Size", "Size", true, TrackColumnAlign.Right),
-        new("Bitrate", "Bitrate", false, TrackColumnAlign.Right),
-        new("Rate", "Rate", false, TrackColumnAlign.Right),
-        new("Format", "Format", false, TrackColumnAlign.Left),
+        new("Bitrate", "Bitrate", true, TrackColumnAlign.Right),
+        new("Rate", "Rate", true, TrackColumnAlign.Right),
+        new("Format", "Format", true, TrackColumnAlign.Left),
         new("Status", "Status", true, TrackColumnAlign.Left),
     };
 
@@ -327,6 +358,14 @@
             TrackSortColumn.Artist => t => t.Artist ?? "",
             TrackSortColumn.Duration => t => t.DurationMs ?? 0,
             TrackSortColumn.Size => t => t.FileSizeBytes ?? 0,
+            // Measurements exist only for downloaded rows: those sort on
+            // their number, a row without one sits at the bottom in
+            // ascending order like an empty value.
+            TrackSortColumn.Bitrate => t => t.Bitrate ?? -1,
+            TrackSortColumn.Rate => t => t.SampleRateHz ?? -1,
+            TrackSortColumn.Format => t => t.MediaType ?? "",
+            TrackSortColumn.File => t => t.CurrentPath is { Length: > 0 } path
+                ? System.IO.Path.GetFileName(path) : "",
             TrackSortColumn.Status => t => StatusOrder(t),
             _ => t => t.Position ?? 0,
         };
@@ -370,6 +409,22 @@
             (_, { Length: > 0 } warning) => warning,
             _ => null,
         };
+
+    /// <summary>
+    /// The archive pill for one row: its variant, tooltip and icon, or null
+    /// when the check is still running (no verdict yet, so no pill rather
+    /// than a state that may be wrong a moment later).
+    /// </summary>
+    private (string Variant, string Title, string Icon)? ArchiveState(TrackEntity track)
+    {
+        if (string.IsNullOrWhiteSpace(track.ArchivePath))
+            return ("neutral", "No archive copy for this track yet", "minus");
+        if (ArchiveStates is null || !ArchiveStates.TryGetValue(track.ArchivePath!, out var exists))
+            return null;
+        return exists
+            ? ("ok", $"Archive copy present: {track.ArchivePath}", "check")
+            : ("warn", $"Archive copy missing from disk: {track.ArchivePath}", "alert");
+    }
 
     private static string RetryTitle(TrackEntity track)
         => track.SourcePluginId is { Length: > 0 }
