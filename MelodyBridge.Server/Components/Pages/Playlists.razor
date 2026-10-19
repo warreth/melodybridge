@@ -505,11 +505,21 @@ else
                 <button class="icon-button" title="Close" @onclick="ClosePublishPanel"><Icon Name="x" Size="18" /></button>
             </div>
             <div class="wizard-body">
+                @if (!string.IsNullOrEmpty(publishError))
+                {
+                    <div class="result-box error">@publishError</div>
+                }
                 @if (publishProfiles.Count == 0)
                 {
                     <div class="hint-box">
                         No media server profiles yet. Create one under
                         <a href="/settings#media-servers">Settings, Media servers</a>, then come back.
+                    </div>
+                }
+                else if (playlists.Count == 0)
+                {
+                    <div class="hint-box">
+                        No playlists saved yet. Add one first, then come back to publish it.
                     </div>
                 }
                 else if (publishablePlaylists.Count == 0)
@@ -647,10 +657,12 @@ else
 
     // Quick publish: one sync job per ticked playlist, named after it,
     // targeting the ticked media server profiles. Playlists that already
-    // have a job are hidden, so nothing is duplicated.
+    // have a job are hidden, so the list does not offer the same playlist
+    // again; creation re-reads both lists for changes made meanwhile.
     private bool showPublishPanel;
     private bool publishing;
     private string publishMessage = string.Empty;
+    private string publishError = string.Empty;
     private List<MediaServerProfile> publishProfiles = new();
     private readonly HashSet<string> publishPlaylistIds = new(StringComparer.Ordinal);
     private readonly HashSet<string> publishProfileIds = new(StringComparer.Ordinal);
@@ -673,6 +685,7 @@ else
     private async Task ShowPublishPanelAsync()
     {
         publishMessage = string.Empty;
+        publishError = string.Empty;
         publishPlaylistIds.Clear();
         publishProfileIds.Clear();
         publishing = false;
@@ -681,7 +694,11 @@ else
         showPublishPanel = true;
     }
 
-    private void ClosePublishPanel() => showPublishPanel = false;
+    private void ClosePublishPanel()
+    {
+        publishError = string.Empty;
+        showPublishPanel = false;
+    }
 
     private void TogglePublishPlaylist(string playlistId, ChangeEventArgs e)
     {
@@ -699,22 +716,48 @@ else
     {
         if (!CanPublish) return;
         publishing = true;
+        publishError = string.Empty;
         try
         {
+            // A profile can be deleted under Settings while this dialog is
+            // open. Refresh before creating: a job must never store a dead
+            // target, and the user must see which selection changed.
+            publishProfiles = (await ServerProfiles.GetAllAsync()).ToList();
+            var currentIds = publishProfiles.Select(p => p.Id).ToHashSet(StringComparer.Ordinal);
+            var removed = publishProfileIds.RemoveWhere(id => !currentIds.Contains(id));
+            if (publishProfileIds.Count == 0)
+            {
+                publishError = "The selected media server profile no longer exists. Pick another one.";
+                return;
+            }
+            if (removed > 0)
+            {
+                publishError = removed == 1
+                    ? "A selected media server profile no longer exists and was removed from the selection. Create again when the rest is right."
+                    : $"{removed} selected media server profiles no longer exist and were removed. Create again when the rest is right.";
+                return;
+            }
+
+            jobPlaylistIds = await QuickSyncJobs.PlaylistsWithJobAsync(DbFactory);
             var selected = playlists
                 .Where(p => publishPlaylistIds.Contains(p.Id))
                 .Select(p => (p.Id, p.Name))
                 .ToList();
-            var profiles = publishProfiles
-                .Where(p => publishProfileIds.Contains(p.Id))
-                .ToList();
-            var created = await QuickSyncJobs.CreateAsync(DbFactory, selected, profiles);
-            publishMessage = created.Count switch
+            var result = await QuickSyncJobs.CreateAsync(
+                DbFactory, ServerProfiles, selected, publishProfileIds.ToList());
+
+            var message = result.Created.Count switch
             {
-                0 => "Nothing to create: those playlists already have sync jobs.",
-                1 => $"Created the sync job '{created[0].Name}'.",
-                _ => $"Created {created.Count} sync jobs, one per playlist.",
+                0 => "Nothing to create",
+                1 => $"Created the sync job '{result.Created[0].Name}'",
+                _ => $"Created {result.Created.Count} sync jobs, one per playlist",
             };
+            if (result.Skipped.Count > 0)
+            {
+                message += ". Skipped: " + string.Join("; ",
+                    result.Skipped.Select(s => $"{s.Playlist}: {s.Reason}"));
+            }
+            publishMessage = message + ".";
             showPublishPanel = false;
             jobPlaylistIds = await QuickSyncJobs.PlaylistsWithJobAsync(DbFactory);
         }
