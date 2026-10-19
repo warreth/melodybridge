@@ -178,6 +178,14 @@ container you asked for, the track fails with a message saying so; that is the
 filter working, not a bug. Archive copies are the one exception, and those are
 converted after the fact from the file you already have.
 
+A hand-picked source in **Choose source** is the one place the filter steps
+aside: you saw the hit and chose it. The picker shows what each candidate
+really is before you click (see [the track list](/reference#the-track-list)),
+and MelodyBridge still does not re-encode it. When the plugin cannot deliver
+your target quality, the pick is saved at its source quality and the row says
+"saved as-is", instead of turning a lossy stream into an oversized file that
+only looks lossless.
+
 ### Real files only
 
 A track first has to be real audio, and only genuinely broken files are thrown
@@ -248,6 +256,12 @@ header over 192 kbps of real bandwidth is flagged and one class below is not.
 An inflated file joins the quality review, so it stays on disk and you pick
 Keep or Retry. A gentle low end that is not a codec corner gets an advisory
 **quality hint** on the row instead, and there is nothing to decide.
+
+Lossless containers are measured the same way. A FLAC whose audio carries a
+steep codec corner is flagged too, because the wrapper does not make the
+content lossless; the review then reads "the container is lossless, but the
+audio stops at ...". A genuinely lossless file, including 96 kHz sources, is
+never flagged: only a codec-style corner counts, not a dark mix.
 
 It needs ffmpeg and ffprobe on the host; without either, files simply skip the
 check. It stays honest about what a spectrum can and cannot prove: a high end

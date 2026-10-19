@@ -9,6 +9,22 @@ anything.
 
 <img src="/screens/sync.webp" alt="Sync jobs page with job cards and the five step wizard" width="800">
 
+## Publish playlists in a few clicks
+
+The **Publish** button on the Playlists page is the short path. It asks two
+questions: which playlists, and which media server profiles they should go to.
+Every ticked playlist becomes its own job, named after the playlist, with a
+Manual schedule and the profiles you ticked as its targets. Playlists that
+already have a job are left out of the list, so the quick flow can never
+create a duplicate.
+
+This flow deliberately skips the wizard's options: no M3U target, no path
+remaps, no schedule, no per-job user. That is the trade for the two-click
+setup, and the dialog says so. Every job it creates opens on the Sync jobs
+page like any other, where **Edit** gives you the full wizard.
+
+<img src="/screens/publish.webp" alt="Quick publish dialog on the Playlists page" width="800">
+
 ## Create a sync job
 
 **New sync job** opens a five-step wizard.
@@ -64,9 +80,11 @@ card reopens the same wizard with the current values.
 
 ## Schedules
 
-Manually created jobs run from the **Run now** button. A job that has a schedule
-runs on its own while MelodyBridge is running: the app checks once a minute and
-runs every due job, one after another.
+Manually created jobs run from the **Run now** button. **Run all now** at the
+top of the page runs every job once, one after the other, and says how many
+finished. A job that has a schedule runs on its own while MelodyBridge is
+running: the app checks once a minute and runs every due job, one after
+another.
 
 A new job first runs at its next scheduled time, not the moment you save it. Pick
 Daily and the first run is the next 03:00; the card says when that is (**next
@@ -100,6 +118,10 @@ other 30 have no local file yet, usually because they were never downloaded.
 **Log** shows the last 20 runs with their result and per-track detail. **Run
 now** triggers a job immediately, **Edit** changes it, and **Delete** removes
 the job and its run history without touching playlists or music files.
+
+Many jobs in one list? The **Cards** / **Rows** switch at the top changes the
+layout; the choice sticks. Rows fit more jobs on screen, cards have room for
+the last run summary.
 
 ## Liked songs become favorites
 

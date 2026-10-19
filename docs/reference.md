@@ -158,13 +158,18 @@ them means re-importing the file.
 ### The track list
 
 Each track row shows its state and, once downloaded, the real quality: bitrate,
-sample rate, format and file size. Next to the status pill sits a small archive
-check: a green check when this track's archive copy is on disk, a quiet dash when
-the track has no copy yet, and a warning when the recorded copy has vanished.
-With no archive path configured for the playlist the check stays away. Enable
-**Show the file column on playlist
-tracks** on the Advanced page to see the file names, including
-`archive: <name>` chips for archive copies.
+sample rate, format and file size. Every column header sorts the list; click it
+again to reverse the order. Next to the status pill sits a small archive check:
+a green check when this track's archive copy is on disk, a quiet dash when the
+track has no copy yet, and a warning when the recorded copy has vanished. With
+no archive path configured for the playlist the check stays away. Click the
+check to open the archive dialog: it shows the copy's state, repeats any
+archive failure in full, and offers **Create archive copy** or **Recreate
+archive copy**, which rebuilds the file from the current download. The **!**
+pill beside the status opens the same dialog, so a failed copy is one click
+from being repaired. Enable **Show the file column on playlist tracks** on the
+Advanced page to see the file names, including `archive: <name>` chips for
+archive copies.
 
 - The filter box narrows the list; **Needs attention** shows only failed tracks
   and tracks waiting for a dedup or quality decision.
@@ -172,8 +177,14 @@ tracks** on the Advanced page to see the file names, including
   results for that track, best guess first, each with the plugin name and a
   likely/unsure pill. The track's own length sits at the top and every hit
   shows its length and the difference, so a preview or a longer edit stands
-  out before the click. Plugins search at the same time and results appear as
-  they arrive; the pick itself shows a progress bar and a running timer. Use it
+  out before the click. Every hit also carries its quality: for the plugins
+  that can tell, one probe reads the real source facts (codec, bitrate,
+  sample rate) before anything downloads; for the rest the row names what the
+  plugin declares it can deliver. A pill compares that with the playlist's
+  target: **matches target**, **saved as-is** when the plugin cannot deliver
+  the target and the pick keeps its source quality, or **off target** for a
+  mismatch. Plugins search at the same time and results appear as they
+  arrive; the pick itself shows a progress bar and a running timer. Use it
   when the automatic match picked the wrong recording or found nothing; the
   pick downloads through the normal pipeline and replaces an existing file.
   A source that fails stays in the list with the reason, ready for another
@@ -195,6 +206,8 @@ tracks** on the Advanced page to see the file names, including
   replaced by **Pause**, **Resume** and **Cancel**.
 - **Remove playlist** removes the playlist, with an option to delete the
   downloaded files too.
+
+<img src="/screens/source-picker.webp" alt="Choose source dialog with exact quality facts and target match pills" width="800">
 
 ## The Plugins page
 
@@ -258,8 +271,10 @@ The knobs most people never need, in four panels:
   EF Core writes a line for every SQL command. Warnings and errors show up
   either way. Applies immediately.
 - **Maintenance**: **Recompute audio facts** reads bitrate, sample rate and size
-  straight from the files on disk, for downloads that predate the probing. Tracks
-  whose file has vanished are queued for a re-download.
+  straight from the files on disk, for downloads that predate the probing, and
+  re-runs the spectrum check on what it reads, so an inflated file or a lossy
+  source boxed as FLAC is flagged after the fact. Tracks whose file has vanished
+  are queued for a re-download.
   **Re-tag library** fills what a downloaded file is missing: cover art from the
   source, lyrics, the release credit and the album name. Only missing fields are
   written, so artwork a plugin embedded is left alone. It reports how many files
