@@ -19,6 +19,10 @@ internal sealed class PlaylistQueries
     private readonly LyricsResolver? _lyrics;
     private readonly ILogger _logger;
     private readonly DataChangeTracker _changes;
+    /// <summary>Quality-check options; the recompute pass re-runs the
+    /// spectrum verdict with them so a check that was skipped or ran with
+    /// older rules can be settled from the UI.</summary>
+    private readonly Func<Audio.VerificationOptions> _verification;
 
     public PlaylistQueries(
         IDbContextFactory<MelodyBridgeDbContext> dbFactory,
@@ -26,7 +30,8 @@ internal sealed class PlaylistQueries
         CoverArtFetcher? coverArt,
         LyricsResolver? lyrics,
         ILogger logger,
-        DataChangeTracker? changes = null)
+        DataChangeTracker? changes = null,
+        Func<Audio.VerificationOptions>? verification = null)
     {
         _dbFactory = dbFactory;
         _settings = settings;
@@ -34,6 +39,7 @@ internal sealed class PlaylistQueries
         _lyrics = lyrics;
         _logger = logger;
         _changes = changes ?? new DataChangeTracker();
+        _verification = verification ?? (() => new Audio.VerificationOptions(Audio.SpectrumMode.Off));
     }
 
     /// <summary>All persisted playlists (without tracks), newest sync first.</summary>
@@ -567,23 +573,27 @@ internal sealed class PlaylistQueries
     }
 
     /// <summary>
-    /// Backfills audio facts (bitrate, sample rate, file size) on downloaded
-    /// tracks from before those columns existed, and flags downloaded tracks
-    /// whose file vanished as pending so the next download run picks them up.
-    /// Returns (recomputed, missing).
+    /// The library maintenance pass: every downloaded row gets its audio
+    /// facts backfilled when missing (bitrate, sample rate, file size),
+    /// the spectrum verdict is re-run so a check that ran with older rules
+    /// (or was skipped) can flag a file now, and a row whose file vanished
+    /// is queued for a re-download. Returns (recomputed, missing, flagged):
+    /// files read, files gone, and rows that ended the pass with a fresh
+    /// quality review.
     /// </summary>
-    public async Task<(int recomputed, int missing)> RecomputeMissingFactsAsync(CancellationToken ct = default)
+    public async Task<(int recomputed, int missing, int flagged)> RecomputeMissingFactsAsync(
+        CancellationToken ct = default)
     {
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
-        var stale = await db.Tracks
-            .Where(t => t.DownloadStatus == "downloaded"
-                && (t.Bitrate == null || t.SampleRateHz == null || t.FileSizeBytes == null)
-                && t.CurrentPath != null)
+        var rows = await db.Tracks
+            .Where(t => t.DownloadStatus == "downloaded" && t.CurrentPath != null)
             .ToListAsync(ct);
 
+        var verification = _verification();
         var recomputed = 0;
         var missing = 0;
-        foreach (var track in stale)
+        var flagged = 0;
+        foreach (var track in rows)
         {
             if (!File.Exists(track.CurrentPath))
             {
@@ -597,13 +607,70 @@ internal sealed class PlaylistQueries
                 continue;
             }
 
-            track.Bitrate = Audio.BitrateProbe.MeasureKbps(track.CurrentPath!);
-            AudioProbe.Fill(track, track.CurrentPath!);
-            recomputed++;
+            if (track.Bitrate == null || track.SampleRateHz == null || track.FileSizeBytes == null)
+            {
+                track.Bitrate = Audio.BitrateProbe.MeasureKbps(track.CurrentPath!);
+                AudioProbe.Fill(track, track.CurrentPath!);
+                recomputed++;
+            }
+
+            if (ApplySpectrumVerdict(track, verification)) flagged++;
         }
 
-        if (recomputed > 0 || missing > 0)
+        if (rows.Count > 0)
+        {
             await db.SaveChangesAsync(ct);
-        return (recomputed, missing);
+            _changes.Bump();
+        }
+        return (recomputed, missing, flagged);
+    }
+
+    /// <summary>
+    /// Re-runs the spectrum verdict for one downloaded row: an inflated
+    /// file gains the spectrum review, a stale one is cleared when the
+    /// current file no longer looks inflated, and the informational hint
+    /// is refreshed. Other warning segments (an archive failure, a dedup
+    /// note) are never touched. Returns true when the row ends with the
+    /// spectrum review open.
+    /// </summary>
+    private static bool ApplySpectrumVerdict(TrackEntity track, Audio.VerificationOptions verification)
+    {
+        var result = Audio.SpectrumAnalyzer.Verify(
+            track.CurrentPath!, verification.Spectrum, verification.SpectrumClassGap);
+        if (result is null) return TrackReview.Has(track.ReviewKind, TrackReview.Spectrum);
+
+        // Rebuild only the spectrum parts: the length review, the dedup
+        // warning and everything else stay exactly as they were.
+        var kinds = (track.ReviewKind ?? "")
+            .Split('+', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(k => k != TrackReview.Spectrum)
+            .ToList();
+        var texts = (track.ReviewText ?? "")
+            .Split("; ", StringSplitOptions.RemoveEmptyEntries)
+            .Where(t => !t.StartsWith("bitrate looks inflated:", StringComparison.Ordinal))
+            .ToList();
+
+        if (result.LooksInflated)
+        {
+            kinds.Add(TrackReview.Spectrum);
+            texts.Add($"bitrate looks inflated: {result.Note}");
+        }
+
+        track.ReviewKind = kinds.Count == 0 ? null : TrackReview.Join(kinds);
+        track.ReviewText = texts.Count == 0 ? null : string.Join("; ", texts);
+
+        var warnings = (track.Warning ?? "")
+            .Split("; ", StringSplitOptions.RemoveEmptyEntries)
+            // Drop both the advisory hint and a legacy claim an older
+            // checker wrote into the warning: the fresh verdict decides
+            // what stays on the row.
+            .Where(w => !w.StartsWith("quality hint:", StringComparison.Ordinal)
+                     && !w.StartsWith("bitrate looks inflated:", StringComparison.Ordinal))
+            .ToList();
+        if (!result.LooksInflated && result.CodecCutoff && result.EffectiveKbpsClass is > 0 and < 320)
+            warnings.Add($"quality hint: {result.Note}");
+        track.Warning = warnings.Count == 0 ? null : string.Join("; ", warnings);
+
+        return result.LooksInflated;
     }
 }

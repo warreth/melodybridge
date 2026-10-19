@@ -133,8 +133,9 @@
         <p>
             Older downloads can miss the bitrate, sample-rate and size
             columns. Recompute reads those facts straight from the files on
-            disk; tracks whose file has vanished are queued for a
-            re-download.
+            disk and re-runs the quality check on what it reads, so an
+            inflated file or a lossy source boxed as FLAC is flagged; tracks
+            whose file has vanished are queued for a re-download.
         </p>
         <p>
             Re-tag fills what a downloaded file is missing: cover art from the
@@ -261,8 +262,10 @@
         recomputing = true;
         try
         {
-            var (recomputed, missing) = await PlaylistStore.RecomputeMissingFactsAsync();
-            Notifications.Success($"Recomputed facts for {recomputed} track(s), {missing} file(s) missing");
+            var (recomputed, missing, flagged) = await PlaylistStore.RecomputeMissingFactsAsync();
+            var summary = $"Recomputed facts for {recomputed} track(s), {missing} file(s) missing";
+            if (flagged > 0) summary += $", {flagged} flagged for review";
+            Notifications.Success(summary + ".");
         }
         catch (Exception ex)
         {

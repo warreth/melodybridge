@@ -49,8 +49,8 @@ public class PlaylistStoreSurfaceTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(type.GetMethod("ParseQuality", BindingFlags.NonPublic | BindingFlags.Static), Is.Not.Null,
-                "the tests and the pages parse quality through the store");
+            Assert.That(type.GetMethod("ParseQuality", BindingFlags.Public | BindingFlags.Static), Is.Not.Null,
+                "the pages parse quality through the store");
             Assert.That(type.GetMethod("IsValidFormat", BindingFlags.Public | BindingFlags.Static), Is.Not.Null);
             Assert.That(type.GetField("FormatOptions", BindingFlags.Public | BindingFlags.Static), Is.Not.Null);
             Assert.That(type.GetField("DedupSettingKey", BindingFlags.Public | BindingFlags.Static), Is.Not.Null);
@@ -72,10 +72,11 @@ public class PlaylistStoreSurfaceTests
     {
         // The point of the split: the facade must stay small. If it grows
         // again, logic has crept back in. The limit tracks the delegations
-        // the app needs (auto-sync attempt stamping is the latest).
+        // the app needs (auto-sync attempt stamping, the archive retry and
+        // the candidate quality probe are the latest).
         var text = File.ReadAllText(SourceFile());
         var lines = text.Split('\n').Length;
-        Assert.That(lines, Is.LessThan(280),
+        Assert.That(lines, Is.LessThan(300),
             $"PlaylistStore should stay a thin facade; it is {lines} lines");
     }
 

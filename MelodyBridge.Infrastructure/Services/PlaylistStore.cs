@@ -115,7 +115,8 @@ public class PlaylistStore
         // Without them the file is tagged exactly as before.
         _coverArt = coverArt;
         _lyrics = lyrics;
-        _queries = new PlaylistQueries(dbFactory, _settings, coverArt, lyrics, logger, _changes);
+        _queries = new PlaylistQueries(
+            dbFactory, _settings, coverArt, lyrics, logger, _changes, () => Verification());
         _snapshots = new PlaylistSnapshots(
             dbFactory, _providers, _accountProviders, _settings, logger, _linker, _changes);
         _transfer = new PlaylistTransfer(dbFactory, _queries, _snapshots);
@@ -136,10 +137,22 @@ public class PlaylistStore
         int trackId, Action<DownloadCandidate>? onCandidate = null, CancellationToken ct = default)
         => _pipeline.SearchCandidatesAsync(trackId, onCandidate, ct);
 
+    /// <summary>The exact audio facts one candidate's plugin can read before
+    /// a download, for the picker's quality line. Null when it cannot know.</summary>
+    public Task<CandidateAudioQuality?> ProbeCandidateQualityAsync(
+        string pluginId, string sourceUrl, CancellationToken ct = default)
+        => _pipeline.ProbeCandidateQualityAsync(pluginId, sourceUrl, ct);
+
     /// <summary>Downloads one candidate a human picked by hand.</summary>
     public Task<string> DownloadCandidateAsync(
         int trackId, DownloadCandidate candidate, CancellationToken ct = default)
         => _pipeline.DownloadChosenTrackAsync(trackId, candidate, ct);
+
+    /// <summary>Rebuilds the archive copy of one downloaded track. Used by
+    /// the row's archive action after a failed or missing copy.</summary>
+    public Task<(bool Ok, string? Reason)> RetryArchiveAsync(
+        int trackId, CancellationToken ct = default)
+        => _pipeline.RetryArchiveAsync(trackId, ct);
 
     /// <summary>Stamp of the last committed change to the stored library
     /// state; the playlist page reloads when it moves.</summary>
@@ -170,7 +183,7 @@ public class PlaylistStore
     /// live in <see cref="PlaylistRules"/>; this keeps the name the pages
     /// and tests call.
     /// </summary>
-    internal static DownloadQuality ParseQuality(string? preferredFormat)
+    public static DownloadQuality ParseQuality(string? preferredFormat)
         => PlaylistRules.ParseQuality(preferredFormat);
 
     public Task<List<PlaylistEntity>> GetAllAsync(CancellationToken ct = default)
@@ -227,7 +240,7 @@ public class PlaylistStore
     public virtual Task<(int updated, int skipped, int failed)> RetagLibraryAsync(CancellationToken ct = default)
         => _queries.RetagLibraryAsync(ct);
 
-    public Task<(int recomputed, int missing)> RecomputeMissingFactsAsync(CancellationToken ct = default)
+    public Task<(int recomputed, int missing, int flagged)> RecomputeMissingFactsAsync(CancellationToken ct = default)
         => _queries.RecomputeMissingFactsAsync(ct);
 
     public Task<PlaylistEntity> AddOrRefreshAsync(string sourceUrl, string? targetDirectory = null, CancellationToken ct = default)

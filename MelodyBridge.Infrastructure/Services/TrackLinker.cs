@@ -18,6 +18,15 @@ namespace MelodyBridge.Infrastructure.Services;
 /// Copying is never a fallback here: when a hard link is impossible the
 /// honest options are a real download or a user decision.
 /// </summary>
+/// <summary>What one archive attempt produced: no configured target,
+/// a written copy, or a failure recorded as a track warning.</summary>
+public enum ArchiveOutcome
+{
+    Skipped,
+    Written,
+    Failed,
+}
+
 public sealed class TrackLinker
 {
     private readonly IDbContextFactory<MelodyBridgeDbContext> _dbFactory;
@@ -418,7 +427,7 @@ public sealed class TrackLinker
     /// integrity gate, so the archive path persists with the track row in
     /// the same SaveChanges.
     /// </summary>
-    public async Task ArchiveDownloadedTrackAsync(
+    public async Task<ArchiveOutcome> ArchiveDownloadedTrackAsync(
         TrackEntity track, MelodyBridgeDbContext db, CancellationToken ct)
     {
         var target = await ResolveArchiveTargetAsync(track.PlaylistEntityId, db, ct);
@@ -428,7 +437,7 @@ public sealed class TrackLinker
             // a stale archive path from an earlier configuration so the
             // UI never shows a file that no longer belongs to this setup.
             track.ArchivePath = null;
-            return;
+            return ArchiveOutcome.Skipped;
         }
 
         var result = ArchiveCopier.Copy(
@@ -443,17 +452,17 @@ public sealed class TrackLinker
         if (result.Ok)
         {
             track.ArchivePath = result.ArchivePath;
+            return ArchiveOutcome.Written;
         }
-        else
-        {
-            // Failure isolation: the primary download stands; the
-            // archive problem rides along as a warning and the next
-            // run (or per-track retry) repairs the copy alone.
-            track.ArchivePath = null;
-            track.Warning = string.IsNullOrEmpty(track.Warning)
-                ? $"archive copy failed: {result.Reason}"
-                : $"{track.Warning}; archive copy failed: {result.Reason}";
-        }
+
+        // Failure isolation: the primary download stands; the
+        // archive problem rides along as a warning and the next
+        // run (or per-track retry) repairs the copy alone.
+        track.ArchivePath = null;
+        track.Warning = string.IsNullOrEmpty(track.Warning)
+            ? $"archive copy failed: {result.Reason}"
+            : $"{track.Warning}; archive copy failed: {result.Reason}";
+        return ArchiveOutcome.Failed;
     }
 
     /// <summary>

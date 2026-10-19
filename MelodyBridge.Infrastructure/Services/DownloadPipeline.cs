@@ -412,6 +412,15 @@ internal sealed class DownloadPipeline
     }
 
     /// <summary>
+    /// The exact audio facts one candidate's plugin can read before a
+    /// download, for the picker's quality line. Best effort: null when
+    /// the plugin cannot know or the probe fails.
+    /// </summary>
+    public Task<CandidateAudioQuality?> ProbeCandidateQualityAsync(
+        string pluginId, string sourceUrl, CancellationToken ct = default)
+        => _downloadManager.ProbeQualityAsync(pluginId, sourceUrl, ct);
+
+    /// <summary>
     /// Downloads one candidate a human picked for a track, replacing any
     /// existing file. The pick overrides the ranking, not the pipeline:
     /// the old primary and archive are removed (name-wise, so a hardlink
@@ -758,6 +767,51 @@ internal sealed class DownloadPipeline
     private Task ArchiveDownloadedTrackAsync(
         TrackEntity track, MelodyBridgeDbContext db, CancellationToken ct)
         => _linker.ArchiveDownloadedTrackAsync(track, db, ct);
+
+    /// <summary>
+    /// Rebuilds the archive copy of one downloaded track from its primary
+    /// file, on demand from the row's archive action. A previous archive
+    /// failure is dropped from the warning first, so the new verdict is the
+    /// only one on the row. Returns (ok, reason): reason is null on success
+    /// and the failure text otherwise.
+    /// </summary>
+    public async Task<(bool Ok, string? Reason)> RetryArchiveAsync(
+        int trackId, CancellationToken ct = default)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var track = await db.Tracks.FindAsync(new object[] { trackId }, ct);
+        if (track is null) return (false, "track not found");
+        if (track.DownloadStatus != "downloaded" || string.IsNullOrWhiteSpace(track.CurrentPath))
+            return (false, "the track has no downloaded file yet");
+        if (!File.Exists(track.CurrentPath))
+            return (false, "the downloaded file is gone; download the track again");
+
+        track.Warning = StripArchiveFailures(track.Warning);
+        var outcome = await _linker.ArchiveDownloadedTrackAsync(track, db, ct);
+        await db.SaveChangesAsync(ct);
+        _changes.Bump();
+        return outcome switch
+        {
+            ArchiveOutcome.Written => (true, null),
+            ArchiveOutcome.Skipped => (false, "no archive folder is set up for this playlist"),
+            _ => (false, track.Warning ?? "the archive copy could not be written"),
+        };
+    }
+
+    /// <summary>
+    /// Removes every "archive copy failed: ..." segment from a warning,
+    /// keeping the other segments (a warning can be several facts joined
+    /// with "; "). The archive verdict is rebuilt by the retry itself.
+    /// </summary>
+    internal static string? StripArchiveFailures(string? warning)
+    {
+        if (warning is not { Length: > 0 }) return warning;
+        var kept = warning
+            .Split("; ", StringSplitOptions.RemoveEmptyEntries)
+            .Where(part => !part.StartsWith("archive copy failed:", StringComparison.Ordinal))
+            .ToList();
+        return kept.Count == 0 ? null : string.Join("; ", kept);
+    }
 
     /// <summary>
     /// Settles a flagged quality review (length mismatch, inflated

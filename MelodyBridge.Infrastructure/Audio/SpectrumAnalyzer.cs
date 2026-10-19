@@ -19,8 +19,9 @@ public enum SpectrumMode
 /// <summary>
 /// Detects files that carry far less audio bandwidth than their declared
 /// bitrate needs: a 320 kbps header on top of a source that stopped much
-/// lower. It decodes the audio, averages the spectrum with FFT frames,
-/// and looks at how the high end falls off.
+/// lower, or a lossless container (FLAC, WAV) whose content clearly came
+/// from a lossy source. It decodes the audio, averages the spectrum with
+/// FFT frames, and looks at how the high end falls off.
 ///
 /// A spectrum cannot tell an upscaled rip from a master that never had
 /// the high end, so the check stays deliberately narrow. Content that
@@ -304,7 +305,7 @@ public static class SpectrumAnalyzer
             && declaredIndex >= ClassIndex(InflatedDeclaredFloorKbps)
             && declaredIndex - ClassIndex(effective) >= Math.Clamp(classGap, 1, 4);
 
-        var note = Describe(bandwidthHz, effective, declared, inflated, cutoff);
+        var note = Describe(bandwidthHz, effective, declared, inflated, cutoff, IsLosslessCodec(codec));
         return new Result(inflated, cutoff, bandwidthHz, effective, declared, codec, note);
     }
 
@@ -320,13 +321,15 @@ public static class SpectrumAnalyzer
     /// <summary>
     /// The bitrate the measured bandwidth can plausibly carry. Opus and
     /// Vorbis reach near-fullband at low bitrates, so their bandwidth never
-    /// implies a low class. A low sample rate caps what the format can
-    /// carry, so the measured bandwidth is scaled to a 44.1 kHz reference.
+    /// implies a low class. Lossless containers are measured like any
+    /// other: their bandwidth is what the content inside really has, and a
+    /// lossy-sourced FLAC shows the same codec corner as its source. A low
+    /// sample rate caps what the format can carry, so the measured
+    /// bandwidth is scaled to a 44.1 kHz reference.
     /// </summary>
     private static int BandwidthToKbps(double bandwidthHz, string? codec, double nyquist)
     {
         if (codec is "opus" or "vorbis") return 320;
-        if (codec is "flac" or "alac" or "wav" or "pcm_s16le" or "pcm_s24le") return 320;
 
         if (nyquist is > 0 and < AnalysisRate / 2.0)
             bandwidthHz *= (AnalysisRate / 2.0) / nyquist;
@@ -342,11 +345,23 @@ public static class SpectrumAnalyzer
         };
     }
 
-    private static string Describe(double bandwidthHz, int effective, int? declared, bool inflated, bool cutoff)
+    /// <summary>True for a codec that is lossless by definition: finding a
+    /// codec-style lowpass inside one means the content was lossy before
+    /// it landed in this container.</summary>
+    private static bool IsLosslessCodec(string? codec)
+        => codec is "flac" or "alac" or "wav"
+           || codec?.StartsWith("pcm", StringComparison.Ordinal) == true;
+
+    private static string Describe(
+        double bandwidthHz, int effective, int? declared, bool inflated, bool cutoff, bool lossless)
     {
         var khz = (bandwidthHz / 1000).ToString("F1", CultureInfo.InvariantCulture);
         if (inflated)
-            return $"bandwidth stops at {khz} kHz, far below what {declared} kbps needs";
+        {
+            return lossless
+                ? $"the container is lossless, but the audio stops at {khz} kHz: about {effective} kbps of real detail"
+                : $"bandwidth stops at {khz} kHz, far below what {declared} kbps needs";
+        }
         if (cutoff)
             return $"bandwidth drops off at {khz} kHz, about {effective} kbps of real detail";
         return $"high end fades out around {khz} kHz with no codec cutoff to read";

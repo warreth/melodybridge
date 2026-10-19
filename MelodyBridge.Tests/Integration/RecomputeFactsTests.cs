@@ -147,9 +147,10 @@ public class RecomputeFactsTests
             ("mel-complete", file1, "downloaded", 320, 44100, 12345), // facts already set: must stay untouched
             ("mel-pending", null, "pending", null, null, null));     // not downloaded: must stay untouched
 
-        var (recomputed, missing) = await store.RecomputeMissingFactsAsync();
+        var (recomputed, missing, flagged) = await store.RecomputeMissingFactsAsync();
 
-        Assert.That((recomputed, missing), Is.EqualTo((2, 1)));
+        Assert.That((recomputed, missing, flagged), Is.EqualTo((2, 1, 0)),
+            "silent files get facts filled, the vanished file is queued, nothing is flagged");
 
         await using var db = _factory.CreateDbContext();
         var tracks = db.Tracks.AsNoTracking().ToDictionary(t => t.MelodyId);
@@ -205,10 +206,110 @@ public class RecomputeFactsTests
         var store = await SeedAndCreateStoreAsync(
             ("mel-complete", file, "downloaded", 320, 44100, 12345));
 
-        var (recomputed, missing) = await store.RecomputeMissingFactsAsync();
+        var (recomputed, missing, flagged) = await store.RecomputeMissingFactsAsync();
 
-        Assert.That((recomputed, missing), Is.EqualTo((0, 0)),
-            "a track with all facts set must be skipped entirely");
+        Assert.That((recomputed, missing, flagged), Is.EqualTo((0, 0, 0)),
+            "a track with all facts set must not be re-probed and a silent file has no verdict");
+    }
+
+    [Test]
+    public async Task Recompute_ClearsAStaleInflatedClaim_WhenTheCurrentCheckFindsNothing()
+    {
+        if (!FfmpegAvailable()) Assert.Ignore("ffmpeg not installed");
+        if (MelodyBridge.Infrastructure.Audio.SpectrumAnalyzer.FindFfprobe() is null)
+            Assert.Ignore("ffprobe not installed");
+
+        // A genuine full-band file with an old flagged note on the row:
+        // the recheck must drop the stale claim, not keep telling the
+        // story of a checker that has since been fixed.
+        var file = Path.Combine(_dir, "genuine320.mp3");
+        Assert.That(RunFfmpeg(
+            $"-y -f lavfi -i \"anoisesrc=color=pink:duration=4:seed=4\" -b:a 320k \"{file}\""), Is.Empty);
+
+        var store = await SeedAndCreateStoreAsync(
+            ("mel-stale", file, "downloaded", 320, 44100, 12345));
+        await using (var db = _factory.CreateDbContext())
+        {
+            await db.Tracks.Where(t => t.MelodyId == "mel-stale")
+                .ExecuteUpdateAsync(s => s.SetProperty(t => t.Warning,
+                    "bitrate looks inflated: spectral ceiling 9.7 kHz: matches a 128 kbps source"));
+        }
+
+        var previous = PlaylistStore.Verification;
+        PlaylistStore.Verification = () =>
+            new MelodyBridge.Infrastructure.Audio.VerificationOptions(
+                MelodyBridge.Infrastructure.Audio.SpectrumMode.Fast);
+        int flagged;
+        try
+        {
+            (_, _, flagged) = await store.RecomputeMissingFactsAsync();
+        }
+        finally
+        {
+            PlaylistStore.Verification = previous;
+        }
+
+        await using var check = _factory.CreateDbContext();
+        var track = check.Tracks.AsNoTracking().Single(t => t.MelodyId == "mel-stale");
+        Assert.Multiple(() =>
+        {
+            Assert.That(flagged, Is.EqualTo(0));
+            Assert.That(track.Warning, Is.Null,
+                "a stale inflated claim is cleared by the fresh check");
+            Assert.That(track.ReviewKind, Is.Null);
+        });
+    }
+
+    [Test]
+    public async Task Recompute_FlagsALossySourceBoxedAsFlac()
+    {
+        if (!FfmpegAvailable()) Assert.Ignore("ffmpeg not installed");
+        if (MelodyBridge.Infrastructure.Audio.SpectrumAnalyzer.FindFfprobe() is null)
+            Assert.Ignore("ffprobe not installed");
+
+        // The user-reported shape: a lossy source re-encoded into FLAC
+        // (the manual picker used to do this for yt-dlp-backed plugins).
+        var source = Path.Combine(_dir, "src64.mp3");
+        var fakeFlac = Path.Combine(_dir, "fake.flac");
+        Assert.That(RunFfmpeg(
+            $"-y -f lavfi -i \"anoisesrc=color=pink:duration=4:seed=4\" -b:a 64k \"{source}\""), Is.Empty);
+        Assert.That(RunFfmpeg($"-y -i \"{source}\" -c:a flac \"{fakeFlac}\""), Is.Empty);
+
+        var store = await SeedAndCreateStoreAsync(
+            ("mel-fake-flac", fakeFlac, "downloaded", null, null, null));
+
+        // Other fixtures toggle the static options; pin the check here and
+        // restore it so this test never depends on execution order.
+        var previous = PlaylistStore.Verification;
+        PlaylistStore.Verification = () =>
+            new MelodyBridge.Infrastructure.Audio.VerificationOptions(
+                MelodyBridge.Infrastructure.Audio.SpectrumMode.Fast);
+        int recomputed, missing, flagged;
+        try
+        {
+            (recomputed, missing, flagged) = await store.RecomputeMissingFactsAsync();
+        }
+        finally
+        {
+            PlaylistStore.Verification = previous;
+        }
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(recomputed, Is.EqualTo(1), "the facts were backfilled");
+            Assert.That(missing, Is.EqualTo(0));
+            Assert.That(flagged, Is.EqualTo(1), "the fake lossless file must be flagged");
+        });
+
+        await using var db = _factory.CreateDbContext();
+        var track = db.Tracks.AsNoTracking().Single(t => t.MelodyId == "mel-fake-flac");
+        Assert.Multiple(() =>
+        {
+            Assert.That(track.ReviewKind, Does.Contain("spectrum"));
+            Assert.That(track.ReviewText, Does.Contain("looks inflated"));
+            Assert.That(track.ReviewText, Does.Contain("lossless"),
+                "the review says the container is lossless, not the content");
+        });
     }
 
     [Test]

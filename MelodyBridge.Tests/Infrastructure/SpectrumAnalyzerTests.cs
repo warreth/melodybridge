@@ -195,6 +195,43 @@ public class SpectrumAnalyzerTests
         Assert.That(result.EffectiveKbpsClass, Is.EqualTo(320));
     }
 
+    [Test]
+    public void Verify_GenuineFlac_IsNotInflated()
+    {
+        RequireFfmpeg();
+        var file = Make($"-f lavfi -i \"{Pink}\" -c:a flac", "ggenuine.flac");
+
+        var result = SpectrumAnalyzer.Verify(file, SpectrumMode.Thorough);
+
+        Assert.That(result, Is.Not.Null);
+        Assert.Multiple(() =>
+        {
+            Assert.That(result!.Codec, Is.EqualTo("flac"));
+            Assert.That(result.LooksInflated, Is.False,
+                $"a real lossless file must never be called inflated: {result.Note}");
+            Assert.That(result.EffectiveKbpsClass, Is.EqualTo(320),
+                "the measured bandwidth is what counts now, not the container name");
+        });
+    }
+
+    [Test]
+    public void Verify_HiResFlac_IsNotInflated()
+    {
+        RequireFfmpeg();
+        // 96 kHz content is resampled into the analysis window; the
+        // measured bandwidth saturates at the top class, never a low one.
+        var file = Make($"-f lavfi -i \"{Pink}\" -ar 96000 -c:a flac", "ghires.flac");
+
+        var result = SpectrumAnalyzer.Verify(file, SpectrumMode.Thorough);
+
+        Assert.That(result, Is.Not.Null);
+        Assert.Multiple(() =>
+        {
+            Assert.That(result!.LooksInflated, Is.False);
+            Assert.That(result.EffectiveKbpsClass, Is.EqualTo(320));
+        });
+    }
+
     // ---- mislabelled files: the case the check exists for --------------
 
     [Test]
@@ -239,6 +276,48 @@ public class SpectrumAnalyzerTests
         Assert.That(SpectrumAnalyzer.Verify(file, SpectrumMode.Fast)!.LooksInflated, Is.True,
             "the first minute is enough to see a 64 kbps corner");
         Assert.That(SpectrumAnalyzer.Verify(file, SpectrumMode.Thorough)!.LooksInflated, Is.True);
+    }
+
+    [Test]
+    public void Verify_Upscaled64Mp3ToFlac_IsInflated()
+    {
+        RequireFfmpeg();
+        // The SoundCloud-report shape: a lossy source re-encoded into a
+        // lossless container. The spectrum check must catch it even though
+        // the container and its bitrate claim are "lossless".
+        var source = Make($"-f lavfi -i \"{Pink}\" -b:a 64k", "srcfake.mp3");
+        var file = From(source, "-c:a flac", "fake.flac");
+
+        var result = SpectrumAnalyzer.Verify(file, SpectrumMode.Thorough);
+
+        Assert.That(result, Is.Not.Null);
+        Assert.Multiple(() =>
+        {
+            Assert.That(result!.Codec, Is.EqualTo("flac"));
+            Assert.That(result.LooksInflated, Is.True,
+                $"a lossy source boxed as FLAC must be flagged: {result.Note}");
+            Assert.That(result.Note, Does.Contain("lossless"),
+                "the note explains the container is lossless but the audio is not");
+            Assert.That(result.BandwidthHz, Is.LessThan(17500));
+        });
+    }
+
+    [Test]
+    public void Verify_Upscaled128Mp3ToFlac_StaysWithinTolerance()
+    {
+        RequireFfmpeg();
+        // A 128 kbps source boxed as FLAC keeps enough high end that the
+        // measured class stays within the one-class tolerance: the check
+        // deliberately does not accuse it. The 64 kbps case above is the
+        // real corner the check exists for.
+        var source = Make($"-f lavfi -i \"{Pink}\" -b:a 128k", "srcfake128.mp3");
+        var file = From(source, "-c:a flac", "fake128.flac");
+
+        var result = SpectrumAnalyzer.Verify(file, SpectrumMode.Thorough);
+
+        Assert.That(result, Is.Not.Null);
+        Assert.That(result!.LooksInflated, Is.False,
+            $"a 128 kbps-grade top is inside the tolerance: {result.Note}");
     }
 
     [Test]
