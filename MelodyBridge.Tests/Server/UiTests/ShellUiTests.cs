@@ -22,6 +22,7 @@ public class ShellUiTests
     public void Setup()
     {
         _ctx = new Bunit.TestContext();
+        _ctx.Services.AddPluginAuthMonitor();
         _ctx.Services.AddSingleton(new MelodyBridge.Server.Services.DevPanelService());
         _ctx.Services.AddSingleton(new MelodyBridge.Server.Services.NotificationService());
         _ctx.JSInterop.Mode = JSRuntimeMode.Loose;

@@ -8,6 +8,8 @@
 @inject Application.Services.DownloadCoordinator Coordinator
 @inject SettingsStore Settings
 @inject MelodyBridge.Server.Services.NotificationService Notifications
+@inject MelodyBridge.Infrastructure.Services.PluginAuthMonitor AuthMonitor
+@inject MelodyBridge.Core.IDownloaderRegistry Registry
 @inject IJSRuntime JS
 @implements IDisposable
 
@@ -369,6 +371,32 @@ else
                         <Icon Name="x" Size="18" />
                     </button>
                 </div>
+                @if (sourceAuthIssues.Count > 0)
+                {
+                    <div class="source-auth-note" role="status">
+                        <Icon Name="alert" Size="17" />
+                        <div class="source-auth-copy">
+                            <strong>Some plugins are not searched because their login needs attention</strong>
+                            @foreach (var issue in sourceAuthIssues)
+                            {
+                                <span><b>@issue.PluginName</b> @issue.Message</span>
+                            }
+                        </div>
+                    </div>
+                }
+                @if (sourcePluginNotes.Count > 0)
+                {
+                    <div class="source-auth-note warning" role="status">
+                        <Icon Name="info" Size="17" />
+                        <div class="source-auth-copy">
+                            <strong>Not searched right now</strong>
+                            @foreach (var note in sourcePluginNotes)
+                            {
+                                <span><b>@note.Name</b> @note.Reason</span>
+                            }
+                        </div>
+                    </div>
+                }
                 @if (downloadingCandidate)
                 {
                     <div class="source-progress" aria-hidden="true"><span></span></div>
@@ -1246,6 +1274,11 @@ else
     /// </summary>
     private TrackEntity? chooseSourceTrack;
     private IReadOnlyList<DownloadCandidate> sourceCandidates = Array.Empty<DownloadCandidate>();
+    private IReadOnlyList<PluginAuthIssue> sourceAuthIssues = Array.Empty<PluginAuthIssue>();
+    private IReadOnlyList<SourcePluginNote> sourcePluginNotes = Array.Empty<SourcePluginNote>();
+
+    /// <summary>A plugin the picker did not search, with the reason it gave.</summary>
+    private sealed record SourcePluginNote(string Name, string Reason);
     private bool searchingSources;
     private bool downloadingCandidate;
     /// <summary>The candidate URL currently downloading, so only its row
@@ -1280,6 +1313,8 @@ else
     {
         chooseSourceTrack = track;
         sourceCandidates = Array.Empty<DownloadCandidate>();
+        sourceAuthIssues = AuthMonitor.Snapshot();
+        sourcePluginNotes = Array.Empty<SourcePluginNote>();
         StateHasChanged();
         await SearchSourcesAsync();
     }
@@ -1297,6 +1332,7 @@ else
         candidateQualities.Clear();
         probedCandidateUrls.Clear();
         probingCandidateUrls.Clear();
+        sourcePluginNotes = Array.Empty<SourcePluginNote>();
         chooseSourceTrack = null;
     }
 
@@ -1309,6 +1345,7 @@ else
         var trackId = track.Id;
         searchingSources = true;
         sourceCandidates = Array.Empty<DownloadCandidate>();
+        sourcePluginNotes = Array.Empty<SourcePluginNote>();
         sourceFailures.Clear();
         candidateQualities.Clear();
         probedCandidateUrls.Clear();
@@ -1343,6 +1380,7 @@ else
                 if (candidates is not null)
                 {
                     sourceCandidates = candidates;
+                    sourcePluginNotes = UnavailableSourceNotes();
                     foreach (var candidate in candidates)
                         StartCandidateProbe(candidate, generation, trackId);
                 }
@@ -1351,6 +1389,20 @@ else
             }
         }
     }
+
+    /// <summary>
+    /// Why an enabled plugin is missing from the result list. A login
+    /// problem already has its own red note; this covers the tool or
+    /// service being down, so a short list never looks like a silent bug.
+    /// </summary>
+    private IReadOnlyList<SourcePluginNote> UnavailableSourceNotes()
+        => Registry.GetEnabled()
+            .Where(plugin => plugin is not IPluginAuthStatusProvider
+                { AuthStatus.NeedsAttention: true })
+            .Select(plugin => new SourcePluginNote(
+                plugin.Name, plugin.LastUnavailableReason ?? ""))
+            .Where(note => note.Reason.Length > 0)
+            .ToList();
 
     /// <summary>
     /// Asks the candidate's plugin for the exact source facts and fills the

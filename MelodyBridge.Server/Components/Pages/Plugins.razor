@@ -1,10 +1,12 @@
 @page "/plugins"
 @using MelodyBridge.Core
 @using MelodyBridge.Infrastructure.Downloaders
+@using MelodyBridge.Infrastructure.Services
 @inject IDownloaderRegistry Registry
 @inject Application.Services.DownloadCoordinator Coordinator
 @inject YtDlpUpdater YtDlp
 @inject MelodyBridge.Server.Services.NotificationService Notifications
+@inject MelodyBridge.Infrastructure.Services.PluginAuthMonitor AuthMonitor
 @implements IDisposable
 
 <PageTitle>Plugins - MelodyBridge</PageTitle>
@@ -30,6 +32,38 @@
         </button>
     </div>
 </section>
+
+@if (authIssues.Count > 0)
+{
+    <section class="auth-alert" role="alert" aria-live="polite">
+        <div class="auth-alert-icon" aria-hidden="true">
+            <Icon Name="alert" Size="22" />
+        </div>
+        <div class="auth-alert-body">
+            <strong>@AuthAlertTitle</strong>
+            <p>
+                These plugins are skipped until their login works again, so a
+                download never reaches their catalogue. The token itself can
+                still look fine on the provider's site.
+            </p>
+            <ul class="auth-alert-list">
+                @foreach (var issue in authIssues)
+                {
+                    <li>
+                        <div class="auth-alert-copy">
+                            <strong>@issue.PluginName</strong>
+                            <span>@issue.Message</span>
+                        </div>
+                        <button class="btn-modern small ghost"
+                                @onclick="() => OpenAuthSettings(issue.PluginId)">
+                            Open settings
+                        </button>
+                    </li>
+                }
+            </ul>
+        </div>
+    </section>
+}
 
 @if (runs.Count > 0)
 {
@@ -111,18 +145,30 @@
     @foreach (var plugin in orderedPlugins)
     {
         var enabled = Registry.IsEnabled(plugin.Id);
-        var status = availability.GetValueOrDefault(plugin.Id, new PluginStatus(false, null));
-        <article class="plugin-card @(enabled ? "" : "disabled")">
+        var checkedNow = availability.TryGetValue(plugin.Id, out var status);
+        status ??= new PluginStatus(false, null);
+        var auth = (plugin as IPluginAuthStatusProvider)?.AuthStatus;
+        var authProblem = enabled && auth?.NeedsAttention == true;
+        var authMessage = authProblem ? auth!.Message : null;
+        <article class="plugin-card @(enabled ? "" : "disabled") @(authProblem ? "auth-error" : null)"
+                 id="plugin-@plugin.Id">
             <div class="plugin-head">
-                <Icon Name="@PluginIconName(plugin.Id)" Size="20" Class="provider-icon" />
+                <span class="plugin-icon-wrap @(authProblem ? "auth-error" : null)">
+                    <Icon Name="@PluginIconName(plugin.Id)" Size="20" Class="provider-icon" />
+                    @if (authProblem)
+                    {
+                        <span class="plugin-auth-flag" title="@authMessage" aria-label="Login needs attention">!</span>
+                    }
+                </span>
                 <div class="plugin-title">
                     <strong>@plugin.Name</strong>
                     <div class="plugin-description">@plugin.Description</div>
                 </div>
                 <div class="plugin-tail">
-                    <StatusPill Variant="@(status.Ready ? "ready" : "unavailable")"
-                                Title="@(status.Ready ? "Checked and reachable" : status.Detail ?? "Could not reach this plugin")">
-                        @(status.Ready ? "ready" : "unavailable")
+                    <StatusPill Variant="@(authProblem ? "unavailable" : !checkedNow ? "neutral" : status.Ready ? "ready" : "unavailable")"
+                                Class="@(authProblem ? "auth-pill" : null)"
+                                Title="@(authProblem ? authMessage : !checkedNow ? "Checking this plugin" : status.Ready ? "Checked and reachable" : status.Detail ?? "Could not reach this plugin")">
+                        @(authProblem ? AuthLabel(auth!.State) : !checkedNow ? "checking…" : status.Ready ? "ready" : "unavailable")
                     </StatusPill>
                     <label class="toggle-switch">
                         <input type="checkbox" checked="@enabled"
@@ -152,12 +198,16 @@
                 }
             </div>
             @{
-                var note = status.Ready ? null : plugin.LastUnavailableReason ?? status.Detail;
+                var note = authProblem
+                    ? authMessage ?? plugin.LastUnavailableReason ?? status.Detail
+                    : !status.Ready
+                        ? plugin.LastUnavailableReason ?? status.Detail
+                        : auth?.Message;
             }
             @if (!string.IsNullOrEmpty(note))
             {
-                <div class="plugin-note">
-                    <Icon Name="info" Size="15" />
+                <div class="plugin-note @(authProblem || auth?.State == PluginAuthState.PlanRestricted ? "auth" : null)">
+                    <Icon Name="@(authProblem ? "alert" : "info")" Size="15" />
                     <span>@note</span>
                 </div>
             }
@@ -226,6 +276,7 @@
 
     private List<IDownloader> orderedPlugins = new();
     private Dictionary<string, PluginStatus> availability = new();
+    private IReadOnlyList<PluginAuthIssue> authIssues = Array.Empty<PluginAuthIssue>();
     private Dictionary<string, string> configValues = new();
     private List<Application.Services.DownloadRun> runs = new();
     private Timer? _timer;
@@ -243,7 +294,11 @@
     {
         _ = Registry.GetEnabled(); // force cache load
         await ReorderPluginsAsync();
+        // The background login sweep may already know about a stale token:
+        // show that mark before the first slow network probe finishes.
+        authIssues = AuthMonitor.Snapshot();
         await RefreshAvailability();
+        authIssues = AuthMonitor.Snapshot();
         await LoadConfigValuesAsync();
         ytDlpVersion = await YtDlp.GetVersionAsync();
         ytDlpChecked = true;
@@ -255,6 +310,7 @@
             // their own verdicts) every half minute.
             if (DateTimeOffset.UtcNow - lastAvailabilityCheck > TimeSpan.FromSeconds(30))
                 await RefreshAvailability();
+            authIssues = AuthMonitor.Snapshot();
             StateHasChanged();
         }), null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
     }
@@ -332,7 +388,23 @@
         if (plugin is null) return;
         foreach (var field in plugin.ConfigFields)
             await Registry.SetConfigAsync(pluginId, field.Key, configValues.GetValueOrDefault($"{pluginId}:{field.Key}"));
-        Notifications.Success($"{plugin.Name} settings saved.");
+
+        // A newly pasted token must be tested for real, not answered from
+        // the "down" verdict cached before the save.
+        (plugin as IPluginAvailabilityRefresh)?.RefreshAvailability();
+        var (ready, reason) = await ProbePluginAsync(plugin);
+        availability[plugin.Id] = new PluginStatus(ready, ready ? null : reason);
+        authIssues = AuthMonitor.Snapshot();
+        lastAvailabilityCheck = DateTimeOffset.UtcNow;
+
+        var auth = (plugin as IPluginAuthStatusProvider)?.AuthStatus;
+        if (auth is { NeedsAttention: true })
+            Notifications.Warn($"{plugin.Name}: {auth.Message ?? "the login still needs attention"}");
+        else if (!ready)
+            Notifications.Warn($"{plugin.Name} settings saved, but the plugin is not ready: {reason}");
+        else
+            Notifications.Success($"{plugin.Name} settings saved; the connection works.");
+
         StateHasChanged();
     }
 
@@ -354,31 +426,85 @@
         // slow sweep must never run twice concurrently: it would pile up
         // network probes and race on the results dictionary.
         if (Interlocked.CompareExchange(ref availabilitySweep, 1, 0) == 1)
+        {
+            authIssues = AuthMonitor.Snapshot();
             return;
+        }
 
         try
         {
             var results = new Dictionary<string, PluginStatus>();
             foreach (var plugin in orderedPlugins)
             {
-                try
-                {
-                    var ready = await plugin.IsAvailableAsync();
-                    results[plugin.Id] = new PluginStatus(ready,
-                        ready ? null : AvailabilityHint(plugin) ?? "Could not reach this plugin");
-                }
-                catch (Exception ex)
-                {
-                    results[plugin.Id] = new PluginStatus(false, ex.Message);
-                }
+                var (ready, reason) = await ProbePluginAsync(plugin);
+                results[plugin.Id] = new PluginStatus(ready, reason);
             }
             availability = results;
+            authIssues = AuthMonitor.Snapshot();
             lastAvailabilityCheck = DateTimeOffset.UtcNow;
         }
         finally
         {
             Interlocked.Exchange(ref availabilitySweep, 0);
         }
+    }
+
+    /// <summary>
+    /// One plugin's availability plus its own login verdict. The login
+    /// register is updated here, so the banner and the sidebar mark use
+    /// the same observation the card does.
+    /// </summary>
+    private async Task<(bool Ready, string? Reason)> ProbePluginAsync(IDownloader plugin)
+    {
+        try
+        {
+            var ready = await plugin.IsAvailableAsync();
+            ObserveAuth(plugin);
+            var auth = (plugin as IPluginAuthStatusProvider)?.AuthStatus;
+            return (ready, ready
+                ? null
+                : auth?.Message ?? AvailabilityHint(plugin) ?? "Could not reach this plugin");
+        }
+        catch (Exception ex)
+        {
+            ObserveAuth(plugin);
+            return (false, ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// A disabled plugin's stale token is irrelevant: it must not keep the
+    /// banner or the sidebar mark alive.
+    /// </summary>
+    private void ObserveAuth(IDownloader plugin)
+    {
+        if (Registry.IsEnabled(plugin.Id))
+            AuthMonitor.Observe(plugin);
+        else
+            AuthMonitor.Clear(plugin.Id);
+    }
+
+    /// <summary>The banner headline, with the number of affected plugins.</summary>
+    private string AuthAlertTitle => authIssues.Count == 1
+        ? "One plugin needs your login"
+        : $"{authIssues.Count} plugins need your login";
+
+    /// <summary>The short pill label for a login problem.</summary>
+    private static string AuthLabel(PluginAuthState state) => state switch
+    {
+        PluginAuthState.Expired => "token expired",
+        PluginAuthState.Rejected => "token rejected",
+        PluginAuthState.Blocked => "account blocked",
+        PluginAuthState.PlanRestricted => "plan restricted",
+        PluginAuthState.Missing => "login needed",
+        _ => "login problem",
+    };
+
+    /// <summary>Opens the card's settings from the banner.</summary>
+    private void OpenAuthSettings(string pluginId)
+    {
+        openSettings.Add(pluginId);
+        StateHasChanged();
     }
 
     /// <summary>
@@ -402,6 +528,11 @@
     private async Task TogglePluginAsync(string id, bool enabled)
     {
         await Registry.SetEnabledAsync(id, enabled);
+        if (!enabled)
+        {
+            AuthMonitor.Clear(id);
+            authIssues = AuthMonitor.Snapshot();
+        }
         await ReorderPluginsAsync();
         StateHasChanged();
     }

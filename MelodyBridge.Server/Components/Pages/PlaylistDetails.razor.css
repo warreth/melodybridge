@@ -135,6 +135,31 @@
 }
 .source-target .eyebrow { margin: 0; }
 
+/* Why a plugin is missing from the result list: the picker explains it
+   instead of leaving the user with a shorter list and no reason. */
+.source-auth-note {
+    display: flex;
+    align-items: flex-start;
+    gap: .55rem;
+    margin: .75rem 1.25rem 0;
+    padding: .65rem .75rem;
+    border: 1px solid color-mix(in srgb, var(--danger) 32%, transparent);
+    border-radius: 8px;
+    background: var(--danger-soft);
+}
+.source-auth-note .icon { flex-shrink: 0; margin-top: .1rem; color: var(--danger); }
+.source-auth-note.warning {
+    border-color: color-mix(in srgb, var(--warning) 32%, transparent);
+    background: var(--warning-soft);
+}
+.source-auth-note.warning .icon { color: var(--warning); }
+.source-auth-copy { display: grid; gap: .15rem; min-width: 0; font-size: .85rem; }
+.source-auth-copy strong { font-size: .87rem; }
+.source-auth-copy span { color: var(--muted); line-height: 1.4; overflow-wrap: anywhere; }
+@media (max-width: 640px) {
+    .source-auth-note { margin: .65rem .75rem 0; }
+}
+
 /* Per-candidate quality line: the exact source facts plus the target
    verdict pill, filled in as each plugin's probe answers. */
 .source-quality {

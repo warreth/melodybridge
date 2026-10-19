@@ -58,6 +58,10 @@ builder.Services.AddScoped(sp =>
 // Toasts: singleton so events raised anywhere reach the one layout.
 builder.Services.AddSingleton(new MelodyBridge.Server.Services.NotificationService());
 builder.Services.AddHostedService<MelodyBridge.Server.Services.ToastObserverService>();
+// Watch the subscription plugins' logins even when nobody has the
+// Plugins page open, so an expired token reaches the user as a toast and
+// a persistent mark instead of a silent "no source" miss.
+builder.Services.AddHostedService<MelodyBridge.Server.Services.PluginAuthWatchService>();
 
 // ntfy push: best effort, own client with a short timeout so a dead
 // topic can never stall a notification sweep.

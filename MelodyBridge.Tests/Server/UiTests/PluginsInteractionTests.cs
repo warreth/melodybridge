@@ -29,6 +29,7 @@ public class PluginsInteractionTests
     public void Setup()
     {
         _ctx = new Bunit.TestContext();
+        _ctx.Services.AddPluginAuthMonitor();
         _dbPath = Path.Combine(Path.GetTempPath(), $"mb-plugins-{Guid.NewGuid():N}.db");
         _factory = new TestSqliteFactory(_dbPath);
         using (var db = _factory.CreateDbContext())

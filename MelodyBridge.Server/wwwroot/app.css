@@ -245,6 +245,23 @@ h1:focus { outline: none; }
 .app-nav .nav-link.active { background: var(--accent-soft); color: var(--accent-text); }
 .app-nav .nav-link.active span { color: var(--accent-text); }
 
+/* A login problem on any plugin follows the user everywhere: a small
+   red flag on the Plugins link, so the fix is one click away. */
+.app-nav .nav-link .nav-auth-flag {
+    width: 18px;
+    height: 18px;
+    margin-left: auto;
+    display: inline-grid;
+    place-items: center;
+    flex-shrink: 0;
+    border-radius: 50%;
+    background: var(--danger);
+    color: var(--bg);
+    font-size: 11px;
+    font-weight: 800;
+    line-height: 1;
+}
+
 .sidebar-footer {
     position: absolute;
     left: 1rem;

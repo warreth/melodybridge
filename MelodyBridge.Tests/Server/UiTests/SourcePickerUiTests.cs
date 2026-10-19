@@ -115,6 +115,8 @@ public class SourcePickerUiTests
     public void Setup()
     {
         _ctx = new Bunit.TestContext();
+        _ctx.Services.AddPluginAuthMonitor();
+        _ctx.Services.AddSingleton<IDownloaderRegistry>(new EmptyRegistry());
         _dbPath = Path.Combine(Path.GetTempPath(), $"mb-pick-ui-{Guid.NewGuid():N}.db");
         _dir = Path.Combine(Path.GetTempPath(), $"mb-pick-ui-{Guid.NewGuid():N}");
         var factory = new TestSqliteFactory(_dbPath);
@@ -197,6 +199,56 @@ public class SourcePickerUiTests
             Assert.That(cut.FindAll(".source-candidate"), Is.Empty, "the dialog closes on success");
         }, TimeSpan.FromSeconds(10));
         Assert.That(_plugin.DownloadCalls, Is.EqualTo(1));
+    }
+
+    private sealed class DownPlugin : IDownloader
+    {
+        public string Id => "down";
+        public string Name => "Down plugin";
+        public string Description => "test";
+        public PluginCapabilities Capabilities => PluginCapabilities.Any;
+        public string? LastUnavailableReason => "The service did not answer";
+        public Task<bool> IsAvailableAsync(CancellationToken ct = default) => Task.FromResult(false);
+        public Task<DownloaderSearchHit?> SearchAsync(TrackQuery query, CancellationToken ct = default)
+            => Task.FromResult<DownloaderSearchHit?>(null);
+        public Task<DownloaderDownloadResult> DownloadAsync(
+            string sourceUrl, string outputDirectory, string? melodyId,
+            DownloadQuality? quality = null, CancellationToken ct = default)
+            => Task.FromResult(new DownloaderDownloadResult(false, null, "down"));
+    }
+
+    [Test]
+    public void Picker_ExplainsAnEnabledPluginThatWasNotSearched()
+    {
+        _ctx.Services.AddSingleton<IDownloaderRegistry>(
+            new ListDownloaderRegistry(new DownPlugin()));
+
+        var cut = RenderPage();
+        cut.FindAll("button").Single(b => b.TextContent.Trim() == "Choose source").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.Markup, Does.Contain("Not searched right now"));
+            Assert.That(cut.Markup, Does.Contain("Down plugin"));
+            Assert.That(cut.Markup, Does.Contain("The service did not answer"));
+        }, TimeSpan.FromSeconds(5));
+    }
+
+    [Test]
+    public void Picker_ExplainsAPluginWhoseLoginNeedsAttention()
+    {
+        var monitor = _ctx.Services.GetRequiredService<PluginAuthMonitor>();
+        monitor.Report("qobuz", "Qobuz", "The Qobuz token expired");
+
+        var cut = RenderPage();
+        cut.FindAll("button").Single(b => b.TextContent.Trim() == "Choose source").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.Markup, Does.Contain("Some plugins are not searched"));
+            Assert.That(cut.Markup, Does.Contain("Qobuz"));
+            Assert.That(cut.Markup, Does.Contain("The Qobuz token expired"));
+        }, TimeSpan.FromSeconds(5));
     }
 
     [Test]

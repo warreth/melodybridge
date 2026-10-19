@@ -9,6 +9,71 @@
     margin-top: 1rem;
 }
 
+/* Login warning: impossible to miss without turning the page into a
+   wall of red. The banner comes first, the card border and the icon flag
+   repeat the same signal where the fix lives. */
+.auth-alert {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: .85rem;
+    padding: 1rem;
+    margin-bottom: 1rem;
+    border: 1px solid color-mix(in srgb, var(--danger) 42%, transparent);
+    border-radius: var(--radius);
+    background: var(--danger-soft);
+}
+
+.auth-alert-icon {
+    width: 40px;
+    height: 40px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--danger) 18%, transparent);
+    color: var(--danger);
+}
+
+.auth-alert-body { display: grid; gap: .45rem; min-width: 0; }
+.auth-alert-body > strong { font-size: 1.02rem; }
+.auth-alert-body > p { margin: 0; color: var(--muted); font-size: .9rem; line-height: 1.5; }
+
+.auth-alert-list {
+    list-style: none;
+    display: grid;
+    gap: .45rem;
+    margin: .15rem 0 0;
+    padding: 0;
+}
+
+.auth-alert-list li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: .75rem;
+    padding: .55rem .65rem;
+    border: 1px solid color-mix(in srgb, var(--danger) 22%, transparent);
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--surface) 72%, transparent);
+}
+
+.auth-alert-copy { display: grid; gap: .1rem; min-width: 0; }
+.auth-alert-copy strong { font-size: .9rem; }
+.auth-alert-copy span {
+    color: var(--muted);
+    font-size: .86rem;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+}
+
+.auth-alert-list .btn-modern { flex-shrink: 0; }
+
+@media (max-width: 600px) {
+    .auth-alert { grid-template-columns: minmax(0, 1fr); padding: .85rem; }
+    .auth-alert-icon { width: 34px; height: 34px; }
+    .auth-alert-list li { align-items: stretch; flex-direction: column; }
+    .auth-alert-list .btn-modern { width: 100%; }
+}
+
 .plugin-card {
     display: grid;
     gap: .6rem;
@@ -20,6 +85,43 @@
 }
 
 .plugin-card:hover { border-color: var(--border-strong); }
+
+.plugin-card.auth-error {
+    border-color: color-mix(in srgb, var(--danger) 55%, var(--border));
+    box-shadow: inset 3px 0 0 var(--danger);
+}
+
+/* The icon wrapper carries the red flag; the icon itself keeps the
+   shared provider shape. */
+.plugin-icon-wrap {
+    position: relative;
+    display: inline-grid;
+    place-items: center;
+    flex-shrink: 0;
+}
+
+.plugin-icon-wrap.auth-error .provider-icon {
+    color: var(--danger);
+    background: var(--danger-soft);
+}
+
+.plugin-auth-flag {
+    position: absolute;
+    top: -5px;
+    right: -5px;
+    width: 19px;
+    height: 19px;
+    display: grid;
+    place-items: center;
+    border: 2px solid var(--surface);
+    border-radius: 50%;
+    background: var(--danger);
+    color: var(--bg);
+    font-size: 12px;
+    font-weight: 800;
+    line-height: 1;
+    box-sizing: content-box;
+}
 
 /* Dimmed, but the toggle stays clickable at full opacity. */
 .plugin-card.disabled { opacity: .6; }
@@ -103,6 +205,14 @@
 }
 
 .plugin-note .icon { flex-shrink: 0; margin-top: .1rem; }
+
+.plugin-note.auth {
+    border-color: color-mix(in srgb, var(--danger) 28%, transparent);
+    background: var(--danger-soft);
+    color: var(--text);
+}
+
+.plugin-note.auth .icon { color: var(--danger); }
 
 /* The settings disclosure: a full-width row that opens into a panel,
    instead of a native details triangle. Closed it is a quiet inset row;

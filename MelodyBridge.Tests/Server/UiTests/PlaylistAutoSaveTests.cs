@@ -27,6 +27,8 @@ public class PlaylistAutoSaveTests
     public void Setup()
     {
         _ctx = new Bunit.TestContext();
+        _ctx.Services.AddPluginAuthMonitor();
+        _ctx.Services.AddSingleton<IDownloaderRegistry>(new EmptyRegistry());
         _dbPath = Path.Combine(Path.GetTempPath(), $"mb-auto-{Guid.NewGuid():N}.db");
         _factory = new TestSqliteFactory(_dbPath);
         using (var db = _factory.CreateDbContext())

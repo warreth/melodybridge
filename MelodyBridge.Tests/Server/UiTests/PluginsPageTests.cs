@@ -24,6 +24,7 @@ public class PluginsPageTests
     public void Setup()
     {
         _ctx = new TestContext();
+        _ctx.Services.AddPluginAuthMonitor();
         _registry = new Mock<IDownloaderRegistry>();
 
         var dbFactory = TestHelpers.CreateInMemFactory();
@@ -62,6 +63,145 @@ public class PluginsPageTests
 
     [TearDown]
     public void TearDown() => _ctx.Dispose();
+
+    private sealed class AuthTestDownloader : IDownloader, IPluginAuthStatusProvider, IPluginAvailabilityRefresh
+    {
+        public AuthTestDownloader(string id, string name, PluginConfigField[]? fields = null)
+        {
+            Id = id;
+            Name = name;
+            ConfigFields = fields ?? Array.Empty<PluginConfigField>();
+        }
+
+        public string Id { get; }
+        public string Name { get; }
+        public string Description => "auth test downloader";
+        public PluginCapabilities Capabilities => PluginCapabilities.Any;
+        public IReadOnlyList<PluginConfigField> ConfigFields { get; }
+        public PluginAuthStatus AuthStatus { get; set; } = PluginAuthStatus.Unknown;
+        public bool Available { get; set; } = true;
+        public int Probes { get; private set; }
+        public int Refreshes { get; private set; }
+
+        public Task<bool> IsAvailableAsync(CancellationToken ct = default)
+        {
+            Probes++;
+            return Task.FromResult(Available);
+        }
+
+        public void RefreshAvailability() => Refreshes++;
+
+        public Task<DownloaderSearchHit?> SearchAsync(TrackQuery query, CancellationToken ct = default)
+            => Task.FromResult<DownloaderSearchHit?>(null);
+
+        public Task<DownloaderDownloadResult> DownloadAsync(
+            string sourceUrl, string outputDirectory, string? melodyId,
+            DownloadQuality? quality = null, CancellationToken ct = default)
+            => Task.FromResult(new DownloaderDownloadResult(false, null, "test"));
+    }
+
+    [Test]
+    public void Plugins_ShowsTheLoginBanner_AndRedFlagForAnExpiredToken()
+    {
+        var broken = new AuthTestDownloader("qobuz", "Qobuz")
+        {
+            Available = false,
+            AuthStatus = new PluginAuthStatus(PluginAuthState.Expired,
+                "The Qobuz token expired; paste a fresh one"),
+        };
+        _registry.Setup(r => r.GetAll()).Returns(new List<IDownloader> { broken });
+        _registry.Setup(r => r.GetEnabled()).Returns(new List<IDownloader> { broken });
+
+        var cut = _ctx.Render<Plugins>();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(cut.Markup, Does.Contain("One plugin needs your login"));
+            Assert.That(cut.Markup, Does.Contain("The Qobuz token expired; paste a fresh one"));
+            Assert.That(cut.FindAll(".plugin-auth-flag").Count, Is.EqualTo(1),
+                "the plugin icon carries a red exclamation mark");
+            Assert.That(cut.FindAll(".plugin-card.auth-error").Count, Is.EqualTo(1));
+            Assert.That(cut.Markup, Does.Contain("token expired"),
+                "the status pill names the login state");
+        });
+    }
+
+    [Test]
+    public void Plugins_MissingLogin_IsUnavailableButNotARedAlert()
+    {
+        var unconfigured = new AuthTestDownloader("qobuz", "Qobuz")
+        {
+            Available = false,
+            AuthStatus = new PluginAuthStatus(PluginAuthState.Missing, "No Qobuz token yet"),
+        };
+        _registry.Setup(r => r.GetAll()).Returns(new List<IDownloader> { unconfigured });
+        _registry.Setup(r => r.GetEnabled()).Returns(new List<IDownloader> { unconfigured });
+
+        var cut = _ctx.Render<Plugins>();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(cut.Markup, Does.Not.Contain("needs your login"));
+            Assert.That(cut.FindAll(".plugin-auth-flag").Count, Is.EqualTo(0),
+                "a plugin that was never set up is not a broken login");
+            Assert.That(cut.Markup, Does.Contain("No Qobuz token yet"));
+        });
+    }
+
+    [Test]
+    public void Plugins_OpenSettingsFromTheLoginBanner()
+    {
+        var broken = new AuthTestDownloader("qobuz", "Qobuz", new[]
+        {
+            new PluginConfigField("user_auth_token", "Qobuz token", null, null, Secret: true),
+        })
+        {
+            Available = false,
+            AuthStatus = new PluginAuthStatus(PluginAuthState.Rejected, "The Qobuz token was rejected"),
+        };
+        _registry.Setup(r => r.GetAll()).Returns(new List<IDownloader> { broken });
+        _registry.Setup(r => r.GetEnabled()).Returns(new List<IDownloader> { broken });
+        _registry.Setup(r => r.GetConfigAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync("");
+
+        var cut = _ctx.Render<Plugins>();
+        Assert.That(cut.FindAll("input[type=password]").Count, Is.EqualTo(0),
+            "settings stay closed until asked");
+
+        cut.FindAll(".auth-alert-list button").Single().Click();
+
+        Assert.That(cut.FindAll("input[type=password]").Count, Is.EqualTo(1),
+            "the banner's Open settings button opens the card's panel");
+    }
+
+    [Test]
+    public async Task Plugins_SaveSettings_ForcesARealProbe()
+    {
+        var plugin = new AuthTestDownloader("qobuz", "Qobuz", new[]
+        {
+            new PluginConfigField("user_auth_token", "Qobuz token", null, null, Secret: true),
+        })
+        {
+            Available = false,
+            AuthStatus = new PluginAuthStatus(PluginAuthState.Expired, "The token expired"),
+        };
+        _registry.Setup(r => r.GetAll()).Returns(new List<IDownloader> { plugin });
+        _registry.Setup(r => r.GetEnabled()).Returns(new List<IDownloader> { plugin });
+        _registry.Setup(r => r.GetConfigAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync("");
+
+        var cut = _ctx.Render<Plugins>();
+        cut.Find("button.settings-toggle").Click();
+        await cut.InvokeAsync(() => cut.FindAll("button").Single(b => b.TextContent.Contains("Save settings")).Click());
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(plugin.Refreshes, Is.EqualTo(1),
+                "saving a token drops the old negative availability cache");
+            Assert.That(plugin.Probes, Is.GreaterThanOrEqualTo(2),
+                "the page probes once on load and again after the save");
+        });
+    }
 
     [Test]
     public void Plugins_Renders_Title_And_Plugin_List()

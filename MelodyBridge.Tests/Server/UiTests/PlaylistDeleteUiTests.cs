@@ -26,6 +26,8 @@ public class PlaylistDeleteUiTests
     public void Setup()
     {
         _ctx = new Bunit.TestContext();
+        _ctx.Services.AddPluginAuthMonitor();
+        _ctx.Services.AddSingleton<IDownloaderRegistry>(new EmptyRegistry());
         _dbPath = Path.Combine(Path.GetTempPath(), $"mb-del-{Guid.NewGuid():N}.db");
         _musicDir = Path.Combine(Path.GetTempPath(), $"mb-del-{Guid.NewGuid():N}");
         Directory.CreateDirectory(_musicDir);

@@ -1,4 +1,6 @@
 @inject DevPanelService DevPanel
+@inject MelodyBridge.Infrastructure.Services.PluginAuthMonitor AuthMonitor
+@implements IDisposable
 
 @* NavLink, not plain anchors: the router marks the current page's
    link with .active, and the sidebar CSS paints it in the accent
@@ -11,7 +13,14 @@
     <div class="nav-section">
         <div class="nav-section-header">Your music</div>
         <NavLink class="nav-link" href="/playlists"><Icon Name="list-music" Class="nav-icon" /> Playlists</NavLink>
-        <NavLink class="nav-link" href="/plugins"><Icon Name="package" Class="nav-icon" /> Plugins</NavLink>
+        <NavLink class="nav-link" href="/plugins">
+            <Icon Name="package" Class="nav-icon" /> Plugins
+            @if (authIssueCount > 0)
+            {
+                <span class="nav-auth-flag" title="@AuthAlertTitle"
+                      aria-label="@AuthAlertTitle">!</span>
+            }
+        </NavLink>
         <NavLink class="nav-link" href="/library"><Icon Name="library" Class="nav-icon" /> Library</NavLink>
     </div>
     <div class="nav-section">
@@ -29,3 +38,26 @@
         }
     </div>
 </nav>
+
+@code {
+    private int authIssueCount;
+    private string AuthAlertTitle => authIssueCount == 1
+        ? "1 plugin needs your login"
+        : $"{authIssueCount} plugins need your login";
+
+    protected override void OnInitialized()
+    {
+        AuthMonitor.Changed += OnAuthChanged;
+        RefreshAuthCount();
+    }
+
+    private void OnAuthChanged() => _ = InvokeAsync(() =>
+    {
+        RefreshAuthCount();
+        StateHasChanged();
+    });
+
+    private void RefreshAuthCount() => authIssueCount = AuthMonitor.Snapshot().Count;
+
+    public void Dispose() => AuthMonitor.Changed -= OnAuthChanged;
+}

@@ -86,6 +86,7 @@ public class ToastTests
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
         var svc = new NotificationService(autoDismissAfter: TimeSpan.FromMilliseconds(150));
         ctx.Services.AddSingleton(svc);
+        ctx.Services.AddPluginAuthMonitor();
         ctx.Services.AddSingleton(new DevPanelService());
 
         var cut = ctx.Render<MainLayout>();

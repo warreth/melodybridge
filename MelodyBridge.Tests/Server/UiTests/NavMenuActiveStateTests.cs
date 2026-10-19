@@ -1,5 +1,6 @@
 using Bunit;
 using MelodyBridge.Infrastructure.Data;
+using MelodyBridge.Infrastructure.Services;
 using MelodyBridge.Server.Components.Layout;
 using MelodyBridge.Server.Services;
 using Microsoft.EntityFrameworkCore;
@@ -25,6 +26,7 @@ public class NavMenuActiveStateTests
     public void Setup()
     {
         _ctx = new Bunit.TestContext();
+        _ctx.Services.AddPluginAuthMonitor();
         var dbPath = Path.Combine(Path.GetTempPath(), $"mb-nav-{Guid.NewGuid():N}.db");
         _dbs.Add(dbPath);
         var factory = new TestSqliteFactory(dbPath);
@@ -83,6 +85,28 @@ public class NavMenuActiveStateTests
         var nav = RenderNavAt("/logs");
 
         Assert.That(ActiveHrefs(nav), Is.EqualTo(new[] { "/logs" }));
+    }
+
+    [Test]
+    public void PluginLoginProblem_ShowsAndClearsTheNavFlag()
+    {
+        var monitor = _ctx.Services.GetRequiredService<PluginAuthMonitor>();
+        var nav = _ctx.Render<NavMenu>();
+
+        monitor.Report("qobuz", "Qobuz", "The Qobuz token expired");
+
+        nav.WaitForAssertion(() =>
+        {
+            var flag = nav.FindAll(".nav-auth-flag").Single();
+            Assert.That(flag.TextContent, Is.EqualTo("!"));
+            Assert.That(flag.GetAttribute("aria-label"), Does.Contain("1 plugin"));
+        }, TimeSpan.FromSeconds(3));
+
+        monitor.Clear("qobuz");
+
+        nav.WaitForAssertion(() =>
+            Assert.That(nav.FindAll(".nav-auth-flag"), Is.Empty),
+            TimeSpan.FromSeconds(3));
     }
 
     [Test]

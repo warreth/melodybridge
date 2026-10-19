@@ -54,6 +54,8 @@ public class DownloadQueueUiTests
     public void Setup()
     {
         _ctx = new Bunit.TestContext();
+        _ctx.Services.AddPluginAuthMonitor();
+        _ctx.Services.AddSingleton<IDownloaderRegistry>(new EmptyRegistry());
         _dbPath = Path.Combine(Path.GetTempPath(), $"mb-q-{Guid.NewGuid():N}.db");
         _dir = Path.Combine(Path.GetTempPath(), $"mb-q-{Guid.NewGuid():N}");
         var factory = new TestSqliteFactory(_dbPath);

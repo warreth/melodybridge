@@ -1,6 +1,7 @@
 using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace MelodyBridge.Tests;
 
@@ -50,6 +51,10 @@ public sealed class TestDownloader : IDownloader
 
 public static class TestHelpers
 {
+    /// <summary>Pages and the sidebar read this singleton; every UI test context needs it.</summary>
+    public static void AddPluginAuthMonitor(this IServiceCollection services)
+        => services.AddSingleton<MelodyBridge.Infrastructure.Services.PluginAuthMonitor>();
+
     public static InMemDbFactory CreateInMemFactory()
     {
         var options = new DbContextOptionsBuilder<MelodyBridgeDbContext>()
