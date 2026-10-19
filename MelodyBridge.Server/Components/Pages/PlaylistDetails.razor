@@ -1353,35 +1353,39 @@ else
     }
 
     /// <summary>
-    /// Asks the candidate's plugin for the exact source facts, off the UI
-    /// thread, and fills the row in when the answer lands. A probe that
-    /// yields nothing leaves the row on the manifest line; the row never
-    /// waits for it to enable Download.
+    /// Asks the candidate's plugin for the exact source facts and fills the
+    /// row in when the answer lands. The probe starts on the caller's
+    /// context and yields at its first await, so a fast plugin updates the
+    /// row without a thread hop and a slow one never blocks the dialog.
+    /// The Download button is usable the whole time.
     /// </summary>
     private void StartCandidateProbe(DownloadCandidate candidate, int generation, int trackId)
     {
         var url = candidate.SourceUrl;
         if (probingCandidateUrls.Contains(url) || probedCandidateUrls.Contains(url)) return;
         probingCandidateUrls.Add(url);
-        _ = Task.Run(async () =>
+        _ = ProbeCandidateAsync(candidate, url, generation, trackId);
+    }
+
+    private async Task ProbeCandidateAsync(
+        DownloadCandidate candidate, string url, int generation, int trackId)
+    {
+        CandidateAudioQuality? quality = null;
+        try
         {
-            CandidateAudioQuality? quality = null;
-            try
-            {
-                quality = await Store.ProbeCandidateQualityAsync(candidate.PluginId, url);
-            }
-            catch
-            {
-                // A probe is best effort; the row falls back to the manifest.
-            }
-            await InvokeAsync(() =>
-            {
-                probingCandidateUrls.Remove(url);
-                if (generation != sourceSearchGeneration || chooseSourceTrack?.Id != trackId) return;
-                probedCandidateUrls.Add(url);
-                if (quality is not null) candidateQualities[url] = quality;
-                StateHasChanged();
-            });
+            quality = await Store.ProbeCandidateQualityAsync(candidate.PluginId, url);
+        }
+        catch
+        {
+            // A probe is best effort; the row falls back to the manifest.
+        }
+        await InvokeAsync(() =>
+        {
+            probingCandidateUrls.Remove(url);
+            if (generation != sourceSearchGeneration || chooseSourceTrack?.Id != trackId) return;
+            probedCandidateUrls.Add(url);
+            if (quality is not null) candidateQualities[url] = quality;
+            StateHasChanged();
         });
     }
 
