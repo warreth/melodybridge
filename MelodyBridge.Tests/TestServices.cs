@@ -44,6 +44,16 @@ public static class TestServices
         services.AddSingleton(new DatabaseBackupService(dbFactory,
             NullLogger<DatabaseBackupService>.Instance));
         services.AddSingleton(new MelodyBridge.Server.Services.NotificationService());
+        // Account connections: the pages inject the Spotify providers
+        // directly, so the real (network-free until used) ones are
+        // registered over the test database. Tests that need their own
+        // AccountTokenStore register it after this call and win.
+        var accountTokens = new MelodyBridge.Infrastructure.Accounts.AccountTokenStore(dbFactory,
+            NullLogger<MelodyBridge.Infrastructure.Accounts.AccountTokenStore>.Instance);
+        services.AddSingleton(accountTokens);
+        services.AddSingleton(new MelodyBridge.Infrastructure.Accounts.SpotifyUnofficialAccountProvider(
+            accountTokens,
+            NullLogger<MelodyBridge.Infrastructure.Accounts.SpotifyUnofficialAccountProvider>.Instance));
         // The Advanced page injects the ntfy notifier; tests that exercise
         // sending replace it with a recording subclass.
         services.AddSingleton(sp => new MelodyBridge.Server.Services.NtfyNotifier(

@@ -14,9 +14,11 @@ and apply immediately, no restart needed.
 ### Accounts
 
 Connect Spotify and YouTube here. Both logins only ask for read access, so they
-can never change anything on your account. The full walkthrough, including the
-redirect URLs and the no-Premium import routes, lives in
-[Accounts and imports](/accounts).
+can never change anything on your account. The third card, **Spotify
+(unofficial)**, imports on a free account through your own web session: paste the
+`sp_dc` cookie, tick the acknowledgement and press **Enable and test**. The full
+walkthrough, including the redirect URLs, the cookie route and the file imports,
+lives in [Accounts and imports](/accounts).
 
 ### Media servers
 
@@ -98,9 +100,12 @@ track marked failed, and the next run retries it.
   the Docker network, a URL points at your own solver, and `off` disables Lucida
   entirely. The **Test connection** button tells you what it found. More in
   [Lucida and FlareSolverr](/lucida).
-- **Spotify cookie**: optional. Only paste the `sp_dc` value from a logged-in
-  browser session when public playlist scraping starts failing for you. It is
-  stored in the database, not in an environment variable.
+- **Spotify cookie**: optional. This one only helps public playlist scraping
+  when Spotify starts refusing it: paste the `sp_dc` value from a logged-in
+  browser session and the app sends it along. It is the same cookie value the
+  unofficial account connection asks for, but the two settings are separate:
+  this field never turns on account imports. Both are stored in the database,
+  not in an environment variable.
 
 ### Notifications
 

@@ -9,6 +9,7 @@
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
 @inject SpotifyAccountProvider SpotifyAccount
+@inject SpotifyUnofficialAccountProvider SpotifyWeb
 @inject YouTubeAccountProvider YouTubeAccount
 @inject Application.Services.DownloadCoordinator Coordinator
 @inject IDbContextFactory<MelodyBridgeDbContext> DbFactory
@@ -297,7 +298,7 @@ else
                     <span class="eyebrow">Import</span>
                     <div class="title-with-help">
                         <h2>Import your music</h2>
-                        <HelpTip Path="accounts" Text="Account imports need Spotify Premium. No Premium? Use Exportify or the Spotify data export; both work with a free account." />
+                        <HelpTip Path="accounts" Text="Account imports through your own Spotify app need Premium. Without it, use the unofficial web session or import a file." />
                     </div>
                 </div>
                 <button class="icon-button" @onclick="HideAccountPanel"><Icon Name="x" Size="18" /></button>
@@ -314,6 +315,10 @@ else
                             <div class="account-card">
                                 <div class="account-head">
                                     <strong>@entry.Name</strong>
+                                    @if (entry.Unofficial)
+                                    {
+                                        <StatusPill Variant="warn">unofficial</StatusPill>
+                                    }
                                     <StatusPill Variant="@(entry.Connected ? "ok" : "neutral")">
                                         @(entry.Connected ? "connected" : "not connected")
                                     </StatusPill>
@@ -328,6 +333,22 @@ else
                                             Show my playlists
                                         </button>
                                     </div>
+                                    @if (entry.Unofficial)
+                                    {
+                                        <p class="account-note">
+                                            Runs on your Spotify web session, not the official API.
+                                            It can break when Spotify changes things, and the cookie is
+                                            a live credential of your account: a burner account is safest.
+                                        </p>
+                                    }
+                                }
+                                else if (entry.Unofficial)
+                                {
+                                    <p class="account-note">
+                                        Not connected. <a href="/settings#accounts">Paste your Spotify
+                                        session cookie in Settings</a> to import without a Premium
+                                        developer app.
+                                    </p>
                                 }
                                 else
                                 {
@@ -342,7 +363,9 @@ else
                     <p class="account-note">
                         Account imports use Spotify's official API and need
                         <strong>Spotify Premium</strong>: Spotify requires it from the owner of
-                        the developer app. The <em>Files</em> tab works with a free account.
+                        the developer app. The <em>unofficial</em> card runs on your own web
+                        session instead, which works on a free account. The <em>Files</em> tab
+                        needs neither.
                     </p>
 
                     @if (accountPlaylists is not null)
@@ -608,7 +631,7 @@ else
         new("files", "Files"),
     ];
     private string importTab = "accounts";
-    private List<(string Name, bool Connected)> accountPanels = new();
+    private List<(string Name, bool Connected, bool Unofficial)> accountPanels = new();
     private HashSet<string> savedAccountIds = new();
     private HashSet<string> savedSpotifyIds = new();
     private HashSet<string> savedYouTubeIds = new();
@@ -829,10 +852,11 @@ else
 
     private async Task LoadAccountStatusAsync()
     {
-        accountPanels = new List<(string, bool)>
+        accountPanels = new List<(string, bool, bool)>
         {
-            (SpotifyAccountProvider.ProviderName, await SpotifyAccount.IsConnectedAsync()),
-            (YouTubeAccountProvider.ProviderName, await YouTubeAccount.IsConnectedAsync()),
+            (SpotifyAccountProvider.ProviderName, await SpotifyAccount.IsConnectedAsync(), false),
+            (SpotifyUnofficialAccountProvider.ProviderName, await SpotifyWeb.IsConnectedAsync(), true),
+            (YouTubeAccountProvider.ProviderName, await YouTubeAccount.IsConnectedAsync(), false),
         };
         // One lookup per platform: liked songs are saved under their own
         // external id ("spotify-liked", "LL"), so the import button can
@@ -848,16 +872,20 @@ else
         accountError = null;
         try
         {
-            var account = providerName == SpotifyAccountProvider.ProviderName
-                ? SpotifyAccount : (IAccountSourceProvider)YouTubeAccount;
+            var account = providerName switch
+            {
+                SpotifyAccountProvider.ProviderName => (IAccountSourceProvider)SpotifyAccount,
+                SpotifyUnofficialAccountProvider.ProviderName => SpotifyWeb,
+                _ => YouTubeAccount,
+            };
             accountPlaylists = OrderImportList(await account.GetUserPlaylistsAsync()).ToList();
             accountListProvider = providerName;
             // Already-saved playlists get their pill and an Update label;
             // the same platform + external id pair a re-import updates.
             savedAccountIds = await Store.GetSavedExternalIdsAsync(
-                providerName == SpotifyAccountProvider.ProviderName
-                    ? Platform.Spotify
-                    : Platform.YouTubeMusic);
+                providerName == YouTubeAccountProvider.ProviderName
+                    ? Platform.YouTubeMusic
+                    : Platform.Spotify);
         }
         catch (Exception ex)
         {
@@ -897,12 +925,12 @@ else
         accountError = null;
         try
         {
-            // Both platforms can import through the plain add flow: the
-            // store prefers the account when one is connected, and private
-            // playlists then work too.
-            var url = accountListProvider == SpotifyAccountProvider.ProviderName
-                ? $"https://open.spotify.com/playlist/{playlist.Id}"
-                : $"https://www.youtube.com/playlist?list={playlist.Id}";
+            // Both Spotify connections can import through the plain add
+            // flow: the store prefers the account when one is connected,
+            // and private playlists then work too.
+            var url = accountListProvider == YouTubeAccountProvider.ProviderName
+                ? $"https://www.youtube.com/playlist?list={playlist.Id}"
+                : $"https://open.spotify.com/playlist/{playlist.Id}";
             var (added, newlySaved) = await Store.AddOrRefreshDetailedAsync(url, TargetOrNull());
             message = newlySaved
                 ? $"Saved '{added.Name}' with {added.TrackCount} tracks."
@@ -923,11 +951,15 @@ else
     private string? TargetOrNull()
         => string.IsNullOrWhiteSpace(newTargetDirectory) ? null : newTargetDirectory;
 
-    /// <summary>Liked songs are saved under their own external id per platform.</summary>
+    /// <summary>Liked songs are saved under their own external id per provider.</summary>
     private bool LikedAlreadySaved(string providerName)
-        => providerName == SpotifyAccountProvider.ProviderName
-            ? savedSpotifyIds.Contains("spotify-liked")
-            : savedYouTubeIds.Contains("LL");
+        => providerName switch
+        {
+            SpotifyAccountProvider.ProviderName => savedSpotifyIds.Contains("spotify-liked"),
+            SpotifyUnofficialAccountProvider.ProviderName =>
+                savedSpotifyIds.Contains(SpotifyUnofficialAccountProvider.LikedId),
+            _ => savedYouTubeIds.Contains("LL"),
+        };
 
     /// <summary>The playlist's schedule, legacy rows included (interval kept working).</summary>
     private static ScanSchedule ScheduleOf(PlaylistEntity playlist)

@@ -69,8 +69,8 @@ public class AccountTutorialTests
         var cut = _ctx.Render<Settings>();
 
         var ordered = cut.FindAll("ol");
-        Assert.That(ordered.Count, Is.EqualTo(2),
-            "Spotify and YouTube each get a numbered step list");
+        Assert.That(ordered.Count, Is.EqualTo(3),
+            "Spotify, the unofficial cookie route and YouTube each get a numbered step list");
 
         var spotifySteps = ordered[0].QuerySelectorAll("li");
         Assert.That(spotifySteps.Count, Is.EqualTo(3), "three Spotify steps");
@@ -80,7 +80,14 @@ public class AccountTutorialTests
         Assert.That(spotifySteps[2].TextContent, Does.Contain("Client ID"),
             "step 3 says to paste the Client ID and connect");
 
-        var youtubeSteps = ordered[1].QuerySelectorAll("li");
+        var cookieSteps = ordered[1].QuerySelectorAll("li");
+        Assert.That(cookieSteps.Count, Is.EqualTo(4), "four cookie steps");
+        Assert.That(cookieSteps[0].TextContent, Does.Contain("open.spotify.com"),
+            "the cookie route starts at the web player");
+        Assert.That(cookieSteps[2].TextContent, Does.Contain("sp_dc"),
+            "the step names the cookie to copy");
+
+        var youtubeSteps = ordered[2].QuerySelectorAll("li");
         Assert.That(youtubeSteps.Count, Is.EqualTo(3), "three YouTube steps");
         Assert.That(youtubeSteps[0].TextContent, Does.Contain("console.cloud.google.com"));
         Assert.That(youtubeSteps[0].TextContent, Does.Contain("YouTube Data API"),

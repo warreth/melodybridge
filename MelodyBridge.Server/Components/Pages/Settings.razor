@@ -9,6 +9,7 @@
 @inject LogExporter Exporter
 @inject NavigationManager Nav
 @inject SpotifyAccountProvider SpotifyAccount
+@inject SpotifyUnofficialAccountProvider SpotifyWeb
 @inject YouTubeAccountProvider YouTubeAccount
 @inject MediaServerProfileStore ServerProfiles
 @inject LibraryPathMover PathMover
@@ -51,7 +52,7 @@
             <div><span class="eyebrow">Accounts</span>
                 <div class="title-with-help">
                     <h2>Spotify &amp; YouTube</h2>
-                    <HelpTip Path="accounts" Text="Both logins are read-only. For private playlists and liked songs, connect here or import an export file." />
+                    <HelpTip Path="accounts" Text="Both logins are read-only. For private playlists and liked songs on a free account, use the unofficial web session or import an export file." />
                 </div>
             </div>
         </div>
@@ -121,6 +122,89 @@
                             </label>
                             <button class="btn-modern primary" @onclick="ConnectSpotify">Connect Spotify</button>
                         </div>
+                    }
+                </div>
+
+                <div class="account-card">
+                    <div class="account-head">
+                        <strong>Spotify (unofficial)</strong>
+                        <StatusPill Variant="warn">unofficial</StatusPill>
+                        <StatusPill Variant="@(_spotifyWebConnected ? "connected" : "neutral")">
+                            @(_spotifyWebConnected ? "connected" : "not connected")
+                        </StatusPill>
+                        @if (_spotifyWebConnected)
+                        {
+                            <button class="btn-modern subtle small" @onclick="DisconnectSpotifyWeb">Disconnect</button>
+                        }
+                    </div>
+                    @if (_spotifyWebConnected)
+                    {
+                        <p class="account-note">
+                            Liked songs and playlists import through your own Spotify web
+                            session, so a free account works and no developer app is needed.
+                            It stays on until you disconnect.
+                        </p>
+                        <div class="flex-actions">
+                            <button class="btn-modern secondary" @onclick="TestSpotifyWeb" disabled="@testingSpotifyWeb">
+                                @(testingSpotifyWeb ? "Testing…" : "Test session")
+                            </button>
+                            <span class="text-muted">@spotifyWebMessage</span>
+                        </div>
+                    }
+                    else
+                    {
+                        <p class="account-note">
+                            Imports liked songs and playlists on a free account, fully automatic,
+                            by reusing your own Spotify web session. The <code>sp_dc</code> cookie
+                            you paste is a live credential of your account: it is stored in this
+                            server's database in plain text, anyone who reads it can act as you, and
+                            Spotify can break this route without notice. A burner account removes
+                            most of that risk. Prefer no risk? The <em>Files</em> tab imports an
+                            Exportify CSV instead.
+                        </p>
+                        <div class="account-connect">
+                            <label>
+                                Spotify session cookie (sp_dc value)
+                                <input @bind="spotifyWebCookie" type="password" placeholder="sp_dc=..." />
+                            </label>
+                            <label class="toggle-switch wide">
+                                <input type="checkbox" @bind="spotifyWebAcknowledged" />
+                                <span class="toggle-slider"></span>
+                                <span>I understand this is unofficial, unsafe for a real account and may break</span>
+                            </label>
+                            <details class="oauth-steps">
+                                <summary>Where to find the cookie, and when to change the secrets URL</summary>
+                                <ol>
+                                    <li>
+                                        Log in at
+                                        <a href="https://open.spotify.com" target="_blank" rel="noopener">open.spotify.com</a>
+                                        in a browser.
+                                    </li>
+                                    <li>
+                                        Open developer tools (F12), then Application or Storage, then
+                                        Cookies for <code>open.spotify.com</code>.
+                                    </li>
+                                    <li>Copy the value of the cookie named <code>sp_dc</code> and paste it above.</li>
+                                    <li>
+                                        The cookie stops working when the browser session ends, or
+                                        when Spotify rotates its TOTP secrets. Paste a fresh value,
+                                        or point the secrets URL at a newer list, if imports stop.
+                                    </li>
+                                </ol>
+                                <label>
+                                    TOTP secrets URL
+                                    <input @bind="spotifyWebSecretsUrl" placeholder="@SpotifyWebSession.DefaultSecretsUrl" />
+                                </label>
+                            </details>
+                            <button class="btn-modern primary" @onclick="EnableSpotifyWeb"
+                                    disabled="@(!spotifyWebAcknowledged || enablingSpotifyWeb)">
+                                @(enablingSpotifyWeb ? "Testing…" : "Enable and test")
+                            </button>
+                        </div>
+                    }
+                    @if (spotifyWebError is not null)
+                    {
+                        <div class="result-box error">@spotifyWebError</div>
                     }
                 </div>
 
@@ -947,6 +1031,8 @@ else if (activeTab == "about")
 
         _spotifyConnected = await SpotifyAccount.IsConnectedAsync();
         _youtubeConnected = await YouTubeAccount.IsConnectedAsync();
+        _spotifyWebConnected = await SpotifyWeb.IsConnectedAsync();
+        spotifyWebSecretsUrl = await SpotifyWeb.GetSettingAsync("secrets_url") ?? string.Empty;
         spotifyClientId = await SpotifyAccount.GetSettingAsync("client_id") ?? string.Empty;
         youtubeClientId = await YouTubeAccount.GetSettingAsync("client_id") ?? string.Empty;
         youtubeClientSecret = await YouTubeAccount.GetSettingAsync("client_secret") ?? string.Empty;
@@ -1050,6 +1136,97 @@ else if (activeTab == "about")
 
     private Task ConnectSpotify() => Connect(SpotifyAccount, SpotifyRedirectUrl, spotifyClientId);
 
+    // ── unofficial Spotify web session ──────────────────────────────────
+
+    private bool _spotifyWebConnected;
+    private string spotifyWebCookie = string.Empty;
+    private string spotifyWebSecretsUrl = string.Empty;
+    private bool spotifyWebAcknowledged;
+    private bool enablingSpotifyWeb;
+    private bool testingSpotifyWeb;
+    private string spotifyWebMessage = string.Empty;
+    private string? spotifyWebError;
+
+    /// <summary>
+    /// Stores the pasted session cookie, turns the connection on and proves
+    /// it works before the user leaves the page: a silent enable that fails
+    /// on the first import is worse than an honest error here.
+    /// </summary>
+    private async Task EnableSpotifyWeb()
+    {
+        spotifyWebError = null;
+        spotifyWebMessage = string.Empty;
+        enablingSpotifyWeb = true;
+        try
+        {
+            var cookie = NormalizeCookie(spotifyWebCookie);
+            if (cookie.Length == 0)
+                throw new InvalidOperationException("Paste the sp_dc cookie value first.");
+
+            await SpotifyWeb.SaveSettingAsync("cookie", cookie);
+            var secretsUrl = spotifyWebSecretsUrl.Trim();
+            if (secretsUrl.Length > 0)
+                await SpotifyWeb.SaveSettingAsync("secrets_url", secretsUrl);
+            await SpotifyWeb.SetEnabledAsync(true);
+
+            spotifyWebMessage = await SpotifyWeb.TestAsync();
+            _spotifyWebConnected = true;
+            spotifyWebCookie = string.Empty; // never echo the secret back into the page
+            Notifications.Success(spotifyWebMessage);
+        }
+        catch (Exception ex)
+        {
+            // A cookie that does not work must not look enabled.
+            await SpotifyWeb.SetEnabledAsync(false);
+            _spotifyWebConnected = false;
+            spotifyWebError = ex.Message;
+        }
+        finally
+        {
+            enablingSpotifyWeb = false;
+        }
+    }
+
+    private async Task TestSpotifyWeb()
+    {
+        spotifyWebError = null;
+        spotifyWebMessage = string.Empty;
+        testingSpotifyWeb = true;
+        try
+        {
+            spotifyWebMessage = await SpotifyWeb.TestAsync();
+        }
+        catch (Exception ex)
+        {
+            spotifyWebError = ex.Message;
+        }
+        finally
+        {
+            testingSpotifyWeb = false;
+        }
+    }
+
+    private async Task DisconnectSpotifyWeb()
+    {
+        await SpotifyWeb.LogoutAsync();
+        _spotifyWebConnected = false;
+        spotifyWebMessage = string.Empty;
+        spotifyWebError = null;
+        Notifications.Info("Unofficial Spotify session disconnected; the cookie was deleted");
+    }
+
+    /// <summary>
+    /// Accepts the pasted value in either shape: the bare cookie or the
+    /// "sp_dc=..." pair a browser's cookie list shows.
+    /// </summary>
+    internal static string NormalizeCookie(string? pasted)
+    {
+        var value = (pasted ?? string.Empty).Trim();
+        if (value.StartsWith("sp_dc=", StringComparison.OrdinalIgnoreCase))
+            value = value["sp_dc=".Length..].Trim();
+        return value.Trim('"');
+    }
+
     private async Task ConnectYouTube()
     {
         if (youtubeClientId.Trim().Length == 0 || youtubeClientSecret.Trim().Length == 0)
@@ -1066,6 +1243,7 @@ else if (activeTab == "about")
     {
         await provider.LogoutAsync();
         _spotifyConnected = await SpotifyAccount.IsConnectedAsync();
+        _spotifyWebConnected = await SpotifyWeb.IsConnectedAsync();
         _youtubeConnected = await YouTubeAccount.IsConnectedAsync();
         Notifications.Info("Account disconnected");
     }

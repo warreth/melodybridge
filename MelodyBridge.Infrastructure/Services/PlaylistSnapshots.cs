@@ -44,21 +44,32 @@ internal sealed class PlaylistSnapshots
     /// metadata), the public path as the independent fallback. The public
     /// fetcher needs no account and keeps working when the auth flow or the
     /// account breaks.
+    ///
+    /// Spotify can have two connections at once: the official OAuth app and
+    /// the unofficial web session. Both are tried, official first, so a
+    /// connected session still serves playlists when no app is registered.
     /// </summary>
     private async Task<Playlist> FetchWithAccountFallbackAsync(
         ISourceProvider provider, string sourceIdentifier, CancellationToken ct)
     {
-        var account = _accountProviders.FirstOrDefault(
-            a => a.Name.Equals(provider.Name, StringComparison.OrdinalIgnoreCase));
+        var candidates = _accountProviders
+            .Where(a => a.Name.Equals(provider.Name, StringComparison.OrdinalIgnoreCase)
+                        || provider.Platform == Platform.Spotify
+                        && a is SpotifyUnofficialAccountProvider)
+            .ToList();
 
-        if (account is not null && await account.IsConnectedAsync(ct))
+        foreach (var account in candidates)
         {
+            if (!await account.IsConnectedAsync(ct)) continue;
             try
             {
                 var viaAccount = provider.Platform switch
                 {
                     Platform.Spotify when account is SpotifyAccountProvider spotify =>
                         await spotify.TryGetPlaylistViaAccountAsync(
+                            SpotifySourceProvider.ExtractPlaylistId(sourceIdentifier), ct),
+                    Platform.Spotify when account is SpotifyUnofficialAccountProvider unofficial =>
+                        await unofficial.TryGetPlaylistViaAccountAsync(
                             SpotifySourceProvider.ExtractPlaylistId(sourceIdentifier), ct),
                     Platform.YouTubeMusic when account is YouTubeAccountProvider youtube =>
                         await youtube.TryGetPlaylistViaAccountAsync(
@@ -136,6 +147,7 @@ internal sealed class PlaylistSnapshots
             providerPlatform: account.Name switch
             {
                 SpotifyAccountProvider.ProviderName => Platform.Spotify,
+                SpotifyUnofficialAccountProvider.ProviderName => Platform.Spotify,
                 YouTubeAccountProvider.ProviderName => Platform.YouTubeMusic,
                 _ => throw new InvalidOperationException($"Unknown account '{providerName}'."),
             },

@@ -260,7 +260,12 @@ public static class ServiceCollectionExtensions
         // Concrete type for the pages, interface for PlaylistStore.
         services.AddSingleton<SpotifyAccountProvider>();
         services.AddSingleton<YouTubeAccountProvider>();
+        // The unofficial connection (web session cookie) is opt-in and
+        // stays a separate provider: the official one keeps working when
+        // Spotify breaks the internal API, and vice versa.
+        services.AddSingleton<SpotifyUnofficialAccountProvider>();
         services.AddSingleton<IAccountSourceProvider>(sp => sp.GetRequiredService<SpotifyAccountProvider>());
+        services.AddSingleton<IAccountSourceProvider>(sp => sp.GetRequiredService<SpotifyUnofficialAccountProvider>());
         services.AddSingleton<IAccountSourceProvider>(sp => sp.GetRequiredService<YouTubeAccountProvider>());
         services.AddScoped<PlaylistStore>();
 

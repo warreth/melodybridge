@@ -1,16 +1,18 @@
 # Accounts and imports
 
 Public links cover a lot, but your private playlists, collaborative playlists
-and liked songs need a login. MelodyBridge connects to Spotify and YouTube
-through their own OAuth flows and imports what only you can see.
+and liked songs need a login. MelodyBridge has three ways in: an official
+Spotify login, an official YouTube login, and an unofficial Spotify web session
+for free accounts.
 
-Two design rules keep that safe:
+Two design rules keep the official connections safe:
 
 - **Read access only.** Spotify asks for `playlist-read-private`,
   `playlist-read-collaborative` and `user-library-read`; YouTube asks for
   `youtube.readonly`. Nothing that could modify your account is ever requested.
 - **Official libraries.** Spotify uses SpotifyAPI-NET's PKCE flow, YouTube uses
-  Google's own auth libraries. No browser cookies are scraped.
+  Google's own auth libraries. MelodyBridge never drives a browser, embeds a
+  login page or reads cookies out of your browser.
 
 Public fetching stays independent: when no account is connected, or an account
 call fails for any reason, MelodyBridge falls back to the same page scraping and
@@ -18,12 +20,16 @@ yt-dlp it always uses.
 
 ## Import without Premium
 
-The Spotify account connection needs a Premium account (Spotify requires it from
-the owner of a developer app, and every self-hosted app is its own app). Free
-accounts have two other routes, both from the Import button on the Playlists
+The Spotify account connection below needs a Premium account (Spotify requires
+it from the owner of a developer app, and every self-hosted app is its own app).
+Free accounts have three routes, all from the Import button on the Playlists
 page:
 
-- **Exportify CSV (recommended).** Log in at
+- **Unofficial web session (fully automatic).** Paste your own `sp_dc` cookie in
+  Settings, Accounts, and liked songs plus playlists import like any other
+  account. No developer app, no Premium, no manual file. Read the warnings
+  before you turn it on.
+- **Exportify CSV (no account access at all).** Log in at
   [exportify.net](https://exportify.net), click *Export Liked Songs* (or any
   playlist), and upload the CSV. *Export All* gives you a zip, which you can
   upload as well. The file carries track names, artists, albums and Spotify
@@ -71,6 +77,40 @@ stays in development mode.
 MelodyBridge stores the refresh token in its database and refreshes access
 tokens on its own. Reconnecting does not break the old login.
 
+## Unofficial Spotify web session
+
+You do not need any of the above. The unofficial connection imports liked songs
+and playlists on a free account, with no developer app and no Premium, because
+it talks to Spotify the way the web player itself does. Open Settings, Accounts,
+paste the `sp_dc` cookie from your own logged-in browser session, tick the
+acknowledgement and press **Enable and test**. The test fetches your liked songs
+and playlists right away, so a dead cookie fails on the spot instead of on your
+first import.
+
+::: warning Not for an account you care about
+The cookie is a live credential: whoever holds it can act as your Spotify
+account, and MelodyBridge stores it in plain text in its database next to your
+media-server passwords. Spotify does not document this API and can change it at
+any time, so imports can stop working until the app (or the secret list it
+reads) catches up. Prefer the file imports above, or use a burner account.
+:::
+
+What you get, and what to know:
+
+- Liked songs and every playlist the account can see, including private ones,
+  with the same Import button and the same Update behaviour as the official
+  connection.
+- Playlists you save from a Spotify link also try this session first, which is
+  what makes private playlists work. If the session cannot serve a playlist,
+  MelodyBridge falls back to public scraping.
+- Nothing is written to your account, and no password is ever asked for or
+  stored. Disconnecting deletes the cookie.
+- The path depends on TOTP secrets that the community keeps in a public list.
+  When Spotify rotates the format, the list has to move with it; the **TOTP
+  secrets URL** field under the cookie input is there so you can point the app
+  at a newer list without waiting for a release.
+- The cookie dies when your browser session ends. Paste a fresh one any time.
+
 ## YouTube
 
 1. In the Google Cloud Console, enable the YouTube Data API v3
@@ -96,10 +136,12 @@ token-holder's account, and a star on the Subsonic side. See
 ## Why there is no passwordless login
 
 Some tools advertise "log in with Spotify, no Client ID needed". Under the hood
-they open Spotify in an embedded web view, scrape the session cookies and trade
-them for a web-player token through an undocumented endpoint that depends on a
-TOTP secret some gist has to keep updating. It works until it does not, it is
-not compliant with Spotify's terms, and it breaks every time the secret rotates.
+they open Spotify in an embedded web view, ask for your username and password,
+scrape the session cookies and trade them for a web-player token through an
+undocumented endpoint.
 
-MelodyBridge does not do that. OAuth with a client ID you own is a few minutes
-of setup, and it keeps working.
+MelodyBridge does not do that. It never shows a Spotify login form, never asks
+for a password and never reads cookies out of your browser. The unofficial web
+session above is the deliberate, opt-in version of the same idea: you paste one
+cookie yourself, you are told what it costs you, and the official OAuth
+connection remains the supported path.
