@@ -536,9 +536,9 @@ public class JellyfinSyncExtendedTests
     [Test]
     public async Task SyncPlaylistAsync_LibraryWithoutPaths_LogsTheReasonAndMatchesByMetadata()
     {
-        // A non-admin profile user gets library items without paths: the
-        // sync says so and still resolves the track from the walk's own
-        // metadata instead of falling back to a search.
+        // A walk that answers without paths (a server that ignores
+        // Fields=Path): the sync says so and still resolves the track from
+        // the walk's own metadata instead of falling back to a search.
         var logs = new CollectingLoggerProvider();
         using var factory = LoggerFactory.Create(
             builder => builder.AddProvider(logs).SetMinimumLevel(LogLevel.Debug));
@@ -577,7 +577,7 @@ public class JellyfinSyncExtendedTests
             Assert.That(sync.LastReport!.ResolvedCount, Is.EqualTo(1),
                 "the metadata match resolves the track without a path");
             Assert.That(handler.Requests.Any(r => r.Url.Contains("SearchTerm")), Is.False);
-            Assert.That(logs.Snapshot().Any(l => l.Contains("no file paths")), Is.True,
+            Assert.That(logs.Snapshot().Any(l => l.Contains("without a file path")), Is.True,
                 "the log names the reason instead of leaving the user guessing");
         });
     }

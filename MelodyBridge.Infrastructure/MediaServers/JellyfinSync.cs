@@ -248,14 +248,12 @@ public class JellyfinSync : IMediaServerSync
             items.Count, byPath.Count, byTitle.Count);
         if (items.Count > 0 && byPath.Count == 0)
         {
-            // Audio items came back without a single file path: the
-            // profile's user may lack the permission that reveals paths,
-            // or the server omits them. The title index still resolves
-            // the tracks, so the sync stays correct, just without the
-            // exact path check.
+            // The walk came back without a single file path even though
+            // Fields=Path was requested (Jellyfin normally includes it
+            // for API keys and user tokens alike). The title index still
+            // resolves the tracks, just without the exact path check.
             _logger.LogInformation(
-                "Jellyfin returned no file paths for {Items} library items; matching tracks by metadata. "
-                + "Check the profile user's permissions",
+                "Jellyfin returned {Items} library items without a file path; matching tracks by metadata",
                 items.Count);
         }
         return index;
