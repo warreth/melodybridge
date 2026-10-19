@@ -132,6 +132,14 @@ public interface IDownloadManager
     Task<string?> DownloadCandidateAsync(
         DownloadCandidate candidate, TrackQuery query, string outputDirectory,
         string melodyId, CancellationToken ct = default);
+    /// <summary>
+    /// The exact audio facts a plugin can read for one candidate without
+    /// downloading it, for the picker's quality line. A plugin that cannot
+    /// know returns null and the caller falls back to the manifest.
+    /// </summary>
+    Task<CandidateAudioQuality?> ProbeQualityAsync(
+        string pluginId, string sourceUrl, CancellationToken ct = default)
+        => Task.FromResult<CandidateAudioQuality?>(null);
     /// <summary>Current in-flight download states (for UI polling).</summary>
     IReadOnlyList<DownloadProgress> SnapshotProgress();
     /// <summary>
@@ -161,6 +169,10 @@ public readonly record struct TrackFileDeleteResult(bool Deleted, string? Error)
 /// One candidate a plugin offered for a track: what the "choose a source"
 /// dialog lists. The list deliberately skips the acceptance gate, so a
 /// human can pick what the automatic match refused.
+/// <paramref name="CanServeRequested"/> says whether the plugin can
+/// deliver the requested quality; false means the pick is fetched at its
+/// source quality instead of re-encoded. <paramref name="DeclaredQuality"/>
+/// names what the plugin can deliver, for candidates no exact probe covers.
 /// </summary>
 public record DownloadCandidate(
     string PluginId,
@@ -170,7 +182,9 @@ public record DownloadCandidate(
     TimeSpan? Duration,
     int? BitrateKbps,
     string SourceUrl,
-    MatchConfidence Confidence);
+    MatchConfidence Confidence,
+    bool CanServeRequested = true,
+    string? DeclaredQuality = null);
 
 /// <summary>
 /// Per-call media-server connection override (Jellyfin, Plex, Navidrome).

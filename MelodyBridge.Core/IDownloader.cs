@@ -18,6 +18,21 @@ public record DownloaderSearchHit(
     IReadOnlyList<DownloaderSearchHit>? Alternatives = null);
 
 /// <summary>
+/// What one candidate's audio really is, read before any bytes are
+/// downloaded: the source stream's codec, bitrate, sample rate and bit
+/// depth where the plugin can know them. A null fact means the plugin
+/// cannot tell; the UI must show that instead of guessing. Lossless is
+/// only true when the container uniquely is (FLAC, ALAC, PCM).
+/// </summary>
+public record CandidateAudioQuality(
+    string? Codec,
+    int? BitrateKbps,
+    int? SampleRateHz,
+    int? BitDepth,
+    bool Lossless,
+    string? Note = null);
+
+/// <summary>
 /// How sure a plugin is that its search result is the requested track.
 /// Low confidence is downloaded anyway but shown as a warning next to the
 /// track, so the user can re-check instead of silently getting a wrong song.
@@ -147,4 +162,15 @@ public interface IDownloader
         string? melodyId,
         DownloadQuality? quality = null,
         CancellationToken ct = default);
+
+    /// <summary>
+    /// Reads the exact audio facts of one search hit without downloading
+    /// it: the yt-dlp-backed plugins simulate the extraction and parse the
+    /// selected format, Qobuz reports its configured tier. Null when this
+    /// plugin cannot know: the picker then shows only what the manifest
+    /// promises, never a guess. Best effort by contract; never throws.
+    /// </summary>
+    Task<CandidateAudioQuality?> ProbeQualityAsync(
+        string sourceUrl, CancellationToken ct = default)
+        => Task.FromResult<CandidateAudioQuality?>(null);
 }

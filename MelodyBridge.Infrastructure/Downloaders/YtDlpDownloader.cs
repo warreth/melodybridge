@@ -77,6 +77,11 @@ public partial class YtDlpDownloader : IDownloader
         return await SearchExtractorAsync("ytsearch5", query.Artist, query.Title, searchText, ct);
     }
 
+    /// <inheritdoc />
+    public Task<CandidateAudioQuality?> ProbeQualityAsync(
+        string sourceUrl, CancellationToken ct = default)
+        => YtDlpProcess.ProbeAudioQualityAsync(sourceUrl, ct);
+
     /// <summary>Runs one search extractor and parses every flat entry as a candidate.</summary>
     private async Task<List<DownloaderSearchHit>> SearchExtractorAsync(
         string extractor, string artist, string title, string query, CancellationToken ct)

@@ -303,6 +303,26 @@ public class QobuzDownloader : CliToolDownloader
             candidates.Select(c => c.Hit));
     }
 
+    /// <inheritdoc />
+    public async Task<CandidateAudioQuality?> ProbeQualityAsync(
+        string sourceUrl, CancellationToken ct = default)
+    {
+        // Qobuz streams are lossless up to the configured tier; a track
+        // that only exists in CD quality stays 16/44.1 whatever the tier
+        // allows, so the answer is honest as "up to".
+        var tier = NormalizeQuality(await ConfigValueAsync(QualityKey, ct));
+        var (rate, depth) = tier switch
+        {
+            "7" => (96000, 24),
+            "27" => (192000, 24),
+            _ => (44100, 16),
+        };
+        return new CandidateAudioQuality(
+            Codec: "flac", BitrateKbps: null,
+            SampleRateHz: rate, BitDepth: depth, Lossless: true,
+            Note: "up to your configured Qobuz tier");
+    }
+
     // ── Download ─────────────────────────────────────────────────────────
 
     /// <summary>The hidden per-track folder under the output directory.</summary>

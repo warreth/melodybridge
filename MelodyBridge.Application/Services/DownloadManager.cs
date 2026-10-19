@@ -123,12 +123,15 @@ public class DownloadManager : IDownloadManager
             {
                 if (!await AvailableAsync(downloader, budget.Token)) return;
                 var hits = await downloader.SearchAllAsync(query, budget.Token);
+                var canServe = downloader.Capabilities.CanServe(query.Quality);
+                var declared = DescribeCapabilities(downloader.Capabilities);
                 foreach (var hit in hits)
                 {
                     if (hit.SourceUrl is not { Length: > 0 } url || !seenUrls.TryAdd(url, 0)) continue;
                     var candidate = new DownloadCandidate(
                         downloader.Id, downloader.Name, hit.Title, hit.Artist,
-                        hit.Duration, hit.BitrateKbps, url, hit.MatchConfidence);
+                        hit.Duration, hit.BitrateKbps, url, hit.MatchConfidence,
+                        CanServeRequested: canServe, DeclaredQuality: declared);
                     results.Add(candidate);
                     onCandidate?.Invoke(candidate);
                 }
@@ -161,7 +164,10 @@ public class DownloadManager : IDownloadManager
     /// Downloads the candidate a human picked. The pick overrides the
     /// ranking and the playlist's quality gates (the user saw the hit and
     /// chose it), not the sanity: bytes must sniff as audio and the
-    /// MELODY_ID tag always goes on.
+    /// MELODY_ID tag always goes on. A plugin that cannot serve the
+    /// requested quality is asked for its source quality instead of
+    /// transcoding: asking SoundCloud for FLAC only produces a lossy
+    /// source boxed as lossless, and the picker already said so.
     /// </summary>
     public async Task<string?> DownloadCandidateAsync(
         DownloadCandidate candidate, TrackQuery query, string outputDirectory,
@@ -184,8 +190,16 @@ public class DownloadManager : IDownloadManager
                 return null;
             }
 
+            var canServe = downloader.Capabilities.CanServe(query.Quality);
+            if (!canServe)
+            {
+                _logger.LogInformation(
+                    "{Name} cannot serve {Quality} for '{Title}'; the pick is fetched at its source quality instead of re-encoding",
+                    downloader.Name, DescribeQuality(query.Quality), query.Title);
+            }
+            var quality = canServe ? query.Quality : DownloadQuality.Any;
             var result = await DownloadAsync(
-                downloader, candidate.SourceUrl, outputDirectory, melodyId, query.Quality, ct);
+                downloader, candidate.SourceUrl, outputDirectory, melodyId, quality, ct);
             if (result is null || !result.Success || result.FilePath is null)
             {
                 _health.RecordFailure(downloader.Id);
@@ -219,6 +233,34 @@ public class DownloadManager : IDownloadManager
     /// <summary>Current in-flight download states (for UI polling).</summary>
     public IReadOnlyList<DownloadProgress> SnapshotProgress()
         => _state.Snapshot();
+
+    /// <summary>
+    /// The exact audio facts of one candidate, read by its plugin without
+    /// downloading (a simulate-only yt-dlp extraction, a tier lookup).
+    /// Best effort: an unknown plugin, an unavailable one or any throw
+    /// yields null, and the picker falls back to the manifest.
+    /// </summary>
+    public async Task<CandidateAudioQuality?> ProbeQualityAsync(
+        string pluginId, string sourceUrl, CancellationToken ct = default)
+    {
+        var downloader = _registry.GetEnabled().FirstOrDefault(d => d.Id == pluginId);
+        if (downloader is null
+            || string.IsNullOrWhiteSpace(sourceUrl)
+            || !await AvailableAsync(downloader, ct))
+        {
+            return null;
+        }
+
+        try
+        {
+            return await downloader.ProbeQualityAsync(sourceUrl, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "{Name} quality probe failed for {Url}", downloader.Name, sourceUrl);
+            return null;
+        }
+    }
 
     /// <inheritdoc />
     public string? LastPluginId(string melodyId)
@@ -667,5 +709,44 @@ public class DownloadManager : IDownloadManager
             ({ } min, { } max) => $"{min}-{max} kbps",
         };
         return $"{container}, {band}";
+    }
+
+    /// <summary>
+    /// The containers a plugin declares, as one short line for the picker
+    /// when no exact probe covers a candidate ("FLAC (lossless), MP3 up to
+    /// 320"). Null when the manifest names no concrete container.
+    /// </summary>
+    internal static string? DescribeCapabilities(PluginCapabilities capabilities)
+    {
+        var parts = capabilities.Deliverables
+            .Where(d => d.Container != AudioFormat.Auto)
+            .Select(d =>
+            {
+                var label = d.Container switch
+                {
+                    AudioFormat.Flac => "FLAC",
+                    AudioFormat.Mp3 => "MP3",
+                    AudioFormat.Opus => "Opus",
+                    AudioFormat.Aac => "AAC",
+                    _ => d.Container.ToString(),
+                };
+                var lossless = d.Lossless ? " (lossless)" : "";
+                // Lossless files have no meaningful kbps band: showing one
+                // would only confuse.
+                var band = d.Controlled && !d.Lossless && (d.MinKbps is not null || d.MaxKbps is not null)
+                    ? d switch
+                    {
+                        { MinKbps: { } min, MaxKbps: { } max } when min == max => $" {min}",
+                        { MinKbps: { } min, MaxKbps: { } max } => $" {min}-{max}",
+                        { MaxKbps: { } max } => $" up to {max}",
+                        { MinKbps: { } min } => $" {min}+",
+                        _ => "",
+                    }
+                    : "";
+                return $"{label}{lossless}{band}";
+            })
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        return parts.Count == 0 ? null : string.Join(", ", parts);
     }
 }

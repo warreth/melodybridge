@@ -42,13 +42,19 @@ public class DownloadManagerCandidateTests
 
         public string Id { get; }
         public string Name => $"Plugin {Id}";
-        public PluginCapabilities Capabilities => PluginCapabilities.Any;
+        public PluginCapabilities Capabilities { get; init; } = PluginCapabilities.Any;
         public bool Available { get; init; } = true;
         /// <summary>Optional barrier both plugins must be inside, proving
         /// the searches run at the same time.</summary>
         public Func<Task>? SearchBarrier { get; init; }
+        /// <summary>What ProbeQualityAsync reports, or null when the plugin
+        /// cannot tell.</summary>
+        public CandidateAudioQuality? ProbeResult { get; init; }
         public int DownloadCalls { get; private set; }
         public string? LastSourceUrl { get; private set; }
+        /// <summary>The quality the last download was asked for, so tests
+        /// can pin the pick's honest fetch quality.</summary>
+        public DownloadQuality? LastQuality { get; private set; }
 
         public Task<bool> IsAvailableAsync(CancellationToken ct = default)
             => Task.FromResult(Available);
@@ -64,12 +70,17 @@ public class DownloadManagerCandidateTests
             return _hits;
         }
 
+        public Task<CandidateAudioQuality?> ProbeQualityAsync(
+            string sourceUrl, CancellationToken ct = default)
+            => Task.FromResult(ProbeResult);
+
         public Task<DownloaderDownloadResult> DownloadAsync(
             string sourceUrl, string outputDirectory, string? melodyId,
             DownloadQuality? quality = null, CancellationToken ct = default)
         {
             DownloadCalls++;
             LastSourceUrl = sourceUrl;
+            LastQuality = quality;
             Directory.CreateDirectory(outputDirectory);
             var path = Path.Combine(outputDirectory, $"{melodyId ?? "x"}-{Id}.mp3");
             File.WriteAllBytes(path, TestAudio.MinimalMp3());
@@ -168,6 +179,112 @@ public class DownloadManagerCandidateTests
         Assert.That(result, Is.Null);
         Assert.That(manager.LastFailure("mel-ghost"), Does.Contain("not enabled"));
     }
+    [Test]
+    public async Task SearchCandidates_MarksWhetherThePluginCanServeTheTarget()
+    {
+        var lossyOnly = new StubPlugin("sc", Hit("Song", "Artist", "https://sc/1"))
+        {
+            Capabilities = PluginCapabilities.Lossy(AudioFormat.Aac, 128, 320),
+        };
+        var lossless = new StubPlugin("qobuz", Hit("Song", "Artist", "https://q/1"))
+        {
+            Capabilities = PluginCapabilities.LosslessSources(),
+        };
+        IDownloadManager manager = new DownloadManager(
+            new ListDownloaderRegistry(lossyOnly, lossless),
+            NullLogger<DownloadManager>.Instance);
+
+        var candidates = await manager.SearchCandidatesAsync(
+            new TrackQuery("Artist", "Song", new DownloadQuality(AudioFormat.Flac)));
+
+        Assert.Multiple(() =>
+        {
+            var lossy = candidates.Single(c => c.PluginId == "sc");
+            Assert.That(lossy.CanServeRequested, Is.False,
+                "a lossy-only plugin cannot serve a FLAC request");
+            Assert.That(lossy.DeclaredQuality, Does.Contain("AAC"),
+                "the manifest line names what it can deliver");
+
+            var flac = candidates.Single(c => c.PluginId == "qobuz");
+            Assert.That(flac.CanServeRequested, Is.True);
+            Assert.That(flac.DeclaredQuality, Does.Contain("FLAC"));
+        });
+    }
+
+    [Test]
+    public async Task DownloadCandidate_PluginThatCannotServeTheTarget_FetchesAtSourceQuality()
+    {
+        // The old path asked yt-dlp for FLAC, which re-encoded the lossy
+        // SoundCloud stream into a fake lossless file. The pick now keeps
+        // the source quality instead: no impossible transcode.
+        var lossyOnly = new StubPlugin("sc", Hit("Song", "Artist", "https://sc/1"))
+        {
+            Capabilities = PluginCapabilities.Lossy(AudioFormat.Aac, 128, 320),
+        };
+        IDownloadManager manager = new DownloadManager(
+            new ListDownloaderRegistry(lossyOnly),
+            NullLogger<DownloadManager>.Instance);
+
+        var candidates = await manager.SearchCandidatesAsync(
+            new TrackQuery("Artist", "Song", new DownloadQuality(AudioFormat.Flac)));
+        var path = await manager.DownloadCandidateAsync(
+            candidates.Single(),
+            new TrackQuery("Artist", "Song", new DownloadQuality(AudioFormat.Flac)),
+            _dir, "mel-lossy-pick");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(path, Is.Not.Null);
+            Assert.That(lossyOnly.LastQuality, Is.EqualTo(DownloadQuality.Any),
+                "the pick was fetched as-is, not transcoded to FLAC");
+        });
+    }
+
+    [Test]
+    public async Task DownloadCandidate_PluginThatCanServeTheTarget_GetsTheRequestedQuality()
+    {
+        var lossless = new StubPlugin("qobuz", Hit("Song", "Artist", "https://q/1"))
+        {
+            Capabilities = PluginCapabilities.LosslessSources(),
+        };
+        IDownloadManager manager = new DownloadManager(
+            new ListDownloaderRegistry(lossless),
+            NullLogger<DownloadManager>.Instance);
+
+        var candidates = await manager.SearchCandidatesAsync(
+            new TrackQuery("Artist", "Song", new DownloadQuality(AudioFormat.Flac)));
+        await manager.DownloadCandidateAsync(
+            candidates.Single(),
+            new TrackQuery("Artist", "Song", new DownloadQuality(AudioFormat.Flac)),
+            _dir, "mel-flac-pick");
+
+        Assert.That(lossless.LastQuality!.Format, Is.EqualTo(AudioFormat.Flac));
+    }
+
+    [Test]
+    public async Task ProbeQuality_DispatchesToThePickedPlugin_AndFailsQuietly()
+    {
+        var plugin = new StubPlugin("sc", Hit("Song", "Artist", "https://sc/1"))
+        {
+            ProbeResult = new CandidateAudioQuality("mp4a.40.2", 160, 44100, null, Lossless: false),
+        };
+        IDownloadManager manager = new DownloadManager(
+            new ListDownloaderRegistry(plugin),
+            NullLogger<DownloadManager>.Instance);
+
+        var probed = await manager.ProbeQualityAsync("sc", "https://sc/1");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(probed, Is.Not.Null);
+            Assert.That(probed!.Codec, Is.EqualTo("mp4a.40.2"));
+            Assert.That(probed.BitrateKbps, Is.EqualTo(160));
+            Assert.That(probed.Lossless, Is.False);
+        });
+        Assert.That(await manager.ProbeQualityAsync("ghost", "https://g/1"), Is.Null,
+            "an unknown plugin cannot be probed");
+    }
+
     [Test]
     public async Task SearchCandidates_RunsPluginsAtTheSameTime_AndStreamsHits()
     {

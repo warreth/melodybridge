@@ -90,6 +90,11 @@ public class SoundCloudDownloader : IDownloader
         }
     }
 
+    /// <inheritdoc />
+    public Task<CandidateAudioQuality?> ProbeQualityAsync(
+        string sourceUrl, CancellationToken ct = default)
+        => YtDlpProcess.ProbeAudioQualityAsync(sourceUrl, ct);
+
     public async Task<DownloaderDownloadResult> DownloadAsync(
         string sourceUrl,
         string outputDirectory,
