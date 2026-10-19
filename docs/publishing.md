@@ -15,8 +15,9 @@ The **Publish** button on the Playlists page is the short path. It asks two
 questions: which playlists, and which media server profiles they should go to.
 Every ticked playlist becomes its own job, named after the playlist, with a
 Manual schedule and the profiles you ticked as its targets. Playlists that
-already have a job are left out of the list, so the quick flow can never
-create a duplicate.
+already have a job are left out of the list, so the same playlist is not
+offered twice; creating the jobs re-reads the list, and anything deleted in
+the meantime is named in the result instead of becoming a dangling target.
 
 This flow deliberately skips the wizard's options: no M3U target, no path
 remaps, no schedule, no per-job user. That is the trade for the two-click

@@ -182,16 +182,20 @@ archive copies.
   results for that track, best guess first, each with the plugin name and a
   likely/unsure pill. The track's own length sits at the top and every hit
   shows its length and the difference, so a preview or a longer edit stands
-  out before the click. Every hit also carries its quality: for the plugins
-  that can tell, one probe reads the real source facts (codec, bitrate,
-  sample rate) before anything downloads; for the rest the row names what the
-  plugin declares it can deliver. A pill compares that with the playlist's
+  out before the click. Every hit also carries its quality: a catalog that
+  already knows the track's maximum reports it (Qobuz), the yt-dlp-backed
+  plugins probe the selected stream before anything downloads (codec,
+  bitrate, sample rate), and for the rest the row names what the plugin
+  declares it can deliver. A pill compares that with the playlist's
   target: **matches target**, **saved as-is** when the plugin cannot deliver
-  the target and the pick keeps its source quality, or **off target** for a
-  mismatch. Plugins search at the same time and results appear as they
-  arrive; the pick itself shows a progress bar and a running timer. Use it
-  when the automatic match picked the wrong recording or found nothing; the
-  pick downloads through the normal pipeline and replaces an existing file.
+  the target and the pick keeps its source quality, **outside target** when a
+  source sits above a cap and keeps its quality, or **off target** when the
+  plugin will convert the pick to the requested container. A band is only
+  called a match when the probe measured it. Plugins search at the same time
+  and results appear as they arrive; the pick itself shows a progress bar and
+  a running timer. Use it when the automatic match picked the wrong recording
+  or found nothing; the pick downloads through the normal pipeline and
+  replaces an existing file.
   A source that fails stays in the list with the reason, ready for another
   pick. The automatic search refuses results it cannot vouch for, so a wrong
   song is a miss you repair here instead of a silent download.
@@ -279,7 +283,8 @@ The knobs most people never need, in four panels:
   straight from the files on disk, for downloads that predate the probing, and
   re-runs the spectrum check on what it reads, so an inflated file or a lossy
   source boxed as FLAC is flagged after the fact. Tracks whose file has vanished
-  are queued for a re-download.
+  are queued for a re-download. A spectrum review you already settled with Keep
+  stays settled; the check does not reopen it for the same file.
   **Re-tag library** fills what a downloaded file is missing: cover art from the
   source, lyrics, the release credit and the album name. Only missing fields are
   written, so artwork a plugin embedded is left alone. It reports how many files
