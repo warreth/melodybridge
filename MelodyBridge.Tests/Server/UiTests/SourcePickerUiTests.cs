@@ -360,6 +360,47 @@ public class SourcePickerUiTests
     }
 
     [Test]
+    public void Picker_DoesNotCallAnUnknownBitrateAMatch_OnACappedTarget()
+    {
+        SetPreferredFormat("preset:saver");
+        _plugin.Capabilities = PluginCapabilities.LosslessSources();
+        _plugin.ProbeResult = new CandidateAudioQuality("flac", null, 44100, 16, Lossless: true);
+
+        var cut = RenderPage();
+        cut.FindAll("button").Single(b => b.TextContent.Trim() == "Choose source").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.FindAll(".source-candidate .pill")
+                    .Any(p => p.TextContent.Contains("matches target")),
+                Is.False,
+                "an unknown bitrate must not be called a match for a capped target");
+            var savedAsIs = cut.FindAll(".source-candidate .pill")
+                .Single(p => p.TextContent.Contains("saved as-is"));
+            Assert.That(savedAsIs.GetAttribute("title"), Does.Contain("keeps its source quality"));
+        }, TimeSpan.FromSeconds(5));
+    }
+
+    [Test]
+    public void Picker_SaysAPickWillBeConverted_WhenThePluginCanServeAnExplicitTarget()
+    {
+        SetPreferredFormat("mp3:192-320");
+        _plugin.Capabilities = PluginCapabilities.Lossy(AudioFormat.Mp3, 64, 320);
+        _plugin.ProbeResult = new CandidateAudioQuality("opus", 128, 48000, null, Lossless: false);
+
+        var cut = RenderPage();
+        cut.FindAll("button").Single(b => b.TextContent.Trim() == "Choose source").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            var offTarget = cut.FindAll(".source-candidate .pill")
+                .Single(p => p.TextContent.Contains("off target"));
+            Assert.That(offTarget.GetAttribute("title"), Does.Contain("converted to"),
+                "a plugin that can serve the container converts the pick, it does not save the source as-is");
+        }, TimeSpan.FromSeconds(5));
+    }
+
+    [Test]
     public void Picker_ShowsProgressWhileAPickDownloads()
     {
         var gate = new TaskCompletionSource();

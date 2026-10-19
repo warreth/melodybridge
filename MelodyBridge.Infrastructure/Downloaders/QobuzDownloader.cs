@@ -285,7 +285,14 @@ public class QobuzDownloader : CliToolDownloader
                 SourceUrl: $"https://play.qobuz.com/track/{track.Id}",
                 Duration: track.Duration,
                 MatchConfidence: FuzzyMatcher.Confidence(
-                    query.Artist, query.Title, hitArtist: track.Artist, hitTitle: track.Title));
+                    query.Artist, query.Title, hitArtist: track.Artist, hitTitle: track.Title),
+                // The catalog already knows this track's ceiling. A
+                // CD-only track reports 44.1 kHz even when the configured
+                // tier allows hi-res, so the picker shows the real file
+                // instead of the tier.
+                BitDepth: track.MaximumBitDepth,
+                SampleRateHz: track.MaximumSamplingRate
+                    ?? (track.HiresStreamable ? null : 44100));
             candidates.Add((hit, track.Isrc));
         }
 

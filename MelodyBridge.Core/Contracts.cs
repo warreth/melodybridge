@@ -173,6 +173,8 @@ public readonly record struct TrackFileDeleteResult(bool Deleted, string? Error)
 /// deliver the requested quality; false means the pick is fetched at its
 /// source quality instead of re-encoded. <paramref name="DeclaredQuality"/>
 /// names what the plugin can deliver, for candidates no exact probe covers.
+/// <paramref name="BitDepth"/> and <paramref name="SampleRateHz"/> carry
+/// per-hit facts the search already knew (Qobuz's track maximum).
 /// </summary>
 public record DownloadCandidate(
     string PluginId,
@@ -184,7 +186,9 @@ public record DownloadCandidate(
     string SourceUrl,
     MatchConfidence Confidence,
     bool CanServeRequested = true,
-    string? DeclaredQuality = null);
+    string? DeclaredQuality = null,
+    int? BitDepth = null,
+    int? SampleRateHz = null);
 
 /// <summary>
 /// Per-call media-server connection override (Jellyfin, Plex, Navidrome).

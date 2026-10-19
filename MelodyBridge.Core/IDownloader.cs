@@ -6,7 +6,10 @@ namespace MelodyBridge.Core;
 /// rank order: when the first choice turns out to be undownloadable
 /// (deleted video, geo-block, dead mirror), the manager can fall back to
 /// the next candidate from the same plugin instead of abandoning the
-/// plugin entirely.
+/// plugin entirely. <paramref name="BitDepth"/> and
+/// <paramref name="SampleRateHz"/> carry per-hit quality facts a catalog
+/// already knows (Qobuz reports the track's maximum), so the picker can
+/// show the real file quality instead of the plugin's tier.
 /// </summary>
 public record DownloaderSearchHit(
     string Title,
@@ -15,7 +18,9 @@ public record DownloaderSearchHit(
     TimeSpan? Duration,
     int? BitrateKbps = null,
     MatchConfidence MatchConfidence = MatchConfidence.Low,
-    IReadOnlyList<DownloaderSearchHit>? Alternatives = null);
+    IReadOnlyList<DownloaderSearchHit>? Alternatives = null,
+    int? BitDepth = null,
+    int? SampleRateHz = null);
 
 /// <summary>
 /// What one candidate's audio really is, read before any bytes are
@@ -93,7 +98,6 @@ public interface IDownloader
 {
     /// <summary>Unique identifier (stable across restarts, stored in DB).</summary>
     string Id { get; }
-
     /// <summary>Human-readable name shown in the UI.</summary>
     string Name { get; }
 

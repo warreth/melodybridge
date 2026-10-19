@@ -131,7 +131,8 @@ public class DownloadManager : IDownloadManager
                     var candidate = new DownloadCandidate(
                         downloader.Id, downloader.Name, hit.Title, hit.Artist,
                         hit.Duration, hit.BitrateKbps, url, hit.MatchConfidence,
-                        CanServeRequested: canServe, DeclaredQuality: declared);
+                        CanServeRequested: canServe, DeclaredQuality: declared,
+                        BitDepth: hit.BitDepth, SampleRateHz: hit.SampleRateHz);
                     results.Add(candidate);
                     onCandidate?.Invoke(candidate);
                 }

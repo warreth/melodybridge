@@ -226,6 +226,7 @@ public class QobuzClientTests
                                 duration = 429,
                                 isrc = "GBDUW0600009",
                                 maximum_bit_depth = 24,
+                                maximum_sampling_rate = 96000,
                                 hires_streamable = true,
                                 performer = new { name = "Daft Punk" },
                             },
@@ -247,6 +248,8 @@ public class QobuzClientTests
             Assert.That(tracks[0].Duration, Is.EqualTo(TimeSpan.FromSeconds(429)));
             Assert.That(tracks[0].Isrc, Is.EqualTo("GBDUW0600009"));
             Assert.That(tracks[0].MaximumBitDepth, Is.EqualTo(24));
+            Assert.That(tracks[0].MaximumSamplingRate, Is.EqualTo(96000),
+                "the picker uses the track's own ceiling, not the configured tier");
             Assert.That(tracks[0].HiresStreamable, Is.True);
 
             var search = handler.Requests.Single(r => r.RequestUri!.AbsolutePath.Contains("track/search"));

@@ -1393,15 +1393,23 @@ else
     {
         if (candidateQualities.TryGetValue(candidate.SourceUrl, out var quality))
         {
+            // Per-hit facts (Qobuz reports the track's maximum) win over
+            // the plugin's tier: the tier is only a ceiling.
+            var depth = candidate.BitDepth ?? quality.BitDepth;
+            var rate = candidate.SampleRateHz ?? quality.SampleRateHz;
             var parts = new List<string>();
             var codec = CodecLabel(quality.Codec);
             if (codec.Length > 0) parts.Add(codec);
-            if (quality.BitDepth is { } depth) parts.Add($"{depth}-bit");
-            if (quality.SampleRateHz is { } rate) parts.Add($"{rate / 1000.0:0.#} kHz");
+            if (depth is { } bitDepth) parts.Add($"{bitDepth}-bit");
+            if (rate is { } sampleRate) parts.Add($"{sampleRate / 1000.0:0.#} kHz");
             if (quality.BitrateKbps is { } kbps && !quality.Lossless) parts.Add($"{kbps} kbps");
             if (parts.Count == 0) parts.Add(quality.Lossless ? "lossless" : "unknown");
             var text = string.Join(" · ", parts);
-            return quality.Note is { Length: > 0 } note ? $"{text} ({note})" : text;
+            // The tier note only adds information when the track's own
+            // rate is not known.
+            var exactPerTrack = candidate.BitDepth is not null && candidate.SampleRateHz is not null;
+            var note = exactPerTrack ? null : quality.Note;
+            return note is { Length: > 0 } ? $"{text} ({note})" : text;
         }
 
         var declared = candidate.DeclaredQuality;
@@ -1427,11 +1435,19 @@ else
                 return ("ok", "matches target",
                     $"This source delivers {targetLabel}, the playlist's quality.");
             }
-            return candidate.CanServeRequested
-                ? ("warn", "off target",
-                    $"This source does not deliver {targetLabel}. The pick is saved as-is.")
-                : ("warn", "saved as-is",
+            if (!candidate.CanServeRequested)
+            {
+                return ("warn", "saved as-is",
                     $"{candidate.PluginName} cannot deliver {targetLabel}; the pick keeps its source quality instead of being re-encoded.");
+            }
+            // The plugin can serve the target, so the pick is not saved
+            // as-is: with an explicit container it is converted, and with
+            // a container-less cap it keeps its own source.
+            return pickerTargetQuality.Format == AudioFormat.Auto
+                ? ("warn", "outside target",
+                    $"This source sits outside {targetLabel}; the pick keeps its source quality.")
+                : ("warn", "off target",
+                    $"This source does not deliver {targetLabel}; the pick will be converted to it.");
         }
 
         if (!probedCandidateUrls.Contains(candidate.SourceUrl)) return null;
@@ -1447,9 +1463,11 @@ else
         if (target.Format == AudioFormat.Flac) return quality.Lossless;
         if (target.Format != AudioFormat.Auto && AudioFormatOf(quality.Codec) != target.Format)
             return false;
-        // Unknown bitrates pass the pre-check: only the downloaded file can
-        // prove the band, exactly like the waterfall's own gate.
-        return target.IsWithinBand(quality.BitrateKbps);
+        // A band can only be called a match when the probe measured it: the
+        // pick path does not re-check the band after download, so an
+        // unknown bitrate must not be presented as matching the target.
+        if (target.MinKbps is null && target.MaxKbps is null) return true;
+        return quality.BitrateKbps is > 0 && target.IsWithinBand(quality.BitrateKbps);
     }
 
     /// <summary>The container a raw codec name stands for.</summary>

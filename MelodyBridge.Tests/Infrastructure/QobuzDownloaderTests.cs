@@ -37,7 +37,8 @@ public class QobuzDownloaderTests
 
     private static QobuzClient.QobuzTrack Track(
         long id, string title, string artist, int duration, string? isrc = null, bool hires = false)
-        => new(id, title, artist, TimeSpan.FromSeconds(duration), isrc, hires ? 24 : 16, hires);
+        => new(id, title, artist, TimeSpan.FromSeconds(duration), isrc,
+            hires ? 24 : 16, hires, hires ? 96000 : 44100);
 
     private sealed class StubHttpMessageHandler : HttpMessageHandler
     {
@@ -191,6 +192,23 @@ public class QobuzDownloaderTests
 
         Assert.That(hit, Is.Not.Null);
         Assert.That(hit!.SourceUrl, Is.EqualTo("https://play.qobuz.com/track/222"));
+    }
+
+    [Test]
+    public void Rank_CarriesThePerTrackQualityFacts()
+    {
+        var hit = QobuzDownloader.Rank(new[]
+        {
+            Track(333, "Around the World", "Daft Punk", 429, hires: false),
+        }, new TrackQuery("Daft Punk", "Around the World", DownloadQuality.Any));
+
+        Assert.That(hit, Is.Not.Null);
+        Assert.Multiple(() =>
+        {
+            Assert.That(hit!.BitDepth, Is.EqualTo(16),
+                "a CD-only track reports its own bit depth, not the configured tier");
+            Assert.That(hit.SampleRateHz, Is.EqualTo(44100));
+        });
     }
 
     [Test]

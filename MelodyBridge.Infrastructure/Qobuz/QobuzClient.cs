@@ -61,7 +61,8 @@ public class QobuzClient
         TimeSpan? Duration,
         string? Isrc,
         int? MaximumBitDepth,
-        bool HiresStreamable);
+        bool HiresStreamable,
+        int? MaximumSamplingRate = null);
 
     /// <summary>The account behind a token.</summary>
     public record QobuzAccount(string Token, string? Label, bool CanDownload);
@@ -314,6 +315,11 @@ public class QobuzClient
                     ? depth.GetInt32()
                     : null;
 
+                int? maxRate = item.TryGetProperty("maximum_sampling_rate", out var rate) &&
+                               rate.ValueKind == JsonValueKind.Number
+                    ? rate.GetInt32()
+                    : null;
+
                 var hires = item.TryGetProperty("hires_streamable", out var h) &&
                             h.ValueKind == JsonValueKind.True;
 
@@ -324,7 +330,8 @@ public class QobuzClient
                     duration,
                     GetString(item, "isrc"),
                     maxDepth,
-                    hires));
+                    hires,
+                    maxRate));
             }
             return results;
         }
