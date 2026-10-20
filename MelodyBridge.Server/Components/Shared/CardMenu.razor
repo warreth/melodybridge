@@ -1,6 +1,8 @@
 @* Card action menu: the "..." dropdown every card shares. A plain
    Blazor toggle instead of <details>, so an item click really closes it
-   without JS interop and the state stays testable in bUnit. *@
+   and the state stays testable in bUnit. The trigger's focus handoff is
+   the one part that needs the browser. *@
+@inject IJSRuntime JS
 <div class="card-menu @(_open ? "open" : null)">
     <button type="button" class="card-menu-trigger" title="@Label" aria-label="@Label"
             aria-expanded="@(_open ? "true" : "false")" @onclick="Toggle" @ref="_trigger">
@@ -18,11 +20,14 @@
     [Parameter] public RenderFragment? ChildContent { get; set; }
     [Parameter] public string Label { get; set; } = "More actions";
     /// <summary>
-    /// Return keyboard focus to the trigger after an item click. Turn this
-    /// off when the item opens a dialog or wizard: that surface owns focus
-    /// next and the trigger may be covered by it.
+    /// Optional per-click veto for returning focus to the trigger. A menu
+    /// with both plain actions and dialog actions returns true for the
+    /// plain ones and false for the one that opens a surface. A false
+    /// answer hands the trigger to the modal close path instead, so focus
+    /// comes back after the dialog closes rather than while it is still
+    /// open.
     /// </summary>
-    [Parameter] public bool FocusTriggerOnClose { get; set; } = true;
+    [Parameter] public Func<bool>? ShouldFocusTriggerOnClose { get; set; }
 
     private bool _open;
     private ElementReference _trigger;
@@ -34,10 +39,22 @@
     private async Task Close()
     {
         _open = false;
-        if (!FocusTriggerOnClose) return;
+        if (ShouldFocusTriggerOnClose is null || ShouldFocusTriggerOnClose())
+        {
+            try
+            {
+                await _trigger.FocusAsync();
+            }
+            catch
+            {
+                // Interop is unavailable during prerender and in some tests.
+            }
+            return;
+        }
+
         try
         {
-            await _trigger.FocusAsync();
+            await JS.InvokeVoidAsync("melody.rememberModalTrigger", _trigger);
         }
         catch
         {

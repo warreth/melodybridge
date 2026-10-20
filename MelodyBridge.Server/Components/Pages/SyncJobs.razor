@@ -454,7 +454,8 @@
                         <Icon Name="play" Size="14" />
                         <span class="btn-label">@(runningJobs.Contains(job.Id) ? "Running…" : "Run now")</span>
                     </button>
-                    <CardMenu Label="Sync job actions" FocusTriggerOnClose="false">
+                    <CardMenu Label="Sync job actions"
+                              ShouldFocusTriggerOnClose="ShouldReturnMenuFocus">
                         @JobMenu(job)
                     </CardMenu>
                 </span>
@@ -516,7 +517,8 @@ else
                         <Icon Name="play" Size="14" />
                         @(runningJobs.Contains(job.Id) ? "Running..." : "Run now")
                     </button>
-                    <CardMenu Label="Sync job actions" FocusTriggerOnClose="false">
+                    <CardMenu Label="Sync job actions"
+                              ShouldFocusTriggerOnClose="ShouldReturnMenuFocus">
                         @JobMenu(job)
                     </CardMenu>
                 </div>
@@ -608,6 +610,7 @@ else
     private ElementReference _logCloseButton;
     private bool _focusWizard;
     private bool _focusLog;
+    private bool suppressMenuFocus;
     private HashSet<string> runningJobs = new();
     /// <summary>True while "Run all now" walks every job; the buttons and
     /// the header label read it.</summary>
@@ -1029,6 +1032,8 @@ else
 
     private void StartEditJob(SyncJobEntity job)
     {
+        // The wizard owns focus; hand the menu trigger to the modal close path.
+        suppressMenuFocus = true;
         // hydrate the wizard from the stored entity so saving updates it in place
         draft = SyncJobMapping.MapToDomain(job);
         draftM3uEnabled = draft.Targets.Any(t => t.Kind == OutputTargetType.M3uFile);
@@ -1074,6 +1079,16 @@ else
     {
         showLog = false;
         _focusLog = false;
+    }
+
+    /// <summary>True returns focus to the menu trigger. A job action that
+    /// opens the wizard, log or confirm dialog answers false once, so the
+    /// trigger is remembered for when that surface closes.</summary>
+    private bool ShouldReturnMenuFocus()
+    {
+        if (!suppressMenuFocus) return true;
+        suppressMenuFocus = false;
+        return false;
     }
 
     private string GetStepTitle() => currentStep switch
@@ -1364,6 +1379,7 @@ else
 
     private async Task ViewJobLog(SyncJobEntity job)
     {
+        suppressMenuFocus = true;
         logJobName = job.Name ?? "";
         await using var db = await DbFactory.CreateDbContextAsync();
         logEntries = await db.SyncJobRuns.Where(r => r.SyncJobId == job.Id).OrderByDescending(r => r.Timestamp).Take(20).ToListAsync();
@@ -1377,6 +1393,7 @@ else
 
     private void AskDeleteJob(SyncJobEntity job)
     {
+        suppressMenuFocus = true;
         deleteJobId = job.Id;
         deleteJobName = job.Name ?? "";
     }

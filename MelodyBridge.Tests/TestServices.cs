@@ -36,6 +36,7 @@ public static class TestServices
         // The coordinator resolves the scoped store per run from the
         // provider the TestContext builds, like the real app does.
         services.AddSingleton<DownloadCoordinator>();
+        services.AddSingleton<IDownloadCoordinator>(sp => sp.GetRequiredService<DownloadCoordinator>());
         var settingsStore = new SettingsStore(dbFactory);
         services.AddSingleton(settingsStore);
         services.AddSingleton(new MediaServerProfileStore(settingsStore));

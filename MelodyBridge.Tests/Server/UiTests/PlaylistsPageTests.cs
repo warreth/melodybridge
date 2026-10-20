@@ -1,5 +1,6 @@
 using AngleSharp.Dom;
 using Bunit;
+using MelodyBridge.Application.Services;
 using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.Data;
 using MelodyBridge.Infrastructure.Services;
@@ -253,6 +254,45 @@ public class PlaylistsPageTests
             foreach (var option in new[] { "Manual", "Hourly", "Daily", "Weekly", "Monthly", "Cron" })
                 Assert.That(cut.Markup, Does.Contain($">{option}</option>"),
                     $"the schedule select offers {option}");
+        }, TimeSpan.FromSeconds(3));
+    }
+
+    [Test]
+    public void Playlists_AddForm_InvalidCron_BlocksSavingAndSaysWhy()
+    {
+        var cut = _ctx.Render<Playlists>();
+        cut.Find("div.topbar-actions button.primary").Click();
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("Auto-sync schedule")), TimeSpan.FromSeconds(3));
+
+        var schedule = cut.FindAll("select")
+            .Single(s => s.QuerySelectorAll("option").Any(o => o.TextContent == "Cron"));
+        schedule.Change("Cron");
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.FindAll("input[placeholder='30 4 * * *']"), Has.Count.EqualTo(1)),
+            TimeSpan.FromSeconds(3));
+        cut.Find("input[placeholder='30 4 * * *']").Input("not a cron");
+
+        cut.WaitForAssertion(() =>
+        {
+            var save = cut.FindAll(".wizard-footer button")
+                .Single(b => b.TextContent.Contains("Fetch & save"));
+            Assert.That(save.HasAttribute("disabled"), Is.True,
+                "invalid cron text blocks the create form instead of saving the previous schedule");
+            Assert.That(cut.Markup, Does.Contain("Enter a valid five-field cron expression"),
+                "the form says why saving is blocked");
+        }, TimeSpan.FromSeconds(3));
+
+        using (var db = new SqliteFactory(_dbPath).CreateDbContext())
+            Assert.That(db.Playlists.Count(), Is.Zero, "nothing was saved with a stale schedule");
+
+        cut.Find("input[placeholder='30 4 * * *']").Input("5 4 * * *");
+        cut.WaitForAssertion(() =>
+        {
+            var save = cut.FindAll(".wizard-footer button")
+                .Single(b => b.TextContent.Contains("Fetch & save"));
+            Assert.That(save.HasAttribute("disabled"), Is.False,
+                "a valid expression enables the create form again");
         }, TimeSpan.FromSeconds(3));
     }
 
@@ -578,6 +618,51 @@ public class PlaylistsPageTests
         {
             "Pin to top", "Refresh", "Download missing", "Export CSV", "Remove",
         }), "the menu carries the pin and the everyday actions, not only removal");
+    }
+
+    [Test]
+    public void Playlists_CardMenuRemove_KeepsFocusInTheDialogAndHandsBackTheTrigger()
+    {
+        SeedOnePlaylist("Menu Mix", 4, Platform.Spotify);
+        var cut = _ctx.Render<Playlists>();
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("Menu Mix")), TimeSpan.FromSeconds(3));
+
+        cut.Find("button.card-menu-trigger").Click();
+        cut.Find("button[title='Remove this playlist']").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.Markup, Does.Contain("Remove 'Menu Mix'?"),
+                "the Remove item opens the confirm dialog");
+            _ctx.JSInterop.VerifyFocusAsyncInvoke(1,
+                "only the dialog focuses while it is open; the covered menu trigger must not take focus back");
+            Assert.That(_ctx.JSInterop.Invocations["melody.rememberModalTrigger"].Count,
+                Is.EqualTo(1),
+                "the menu hands its trigger to the modal close path");
+        }, TimeSpan.FromSeconds(3));
+    }
+
+    [Test]
+    public void Playlists_CardMenuPlainAction_StillReturnsFocusToTheTrigger()
+    {
+        SeedOnePlaylist("Menu Mix", 4, Platform.Spotify);
+        var cut = _ctx.Render<Playlists>();
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("Menu Mix")), TimeSpan.FromSeconds(3));
+
+        cut.Find("button.card-menu-trigger").Click();
+        cut.FindAll(".card-menu-items button")
+            .Single(b => b.TextContent.Contains("Pin to top")).Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            _ctx.JSInterop.VerifyFocusAsyncInvoke(1,
+                "a plain menu action returns focus to the trigger");
+            Assert.That(_ctx.JSInterop.Invocations.Identifiers,
+                Does.Not.Contain("melody.rememberModalTrigger"),
+                "no modal handoff is needed for a plain action");
+        }, TimeSpan.FromSeconds(3));
     }
 
     [Test]
@@ -961,6 +1046,44 @@ public class PlaylistsPageTests
     }
 
     [Test]
+    public async Task Playlists_SelectMode_DoubleClickChecksPendingWorkOnce()
+    {
+        SeedOnePlaylist("First Mix", 2, Platform.Spotify);
+        SeedOnePlaylist("Second Mix", 3, Platform.Spotify);
+        var coordinator = new YieldingCoordinator();
+        _ctx.Services.AddSingleton<IDownloadCoordinator>(coordinator);
+
+        var cut = _ctx.Render<Playlists>();
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.FindAll(".playlist-card"), Has.Count.EqualTo(2)), TimeSpan.FromSeconds(5));
+        cut.FindAll(".list-toolbar button").Single(b => b.TextContent.Contains("Select")).Click();
+        cut.FindAll(".playlist-card a.playlist-cover")[0].Click();
+        cut.FindAll(".playlist-card a.playlist-cover")[1].Click();
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Find(".selection-all").TextContent, Does.Contain("2 selected")),
+            TimeSpan.FromSeconds(3));
+
+        var download = cut.FindAll(".selection-actions button")
+            .Single(b => b.TextContent.Contains("Download missing"));
+        var firstClick = download.ClickAsync();
+        await coordinator.Entered.Task.WaitAsync(TimeSpan.FromSeconds(3));
+
+        var secondClick = cut.FindAll(".selection-actions button")
+            .Single(b => b.TextContent.Contains("Download missing")).ClickAsync();
+        try
+        {
+            await secondClick.WaitAsync(TimeSpan.FromSeconds(3));
+            Assert.That(coordinator.PendingChecks, Is.EqualTo(1),
+                "a double click while the first check is still running starts no second check");
+        }
+        finally
+        {
+            coordinator.Release.TrySetResult();
+        }
+        await firstClick;
+    }
+
+    [Test]
     public void AccountSourceUrl_UsesTheProviderPlatform()
     {
         Assert.Multiple(() =>
@@ -1018,4 +1141,31 @@ public class PlaylistsPageTests
         }, TimeSpan.FromSeconds(5));
     }
 
+    /// <summary>Holds the first pending-work check open so a second click
+    /// arrives while the first is still in flight.</summary>
+    private sealed class YieldingCoordinator : IDownloadCoordinator
+    {
+        public TaskCompletionSource Entered { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource Release { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public int PendingChecks;
+
+        public DownloadRun? RunFor(string playlistId) => null;
+
+        public bool IsActive(string playlistId) => false;
+
+        public async Task<bool> HasPendingWorkAsync(
+            string playlistId, CancellationToken ct = default)
+        {
+            Interlocked.Increment(ref PendingChecks);
+            Entered.TrySetResult();
+            await Release.Task.WaitAsync(ct);
+            return false;
+        }
+
+        public void Start(string playlistId) { }
+    }
 }

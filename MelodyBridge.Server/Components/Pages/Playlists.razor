@@ -10,7 +10,7 @@
 @inject SpotifyAccountProvider SpotifyAccount
 @inject SpotifyUnofficialAccountProvider SpotifyWeb
 @inject YouTubeAccountProvider YouTubeAccount
-@inject Application.Services.DownloadCoordinator Coordinator
+@inject Application.Services.IDownloadCoordinator Coordinator
 @inject IDbContextFactory<MelodyBridgeDbContext> DbFactory
 @inject MediaServerProfileStore ServerProfiles
 @inject MelodyBridge.Server.Services.NotificationService Notifications
@@ -236,7 +236,8 @@ else if (playlistsView == "rows")
                 </a>
                 @if (!selectionMode)
                 {
-                    <CardMenu Label="Playlist actions">
+                    <CardMenu Label="Playlist actions"
+                              ShouldFocusTriggerOnClose="() => ShouldReturnMenuFocus(playlist.Id)">
                         @PlaylistMenu(playlist)
                     </CardMenu>
                 }
@@ -313,7 +314,8 @@ else
                     </div>
                     @if (!selectionMode)
                     {
-                        <CardMenu Label="Playlist actions">
+                        <CardMenu Label="Playlist actions"
+                                  ShouldFocusTriggerOnClose="() => ShouldReturnMenuFocus(playlist.Id)">
                             @PlaylistMenu(playlist)
                         </CardMenu>
                     }
@@ -409,7 +411,13 @@ else
                             <HelpTip Path="concepts#strict-quality" Text="Off: a fallback stays in the chosen container, so an FLAC request fails when no lossless source exists. On: it may land on the best lossy file." />
                         </div>
                     }
-                    <SchedulePicker Label="Auto-sync schedule" @bind-Value="newSchedule" />
+                    <SchedulePicker Label="Auto-sync schedule" @bind-Value="newSchedule"
+                                    LiveValidation="true"
+                                    ValidityChanged="valid => addScheduleValid = valid" />
+                    @if (!addScheduleValid)
+                    {
+                        <p class="wide sync-warn" role="alert">Enter a valid five-field cron expression before saving.</p>
+                    }
                     <label>
                         Sync mode
                         <select @bind="newSyncMode">
@@ -428,7 +436,8 @@ else
                 }
                 <button class="btn-modern secondary" @onclick="HideAddForm">Cancel</button>
                 <span></span>
-                <button class="btn-modern primary" @onclick="Add" disabled="@busy">@(busy ? "Fetching…" : "Fetch & save")</button>
+                <button class="btn-modern primary" @onclick="Add"
+                        disabled="@(busy || !addScheduleValid)">@(busy ? "Fetching…" : "Fetch & save")</button>
             </div>
         </div>
     </div>
@@ -861,6 +870,7 @@ else
     private string resolvedDefaultMusicPath = "/music";
     private string newQuality = "auto";
     private ScanSchedule newSchedule = ScanSchedule.Manual;
+    private bool addScheduleValid = true;
     private PlaylistSyncMode newSyncMode = PlaylistSyncMode.Additive;
     private bool newStrictQuality = true;
     private bool newAllowContainerChange = true;
@@ -1055,11 +1065,24 @@ else
     private bool deleteFilesWithPlaylist;
     private int deleteFileCount;
     private long deleteFileSizeBytes;
+    private string? suppressMenuFocusForPlaylist;
+
+    /// <summary>The Remove item opens a dialog that owns focus. Mark this
+    /// playlist's menu so Close hands the trigger to the modal close path
+    /// instead of taking focus back from the dialog. Every other item
+    /// keeps the normal focus return.</summary>
+    private bool ShouldReturnMenuFocus(string playlistId)
+    {
+        if (suppressMenuFocusForPlaylist != playlistId) return true;
+        suppressMenuFocusForPlaylist = null;
+        return false;
+    }
 
     /// <summary>Offered as a card action: remove the list, files optional.
     /// The dialog counts the existing primary and archive files.</summary>
     private async Task AskDelete(PlaylistEntity playlist)
     {
+        suppressMenuFocusForPlaylist = playlist.Id;
         confirmDeleteId = playlist.Id;
         confirmDeleteName = playlist.Name;
         deleteFilesWithPlaylist = false;
@@ -1576,6 +1599,7 @@ else
         newUrl = string.Empty;
         newTargetDirectory = string.Empty;
         newSchedule = ScanSchedule.Manual;
+        addScheduleValid = true;
         newSyncMode = PlaylistSyncMode.Additive;
         newStrictQuality = true;
         newAllowContainerChange = true;
@@ -1793,6 +1817,11 @@ else
         if (string.IsNullOrWhiteSpace(newUrl))
         {
             addError = "Paste a playlist URL first.";
+            return;
+        }
+        if (!addScheduleValid)
+        {
+            addError = "Enter a valid five-field cron expression before saving.";
             return;
         }
         busy = true;
