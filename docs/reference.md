@@ -136,6 +136,25 @@ accent color picker, **Export logs** (the most recent 1000 entries as a text
 file), and the database section: **Export zip** makes a snapshot, and importing
 one replaces the database. After a database import, restart the app.
 
+## The Playlists page
+
+Saved playlists show as cards or compact rows; the switch sits above the list
+and the choice is remembered. The sort control offers **Recently synced**,
+**Name A-Z** and **Most tracks**, also remembered for the next visit.
+
+**Select** turns the list into selection mode: tick several playlists, then
+**Refresh**, **Download missing**, **Export CSV** or **Remove**. A bulk export
+of more than one playlist is a single zip with one CSV per playlist, because
+browsers block a burst of downloads. A bulk remove deletes the playlists and
+their track lists but leaves the music files on disk. File imports cannot
+refresh; re-import their file instead.
+
+Each card and row has a **...** menu with the same actions for one playlist.
+**Remove** there offers the usual choice to delete the downloaded files too.
+Next to the menu, the **Publish** button creates sync jobs for several playlists
+at once with one schedule and one set of targets. See
+[Publishing playlists](/publishing#publish-playlists-in-a-few-clicks).
+
 ## Playlist options
 
 Open a playlist card and the left panel holds everything specific to it:

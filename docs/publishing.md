@@ -11,18 +11,20 @@ anything.
 
 ## Publish playlists in a few clicks
 
-The **Publish** button on the Playlists page is the short path. It asks two
-questions: which playlists, and which media server profiles they should go to.
-Every ticked playlist becomes its own job, named after the playlist, with a
-Manual schedule and the profiles you ticked as its targets. Playlists that
-already have a job are left out of the list, so the same playlist is not
-offered twice; creating the jobs re-reads the list, and anything deleted in
-the meantime is named in the result instead of becoming a dangling target.
+The **Publish** button on the Playlists page is the short path. Tick the
+playlists, choose where they go, and pick one schedule. Every ticked playlist
+becomes its own job, named after the playlist, with the targets and schedule you
+chose. **Send to** can be an M3U file, any number of media server profiles, or
+both. The M3U files land in the **Playlist output folder** setting, one per
+playlist. **Add profile** opens Settings, Media servers, when you need another
+target first.
 
-This flow deliberately skips the wizard's options: no M3U target, no path
-remaps, no schedule, no per-job user. That is the trade for the two-click
-setup, and the dialog says so. Every job it creates opens on the Sync jobs
-page like any other, where **Edit** gives you the full wizard.
+Playlists that already have a job are left out of the list, so the same playlist
+is not offered twice; creating the jobs re-reads the list, and anything deleted
+in the meantime is named in the result instead of becoming a dangling target.
+
+The quick path still skips path remaps and the per-job Jellyfin user. Open a
+created job with **Edit** on the Sync jobs page for those.
 
 <img src="/screens/publish.webp" alt="Quick publish dialog on the Playlists page" width="800">
 
@@ -116,13 +118,14 @@ other 30 have no local file yet, usually because they were never downloaded.
 **Log** breaks the run down per track, so you can see which ones are missing.
 :::
 
-**Log** shows the last 20 runs with their result and per-track detail. **Run
-now** triggers a job immediately, **Edit** changes it, and **Delete** removes
-the job and its run history without touching playlists or music files.
+**Run now** triggers a job immediately. The **...** menu opens **Log** with the
+last 20 runs and per-track detail, **Edit** for the wizard, and **Delete**,
+which removes the job and its run history without touching playlists or music
+files.
 
-Many jobs in one list? The **Cards** / **Rows** switch at the top changes the
-layout; the choice sticks. Rows fit more jobs on screen, cards have room for
-the last run summary.
+Many jobs in one list? The **Cards** / **Rows** switch above the list changes
+the layout; the choice sticks. Rows fit more jobs on screen, cards have room
+for the last run summary and its progress.
 
 ## Liked songs become favorites
 
