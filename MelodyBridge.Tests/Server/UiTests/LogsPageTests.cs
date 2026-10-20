@@ -29,6 +29,7 @@ public class LogsPageTests
         _exporter = new LogExporter(_collector);
         _ctx.Services.AddSingleton<ILogCollector>(_collector);
         _ctx.Services.AddSingleton(_exporter);
+        _ctx.Services.AddSingleton(new LogsViewState());
     }
 
     [TearDown]
@@ -218,6 +219,119 @@ public class LogsPageTests
         {
             Assert.That(text, Does.Contain("a dev panel download row"));
             Assert.That(text, Does.Contain("a dev panel queue row"));
+        });
+    }
+
+    [Test]
+    public async Task Logs_PauseStopsTheLiveRefresh_AndResumeCatchesUp()
+    {
+        _collector.Log(LogLevel.Info, "MelodyBridge.Infrastructure.Services.PlaylistStore", "first row");
+        var cut = _ctx.Render<Logs>();
+        cut.WaitForAssertion(() => Assert.That(cut.Markup, Does.Contain("first row")));
+
+        var pause = cut.FindAll(".toggle-switch")
+            .Single(label => label.TextContent.Contains("Pause live"))
+            .QuerySelector("input")!;
+        pause.Change(true);
+        cut.WaitForAssertion(() => Assert.That(cut.Markup, Does.Contain("Paused")),
+            TimeSpan.FromSeconds(2));
+
+        _collector.Log(LogLevel.Info, "MelodyBridge.Infrastructure.Services.PlaylistStore", "while paused");
+        await Task.Delay(2500);
+        cut.Render();
+        Assert.That(cut.Markup, Does.Not.Contain("while paused"),
+            "the live timer must not replace the stream while paused");
+
+        pause = cut.FindAll(".toggle-switch")
+            .Single(label => label.TextContent.Contains("Paused"))
+            .QuerySelector("input")!;
+        pause.Change(false);
+
+        cut.WaitForAssertion(() => Assert.That(cut.Markup, Does.Contain("while paused")),
+            TimeSpan.FromSeconds(4));
+    }
+
+    [Test]
+    public void Logs_SourceFilterKeepsOnlyThatPlugin()
+    {
+        _collector.Log(LogLevel.Info, "MelodyBridge.Infrastructure.Qobuz.QobuzClient", "qobuz said hello");
+        _collector.Log(LogLevel.Info, "MelodyBridge.Infrastructure.Tidal.TidalClient", "tidal said hello");
+
+        var cut = _ctx.Render<Logs>();
+        var source = cut.Find(".log-source-filter select");
+        source.Change("Qobuz");
+
+        var text = cut.Find(".logs-list").TextContent;
+        Assert.Multiple(() =>
+        {
+            Assert.That(text, Does.Contain("qobuz said hello"));
+            Assert.That(text, Does.Not.Contain("tidal said hello"));
+        });
+    }
+
+    [Test]
+    public void Logs_GroupByTrack_KeepsOneAttemptTogether()
+    {
+        _collector.Log(LogLevel.Info, "MelodyBridge.Application.Services.DownloadManager",
+            "searching A", group: "Track: Artist - A");
+        _collector.Log(LogLevel.Info, "MelodyBridge.Application.Services.DownloadManager",
+            "downloaded A", group: "Track: Artist - A");
+        _collector.Log(LogLevel.Info, "MelodyBridge.Application.Services.DownloadManager",
+            "searching B", group: "Track: Artist - B");
+
+        var cut = _ctx.Render<Logs>();
+        var groupToggle = cut.FindAll(".toggle-switch")
+            .Single(label => label.TextContent.Contains("Group by track"))
+            .QuerySelector("input")!;
+        groupToggle.Change(true);
+
+        var heads = cut.FindAll(".log-group-head").Select(head => head.TextContent).ToList();
+        Assert.Multiple(() =>
+        {
+            Assert.That(heads.Count, Is.EqualTo(2));
+            Assert.That(heads.Any(head => head.Contains("Artist - A")), Is.True);
+            Assert.That(heads.Any(head => head.Contains("Artist - B")), Is.True);
+            Assert.That(cut.Find(".logs-list").TextContent, Does.Contain("searching A"));
+            Assert.That(cut.Find(".logs-list").TextContent, Does.Contain("downloaded A"));
+        });
+    }
+
+    [Test]
+    public void Logs_PinKeepsAnEntryAboveTheStream()
+    {
+        _collector.Log(LogLevel.Warn, "MelodyBridge.Application.Services.DownloadManager", "keep this row");
+
+        var cut = _ctx.Render<Logs>();
+        cut.Find("button[title='Pin this entry']").Click();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(cut.FindAll(".pinned-logs").Count, Is.EqualTo(1));
+            Assert.That(cut.Find(".pinned-logs").TextContent, Does.Contain("keep this row"));
+            Assert.That(cut.Find("button[title='Unpin']"), Is.Not.Null);
+        });
+
+        cut.Find("button[title='Unpin']").Click();
+        Assert.That(cut.FindAll(".pinned-logs").Count, Is.EqualTo(0));
+    }
+
+    [Test]
+    public void Logs_FiltersSurviveLeavingAndReturning()
+    {
+        _collector.Log(LogLevel.Info, "MelodyBridge.Application.Services.DownloadManager", "download row");
+        _collector.Log(LogLevel.Info, "MelodyBridge.Infrastructure.Services.PlaylistStore", "playlist row");
+
+        var first = _ctx.Render<Logs>();
+        first.FindAll(".filter-chip").Single(c => c.GetAttribute("data-area") == "Downloads").Click();
+
+        var second = _ctx.Render<Logs>();
+        var active = second.FindAll(".filter-chip")
+            .Single(c => c.GetAttribute("data-area") == "Downloads");
+        Assert.Multiple(() =>
+        {
+            Assert.That(active.GetAttribute("class"), Does.Contain("active"));
+            Assert.That(second.Find(".logs-list").TextContent, Does.Contain("download row"));
+            Assert.That(second.Find(".logs-list").TextContent, Does.Not.Contain("playlist row"));
         });
     }
 

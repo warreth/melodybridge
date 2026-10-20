@@ -98,7 +98,7 @@ public sealed class DevPanelLogger : ILogger
         var message = formatter(state, exception);
         var detail = exception?.ToString();
 
-        _collector.Log(level, _categoryName, message, detail);
+        _collector.Log(level, _categoryName, message, detail, LogCorrelation.Current);
     }
 
     /// <summary>Framework and BCL loggers, not the app's own types.</summary>

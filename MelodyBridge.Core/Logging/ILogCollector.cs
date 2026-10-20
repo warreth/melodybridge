@@ -10,7 +10,8 @@ namespace MelodyBridge.Core.Logging;
 public interface ILogCollector
 {
     /// <summary>Write a structured log entry.</summary>
-    void Log(LogLevel level, string category, string message, string? detail = null);
+    void Log(LogLevel level, string category, string message,
+        string? detail = null, string? group = null);
 
     /// <summary>Get a snapshot of all collected entries (newest first).</summary>
     IReadOnlyList<LogEntry> GetEntries();

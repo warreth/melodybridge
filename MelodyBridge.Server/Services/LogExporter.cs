@@ -33,7 +33,8 @@ public class LogExporter
         {
             var timestamp = entry.Timestamp.ToLocalTime().ToString("HH:mm:ss.fff");
             var level = entry.Level.ToString().ToUpperInvariant().PadRight(8);
-            sb.AppendLine($"[{timestamp}] {level} [{entry.Category}] {entry.Message}");
+            var group = string.IsNullOrWhiteSpace(entry.Group) ? "" : $" [{entry.Group}]";
+            sb.AppendLine($"[{timestamp}] {level} [{entry.Category}]{group} {entry.Message}");
             if (!string.IsNullOrEmpty(entry.Detail))
             {
                 // Indent multi-line details

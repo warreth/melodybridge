@@ -54,6 +54,7 @@ public class PageRefactorUiTests
         var collector = new LogCollector();
         _ctx.Services.AddSingleton<MelodyBridge.Core.Logging.ILogCollector>(collector);
         _ctx.Services.AddSingleton(new LogExporter(collector));
+        _ctx.Services.AddSingleton(new LogsViewState());
         // Settings injects the media server directory; the default mock does nothing.
         _ctx.Services.AddSingleton(new Moq.Mock<MelodyBridge.Core.IMediaServerDirectory>().Object);
         // The dashboard's guided tour calls melody.spotlight; loose mode lets

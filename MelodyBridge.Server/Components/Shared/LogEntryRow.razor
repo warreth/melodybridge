@@ -1,0 +1,34 @@
+@using MelodyBridge.Core.Logging
+
+<div class="log-row @LevelClass">
+    <span class="log-time">@Entry.Timestamp.ToLocalTime().ToString("HH:mm:ss")</span>
+    <span class="log-level">@Entry.Level.ToString().ToUpperInvariant()</span>
+    <span class="log-category" title="@Entry.Category">@LogAreas.FromCategory(Entry.Category)</span>
+    <span class="log-message">@LogRedactor.Redact(Entry.Message)</span>
+    <div class="log-actions">
+        <button class="icon-button" title="Copy this entry" aria-label="Copy this entry"
+                @onclick="() => OnCopy.InvokeAsync(Entry)">
+            <Icon Name="copy" Size="13" />
+        </button>
+        <button class="icon-button" title="@(Pinned ? "Unpin" : "Pin this entry")"
+                aria-label="@(Pinned ? "Unpin" : "Pin this entry")"
+                @onclick="() => OnPin.InvokeAsync(Entry)">
+            <Icon Name="pin" Size="13" />
+        </button>
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public LogEntry Entry { get; set; } = default!;
+    [Parameter] public bool Pinned { get; set; }
+    [Parameter] public EventCallback<LogEntry> OnCopy { get; set; }
+    [Parameter] public EventCallback<LogEntry> OnPin { get; set; }
+
+    private string LevelClass => Entry.Level switch
+    {
+        LogLevel.Error or LogLevel.Critical => "err",
+        LogLevel.Warn => "warn",
+        LogLevel.Debug or LogLevel.Trace => "debug",
+        _ => "info",
+    };
+}

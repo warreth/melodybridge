@@ -24,14 +24,16 @@ public sealed class LogCollector : ILogCollector
         MaxEntries = maxEntries;
     }
 
-    public void Log(CoreLogLevel level, string category, string message, string? detail = null)
+    public void Log(CoreLogLevel level, string category, string message,
+        string? detail = null, string? group = null)
     {
         var entry = new LogEntry(
             DateTime.UtcNow,
             level,
             category,
             message,
-            detail
+            detail,
+            group
         );
 
         lock (_lock)

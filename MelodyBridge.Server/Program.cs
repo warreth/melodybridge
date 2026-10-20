@@ -36,6 +36,7 @@ builder.Services.AddScoped<MelodyBridgeDbContext>(sp =>
 var logCollector = new LogCollector(maxEntries: 1000);
 builder.Services.AddSingleton<ILogCollector>(logCollector);
 builder.Services.AddSingleton<LogExporter>();
+builder.Services.AddSingleton<LogsViewState>();
 
 // Bridge the standard ILogger<T> pipeline into the log collector
 // so providers, services, and controllers appear in the DevPanel

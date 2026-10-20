@@ -8,7 +8,8 @@ public record LogEntry(
     LogLevel Level,
     string Category,
     string Message,
-    string? Detail = null
+    string? Detail = null,
+    string? Group = null
 );
 
 /// <summary>

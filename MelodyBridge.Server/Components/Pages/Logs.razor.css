@@ -14,13 +14,116 @@
     align-items: center;
 }
 
-/* Search fills the first column, the toggle sits beside it. */
+/* Search fills the first column, the toggles sit beside it. */
 .logs-toolbar .search-input { width: 100%; }
+
+.logs-toolbar-toggles {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .35rem .7rem;
+    align-items: center;
+    justify-content: flex-end;
+}
 
 .logs-toolbar .toggle-switch.wide { margin-bottom: 0; }
 
+.logs-source-row {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: .6rem .9rem;
+}
+
+.log-source-filter {
+    display: inline-flex;
+    align-items: center;
+    gap: .4rem;
+    color: var(--muted);
+    font-size: .78rem;
+    font-weight: 600;
+}
+
+.log-source-filter select {
+    min-width: 150px;
+    padding: .35rem .45rem;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    background: var(--surface-2);
+    color: var(--text);
+    font: inherit;
+    font-size: .8rem;
+}
+
+.logs-live {
+    display: inline-flex;
+    align-items: center;
+    gap: .35rem;
+    color: var(--muted);
+    font-size: .75rem;
+}
+
+.logs-live.paused { color: var(--warning); }
+
 /* Chip rows span the full width under the search row. */
 .logs-toolbar .filter-chips { grid-column: 1 / -1; }
+
+/* Pinned entries keep their own card above the stream. */
+.pinned-logs {
+    margin-bottom: .75rem;
+    border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
+    border-radius: 10px;
+    background: var(--accent-soft);
+    overflow: hidden;
+}
+
+.pinned-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: .5rem;
+    padding: .45rem .7rem;
+    border-bottom: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+    color: var(--accent-text);
+    font-size: .8rem;
+}
+
+.pinned-head strong { display: inline-flex; align-items: center; gap: .3rem; }
+
+.pinned-logs .logs-list {
+    max-height: 16rem;
+    border: 0;
+    border-radius: 0;
+    background: var(--surface);
+}
+
+/* Group headers make one track's attempt read as one block. */
+.log-group-head {
+    display: flex;
+    align-items: center;
+    gap: .4rem;
+    padding: .45rem .7rem;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    background: var(--surface-2);
+    color: var(--muted);
+    font-size: .76rem;
+}
+
+.log-group-head:first-child { border-top: 0; }
+.log-group-head strong { color: var(--text); }
+.log-group-head span { margin-left: auto; font-variant-numeric: tabular-nums; }
+
+@media (max-width: 720px) {
+    .logs-toolbar-toggles { justify-content: flex-start; }
+    .logs-toolbar { grid-template-columns: minmax(0, 1fr); }
+    .logs-toolbar-toggles { grid-column: 1 / -1; }
+    .log-source-filter { width: 100%; }
+    .log-source-filter select { flex: 1; min-width: 0; }
+}
 
 /* The count makes the area split visible before a chip is clicked. */
 .filter-chip .chip-count {
@@ -80,3 +183,9 @@
 }
 
 /* .log-time and .log-category keep the muted color from the global rules. */
+
+/* The filter toolbar is half the screen on a phone; let it scroll away
+   with the stream instead of covering every log row. */
+@media (max-width: 720px) {
+    .logs-toolbar { position: static; }
+}

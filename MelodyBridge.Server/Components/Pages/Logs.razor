@@ -5,6 +5,7 @@
 @implements IDisposable
 @inject ILogCollector LogCollector
 @inject LogExporter Exporter
+@inject LogsViewState View
 @inject IJSRuntime JS
 
 <PageTitle>Logs - MelodyBridge</PageTitle>
@@ -76,11 +77,40 @@
     <div class="logs-toolbar">
         <input type="search" class="search-input" placeholder="Search text..."
                value="@searchText" @oninput="OnSearchChanged" />
-        <label class="toggle-switch wide auto-scroll">
-            <input type="checkbox" @bind="newestFirst" />
-            <span class="toggle-slider"></span>
-            <span>Newest first</span>
-        </label>
+        <div class="logs-toolbar-toggles">
+            <label class="toggle-switch wide auto-scroll">
+                <input type="checkbox" @bind="newestFirst" @bind:after="OnViewOptionChanged" />
+                <span class="toggle-slider"></span>
+                <span>Newest first</span>
+            </label>
+            <label class="toggle-switch wide">
+                <input type="checkbox" @bind="paused" @bind:after="OnPauseChanged" />
+                <span class="toggle-slider"></span>
+                <span>@(paused ? "Paused" : "Pause live")</span>
+            </label>
+            <label class="toggle-switch wide">
+                <input type="checkbox" @bind="groupByTrack" @bind:after="OnViewOptionChanged" />
+                <span class="toggle-slider"></span>
+                <span>Group by track</span>
+            </label>
+        </div>
+        <div class="logs-source-row">
+            <label class="log-source-filter">
+                <span>Source</span>
+                <select @bind="selectedSource" @bind:after="OnSourceChanged">
+                    <option value="all">All sources</option>
+                    @foreach (var source in LogSources.All)
+                    {
+                        var count = sourceCounts.GetValueOrDefault(source);
+                        <option value="@source">@source@(count > 0 ? $" ({count})" : "")</option>
+                    }
+                </select>
+            </label>
+            <span class="logs-live @(paused ? "paused" : null)">
+                <span class="status-dot @(paused ? "warning" : "online")" aria-hidden="true"></span>
+                @(paused ? "Live stream paused" : "Live")
+            </span>
+        </div>
         <div class="filter-chips">
             <button class="filter-chip @(selectedArea is null ? "active" : "")"
                     data-area="all" @onclick="() => SelectArea(null)">
@@ -121,6 +151,23 @@
         </div>
     </div>
 
+    @if (pinnedEntries.Count > 0)
+    {
+        <div class="pinned-logs">
+            <div class="pinned-head">
+                <strong><Icon Name="pin" Size="13" /> Pinned</strong>
+                <button class="btn-modern small ghost" @onclick="ClearPinned">Clear</button>
+            </div>
+            <div class="logs-list">
+                @foreach (var entry in pinnedEntries)
+                {
+                    <LogEntryRow @key="entry" Entry="entry" Pinned="true"
+                                 OnCopy="CopyEntryAsync" OnPin="TogglePin" />
+                }
+            </div>
+        </div>
+    }
+
     @if (filtered.Count == 0)
     {
         @if (totalEntries == 0)
@@ -130,24 +177,47 @@
         else
         {
             <EmptyState IconName="search" Title="No log entries match">
-                <p>Adjust the area, level or search text.</p>
+                <p>Adjust the area, source, level or search text.</p>
             </EmptyState>
         }
     }
     else
     {
         <div class="logs-list">
-            @foreach (var entry in newestFirst ? filtered.AsEnumerable() : filtered.AsEnumerable().Reverse())
+            @if (groupByTrack)
             {
-                <div class="log-row @LevelClass(entry.Level)">
-                    <span class="log-time">@entry.Timestamp.ToLocalTime().ToString("HH:mm:ss")</span>
-                    <span class="log-level">@entry.Level.ToString().ToUpperInvariant()</span>
-                    <span class="log-category" title="@entry.Category">@LogAreas.FromCategory(entry.Category)</span>
-                    <span class="log-message">@LogRedactor.Redact(entry.Message)</span>
-                </div>
+                @foreach (var group in GroupedEntries())
+                {
+                    <div class="log-group-head">
+                        <Icon Name="music" Size="13" />
+                        <strong>@group.Name</strong>
+                        <span>@group.Entries.Count</span>
+                    </div>
+                    @foreach (var entry in group.Entries)
+                    {
+                        <LogEntryRow @key="entry" Entry="entry"
+                                     Pinned="@IsPinned(entry)"
+                                     OnCopy="CopyEntryAsync" OnPin="TogglePin" />
+                    }
+                }
+            }
+            else
+            {
+                @foreach (var entry in newestFirst ? StreamEntries : StreamEntries.Reverse())
+                {
+                    <LogEntryRow @key="entry" Entry="entry"
+                                 Pinned="@IsPinned(entry)"
+                                 OnCopy="CopyEntryAsync" OnPin="TogglePin" />
+                }
             }
         </div>
-        <div class="logs-count">@filtered.Count of @totalEntries entries</div>
+        <div class="logs-count">
+            @filtered.Count of @totalEntries entries
+            @if (pinnedEntries.Count > 0)
+            {
+                <span> · @pinnedEntries.Count pinned</span>
+            }
+        </div>
     }
 </section>
 
@@ -163,12 +233,17 @@
     private List<LogEntry> errorPreview = new();
     private Dictionary<string, int> areaCounts = new();
     private Dictionary<string, int> levelCounts = new();
+    private Dictionary<string, int> sourceCounts = new();
+    private List<LogEntry> pinnedEntries = new();
     private int totalEntries;
     private int errorCount;
     private string? selectedArea;
     private LevelFilter? selectedLevel;
+    private string selectedSource = "all";
     private bool showingErrorsOnly;
     private bool newestFirst = true;
+    private bool paused;
+    private bool groupByTrack;
     private string searchText = string.Empty;
     private string? statusMessage;
     private int dismissedErrorCount;
@@ -194,10 +269,23 @@
 
     protected override void OnInitialized()
     {
-        selectedLevel ??= LevelFilters[0];
+        selectedArea = View.SelectedArea;
+        selectedSource = string.IsNullOrWhiteSpace(View.SelectedSource) ? "all" : View.SelectedSource;
+        searchText = View.SearchText;
+        newestFirst = View.NewestFirst;
+        groupByTrack = View.GroupByTrack;
+        selectedLevel = View.SelectedLevel switch
+        {
+            null or "Info+" => LevelFilters[0],
+            "all" => null,
+            var label => LevelFilters.FirstOrDefault(filter => filter.Label == label)
+                ?? LevelFilters[0],
+        };
+
         Refresh();
         _timer = new Timer(_ => InvokeAsync(() =>
         {
+            if (paused) return;
             Refresh();
             StateHasChanged();
         }), null, 2000, 2000);
@@ -215,6 +303,9 @@
         levelCounts = LevelFilters.ToDictionary(
             filter => filter.Label,
             filter => entries.Count(entry => filter.Levels.Contains(entry.Level)));
+        sourceCounts = entries
+            .GroupBy(entry => LogSources.FromCategory(entry.Category))
+            .ToDictionary(group => group.Key, group => group.Count());
         filtered = entries.Where(Matches).ToList();
     }
 
@@ -226,6 +317,8 @@
         if (showingErrorsOnly && !IsError(e))
             return false;
         if (selectedArea is not null && LogAreas.FromCategory(e.Category) != selectedArea)
+            return false;
+        if (selectedSource != "all" && LogSources.FromCategory(e.Category) != selectedSource)
             return false;
         if (selectedLevel is not null && !selectedLevel.Levels.Contains(e.Level))
             return false;
@@ -247,13 +340,36 @@
     private void SelectArea(string? area)
     {
         selectedArea = area;
+        View.SelectedArea = area;
         Refresh();
     }
 
     private void SelectLevel(LevelFilter? level)
     {
         selectedLevel = level;
+        View.SelectedLevel = level?.Label ?? "all";
         Refresh();
+    }
+
+    private void OnSourceChanged()
+    {
+        View.SelectedSource = selectedSource;
+        Refresh();
+    }
+
+    private void OnViewOptionChanged()
+    {
+        View.NewestFirst = newestFirst;
+        View.GroupByTrack = groupByTrack;
+        StateHasChanged();
+    }
+
+    /// <summary>Resuming catches up immediately instead of waiting for the next tick.</summary>
+    private void OnPauseChanged()
+    {
+        if (paused) return;
+        Refresh();
+        StateHasChanged();
     }
 
     private void ShowOnlyErrors()
@@ -270,6 +386,9 @@
         // Jump into the stream: that area, only errors until cleared.
         showingErrorsOnly = true;
         selectedArea = LogAreas.FromCategory(entry.Category);
+        selectedSource = "all";
+        View.SelectedArea = selectedArea;
+        View.SelectedSource = "all";
         Refresh();
         statusMessage = $"Showing errors from {selectedArea}";
     }
@@ -277,7 +396,62 @@
     private void OnSearchChanged(ChangeEventArgs e)
     {
         searchText = e.Value?.ToString() ?? string.Empty;
+        View.SearchText = searchText;
         Refresh();
+    }
+
+    /// <summary>Filtered entries that are not already shown in the pinned card.</summary>
+    private IEnumerable<LogEntry> StreamEntries => filtered.Where(entry => !IsPinned(entry));
+
+    /// <summary>One entry per track, newest group first, each group in the chosen order.</summary>
+    private IReadOnlyList<LogGroup> GroupedEntries()
+    {
+        var ordered = newestFirst ? StreamEntries : StreamEntries.Reverse();
+        return ordered
+            .GroupBy(entry => string.IsNullOrWhiteSpace(entry.Group)
+                ? "Other events"
+                : entry.Group!)
+            .Select(group => new LogGroup(group.Key, group.ToList()))
+            .OrderByDescending(group => group.Entries.Max(entry => entry.Timestamp))
+            .ToList();
+    }
+
+    private sealed record LogGroup(string Name, IReadOnlyList<LogEntry> Entries);
+
+    private bool IsPinned(LogEntry entry) => pinnedEntries.Contains(entry);
+
+    private void TogglePin(LogEntry entry)
+    {
+        if (!pinnedEntries.Remove(entry))
+            pinnedEntries.Insert(0, entry);
+        StateHasChanged();
+    }
+
+    private void ClearPinned()
+    {
+        pinnedEntries.Clear();
+        StateHasChanged();
+    }
+
+    private async Task CopyEntryAsync(LogEntry entry)
+    {
+        var text = $"[{entry.Timestamp.ToLocalTime():yyyy-MM-dd HH:mm:ss}] "
+            + $"{entry.Level.ToString().ToUpperInvariant()} [{LogAreas.FromCategory(entry.Category)}] "
+            + LogRedactor.Redact(entry.Message);
+        if (!string.IsNullOrWhiteSpace(entry.Detail))
+            text += Environment.NewLine + LogRedactor.Redact(entry.Detail);
+
+        bool copied;
+        try
+        {
+            copied = await JS.InvokeAsync<bool>("melody.copyText", text);
+        }
+        catch (JSException)
+        {
+            copied = false;
+        }
+
+        statusMessage = copied ? "Entry copied to clipboard" : "The browser would not let the page copy.";
     }
 
     private async Task CopyToClipboardAsync()
@@ -311,6 +485,7 @@
     private void ClearLogs()
     {
         LogCollector.Clear();
+        pinnedEntries.Clear();
         showingErrorsOnly = false;
         confirmClear = false;
         dismissedErrorCount = 0;
@@ -327,8 +502,10 @@
         {
             sb.Append('[').Append(e.Timestamp.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"))
               .Append("] ").Append(e.Level.ToString().ToUpperInvariant())
-              .Append(" [").Append(LogAreas.FromCategory(e.Category)).Append("] ")
-              .AppendLine(LogRedactor.Redact(e.Message));
+              .Append(" [").Append(LogAreas.FromCategory(e.Category)).Append("] ");
+            if (!string.IsNullOrWhiteSpace(e.Group))
+                sb.Append('[').Append(e.Group).Append("] ");
+            sb.AppendLine(LogRedactor.Redact(e.Message));
             if (!string.IsNullOrEmpty(e.Detail))
                 sb.AppendLine($"    {LogRedactor.Redact(e.Detail).Replace("\n", "\n    ")}");
         }
