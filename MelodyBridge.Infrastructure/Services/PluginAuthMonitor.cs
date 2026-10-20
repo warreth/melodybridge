@@ -24,9 +24,21 @@ public sealed class PluginAuthMonitor
 {
     private readonly ConcurrentDictionary<string, PluginAuthIssue> _issues =
         new(StringComparer.OrdinalIgnoreCase);
+    private string? _dismissedSignature;
 
     /// <summary>Raised when an issue appears, changes or clears.</summary>
     public event Action? Changed;
+
+    /// <summary>
+    /// True while the banner for the current set of issues was dismissed.
+    /// A changed or new issue clears the dismissal, so the banner returns
+    /// only when there is something new to read.
+    /// </summary>
+    public bool BannerDismissed => string.Equals(
+        _dismissedSignature, Signature(), StringComparison.Ordinal);
+
+    /// <summary>Hides the banner until an issue appears or changes.</summary>
+    public void DismissBanner() => _dismissedSignature = Signature();
 
     /// <summary>Every current login problem, in plugin-name order.</summary>
     public IReadOnlyList<PluginAuthIssue> Snapshot() => _issues.Values
@@ -60,11 +72,20 @@ public sealed class PluginAuthMonitor
         {
             _issues[pluginId] = new PluginAuthIssue(
                 pluginId, pluginName, message, DateTimeOffset.UtcNow);
+            // A new or changed problem is news again, whatever the user
+            // dismissed before.
+            _dismissedSignature = null;
             changed = true;
         }
 
         if (changed) Changed?.Invoke();
     }
+
+    /// <summary>A stable fingerprint of the current issue set.</summary>
+    private string Signature() => string.Join(
+        "\n", _issues.Values
+            .OrderBy(issue => issue.PluginId, StringComparer.OrdinalIgnoreCase)
+            .Select(issue => $"{issue.PluginId}={issue.Message}"));
 
     /// <summary>Clears one plugin's issue, for example when it is disabled.</summary>
     public void Clear(string pluginId)

@@ -1,4 +1,7 @@
 @page "/plugins"
+@using System.Collections.Concurrent
+@using System.Text
+@using Microsoft.JSInterop
 @using MelodyBridge.Core
 @using MelodyBridge.Infrastructure.Downloaders
 @using MelodyBridge.Infrastructure.Services
@@ -7,6 +10,8 @@
 @inject YtDlpUpdater YtDlp
 @inject MelodyBridge.Server.Services.NotificationService Notifications
 @inject MelodyBridge.Infrastructure.Services.PluginAuthMonitor AuthMonitor
+@inject IJSRuntime JS
+@inject NavigationManager Nav
 @implements IDisposable
 
 <PageTitle>Plugins - MelodyBridge</PageTitle>
@@ -33,14 +38,19 @@
     </div>
 </section>
 
-@if (authIssues.Count > 0)
+@if (ShowAuthBanner)
 {
     <section class="auth-alert" role="alert" aria-live="polite">
         <div class="auth-alert-icon" aria-hidden="true">
             <Icon Name="alert" Size="22" />
         </div>
         <div class="auth-alert-body">
-            <strong>@AuthAlertTitle</strong>
+            <div class="auth-alert-head">
+                <strong>@AuthAlertTitle</strong>
+                <button class="btn-modern small ghost" @onclick="DismissAuthBanner">
+                    Dismiss
+                </button>
+            </div>
             <p>
                 These plugins are skipped until their login works again, so a
                 download never reaches their catalogue. The token itself can
@@ -64,6 +74,62 @@
         </div>
     </section>
 }
+
+@{
+    var plan = RoutePlan;
+}
+<section class="panel-card route-preview">
+    <div class="route-preview-head">
+        <div>
+            <span class="eyebrow">Route preview</span>
+            <h2>For @RouteQualityLabel</h2>
+        </div>
+        <select class="route-select" aria-label="Preview a quality"
+                @bind="routePreset">
+            @foreach (var preset in QualityPresets.All)
+            {
+                <option value="@preset.Id">@preset.Label</option>
+            }
+        </select>
+    </div>
+    @if (plan.Plugins.Count == 0)
+    {
+        <div class="hint-box danger">
+            No enabled plugin declares that it can serve this quality.
+        </div>
+    }
+    else
+    {
+        <div class="route-chain" aria-label="Plugins in try order">
+            @for (var i = 0; i < plan.Plugins.Count; i++)
+            {
+                var plugin = plan.Plugins[i];
+                <a href="#plugin-@plugin.Id" class="route-step"
+                   @onclick:preventDefault="true"
+                   @onclick="() => OpenAuthSettings(plugin.Id)">
+                    <span class="route-index">@(i + 1)</span>
+                    <span>@plugin.Name</span>
+                </a>
+
+            }
+        </div>
+        <p class="route-skipped">
+            @if (plan.Excluded.Count == 0)
+            {
+                <span>Every enabled plugin can serve this quality.</span>
+            }
+            else
+            {
+                <span>
+                    Skipped: @string.Join(", ", plan.Excluded.Select(x => $"{x.plugin.Name} ({x.reason})"))
+                </span>
+            }
+        </p>
+    }
+    <p class="route-note">
+        Based on each plugin's declared capabilities. Availability is still checked per track.
+    </p>
+</section>
 
 @if (runs.Count > 0)
 {
@@ -150,6 +216,8 @@
         var auth = (plugin as IPluginAuthStatusProvider)?.AuthStatus;
         var authProblem = enabled && auth?.NeedsAttention == true;
         var authMessage = authProblem ? auth!.Message : null;
+        var details = auth is { State: PluginAuthState.Valid } ? auth : null;
+        var checking = checkingPlugins.ContainsKey(plugin.Id);
         <article class="plugin-card @(enabled ? "" : "disabled") @(authProblem ? "auth-error" : null)"
                  id="plugin-@plugin.Id">
             <div class="plugin-head">
@@ -163,8 +231,58 @@
                 <div class="plugin-title">
                     <strong>@plugin.Name</strong>
                     <div class="plugin-description">@plugin.Description</div>
+                    @if (details is not null)
+                    {
+                        <div class="plugin-account">
+                            @if (!string.IsNullOrWhiteSpace(details.Account))
+                            {
+                                <span>@details.Account</span>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(details.Plan))
+                            {
+                                <span>@details.Plan</span>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(details.Tier))
+                            {
+                                <span>@details.Tier</span>
+                            }
+                            @if (details.ExpiresAtUtc is { } expires)
+                            {
+                                <span>@ExpiryText(expires)</span>
+                            }
+                        </div>
+                    }
+                    <div class="plugin-meta">
+                        @if (checking)
+                        {
+                            <span class="plugin-checking"><span class="spinner"></span> checking…</span>
+                        }
+                        else if (LastCheckedText(plugin.Id) is { } checkedText)
+                        {
+                            <span>@checkedText</span>
+                        }
+                        @if (PluginGuideUrl(plugin.Id) is { } guide)
+                        {
+                            <a class="plugin-guide" href="@guide" target="_blank" rel="noopener">
+                                Setup guide <Icon Name="external" Size="11" />
+                            </a>
+                        }
+                    </div>
                 </div>
                 <div class="plugin-tail">
+                    <button class="icon-button plugin-test" title="Test connection"
+                            aria-label="Test @plugin.Name"
+                            disabled="@(testingPluginId == plugin.Id)"
+                            @onclick="() => TestPluginAsync(plugin.Id)">
+                        @if (testingPluginId == plugin.Id)
+                        {
+                            <span class="spinner"></span>
+                        }
+                        else
+                        {
+                            <Icon Name="refresh" Size="15" />
+                        }
+                    </button>
                     <StatusPill Variant="@(authProblem ? "unavailable" : !checkedNow ? "neutral" : status.Ready ? "ready" : "unavailable")"
                                 Class="@(authProblem ? "auth-pill" : null)"
                                 Title="@(authProblem ? authMessage : !checkedNow ? "Checking this plugin" : status.Ready ? "Checked and reachable" : status.Detail ?? "Could not reach this plugin")">
@@ -209,6 +327,10 @@
                 <div class="plugin-note @(authProblem || auth?.State == PluginAuthState.PlanRestricted ? "auth" : null)">
                     <Icon Name="@(authProblem ? "alert" : "info")" Size="15" />
                     <span>@note</span>
+                    <button class="btn-modern small ghost plugin-note-action"
+                            @onclick="() => CopyDiagnosticsAsync(plugin)">
+                        <Icon Name="copy" Size="13" /> Copy diagnostics
+                    </button>
                 </div>
             }
             @if (plugin.ConfigFields.Count > 0)
@@ -286,6 +408,11 @@
     private bool ytDlpChecked;
     private DateTimeOffset lastAvailabilityCheck = DateTimeOffset.MinValue;
     private int availabilitySweep;
+    private readonly ConcurrentDictionary<string, byte> checkingPlugins = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, DateTimeOffset> lastChecked = new(StringComparer.OrdinalIgnoreCase);
+    private string? testingPluginId;
+    private bool fragmentHandled;
+    private QualityPresets.Id routePreset = QualityPresets.Id.Lossless;
     private string? ytDlpVersion;
     private string? ytDlpMessage;
     private bool updatingYtDlp;
@@ -309,10 +436,27 @@
             // Keep the ready pills honest: a cheap re-probe (plugins cache
             // their own verdicts) every half minute.
             if (DateTimeOffset.UtcNow - lastAvailabilityCheck > TimeSpan.FromSeconds(30))
+            {
+                MarkChecking();
+                StateHasChanged();
                 await RefreshAvailability();
+            }
             authIssues = AuthMonitor.Snapshot();
             StateHasChanged();
         }), null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
+        StateHasChanged();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (fragmentHandled) return;
+        var fragment = Nav.ToAbsoluteUri(Nav.Uri).Fragment.TrimStart('#');
+        if (!fragment.StartsWith("plugin-", StringComparison.OrdinalIgnoreCase)) return;
+        fragmentHandled = true;
+
+        var id = fragment["plugin-".Length..];
+        if (orderedPlugins.Any(plugin => string.Equals(plugin.Id, id, StringComparison.OrdinalIgnoreCase)))
+            await OpenAuthSettings(id);
     }
 
     /// <summary>Loads every plugin's config fields from the registry store.</summary>
@@ -321,7 +465,9 @@
         var values = new Dictionary<string, string>();
         foreach (var plugin in orderedPlugins)
             foreach (var field in plugin.ConfigFields)
+            {
                 values[$"{plugin.Id}:{field.Key}"] = await Registry.GetConfigAsync(plugin.Id, field.Key);
+            }
         configValues = values;
     }
 
@@ -370,6 +516,7 @@
     private async Task RefreshAvailabilityAsync()
     {
         refreshingStatus = true;
+        MarkChecking();
         StateHasChanged();
         try
         {
@@ -433,20 +580,36 @@
 
         try
         {
-            var results = new Dictionary<string, PluginStatus>();
-            foreach (var plugin in orderedPlugins)
-            {
-                var (ready, reason) = await ProbePluginAsync(plugin);
-                results[plugin.Id] = new PluginStatus(ready, reason);
-            }
-            availability = results;
+            MarkChecking();
+
+            var results = new ConcurrentDictionary<string, PluginStatus>(StringComparer.OrdinalIgnoreCase);
+            await Parallel.ForEachAsync(
+                orderedPlugins,
+                new ParallelOptions { MaxDegreeOfParallelism = 4 },
+                async (plugin, _) =>
+                {
+                    using var budget = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+                    var (ready, reason) = await ProbePluginAsync(plugin, budget.Token);
+                    results[plugin.Id] = new PluginStatus(ready, reason);
+                });
+
+            availability = new Dictionary<string, PluginStatus>(results, StringComparer.OrdinalIgnoreCase);
             authIssues = AuthMonitor.Snapshot();
             lastAvailabilityCheck = DateTimeOffset.UtcNow;
         }
         finally
         {
+            checkingPlugins.Clear();
             Interlocked.Exchange(ref availabilitySweep, 0);
         }
+    }
+
+    /// <summary>Marks every card as checking; the caller renders it.</summary>
+    private void MarkChecking()
+    {
+        checkingPlugins.Clear();
+        foreach (var plugin in orderedPlugins)
+            checkingPlugins[plugin.Id] = 0;
     }
 
     /// <summary>
@@ -454,21 +617,31 @@
     /// register is updated here, so the banner and the sidebar mark use
     /// the same observation the card does.
     /// </summary>
-    private async Task<(bool Ready, string? Reason)> ProbePluginAsync(IDownloader plugin)
+    private async Task<(bool Ready, string? Reason)> ProbePluginAsync(
+        IDownloader plugin, CancellationToken ct = default)
     {
         try
         {
-            var ready = await plugin.IsAvailableAsync();
+            var ready = await plugin.IsAvailableAsync(ct);
             ObserveAuth(plugin);
             var auth = (plugin as IPluginAuthStatusProvider)?.AuthStatus;
             return (ready, ready
                 ? null
                 : auth?.Message ?? AvailabilityHint(plugin) ?? "Could not reach this plugin");
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            ObserveAuth(plugin);
+            return (false, "The check timed out");
+        }
         catch (Exception ex)
         {
             ObserveAuth(plugin);
             return (false, ex.Message);
+        }
+        finally
+        {
+            lastChecked[plugin.Id] = DateTimeOffset.UtcNow;
         }
     }
 
@@ -484,10 +657,73 @@
             AuthMonitor.Clear(plugin.Id);
     }
 
+    /// <summary>The waterfall order and exclusions for the previewed quality.</summary>
+    private QualityRouter.Plan RoutePlan
+    {
+        get
+        {
+            var enabled = orderedPlugins
+                .Where(plugin => Registry.IsEnabled(plugin.Id))
+                .ToList();
+            return QualityRouter.Route(QualityPresets.ToQuality(routePreset), enabled);
+        }
+    }
+
+    private string RouteQualityLabel =>
+        QualityPresets.All.First(preset => preset.Id == routePreset).Label;
+
+    internal bool ShowAuthBanner => authIssues.Count > 0 && !AuthMonitor.BannerDismissed;
+
     /// <summary>The banner headline, with the number of affected plugins.</summary>
     private string AuthAlertTitle => authIssues.Count == 1
         ? "One plugin needs your login"
         : $"{authIssues.Count} plugins need your login";
+
+    /// <summary>"checked 2 minutes ago", so a ready pill has a timestamp.</summary>
+    private string? LastCheckedText(string pluginId)
+    {
+        if (!lastChecked.TryGetValue(pluginId, out var at)) return null;
+        var age = DateTimeOffset.UtcNow - at;
+        if (age.TotalSeconds < 45) return "checked just now";
+        if (age.TotalMinutes < 60)
+        {
+            var minutes = Math.Max(1, (int)Math.Round(age.TotalMinutes));
+            return $"checked {minutes} minute{(minutes == 1 ? "" : "s")} ago";
+        }
+        var hours = Math.Max(1, (int)Math.Round(age.TotalHours));
+        return $"checked {hours} hour{(hours == 1 ? "" : "s")} ago";
+    }
+
+    /// <summary>"expires in 12 days", or the past tense when it already passed.</summary>
+    private static string ExpiryText(DateTimeOffset expires)
+    {
+        var left = expires - DateTimeOffset.UtcNow;
+        if (left <= TimeSpan.Zero) return "expired";
+        if (left.TotalDays >= 1)
+        {
+            var days = (int)Math.Ceiling(left.TotalDays);
+            return $"expires in {days} day{(days == 1 ? "" : "s")}";
+        }
+        if (left.TotalHours >= 1)
+        {
+            var hours = (int)Math.Ceiling(left.TotalHours);
+            return $"expires in {hours} hour{(hours == 1 ? "" : "s")}";
+        }
+        var minutes = Math.Max(1, (int)Math.Ceiling(left.TotalMinutes));
+        return $"expires in {minutes} minute{(minutes == 1 ? "" : "s")}";
+    }
+
+    /// <summary>The docs page that explains this plugin's setup, when there is one.</summary>
+    private static string? PluginGuideUrl(string pluginId) => pluginId switch
+    {
+        "qobuz" => "https://docs.melodybridge.app/qobuz",
+        "deemix" => "https://docs.melodybridge.app/deemix",
+        "tidal" => "https://docs.melodybridge.app/tidal",
+        "jumo" => "https://docs.melodybridge.app/jumo",
+        "lucida" => "https://docs.melodybridge.app/lucida",
+        "slskd" => "https://docs.melodybridge.app/slskd",
+        _ => null,
+    };
 
     /// <summary>The short pill label for a login problem.</summary>
     private static string AuthLabel(PluginAuthState state) => state switch
@@ -500,12 +736,124 @@
         _ => "login problem",
     };
 
-    /// <summary>Opens the card's settings from the banner.</summary>
-    private void OpenAuthSettings(string pluginId)
+    /// <summary>Opens a card's settings, scrolls to it and flashes it.</summary>
+    private async Task OpenAuthSettings(string pluginId)
     {
         openSettings.Add(pluginId);
         StateHasChanged();
+
+        try
+        {
+            await JS.InvokeVoidAsync("melody.revealPlugin", pluginId);
+        }
+        catch (JSException)
+        {
+            // Interop unavailable (prerender, tests): the panel still opens.
+        }
+        catch (InvalidOperationException)
+        {
+            // No JS runtime in a static render.
+        }
     }
+
+    private void DismissAuthBanner()
+    {
+        AuthMonitor.DismissBanner();
+        StateHasChanged();
+    }
+
+    /// <summary>Rechecks one plugin without probing the whole page.</summary>
+    private async Task TestPluginAsync(string pluginId)
+    {
+        var plugin = orderedPlugins.FirstOrDefault(p => p.Id == pluginId);
+        if (plugin is null) return;
+
+        testingPluginId = pluginId;
+        checkingPlugins[pluginId] = 0;
+        (plugin as IPluginAvailabilityRefresh)?.RefreshAvailability();
+        StateHasChanged();
+        try
+        {
+            using var budget = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            var (ready, reason) = await ProbePluginAsync(plugin, budget.Token);
+            availability[pluginId] = new PluginStatus(ready, reason);
+            authIssues = AuthMonitor.Snapshot();
+            lastAvailabilityCheck = DateTimeOffset.UtcNow;
+
+            var auth = (plugin as IPluginAuthStatusProvider)?.AuthStatus;
+            if (auth is { NeedsAttention: true })
+                Notifications.Warn($"{plugin.Name}: {auth.Message ?? "the login needs attention"}");
+            else if (!ready)
+                Notifications.Warn($"{plugin.Name} is not ready: {reason}");
+            else
+                Notifications.Success($"{plugin.Name} is ready.");
+        }
+        finally
+        {
+            testingPluginId = null;
+            checkingPlugins.TryRemove(pluginId, out _);
+            StateHasChanged();
+        }
+    }
+
+    /// <summary>Copies a support-friendly summary of one plugin's state.</summary>
+    private async Task CopyDiagnosticsAsync(IDownloader plugin)
+    {
+        var auth = (plugin as IPluginAuthStatusProvider)?.AuthStatus;
+        var status = availability.GetValueOrDefault(plugin.Id);
+        var text = new StringBuilder()
+            .AppendLine("MelodyBridge plugin diagnostics")
+            .AppendLine($"Version: {AppInfo.Version}")
+            .AppendLine($"Plugin: {plugin.Name} ({plugin.Id})")
+            .AppendLine($"Enabled: {(Registry.IsEnabled(plugin.Id) ? "yes" : "no")}")
+            .AppendLine($"Availability: {(status is null ? "unknown" : status.Ready ? "ready" : "unavailable")}")
+            .AppendLine($"Last reason: {plugin.LastUnavailableReason ?? "(none)"}")
+            .AppendLine($"Capabilities: {DescribeCapabilities(plugin.Capabilities)}")
+            .ToString();
+
+        if (auth is not null)
+        {
+            text += $"Login: {auth.State}"
+                + (string.IsNullOrWhiteSpace(auth.Account) ? "" : $", account {auth.Account}")
+                + (string.IsNullOrWhiteSpace(auth.Plan) ? "" : $", plan {auth.Plan}")
+                + (string.IsNullOrWhiteSpace(auth.Tier) ? "" : $", tier {auth.Tier}")
+                + (auth.ExpiresAtUtc is { } expires ? $", expires {expires:u}" : "")
+                + Environment.NewLine;
+            if (!string.IsNullOrWhiteSpace(auth.Message))
+                text += $"Login reason: {auth.Message}{Environment.NewLine}";
+        }
+
+        foreach (var field in plugin.ConfigFields)
+        {
+            var value = configValues.GetValueOrDefault($"{plugin.Id}:{field.Key}") ?? "";
+            var shown = field.Secret
+                ? (value.Length > 0 ? "set" : "not set")
+                : (value.Length > 0 ? value : "(empty)");
+            text += $"{field.Label}: {shown}{Environment.NewLine}";
+        }
+
+        bool copied;
+        try
+        {
+            copied = await JS.InvokeAsync<bool>("melody.copyText", text);
+        }
+        catch (Exception)
+        {
+            copied = false;
+        }
+
+        if (copied) Notifications.Success($"Diagnostics for {plugin.Name} copied.");
+        else Notifications.Warn("The browser would not let the page copy. Open the Logs page and export instead.");
+    }
+
+    /// <summary>One short line of declared levels, for the diagnostics text.</summary>
+    private static string DescribeCapabilities(PluginCapabilities capabilities)
+        => capabilities.Deliverables.Count == 0
+            ? "(none)"
+            : string.Join(", ", capabilities.Deliverables.Select(deliverable =>
+                deliverable.Container == AudioFormat.Auto
+                    ? (deliverable.Lossless ? "auto lossless" : "auto lossy")
+                    : $"{deliverable.Container} {(deliverable.Lossless ? "lossless" : $"{deliverable.MaxKbps ?? 0} kbps")}"));
 
     /// <summary>
     /// The fallback reason a known plugin is down, used when the plugin

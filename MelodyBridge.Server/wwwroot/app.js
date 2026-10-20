@@ -4,23 +4,48 @@ window.melody = (() => {
     const ACCENT_KEY = 'mb-accent';
     // Palettes shipped in app.css; anything else falls back to teal.
     const ACCENTS = ['teal', 'blue', 'violet', 'rose', 'amber'];
+    const THEME_MODES = ['auto', 'light', 'dark'];
 
-    function applyTheme(theme) {
-        document.documentElement.setAttribute('data-theme', theme);
-    }
-
-    function setTheme(theme) {
-        applyTheme(theme);
-        try { localStorage.setItem(THEME_KEY, theme); } catch { /* private mode */ }
-    }
-
-    // The theme to start with when the visitor never picked one: the
-    // browser's own preference. Light stays the fallback when the media
-    // query is unavailable.
+    // The browser's own preference. Light stays the fallback when the
+    // media query is unavailable.
     function preferredTheme() {
         try {
             return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
         } catch { return 'light'; }
+    }
+
+    // Auto follows the OS; light and dark are explicit choices.
+    function resolveTheme(mode) {
+        return mode === 'auto' ? preferredTheme() : mode;
+    }
+
+    function storedTheme() {
+        try {
+            const value = localStorage.getItem(THEME_KEY);
+            return THEME_MODES.includes(value) ? value : 'auto';
+        } catch { return 'auto'; }
+    }
+
+    function applyTheme(mode) {
+        const preference = THEME_MODES.includes(mode) ? mode : 'auto';
+        document.documentElement.setAttribute('data-theme-pref', preference);
+        document.documentElement.setAttribute('data-theme', resolveTheme(preference));
+    }
+
+    function announceTheme(preference) {
+        try {
+            document.dispatchEvent(new CustomEvent('mb-theme', {
+                detail: { preference, effective: resolveTheme(preference) }
+            }));
+        } catch { /* ignore */ }
+    }
+
+    function setTheme(theme) {
+        const preference = THEME_MODES.includes(theme) ? theme : 'auto';
+        applyTheme(preference);
+        try { localStorage.setItem(THEME_KEY, preference); } catch { /* private mode */ }
+        announceTheme(preference);
+        return resolveTheme(preference);
     }
 
     // Swap the accent palette by setting data-accent on the html element;
@@ -33,14 +58,23 @@ window.melody = (() => {
     }
 
     function init() {
-        let saved = null;
         let savedAccent = null;
-        try { saved = localStorage.getItem(THEME_KEY); } catch { /* ignore */ }
         try { savedAccent = localStorage.getItem(ACCENT_KEY); } catch { /* ignore */ }
-        // A stored choice wins; otherwise follow the browser and do not
-        // store that: a visitor who never toggled keeps following it.
-        applyTheme(saved === 'light' || saved === 'dark' ? saved : preferredTheme());
+        // No stored choice means Auto: keep following the browser until
+        // the visitor picks light or dark explicitly.
+        applyTheme(storedTheme());
         setAccent(savedAccent || 'teal');
+
+        try {
+            const media = window.matchMedia('(prefers-color-scheme: light)');
+            const sync = () => {
+                if (storedTheme() !== 'auto') return;
+                applyTheme('auto');
+                announceTheme('auto');
+            };
+            if (media.addEventListener) media.addEventListener('change', sync);
+            else if (media.addListener) media.addListener(sync);
+        } catch { /* media query unavailable */ }
     }
 
     // The settings page reads this once to mark the active swatch; falls
@@ -50,16 +84,34 @@ window.melody = (() => {
         return ACCENTS.includes(value) ? value : 'teal';
     }
 
-    // The layout reads this once after the first render so the toggle icon
-    // starts in sync with the theme the browser actually shows.
+    // The effective theme the browser actually shows.
     function getTheme() {
         const attr = document.documentElement.getAttribute('data-theme');
         if (attr === 'light' || attr === 'dark') return attr;
-        try {
-            const stored = localStorage.getItem(THEME_KEY);
-            if (stored === 'light' || stored === 'dark') return stored;
-        } catch { /* ignore */ }
-        return preferredTheme();
+        return resolveTheme(storedTheme());
+    }
+
+    // The stored choice, including Auto.
+    function getThemePreference() {
+        const attr = document.documentElement.getAttribute('data-theme-pref');
+        if (THEME_MODES.includes(attr)) return attr;
+        return storedTheme();
+    }
+
+    // The shell keeps its three-state theme icon in sync when the theme
+    // changes from Settings or from the OS while Auto is active.
+    function watchTheme(dotNetRef) {
+        if (window.__mbThemeWatcher) {
+            document.removeEventListener('mb-theme', window.__mbThemeWatcher);
+        }
+        window.__mbThemeWatcher = (event) => {
+            const detail = event.detail || {};
+            dotNetRef.invokeMethodAsync(
+                'OnThemeChanged',
+                detail.preference || getThemePreference(),
+                detail.effective || getTheme());
+        };
+        document.addEventListener('mb-theme', window.__mbThemeWatcher);
     }
 
     // Position the tour spotlight over an element and scroll it into view.
@@ -117,11 +169,55 @@ window.melody = (() => {
         if (el) el.focus();
     }
 
+    // Scroll a plugin card into view and flash it, retrying until Blazor
+    // has rendered the card after a deep link or a toast action.
+    function revealPlugin(pluginId) {
+        let tries = 0;
+        const tick = () => {
+            const el = document.getElementById('plugin-' + pluginId);
+            if (el) {
+                el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+                el.classList.add('highlight');
+                setTimeout(() => el.classList.remove('highlight'), 1800);
+                return;
+            }
+            if (tries++ < 60) requestAnimationFrame(tick);
+        };
+        tick();
+    }
+
+    // Remember where a scroll container was when a dialog closed.
+    function saveScroll(key, selector) {
+        const el = document.querySelector(selector);
+        if (!el) return;
+        try { sessionStorage.setItem('mb-scroll-' + key, String(el.scrollTop)); } catch { /* ignore */ }
+    }
+
+    function restoreScroll(key, selector) {
+        let tries = 0;
+        const tick = () => {
+            const el = document.querySelector(selector);
+            if (el) {
+                let value = 0;
+                try { value = Number(sessionStorage.getItem('mb-scroll-' + key) || '0'); } catch { /* ignore */ }
+                el.scrollTop = Number.isFinite(value) ? value : 0;
+                return;
+            }
+            if (tries++ < 60) requestAnimationFrame(tick);
+        };
+        tick();
+    }
+
     return {
         setTheme,
         setAccent,
         getAccent,
         getTheme,
+        getThemePreference,
+        watchTheme,
+        revealPlugin,
+        saveScroll,
+        restoreScroll,
         init,
         spotlight,
         hideSpotlight,

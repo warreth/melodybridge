@@ -38,11 +38,19 @@ public enum PluginAuthState
 
 /// <summary>
 /// One plugin's login verdict. <paramref name="Message"/> is the short,
-/// human-readable reason shown on the card and in the warning banner;
-/// when the state is <see cref="PluginAuthState.Valid"/> it can carry a
-/// non-blocking note, such as a plan without lossless.
+/// human-readable reason shown on the card and in the warning banner.
+/// <paramref name="Account"/>, <paramref name="Plan"/>,
+/// <paramref name="Tier"/> and <paramref name="ExpiresAtUtc"/> carry the
+/// facts a valid login can show without opening the settings, such as
+/// "Studio, hi-res up to 96 kHz" or "CD quality, expires in 12 days".
 /// </summary>
-public sealed record PluginAuthStatus(PluginAuthState State, string? Message = null)
+public sealed record PluginAuthStatus(
+    PluginAuthState State,
+    string? Message = null,
+    string? Account = null,
+    string? Plan = null,
+    string? Tier = null,
+    DateTimeOffset? ExpiresAtUtc = null)
 {
     public static readonly PluginAuthStatus Unknown = new(PluginAuthState.Unknown);
     public static readonly PluginAuthStatus NotRequired = new(PluginAuthState.NotRequired);

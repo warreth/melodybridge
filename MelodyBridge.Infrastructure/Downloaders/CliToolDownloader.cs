@@ -75,10 +75,16 @@ public abstract class CliToolDownloader : IDownloader, IPluginAuthStatusProvider
     /// logged once; the periodic probes that keep returning the same
     /// verdict stay quiet, and the card, banner and toast carry it.
     /// </summary>
-    protected void SetAuth(PluginAuthState state, string? message = null)
+    protected void SetAuth(
+        PluginAuthState state,
+        string? message = null,
+        string? account = null,
+        string? plan = null,
+        string? tier = null,
+        DateTimeOffset? expiresAt = null)
     {
         var previous = AuthStatus.State;
-        AuthStatus = new PluginAuthStatus(state, message);
+        AuthStatus = new PluginAuthStatus(state, message, account, plan, tier, expiresAt);
 
         if (previous == state) return;
 
@@ -103,6 +109,14 @@ public abstract class CliToolDownloader : IDownloader, IPluginAuthStatusProvider
             Logger.LogDebug("{Tool}: login state {State}", ToolLabel, state);
         }
     }
+
+    /// <summary>
+    /// Marks the login valid without dropping the account, plan, tier or
+    /// expiry an earlier availability check discovered.
+    /// </summary>
+    protected void SetAuthValid(string? message = null) => SetAuth(
+        PluginAuthState.Valid, message,
+        AuthStatus.Account, AuthStatus.Plan, AuthStatus.Tier, AuthStatus.ExpiresAtUtc);
 
     /// <summary>Drops the cached availability verdict after a settings save.</summary>
     public void RefreshAvailability() => _availability.Invalidate();

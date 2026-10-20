@@ -248,7 +248,8 @@ public class DeemixDownloaderTests
             Assert.That(available, Is.True);
             Assert.That(plugin.AuthStatus.State, Is.EqualTo(PluginAuthState.Valid),
                 "a plan without lossless is a note, not a broken login");
-            Assert.That(plugin.AuthStatus.Message, Does.Contain("no lossless plan"));
+            Assert.That(plugin.AuthStatus.Plan, Does.Contain("No lossless plan"));
+            Assert.That(plugin.AuthStatus.Tier, Is.EqualTo("MP3 up to 320"));
         });
     }
 

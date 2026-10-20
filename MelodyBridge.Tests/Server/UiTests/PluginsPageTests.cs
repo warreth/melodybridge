@@ -2,7 +2,9 @@ using TestContext = Bunit.TestContext;
 using Bunit;
 using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.Data;
+using MelodyBridge.Infrastructure.Services;
 using MelodyBridge.Server.Components.Pages;
+using MelodyBridge.Server.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Moq;
@@ -19,11 +21,13 @@ public class PluginsPageTests
 {
     private TestContext _ctx = null!;
     private Mock<IDownloaderRegistry> _registry = null!;
+    private NotificationService _notifications = null!;
 
     [SetUp]
     public void Setup()
     {
         _ctx = new TestContext();
+        _ctx.JSInterop.Mode = JSRuntimeMode.Loose;
         _ctx.Services.AddPluginAuthMonitor();
         _registry = new Mock<IDownloaderRegistry>();
 
@@ -56,7 +60,9 @@ public class PluginsPageTests
         // provider per run, like the real app does.
         _ctx.Services.AddSingleton<Application.Services.DownloadCoordinator>();
         _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Services.SettingsStore(dbFactory));
-        _ctx.Services.AddSingleton(new MelodyBridge.Server.Services.NotificationService());
+        _notifications = new MelodyBridge.Server.Services.NotificationService(
+            autoDismissAfter: TimeSpan.FromMinutes(1));
+        _ctx.Services.AddSingleton(_notifications);
         _ctx.Services.AddSingleton<MelodyBridge.Infrastructure.Downloaders.YtDlpUpdater>(
             new TestServices.StubYtDlpUpdater());
     }
@@ -76,7 +82,7 @@ public class PluginsPageTests
         public string Id { get; }
         public string Name { get; }
         public string Description => "auth test downloader";
-        public PluginCapabilities Capabilities => PluginCapabilities.Any;
+        public PluginCapabilities Capabilities { get; set; } = PluginCapabilities.Any;
         public IReadOnlyList<PluginConfigField> ConfigFields { get; }
         public PluginAuthStatus AuthStatus { get; set; } = PluginAuthStatus.Unknown;
         public bool Available { get; set; } = true;
@@ -113,6 +119,9 @@ public class PluginsPageTests
         _registry.Setup(r => r.GetEnabled()).Returns(new List<IDownloader> { broken });
 
         var cut = _ctx.Render<Plugins>();
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("One plugin needs your login")),
+            TimeSpan.FromSeconds(5));
 
         Assert.Multiple(() =>
         {
@@ -149,7 +158,7 @@ public class PluginsPageTests
     }
 
     [Test]
-    public void Plugins_OpenSettingsFromTheLoginBanner()
+    public async Task Plugins_OpenSettingsFromTheLoginBanner()
     {
         var broken = new AuthTestDownloader("qobuz", "Qobuz", new[]
         {
@@ -168,7 +177,17 @@ public class PluginsPageTests
         Assert.That(cut.FindAll("input[type=password]").Count, Is.EqualTo(0),
             "settings stay closed until asked");
 
-        cut.FindAll(".auth-alert-list button").Single().Click();
+        var monitor = _ctx.Services.GetRequiredService<PluginAuthMonitor>();
+        cut.WaitForAssertion(() =>
+            Assert.That(monitor.Snapshot(), Is.Not.Empty),
+            TimeSpan.FromSeconds(5));
+        // The async probe can land after bUnit returned the first render;
+        // the real page's timer does this render on its next tick.
+        cut.Render();
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.FindAll(".auth-alert-list button").Count, Is.GreaterThan(0)),
+            TimeSpan.FromSeconds(5));
+        await cut.InvokeAsync(() => cut.FindAll(".auth-alert-list button").Single().Click());
 
         Assert.That(cut.FindAll("input[type=password]").Count, Is.EqualTo(1),
             "the banner's Open settings button opens the card's panel");
@@ -191,7 +210,7 @@ public class PluginsPageTests
             .ReturnsAsync("");
 
         var cut = _ctx.Render<Plugins>();
-        cut.Find("button.settings-toggle").Click();
+        await cut.InvokeAsync(() => cut.Find("button.settings-toggle").Click());
         await cut.InvokeAsync(() => cut.FindAll("button").Single(b => b.TextContent.Contains("Save settings")).Click());
 
         Assert.Multiple(() =>
@@ -200,6 +219,159 @@ public class PluginsPageTests
                 "saving a token drops the old negative availability cache");
             Assert.That(plugin.Probes, Is.GreaterThanOrEqualTo(2),
                 "the page probes once on load and again after the save");
+        });
+    }
+
+    [Test]
+    public void Plugins_ValidLogin_ShowsAccountTierAndExpiry()
+    {
+        var plugin = new AuthTestDownloader("qobuz", "Qobuz")
+        {
+            Available = true,
+            AuthStatus = new PluginAuthStatus(
+                PluginAuthState.Valid,
+                Account: "Studio",
+                Tier: "Hi-res up to 96 kHz",
+                ExpiresAtUtc: DateTimeOffset.UtcNow.AddDays(12)),
+        };
+        _registry.Setup(r => r.GetAll()).Returns(new List<IDownloader> { plugin });
+        _registry.Setup(r => r.GetEnabled()).Returns(new List<IDownloader> { plugin });
+
+        var cut = _ctx.Render<Plugins>();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.Markup, Does.Contain("Studio"));
+            Assert.That(cut.Markup, Does.Contain("Hi-res up to 96 kHz"));
+            Assert.That(cut.Markup, Does.Contain("expires in 12 days"));
+            Assert.That(cut.Markup, Does.Contain("checked just now"));
+            Assert.That(cut.Markup, Does.Contain("Setup guide"));
+        }, TimeSpan.FromSeconds(5));
+    }
+
+    [Test]
+    public async Task Plugins_TestButton_ProbesOnlyThatPlugin()
+    {
+        var plugin = new AuthTestDownloader("qobuz", "Qobuz")
+        {
+            Available = false,
+            AuthStatus = new PluginAuthStatus(PluginAuthState.Expired, "The token expired"),
+        };
+        _registry.Setup(r => r.GetAll()).Returns(new List<IDownloader> { plugin });
+        _registry.Setup(r => r.GetEnabled()).Returns(new List<IDownloader> { plugin });
+
+        var cut = _ctx.Render<Plugins>();
+        cut.WaitForAssertion(() => Assert.That(cut.FindAll(".plugin-test").Count, Is.EqualTo(1)));
+        var before = plugin.Probes;
+
+        await cut.InvokeAsync(() => cut.Find(".plugin-test").Click());
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(plugin.Probes, Is.EqualTo(before + 1), "the test button probes once");
+            Assert.That(plugin.Refreshes, Is.EqualTo(1), "it drops the cached availability first");
+            Assert.That(_notifications.Snapshot().Any(n => n.Message.Contains("Qobuz")),
+                Is.True, "the result reaches the user as a toast");
+        });
+    }
+
+    [Test]
+    public void Plugins_RoutePreview_NamesTheLosslessChainAndSkipsLossy()
+    {
+        var lossless = new AuthTestDownloader("qobuz", "Qobuz")
+        {
+            Available = true,
+            Capabilities = PluginCapabilities.LosslessSources(),
+        };
+        var lossy = new AuthTestDownloader("soundcloud", "SoundCloud")
+        {
+            Available = true,
+            Capabilities = PluginCapabilities.Lossy(AudioFormat.Mp3, 128, 320),
+        };
+        _registry.Setup(r => r.GetAll()).Returns(new List<IDownloader> { lossy, lossless });
+        _registry.Setup(r => r.GetEnabled()).Returns(new List<IDownloader> { lossy, lossless });
+
+        var cut = _ctx.Render<Plugins>();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.Find(".route-chain").TextContent, Does.Contain("Qobuz"));
+            Assert.That(cut.Find(".route-chain").TextContent, Does.Not.Contain("SoundCloud"));
+            Assert.That(cut.Find(".route-skipped").TextContent,
+                Does.Contain("SoundCloud (no lossless source)"));
+        }, TimeSpan.FromSeconds(5));
+    }
+
+    [Test]
+    public async Task Plugins_DismissBanner_StaysHiddenUntilTheReasonChanges()
+    {
+        var plugin = new AuthTestDownloader("qobuz", "Qobuz")
+        {
+            Available = false,
+            AuthStatus = new PluginAuthStatus(PluginAuthState.Expired, "The token expired"),
+        };
+        _registry.Setup(r => r.GetAll()).Returns(new List<IDownloader> { plugin });
+        _registry.Setup(r => r.GetEnabled()).Returns(new List<IDownloader> { plugin });
+        var monitor = _ctx.Services.GetRequiredService<PluginAuthMonitor>();
+
+        var cut = _ctx.Render<Plugins>();
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("needs your login")), TimeSpan.FromSeconds(5));
+
+        await cut.InvokeAsync(() => cut.Find(".auth-alert-head button").Click());
+        Assert.That(cut.FindAll("section.auth-alert").Count, Is.EqualTo(0), "dismiss hides the banner");
+
+        monitor.Report("qobuz", "Qobuz", "The token expired");
+        await cut.InvokeAsync(() => cut.Instance.RefreshAvailability());
+        cut.Render();
+        Assert.That(cut.FindAll("section.auth-alert").Count, Is.EqualTo(0),
+            "the same verdict does not bring it back");
+
+        monitor.Report("qobuz", "Qobuz", "Qobuz blocked this account");
+        await cut.InvokeAsync(() => cut.Instance.RefreshAvailability());
+        cut.Render();
+        Assert.That(cut.FindAll("section.auth-alert").Count, Is.EqualTo(1),
+            "a changed reason brings it back");
+    }
+
+    [Test]
+    public async Task Plugins_CopyDiagnostics_CopiesTheLoginAndReason()
+    {
+        _ctx.JSInterop.Setup<bool>("melody.copyText", _ => true).SetResult(true);
+        var plugin = new AuthTestDownloader("qobuz", "Qobuz", new[]
+        {
+            new PluginConfigField("user_auth_token", "Qobuz token", null, null, Secret: true),
+        })
+        {
+            Available = false,
+            AuthStatus = new PluginAuthStatus(PluginAuthState.Rejected, "The Qobuz token was rejected"),
+        };
+        _registry.Setup(r => r.GetAll()).Returns(new List<IDownloader> { plugin });
+        _registry.Setup(r => r.GetEnabled()).Returns(new List<IDownloader> { plugin });
+        _registry.Setup(r => r.GetConfigAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync("secret-token");
+
+        var cut = _ctx.Render<Plugins>();
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.FindAll(".plugin-note-action").Count, Is.EqualTo(1)),
+            TimeSpan.FromSeconds(5));
+
+        await cut.InvokeAsync(() => cut.Find(".plugin-note-action").Click());
+
+        var text = _ctx.JSInterop.Invocations
+            .Where(i => i.Identifier == "melody.copyText")
+            .SelectMany(i => i.Arguments)
+            .OfType<string>()
+            .Single();
+        Assert.Multiple(() =>
+        {
+            Assert.That(text, Does.Contain("Plugin: Qobuz (qobuz)"));
+            Assert.That(text, Does.Contain("Login: Rejected"));
+            Assert.That(text, Does.Contain("The Qobuz token was rejected"));
+            Assert.That(text, Does.Contain("Qobuz token: set"), "secrets are masked");
+            Assert.That(text, Does.Not.Contain("secret-token"));
+            Assert.That(_notifications.Snapshot().Any(n => n.Message.Contains("Diagnostics")),
+                Is.True);
         });
     }
 
@@ -270,7 +442,7 @@ public class PluginsPageTests
     }
 
     [Test]
-    public void Plugins_ConfigFields_OpenFromTheSettingsRow()
+    public async Task Plugins_ConfigFields_OpenFromTheSettingsRow()
     {
         // Rebuild the registry with a plugin that has config fields,
         // including one advanced and one secret field.
@@ -292,7 +464,7 @@ public class PluginsPageTests
         Assert.That(cut.Markup, Does.Contain("Settings"), "plugins with fields get a settings row");
         Assert.That(cut.Markup, Does.Not.Contain("Search preference"), "fields stay hidden until opened");
 
-        cut.Find("button.settings-toggle").Click();
+        await cut.InvokeAsync(() => cut.Find("button.settings-toggle").Click());
 
         Assert.Multiple(() =>
         {
@@ -309,7 +481,7 @@ public class PluginsPageTests
     }
 
     [Test]
-    public void Plugins_ChoiceField_RendersAsSelect()
+    public async Task Plugins_ChoiceField_RendersAsSelect()
     {
         var configured = new TestDownloader("qobuz", "Qobuz",
             new[]
@@ -325,9 +497,9 @@ public class PluginsPageTests
         _registry.Setup(r => r.GetEnabled()).Returns(new List<IDownloader> { configured });
 
         var cut = _ctx.Render<Plugins>();
-        cut.Find("button.settings-toggle").Click();
+        await cut.InvokeAsync(() => cut.Find("button.settings-toggle").Click());
 
-        var select = cut.Find("select");
+        var select = cut.Find(".settings-body select");
         Assert.Multiple(() =>
         {
             Assert.That(select.QuerySelectorAll("option").Length, Is.EqualTo(2),
@@ -338,7 +510,7 @@ public class PluginsPageTests
     }
 
     [Test]
-    public void Plugins_AdvancedOnlyFields_ShowWithoutTheToggle()
+    public async Task Plugins_AdvancedOnlyFields_ShowWithoutTheToggle()
     {
         // Monochrome ships one field and it is advanced: a lone Advanced
         // toggle would be a pointless extra click.
@@ -351,7 +523,7 @@ public class PluginsPageTests
         _registry.Setup(r => r.GetEnabled()).Returns(new List<IDownloader> { configured });
 
         var cut = _ctx.Render<Plugins>();
-        cut.Find("button.settings-toggle").Click();
+        await cut.InvokeAsync(() => cut.Find("button.settings-toggle").Click());
 
         Assert.Multiple(() =>
         {

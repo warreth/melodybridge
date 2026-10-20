@@ -128,11 +128,14 @@ public class QobuzDownloader : CliToolDownloader
         }
 
         var check = await _qobuz.ValidateTokenAsync(token, ct);
+        var tier = TierLabel(await ConfigValueAsync(QualityKey, ct));
+        var account = check.Account?.Label;
         if (check.Status == QobuzClient.QobuzTokenStatus.Blocked)
         {
             LastUnavailableReason = check.Message
                 ?? "Qobuz blocked this account from downloading";
-            SetAuth(PluginAuthState.Blocked, LastUnavailableReason);
+            SetAuth(PluginAuthState.Blocked, LastUnavailableReason,
+                account, "Qobuz", tier);
             StoreAvailability(false);
             return false;
         }
@@ -140,27 +143,30 @@ public class QobuzDownloader : CliToolDownloader
         {
             LastUnavailableReason = check.Message
                 ?? "The Qobuz token could not be checked (the API did not answer)";
-            SetAuth(PluginAuthState.Unreachable, LastUnavailableReason);
+            SetAuth(PluginAuthState.Unreachable, LastUnavailableReason,
+                account, "Qobuz", tier);
             StoreAvailability(false);
             return false;
         }
         if (check.Status == QobuzClient.QobuzTokenStatus.Rejected || check.Account is null)
         {
             LastUnavailableReason = check.Message ?? "The Qobuz token was rejected; paste a fresh one";
-            SetAuth(PluginAuthState.Rejected, LastUnavailableReason);
+            SetAuth(PluginAuthState.Rejected, LastUnavailableReason,
+                account, "Qobuz", tier);
             StoreAvailability(false);
             return false;
         }
         if (!check.Account.CanDownload)
         {
             LastUnavailableReason = "This Qobuz plan cannot download (a paid plan is required)";
-            SetAuth(PluginAuthState.PlanRestricted, LastUnavailableReason);
+            SetAuth(PluginAuthState.PlanRestricted, LastUnavailableReason,
+                account, "Qobuz", tier);
             StoreAvailability(false);
             return false;
         }
 
         LastUnavailableReason = null;
-        SetAuth(PluginAuthState.Valid);
+        SetAuth(PluginAuthState.Valid, null, account, "Qobuz", tier);
         StoreAvailability(true);
         return true;
     }
@@ -294,14 +300,15 @@ public class QobuzDownloader : CliToolDownloader
         switch (result.Status)
         {
             case QobuzClient.QobuzSearchStatus.Ok:
-                SetAuth(PluginAuthState.Valid);
+                SetAuthValid();
                 LastUnavailableReason = null;
                 return true;
 
             case QobuzClient.QobuzSearchStatus.Blocked:
                 LastUnavailableReason = result.Message
                     ?? "Qobuz blocked this account from downloading";
-                SetAuth(PluginAuthState.Blocked, LastUnavailableReason);
+                SetAuth(PluginAuthState.Blocked, LastUnavailableReason,
+                    AuthStatus.Account, AuthStatus.Plan, AuthStatus.Tier, AuthStatus.ExpiresAtUtc);
                 Logger.LogDebug("Qobuz: {Reason}", LastUnavailableReason);
                 StoreAvailability(false);
                 return false;
@@ -309,7 +316,8 @@ public class QobuzDownloader : CliToolDownloader
             case QobuzClient.QobuzSearchStatus.Rejected:
                 LastUnavailableReason = result.Message
                     ?? "The Qobuz token was rejected; paste a fresh one";
-                SetAuth(PluginAuthState.Rejected, LastUnavailableReason);
+                SetAuth(PluginAuthState.Rejected, LastUnavailableReason,
+                    AuthStatus.Account, AuthStatus.Plan, AuthStatus.Tier, AuthStatus.ExpiresAtUtc);
                 Logger.LogDebug("Qobuz: {Reason}", LastUnavailableReason);
                 StoreAvailability(false);
                 return false;
@@ -317,7 +325,8 @@ public class QobuzDownloader : CliToolDownloader
             default:
                 LastUnavailableReason = result.Message
                     ?? "The Qobuz API did not answer";
-                SetAuth(PluginAuthState.Unreachable, LastUnavailableReason);
+                SetAuth(PluginAuthState.Unreachable, LastUnavailableReason,
+                    AuthStatus.Account, AuthStatus.Plan, AuthStatus.Tier, AuthStatus.ExpiresAtUtc);
                 Logger.LogDebug("Qobuz: {Reason}", LastUnavailableReason);
                 return false;
         }
@@ -480,6 +489,14 @@ public class QobuzDownloader : CliToolDownloader
     /// <summary>A valid quality id, or the CD-quality default.</summary>
     internal static string NormalizeQuality(string configured)
         => configured.Trim() is "5" or "6" or "7" or "27" ? configured.Trim() : DefaultQuality;
+
+    /// <summary>The configured FLAC tier as the card names it.</summary>
+    internal static string TierLabel(string configured) => NormalizeQuality(configured) switch
+    {
+        "7" => "Hi-res up to 96 kHz",
+        "27" => "Hi-res up to 192 kHz",
+        _ => "CD quality (16/44.1)",
+    };
 
     internal static bool TryExtractTrackId(string sourceUrl, out long trackId)
     {

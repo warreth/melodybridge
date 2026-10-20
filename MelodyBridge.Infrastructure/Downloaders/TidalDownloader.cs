@@ -169,20 +169,29 @@ public class TidalDownloader : CliToolDownloader
             return false;
         }
 
+        var tier = TierLabel(await ConfigValueAsync(QualityKey, ct));
         var session = TidalAuth.Read(await AppPathAsync(ct));
         if (session is null)
         {
             LastUnavailableReason = "Run tiddl auth login to connect Tidal, or paste a token in the settings";
-            SetAuth(PluginAuthState.Missing, LastUnavailableReason);
+            SetAuth(PluginAuthState.Missing, LastUnavailableReason, tier: tier);
             Logger.LogDebug("tidal: tiddl has no stored session in its app folder");
             StoreAvailability(false);
             return false;
         }
+
+        var account = string.IsNullOrWhiteSpace(session.CountryCode)
+            ? "Tidal session"
+            : $"Tidal {session.CountryCode.ToUpperInvariant()}";
+        var expiresAt = session.ExpiresAtUnix > 0
+            ? DateTimeOffset.FromUnixTimeSeconds(session.ExpiresAtUnix)
+            : (DateTimeOffset?)null;
         if (session.Expired)
         {
             LastUnavailableReason =
-                $"The Tidal token expired on {DateTimeOffset.FromUnixTimeSeconds(session.ExpiresAtUnix).ToLocalTime():yyyy-MM-dd HH:mm}; paste a fresh one";
-            SetAuth(PluginAuthState.Expired, LastUnavailableReason);
+                $"The Tidal token expired on {expiresAt!.Value.ToLocalTime():yyyy-MM-dd HH:mm}; paste a fresh one";
+            SetAuth(PluginAuthState.Expired, LastUnavailableReason,
+                account, "Tidal", tier, expiresAt);
             StoreAvailability(false);
             return false;
         }
@@ -190,7 +199,8 @@ public class TidalDownloader : CliToolDownloader
         {
             LastUnavailableReason =
                 "The token did not carry the user id and country code; fill them under Advanced, or paste a full auth.json";
-            SetAuth(PluginAuthState.Rejected, LastUnavailableReason);
+            SetAuth(PluginAuthState.Rejected, LastUnavailableReason,
+                account, "Tidal", tier, expiresAt);
             StoreAvailability(false);
             return false;
         }
@@ -199,20 +209,22 @@ public class TidalDownloader : CliToolDownloader
         if (check == TidalClient.TidalTokenStatus.Rejected)
         {
             LastUnavailableReason = "Tidal rejected the token; paste a fresh one";
-            SetAuth(PluginAuthState.Rejected, LastUnavailableReason);
+            SetAuth(PluginAuthState.Rejected, LastUnavailableReason,
+                account, "Tidal", tier, expiresAt);
             StoreAvailability(false);
             return false;
         }
         if (check == TidalClient.TidalTokenStatus.Unreachable)
         {
             LastUnavailableReason = "The Tidal API did not answer";
-            SetAuth(PluginAuthState.Unreachable, LastUnavailableReason);
+            SetAuth(PluginAuthState.Unreachable, LastUnavailableReason,
+                account, "Tidal", tier, expiresAt);
             StoreAvailability(false);
             return false;
         }
 
         LastUnavailableReason = null;
-        SetAuth(PluginAuthState.Valid);
+        SetAuth(PluginAuthState.Valid, null, account, "Tidal", tier, expiresAt);
         StoreAvailability(true);
         return true;
     }
@@ -237,7 +249,8 @@ public class TidalDownloader : CliToolDownloader
         {
             LastUnavailableReason =
                 $"The Tidal token expired on {DateTimeOffset.FromUnixTimeSeconds(session.ExpiresAtUnix).ToLocalTime():yyyy-MM-dd HH:mm}; paste a fresh one";
-            SetAuth(PluginAuthState.Expired, LastUnavailableReason);
+            SetAuth(PluginAuthState.Expired, LastUnavailableReason,
+                AuthStatus.Account, AuthStatus.Plan, AuthStatus.Tier, AuthStatus.ExpiresAtUtc);
             StoreAvailability(false);
             return null;
         }
@@ -248,7 +261,8 @@ public class TidalDownloader : CliToolDownloader
         {
             LastUnavailableReason = result.Message
                 ?? "Tidal rejected the token; paste a fresh one";
-            SetAuth(PluginAuthState.Rejected, LastUnavailableReason);
+            SetAuth(PluginAuthState.Rejected, LastUnavailableReason,
+                AuthStatus.Account, AuthStatus.Plan, AuthStatus.Tier, AuthStatus.ExpiresAtUtc);
             StoreAvailability(false);
             Logger.LogDebug("Tidal: {Reason}", LastUnavailableReason);
             return null;
@@ -256,12 +270,13 @@ public class TidalDownloader : CliToolDownloader
         if (result.Status == TidalClient.TidalSearchStatus.Unreachable)
         {
             LastUnavailableReason = result.Message ?? "The Tidal API did not answer";
-            SetAuth(PluginAuthState.Unreachable, LastUnavailableReason);
+            SetAuth(PluginAuthState.Unreachable, LastUnavailableReason,
+                AuthStatus.Account, AuthStatus.Plan, AuthStatus.Tier, AuthStatus.ExpiresAtUtc);
             Logger.LogDebug("Tidal: {Reason}", LastUnavailableReason);
             return null;
         }
 
-        SetAuth(PluginAuthState.Valid);
+        SetAuthValid();
         LastUnavailableReason = null;
         return Rank(result.Tracks, query);
     }
@@ -409,6 +424,12 @@ public class TidalDownloader : CliToolDownloader
         => configured.Trim().ToLowerInvariant() is "low" or "normal" or "high" or "max"
             ? configured.Trim().ToLowerInvariant()
             : DefaultQuality;
+
+    /// <summary>The configured FLAC tier as the card names it.</summary>
+    internal static string TierLabel(string configured)
+        => NormalizeQuality(configured) == "max"
+            ? "Hi-res up to 192 kHz"
+            : "CD quality (16/44.1)";
 
     internal static bool TryExtractTrackId(string sourceUrl, out long trackId)
     {

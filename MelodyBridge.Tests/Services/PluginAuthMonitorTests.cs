@@ -110,6 +110,28 @@ public class PluginAuthMonitorTests
     }
 
     [Test]
+    public void DismissedBanner_StaysDismissed_UntilTheProblemChanges()
+    {
+        var monitor = new PluginAuthMonitor();
+        monitor.Report("qobuz", "Qobuz", "The Qobuz token was rejected");
+        monitor.DismissBanner();
+        Assert.That(monitor.BannerDismissed, Is.True);
+
+        // The same verdict from another probe is not news.
+        monitor.Report("qobuz", "Qobuz", "The Qobuz token was rejected");
+        Assert.That(monitor.BannerDismissed, Is.True);
+
+        monitor.Report("qobuz", "Qobuz", "Qobuz blocked this account");
+        Assert.That(monitor.BannerDismissed, Is.False,
+            "a changed reason must bring the banner back");
+
+        monitor.DismissBanner();
+        monitor.Report("tidal", "Tidal", "The Tidal token expired");
+        Assert.That(monitor.BannerDismissed, Is.False,
+            "a new plugin problem is news too");
+    }
+
+    [Test]
     public void Clear_RemovesTheIssue_AndRaisesChanged()
     {
         var monitor = new PluginAuthMonitor();

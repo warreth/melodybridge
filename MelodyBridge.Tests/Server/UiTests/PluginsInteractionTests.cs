@@ -299,6 +299,9 @@ public class PluginsInteractionTests
     {
         var plugin = new GatedDownloader();
         var cut = RenderPage(plugin); // the init sweep is call 1 (instant)
+        cut.WaitForAssertion(() => Assert.That(
+            CardFor(cut, "Gated Plugin").QuerySelector(".pill")?.TextContent.Trim(),
+            Is.EqualTo("ready")), TimeSpan.FromSeconds(3));
 
         // A slow sweep in flight: the second trigger must return without
         // starting another probe.

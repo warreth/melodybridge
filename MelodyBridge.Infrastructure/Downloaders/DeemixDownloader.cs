@@ -167,9 +167,9 @@ public class DeemixDownloader : CliToolDownloader
 
         LastUnavailableReason = null;
         SetAuth(PluginAuthState.Valid,
-            check.Lossless == false
-                ? "This Deezer account has no lossless plan; FLAC requests fall back to the account's tier"
-                : null);
+            account: "Signed in",
+            plan: check.Lossless == false ? "No lossless plan" : "Lossless",
+            tier: check.Lossless == false ? "MP3 up to 320" : "FLAC available");
         if (check.Lossless == false)
             Logger.LogInformation("Deezer: the ARL is signed in without lossless");
         StoreAvailability(true);
