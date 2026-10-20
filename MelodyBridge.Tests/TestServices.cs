@@ -86,6 +86,16 @@ public static class TestServices
         services.AddSingleton<IMediaServerDirectoryFactory>(sp =>
             new MelodyBridge.Infrastructure.MediaServers.MediaServerDirectoryFactory(
                 sp.GetServices<IMediaServerDirectory>()));
+        // Real probe over the fixed settings; with no secrets it reports
+        // everything as not configured and never touches the network.
+        services.AddSingleton<IMediaServerStatusProbe>(sp =>
+            new MelodyBridge.Infrastructure.MediaServers.MediaServerStatusProbe(
+                sp.GetRequiredService<MediaServerProfileStore>(),
+                sp.GetRequiredService<MelodyBridge.Infrastructure.MediaServers.IJellyfinSettings>(),
+                sp.GetRequiredService<MelodyBridge.Infrastructure.MediaServers.IPlexSettings>(),
+                sp.GetRequiredService<MelodyBridge.Infrastructure.MediaServers.INavidromeSettings>(),
+                sp.GetRequiredService<IMediaServerDirectoryFactory>(),
+                NullLogger<MelodyBridge.Infrastructure.MediaServers.MediaServerStatusProbe>.Instance));
     }
 
     /// <summary>Plugins page stub: a fixed version and recorded updates.</summary>

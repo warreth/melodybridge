@@ -26,6 +26,9 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ILibraryScanner, LibraryScanner>();
         services.AddScoped<MelodyBridge.Infrastructure.Services.DatabaseBackupService>();
         services.AddScoped<MelodyBridge.Infrastructure.Services.MediaServerProfileStore>();
+        // Dashboard connection state: probes the stored profiles and the
+        // legacy single-server rows, cached briefly so refreshes stay cheap.
+        services.AddScoped<IMediaServerStatusProbe, MediaServerStatusProbe>();
         // Moves the library when the Music path or Archive path setting
         // changes; stateless, one for all callers.
         services.AddSingleton<MelodyBridge.Infrastructure.Services.LibraryPathMover>();

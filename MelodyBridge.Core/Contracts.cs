@@ -57,10 +57,58 @@ public interface IMediaServerDirectory
     Task<List<MediaServerUserOption>> GetUsersAsync(MediaServerConnection connection, CancellationToken ct = default);
     /// <summary>True when the server answers an authenticated lightweight request.</summary>
     Task<bool> TestConnectionAsync(MediaServerConnection connection, CancellationToken ct = default);
+
+    /// <summary>
+    /// The server and account behind a working connection, when the server
+    /// can name them. Null when it cannot; this is best effort on top of
+    /// <see cref="TestConnectionAsync"/>, never a second gate.
+    /// </summary>
+    Task<MediaServerIdentity?> IdentifyAsync(
+        MediaServerConnection connection, CancellationToken ct = default)
+        => Task.FromResult<MediaServerIdentity?>(null);
 }
 
 /// <summary>One user row of a media server, as the picker shows it.</summary>
 public record MediaServerUserOption(string Id, string? Name);
+
+/// <summary>What a media server calls itself and the account behind a connection.</summary>
+public record MediaServerIdentity(string? ServerName, string? AccountName);
+
+/// <summary>Honest state of one configured media server connection.</summary>
+public enum MediaServerConnectionState
+{
+    /// <summary>No URL or no credentials: there is nothing to connect to yet.</summary>
+    NotConfigured,
+    /// <summary>Values are stored but the server did not answer or rejected the login.</summary>
+    Unreachable,
+    /// <summary>The stored credentials worked.</summary>
+    Connected,
+}
+
+/// <summary>
+/// One media server as the dashboard should show it: the profile name, the
+/// state after a real probe, and who answered. Never inferred from a URL
+/// alone, because config fallbacks carry localhost defaults.
+/// </summary>
+public record MediaServerConnectionStatus(
+    string ProfileId,
+    string Name,
+    string Kind,
+    string BaseUrl,
+    MediaServerConnectionState State,
+    string? AccountName = null,
+    string? ServerName = null,
+    string? Reason = null);
+
+/// <summary>
+/// Probes every stored media server and reports which ones actually answer.
+/// Results are cached briefly so a dashboard refresh is cheap.
+/// </summary>
+public interface IMediaServerStatusProbe
+{
+    Task<IReadOnlyList<MediaServerConnectionStatus>> SnapshotAsync(
+        bool refresh = false, CancellationToken ct = default);
+}
 
 /// <summary>
 /// Resolves the directory that speaks a stored server kind. Three

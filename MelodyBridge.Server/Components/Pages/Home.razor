@@ -6,9 +6,7 @@
 @inject ILogCollector LogCollector
 @inject SpotifyAccountProvider SpotifyAccount
 @inject YouTubeAccountProvider YouTubeAccount
-@inject IJellyfinSettings JellyfinSettings
-@inject IPlexSettings PlexSettings
-@inject INavidromeSettings NavidromeSettings
+@inject IMediaServerStatusProbe MediaProbe
 @implements IDisposable
 
 <PageTitle>@(showIntro ? "Welcome - MelodyBridge" : "Dashboard - MelodyBridge")</PageTitle>
@@ -183,6 +181,7 @@ else
                     <span class="eyebrow">Media servers and accounts</span>
                     <h2>Connections</h2>
                 </div>
+                <a class="btn-modern ghost small" href="/settings#media-servers">Manage</a>
             </div>
             <div class="provider-list">
                 <ConnectionRow IconName="spotify" Title="Spotify"
@@ -195,21 +194,15 @@ else
                                PillVariant="@(youtubeConnected ? "connected" : "guest")"
                                PillText="@(youtubeConnected ? "connected" : "guest")"
                                Enabled="youtubeConnected" />
-                <ConnectionRow IconName="jellyfin" Title="Jellyfin"
-                               Detail="@(jellyfinConfigured ? jellyfinUrl : "not configured")"
-                               PillVariant="@(jellyfinConfigured ? "ready" : "neutral")"
-                               PillText="@(jellyfinConfigured ? "ready" : "off")"
-                               Enabled="jellyfinConfigured" />
-                <ConnectionRow IconName="plex" Title="Plex"
-                               Detail="@(plexConfigured ? plexUrl : "not configured")"
-                               PillVariant="@(plexConfigured ? "ready" : "neutral")"
-                               PillText="@(plexConfigured ? "ready" : "off")"
-                               Enabled="plexConfigured" />
-                <ConnectionRow IconName="navidrome" Title="Subsonic"
-                               Detail="@(navidromeConfigured ? navidromeUrl : "not configured")"
-                               PillVariant="@(navidromeConfigured ? "ready" : "neutral")"
-                               PillText="@(navidromeConfigured ? "ready" : "off")"
-                               Enabled="navidromeConfigured" />
+                @foreach (var server in mediaServers)
+                {
+                    <ConnectionRow IconName="@ServerIcon(server.Kind)"
+                                   Title="@ServerTitle(server)"
+                                   Detail="@ServerDetail(server)"
+                                   PillVariant="@ServerPillVariant(server)"
+                                   PillText="@ServerPillText(server)"
+                                   Enabled="@(server.State == MediaServerConnectionState.Connected)" />
+                }
                 <ConnectionRow IconName="flaresolverr" Title="FlareSolverr"
                                Detail="@(flareSolverrOn ? flareSolverrUrlText : "Cloudflare bypass off")"
                                PillVariant="@(flareSolverrOn ? "ok" : "neutral")"
@@ -398,9 +391,8 @@ else
     private int errorCount;
     private bool spotifyConnected;
     private bool youtubeConnected;
-    private string jellyfinUrl = string.Empty;
-    private string plexUrl = string.Empty;
-    private string navidromeUrl = string.Empty;
+    private IReadOnlyList<MediaServerConnectionStatus> mediaServers =
+        Array.Empty<MediaServerConnectionStatus>();
     private string flareSolverrUrl = string.Empty;
     private List<PlaylistEntity> playlists = new();
     private List<PlaylistEntity> partialPlaylists = new();
@@ -422,11 +414,67 @@ else
     private string lastRunText => lastRunAt.HasValue
         ? lastRunAt.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm")
         : "never";
-    private bool jellyfinConfigured => !string.IsNullOrWhiteSpace(jellyfinUrl);
-    private bool plexConfigured => !string.IsNullOrWhiteSpace(plexUrl);
-    private bool navidromeConfigured => !string.IsNullOrWhiteSpace(navidromeUrl);
     private bool flareSolverrOn => !string.IsNullOrWhiteSpace(flareSolverrUrl)
         && !flareSolverrUrl.Equals("off", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Brand key for a server kind; the same icons the wizard uses.</summary>
+    private static string ServerIcon(string kind) => MediaServerKinds.Canonical(kind) switch
+    {
+        MediaServerKinds.Plex => "plex",
+        MediaServerKinds.Subsonic => "navidrome",
+        _ => "jellyfin",
+    };
+
+    private static string ServerTitle(MediaServerConnectionStatus server)
+        => string.IsNullOrWhiteSpace(server.Name)
+           || string.Equals(server.Name, server.Kind, StringComparison.OrdinalIgnoreCase)
+            ? (MediaServerKinds.Canonical(server.Kind) is { Length: > 0 } kind ? kind : "Media server")
+            : server.Name;
+
+    /// <summary>"admin on jellyfin.wath.dev", "not configured", or why it
+    /// did not answer. The pill carries the state word, this carries who and
+    /// where, so a connected row never just says "ready".</summary>
+    private static string ServerDetail(MediaServerConnectionStatus server)
+    {
+        var where = !string.IsNullOrWhiteSpace(server.ServerName)
+            ? server.ServerName!
+            : HostOf(server.BaseUrl) ?? MediaServerKinds.Canonical(server.Kind);
+        return server.State switch
+        {
+            MediaServerConnectionState.Connected => string.IsNullOrWhiteSpace(server.AccountName)
+                ? $"connected to {where}"
+                : $"{server.AccountName} on {where}",
+            MediaServerConnectionState.Unreachable =>
+                $"{HostOf(server.BaseUrl) ?? "server"}: "
+                + (string.IsNullOrWhiteSpace(server.Reason) ? "unreachable" : server.Reason),
+            _ => "not configured",
+        };
+    }
+
+    private static string ServerPillVariant(MediaServerConnectionStatus server)
+        => server.State switch
+        {
+            MediaServerConnectionState.Connected => "connected",
+            MediaServerConnectionState.Unreachable => "warn",
+            _ => "neutral",
+        };
+
+    private static string ServerPillText(MediaServerConnectionStatus server)
+        => server.State switch
+        {
+            MediaServerConnectionState.Connected => "connected",
+            MediaServerConnectionState.Unreachable => "unreachable",
+            _ => "off",
+        };
+
+    private static string? HostOf(string? url)
+    {
+        if (string.IsNullOrWhiteSpace(url)) return null;
+        var candidate = url.Contains("://", StringComparison.Ordinal) ? url : "http://" + url;
+        return Uri.TryCreate(candidate, UriKind.Absolute, out var uri) && uri.Host.Length > 0
+            ? (uri.IsDefaultPort ? uri.Host : $"{uri.Host}:{uri.Port}")
+            : url.Trim();
+    }
 
     /// <summary>"auto" hides the raw value: the row then says what auto
     /// does instead of showing the word the user never typed.</summary>
@@ -517,9 +565,7 @@ else
         {
             spotifyConnected = await SpotifyAccount.IsConnectedAsync();
             youtubeConnected = await YouTubeAccount.IsConnectedAsync();
-            jellyfinUrl = await JellyfinSettings.GetBaseUrlAsync();
-            plexUrl = await PlexSettings.GetBaseUrlAsync();
-            navidromeUrl = await NavidromeSettings.GetBaseUrlAsync();
+            mediaServers = await MediaProbe.SnapshotAsync();
             flareSolverrUrl = FlareSolverrSolver.Url ?? string.Empty;
 
             // One pass over the buffer, not two: it grows while we read.

@@ -26,6 +26,9 @@ public class HomePageTests
     private TestContext _ctx = null!;
     private Mock<IDownloaderRegistry> _providerRegistry = null!;
     private LogCollector _collector = null!;
+    private ScriptedDirectory _jellyfinDirectory = null!;
+    private ScriptedDirectory _plexDirectory = null!;
+    private ScriptedDirectory _subsonicDirectory = null!;
 
     [SetUp]
     public void Setup()
@@ -56,7 +59,9 @@ public class HomePageTests
 
         _ctx.Services.AddSingleton<IDownloaderRegistry>(_providerRegistry.Object);
         _ctx.Services.AddSingleton<IDbContextFactory<MelodyBridgeDbContext>>(dbFactory);
-        _ctx.Services.AddSingleton(new SettingsStore(dbFactory));
+        var settingsStore = new SettingsStore(dbFactory);
+        _ctx.Services.AddSingleton(settingsStore);
+        _ctx.Services.AddSingleton(new MediaServerProfileStore(settingsStore));
         _ctx.Services.AddSingleton<ILogCollector>(_collector);
         var tokenStore = new MelodyBridge.Infrastructure.Accounts.AccountTokenStore(
             dbFactory,
@@ -76,6 +81,21 @@ public class HomePageTests
             new TestServices.FixedPlexSettings());
         _ctx.Services.AddSingleton<MelodyBridge.Infrastructure.MediaServers.INavidromeSettings>(
             new TestServices.FixedNavidromeSettings());
+        _ctx.Services.AddSingleton<IMediaServerStatusProbe>(sp =>
+            new MelodyBridge.Infrastructure.MediaServers.MediaServerStatusProbe(
+                sp.GetRequiredService<MediaServerProfileStore>(),
+                sp.GetRequiredService<MelodyBridge.Infrastructure.MediaServers.IJellyfinSettings>(),
+                sp.GetRequiredService<MelodyBridge.Infrastructure.MediaServers.IPlexSettings>(),
+                sp.GetRequiredService<MelodyBridge.Infrastructure.MediaServers.INavidromeSettings>(),
+                sp.GetRequiredService<IMediaServerDirectoryFactory>(),
+                Microsoft.Extensions.Logging.Abstractions
+                    .NullLogger<MelodyBridge.Infrastructure.MediaServers.MediaServerStatusProbe>.Instance));
+        _jellyfinDirectory = new ScriptedDirectory("Jellyfin");
+        _plexDirectory = new ScriptedDirectory("Plex");
+        _subsonicDirectory = new ScriptedDirectory("Subsonic");
+        _ctx.Services.AddSingleton<IMediaServerDirectoryFactory>(
+            new MelodyBridge.Infrastructure.MediaServers.MediaServerDirectoryFactory(
+                new IMediaServerDirectory[] { _jellyfinDirectory, _plexDirectory, _subsonicDirectory }));
     }
 
     [TearDown]
@@ -216,6 +236,49 @@ public class HomePageTests
     }
 
     [Test]
+    public async Task Dashboard_ConnectionRows_NameTheAccountAndNeverGuessReady()
+    {
+        var dbFactory = _ctx.Services.GetRequiredService<IDbContextFactory<MelodyBridgeDbContext>>();
+        using (var db = dbFactory.CreateDbContext())
+        {
+            db.DownloaderSettings.Add(new DownloaderSettingEntity { Key = "intro_dismissed", Value = "true" });
+            db.SaveChanges();
+        }
+        var profiles = _ctx.Services.GetRequiredService<MediaServerProfileStore>();
+        await profiles.SaveAsync(new MediaServerProfile
+        {
+            Id = "jf-1", Name = "Jellyfin Homelab", Kind = "Jellyfin",
+            BaseUrl = "http://jellyfin:8096", ApiKey = "key", Username = "mila",
+        });
+        await profiles.SaveAsync(new MediaServerProfile
+        {
+            Id = "plex-1", Name = "Plex", Kind = "Plex",
+            BaseUrl = "http://plex:32400", ApiKey = "token",
+        });
+        _jellyfinDirectory.Identity = new MediaServerIdentity("Basement", "mila");
+        _plexDirectory.Answer = false;
+
+        var cut = _ctx.Render<Home>();
+        cut.WaitForState(() => cut.Markup.Contains("Recent sync runs"), TimeSpan.FromSeconds(3));
+
+        var rows = cut.FindAll(".connection-row");
+        var jellyfin = rows.Single(r => r.TextContent.Contains("Jellyfin Homelab"));
+        var plex = rows.Single(r => r.TextContent.Contains("Plex"));
+        var subsonic = rows.Single(r => r.TextContent.Contains("Subsonic"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(jellyfin.TextContent, Does.Contain("mila on Basement"),
+                "a connected server names the account and the server");
+            Assert.That(jellyfin.TextContent, Does.Contain("connected"));
+            Assert.That(plex.TextContent, Does.Contain("unreachable"),
+                "a stored profile that does not answer is not ready");
+            Assert.That(subsonic.TextContent, Does.Contain("not configured"));
+            Assert.That(subsonic.TextContent, Does.Contain("off"));
+        });
+    }
+
+    [Test]
     public void Dashboard_PluginLoginCard_ListsAProblem()
     {
         var dbFactory = _ctx.Services.GetRequiredService<IDbContextFactory<MelodyBridgeDbContext>>();
@@ -317,6 +380,27 @@ public class HomePageTests
             "the playlist panel must explain what to do first");
         Assert.That(cut.Markup, Does.Contain("No errors"),
             "a clean log stream must say so instead of an empty hole");
+    }
+
+    private sealed class ScriptedDirectory : IMediaServerDirectory
+    {
+        public ScriptedDirectory(string kind) => Kind = kind;
+
+        public string Kind { get; }
+        public bool Answer { get; set; } = true;
+        public MediaServerIdentity? Identity { get; set; }
+
+        public Task<bool> TestConnectionAsync(
+            MediaServerConnection connection, CancellationToken ct = default)
+            => Task.FromResult(Answer);
+
+        public Task<MediaServerIdentity?> IdentifyAsync(
+            MediaServerConnection connection, CancellationToken ct = default)
+            => Task.FromResult(Identity);
+
+        public Task<List<MediaServerUserOption>> GetUsersAsync(
+            MediaServerConnection connection, CancellationToken ct = default)
+            => Task.FromResult(new List<MediaServerUserOption>());
     }
 
     private class InMemFactory : IDbContextFactory<MelodyBridgeDbContext>
