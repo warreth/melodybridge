@@ -197,6 +197,18 @@ h1:focus { outline: none; }
     display: block;
 }
 
+/* The mark is inline SVG now: the tile takes the accent, the note the
+   readable contrast color, so a theme or accent swap repaints it. */
+.brand-logo-bg { fill: var(--accent); }
+.brand-logo-ink { fill: var(--accent-contrast); }
+.brand-logo-line {
+    fill: none;
+    stroke: var(--accent-contrast);
+    stroke-width: 2.2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
 .brand-block strong { display: block; font-size: .95rem; }
 .brand-block span { display: block; color: var(--muted); font-size: .8rem; }
 .brand-block:hover .brand-text strong { color: var(--accent-text); }

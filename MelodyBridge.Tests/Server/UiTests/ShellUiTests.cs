@@ -81,6 +81,22 @@ public class ShellUiTests
     }
 
     [Test]
+    public void BrandMark_FollowsTheActiveTheme()
+    {
+        var cut = _ctx.Render<MainLayout>();
+
+        var mark = cut.Find(".brand-block svg.brand-logo");
+        Assert.That(mark.GetAttribute("viewBox"), Is.EqualTo("0 0 32 32"),
+            "the mark keeps the logo.svg geometry");
+        Assert.That(cut.FindAll(".brand-block img.brand-logo"), Is.Empty,
+            "a fixed-color bitmap cannot follow the theme");
+        Assert.That(mark.QuerySelectorAll(".brand-logo-bg").Length, Is.EqualTo(1));
+        Assert.That(mark.QuerySelectorAll(".brand-logo-line").Length, Is.EqualTo(1));
+        Assert.That(mark.QuerySelectorAll(".brand-logo-ink").Length, Is.EqualTo(2),
+            "both note heads paint with the contrast color");
+    }
+
+    [Test]
     public void MainLayout_RendersExactlyOneNavigation()
     {
         var cut = _ctx.Render<MainLayout>();
