@@ -140,7 +140,14 @@ one replaces the database. After a database import, restart the app.
 
 Saved playlists show as cards or compact rows; the switch sits above the list
 and the choice is remembered. The sort control offers **Recently synced**,
-**Name A-Z** and **Most tracks**, also remembered for the next visit.
+**Name A-Z** and **Most tracks**, also remembered for the next visit. Pinned
+playlists stay above the chosen order.
+
+**Needs attention** narrows the list to playlists with a failed source sync, a
+partial snapshot, failed track downloads, or downloaded tracks waiting for a
+quality or dedup decision. The count on the chip says how many there are, and
+the cards name the part that needs a look. A playlist with regular pending
+downloads is not flagged.
 
 **Select** turns the list into selection mode: tick several playlists, then
 **Refresh**, **Download missing**, **Export CSV** or **Remove**. A bulk export
@@ -150,9 +157,10 @@ their track lists but leaves the music files on disk. File imports cannot
 refresh; re-import their file instead.
 
 Each card and row has a **...** menu with the same actions for one playlist.
-**Remove** there offers the usual choice to delete the downloaded files too.
-Next to the menu, the **Publish** button creates sync jobs for several playlists
-at once with one schedule and one set of targets. See
+**Pin to top** keeps a playlist above the others until you unpin it. **Remove**
+offers the usual choice to delete the downloaded files too. Next to the menu,
+the **Publish** button creates sync jobs for several playlists at once with one
+schedule and one set of targets. See
 [Publishing playlists](/publishing#publish-playlists-in-a-few-clicks).
 
 ## Playlist options

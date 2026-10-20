@@ -125,7 +125,10 @@ files.
 
 Many jobs in one list? The **Cards** / **Rows** switch above the list changes
 the layout; the choice sticks. Rows fit more jobs on screen, cards have room
-for the last run summary and its progress.
+for the last run summary and its progress. The sort control orders jobs by
+**Last run**, **Next run** or **Status**. Next run puts due and upcoming jobs
+first and manual jobs last; status puts failures and never-run jobs first, so
+the jobs that need a look stay at the top.
 
 ## Liked songs become favorites
 
