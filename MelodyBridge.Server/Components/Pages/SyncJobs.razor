@@ -401,7 +401,24 @@
     <section class="entity-rows">
         @foreach (var job in jobs)
         {
-            <div class="entity-row">
+            var source = SourcePlaylist(job);
+            <div class="entity-row sync-job-row">
+                @if (source is not null)
+                {
+                    <a class="entity-row-cover sync-job-row-cover"
+                       href="/playlists/@source.Id"
+                       title="Open @source.Name"
+                       aria-label="Open playlist @source.Name">
+                        @if (!string.IsNullOrEmpty(source.CoverImageUrl))
+                        {
+                            <img src="@source.CoverImageUrl" alt="" loading="lazy" />
+                        }
+                        else
+                        {
+                            <Icon Name="list-music" Size="18" />
+                        }
+                    </a>
+                }
                 <span class="entity-row-main">
                     <strong>@job.Name</strong>
                     <small>@JobTargetsLabel(job)</small>
@@ -413,22 +430,37 @@
                     <span>Last run: @(job.LastRunAt?.ToString("g") ?? "never")</span>
                     <span>Schedule: @job.Schedule@(nextRunLabels.GetValueOrDefault(job.Id, ""))</span>
                 </span>
-                <span class="entity-row-actions">
+                <div class="entity-row-actions">
                     <button class="btn-modern small primary" title="Run this job now"
                             @onclick="() => RunJobNow(job.Id)" disabled="@(runningAll || runningJobs.Contains(job.Id))">
                         <Icon Name="play" Size="14" />
                         <span class="btn-label">@(runningJobs.Contains(job.Id) ? "Running…" : "Run now")</span>
                     </button>
-                    <button class="btn-modern small ghost" title="Run history" @onclick="() => ViewJobLog(job)">
-                        <Icon Name="terminal" Size="14" /> <span class="btn-label">Log</span>
-                    </button>
-                    <button class="btn-modern small ghost" title="Edit this job" @onclick="() => StartEditJob(job)">
-                        <Icon Name="pencil" Size="14" /> <span class="btn-label">Edit</span>
-                    </button>
-                    <button class="btn-modern small ghost" title="Delete this job" @onclick="() => AskDeleteJob(job)">
-                        <Icon Name="trash" Size="14" /> <span class="btn-label">Delete</span>
-                    </button>
-                </span>
+                    <div class="sync-job-wide-actions">
+                        <button class="btn-modern small ghost" title="Run history" @onclick="() => ViewJobLog(job)">
+                            <Icon Name="terminal" Size="14" /> <span class="btn-label">Log</span>
+                        </button>
+                        <button class="btn-modern small ghost" title="Edit this job" @onclick="() => StartEditJob(job)">
+                            <Icon Name="pencil" Size="14" /> <span class="btn-label">Edit</span>
+                        </button>
+                        <button class="btn-modern small ghost" title="Delete this job" @onclick="() => AskDeleteJob(job)">
+                            <Icon Name="trash" Size="14" /> <span class="btn-label">Delete</span>
+                        </button>
+                    </div>
+                    <div class="sync-job-compact-actions">
+                        <CardMenu Label="Sync job actions">
+                            <button title="Run history" @onclick="() => ViewJobLog(job)">
+                                <Icon Name="terminal" Size="14" /> Log
+                            </button>
+                            <button title="Edit this job" @onclick="() => StartEditJob(job)">
+                                <Icon Name="pencil" Size="14" /> Edit
+                            </button>
+                            <button class="danger" title="Delete this job" @onclick="() => AskDeleteJob(job)">
+                                <Icon Name="trash" Size="14" /> Delete
+                            </button>
+                        </CardMenu>
+                    </div>
+                </div>
             </div>
         }
     </section>
@@ -438,11 +470,30 @@ else
 <section class="content-grid two">
     @foreach (var job in jobs)
     {
+        var source = SourcePlaylist(job);
         <div class="panel-card">
             <div class="panel-header">
-                <div>
-                    <span class="eyebrow">@JobTargetsLabel(job)</span>
-                    <h2>@job.Name</h2>
+                <div class="sync-job-identity">
+                    @if (source is not null)
+                    {
+                        <a class="sync-job-cover"
+                           href="/playlists/@source.Id"
+                           title="Open @source.Name"
+                           aria-label="Open playlist @source.Name">
+                            @if (!string.IsNullOrEmpty(source.CoverImageUrl))
+                            {
+                                <img src="@source.CoverImageUrl" alt="" loading="lazy" />
+                            }
+                            else
+                            {
+                                <Icon Name="list-music" Size="22" />
+                            }
+                        </a>
+                    }
+                    <div class="sync-job-heading">
+                        <span class="eyebrow">@JobTargetsLabel(job)</span>
+                        <h2>@job.Name</h2>
+                    </div>
                 </div>
                 <StatusPill Variant="@StatusVariant(job)">
                     @StatusLabel(job)
@@ -539,6 +590,7 @@ else
     /// <summary>The card order the page shows, so a run does not re-sort it.</summary>
     private List<string>? jobOrder;
     private List<PlaylistEntity> sources = new();
+    private Dictionary<string, PlaylistEntity> sourceById = new();
     private List<string> scanFolders = new();
     private bool showWizard;
     private bool saving;
@@ -715,6 +767,14 @@ else
         }
     }
 
+    /// <summary>
+    /// The saved playlist a job publishes, when it has one. Folder jobs
+    /// and jobs whose source playlist was removed have no cover.
+    /// </summary>
+    private PlaylistEntity? SourcePlaylist(SyncJobEntity job)
+        => !string.IsNullOrWhiteSpace(job.SourceId)
+            && sourceById.TryGetValue(job.SourceId, out var source) ? source : null;
+
     /// <summary>The card's eyebrow: every target of a stored job.</summary>
     private string JobTargetsLabel(SyncJobEntity job)
     {
@@ -785,6 +845,7 @@ else
         jobOrder = jobs.Select(j => j.Id).ToList();
         nextRunLabels = jobs.ToDictionary(j => j.Id, NextRunSuffix);
         sources = await db.Playlists.ToListAsync();
+        sourceById = sources.ToDictionary(s => s.Id);
         scanFolders = await db.ScanLocations.Select(l => l.Path).ToListAsync();
     }
 

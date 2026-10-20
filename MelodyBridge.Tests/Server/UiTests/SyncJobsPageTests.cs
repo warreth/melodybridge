@@ -37,6 +37,7 @@ public class SyncJobsPageTests
                 Id = "src-1",
                 Name = "Weekly Source",
                 SourceUrl = "stub:src-1",
+                CoverImageUrl = "https://images.example/weekly.jpg",
             });
             db.SyncJobs.Add(new SyncJobEntity
             {
@@ -132,6 +133,52 @@ public class SyncJobsPageTests
         var cut = _ctx.Render<SyncJobs>();
         Assert.That(cut.Markup, Does.Contain("Weekly Sync"));
         Assert.That(cut.Markup, Does.Contain("Failed Job"));
+    }
+
+    [Test]
+    public void SyncJobs_CardShowsTheSourcePlaylistCover_OnlyForPlaylistJobs()
+    {
+        var cut = _ctx.Render<SyncJobs>();
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.FindAll(".panel-card"), Is.Not.Empty), TimeSpan.FromSeconds(3));
+
+        var playlistJob = cut.FindAll(".panel-card")
+            .Single(c => c.TextContent.Contains("Weekly Sync"));
+        var folderJob = cut.FindAll(".panel-card")
+            .Single(c => c.TextContent.Contains("Failed Job"));
+
+        var cover = playlistJob.QuerySelector(".sync-job-cover");
+        Assert.That(cover, Is.Not.Null, "a playlist-backed job shows its playlist cover");
+        Assert.That(cover!.GetAttribute("href"), Is.EqualTo("/playlists/src-1"),
+            "the cover is a shortcut to the source playlist");
+        Assert.That(cover.QuerySelector("img")?.GetAttribute("src"),
+            Is.EqualTo("https://images.example/weekly.jpg"));
+        Assert.That(folderJob.QuerySelector(".sync-job-cover"), Is.Null,
+            "a folder job has no playlist cover");
+    }
+
+    [Test]
+    public void SyncJobs_RowShowsTheSourcePlaylistCover()
+    {
+        var cut = _ctx.Render<SyncJobs>();
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.FindAll(".panel-card"), Is.Not.Empty), TimeSpan.FromSeconds(3));
+        cut.FindAll(".view-chip").Single(b => b.TextContent.Contains("Rows")).Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            var row = cut.FindAll(".entity-row")
+                .Single(r => r.TextContent.Contains("Weekly Sync"));
+            var cover = row.QuerySelector(".sync-job-row-cover");
+            Assert.That(cover, Is.Not.Null, "the compact row keeps the source cover");
+            Assert.That(cover!.QuerySelector("img")?.GetAttribute("src"),
+                Is.EqualTo("https://images.example/weekly.jpg"));
+            var compactMenu = row.QuerySelector(".sync-job-compact-actions");
+            Assert.That(compactMenu, Is.Not.Null,
+                "narrow rows pack Log, Edit and Delete into one menu");
+            Assert.That(compactMenu!.TextContent,
+                Does.Contain("Log").And.Contain("Edit").And.Contain("Delete"));
+        }, TimeSpan.FromSeconds(3));
     }
 
     [Test]

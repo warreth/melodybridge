@@ -1,5 +1,97 @@
 /* Sync jobs page scoped styles: card action footer and wizard form grid. */
 
+/* The source playlist's cover sits beside the job title, so a glance at
+   the grid says which music the job publishes. A removed source or a
+   folder job simply leaves the heading at the card edge. */
+.sync-job-identity {
+    display: flex;
+    align-items: center;
+    gap: .75rem;
+    min-width: 0;
+}
+
+.sync-job-cover {
+    flex: 0 0 auto;
+    display: grid;
+    place-items: center;
+    width: 52px;
+    height: 52px;
+    overflow: hidden;
+    border-radius: 10px;
+    background: var(--surface-3);
+    color: var(--muted);
+    text-decoration: none;
+}
+
+.sync-job-cover:hover {
+    box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.sync-job-cover img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.sync-job-heading {
+    min-width: 0;
+}
+
+.sync-job-heading h2 {
+    overflow-wrap: anywhere;
+}
+
+.sync-job-row-cover:hover {
+    box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.sync-job-wide-actions,
+.sync-job-compact-actions {
+    display: flex;
+    align-items: center;
+    gap: .35rem;
+}
+
+.sync-job-compact-actions { display: none; }
+
+/* On phones and tablets the row becomes two lines: cover, title and
+   actions on the first, status directly under the title. Keeping the
+   actions on their own column leaves the title readable instead of
+   squeezing it to an ellipsis between the status pill and four buttons.
+   The last-run metadata moves out; the card view still carries it. */
+@media (max-width: 900px) {
+    .sync-job-row .entity-row-actions .btn-label { display: none; }
+
+    .sync-job-row {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        grid-template-areas:
+            "cover main actions"
+            "cover state actions";
+        row-gap: .3rem;
+    }
+
+    .sync-job-row .entity-row-cover { grid-area: cover; }
+    .sync-job-row .entity-row-main { grid-area: main; }
+    .sync-job-row .entity-row-state {
+        grid-area: state;
+        justify-content: flex-start;
+    }
+    .sync-job-row .entity-row-actions {
+        grid-area: actions;
+        align-self: center;
+    }
+    .sync-job-row .entity-row-meta { display: none; }
+}
+
+/* Phones trade the three secondary row buttons for one menu, which
+   leaves the job title room to breathe. */
+@media (max-width: 720px) {
+    .sync-job-wide-actions { display: none; }
+    .sync-job-compact-actions { display: inline-flex; }
+}
+
 /* Card actions: one horizontal toolbar under a hairline. Wraps gracefully
    on narrow viewports instead of jamming buttons. */
 .job-footer {
@@ -10,6 +102,18 @@
     margin-top: .75rem;
     padding-top: .75rem;
     border-top: 1px solid var(--border);
+}
+
+/* Two-column cards on a tablet are narrower than the four-action
+   toolbar: pair the buttons instead of leaving Delete alone on a row.
+   Single-column phones get the same treatment. */
+@media (max-width: 460px), (min-width: 721px) and (max-width: 860px) {
+    .job-footer {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .job-footer .btn-modern { width: 100%; }
 }
 
 /* Run-history modal: slightly narrower than the wizard shell, and
