@@ -30,3 +30,58 @@
         grid-template-columns: minmax(0, 1fr);
     }
 }
+
+/* Dashboard login health: one short row per affected plugin. */
+.login-issue-list { display: grid; gap: .4rem; }
+.login-issue {
+    display: flex;
+    align-items: flex-start;
+    gap: .55rem;
+    padding: .55rem .6rem;
+    border: 1px solid color-mix(in srgb, var(--danger) 26%, transparent);
+    border-radius: 8px;
+    background: var(--danger-soft);
+}
+.login-issue > .icon { flex-shrink: 0; margin-top: .15rem; color: var(--danger); }
+.login-issue > div { display: grid; gap: .1rem; min-width: 0; }
+.login-issue strong { font-size: .84rem; }
+.login-issue span { color: var(--muted); font-size: .78rem; line-height: 1.4; overflow-wrap: anywhere; }
+.login-issue .btn-modern { flex-shrink: 0; margin-left: auto; }
+
+/* First-run lossless sources: direct links to the three token flows. */
+.lossless-setup { margin-top: 1rem; }
+.lossless-links {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: .5rem;
+    margin-top: .75rem;
+}
+.lossless-links a {
+    display: grid;
+    gap: .1rem;
+    padding: .6rem .7rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface-2);
+    color: var(--text);
+    text-decoration: none;
+}
+.lossless-links a:hover { border-color: var(--accent); }
+.lossless-links strong { font-size: .84rem; }
+.lossless-links span { color: var(--muted); font-size: .76rem; }
+.lossless-guides { display: flex; flex-wrap: wrap; gap: .35rem .9rem; margin-top: .6rem; }
+.lossless-guides a {
+    display: inline-flex;
+    align-items: center;
+    gap: .2rem;
+    color: var(--accent-text);
+    font-size: .76rem;
+    font-weight: 600;
+    text-decoration: none;
+}
+.lossless-guides a:hover { text-decoration: underline; }
+
+@media (max-width: 640px) {
+    .login-issue { flex-wrap: wrap; }
+    .login-issue .btn-modern { width: 100%; margin-left: 0; }
+}

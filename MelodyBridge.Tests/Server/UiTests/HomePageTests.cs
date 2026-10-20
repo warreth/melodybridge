@@ -31,6 +31,7 @@ public class HomePageTests
     public void Setup()
     {
         _ctx = new TestContext();
+        _ctx.Services.AddPluginAuthMonitor();
         // The dashboard's guided tour calls melody.spotlight; loose mode
         // lets JS interop run without scripted handlers.
         _ctx.JSInterop.Mode = JSRuntimeMode.Loose;
@@ -212,6 +213,55 @@ public class HomePageTests
             "the playlist card must render");
         Assert.That(cut.Markup, Does.Contain("playlist-card"),
             "cards reuse the playlist styling");
+    }
+
+    [Test]
+    public void Dashboard_PluginLoginCard_ListsAProblem()
+    {
+        var dbFactory = _ctx.Services.GetRequiredService<IDbContextFactory<MelodyBridgeDbContext>>();
+        using (var db = dbFactory.CreateDbContext())
+        {
+            db.DownloaderSettings.Add(new DownloaderSettingEntity { Key = "intro_dismissed", Value = "true" });
+            db.SaveChanges();
+        }
+        var monitor = _ctx.Services.GetRequiredService<MelodyBridge.Infrastructure.Services.PluginAuthMonitor>();
+        monitor.Report("qobuz", "Qobuz", "The Qobuz token was rejected");
+
+        var cut = _ctx.Render<Home>();
+        cut.WaitForState(() => cut.Markup.Contains("Plugin logins"), TimeSpan.FromSeconds(3));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(cut.Markup, Does.Contain("The Qobuz token was rejected"));
+            var fix = cut.FindAll("a").Single(link => link.TextContent.Trim() == "Fix");
+            Assert.That(fix.GetAttribute("href"), Is.EqualTo("/plugins#plugin-qobuz"));
+        });
+    }
+
+    [Test]
+    public void FreshInstall_ShowsTheLosslessSourceCard()
+    {
+        var dbFactory = _ctx.Services.GetRequiredService<IDbContextFactory<MelodyBridgeDbContext>>();
+        using (var db = dbFactory.CreateDbContext())
+        {
+            db.Playlists.RemoveRange(db.Playlists);
+            db.Tracks.RemoveRange(db.Tracks);
+            db.SyncJobs.RemoveRange(db.SyncJobs);
+            db.DownloaderSettings.RemoveRange(db.DownloaderSettings);
+            db.SaveChanges();
+        }
+
+        var cut = _ctx.Render<Home>();
+        cut.WaitForState(() => cut.Markup.Contains("Connect a lossless source"), TimeSpan.FromSeconds(3));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(cut.Markup, Does.Contain("Qobuz"));
+            Assert.That(cut.Markup, Does.Contain("Deezer"));
+            Assert.That(cut.Markup, Does.Contain("Tidal"));
+            Assert.That(cut.Markup, Does.Contain("No account needed"));
+            Assert.That(cut.FindAll("a[href='/plugins#plugin-qobuz']").Count, Is.EqualTo(1));
+        });
     }
 
     [Test]

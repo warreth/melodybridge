@@ -1,6 +1,7 @@
 @page "/"
 @inject IDbContextFactory<MelodyBridgeDbContext> DbFactory
 @inject IDownloaderRegistry DownloaderRegistry
+@inject MelodyBridge.Infrastructure.Services.PluginAuthMonitor AuthMonitor
 @inject SettingsStore Settings
 @inject ILogCollector LogCollector
 @inject SpotifyAccountProvider SpotifyAccount
@@ -116,6 +117,43 @@
             </div>
         }
     </section>
+
+    <section class="panel-card lossless-setup">
+        <div class="panel-header">
+            <div>
+                <span class="eyebrow">Lossless</span>
+                <h2>Connect a lossless source</h2>
+            </div>
+            <a class="btn-modern ghost small" href="/plugins">Open plugins</a>
+        </div>
+        <p class="panel-description">
+            Qobuz and Tidal take a token, Deezer takes an ARL. Jumo and
+            Monochrome need no account at all. Optional: any enabled source
+            can carry a lossless playlist.
+        </p>
+        <div class="lossless-links">
+            <a href="/plugins#plugin-qobuz">
+                <strong>Qobuz</strong><span>Paste the X-User-Auth-Token</span>
+            </a>
+            <a href="/plugins#plugin-deemix">
+                <strong>Deezer</strong><span>Paste the arl cookie</span>
+            </a>
+            <a href="/plugins#plugin-tidal">
+                <strong>Tidal</strong><span>Paste a token or auth.json</span>
+            </a>
+            <a href="/plugins#plugin-jumo">
+                <strong>Jumo</strong><span>No account needed</span>
+            </a>
+            <a href="/plugins#plugin-monochrome">
+                <strong>Monochrome</strong><span>No account needed</span>
+            </a>
+        </div>
+        <div class="lossless-guides">
+            <a href="https://docs.melodybridge.app/qobuz" target="_blank" rel="noopener">Qobuz guide <Icon Name="external" Size="11" /></a>
+            <a href="https://docs.melodybridge.app/deemix" target="_blank" rel="noopener">Deezer guide <Icon Name="external" Size="11" /></a>
+            <a href="https://docs.melodybridge.app/tidal" target="_blank" rel="noopener">Tidal guide <Icon Name="external" Size="11" /></a>
+        </div>
+    </section>
 }
 else
 {
@@ -180,6 +218,38 @@ else
             </div>
         </div>
         <div class="grid-stack">
+            <div class="panel-card">
+                <div class="panel-header">
+                    <div>
+                        <span class="eyebrow">Waterfall</span>
+                        <h2>Plugin logins</h2>
+                    </div>
+                    <a class="btn-modern ghost small" href="/plugins">Plugins</a>
+                </div>
+                @if (authIssues.Count == 0)
+                {
+                    <EmptyState IconName="check-circle" Title="No login problems found">
+                        Every enabled plugin's stored login looks usable.
+                    </EmptyState>
+                }
+                else
+                {
+                    <div class="login-issue-list">
+                        @foreach (var issue in authIssues)
+                        {
+                            <div class="login-issue">
+                                <Icon Name="alert" Size="15" />
+                                <div>
+                                    <strong>@issue.PluginName</strong>
+                                    <span>@issue.Message</span>
+                                </div>
+                                <a class="btn-modern small ghost" href="/plugins#plugin-@issue.PluginId">Fix</a>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+
             <div class="panel-card">
                 <div class="panel-header">
                     <div>
@@ -337,6 +407,7 @@ else
     private Dictionary<string, (int downloaded, int total)> playlistCounts = new();
     private List<LogEntry> recentErrors = new();
     private List<(string JobName, DateTime Timestamp, string Status, string Message)> recentRuns = new();
+    private IReadOnlyList<PluginAuthIssue> authIssues = Array.Empty<PluginAuthIssue>();
     private DateTime? lastRunAt;
     private DateTime _lastUpdated = DateTime.Now;
     /// <summary>True when Settings explicitly reopened the checklist: it then
@@ -439,6 +510,7 @@ else
         var plugins = DownloaderRegistry.GetAll();
         totalPlugins = plugins.Count;
         enabledPlugins = plugins.Count(p => DownloaderRegistry.IsEnabled(p.Id));
+        authIssues = AuthMonitor.Snapshot();
 
         // Dashboard-only facts: keep the intro queries light.
         if (!showIntro)
