@@ -385,8 +385,13 @@ file.
   `CreateHardLinkW` on Windows; `File.CreateHardLink` arrives in
   .NET 11) places a second name for the same bytes into this
   playlist's folder. `IsHardLink` marks the row, no network call runs.
-  An archive copy the original owns is linked into this playlist's own
-  archive folder the same way, but only when it already matches this
+  When the destination already names the same inode (a refresh left the
+  link in place while the row went back to pending), the attempt accepts
+  the existing link instead of failing with EEXIST. An existing name no
+  other row points at is replaced by the link, even when its own old
+  archive copy raised the link count; a name another row owns is left
+  alone. An archive copy the original owns is linked into this playlist's
+  own archive folder the same way, but only when it already matches this
   playlist's configured format; a different format gets this playlist's
   own local copy, and only a cross-device link falls back that way.
 - Quality difference: the row pauses as `needs-review` with a warning;

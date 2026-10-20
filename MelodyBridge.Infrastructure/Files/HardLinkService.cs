@@ -91,6 +91,33 @@ public sealed class HardLinkService : IHardLinkService
         }
     }
 
+    /// <summary>
+    /// True when both paths name the same inode. A pending row can find
+    /// its own file already in place, or a previous pass can have made
+    /// the exact link this one wants; creating it again can only fail
+    /// with EEXIST.
+    /// </summary>
+    public bool SameFile(string pathA, string pathB)
+    {
+        if (!IsSupported) return false;
+        try
+        {
+            if (OperatingSystem.IsWindows())
+            {
+                return TryReadWindowsFileId(pathA, out var volumeA, out var indexA)
+                    && TryReadWindowsFileId(pathB, out var volumeB, out var indexB)
+                    && volumeA == volumeB && indexA == indexB;
+            }
+
+            return Stat(pathA, out var a) == 0 && Stat(pathB, out var b) == 0
+                && a.Device == b.Device && a.Inode == b.Inode;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     /// <summary>Hard link count of the file, null when it cannot be read.</summary>
     public int? LinkCount(string path)
     {
@@ -198,6 +225,18 @@ public sealed class HardLinkService : IHardLinkService
     // ---- Windows interop ----
     [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
     private static extern bool CreateHardLinkW(string lpFileName, string lpExistingFileName, IntPtr lpSecurityAttributes);
+
+    private static bool TryReadWindowsFileId(string path, out uint volume, out ulong index)
+    {
+        volume = 0;
+        index = 0;
+        using var handle = CreateFileW(path, 0, 3, IntPtr.Zero, 3, 0, IntPtr.Zero);
+        if (handle.IsInvalid) return false;
+        if (!GetFileInformationByHandle(handle, out var info)) return false;
+        volume = info.dwVolumeSerialNumber;
+        index = ((ulong)info.dwFileIndexHigh << 32) | info.dwFileIndexLow;
+        return true;
+    }
 
     [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
     private static extern Microsoft.Win32.SafeHandles.SafeFileHandle CreateFileW(
