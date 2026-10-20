@@ -408,6 +408,11 @@ internal sealed class DownloadPipeline
     /// <inheritdoc />
     public async Task<IReadOnlyList<DownloadCandidate>> SearchCandidatesAsync(
         int trackId, Action<DownloadCandidate>? onCandidate, CancellationToken ct = default)
+        => (await SearchCandidatesDetailedAsync(trackId, onCandidate, ct)).Candidates;
+
+    /// <summary>The same search, with the plugins that could not run.</summary>
+    public async Task<SourceSearchOutcome> SearchCandidatesDetailedAsync(
+        int trackId, Action<DownloadCandidate>? onCandidate, CancellationToken ct = default)
     {
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var track = await db.Tracks.AsNoTracking().FirstOrDefaultAsync(t => t.Id == trackId, ct);
@@ -415,7 +420,8 @@ internal sealed class DownloadPipeline
             || string.IsNullOrWhiteSpace(track.Artist)
             || string.IsNullOrWhiteSpace(track.Title))
         {
-            return Array.Empty<DownloadCandidate>();
+            return new SourceSearchOutcome(
+                Array.Empty<DownloadCandidate>(), Array.Empty<SourceSearchProblem>());
         }
 
         var playlist = await db.Playlists.AsNoTracking()
@@ -430,7 +436,7 @@ internal sealed class DownloadPipeline
         var query = new TrackQuery(
             track.Artist!, track.Title!, PlaylistRules.ParseQuality(preferred),
             expectedDuration, track.Isrc);
-        return await _downloadManager.SearchCandidatesAsync(query, onCandidate, ct);
+        return await _downloadManager.SearchCandidatesDetailedAsync(query, onCandidate, ct);
     }
 
     /// <summary>

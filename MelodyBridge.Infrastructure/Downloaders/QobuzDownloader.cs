@@ -469,17 +469,20 @@ public class QobuzDownloader : CliToolDownloader
     /// </summary>
     protected override void ObserveFailedRun(CliRunner.Result result)
     {
-        var text = (result.StdErr + "\n" + result.StdOut).ToLowerInvariant();
-        if (text.Contains("blocked", StringComparison.Ordinal))
+        if (AnyFailureLine(result, line =>
+                line.Contains("user_blocked", StringComparison.OrdinalIgnoreCase)
+                || line.Contains("account is blocked", StringComparison.OrdinalIgnoreCase)
+                || line.Contains("account blocked", StringComparison.OrdinalIgnoreCase)))
         {
             SetAuth(PluginAuthState.Blocked,
                 "Qobuz blocked this account (USER_BLOCKED); the token is valid, but Qobuz refuses downloads for this account");
         }
-        else if (text.Contains("invalid credentials", StringComparison.Ordinal)
-                 || text.Contains("not logged", StringComparison.Ordinal)
-                 || text.Contains("invalid user auth token", StringComparison.Ordinal)
-                 || text.Contains("no user auth token", StringComparison.Ordinal)
-                 || text.Contains("unauthorized", StringComparison.Ordinal))
+        else if (AnyFailureLine(result, line =>
+                     line.Contains("invalid credentials", StringComparison.OrdinalIgnoreCase)
+                     || line.Contains("not logged in", StringComparison.OrdinalIgnoreCase)
+                     || line.Contains("invalid user auth token", StringComparison.OrdinalIgnoreCase)
+                     || line.Contains("no user auth token", StringComparison.OrdinalIgnoreCase)
+                     || line.Contains("unauthorized", StringComparison.OrdinalIgnoreCase)))
         {
             SetAuth(PluginAuthState.Rejected,
                 "The Qobuz token was rejected; paste a fresh one");

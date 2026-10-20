@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Components;
 using MelodyBridge.Infrastructure.Data;
 using MelodyBridge.Infrastructure.Services;
 using MelodyBridge.Server.Components.Pages;
+using MelodyBridge.Server.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -191,6 +192,27 @@ public class SourcePickerUiTests
     }
 
     [Test]
+    public void BulkRetrySummary_NamesEveryUnresolvedCategory()
+    {
+        var summary = PlaylistDetails.BulkRetrySummary(4, 1,
+            new Dictionary<string, int>(StringComparer.Ordinal)
+            {
+                ["failed"] = 1,
+                ["needs-review"] = 1,
+                ["claimed-by-another-run"] = 1,
+            });
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(summary, Does.Contain("Retried 4 failed tracks"));
+            Assert.That(summary, Does.Contain("1 downloaded"));
+            Assert.That(summary, Does.Contain("1 still failed"));
+            Assert.That(summary, Does.Contain("1 for review"));
+            Assert.That(summary, Does.Contain("1 already downloading"));
+        });
+    }
+
+    [Test]
     public async Task Picker_ListsEveryCandidate_AndPickingOneDownloadsIt()
     {
         var cut = RenderPage();
@@ -234,6 +256,31 @@ public class SourcePickerUiTests
             => Task.FromResult(new DownloaderDownloadResult(false, null, "down"));
     }
 
+    /// <summary>Reports a dead login while the picker's search is running.</summary>
+    private sealed class LateAuthPlugin : IDownloader, IPluginAuthStatusProvider
+    {
+        public string Id => "qobuz";
+        public string Name => "Qobuz";
+        public string Description => "test";
+        public PluginCapabilities Capabilities => PluginCapabilities.Any;
+        public PluginAuthStatus AuthStatus { get; private set; } = PluginAuthStatus.Valid;
+        public Task<bool> IsAvailableAsync(CancellationToken ct = default) => Task.FromResult(true);
+        public Task<DownloaderSearchHit?> SearchAsync(TrackQuery query, CancellationToken ct = default)
+            => Task.FromResult<DownloaderSearchHit?>(null);
+        public Task<IReadOnlyList<DownloaderSearchHit>> SearchAllAsync(
+            TrackQuery query, CancellationToken ct = default)
+        {
+            AuthStatus = new PluginAuthStatus(
+                PluginAuthState.Expired, "The token expired during the search");
+            return Task.FromResult<IReadOnlyList<DownloaderSearchHit>>(
+                Array.Empty<DownloaderSearchHit>());
+        }
+        public Task<DownloaderDownloadResult> DownloadAsync(
+            string sourceUrl, string outputDirectory, string? melodyId,
+            DownloadQuality? quality = null, CancellationToken ct = default)
+            => Task.FromResult(new DownloaderDownloadResult(false, null, "expired"));
+    }
+
     [Test]
     public async Task Picker_ExplainsAnEnabledPluginThatWasNotSearched()
     {
@@ -273,6 +320,30 @@ public class SourcePickerUiTests
             Assert.That(cut.Markup, Does.Contain("Some plugins are not searched"));
             Assert.That(cut.Markup, Does.Contain("Qobuz"));
             Assert.That(cut.Markup, Does.Contain("The Qobuz token expired"));
+        }, TimeSpan.FromSeconds(5));
+    }
+
+    [Test]
+    public async Task Picker_SeesALoginThatExpiresDuringTheSearch()
+    {
+        var late = new LateAuthPlugin();
+        var registry = new ListDownloaderRegistry(late);
+        var manager = new DownloadManager(
+            registry, NullLogger<DownloadManager>.Instance);
+        var store = new PlaylistStore(
+            _factory, Array.Empty<ISourceProvider>(), manager,
+            NullLogger<PlaylistStore>.Instance, changes: new DataChangeTracker());
+        _ctx.Services.AddSingleton<IDownloaderRegistry>(registry);
+        _ctx.Services.AddSingleton(store);
+
+        var cut = RenderPage();
+        await OpenPickerAsync(cut);
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.Markup, Does.Contain("Some plugins are not searched"));
+            Assert.That(cut.Markup, Does.Contain("Qobuz"));
+            Assert.That(cut.Markup, Does.Contain("The token expired during the search"));
         }, TimeSpan.FromSeconds(5));
     }
 
@@ -553,6 +624,141 @@ public class SourcePickerUiTests
         {
             var row = cut.FindAll("tr").Single(r => r.TextContent.Contains("Retry Me"));
             Assert.That(row.TextContent, Does.Contain("downloaded"));
+        }, TimeSpan.FromSeconds(10));
+
+        Assert.That(_ctx.Services.GetRequiredService<NavigationManager>().Uri,
+            Does.Not.Contain("retryTrack"),
+            "the one-shot retry query is consumed before the attempt");
+    }
+
+    [Test]
+    public async Task Playlist_RetryDeepLink_ForADownloadedTrack_IsConsumedWithoutDownloadingAgain()
+    {
+        int trackId;
+        using (var db = new TestSqliteFactory(_dbPath).CreateDbContext())
+        {
+            var track = new TrackEntity
+            {
+                PlaylistEntityId = "pl-pick",
+                MelodyId = "mel-retry-downloaded",
+                Title = "Already Here",
+                Artist = "The Artist",
+                Position = 21,
+                DurationMs = 200_000,
+                DownloadStatus = "downloaded",
+            };
+            db.Tracks.Add(track);
+            db.SaveChanges();
+            trackId = track.Id;
+        }
+
+        _ctx.Services.GetRequiredService<NavigationManager>()
+            .NavigateTo($"/playlists/pl-pick?retryTrack={trackId}");
+        var cut = _ctx.Render<PlaylistDetails>(p => p
+            .Add(page => page.PlaylistId, "pl-pick"));
+
+        cut.WaitForAssertion(() =>
+        {
+            var row = cut.FindAll("tr").Single(r => r.TextContent.Contains("Already Here"));
+            Assert.That(row.TextContent, Does.Contain("downloaded"));
+        }, TimeSpan.FromSeconds(10));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(_plugin.DownloadCalls, Is.EqualTo(0),
+                "a downloaded row is not fetched again");
+            Assert.That(_ctx.Services.GetRequiredService<NavigationManager>().Uri,
+                Does.Not.Contain("retryTrack"),
+                "a refresh cannot replay the old retry");
+        });
+    }
+
+    [Test]
+    public async Task Playlist_RetryAllFailed_CountsADeletedRowAsNotRetried()
+    {
+        int trackId;
+        using (var db = new TestSqliteFactory(_dbPath).CreateDbContext())
+        {
+            var track = new TrackEntity
+            {
+                PlaylistEntityId = "pl-pick",
+                MelodyId = "mel-deleted-retry",
+                Title = "Gone Before Retry",
+                Artist = "The Artist",
+                Position = 30,
+                DurationMs = 200_000,
+                DownloadStatus = "failed",
+            };
+            db.Tracks.Add(track);
+            db.SaveChanges();
+            trackId = track.Id;
+        }
+
+        var cut = RenderPage();
+        cut.WaitForAssertion(() => Assert.That(cut.Markup, Does.Contain("Retry failed (1)")),
+            TimeSpan.FromSeconds(5));
+
+        using (var db = new TestSqliteFactory(_dbPath).CreateDbContext())
+        {
+            db.Tracks.Remove(db.Tracks.Single(t => t.Id == trackId));
+            db.SaveChanges();
+        }
+
+        await cut.InvokeAsync(() => cut.FindAll("button")
+            .Single(button => button.TextContent.Contains("Retry failed")).Click());
+
+        var notifications = _ctx.Services.GetRequiredService<NotificationService>();
+        cut.WaitForAssertion(() =>
+        {
+            var final = notifications.History().First(notification =>
+                notification.Message.StartsWith("Retried ", StringComparison.Ordinal));
+            Assert.That(final.Message, Does.Contain("not found"),
+                "a deleted row is named, not counted as a download");
+            Assert.That(final.Message, Does.Not.Contain("all downloaded"));
+        }, TimeSpan.FromSeconds(10));
+    }
+
+    [Test]
+    public async Task Playlist_RetryAllFailed_CountsARowOwnedByAnotherRunAsDownloading()
+    {
+        int trackId;
+        using (var db = new TestSqliteFactory(_dbPath).CreateDbContext())
+        {
+            var track = new TrackEntity
+            {
+                PlaylistEntityId = "pl-pick",
+                MelodyId = "mel-claimed-retry",
+                Title = "Already Running",
+                Artist = "The Artist",
+                Position = 31,
+                DurationMs = 200_000,
+                DownloadStatus = "failed",
+            };
+            db.Tracks.Add(track);
+            db.SaveChanges();
+            trackId = track.Id;
+        }
+
+        var cut = RenderPage();
+        cut.WaitForAssertion(() => Assert.That(cut.Markup, Does.Contain("Retry failed (1)")),
+            TimeSpan.FromSeconds(5));
+
+        using (var db = new TestSqliteFactory(_dbPath).CreateDbContext())
+        {
+            db.Tracks.Single(t => t.Id == trackId).DownloadStatus = "in_progress";
+            db.SaveChanges();
+        }
+
+        await cut.InvokeAsync(() => cut.FindAll("button")
+            .Single(button => button.TextContent.Contains("Retry failed")).Click());
+
+        var notifications = _ctx.Services.GetRequiredService<NotificationService>();
+        cut.WaitForAssertion(() =>
+        {
+            var final = notifications.History().First(notification =>
+                notification.Message.StartsWith("Retried ", StringComparison.Ordinal));
+            Assert.That(final.Message, Does.Contain("already downloading"));
+            Assert.That(final.Message, Does.Not.Contain("all downloaded"));
         }, TimeSpan.FromSeconds(10));
     }
 

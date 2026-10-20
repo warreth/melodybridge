@@ -132,6 +132,27 @@ public class PluginAuthMonitorTests
     }
 
     [Test]
+    public void DismissedBanner_StaysDismissed_WhenOneIssueResolves()
+    {
+        var monitor = new PluginAuthMonitor();
+        monitor.Report("qobuz", "Qobuz", "The Qobuz token was rejected");
+        monitor.Report("tidal", "Tidal", "The Tidal token expired");
+        monitor.DismissBanner();
+
+        monitor.Report("qobuz", "Qobuz", null);
+        Assert.That(monitor.BannerDismissed, Is.True,
+            "resolving one issue is not a new problem");
+
+        monitor.Clear("tidal");
+        Assert.That(monitor.BannerDismissed, Is.True,
+            "clearing the last issue does not resurrect the banner");
+
+        monitor.Report("deezer", "Deezer", "The Deezer ARL expired");
+        Assert.That(monitor.BannerDismissed, Is.False,
+            "a genuinely new issue is news again");
+    }
+
+    [Test]
     public void Clear_RemovesTheIssue_AndRaisesChanged()
     {
         var monitor = new PluginAuthMonitor();

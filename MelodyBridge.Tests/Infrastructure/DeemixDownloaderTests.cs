@@ -254,6 +254,33 @@ public class DeemixDownloaderTests
     }
 
     [Test]
+    public async Task IsAvailable_SignedInArlWithoutLosslessFlag_LeavesThePlanUnknown()
+    {
+        if (OperatingSystem.IsWindows()) Assert.Ignore("POSIX shell stub");
+
+        var handler = new ScriptedHandler().On("gw-light.php",
+            """{"error":[],"results":{"USER":{"USER_ID":42,"OPTIONS":{}}}}""");
+        var http = new HttpClient(handler) { BaseAddress = new Uri("https://www.deezer.com") };
+        var config = new StubPluginConfig();
+        config.Set("deemix", "command", CliStub.Producing(NewDir()));
+        config.Set("deemix", "arl", "good-arl");
+        var plugin = new DeemixDownloader(
+            new DeezerClient(http, NullLogger<DeezerClient>.Instance),
+            config, NullLogger<DeemixDownloader>.Instance, NewDir(), NewDir());
+
+        var available = await plugin.IsAvailableAsync();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(available, Is.True);
+            Assert.That(plugin.AuthStatus.State, Is.EqualTo(PluginAuthState.Valid));
+            Assert.That(plugin.AuthStatus.Plan, Is.Null,
+                "a missing web_lossless flag is unknown, not a lossless plan");
+            Assert.That(plugin.AuthStatus.Tier, Is.Null);
+        });
+    }
+
+    [Test]
     public async Task IsAvailable_UnreachableArlCheck_StillLetsDeemixTry()
     {
         if (OperatingSystem.IsWindows()) Assert.Ignore("POSIX shell stub");

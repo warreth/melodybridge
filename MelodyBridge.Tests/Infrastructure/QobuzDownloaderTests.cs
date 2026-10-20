@@ -399,6 +399,51 @@ public class QobuzDownloaderTests
     }
 
     [Test]
+    public async Task Download_CountryBlockedTrack_IsNotAnAccountBlock()
+    {
+        if (OperatingSystem.IsWindows()) Assert.Ignore("POSIX shell stub");
+
+        var toolDir = NewDir();
+        var config = new StubPluginConfig();
+        config.Set("qobuz", "command",
+            CliStub.Producing(toolDir, exitCode: 1,
+                stderr: "ERROR: This track is geo-blocked in your country"));
+        var plugin = Create(config, NewDir());
+
+        var result = await plugin.DownloadAsync(
+            "https://play.qobuz.com/track/5966783", NewDir(), "mb-geo");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.False);
+            Assert.That(plugin.AuthStatus.State, Is.EqualTo(PluginAuthState.Unknown),
+                "geo-blocking a track is not blocking the account");
+        });
+    }
+
+    [Test]
+    public async Task Download_UserBlockedCliFailure_FlagsTheAccount()
+    {
+        if (OperatingSystem.IsWindows()) Assert.Ignore("POSIX shell stub");
+
+        var toolDir = NewDir();
+        var config = new StubPluginConfig();
+        config.Set("qobuz", "command",
+            CliStub.Producing(toolDir, exitCode: 1,
+                stderr: "ERROR: Account is blocked (USER_BLOCKED)"));
+        var plugin = Create(config, NewDir());
+
+        var result = await plugin.DownloadAsync(
+            "https://play.qobuz.com/track/5966783", NewDir(), "mb-user-blocked");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.False);
+            Assert.That(plugin.AuthStatus.State, Is.EqualTo(PluginAuthState.Blocked));
+        });
+    }
+
+    [Test]
     public async Task Download_NoQualityFits_FailsWithoutRunningTheCli()
     {
         if (OperatingSystem.IsWindows()) Assert.Ignore("POSIX shell stub");

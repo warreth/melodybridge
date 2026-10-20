@@ -491,6 +491,53 @@ public class TidalDownloaderTests
     }
 
     [Test]
+    public async Task Download_ExpiredTrackTitle_IsNotALoginFailure()
+    {
+        if (OperatingSystem.IsWindows()) Assert.Ignore("POSIX shell stub");
+
+        var toolDir = NewDir();
+        var script = CliStub.Producing(toolDir, exitCode: 1,
+            stderr: "ERROR: track 403 (Expired) is not available in your country");
+        var config = new StubPluginConfig();
+        config.Set("tidal", "command", script);
+        config.Set("tidal", "app_path", NewAppPath());
+        var plugin = Create(config);
+
+        var result = await plugin.DownloadAsync(
+            "https://tidal.com/browse/track/403", NewDir(), "mb-track-403");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.False);
+            Assert.That(plugin.AuthStatus.State, Is.EqualTo(PluginAuthState.Unknown),
+                "a track id and a title are not a broken session");
+        });
+    }
+
+    [Test]
+    public async Task Download_UnauthorizedCliFailure_FlagsTheSession()
+    {
+        if (OperatingSystem.IsWindows()) Assert.Ignore("POSIX shell stub");
+
+        var toolDir = NewDir();
+        var script = CliStub.Producing(toolDir, exitCode: 1,
+            stderr: "ERROR: 401 Client Error: Unauthorized for url https://api.tidal.com/v1/tracks/123");
+        var config = new StubPluginConfig();
+        config.Set("tidal", "command", script);
+        config.Set("tidal", "app_path", NewAppPath());
+        var plugin = Create(config);
+
+        var result = await plugin.DownloadAsync(
+            "https://tidal.com/browse/track/123", NewDir(), "mb-unauthorized");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.False);
+            Assert.That(plugin.AuthStatus.State, Is.EqualTo(PluginAuthState.Rejected));
+        });
+    }
+
+    [Test]
     public async Task Download_HiResQuality_UsesTheConfiguredTier()
     {
         if (OperatingSystem.IsWindows()) Assert.Ignore("POSIX shell stub");

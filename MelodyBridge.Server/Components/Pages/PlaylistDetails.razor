@@ -760,7 +760,7 @@ else
     private bool retryingFailed;
     private int bulkRetryDone;
     private int bulkRetryTotal;
-    private int? handledRetryTrackId;
+    private bool handlingRetryTrack;
     private int reviewCount;
     private bool confirmDelete;
     private bool deleteFilesWithPlaylist;
@@ -831,16 +831,26 @@ else
     }
 
     /// <summary>
-    /// The failed-download toast links back with retryTrack; handle it on
-    /// first load and when the router reuses this page with a new query.
+    /// The failed-download toast links back with retryTrack. Consume the
+    /// query with a replace navigation before the attempt, so a refresh
+    /// cannot replay an old retry, while a later toast can still link to
+    /// the same track id and start a fresh attempt.
     /// </summary>
     protected override async Task OnParametersSetAsync()
     {
-        if (RetryTrackId is not { } retryId || handledRetryTrackId == retryId) return;
-        handledRetryTrackId = retryId;
-        if ((playlist?.Tracks ?? new List<TrackEntity>())
-            .FirstOrDefault(track => track.Id == retryId) is { } track)
-            await RetryTrack(track);
+        if (RetryTrackId is not { } retryId || handlingRetryTrack) return;
+        handlingRetryTrack = true;
+        Navigation.NavigateTo($"/playlists/{PlaylistId}", replace: true);
+        try
+        {
+            if ((playlist?.Tracks ?? new List<TrackEntity>())
+                .FirstOrDefault(track => track.Id == retryId) is { } track)
+                await RetryTrack(track);
+        }
+        finally
+        {
+            handlingRetryTrack = false;
+        }
     }
 
     private async Task Load()
@@ -1229,13 +1239,27 @@ else
         {
             var result = await Store.DownloadTrackAsync(track.Id);
             await Load();
+            var current = playlist?.Tracks.FirstOrDefault(row => row.Id == track.Id);
             switch (result)
             {
                 case "downloaded":
                     Notifications.Success($"Downloaded '{track.Title}'.");
                     break;
+                case "claimed-by-another-run" when current?.DownloadStatus == "downloaded":
+                    Notifications.Info($"'{track.Title}' is already downloaded.");
+                    break;
                 case "claimed-by-another-run":
                     Notifications.Info("This track is already being downloaded by a running batch.");
+                    break;
+                case "needs-review":
+                    Notifications.Info($"'{track.Title}' is waiting for a quality review.",
+                        "Review", $"/playlists/{PlaylistId}");
+                    break;
+                case "not-found":
+                    Notifications.Warn($"'{track.Title}' is no longer in this playlist.");
+                    break;
+                case "skipped":
+                    Notifications.Warn($"'{track.Title}' could not be retried.");
                     break;
                 default:
                     Notifications.Warn($"Download failed for '{track.Title}'.",
@@ -1271,7 +1295,7 @@ else
         StateHasChanged();
 
         var downloaded = 0;
-        var stillFailed = 0;
+        var unresolved = new Dictionary<string, int>(StringComparer.Ordinal);
         try
         {
             foreach (var track in failed)
@@ -1283,8 +1307,14 @@ else
                 {
                     var result = await Store.DownloadTrackAsync(
                         track.Id, avoidLastProvider: avoidLastProvider);
-                    if (result == "downloaded") downloaded++;
-                    else if (result == "failed") stillFailed++;
+                    if (result == "downloaded")
+                    {
+                        downloaded++;
+                    }
+                    else
+                    {
+                        unresolved[result] = unresolved.GetValueOrDefault(result) + 1;
+                    }
                 }
                 finally
                 {
@@ -1293,13 +1323,14 @@ else
             }
 
             await Load();
-            if (stillFailed == 0)
+            var unresolvedCount = failed.Count - downloaded;
+            if (unresolvedCount == 0)
                 Notifications.Success(
                     $"Retried {failed.Count} failed track{(failed.Count == 1 ? "" : "s")}: all downloaded.");
             else
                 Notifications.Warn(
-                    $"Retried {failed.Count} failed track{(failed.Count == 1 ? "" : "s")}: {downloaded} downloaded, {stillFailed} still failed.",
-                    "View failed", $"/playlists/{PlaylistId}");
+                    BulkRetrySummary(failed.Count, downloaded, unresolved),
+                    "Open playlist", $"/playlists/{PlaylistId}");
         }
         finally
         {
@@ -1307,6 +1338,39 @@ else
             busy = false;
             StateHasChanged();
         }
+    }
+
+    /// <summary>
+    /// The final bulk-retry line. Every result other than "downloaded"
+    /// stays visible: a dedup review, a row owned by another run and a
+    /// deleted row are not successes.
+    /// </summary>
+    internal static string BulkRetrySummary(
+        int total, int downloaded, IReadOnlyDictionary<string, int> unresolved)
+    {
+        var parts = new List<string>();
+        void Add(string result, string label)
+        {
+            var count = unresolved.GetValueOrDefault(result);
+            if (count > 0) parts.Add($"{count} {label}");
+        }
+
+        Add("failed", "still failed");
+        Add("needs-review", "for review");
+        Add("claimed-by-another-run", "already downloading");
+        Add("not-found", "not found");
+        Add("skipped", "not attempted");
+
+        var described = parts.Count == 0
+            ? 0
+            : unresolved.Where(pair => pair.Key is "failed" or "needs-review"
+                or "claimed-by-another-run" or "not-found" or "skipped")
+                .Sum(pair => pair.Value);
+        var other = unresolved.Values.Sum() - described;
+        if (other > 0) parts.Add($"{other} unresolved");
+
+        return $"Retried {total} failed track{(total == 1 ? "" : "s")}: "
+            + $"{downloaded} downloaded, {string.Join(", ", parts)}.";
     }
 
     /// <summary>
@@ -1454,6 +1518,7 @@ else
     private TrackEntity? chooseSourceTrack;
     private IReadOnlyList<DownloadCandidate> sourceCandidates = Array.Empty<DownloadCandidate>();
     private IReadOnlyList<PluginAuthIssue> sourceAuthIssues = Array.Empty<PluginAuthIssue>();
+    private IReadOnlyList<SourceSearchProblem> sourceSearchProblems = Array.Empty<SourceSearchProblem>();
     private IReadOnlyList<SourcePluginNote> sourcePluginNotes = Array.Empty<SourcePluginNote>();
     private string sourceFilterPlugin = "all";
     private string sourceFilterConfidence = "all";
@@ -1516,6 +1581,7 @@ else
         chooseSourceTrack = track;
         sourceCandidates = Array.Empty<DownloadCandidate>();
         sourceAuthIssues = AuthMonitor.Snapshot();
+        sourceSearchProblems = Array.Empty<SourceSearchProblem>();
         sourcePluginNotes = Array.Empty<SourcePluginNote>();
         StateHasChanged();
         await SearchSourcesAsync();
@@ -1538,6 +1604,7 @@ else
         candidateQualities.Clear();
         probedCandidateUrls.Clear();
         probingCandidateUrls.Clear();
+        sourceSearchProblems = Array.Empty<SourceSearchProblem>();
         sourcePluginNotes = Array.Empty<SourcePluginNote>();
         chooseSourceTrack = null;
     }
@@ -1602,6 +1669,7 @@ else
         var trackId = track.Id;
         searchingSources = true;
         sourceCandidates = Array.Empty<DownloadCandidate>();
+        sourceSearchProblems = Array.Empty<SourceSearchProblem>();
         sourcePluginNotes = Array.Empty<SourcePluginNote>();
         sourceFailures.Clear();
         candidateQualities.Clear();
@@ -1609,13 +1677,13 @@ else
         probingCandidateUrls.Clear();
         pickerTargetQuality = PlaylistStore.ParseQuality(editQuality);
         StateHasChanged();
-        IReadOnlyList<DownloadCandidate>? candidates = null;
+        SourceSearchOutcome? outcome = null;
         try
         {
             // Providers run at the same time and each hit lands here the
             // moment its provider answers, so the list fills in instead of
             // staring at a spinner until the slowest plugin is done.
-            candidates = await Store.SearchCandidatesAsync(trackId, candidate =>
+            outcome = await Store.SearchCandidatesDetailedAsync(trackId, candidate =>
             {
                 if (generation != sourceSearchGeneration || chooseSourceTrack?.Id != trackId) return;
                 _ = InvokeAsync(() =>
@@ -1634,15 +1702,17 @@ else
             // again pressed) changes nothing: not the list, not the flag.
             if (generation == sourceSearchGeneration && chooseSourceTrack?.Id == trackId)
             {
-                if (candidates is not null)
+                if (outcome is not null)
                 {
-                    sourceCandidates = candidates;
+                    sourceCandidates = outcome.Candidates;
+                    sourceSearchProblems = outcome.Problems;
+                    RefreshSourceAuthIssues();
                     sourcePluginNotes = UnavailableSourceNotes();
                     if (sourceFilterPlugin != "all"
-                        && candidates.All(candidate => !string.Equals(
+                        && outcome.Candidates.All(candidate => !string.Equals(
                             candidate.PluginId, sourceFilterPlugin, StringComparison.OrdinalIgnoreCase)))
                         sourceFilterPlugin = "all";
-                    foreach (var candidate in candidates)
+                    foreach (var candidate in outcome.Candidates)
                         StartCandidateProbe(candidate, generation, trackId);
                 }
                 searchingSources = false;
@@ -1653,18 +1723,53 @@ else
     }
 
     /// <summary>
+    /// Reads every enabled plugin's current login verdict after a search:
+    /// a plugin can discover an expired token while its search runs, and
+    /// the snapshot taken when the dialog opened would miss it.
+    /// </summary>
+    private void RefreshSourceAuthIssues()
+    {
+        foreach (var plugin in Registry.GetEnabled())
+            AuthMonitor.Observe(plugin);
+        sourceAuthIssues = AuthMonitor.Snapshot();
+    }
+
+    /// <summary>
     /// Why an enabled plugin is missing from the result list. A login
-    /// problem already has its own red note; this covers the tool or
-    /// service being down, so a short list never looks like a silent bug.
+    /// problem already has its own red note; this covers a timeout, a
+    /// thrown search and the tool or service being down, so a short list
+    /// never looks like a silent bug.
     /// </summary>
     private IReadOnlyList<SourcePluginNote> UnavailableSourceNotes()
-        => Registry.GetEnabled()
-            .Where(plugin => plugin is not IPluginAuthStatusProvider
-                { AuthStatus.NeedsAttention: true })
-            .Select(plugin => new SourcePluginNote(
-                plugin.Id, plugin.Name, plugin.LastUnavailableReason ?? ""))
-            .Where(note => note.Reason.Length > 0)
+    {
+        var authIds = sourceAuthIssues
+            .Select(issue => issue.PluginId)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var candidateIds = sourceCandidates
+            .Select(candidate => candidate.PluginId)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var notes = new Dictionary<string, SourcePluginNote>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var problem in sourceSearchProblems)
+            if (!authIds.Contains(problem.PluginId))
+                notes[problem.PluginId] = new SourcePluginNote(
+                    problem.PluginId, problem.PluginName, problem.Reason);
+
+        foreach (var plugin in Registry.GetEnabled())
+        {
+            if (authIds.Contains(plugin.Id)
+                || candidateIds.Contains(plugin.Id)
+                || notes.ContainsKey(plugin.Id)
+                || string.IsNullOrWhiteSpace(plugin.LastUnavailableReason))
+                continue;
+            notes[plugin.Id] = new SourcePluginNote(
+                plugin.Id, plugin.Name, plugin.LastUnavailableReason);
+        }
+
+        return notes.Values
+            .OrderBy(note => note.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
+    }
 
     /// <summary>
     /// Asks the candidate's plugin for the exact source facts and fills the

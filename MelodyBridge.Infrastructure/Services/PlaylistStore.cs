@@ -138,6 +138,11 @@ public class PlaylistStore
         int trackId, Action<DownloadCandidate>? onCandidate = null, CancellationToken ct = default)
         => _pipeline.SearchCandidatesAsync(trackId, onCandidate, ct);
 
+    /// <summary>The same search plus the plugins that could not be searched.</summary>
+    public Task<SourceSearchOutcome> SearchCandidatesDetailedAsync(
+        int trackId, Action<DownloadCandidate>? onCandidate = null, CancellationToken ct = default)
+        => _pipeline.SearchCandidatesDetailedAsync(trackId, onCandidate, ct);
+
     /// <summary>The exact audio facts one candidate's plugin can read before
     /// a download, for the picker's quality line. Null when it cannot know.</summary>
     public Task<CandidateAudioQuality?> ProbeCandidateQualityAsync(

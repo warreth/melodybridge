@@ -115,20 +115,46 @@ public class DownloadManager : IDownloadManager
     public async Task<IReadOnlyList<DownloadCandidate>> SearchCandidatesAsync(
         TrackQuery query, Action<DownloadCandidate>? onCandidate,
         CancellationToken ct = default)
+        => (await SearchCandidatesDetailedAsync(query, onCandidate, ct)).Candidates;
+
+    /// <summary>
+    /// The same concurrent search, plus a note for every plugin that was
+    /// skipped before its search could run. The picker needs both so an
+    /// empty result can say why a plugin is missing instead of silently
+    /// leaving it out.
+    /// </summary>
+    public async Task<SourceSearchOutcome> SearchCandidatesDetailedAsync(
+        TrackQuery query, Action<DownloadCandidate>? onCandidate = null,
+        CancellationToken ct = default)
     {
         var (pluginBudget, _) = await BudgetsAsync(ct);
         var results = new System.Collections.Concurrent.ConcurrentBag<DownloadCandidate>();
+        var problems = new System.Collections.Concurrent.ConcurrentBag<SourceSearchProblem>();
         var seenUrls = new System.Collections.Concurrent.ConcurrentDictionary<string, byte>(StringComparer.Ordinal);
 
         var tasks = _registry.GetEnabled().Select(async downloader =>
         {
-            if (_health.ShouldSkip(downloader.Id)) return;
+            if (_health.ShouldSkip(downloader.Id))
+            {
+                problems.Add(new SourceSearchProblem(
+                    downloader.Id, downloader.Name,
+                    "The plugin is cooling down after repeated failures"));
+                return;
+            }
 
             using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
             budget.CancelAfter(pluginBudget);
             try
             {
-                if (!await AvailableAsync(downloader, budget.Token)) return;
+                if (!await AvailableAsync(downloader, budget.Token))
+                {
+                    problems.Add(new SourceSearchProblem(
+                        downloader.Id, downloader.Name,
+                        downloader.LastUnavailableReason
+                            ?? AuthProblem(downloader)
+                            ?? "The plugin is not available right now"));
+                    return;
+                }
                 var hits = await downloader.SearchAllAsync(query, budget.Token);
                 _auth?.Observe(downloader);
                 var canServe = downloader.Capabilities.CanServe(query.Quality);
@@ -147,12 +173,19 @@ public class DownloadManager : IDownloadManager
             }
             catch (OperationCanceledException) when (!ct.IsCancellationRequested)
             {
-                // The plugin's own search budget expired: a miss for the list.
+                _auth?.Observe(downloader);
+                problems.Add(new SourceSearchProblem(
+                    downloader.Id, downloader.Name,
+                    $"The search timed out after {pluginBudget.TotalSeconds:0} seconds"));
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
+                _auth?.Observe(downloader);
                 _logger.LogWarning(ex, "{Name} candidate search threw for '{Artist} - {Title}'",
                     downloader.Name, query.Artist, query.Title);
+                problems.Add(new SourceSearchProblem(
+                    downloader.Id, downloader.Name,
+                    "The search failed: " + ex.Message));
             }
         }).ToList();
 
@@ -162,11 +195,15 @@ public class DownloadManager : IDownloadManager
         // (title/artist similarity with the duration penalty). The user
         // sees the same ordering the waterfall would have used, and can
         // still pick anything below it.
-        return results
-            .OrderByDescending(c => c.Confidence == MatchConfidence.High)
-            .ThenByDescending(c => FuzzyMatcher.ScoreWithDuration(
-                query.Artist, query.Title, query.ExpectedDuration, c.Artist, c.Title, c.Duration))
-            .ToList();
+        return new SourceSearchOutcome(
+            results
+                .OrderByDescending(c => c.Confidence == MatchConfidence.High)
+                .ThenByDescending(c => FuzzyMatcher.ScoreWithDuration(
+                    query.Artist, query.Title, query.ExpectedDuration, c.Artist, c.Title, c.Duration))
+                .ToList(),
+            problems
+                .OrderBy(problem => problem.PluginName, StringComparer.OrdinalIgnoreCase)
+                .ToList());
     }
 
     /// <summary>

@@ -9,10 +9,9 @@ public sealed record AppNotification(
 
 /// <summary>
 /// Tiny singleton notification bus: pages and services publish, MainLayout
-/// renders the active toasts and the history panel. Errors and warnings
-/// stay until the user closes them; success and info fade after a few
-/// seconds. The history keeps the last entries so a dismissed toast can
-/// still be found again.
+/// renders the active toasts and the history panel. Warnings and errors stay
+/// for 12 seconds; success and info fade after a few seconds. The history
+/// keeps the last entries so a dismissed toast can still be found again.
 /// </summary>
 public sealed class NotificationService
 {

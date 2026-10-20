@@ -398,6 +398,7 @@
 
     private List<IDownloader> orderedPlugins = new();
     private Dictionary<string, PluginStatus> availability = new();
+    private readonly ConcurrentDictionary<string, long> availabilityVersions = new(StringComparer.OrdinalIgnoreCase);
     private IReadOnlyList<PluginAuthIssue> authIssues = Array.Empty<PluginAuthIssue>();
     private Dictionary<string, string> configValues = new();
     private List<Application.Services.DownloadRun> runs = new();
@@ -412,6 +413,9 @@
     private readonly ConcurrentDictionary<string, DateTimeOffset> lastChecked = new(StringComparer.OrdinalIgnoreCase);
     private string? testingPluginId;
     private string? handledFragment;
+    private bool hashRead;
+    private string browserHash = string.Empty;
+    private bool pluginsLoaded;
     private QualityPresets.Id routePreset = QualityPresets.Id.Lossless;
     private string? ytDlpVersion;
     private string? ytDlpMessage;
@@ -455,30 +459,43 @@
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         var fragment = Nav.ToAbsoluteUri(Nav.Uri).Fragment.TrimStart('#');
-        if (string.Equals(fragment, handledFragment, StringComparison.Ordinal)) return;
 
         // An initial request never sends the fragment to the server, so
-        // Blazor's Uri has none. Read the browser's hash for deep links.
-        if (fragment.Length == 0)
+        // Blazor's Uri has none. Read the browser's hash once for deep
+        // links; every later render reuses that answer instead of calling
+        // JavaScript again and again.
+        if (fragment.Length > 0)
         {
-            try
-            {
-                // Loose test runtimes return null for an unset string result.
-                fragment = (await JS.InvokeAsync<string>("melody.getHash"))?.TrimStart('#') ?? string.Empty;
-            }
-            catch (JSException)
-            {
-                return;
-            }
-            catch (JSDisconnectedException)
-            {
-                return;
-            }
-            catch (InvalidOperationException)
-            {
-                return;
-            }
+            hashRead = false;
+            browserHash = string.Empty;
         }
+        else
+        {
+            if (!hashRead)
+            {
+                try
+                {
+                    // Loose test runtimes return null for an unset string result.
+                    browserHash = (await JS.InvokeAsync<string>("melody.getHash"))?.TrimStart('#') ?? string.Empty;
+                    hashRead = true;
+                }
+                catch (JSException)
+                {
+                    return;
+                }
+                catch (JSDisconnectedException)
+                {
+                    return;
+                }
+                catch (InvalidOperationException)
+                {
+                    return;
+                }
+            }
+            fragment = browserHash;
+        }
+
+        if (string.Equals(fragment, handledFragment, StringComparison.Ordinal)) return;
 
         if (fragment.Length == 0)
         {
@@ -517,9 +534,13 @@
         var id = fragment["plugin-".Length..];
         // The first render can happen before the registry has loaded, so
         // wait for a render that actually has the card before marking the
-        // link handled and opening its settings.
+        // link handled and opening its settings. Once loaded, an id that
+        // matches no card is a stale bookmark: mark it handled as well.
         if (!orderedPlugins.Any(plugin => string.Equals(plugin.Id, id, StringComparison.OrdinalIgnoreCase)))
+        {
+            if (pluginsLoaded) handledFragment = fragment;
             return;
+        }
 
         handledFragment = fragment;
         await OpenAuthSettings(id);
@@ -603,10 +624,13 @@
             await Registry.SetConfigAsync(pluginId, field.Key, configValues.GetValueOrDefault($"{pluginId}:{field.Key}"));
 
         // A newly pasted token must be tested for real, not answered from
-        // the "down" verdict cached before the save.
+        // the "down" verdict cached before the save. Bump the version
+        // before probing so an older sweep cannot overwrite this answer.
+        var version = BumpAvailabilityVersion(plugin.Id);
         (plugin as IPluginAvailabilityRefresh)?.RefreshAvailability();
         var (ready, reason) = await ProbePluginAsync(plugin);
-        availability[plugin.Id] = new PluginStatus(ready, ready ? null : reason);
+        if (AvailabilityVersion(plugin.Id) == version)
+            availability[plugin.Id] = new PluginStatus(ready, ready ? null : reason);
         authIssues = AuthMonitor.Snapshot();
         lastAvailabilityCheck = DateTimeOffset.UtcNow;
 
@@ -628,10 +652,18 @@
             .Where(p => !enabled.Contains(p))
             .ToList();
         orderedPlugins = enabled.Concat(disabled).ToList();
+        pluginsLoaded = true;
         firstEnabledId = enabled.FirstOrDefault()?.Id;
         lastEnabledId = enabled.LastOrDefault()?.Id;
         return Task.CompletedTask;
     }
+
+    /// <summary>Marks a fresh save/test result as newer than any sweep.</summary>
+    private long BumpAvailabilityVersion(string pluginId)
+        => availabilityVersions.AddOrUpdate(pluginId, 1, (_, current) => current + 1);
+
+    private long AvailabilityVersion(string pluginId)
+        => availabilityVersions.TryGetValue(pluginId, out var version) ? version : 0;
 
     internal async Task RefreshAvailability()
     {
@@ -648,7 +680,8 @@
         {
             MarkChecking();
 
-            var results = new ConcurrentDictionary<string, PluginStatus>(StringComparer.OrdinalIgnoreCase);
+            var results = new ConcurrentDictionary<string, (PluginStatus Status, long Version)>(
+                StringComparer.OrdinalIgnoreCase);
             // Task.WhenAll plus a gate keeps four probes in flight without
             // the thread-pool scheduler that Parallel.ForEachAsync uses;
             // that scheduler can starve a component render under load.
@@ -658,9 +691,13 @@
                 await gate.WaitAsync();
                 try
                 {
+                    // Stamp the sweep before the probe. A save or test that
+                    // starts while this probe runs bumps the version and
+                    // makes this older answer ineligible to win.
+                    var version = AvailabilityVersion(plugin.Id);
                     using var budget = new CancellationTokenSource(TimeSpan.FromSeconds(30));
                     var (ready, reason) = await ProbePluginAsync(plugin, budget.Token);
-                    results[plugin.Id] = new PluginStatus(ready, reason);
+                    results[plugin.Id] = (new PluginStatus(ready, reason), version);
                 }
                 finally
                 {
@@ -668,7 +705,17 @@
                 }
             }));
 
-            availability = new Dictionary<string, PluginStatus>(results, StringComparer.OrdinalIgnoreCase);
+            // Merge instead of replacing: a save or test may have written a
+            // fresher verdict for one plugin while the rest of the sweep
+            // was still running.
+            foreach (var (pluginId, result) in results)
+            {
+                if (AvailabilityVersion(pluginId) == result.Version)
+                    availability[pluginId] = result.Status;
+            }
+            foreach (var staleId in availability.Keys
+                         .Where(id => !results.ContainsKey(id)).ToList())
+                availability.Remove(staleId);
             authIssues = AuthMonitor.Snapshot();
             lastAvailabilityCheck = DateTimeOffset.UtcNow;
         }
@@ -849,13 +896,15 @@
 
         testingPluginId = pluginId;
         checkingPlugins[pluginId] = 0;
+        var version = BumpAvailabilityVersion(pluginId);
         (plugin as IPluginAvailabilityRefresh)?.RefreshAvailability();
         StateHasChanged();
         try
         {
             using var budget = new CancellationTokenSource(TimeSpan.FromSeconds(30));
             var (ready, reason) = await ProbePluginAsync(plugin, budget.Token);
-            availability[pluginId] = new PluginStatus(ready, reason);
+            if (AvailabilityVersion(pluginId) == version)
+                availability[pluginId] = new PluginStatus(ready, reason);
             authIssues = AuthMonitor.Snapshot();
             lastAvailabilityCheck = DateTimeOffset.UtcNow;
 

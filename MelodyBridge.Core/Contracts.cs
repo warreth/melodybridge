@@ -125,6 +125,19 @@ public interface IDownloadManager
         TrackQuery query, Action<DownloadCandidate>? onCandidate,
         CancellationToken ct = default);
     /// <summary>
+    /// The same list plus the plugins that could not be searched and why.
+    /// Callers that only need candidates use the overload above; the source
+    /// picker uses this one so an empty result never hides a timeout, a
+    /// thrown search or an unavailable plugin.
+    /// </summary>
+    async Task<SourceSearchOutcome> SearchCandidatesDetailedAsync(
+        TrackQuery query, Action<DownloadCandidate>? onCandidate = null,
+        CancellationToken ct = default)
+    {
+        var candidates = await SearchCandidatesAsync(query, onCandidate, ct);
+        return new SourceSearchOutcome(candidates, Array.Empty<SourceSearchProblem>());
+    }
+    /// <summary>
     /// Download one candidate a human picked by hand. The choice overrides
     /// the ranking, never the sanity: non-audio bytes are still rejected
     /// and the MELODY_ID tag is written.
@@ -195,6 +208,24 @@ public record DownloadCandidate(
     string? DeclaredQuality = null,
     int? BitDepth = null,
     int? SampleRateHz = null);
+
+/// <summary>
+/// One enabled plugin that the source picker could not search, with the
+/// short reason it gave. A plugin that searched and simply found nothing is
+/// not a problem; it was searched.
+/// </summary>
+public record SourceSearchProblem(
+    string PluginId,
+    string PluginName,
+    string Reason);
+
+/// <summary>
+/// What a manual source search produced: every candidate, best first, and
+/// the plugins that were skipped before their search could run.
+/// </summary>
+public record SourceSearchOutcome(
+    IReadOnlyList<DownloadCandidate> Candidates,
+    IReadOnlyList<SourceSearchProblem> Problems);
 
 /// <summary>
 /// Per-call media-server connection override (Jellyfin, Plex, Navidrome).

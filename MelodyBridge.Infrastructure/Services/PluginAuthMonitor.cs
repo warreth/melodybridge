@@ -65,6 +65,10 @@ public sealed class PluginAuthMonitor
         if (string.IsNullOrWhiteSpace(message))
         {
             changed = _issues.TryRemove(pluginId, out _);
+            // Resolving one issue is not a new problem for the remaining
+            // ones the user already dismissed.
+            if (changed && _dismissedSignature is not null)
+                _dismissedSignature = Signature();
         }
         else if (!_issues.TryGetValue(pluginId, out var existing)
                  || !string.Equals(existing.Message, message, StringComparison.Ordinal)
@@ -90,7 +94,9 @@ public sealed class PluginAuthMonitor
     /// <summary>Clears one plugin's issue, for example when it is disabled.</summary>
     public void Clear(string pluginId)
     {
-        if (_issues.TryRemove(pluginId, out _))
-            Changed?.Invoke();
+        if (!_issues.TryRemove(pluginId, out _)) return;
+        if (_dismissedSignature is not null)
+            _dismissedSignature = Signature();
+        Changed?.Invoke();
     }
 }

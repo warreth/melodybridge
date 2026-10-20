@@ -803,6 +803,27 @@ public class SettingsPageTests
     }
 
     [Test]
+    public void Settings_DirectAboutLoad_ShowsStoredThemeAndAccent()
+    {
+        _ctx.JSInterop.Setup<string>("melody.getAccent").SetResult("violet");
+        _ctx.JSInterop.Setup<string>("melody.getThemePreference").SetResult("dark");
+        _ctx.Services.GetRequiredService<NavigationManager>()
+            .NavigateTo("/settings#about");
+
+        var cut = _ctx.Render<Settings>();
+
+        cut.WaitForAssertion(() =>
+        {
+            var theme = cut.FindAll(".theme-choice-option.active").Single();
+            Assert.That(theme.TextContent.Trim(), Is.EqualTo("Dark"),
+                "a direct #about request still shows the stored theme");
+            var accent = cut.FindAll("button.accent-swatch.active").Single();
+            Assert.That(accent.GetAttribute("title"), Is.EqualTo("Violet"),
+                "and the stored accent");
+        }, TimeSpan.FromSeconds(3));
+    }
+
+    [Test]
     public void Settings_AboutTab_ClickingSwatchCallsSetAccentAndMovesActive()
     {
         var setAccent = _ctx.JSInterop.SetupVoid("melody.setAccent", "rose");

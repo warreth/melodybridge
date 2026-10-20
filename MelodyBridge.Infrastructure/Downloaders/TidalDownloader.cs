@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.Services;
 using MelodyBridge.Infrastructure.Tidal;
@@ -28,6 +29,12 @@ public class TidalDownloader : CliToolDownloader
     private const string RefreshTokenKey = "refresh_token";
     private const string UserIdKey = "user_id";
     private const string CountryKey = "country_code";
+
+    /// <summary>An expiry phrase that names a credential, not a track.</summary>
+    private static readonly Regex ExpiredCredential = new(
+        @"\b(?:token|session|login|auth|authorization|credential)s?\b.*\bexpired\b"
+        + @"|\bexpired\b.*\b(?:token|session|login|auth|authorization|credential)s?\b",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
     // Tidal has no MP3: it serves AAC (LOW/NORMAL) and FLAC (HIGH/MAX).
     // The lossless tier depends on the configured quality.
@@ -288,18 +295,20 @@ public class TidalDownloader : CliToolDownloader
     /// </summary>
     protected override void ObserveFailedRun(CliRunner.Result result)
     {
-        var text = (result.StdErr + "\n" + result.StdOut).ToLowerInvariant();
-        if (text.Contains("expired", StringComparison.Ordinal)
-            || text.Contains("token expired", StringComparison.Ordinal))
+        if (AnyFailureLine(result, line => ExpiredCredential.IsMatch(line)))
         {
             SetAuth(PluginAuthState.Expired,
                 "The Tidal token expired; paste a fresh one or run tiddl auth login");
         }
-        else if (text.Contains("unauthorized", StringComparison.Ordinal)
-                 || text.Contains("401", StringComparison.Ordinal)
-                 || text.Contains("403", StringComparison.Ordinal)
-                 || text.Contains("invalid token", StringComparison.Ordinal)
-                 || text.Contains("not logged", StringComparison.Ordinal))
+        else if (AnyFailureLine(result, line =>
+                     line.Contains("unauthorized", StringComparison.OrdinalIgnoreCase)
+                     || line.Contains("forbidden", StringComparison.OrdinalIgnoreCase)
+                     || line.Contains("invalid token", StringComparison.OrdinalIgnoreCase)
+                     || line.Contains("not logged in", StringComparison.OrdinalIgnoreCase)
+                     || line.Contains("http 401", StringComparison.OrdinalIgnoreCase)
+                     || line.Contains("http 403", StringComparison.OrdinalIgnoreCase)
+                     || line.Contains("status 401", StringComparison.OrdinalIgnoreCase)
+                     || line.Contains("status 403", StringComparison.OrdinalIgnoreCase)))
         {
             SetAuth(PluginAuthState.Rejected,
                 "Tidal rejected the session; paste a fresh token or run tiddl auth login");

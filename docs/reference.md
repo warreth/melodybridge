@@ -235,7 +235,8 @@ archive copies.
   The picker filters by plugin, match confidence and **can serve target**, and
   each row can copy its source URL or open that plugin's settings. The filters
   and scroll position are remembered when you close and reopen it. An empty
-  result list names the plugins that were not searched and links straight to
+  result list names the plugins that could not be searched, with the reason
+  (down, timed out, search failed or login needed), and links straight to
   their cards, so a short list never looks like a silent failure.
 - A flagged track row (wrong length or inflated bitrate) shows a **!** pill and
   two buttons: **Keep** accepts the file as it is, **Retry** downloads it again
@@ -254,8 +255,10 @@ archive copies.
 - When tracks are failed, **Retry failed (N)** retries all of them in the normal
   waterfall order and **Retry elsewhere** also leaves out the plugin that failed
   each track last time. A progress card shows the batch; the final toast says
-  how many downloaded and how many still failed. A failed-download toast can
-  link back with **Retry** and start that one track again.
+  how many downloaded and what still needs attention: failed, waiting for a
+  review, already downloading in another run, or no longer there. A
+  failed-download toast can link back with **Retry** and start that one track
+  again.
 - **Remove playlist** removes the playlist, with an option to delete the
   downloaded files too.
 

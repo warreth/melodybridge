@@ -212,6 +212,21 @@ public abstract class CliToolDownloader : IDownloader, IPluginAuthStatusProvider
     }
 
     /// <summary>
+    /// Runs one predicate per non-empty output line. Auth classification
+    /// must not search raw output for a number or a word: a track id can
+    /// contain 403 and a title can be called Expired.
+    /// </summary>
+    protected static bool AnyFailureLine(CliRunner.Result result, Func<string, bool> predicate)
+    {
+        foreach (var line in (result.StdErr + "\n" + result.StdOut).Split('\n'))
+        {
+            var trimmed = line.Trim();
+            if (trimmed.Length > 0 && predicate(trimmed)) return true;
+        }
+        return false;
+    }
+
+    /// <summary>
     /// The tool's last meaningful output line, so a run that exits 0
     /// without a file still says why: deemix reports "Track not found at
     /// desired bitrate" that way. Progress lines and deemix's per-track

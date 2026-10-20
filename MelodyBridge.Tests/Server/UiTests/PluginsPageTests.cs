@@ -106,6 +106,45 @@ public class PluginsPageTests
             => Task.FromResult(new DownloaderDownloadResult(false, null, "test"));
     }
 
+    private sealed class GatedAvailabilityDownloader : IDownloader, IPluginAvailabilityRefresh
+    {
+        public string Id => "qobuz";
+        public string Name => "Qobuz";
+        public string Description => "gated test downloader";
+        public PluginCapabilities Capabilities => PluginCapabilities.Any;
+        public IReadOnlyList<PluginConfigField> ConfigFields { get; } =
+            [new PluginConfigField("token", "Token", null)];
+        public bool Available { get; set; }
+        public int Probes;
+        public TaskCompletionSource Entered { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _release =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public async Task<bool> IsAvailableAsync(CancellationToken ct = default)
+        {
+            var probe = Interlocked.Increment(ref Probes);
+            var result = Available;
+            if (probe == 2)
+            {
+                Entered.TrySetResult();
+                await _release.Task.WaitAsync(TimeSpan.FromSeconds(10), ct);
+            }
+            return result;
+        }
+
+        public void Release() => _release.TrySetResult();
+        public void RefreshAvailability() { }
+
+        public Task<DownloaderSearchHit?> SearchAsync(TrackQuery query, CancellationToken ct = default)
+            => Task.FromResult<DownloaderSearchHit?>(null);
+
+        public Task<DownloaderDownloadResult> DownloadAsync(
+            string sourceUrl, string outputDirectory, string? melodyId,
+            DownloadQuality? quality = null, CancellationToken ct = default)
+            => Task.FromResult(new DownloaderDownloadResult(false, null, "test"));
+    }
+
     [Test]
     public void Plugins_ShowsTheLoginBanner_AndRedFlagForAnExpiredToken()
     {
@@ -220,6 +259,39 @@ public class PluginsPageTests
             Assert.That(plugin.Probes, Is.GreaterThanOrEqualTo(2),
                 "the page probes once on load and again after the save");
         });
+    }
+
+    [Test]
+    public async Task Plugins_ASweepStartedBeforeASave_DoesNotOverwriteTheSavedResult()
+    {
+        var plugin = new GatedAvailabilityDownloader();
+        _registry.Setup(r => r.GetAll()).Returns(new List<IDownloader> { plugin });
+        _registry.Setup(r => r.GetEnabled()).Returns(new List<IDownloader> { plugin });
+        _registry.Setup(r => r.GetConfigAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync("");
+
+        var cut = _ctx.Render<Plugins>();
+        cut.WaitForAssertion(() => Assert.That(
+            cut.Find(".plugin-card .pill").TextContent.Trim(), Is.EqualTo("unavailable")),
+            TimeSpan.FromSeconds(5));
+        await cut.InvokeAsync(() => cut.Find("button.settings-toggle").Click());
+
+        var sweep = cut.InvokeAsync(() => cut.Instance.RefreshAvailability());
+        await plugin.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        plugin.Available = true;
+        await cut.InvokeAsync(() => cut.FindAll("button")
+            .Single(button => button.TextContent.Contains("Save settings")).Click());
+        cut.WaitForAssertion(() => Assert.That(
+            cut.Find(".plugin-card .pill").TextContent.Trim(), Is.EqualTo("ready")),
+            TimeSpan.FromSeconds(5));
+
+        plugin.Release();
+        await sweep;
+        cut.Render();
+
+        Assert.That(cut.Find(".plugin-card .pill").TextContent.Trim(), Is.EqualTo("ready"),
+            "the sweep probed before the save and must not win afterwards");
     }
 
     [Test]

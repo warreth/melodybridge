@@ -89,6 +89,25 @@ public class PluginsInteractionTests
     }
 
     [Test]
+    public void UnknownPluginHash_IsHandledOnce_AndDoesNotOpenSettings()
+    {
+        RegisterPage(new TestDownloader("first", "First Plugin"));
+        _ctx.JSInterop.Setup<string>("melody.getHash").SetResult("plugin-ghost");
+
+        var cut = _ctx.Render<Plugins>();
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.FindAll(".plugin-card").Count, Is.EqualTo(1)),
+            TimeSpan.FromSeconds(3));
+
+        cut.Render();
+        cut.Render();
+
+        Assert.That(_ctx.JSInterop.Invocations.Count(
+            invocation => invocation.Identifier == "melody.getHash"), Is.EqualTo(1),
+            "the browser hash is read once, not on every render");
+    }
+
+    [Test]
     public void Toggle_Off_RemovesArrows_AndPersists()
     {
         var cut = RenderPage(

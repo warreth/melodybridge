@@ -166,10 +166,22 @@ public class DeemixDownloader : CliToolDownloader
         }
 
         LastUnavailableReason = null;
+        // Deezer does not always report web_lossless. A null flag is
+        // unknown, not proof that the account has a lossless plan.
         SetAuth(PluginAuthState.Valid,
             account: "Signed in",
-            plan: check.Lossless == false ? "No lossless plan" : "Lossless",
-            tier: check.Lossless == false ? "MP3 up to 320" : "FLAC available");
+            plan: check.Lossless switch
+            {
+                true => "Lossless",
+                false => "No lossless plan",
+                null => null,
+            },
+            tier: check.Lossless switch
+            {
+                true => "FLAC available",
+                false => "MP3 up to 320",
+                null => null,
+            });
         if (check.Lossless == false)
             Logger.LogInformation("Deezer: the ARL is signed in without lossless");
         StoreAvailability(true);

@@ -1017,24 +1017,58 @@ else if (activeTab == "about")
     }
 
     // Sync the swatch with the browser's stored accent once JS is
-    // available. Unhandled in tests, InvokeAsync returns null and the
-    // null check keeps the default teal.
+    // available. A direct /settings#about load renders the About panel
+    // before this runs, so re-render when a stored value was found.
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (!firstRender) return;
-        var stored = await JS.InvokeAsync<string>("melody.getAccent");
-        if (AccentOptions.Contains(stored)) _activeAccent = stored;
+        var changed = false;
+
+        try
+        {
+            var stored = await JS.InvokeAsync<string>("melody.getAccent");
+            if (AccentOptions.Contains(stored) && stored != _activeAccent)
+            {
+                _activeAccent = stored;
+                changed = true;
+            }
+        }
+        catch (JSException)
+        {
+            // Interop unavailable (tests, static render): keep the default.
+        }
+        catch (JSDisconnectedException)
+        {
+            // The circuit is gone; nothing to update.
+        }
+        catch (InvalidOperationException)
+        {
+            // No JS runtime in a static render.
+        }
 
         try
         {
             var theme = await JS.InvokeAsync<string>("melody.getThemePreference");
-            if (ThemeModes.Any(option => option.Id == theme))
+            if (ThemeModes.Any(option => option.Id == theme) && theme != _themePreference)
+            {
                 _themePreference = theme;
+                changed = true;
+            }
         }
         catch (JSException)
         {
             // Interop unavailable (tests, static render): keep Auto.
         }
+        catch (JSDisconnectedException)
+        {
+            // The circuit is gone; nothing to update.
+        }
+        catch (InvalidOperationException)
+        {
+            // No JS runtime in a static render.
+        }
+
+        if (changed) StateHasChanged();
     }
 
     private string activeTab = "accounts";

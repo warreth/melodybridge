@@ -55,6 +55,9 @@ public class DownloadManagerCandidateTests
         /// <summary>The quality the last download was asked for, so tests
         /// can pin the pick's honest fetch quality.</summary>
         public DownloadQuality? LastQuality { get; private set; }
+        public string? LastUnavailableReason { get; init; }
+        /// <summary>Thrown from SearchAllAsync to exercise failure notes.</summary>
+        public Exception? SearchFailure { get; init; }
 
         public Task<bool> IsAvailableAsync(CancellationToken ct = default)
             => Task.FromResult(Available);
@@ -67,6 +70,7 @@ public class DownloadManagerCandidateTests
         {
             if (SearchBarrier is not null)
                 await SearchBarrier().WaitAsync(TimeSpan.FromSeconds(10));
+            if (SearchFailure is not null) throw SearchFailure;
             return _hits;
         }
 
@@ -134,6 +138,45 @@ public class DownloadManagerCandidateTests
             new TrackQuery("Artist", "Song", DownloadQuality.Any));
 
         Assert.That(candidates.Select(c => c.SourceUrl), Is.EqualTo(new[] { "https://u/1" }));
+    }
+
+    [Test]
+    public async Task SearchCandidatesDetailed_ReportsEveryPluginThatCouldNotSearch()
+    {
+        var down = new StubPlugin("down")
+        {
+            Available = false,
+            LastUnavailableReason = "Deezer is unreachable",
+        };
+        var slow = new StubPlugin("slow")
+        {
+            SearchFailure = new OperationCanceledException("the plugin budget expired"),
+        };
+        var broken = new StubPlugin("broken")
+        {
+            SearchFailure = new InvalidOperationException("the catalogue exploded"),
+        };
+        var up = new StubPlugin("up", Hit("Song", "Artist", "https://u/1"));
+        IDownloadManager manager = new DownloadManager(
+            new ListDownloaderRegistry(down, slow, broken, up),
+            NullLogger<DownloadManager>.Instance);
+
+        var outcome = await manager.SearchCandidatesDetailedAsync(
+            new TrackQuery("Artist", "Song", DownloadQuality.Any));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(outcome.Candidates.Select(c => c.SourceUrl),
+                Is.EqualTo(new[] { "https://u/1" }));
+            Assert.That(outcome.Problems.Select(problem => problem.PluginId),
+                Is.EquivalentTo(new[] { "down", "slow", "broken" }));
+            Assert.That(outcome.Problems.Single(p => p.PluginId == "down").Reason,
+                Does.Contain("Deezer is unreachable"));
+            Assert.That(outcome.Problems.Single(p => p.PluginId == "slow").Reason,
+                Does.Contain("timed out"));
+            Assert.That(outcome.Problems.Single(p => p.PluginId == "broken").Reason,
+                Does.Contain("catalogue exploded"));
+        });
     }
 
     [Test]
