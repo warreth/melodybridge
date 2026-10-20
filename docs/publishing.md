@@ -16,8 +16,9 @@ playlists, choose where they go, and pick one schedule. Every ticked playlist
 becomes its own job, named after the playlist, with the targets and schedule you
 chose. **Send to** can be an M3U file, any number of media server profiles, or
 both. The M3U files land in the **Playlist output folder** setting, one per
-playlist. **Add profile** opens Settings, Media servers, when you need another
-target first.
+playlist. Names that sanitize to the same file get a numbered suffix, so one
+job never overwrites another's file. **Add profile** opens Settings, Media
+servers, when you need another target first.
 
 Playlists that already have a job are left out of the list, so the same playlist
 is not offered twice; creating the jobs re-reads the list, and anything deleted
