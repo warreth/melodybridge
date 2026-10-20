@@ -141,7 +141,25 @@ waterfall, the Plugins page and the periodic `PluginAuthWatchService` feed it,
 and the sidebar mark, the warning banner and the toast read it. A missing login
 is not a red alert, only a login that stopped working is. `AuthStatus` is
 separate from `IsAvailableAsync` because a dead service and a stale token need
-different words and a different fix.
+different words and a different fix. Its optional `Account`, `Plan`, `Tier` and
+`ExpiresAtUtc` fields are what the card shows for a working login. Settings that
+change a login call `IPluginAvailabilityRefresh.RefreshAvailability` so the
+save is probed for real, and the Plugins page probes in parallel with a short
+budget per plugin.
+
+Qobuz needs two payload quirks in mind: some catalogue answers arrive gzipped
+even when the request did not ask for it, and `maximum_sampling_rate` is in kHz
+as a decimal (`44.1`). `QobuzClient.ReadBodyAsync` decodes the body and the
+parser accepts both kHz and Hz.
+
+"Retry elsewhere" reads `DownloadManager.LastAttemptedPluginId` and stores it as
+the track's one-shot `AvoidPluginId`, so the same failing provider is left out
+of that retry. The sidebar activity chip is `DownloadActivitySummary.From`, a
+pure formatter. Log areas and sources are `LogAreas` and `LogSources`;
+`LogCorrelation` stamps entries with the track group the Logs page can group by.
+`NotificationService` keeps active toasts and history separately: routine
+notices fade after a few seconds, warnings and errors after 12, and both remain
+in the bell history.
 
 The store itself is a facade. The implementation lives in four services next to
 it: `PlaylistQueries` (reads, lifecycle, settings and the two maintenance

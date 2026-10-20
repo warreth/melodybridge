@@ -9,7 +9,9 @@ the reference.
 <img src="/screens/settings.webp" alt="Settings page with its seven tabs" width="800">
 
 The Settings page has seven tabs. Changes save with the **Save settings** button
-and apply immediately, no restart needed.
+and apply immediately, no restart needed. The search box above the tabs jumps to
+the tab that owns a setting: type `theme`, `ntfy`, `Jellyfin` or a similar word
+and pick a result. It is a jump list, not a live filter of every field.
 
 ### Accounts
 
@@ -113,6 +115,13 @@ Two ways to hear about events. **Toasts** pop up in the corner when a playlist
 download finishes and when a track, sync job or background task fails; both on
 by default, and failures always reach the log regardless.
 
+A success or info toast fades after a few seconds. A warning or error stays for
+12 seconds and can be closed sooner. The bell in the sidebar keeps the last
+notifications, including the ones whose toast already faded: open it to read
+them again, follow an action such as **Fix plugin**, **Open playlist**, **Retry**
+or **View logs**, or clear the history. The bell badge counts what you have not
+opened yet.
+
 **ntfy push** sends the same events to your own ntfy server. Flip **Send
 notifications to ntfy**, enter the **Topic URL** (for example
 `https://ntfy.sh/melodybridge`) and, if the topic is protected, an **Access
@@ -131,10 +140,31 @@ stalls a download or a scan.
 
 ### About
 
-App version and **Check for updates**, a button to replay the guided tour, the
-accent color picker, **Export logs** (the most recent 1000 entries as a text
-file), and the database section: **Export zip** makes a snapshot, and importing
-one replaces the database. After a database import, restart the app.
+App version and **Check for updates**, a button to replay the guided tour, and
+the appearance section. **Theme** offers Light, Dark or Auto: Auto follows your
+device and switches with it. The accent picker below it colors tabs, buttons and
+highlights, the guided tour included. Both are stored in this browser only.
+
+**Export logs** writes the most recent 1000 entries as a text file. The database
+section exports a zip snapshot; importing one replaces the database, and you
+restart the app afterwards.
+
+## The dashboard
+
+The dashboard is the at-a-glance page: playlists, downloaded tracks, library
+files and enabled plugins. The connections panel lists Spotify, YouTube, your
+media servers and FlareSolverr, and the recent errors panel links to the Logs
+page.
+
+- **Plugin logins** lists every login problem in the same red style as the
+  Plugins page, with a **Fix** link straight to that plugin card. It says "No
+  login problems found" when every enabled plugin's stored login looks usable.
+- The sidebar **download chip** appears while a playlist download is running or
+  paused: how many runs, how many tracks are done, and how many failed. Click it
+  to open the live downloads on the Plugins page.
+- On a fresh install, the setup checklist includes a **Connect a lossless
+  source** card. It links to the Qobuz, Deezer and Tidal cards for the three
+  token flows, and to Jumo and Monochrome, which need no account.
 
 ## Playlist options
 
@@ -202,6 +232,11 @@ archive copies.
   A source that fails stays in the list with the reason, ready for another
   pick. The automatic search refuses results it cannot vouch for, so a wrong
   song is a miss you repair here instead of a silent download.
+  The picker filters by plugin, match confidence and **can serve target**, and
+  each row can copy its source URL or open that plugin's settings. The filters
+  and scroll position are remembered when you close and reopen it. An empty
+  result list names the plugins that were not searched and links straight to
+  their cards, so a short list never looks like a silent failure.
 - A flagged track row (wrong length or inflated bitrate) shows a **!** pill and
   two buttons: **Keep** accepts the file as it is, **Retry** downloads it again
   while skipping the provider that delivered the flagged file. The file stays
@@ -216,14 +251,19 @@ archive copies.
 - **Refresh** fetches the playlist again and applies the sync mode.
 - **Download missing** starts a download run. While one is live, the button is
   replaced by **Pause**, **Resume** and **Cancel**.
+- When tracks are failed, **Retry failed (N)** retries all of them in the normal
+  waterfall order and **Retry elsewhere** also leaves out the plugin that failed
+  each track last time. A progress card shows the batch; the final toast says
+  how many downloaded and how many still failed. A failed-download toast can
+  link back with **Retry** and start that one track again.
 - **Remove playlist** removes the playlist, with an option to delete the
   downloaded files too.
 
-<img src="/screens/source-picker.webp" alt="Choose source dialog with exact quality facts and target match pills" width="800">
+<img src="/screens/source-picker.webp" alt="Choose source dialog with filters, exact quality facts and target match pills" width="800">
 
 ## The Plugins page
 
-<img src="/screens/plugins.webp" alt="Plugins page with order controls, capability badges and live download progress" width="800">
+<img src="/screens/plugins.webp" alt="Plugins page with order controls, route preview, per-plugin status and capability badges" width="800">
 
 Plugins search for and download your tracks. The order set here is the whole
 story for the **No filter** quality. When a playlist asks for a specific
@@ -232,12 +272,23 @@ declared capabilities decide) and the order here only breaks ties between
 plugins of the same kind. Use the arrows to move a plugin and the switch to
 enable or disable it.
 
+The **Route preview** card answers "what will actually run?" before a download.
+Pick a quality preset and it shows the enabled plugins in try order, with the
+ones left out and the reason they were left out ("no lossless source", "cannot
+produce FLAC"). It is a declaration preview: availability is still probed per
+track.
+
 - Each plugin card shows its capability badges (formats, bitrate range) and a
   **Settings** row when it has options. The row opens a panel with the fields
   that matter (a token, an API key, a quality) and hides the rarely touched
   knobs (commands, custom folders) behind **Advanced**. Secret fields render
   as password inputs with a reveal button, and values are remembered per
   plugin.
+- A working login shows what it actually gives you: the Qobuz account and
+  configured tier ("Studio, hi-res up to 96 kHz"), the Deezer plan ("No
+  lossless plan"), or the Tidal country, tier and expiry. The card also says
+  when it was last checked, and its refresh button tests only that plugin.
+  Plugins that have a docs page carry a **Setup guide** link.
 - An unavailable plugin (missing binary, dead service) is skipped by the
   waterfall. The card says what is missing, in one line, and **Refresh status**
   re-checks everything.
@@ -247,9 +298,15 @@ enable or disable it.
   of the page lists every affected plugin with an **Open settings** button, the
   Plugins link in the sidebar carries the same mark, and a toast names the
   plugin when the problem is found. A login that was never set up is not a red
-  alert: the card only says what to add.
+  alert: the card only says what to add. **Dismiss** hides the banner until a
+  login problem appears or changes, and the mark on the card stays.
+- A failing card has **Copy diagnostics**: version, plugin id, enabled state,
+  login state, last reason, declared capabilities and the settings with secrets
+  masked. Paste it into a bug report.
 - **Save settings** tests the new token or ARL immediately instead of reusing
-  the previous "unavailable" answer.
+  the previous "unavailable" answer. Status probes run in parallel, so one slow
+  provider does not hold up the rest; each card shows a checking state while its
+  probe runs.
 - **Live downloads** shows each running playlist with its progress and the track
   it is on, plus **Pause**, **Resume** and **Cancel** buttons. Several tracks of
   a playlist download in parallel; the limit is set on the Advanced page. Every
@@ -310,14 +367,25 @@ The event stream shows playlist syncs, downloads, scans and errors. When there
 are errors, a banner at the top lists them; click one to jump to that area.
 
 - Filter by area (Playlists, Downloads, Sources, Library, Sync, Database,
-  System) or level (Info+, Warning, Error, Debug). Every area chip shows how
-  many entries it holds. The search box also matches the friendly area names.
+  System), level (Info+, Warning, Error, Debug) or source (Qobuz, Tidal, Deezer,
+  yt-dlp, SoundCloud, Monochrome, Jumo, Lucida, Archive.org, Soulseek,
+  DoubleDouble, Waterfall, Other). Every area chip shows how many entries it
+  holds, and the source list shows its counts too. The search box also matches
+  the friendly area names.
 - The page opens on **Info+**, so debug and trace noise stays out until you ask
   for it. Framework chatter from ASP.NET, the host and `System.*` loggers is
   kept out as well; their warnings and errors still appear.
-- **Show only problems** narrows everything down to errors. **Copy** puts the
-  filtered entries on your clipboard, **Export** writes them to a file, and
-  **Clear** empties the buffer.
+- **Pause live** stops the two-second refresh so the stream stays still while
+  you read it; resuming catches up at once. **Group by track** puts one
+  download attempt's search, skip reasons, download and verification under the
+  same track header.
+- Each row has **Copy** and **Pin**. A pinned entry moves to the pinned card
+  above the stream and stays there while it updates; **Clear** empties the
+  pinned list. **Show only problems** narrows everything down to errors.
+  **Copy** puts the filtered entries on your clipboard, **Export** writes them
+  to a file, and **Clear** empties the buffer.
+- The filters, search text, order and grouping are remembered when you leave
+  the page and come back. A restart starts clean.
 
 ## When a download fails
 

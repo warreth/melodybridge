@@ -148,7 +148,7 @@ before; a source that fails stays in the list with the reason. Automatic
 matching cannot be perfect on sources that carry no ISRC and no trustworthy
 artist name; the picker is the honest way out of that.
 
-<img src="/screens/plugins.webp" alt="Plugins page with the waterfall order, capability badges and live downloads" width="800">
+<img src="/screens/plugins.webp" alt="Plugins page with the route preview, waterfall order and capability badges" width="800">
 
 ### Cover art and lyrics
 
