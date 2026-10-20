@@ -274,6 +274,9 @@ public class PlaylistStore
     public Task<byte[]> ExportCsvAsync(string playlistId, CancellationToken ct = default)
         => _transfer.ExportCsvAsync(playlistId, ct);
 
+    public Task<byte[]> ExportCsvZipAsync(IEnumerable<string> playlistIds, CancellationToken ct = default)
+        => _transfer.ExportCsvZipAsync(playlistIds, ct);
+
     public Task<int> ImportAsync(string json, CancellationToken ct = default)
         => _transfer.ImportAsync(json, ct);
 }

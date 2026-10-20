@@ -166,10 +166,67 @@ public class QuickSyncJobsTests
         Assert.Multiple(() =>
         {
             Assert.That(result.Created, Is.Empty);
-            Assert.That(result.Skipped.Single().Reason, Does.Contain("no media server profile"));
+            Assert.That(result.Skipped.Single().Reason, Does.Contain("no target"));
         });
         await using var db = _factory.CreateDbContext();
         Assert.That(db.SyncJobs.Count(), Is.EqualTo(0));
+    }
+
+    [Test]
+    public async Task Create_WithSchedule_StoresThePresetForEveryJob()
+    {
+        await SeedPlaylistsAsync(("p1", "Jazz"), ("p2", "Synthwave"));
+        await SeedProfileAsync("px1", "JF", "Jellyfin");
+
+        var result = await QuickSyncJobs.CreateAsync(_factory, _profiles,
+            new[] { ("p1", "Jazz"), ("p2", "Synthwave") }, new[] { "px1" },
+            new QuickSyncOptions(ScanSchedule.FromCron("0 3 * * 1")));
+
+        Assert.That(result.Created, Has.Count.EqualTo(2));
+        await using var db = _factory.CreateDbContext();
+        var stored = db.SyncJobs.ToList();
+        Assert.That(stored.Select(j => j.Schedule), Is.All.EqualTo("Weekly"),
+            "a named preset stores its label so the scheduler resolves the shared cron");
+        Assert.That(stored.Select(j => j.CronExpression), Is.All.Null,
+            "the preset does not need a copied cron string");
+    }
+
+    [Test]
+    public async Task Create_WithM3u_AddsAPerPlaylistM3uTarget()
+    {
+        await SeedPlaylistsAsync(("p1", "Jazz Classics"));
+        await SeedProfileAsync("px1", "JF", "Jellyfin");
+
+        var result = await QuickSyncJobs.CreateAsync(_factory, _profiles,
+            new[] { ("p1", "Jazz Classics") }, new[] { "px1" },
+            new QuickSyncOptions(ScanSchedule.Manual, M3uEnabled: true, M3uDirectory: "/playlists"));
+
+        Assert.That(result.Created, Has.Count.EqualTo(1));
+        await using var db = _factory.CreateDbContext();
+        var job = db.SyncJobs.Single();
+        var targets = SyncJobMapping.TargetsOf(job);
+        Assert.Multiple(() =>
+        {
+            Assert.That(targets.Select(t => t.Kind),
+                Is.EqualTo(new[] { OutputTargetType.M3uFile, OutputTargetType.JellyfinApi }));
+            Assert.That(targets[0].M3uPath, Is.EqualTo(Path.Combine("/playlists", "Jazz Classics.m3u")));
+        });
+    }
+
+    [Test]
+    public async Task Create_WithM3uOnly_WorksWithoutAProfile()
+    {
+        await SeedPlaylistsAsync(("p1", "Jazz"));
+
+        var result = await QuickSyncJobs.CreateAsync(_factory, _profiles,
+            new[] { ("p1", "Jazz") }, Array.Empty<string>(),
+            new QuickSyncOptions(ScanSchedule.Manual, M3uEnabled: true, M3uDirectory: "/playlists"));
+
+        Assert.That(result.Created, Has.Count.EqualTo(1));
+        await using var db = _factory.CreateDbContext();
+        var job = db.SyncJobs.Single();
+        Assert.That(SyncJobMapping.TargetsOf(job).Single().Kind,
+            Is.EqualTo(OutputTargetType.M3uFile));
     }
 
     [Test]

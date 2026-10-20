@@ -139,8 +139,15 @@ public class SyncJobsLayoutUiTests
         var card = cut.FindAll(".panel-card").First(c => c.TextContent.Contains("Layout Job"));
         var footer = card.QuerySelector(".job-footer");
         Assert.That(footer, Is.Not.Null, "card actions must live in a .job-footer toolbar");
-        var labels = footer.QuerySelectorAll("button").Select(b => b.TextContent.Trim()).ToList();
-        Assert.That(labels, Is.EqualTo(new[] { "Run now", "Log", "Edit", "Delete" }));
+        var labels = footer.QuerySelectorAll("button.btn-modern").Select(b => b.TextContent.Trim()).ToList();
+        Assert.That(labels, Is.EqualTo(new[] { "Run now" }),
+            "the primary run action stays visible");
+        footer.QuerySelector("button.card-menu-trigger")!.Click();
+        var opened = cut.Find(".job-footer");
+        var menuLabels = opened.QuerySelectorAll(".card-menu-items button")
+            .Select(b => b.TextContent.Trim()).ToList();
+        Assert.That(menuLabels, Is.EqualTo(new[] { "Log", "Edit", "Delete" }),
+            "the secondary actions live behind the shared menu");
     }
 
     [Test]
@@ -161,10 +168,10 @@ public class SyncJobsLayoutUiTests
 
         var cut = _ctx.Render<SyncJobs>();
         var card = cut.FindAll(".panel-card").First(c => c.TextContent.Contains("Layout Job"));
-        var eyebrow = card.QuerySelector(".eyebrow");
-        Assert.That(eyebrow!.TextContent,
-            Is.EqualTo("M3U file + Jellyfin + Plex"),
-            "the card names every target; profiles without a name yet fall back to the kind");
+        var chips = card.QuerySelectorAll(".target-chips .target-chip")
+            .Select(c => c.TextContent.Trim()).ToList();
+        Assert.That(chips, Is.EqualTo(new[] { "M3U file", "Jellyfin", "Plex" }),
+            "the card names every target as a compact chip; profiles without a name fall back to the kind");
     }
 
     [Test]

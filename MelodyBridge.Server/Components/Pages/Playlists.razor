@@ -6,7 +6,6 @@
 @using MelodyBridge.Infrastructure.Services
 @inject PlaylistStore Store
 @inject SettingsStore Settings
-@inject NavigationManager Navigation
 @inject IJSRuntime JS
 @inject SpotifyAccountProvider SpotifyAccount
 @inject SpotifyUnofficialAccountProvider SpotifyWeb
@@ -14,6 +13,7 @@
 @inject Application.Services.DownloadCoordinator Coordinator
 @inject IDbContextFactory<MelodyBridgeDbContext> DbFactory
 @inject MediaServerProfileStore ServerProfiles
+@inject MelodyBridge.Server.Services.NotificationService Notifications
 @implements IDisposable
 
 <PageTitle>Playlists - MelodyBridge</PageTitle>
@@ -28,18 +28,6 @@
         <p>Save a public Spotify or YouTube playlist here, or import from your account or an export file.</p>
     </div>
     <div class="topbar-actions">
-        <div class="view-switch" role="group" aria-label="Playlist layout">
-            <button class="view-chip @(playlistsView == "cards" ? "on" : null)" title="Card view"
-                    aria-pressed="@(playlistsView == "cards" ? "true" : "false")"
-                    @onclick='() => SetPlaylistsView("cards")' >
-                <Icon Name="layout-grid" Size="15" /> <span>Cards</span>
-            </button>
-            <button class="view-chip @(playlistsView == "rows" ? "on" : null)" title="Compact rows"
-                    aria-pressed="@(playlistsView == "rows" ? "true" : "false")"
-                    @onclick='() => SetPlaylistsView("rows")' >
-                <Icon Name="rows" Size="15" /> <span>Rows</span>
-            </button>
-        </div>
         <button class="btn-modern ghost" @onclick="ShowAccountPanel">Import</button>
         <button class="btn-modern secondary" @onclick="ShowPublishPanelAsync" title="Create sync jobs for these playlists in a few clicks">
             <Icon Name="send" Size="15" /> Publish
@@ -61,6 +49,67 @@
     </div>
 }
 
+@if (!loading && playlists.Count > 0)
+{
+    @if (selectionMode)
+    {
+        <section class="selection-bar" aria-label="Playlist selection">
+            <label class="selection-all">
+                <input type="checkbox" checked="@AllSelected" @onchange="ToggleSelectAll" />
+                <span>@selectedPlaylistIds.Count selected</span>
+            </label>
+            <div class="selection-actions">
+                <button class="btn-modern secondary small" @onclick="RefreshSelected" disabled="@(busy || selectedPlaylistIds.Count == 0)">
+                    <Icon Name="refresh" Size="14" /> Refresh
+                </button>
+                <button class="btn-modern secondary small" @onclick="DownloadMissingSelected" disabled="@(busy || selectedPlaylistIds.Count == 0)">
+                    <Icon Name="download" Size="14" /> Download missing
+                </button>
+                <button class="btn-modern secondary small" @onclick="ExportSelected" disabled="@(busy || selectedPlaylistIds.Count == 0)">
+                    <Icon Name="file-down" Size="14" /> Export CSV
+                </button>
+                <button class="btn-modern ghost small danger-text" @onclick="AskBulkDelete" disabled="@(busy || selectedPlaylistIds.Count == 0)">
+                    <Icon Name="trash" Size="14" /> Remove
+                </button>
+                <button class="btn-modern ghost small" @onclick="ExitSelection">Cancel</button>
+            </div>
+        </section>
+    }
+    else
+    {
+        <section class="list-toolbar" aria-label="Playlist controls">
+            <div class="list-toolbar-left with-sort">
+                <span class="list-count">@playlists.Count @(playlists.Count == 1 ? "playlist" : "playlists")</span>
+                <label class="sort-control" title="Sort playlists">
+                    <Icon Name="arrow-up-down" Size="14" />
+                    <select value="@playlistSort" @onchange="OnSortChanged" aria-label="Sort playlists">
+                        <option value="recent">Recently synced</option>
+                        <option value="name">Name A-Z</option>
+                        <option value="tracks">Most tracks</option>
+                    </select>
+                </label>
+            </div>
+            <div class="list-toolbar-actions">
+                <div class="view-switch" role="group" aria-label="Playlist layout">
+                    <button class="view-chip @(playlistsView == "cards" ? "on" : null)" title="Card view"
+                            aria-pressed="@(playlistsView == "cards" ? "true" : "false")"
+                            @onclick='() => SetPlaylistsView("cards")'>
+                        <Icon Name="layout-grid" Size="15" /> <span>Cards</span>
+                    </button>
+                    <button class="view-chip @(playlistsView == "rows" ? "on" : null)" title="Compact rows"
+                            aria-pressed="@(playlistsView == "rows" ? "true" : "false")"
+                            @onclick='() => SetPlaylistsView("rows")'>
+                        <Icon Name="rows" Size="15" /> <span>Rows</span>
+                    </button>
+                </div>
+                <button class="btn-modern ghost small" @onclick="EnterSelection" title="Select several playlists and act on them">
+                    <Icon Name="check-circle" Size="14" /> Select
+                </button>
+            </div>
+        </section>
+    }
+}
+
 @if (loading)
 {
     <Skeleton Kind="cards" Rows="6" />
@@ -72,12 +121,24 @@ else if (playlists.Count == 0)
 else if (playlistsView == "rows")
 {
     <section class="entity-rows">
-        @foreach (var playlist in playlists)
+        @foreach (var playlist in sortedPlaylists)
         {
             var (downloaded, failed, total, sizeBytes) = downloadStats.GetValueOrDefault(playlist.Id, (0, 0, 0, 0));
             var run = Coordinator.RunFor(playlist.Id);
-            <div class="entity-row">
-                <a class="entity-row-link" href="/playlists/@playlist.Id" title="Open @playlist.Name">
+            var selected = selectedPlaylistIds.Contains(playlist.Id);
+            <div class="entity-row @(selectionMode ? "selecting" : null) @(selected ? "selected" : null)" @key="playlist.Id">
+                @if (selectionMode)
+                {
+                    <input class="row-select" type="checkbox" checked="@selected"
+                           @onchange="e => ToggleSelection(playlist.Id, e)"
+                           aria-label="Select @playlist.Name" />
+                }
+                <a class="entity-row-link" href="@(selectionMode ? null : $"/playlists/{playlist.Id}")"
+                   title="Open @playlist.Name" @onclick="() => ToggleSelectionIfSelecting(playlist.Id)"
+                   role="@(selectionMode ? "button" : null)"
+                   tabindex="@(selectionMode ? "0" : null)"
+                   aria-pressed="@(selectionMode ? (selected ? "true" : "false") : null)"
+                   @onkeydown="e => OnSelectionKeyDown(e, playlist.Id)">
                     <span class="entity-row-cover">
                         @if (!string.IsNullOrEmpty(playlist.CoverImageUrl))
                         {
@@ -133,10 +194,12 @@ else if (playlistsView == "rows")
                         <span>@(playlist.LastSyncAt?.ToLocalTime().ToString("d") ?? "never")</span>
                     </span>
                 </a>
-                <CardMenu Label="Playlist actions">
-                    <button class="danger" title="Remove this playlist"
-                            @onclick="() => AskDelete(playlist)"><Icon Name="trash" Size="14" /> Remove</button>
-                </CardMenu>
+                @if (!selectionMode)
+                {
+                    <CardMenu Label="Playlist actions">
+                        @PlaylistMenu(playlist)
+                    </CardMenu>
+                }
             </div>
         }
     </section>
@@ -144,12 +207,18 @@ else if (playlistsView == "rows")
 else
 {
     <section class="content-grid three">
-        @foreach (var playlist in playlists)
+        @foreach (var playlist in sortedPlaylists)
         {
             var (downloaded, failed, total, sizeBytes) = downloadStats.GetValueOrDefault(playlist.Id, (0, 0, 0, 0));
             var run = Coordinator.RunFor(playlist.Id);
-            <div class="panel-card playlist-card">
-                <a class="playlist-cover" href="/playlists/@playlist.Id" title="Open @playlist.Name">
+            var selected = selectedPlaylistIds.Contains(playlist.Id);
+            <div class="panel-card playlist-card @(selectionMode ? "selecting" : null) @(selected ? "selected" : null)" @key="playlist.Id">
+                <a class="playlist-cover" href="@(selectionMode ? null : $"/playlists/{playlist.Id}")"
+                   title="Open @playlist.Name" @onclick="() => ToggleSelectionIfSelecting(playlist.Id)"
+                   role="@(selectionMode ? "button" : null)"
+                   tabindex="@(selectionMode ? "0" : null)"
+                   aria-pressed="@(selectionMode ? (selected ? "true" : "false") : null)"
+                   @onkeydown="e => OnSelectionKeyDown(e, playlist.Id)">
                     @if (!string.IsNullOrEmpty(playlist.CoverImageUrl))
                     {
                         <img src="@playlist.CoverImageUrl" alt="@playlist.Name" loading="lazy" />
@@ -157,6 +226,10 @@ else
                     else
                     {
                         <span class="playlist-cover-placeholder"><Icon Name="music" Size="28" Class="cover-placeholder-icon" /></span>
+                    }
+                    @if (selectionMode)
+                    {
+                        <span class="select-check @(selected ? "on" : null)" aria-hidden="true"><Icon Name="check" Size="15" /></span>
                     }
                     @if (run is { State: Application.Services.DownloadRunState.Running })
                     {
@@ -178,12 +251,21 @@ else
                 <div class="panel-header">
                     <div>
                         <span class="eyebrow">@(playlist.IsManualImport ? "Imported" : playlist.SourcePlatform.ToString())</span>
-                        <h2><a href="/playlists/@playlist.Id">@playlist.Name</a></h2>
+                        <h2>
+                            <a href="@(selectionMode ? null : $"/playlists/{playlist.Id}")"
+                               role="@(selectionMode ? "button" : null)"
+                               tabindex="@(selectionMode ? "0" : null)"
+                               aria-pressed="@(selectionMode ? (selected ? "true" : "false") : null)"
+                               @onclick="() => ToggleSelectionIfSelecting(playlist.Id)"
+                               @onkeydown="e => OnSelectionKeyDown(e, playlist.Id)">@playlist.Name</a>
+                        </h2>
                     </div>
-                    <CardMenu Label="Playlist actions">
-                        <button class="danger" title="Remove this playlist"
-                                @onclick="() => AskDelete(playlist)"><Icon Name="trash" Size="14" /> Remove</button>
-                    </CardMenu>
+                    @if (!selectionMode)
+                    {
+                        <CardMenu Label="Playlist actions">
+                            @PlaylistMenu(playlist)
+                        </CardMenu>
+                    }
                 </div>
                 <div class="card-tags">
                     <span class="quality-badge">@playlist.TrackCount track@(playlist.TrackCount == 1 ? "" : "s")</span>
@@ -378,25 +460,45 @@ else
 
                     @if (accountPlaylists is not null)
                     {
+                        <div class="account-list-toolbar">
+                            <label class="selection-all">
+                                <input type="checkbox" checked="@AllAccountPlaylistsSelected"
+                                       @onchange="ToggleAllAccountPlaylists" />
+                                <span>Select all</span>
+                            </label>
+                            <span class="text-muted">@accountSelection.Count selected</span>
+                            <button class="btn-modern secondary small" @onclick="ImportSelectedAccountPlaylists"
+                                    disabled="@(busy || accountSelection.Count == 0)">
+                                @(busy ? "Importing…" : accountSelection.Count == 0
+                                    ? "Import selected"
+                                    : $"Import {accountSelection.Count} selected")
+                            </button>
+                        </div>
                         <div class="table-wrap">
-                            <table class="modern-table">
+                            <table class="modern-table account-playlist-table">
                                 <thead>
                                     <tr>
+                                        <th class="col-select"></th>
                                         <th>Playlist</th>
-                                        <th>Owner</th>
-                                        <th>Tracks</th>
+                                        <th class="col-owner">Owner</th>
+                                        <th class="col-tracks">Tracks</th>
                                         <th>Status</th>
-                                        <th></th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     @foreach (var pl in accountPlaylists)
                                     {
                                         var saved = savedAccountIds.Contains(pl.Id);
-                                        <tr>
+                                        var selected = accountSelection.Contains(pl.Id);
+                                        <tr class="@(selected ? "selected" : null)">
+                                            <td class="col-select">
+                                                <input type="checkbox" checked="@selected"
+                                                       @onchange="e => ToggleAccountPlaylist(pl.Id, e)"
+                                                       aria-label="Select @pl.Name" />
+                                            </td>
                                             <td><strong>@pl.Name</strong></td>
-                                            <td class="text-muted">@(pl.Owner ?? "-")</td>
-                                            <td class="text-muted">@pl.TrackCount</td>
+                                            <td class="text-muted col-owner">@(pl.Owner ?? "-")</td>
+                                            <td class="text-muted col-tracks">@pl.TrackCount</td>
                                             <td>
                                                 @if (saved)
                                                 {
@@ -406,13 +508,6 @@ else
                                                 {
                                                     <StatusPill Variant="neutral">new</StatusPill>
                                                 }
-                                            </td>
-                                            <td>
-                                                <button class="btn-modern secondary" @onclick="() => ImportAccountPlaylist(pl)" disabled="@busy">
-                                                    @(busy && importingId == pl.Id
-                                                        ? "Importing…"
-                                                        : saved ? "Update" : "Import")
-                                                </button>
                                             </td>
                                         </tr>
                                     }
@@ -487,6 +582,14 @@ else
     </div>
 }
 
+@if (showImportResult)
+{
+    <ImportResultDialog Show="true"
+                        Results="importResults"
+                        Failures="importFailures"
+                        OnClose="CloseImportResult" />
+}
+
 @if (showPublishPanel)
 {
     <div class="wizard-overlay" @onclick="ClosePublishPanel">
@@ -497,9 +600,8 @@ else
                     <h2>Send playlists to your servers</h2>
                     <p class="text-muted">
                         The quick path: each playlist gets its own sync job with the same
-                        name, publishing to the servers you tick. Need schedules, path
-                        remaps, an M3U file or different targets per playlist? Do it on
-                        the Sync jobs page.
+                        name, schedule and targets. Open a job afterwards for path remaps
+                        or different targets per playlist.
                     </p>
                 </div>
                 <button class="icon-button" title="Close" @onclick="ClosePublishPanel"><Icon Name="x" Size="18" /></button>
@@ -509,14 +611,7 @@ else
                 {
                     <div class="result-box error">@publishError</div>
                 }
-                @if (publishProfiles.Count == 0)
-                {
-                    <div class="hint-box">
-                        No media server profiles yet. Create one under
-                        <a href="/settings#media-servers">Settings, Media servers</a>, then come back.
-                    </div>
-                }
-                else if (playlists.Count == 0)
+                @if (playlists.Count == 0)
                 {
                     <div class="hint-box">
                         No playlists saved yet. Add one first, then come back to publish it.
@@ -531,7 +626,12 @@ else
                 }
                 else
                 {
-                    <h3>Playlists</h3>
+                    <div class="section-title-row">
+                        <h3>Playlists</h3>
+                        <button class="link-button" @onclick="ToggleAllPublishPlaylists">
+                            @(AllPublishPlaylistsSelected ? "Clear" : "Select all")
+                        </button>
+                    </div>
                     <div class="publish-list">
                         @foreach (var playlist in publishablePlaylists)
                         {
@@ -557,11 +657,42 @@ else
                     {
                         <p class="publish-option-note">
                             @alreadyPublishedCount playlist@(alreadyPublishedCount == 1 ? "" : "s")
-                            already has a sync job and @(alreadyPublishedCount == 1 ? "is" : "are") not listed again.
+                            already @(alreadyPublishedCount == 1 ? "has" : "have") a sync job and
+                            @(alreadyPublishedCount == 1 ? "is" : "are") not listed again.
                         </p>
                     }
-                    <h3>Send to</h3>
+                    @if (publishProfiles.Count == 0)
+                    {
+                        <div class="hint-box">
+                            No media server profiles yet. Create one under
+                            <a href="/settings#media-servers">Settings, Media servers</a>,
+                            or tick M3U file below to publish to disk only.
+                        </div>
+                    }
+                    <div class="section-title-row">
+                        <h3>Send to</h3>
+                        <a class="link-button" href="/settings#media-servers">
+                            <Icon Name="plus" Size="13" /> Add profile
+                        </a>
+                    </div>
                     <div class="publish-list">
+                        <label class="publish-option @(publishM3uEnabled ? "on" : null)">
+                            <input type="checkbox" checked="@publishM3uEnabled"
+                                   @onchange="e => publishM3uEnabled = e.Value is true" />
+                            <span class="publish-option-body">
+                                <strong><Icon Name="list-music" Size="15" /> M3U file</strong>
+                                <small>
+                                    @if (string.IsNullOrWhiteSpace(publishM3uFolder))
+                                    {
+                                        <span class="sync-warn">Set the Playlist output folder in Settings first.</span>
+                                    }
+                                    else
+                                    {
+                                        <span>One .m3u per playlist in <span class="text-muted">@publishM3uFolder</span></span>
+                                    }
+                                </small>
+                            </span>
+                        </label>
                         @foreach (var profile in publishProfiles)
                         {
                             var on = publishProfileIds.Contains(profile.Id);
@@ -575,15 +706,25 @@ else
                             </label>
                         }
                     </div>
+                    <div class="publish-schedule">
+                        <SchedulePicker Label="Schedule for every job" @bind-Value="publishSchedule" />
+                        <p class="publish-option-note">
+                            Applies to every job created here. Change one later on the
+                            <a href="/sync-jobs">Sync jobs</a> page.
+                        </p>
+                    </div>
                 }
             </div>
             <div class="wizard-footer">
-                <button class="btn-modern ghost" @onclick="ClosePublishPanel">Cancel</button>
-                <span></span>
-                <button class="btn-modern primary" @onclick="CreatePublishJobs"
-                        disabled="@(publishing || !CanPublish)">
-                    @(publishing ? "Creating…" : PublishButtonLabel)
-                </button>
+                <div class="flex-actions">
+                    <button class="btn-modern ghost" @onclick="ClosePublishPanel">Cancel</button>
+                </div>
+                <div class="wizard-actions">
+                    <button class="btn-modern primary" @onclick="CreatePublishJobs"
+                            disabled="@(publishing || !CanPublish)">
+                        @(publishing ? "Creating…" : PublishButtonLabel)
+                    </button>
+                </div>
             </div>
         </div>
     </div>
@@ -610,6 +751,18 @@ else
     </ConfirmDialog>
 }
 
+@if (bulkDeleteIds is { Count: > 0 })
+{
+    <ConfirmDialog Show="true"
+                   Eyebrow="Remove playlists"
+                   Title=@($"Remove {bulkDeleteIds.Count} playlists?")
+                   Message="The playlists and their track lists leave MelodyBridge. Your music files stay on disk."
+                   ConfirmLabel=@($"Remove {bulkDeleteIds.Count} playlists")
+                   Busy="busy"
+                   OnConfirm="ConfirmBulkDelete"
+                   OnCancel="CancelBulkDelete" />
+}
+
 @code {
     private List<PlaylistEntity> playlists = new();
     private Dictionary<string, (int downloaded, int failed, int total, long sizeBytes)> downloadStats = new();
@@ -622,6 +775,11 @@ else
     private string newTargetDirectory = string.Empty;
     /// <summary>Card grid or compact rows, kept in settings across visits.</summary>
     private string playlistsView = "cards";
+    /// <summary>Sort order for the saved playlists, kept in settings.</summary>
+    private string playlistSort = "recent";
+    /// <summary>Selection mode turns the toolbar into bulk actions.</summary>
+    private bool selectionMode;
+    private readonly HashSet<string> selectedPlaylistIds = new(StringComparer.Ordinal);
     /// <summary>One folder per playlist under the music path (default on).</summary>
     private bool playlistFolders = true;
     private string resolvedDefaultMusicPath = "/music";
@@ -637,9 +795,12 @@ else
 
     private List<UserPlaylist>? accountPlaylists;
     private string accountListProvider = string.Empty;
-    private string? importingId;
     private string? accountError;
     private string? fileImportError;
+    private readonly HashSet<string> accountSelection = new(StringComparer.Ordinal);
+    private bool showImportResult;
+    private List<ImportedPlaylistResult> importResults = new();
+    private List<string> importFailures = new();
 
     /// <summary>The import modal's two halves: connected accounts, or files.</summary>
     private static readonly TabStrip.Tab[] ImportTabs =
@@ -656,9 +817,9 @@ else
     private Timer? refreshTimer;
 
     // Quick publish: one sync job per ticked playlist, named after it,
-    // targeting the ticked media server profiles. Playlists that already
-    // have a job are hidden, so the list does not offer the same playlist
-    // again; creation re-reads both lists for changes made meanwhile.
+    // with the ticked schedule and targets. Playlists that already have a
+    // job are hidden, so the list does not offer the same playlist again;
+    // creation re-reads both lists for changes made meanwhile.
     private bool showPublishPanel;
     private bool publishing;
     private string publishMessage = string.Empty;
@@ -667,13 +828,29 @@ else
     private readonly HashSet<string> publishPlaylistIds = new(StringComparer.Ordinal);
     private readonly HashSet<string> publishProfileIds = new(StringComparer.Ordinal);
     private HashSet<string> jobPlaylistIds = new(StringComparer.Ordinal);
+    private bool publishM3uEnabled;
+    private string publishM3uFolder = "/app/playlists";
+    private ScanSchedule publishSchedule = ScanSchedule.Manual;
 
     private List<PlaylistEntity> publishablePlaylists
         => playlists.Where(p => !jobPlaylistIds.Contains(p.Id)).ToList();
 
     private int alreadyPublishedCount => playlists.Count - publishablePlaylists.Count;
 
-    private bool CanPublish => publishPlaylistIds.Count > 0 && publishProfileIds.Count > 0;
+    private bool AllPublishPlaylistsSelected =>
+        publishablePlaylists.Count > 0
+        && publishablePlaylists.All(p => publishPlaylistIds.Contains(p.Id));
+
+    private bool AllAccountPlaylistsSelected =>
+        accountPlaylists is { Count: > 0 }
+        && accountPlaylists.All(p => accountSelection.Contains(p.Id));
+
+    private bool AllSelected =>
+        playlists.Count > 0 && playlists.All(p => selectedPlaylistIds.Contains(p.Id));
+
+    private bool CanPublish => publishPlaylistIds.Count > 0
+        && (publishProfileIds.Count > 0 || publishM3uEnabled)
+        && (!publishM3uEnabled || !string.IsNullOrWhiteSpace(publishM3uFolder));
 
     private string PublishButtonLabel => publishPlaylistIds.Count switch
     {
@@ -689,6 +866,9 @@ else
         publishPlaylistIds.Clear();
         publishProfileIds.Clear();
         publishing = false;
+        publishM3uEnabled = false;
+        publishSchedule = ScanSchedule.Manual;
+        publishM3uFolder = await Settings.GetAsync("playlist_path", "/app/playlists");
         publishProfiles = (await ServerProfiles.GetAllAsync()).ToList();
         jobPlaylistIds = await QuickSyncJobs.PlaylistsWithJobAsync(DbFactory);
         showPublishPanel = true;
@@ -712,6 +892,17 @@ else
         else publishProfileIds.Remove(profileId);
     }
 
+    private void ToggleAllPublishPlaylists()
+    {
+        if (AllPublishPlaylistsSelected)
+        {
+            publishPlaylistIds.Clear();
+            return;
+        }
+        foreach (var playlist in publishablePlaylists)
+            publishPlaylistIds.Add(playlist.Id);
+    }
+
     private async Task CreatePublishJobs()
     {
         if (!CanPublish) return;
@@ -725,9 +916,11 @@ else
             publishProfiles = (await ServerProfiles.GetAllAsync()).ToList();
             var currentIds = publishProfiles.Select(p => p.Id).ToHashSet(StringComparer.Ordinal);
             var removed = publishProfileIds.RemoveWhere(id => !currentIds.Contains(id));
-            if (publishProfileIds.Count == 0)
+            if (publishProfileIds.Count == 0 && !publishM3uEnabled)
             {
-                publishError = "The selected media server profile no longer exists. Pick another one.";
+                publishError = publishProfiles.Count == 0
+                    ? "Select at least one target: an M3U file, or a media server profile."
+                    : "The selected media server profile no longer exists. Pick another one or tick M3U file.";
                 return;
             }
             if (removed > 0)
@@ -743,8 +936,9 @@ else
                 .Where(p => publishPlaylistIds.Contains(p.Id))
                 .Select(p => (p.Id, p.Name))
                 .ToList();
+            var options = new QuickSyncOptions(publishSchedule, publishM3uEnabled, publishM3uFolder);
             var result = await QuickSyncJobs.CreateAsync(
-                DbFactory, ServerProfiles, selected, publishProfileIds.ToList());
+                DbFactory, ServerProfiles, selected, publishProfileIds.ToList(), options);
 
             var message = result.Created.Count switch
             {
@@ -752,6 +946,10 @@ else
                 1 => $"Created the sync job '{result.Created[0].Name}'",
                 _ => $"Created {result.Created.Count} sync jobs, one per playlist",
             };
+            if (publishSchedule.Mode != ScanScheduleMode.Manual && result.Created.Count > 0)
+                message += $" with a {publishSchedule.Describe()} schedule";
+            if (publishM3uEnabled && result.Created.Count > 0)
+                message += " including an M3U file";
             if (result.Skipped.Count > 0)
             {
                 message += ". Skipped: " + string.Join("; ",
@@ -804,13 +1002,326 @@ else
                 : $"Removed '{confirmDeleteName}'. The music files stay on disk.";
             messageIsError = false;
             confirmDeleteId = null;
-            await Load();
+            await Load(showSkeleton: false);
         }
         finally { busy = false; }
     }
 
     /// <summary>Quality presets shared with the settings page: one list, one truth.</summary>
     private static string QualityLabel(string preferredFormat) => QualityPresets.LabelFor(preferredFormat);
+
+    /// <summary>The page order; the toolbar writes the setting and this
+    /// reads it, so cards and rows never sort differently.</summary>
+    private List<PlaylistEntity> sortedPlaylists => playlistSort switch
+    {
+        "name" => playlists
+            .OrderBy(p => p.Name, StringComparer.CurrentCultureIgnoreCase)
+            .ToList(),
+        "tracks" => playlists
+            .OrderByDescending(p => p.TrackCount)
+            .ThenBy(p => p.Name, StringComparer.CurrentCultureIgnoreCase)
+            .ToList(),
+        _ => playlists
+            .OrderByDescending(p => p.LastSyncAt ?? DateTime.MinValue)
+            .ThenBy(p => p.Name, StringComparer.CurrentCultureIgnoreCase)
+            .ToList(),
+    };
+
+    private async Task OnSortChanged(ChangeEventArgs e)
+    {
+        var value = e.Value?.ToString() ?? "recent";
+        playlistSort = value is "name" or "tracks" ? value : "recent";
+        await Settings.SetAsync("playlists_sort", playlistSort);
+    }
+
+    private void EnterSelection()
+    {
+        selectionMode = true;
+        selectedPlaylistIds.Clear();
+    }
+
+    private void ExitSelection()
+    {
+        selectionMode = false;
+        selectedPlaylistIds.Clear();
+    }
+
+    private void ToggleSelectionIfSelecting(string playlistId)
+    {
+        if (selectionMode) ToggleSelection(playlistId);
+    }
+
+    /// <summary>A card cover or title acts as a selection button in
+    /// selection mode, so keyboard users can toggle it too.</summary>
+    private void OnSelectionKeyDown(KeyboardEventArgs e, string playlistId)
+    {
+        if (!selectionMode) return;
+        if (e.Key is "Enter" or " " or "Spacebar")
+            ToggleSelection(playlistId);
+    }
+
+    private void ToggleSelection(string playlistId)
+    {
+        if (!selectedPlaylistIds.Remove(playlistId))
+            selectedPlaylistIds.Add(playlistId);
+    }
+
+    private void ToggleSelection(string playlistId, ChangeEventArgs e)
+    {
+        if (e.Value is true) selectedPlaylistIds.Add(playlistId);
+        else selectedPlaylistIds.Remove(playlistId);
+    }
+
+    private void ToggleSelectAll(ChangeEventArgs e)
+    {
+        if (e.Value is true)
+        {
+            foreach (var playlist in playlists)
+                selectedPlaylistIds.Add(playlist.Id);
+        }
+        else
+        {
+            selectedPlaylistIds.Clear();
+        }
+    }
+
+    /// <summary>The card and row menu: the everyday actions, then Remove.</summary>
+    private RenderFragment PlaylistMenu(PlaylistEntity playlist) => @<text>
+        <button title="@(playlist.IsManualImport ? "Imported playlists update by re-uploading their file" : "Fetch the latest track list from the source")"
+                disabled="@(busy || playlist.IsManualImport)"
+                @onclick="() => RefreshPlaylist(playlist)">
+            <Icon Name="refresh" Size="14" /> Refresh
+        </button>
+        <button title="Start a download run for every track without a local file"
+                disabled="@busy" @onclick="() => DownloadMissing(playlist)">
+            <Icon Name="download" Size="14" /> Download missing
+        </button>
+        <button title="Download this playlist's track list as CSV"
+                disabled="@busy" @onclick="() => ExportPlaylist(playlist)">
+            <Icon Name="file-down" Size="14" /> Export CSV
+        </button>
+        <div class="card-menu-sep"></div>
+        <button class="danger" title="Remove this playlist"
+                disabled="@busy" @onclick="() => AskDelete(playlist)">
+            <Icon Name="trash" Size="14" /> Remove
+        </button>
+    </text>;
+
+    private async Task RefreshPlaylist(PlaylistEntity playlist)
+    {
+        if (busy || playlist.IsManualImport) return;
+        busy = true;
+        Notifications.Info($"Refreshing '{playlist.Name}'…");
+        StateHasChanged();
+        try
+        {
+            await Store.RefreshAsync(playlist.Id);
+            await Load(showSkeleton: false);
+            Notifications.Success($"Refreshed '{playlist.Name}'.");
+        }
+        catch (Exception ex)
+        {
+            Notifications.Error($"Could not refresh '{playlist.Name}': {ex.Message}");
+        }
+        finally
+        {
+            busy = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task DownloadMissing(PlaylistEntity playlist)
+    {
+        if (Coordinator.IsActive(playlist.Id))
+        {
+            Notifications.Info($"'{playlist.Name}' is already downloading.");
+            return;
+        }
+        if (!await Coordinator.HasPendingWorkAsync(playlist.Id))
+        {
+            Notifications.Success($"'{playlist.Name}' has nothing left to download.");
+            return;
+        }
+        Coordinator.Start(playlist.Id);
+        Notifications.Success($"Downloading missing tracks for '{playlist.Name}'.");
+        StateHasChanged();
+    }
+
+    private async Task ExportPlaylist(PlaylistEntity playlist)
+    {
+        busy = true;
+        StateHasChanged();
+        try
+        {
+            await DownloadCsvAsync(playlist);
+            Notifications.Success($"Exported '{playlist.Name}'.");
+        }
+        catch (Exception ex)
+        {
+            Notifications.Error($"Could not export '{playlist.Name}': {ex.Message}");
+        }
+        finally
+        {
+            busy = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task DownloadCsvAsync(PlaylistEntity playlist)
+    {
+        var bytes = await Store.ExportCsvAsync(playlist.Id);
+        var safeName = string.Concat(playlist.Name.Select(c =>
+            Path.GetInvalidFileNameChars().Contains(c) ? '_' : c));
+        await JS.InvokeVoidAsync("melody.downloadFile", $"{safeName}.csv", "text/csv", bytes);
+    }
+
+    private async Task RefreshSelected()
+    {
+        var selected = playlists.Where(p => selectedPlaylistIds.Contains(p.Id)).ToList();
+        if (selected.Count == 0 || busy) return;
+        busy = true;
+        StateHasChanged();
+        var refreshed = 0;
+        var skipped = 0;
+        var failed = 0;
+        Notifications.Info($"Refreshing {selected.Count} playlist{(selected.Count == 1 ? "" : "s")}…");
+        try
+        {
+            foreach (var playlist in selected)
+            {
+                if (playlist.IsManualImport)
+                {
+                    skipped++;
+                    continue;
+                }
+                try
+                {
+                    await Store.RefreshAsync(playlist.Id);
+                    refreshed++;
+                }
+                catch
+                {
+                    failed++;
+                }
+            }
+            await Load(showSkeleton: false);
+        }
+        finally
+        {
+            busy = false;
+            StateHasChanged();
+        }
+        var summary = $"Refreshed {refreshed} playlist{(refreshed == 1 ? "" : "s")}";
+        if (skipped > 0) summary += $"; {skipped} import{(skipped == 1 ? "" : "s")} skipped";
+        if (failed > 0) summary += $"; {failed} failed";
+        if (failed > 0) Notifications.Warn(summary + ".");
+        else Notifications.Success(summary + ".");
+    }
+
+    private async Task DownloadMissingSelected()
+    {
+        var selected = playlists.Where(p => selectedPlaylistIds.Contains(p.Id)).ToList();
+        if (selected.Count == 0) return;
+        var started = 0;
+        var empty = 0;
+        var active = 0;
+        foreach (var playlist in selected)
+        {
+            if (Coordinator.IsActive(playlist.Id))
+            {
+                active++;
+                continue;
+            }
+            if (!await Coordinator.HasPendingWorkAsync(playlist.Id))
+            {
+                empty++;
+                continue;
+            }
+            Coordinator.Start(playlist.Id);
+            started++;
+        }
+        var summary = $"Started downloads for {started} playlist{(started == 1 ? "" : "s")}";
+        if (empty > 0) summary += $"; {empty} had nothing missing";
+        if (active > 0) summary += $"; {active} already running";
+        if (started > 0) Notifications.Success(summary + ".");
+        else Notifications.Info(summary + ".");
+        StateHasChanged();
+    }
+
+    private async Task ExportSelected()
+    {
+        var selected = playlists.Where(p => selectedPlaylistIds.Contains(p.Id)).ToList();
+        if (selected.Count == 0 || busy) return;
+        busy = true;
+        StateHasChanged();
+        var exported = 0;
+        try
+        {
+            if (selected.Count == 1)
+            {
+                await DownloadCsvAsync(selected[0]);
+                exported = 1;
+            }
+            else
+            {
+                var bytes = await Store.ExportCsvZipAsync(selected.Select(p => p.Id));
+                await JS.InvokeVoidAsync("melody.downloadFile", "playlists-csv.zip", "application/zip", bytes);
+                exported = selected.Count;
+            }
+        }
+        catch
+        {
+            // The toast below reports how many made it.
+        }
+        finally
+        {
+            busy = false;
+            StateHasChanged();
+        }
+        if (exported == selected.Count)
+            Notifications.Success(selected.Count == 1
+                ? $"Exported '{selected[0].Name}'."
+                : $"Exported {exported} playlists as a zip.");
+        else
+            Notifications.Warn($"Exported {exported} of {selected.Count} playlists.");
+    }
+
+    private List<string>? bulkDeleteIds;
+
+    private void AskBulkDelete()
+    {
+        if (selectedPlaylistIds.Count == 0) return;
+        bulkDeleteIds = playlists
+            .Where(p => selectedPlaylistIds.Contains(p.Id))
+            .Select(p => p.Id)
+            .ToList();
+    }
+
+    private void CancelBulkDelete()
+    {
+        bulkDeleteIds = null;
+        StateHasChanged();
+    }
+
+    private async Task ConfirmBulkDelete()
+    {
+        if (bulkDeleteIds is not { Count: > 0 } ids) return;
+        busy = true;
+        try
+        {
+            foreach (var id in ids)
+                await Store.DeleteAsync(id, deleteFiles: false);
+            Notifications.Success($"Removed {ids.Count} playlist{(ids.Count == 1 ? "" : "s")}. The music files stay on disk.");
+            bulkDeleteIds = null;
+            ExitSelection();
+            await Load(showSkeleton: false);
+        }
+        finally
+        {
+            busy = false;
+            StateHasChanged();
+        }
+    }
 
     /// <summary>The default from Settings, fixed once at load: the hint
     /// must not rewrite itself while the user changes the picker.</summary>
@@ -845,6 +1356,8 @@ else
         playlistFolders = await Settings.GetBoolAsync("playlist_folders", true);
         playlistsView = await Settings.GetAsync("playlists_view", "cards");
         if (playlistsView is not ("cards" or "rows")) playlistsView = "cards";
+        playlistSort = await Settings.GetAsync("playlists_sort", "recent");
+        if (playlistSort is not ("recent" or "name" or "tracks")) playlistSort = "recent";
         // Live badge refresh while any run is active.
         refreshTimer = new Timer(_ => InvokeAsync(async () =>
         {
@@ -863,12 +1376,18 @@ else
         }
     }
 
-    private async Task Load()
+    private async Task Load(bool showSkeleton = true)
     {
-        loading = true;
+        if (showSkeleton) loading = true;
         playlists = await Store.GetAllAsync();
         downloadStats = await Store.GetDownloadStatsAsync();
-        loading = false;
+        // A playlist deleted in another tab must not stay selected.
+        if (selectedPlaylistIds.Count > 0)
+        {
+            var liveIds = playlists.Select(p => p.Id).ToHashSet(StringComparer.Ordinal);
+            selectedPlaylistIds.RemoveWhere(id => !liveIds.Contains(id));
+        }
+        if (showSkeleton) loading = false;
     }
 
     private void ShowAddForm()
@@ -892,6 +1411,7 @@ else
         showAccountPanel = true;
         accountError = null;
         accountPlaylists = null;
+        accountSelection.Clear();
         importTab = "accounts";
         _ = LoadAccountStatusAsync();
     }
@@ -920,6 +1440,7 @@ else
     {
         busy = true;
         accountError = null;
+        accountSelection.Clear();
         try
         {
             var account = providerName switch
@@ -948,14 +1469,38 @@ else
         }
     }
 
+    private void ToggleAccountPlaylist(string playlistId, ChangeEventArgs e)
+    {
+        if (e.Value is true) accountSelection.Add(playlistId);
+        else accountSelection.Remove(playlistId);
+    }
+
+    private void ToggleAllAccountPlaylists(ChangeEventArgs e)
+    {
+        accountSelection.Clear();
+        if (e.Value is true && accountPlaylists is not null)
+        {
+            foreach (var playlist in accountPlaylists)
+                accountSelection.Add(playlist.Id);
+        }
+    }
+
     private async Task ImportLiked(string providerName)
     {
         busy = true;
         accountError = null;
+        importFailures.Clear();
         try
         {
+            var wasSaved = LikedAlreadySaved(providerName);
             var added = await Store.AddOrRefreshLikedAsync(providerName, TargetOrNull());
-            Navigation.NavigateTo($"/playlists/{added.Id}");
+            importResults =
+            [
+                new ImportedPlaylistResult(added.Id, added.Name, added.TrackCount, !wasSaved),
+            ];
+            showAccountPanel = false;
+            showImportResult = true;
+            await Load(showSkeleton: false);
         }
         catch (Exception ex)
         {
@@ -968,34 +1513,72 @@ else
         }
     }
 
-    private async Task ImportAccountPlaylist(UserPlaylist playlist)
+    /// <summary>
+    /// Import every ticked account playlist in one pass. Each result keeps
+    /// its id so the success dialog can offer an Edit link; a failed
+    /// playlist is reported without stopping the rest.
+    /// </summary>
+    private async Task ImportSelectedAccountPlaylists()
     {
+        if (accountPlaylists is null || accountSelection.Count == 0 || busy) return;
+        var selected = accountPlaylists
+            .Where(p => accountSelection.Contains(p.Id))
+            .ToList();
         busy = true;
-        importingId = playlist.Id;
         accountError = null;
+        importFailures.Clear();
+        importResults = new List<ImportedPlaylistResult>();
         try
         {
-            // Both Spotify connections can import through the plain add
-            // flow: the store prefers the account when one is connected,
-            // and private playlists then work too.
-            var url = accountListProvider == YouTubeAccountProvider.ProviderName
-                ? $"https://www.youtube.com/playlist?list={playlist.Id}"
-                : $"https://open.spotify.com/playlist/{playlist.Id}";
-            var (added, newlySaved) = await Store.AddOrRefreshDetailedAsync(url, TargetOrNull());
-            message = newlySaved
-                ? $"Saved '{added.Name}' with {added.TrackCount} tracks."
-                : $"'{added.Name}' was already saved; updated it ({added.TrackCount} tracks).";
-            Navigation.NavigateTo($"/playlists/{added.Id}");
-        }
-        catch (Exception ex)
-        {
-            accountError = ex.Message;
+            foreach (var playlist in selected)
+            {
+                // Both Spotify connections can import through the plain add
+                // flow: the store prefers the account when one is connected,
+                // and private playlists then work too.
+                var url = accountListProvider == YouTubeAccountProvider.ProviderName
+                    ? $"https://www.youtube.com/playlist?list={playlist.Id}"
+                    : $"https://open.spotify.com/playlist/{playlist.Id}";
+                try
+                {
+                    var (added, newlySaved) = await Store.AddOrRefreshDetailedAsync(url, TargetOrNull());
+                    importResults.Add(new ImportedPlaylistResult(
+                        added.Id, added.Name, added.TrackCount, newlySaved));
+                }
+                catch (Exception ex)
+                {
+                    importFailures.Add($"{playlist.Name}: {ex.Message}");
+                }
+            }
+
+            savedAccountIds = await Store.GetSavedExternalIdsAsync(
+                accountListProvider == YouTubeAccountProvider.ProviderName
+                    ? Platform.YouTubeMusic
+                    : Platform.Spotify);
+            accountSelection.Clear();
+            await Load(showSkeleton: false);
+
+            if (importResults.Count > 0)
+            {
+                showAccountPanel = false;
+                showImportResult = true;
+            }
+            else if (importFailures.Count > 0)
+            {
+                accountError = string.Join(" ", importFailures);
+            }
         }
         finally
         {
             busy = false;
             StateHasChanged();
         }
+    }
+
+    private void CloseImportResult()
+    {
+        showImportResult = false;
+        importResults = new List<ImportedPlaylistResult>();
+        importFailures.Clear();
     }
 
     private string? TargetOrNull()

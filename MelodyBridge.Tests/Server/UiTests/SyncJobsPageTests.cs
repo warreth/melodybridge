@@ -330,6 +330,7 @@ public class SyncJobsPageTests
     public void EditButton_OpensWizard_HydratedWithJobValues()
     {
         var cut = _ctx.Render<SyncJobs>();
+        cut.FindAll("button.card-menu-trigger").First().Click();
         var editBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Edit");
         editBtn.Click();
 
@@ -343,6 +344,7 @@ public class SyncJobsPageTests
     public void EditJob_SaveUpdates_ExistingEntity_InDb()
     {
         var cut = _ctx.Render<SyncJobs>();
+        cut.FindAll("button.card-menu-trigger").First().Click();
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Edit").Click();
 
         // walk to the review step and save (step 1 needs a source, and

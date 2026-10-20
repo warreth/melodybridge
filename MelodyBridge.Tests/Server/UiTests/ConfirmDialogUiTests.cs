@@ -123,6 +123,7 @@ public class ConfirmDialogUiTests
         cut.WaitForAssertion(() =>
             Assert.That(cut.Markup, Does.Contain("Weekly push")), TimeSpan.FromSeconds(3));
 
+        cut.Find("button.card-menu-trigger").Click();
         cut.FindAll("button").Single(b => b.TextContent.Trim() == "Delete").Click();
         Assert.That(cut.Markup, Does.Contain("Delete 'Weekly push'?"),
             "the dialog names the job");

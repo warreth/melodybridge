@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using System.Runtime.CompilerServices;
 using System.Text;
 using Microsoft.EntityFrameworkCore;
@@ -143,6 +144,52 @@ public class PlaylistCsvTests
             var cells = SplitCsvRow(lines[1].TrimEnd('\r'));
             Assert.That(cells[1], Is.EqualTo("Love, \"Honestly\""));
             Assert.That(cells[2], Is.EqualTo("Some, Artist"));
+        }
+        finally { TryDelete(dbPath); }
+    }
+
+    [Test]
+    public async Task ExportCsvZipAsync_PutsEachPlaylistInItsOwnEntry()
+    {
+        var dbPath = NewDbPath();
+        try
+        {
+            var store = await NewStoreAsync(dbPath);
+            var factory = await NewDbFactoryOnly(dbPath);
+            await using (var db = factory.CreateDbContext())
+            {
+                db.Playlists.Add(new PlaylistEntity
+                {
+                    Id = "zip-1",
+                    Name = "Jazz",
+                    SourceUrl = "stub:zip-1",
+                    Tracks = new List<TrackEntity>
+                    {
+                        new() { MelodyId = "z1", Title = "Blue", Position = 0, DownloadStatus = "downloaded" },
+                    },
+                });
+                db.Playlists.Add(new PlaylistEntity
+                {
+                    Id = "zip-2",
+                    Name = "Jazz",
+                    SourceUrl = "stub:zip-2",
+                    Tracks = new List<TrackEntity>
+                    {
+                        new() { MelodyId = "z2", Title = "Green", Position = 0, DownloadStatus = "pending" },
+                    },
+                });
+                await db.SaveChangesAsync();
+            }
+
+            var bytes = await store.ExportCsvZipAsync(new[] { "zip-1", "zip-2" });
+
+            using var archive = new ZipArchive(new MemoryStream(bytes), ZipArchiveMode.Read);
+            var names = archive.Entries.Select(e => e.FullName).ToList();
+            Assert.That(names, Is.EqualTo(new[] { "Jazz.csv", "Jazz (2).csv" }),
+                "two playlists with the same name get distinct entries");
+            using var reader = new StreamReader(archive.Entries[1].Open(), Encoding.UTF8);
+            var text = await reader.ReadToEndAsync();
+            Assert.That(text, Does.Contain("Green"), "each entry carries its own track list");
         }
         finally { TryDelete(dbPath); }
     }

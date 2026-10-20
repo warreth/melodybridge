@@ -1,19 +1,27 @@
-@* Card action menu: the "..." dropdown every card shares. Uses the
-   native details element, so it works without JS interop and stays
-   testable in bUnit. Clicking any item closes the menu. *@
-<details class="card-menu">
-    <summary class="card-menu-trigger" title="@Label" aria-label="@Label">
+@* Card action menu: the "..." dropdown every card shares. A plain
+   Blazor toggle instead of <details>, so an item click really closes it
+   without JS interop and the state stays testable in bUnit. *@
+<div class="card-menu @(_open ? "open" : null)">
+    <button type="button" class="card-menu-trigger" title="@Label" aria-label="@Label"
+            aria-expanded="@(_open ? "true" : "false")" @onclick="Toggle">
         <Icon Name="dots" Size="18" />
-    </summary>
-    <div class="card-menu-items" @onclick="Close">
-        @ChildContent
-    </div>
-</details>
+    </button>
+    @if (_open)
+    {
+        <div class="card-menu-items" @onclick="Close">
+            @ChildContent
+        </div>
+    }
+</div>
 
 @code {
     [Parameter] public RenderFragment? ChildContent { get; set; }
     [Parameter] public string Label { get; set; } = "More actions";
 
-    /// <summary>Any item click closes the menu; the summary reopens it.</summary>
-    private void Close() { }
+    private bool _open;
+
+    private void Toggle() => _open = !_open;
+
+    /// <summary>Any item click closes the menu; the trigger reopens it.</summary>
+    private void Close() => _open = false;
 }

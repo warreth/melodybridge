@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using System.Text;
 using System.Text.Json;
 using MelodyBridge.Core;
@@ -65,6 +66,40 @@ internal sealed class PlaylistTransfer
 
         // bom first: without it excel guesses a legacy codepage and mangles titles
         return [.. Encoding.UTF8.GetPreamble(), .. Encoding.UTF8.GetBytes(sb.ToString())];
+    }
+
+    /// <summary>
+    /// Several playlists' CSVs in one archive, for the bulk export action.
+    /// Browsers block a burst of automatic downloads, so one zip is the
+    /// honest way to hand over more than one file at a time.
+    /// </summary>
+    public async Task<byte[]> ExportCsvZipAsync(
+        IEnumerable<string> playlistIds, CancellationToken ct = default)
+    {
+        using var buffer = new MemoryStream();
+        using (var archive = new ZipArchive(buffer, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            var usedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var playlistId in playlistIds.Distinct(StringComparer.Ordinal))
+            {
+                var entity = await _queries.GetByIdAsync(playlistId, ct);
+                if (entity is null) continue;
+
+                var bytes = await ExportCsvAsync(playlistId, ct);
+                var baseName = string.Concat(entity.Name.Select(c =>
+                    Path.GetInvalidFileNameChars().Contains(c) ? '_' : c));
+                if (string.IsNullOrWhiteSpace(baseName)) baseName = "playlist";
+
+                var name = baseName;
+                for (var suffix = 2; !usedNames.Add(name); suffix++)
+                    name = $"{baseName} ({suffix})";
+
+                var entry = archive.CreateEntry(name + ".csv", CompressionLevel.Optimal);
+                await using var stream = entry.Open();
+                await stream.WriteAsync(bytes, ct);
+            }
+        }
+        return buffer.ToArray();
     }
 
     /// <summary>Import playlists from a previous export; existing ones are refreshed instead.</summary>

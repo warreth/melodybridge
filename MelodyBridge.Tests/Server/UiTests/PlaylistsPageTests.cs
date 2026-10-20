@@ -37,6 +37,7 @@ public class PlaylistsPageTests
         _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Accounts.YouTubeAccountProvider(
             tokenStore, Microsoft.Extensions.Logging.Abstractions.NullLogger<
                 MelodyBridge.Infrastructure.Accounts.YouTubeAccountProvider>.Instance));
+        _ctx.JSInterop.Mode = JSRuntimeMode.Loose;
     }
 
     [TearDown]
@@ -332,7 +333,7 @@ public class PlaylistsPageTests
         cut.WaitForAssertion(() =>
         {
             Assert.That(cut.Markup, Does.Contain("Send playlists to your servers"));
-            Assert.That(cut.Markup, Does.Contain("Sync jobs page"),
+            Assert.That(cut.Markup, Does.Contain("Open a job afterwards"),
                 "the dialog says where the full options live");
         }, TimeSpan.FromSeconds(3));
 
@@ -480,6 +481,190 @@ public class PlaylistsPageTests
         using var db = new SqliteFactory(_dbPath).CreateDbContext();
         Assert.That(db.DownloaderSettings.Any(s => s.Key == "playlists_view" && s.Value == "rows"),
             Is.True, "the choice sticks for the next visit");
+    }
+
+    [Test]
+    public void Playlists_SortByName_ReordersCards_AndPersists()
+    {
+        SeedOnePlaylist("Zulu Mix", 2, Platform.Spotify);
+        SeedOnePlaylist("Alpha Mix", 5, Platform.Spotify);
+        var cut = _ctx.Render<Playlists>();
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.FindAll(".playlist-card"), Has.Count.EqualTo(2)), TimeSpan.FromSeconds(5));
+
+        cut.Find(".sort-control select").Change("name");
+
+        cut.WaitForAssertion(() =>
+        {
+            var names = cut.FindAll(".playlist-card h2").Select(h => h.TextContent.Trim()).ToList();
+            Assert.That(names, Is.EqualTo(new[] { "Alpha Mix", "Zulu Mix" }),
+                "the name order wins over the stored recency order");
+        }, TimeSpan.FromSeconds(3));
+
+        using var db = new SqliteFactory(_dbPath).CreateDbContext();
+        Assert.That(db.DownloaderSettings.Any(s => s.Key == "playlists_sort" && s.Value == "name"),
+            Is.True, "the chosen sort sticks for the next visit");
+    }
+
+    [Test]
+    public void Playlists_CardMenu_OffersEverydayActions()
+    {
+        SeedOnePlaylist("Menu Mix", 4, Platform.Spotify);
+        var cut = _ctx.Render<Playlists>();
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("Menu Mix")), TimeSpan.FromSeconds(3));
+
+        cut.Find("button.card-menu-trigger").Click();
+
+        var labels = cut.FindAll(".card-menu-items button")
+            .Select(b => b.TextContent.Trim()).ToList();
+        Assert.That(labels, Is.EqualTo(new[]
+        {
+            "Refresh", "Download missing", "Export CSV", "Remove",
+        }), "the menu carries the everyday actions, not only removal");
+    }
+
+    [Test]
+    public void Playlists_SelectMode_ShowsBulkActionsAndSelectsCards()
+    {
+        SeedOnePlaylist("First Mix", 2, Platform.Spotify);
+        SeedOnePlaylist("Second Mix", 3, Platform.Spotify);
+        var cut = _ctx.Render<Playlists>();
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.FindAll(".playlist-card"), Has.Count.EqualTo(2)), TimeSpan.FromSeconds(5));
+
+        cut.FindAll(".list-toolbar button").Single(b => b.TextContent.Contains("Select")).Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.FindAll(".selection-bar"), Has.Count.EqualTo(1));
+            var labels = cut.FindAll(".selection-actions button")
+                .Select(b => b.TextContent.Trim()).ToList();
+            Assert.That(labels, Is.EqualTo(new[]
+            {
+                "Refresh", "Download missing", "Export CSV", "Remove", "Cancel",
+            }), "the bulk bar offers the same everyday actions");
+            Assert.That(cut.FindAll(".playlist-card .select-check"), Has.Count.EqualTo(2),
+                "every card gets a selection mark");
+        }, TimeSpan.FromSeconds(3));
+
+        cut.FindAll(".playlist-card a.playlist-cover").First().Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.FindAll(".playlist-card.selected"), Has.Count.EqualTo(1),
+                "clicking a cover selects the card instead of navigating");
+            Assert.That(cut.Find(".selection-all").TextContent, Does.Contain("1 selected"));
+        }, TimeSpan.FromSeconds(3));
+    }
+
+    [Test]
+    public void Playlists_SelectMode_ExportsSeveralPlaylistsAsOneZip()
+    {
+        SeedOnePlaylist("First Mix", 2, Platform.Spotify);
+        SeedOnePlaylist("Second Mix", 3, Platform.Spotify);
+        var cut = _ctx.Render<Playlists>();
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.FindAll(".playlist-card"), Has.Count.EqualTo(2)), TimeSpan.FromSeconds(5));
+
+        cut.FindAll(".list-toolbar button").Single(b => b.TextContent.Contains("Select")).Click();
+        cut.FindAll(".playlist-card a.playlist-cover")[0].Click();
+        cut.FindAll(".playlist-card a.playlist-cover")[1].Click();
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Find(".selection-all").TextContent, Does.Contain("2 selected")),
+            TimeSpan.FromSeconds(3));
+
+        cut.FindAll(".selection-actions button").Single(b => b.TextContent.Contains("Export CSV")).Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            var call = _ctx.JSInterop.Invocations["melody.downloadFile"].Single();
+            Assert.That(call.Arguments[0], Is.EqualTo("playlists-csv.zip"),
+                "a bulk export is one download, not a burst the browser may block");
+            Assert.That(call.Arguments[1], Is.EqualTo("application/zip"));
+        }, TimeSpan.FromSeconds(3));
+    }
+
+    [Test]
+    public void Playlists_AccountImport_ListsCheckboxesAndCanSelectAll()
+    {
+        var cut = _ctx.Render<Playlists>();
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("Add playlist")), TimeSpan.FromSeconds(3));
+        cut.Find("div.topbar-actions button.ghost").Click();
+
+        var list = new List<UserPlaylist>
+        {
+            new("acc-1", "Chill Pop", "Warre", 24, false),
+            new("acc-2", "Techno", "Warre", 40, false),
+        };
+        typeof(Playlists).GetField("accountPlaylists",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+            .SetValue(cut.Instance, list);
+        cut.Render();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.FindAll(".account-playlist-table tbody tr"), Has.Count.EqualTo(2),
+                "the account's playlists are listed once");
+            Assert.That(cut.FindAll(".account-playlist-table tbody input[type=checkbox]"),
+                Has.Count.EqualTo(2), "every row can be ticked");
+            Assert.That(cut.FindAll(".account-list-toolbar button").Single().HasAttribute("disabled"),
+                Is.True, "import stays disabled while nothing is selected");
+        }, TimeSpan.FromSeconds(3));
+
+        cut.Find(".account-list-toolbar .selection-all input").Change(true);
+
+        cut.WaitForAssertion(() =>
+        {
+            var import = cut.FindAll(".account-list-toolbar button").Single();
+            Assert.That(import.TextContent, Does.Contain("Import 2 selected"));
+            Assert.That(import.HasAttribute("disabled"), Is.False);
+        }, TimeSpan.FromSeconds(3));
+    }
+
+    [Test]
+    public void Playlists_PublishWizard_OffersScheduleM3uAndAddProfile()
+    {
+        SeedOnePlaylist("Jazz Classics", 3, Platform.Spotify);
+        SeedProfile("Home Jellyfin");
+
+        var cut = _ctx.Render<Playlists>();
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("Jazz Classics")), TimeSpan.FromSeconds(3));
+        cut.FindAll("button").Single(b => b.TextContent.Contains("Publish")).Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.Markup, Does.Contain("M3U file"),
+                "the quick publish dialog offers an M3U target");
+            Assert.That(cut.Markup, Does.Contain("Schedule for every job"),
+                "one schedule applies to every created job");
+            Assert.That(cut.Find("a[href='/settings#media-servers']").TextContent,
+                Does.Contain("Add profile"),
+                "a missing profile can be created without hunting through Settings");
+        }, TimeSpan.FromSeconds(3));
+
+        cut.FindAll(".publish-option")
+            .Single(o => o.TextContent.Contains("Jazz Classics"))
+            .QuerySelector("input")!.Change(true);
+        cut.FindAll(".publish-option")
+            .Single(o => o.TextContent.Contains("M3U file"))
+            .QuerySelector("input")!.Change(true);
+        cut.Find(".publish-schedule select").Change("Weekly");
+        cut.FindAll("button").Single(b => b.TextContent.Contains("Create 1 sync job")).Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            using var db = new SqliteFactory(_dbPath).CreateDbContext();
+            var job = db.SyncJobs.Single();
+            Assert.That(job.Schedule, Is.EqualTo("Weekly"),
+                "the picked schedule applies to the created job");
+            var targets = MelodyBridge.Infrastructure.Services.SyncJobMapping.TargetsOf(job);
+            Assert.That(targets.Select(t => t.Kind), Is.EqualTo(new[] { OutputTargetType.M3uFile }),
+                "M3U was the only ticked target");
+            Assert.That(targets[0].M3uPath, Does.EndWith("Jazz Classics.m3u"));
+        }, TimeSpan.FromSeconds(5));
     }
 
 }

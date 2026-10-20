@@ -212,6 +212,7 @@ public class SyncJobsWizardUiTests
         }
 
         var cut = _ctx.Render<SyncJobs>();
+        cut.Find("button.card-menu-trigger").Click();
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Edit").Click();
         Next(cut); // step 2
 
@@ -435,6 +436,7 @@ public class SyncJobsWizardUiTests
         }
 
         var cut = _ctx.Render<SyncJobs>();
+        cut.Find("button.card-menu-trigger").Click();
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Edit").Click();
         Next(cut, 2);
 
@@ -483,6 +485,7 @@ public class SyncJobsWizardUiTests
         Assert.That(store.DeleteAsync("prof-dead").GetAwaiter().GetResult(), Is.True);
 
         var cut = _ctx.Render<SyncJobs>();
+        cut.Find("button.card-menu-trigger").Click();
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Edit").Click();
         Next(cut, 2);
 
@@ -536,6 +539,7 @@ public class SyncJobsWizardUiTests
         }
 
         var cut = _ctx.Render<SyncJobs>();
+        cut.Find("button.card-menu-trigger").Click();
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Edit").Click();
         Next(cut, 2);
         Assert.That(cut.Markup, Does.Contain("saved in this job"));
@@ -580,6 +584,7 @@ public class SyncJobsWizardUiTests
         }
 
         var cut = _ctx.Render<SyncJobs>();
+        cut.Find("button.card-menu-trigger").Click();
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Edit").Click();
         Next(cut, 2);
 
@@ -694,6 +699,7 @@ public class SyncJobsWizardUiTests
         }
 
         var cut = _ctx.Render<SyncJobs>();
+        cut.Find("button.card-menu-trigger").Click();
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Edit").Click();
         Next(cut); // -> output step
         WalkToReview(cut);
@@ -849,6 +855,7 @@ public class SyncJobsWizardUiTests
         }
 
         var cut = _ctx.Render<SyncJobs>();
+        cut.Find("button.card-menu-trigger").Click();
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Log").Click();
 
         Assert.That(cut.Markup, Does.Contain("Logged job"));

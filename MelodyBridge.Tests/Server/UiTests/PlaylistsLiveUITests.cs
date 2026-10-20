@@ -65,6 +65,7 @@ public class PlaylistsLiveUITests
         // media servers.
         _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Services.MediaServerProfileStore(
             new MelodyBridge.Infrastructure.Services.SettingsStore(factory)));
+        _ctx.Services.AddSingleton(new MelodyBridge.Server.Services.NotificationService());
     }
 
     [TearDown]

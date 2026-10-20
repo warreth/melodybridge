@@ -99,6 +99,7 @@ public class PlaylistDeleteUiTests
         SeedWithFile();
         var cut = RenderLoaded();
 
+        cut.Find("button.card-menu-trigger").Click();
         var remove = cut.FindAll("button[title='Remove this playlist']");
         Assert.That(remove.Count, Is.EqualTo(1), "each playlist card offers removal");
         remove[0].Click();
@@ -125,6 +126,7 @@ public class PlaylistDeleteUiTests
         }
 
         var cut = RenderLoaded();
+        cut.Find("button.card-menu-trigger").Click();
         cut.Find("button[title='Remove this playlist']").Click();
 
         Assert.That(cut.Markup, Does.Contain("Delete the downloaded music files too"),
@@ -141,6 +143,7 @@ public class PlaylistDeleteUiTests
         var file = SeedWithFile();
         var cut = RenderLoaded();
 
+        cut.Find("button.card-menu-trigger").Click();
         cut.Find("button[title='Remove this playlist']").Click();
         cut.FindAll("button").Single(b => b.TextContent.Trim() == "Cancel").Click();
 
@@ -158,6 +161,7 @@ public class PlaylistDeleteUiTests
         var file = SeedWithFile();
         var cut = RenderLoaded();
 
+        cut.Find("button.card-menu-trigger").Click();
         cut.Find("button[title='Remove this playlist']").Click();
         cut.FindAll("button").Single(b => b.TextContent.Trim() == "Remove playlist").Click();
 
@@ -176,6 +180,7 @@ public class PlaylistDeleteUiTests
         var file = SeedWithFile();
         var cut = RenderLoaded();
 
+        cut.Find("button.card-menu-trigger").Click();
         cut.Find("button[title='Remove this playlist']").Click();
         // Tick the "delete the files too" switch, then confirm.
         cut.Find(".confirm-modal input[type='checkbox']").Change(true);
@@ -187,6 +192,47 @@ public class PlaylistDeleteUiTests
             using var db = new TestSqliteFactory(_dbPath).CreateDbContext();
             Assert.That(db.Playlists.Count(), Is.EqualTo(0), "and the row is gone too");
         }, TimeSpan.FromSeconds(3));
+    }
+
+    [Test]
+    public void BulkRemove_DeletesTheSelectedPlaylists_AndKeepsTheFiles()
+    {
+        var file = SeedWithFile();
+        using (var db = new TestSqliteFactory(_dbPath).CreateDbContext())
+        {
+            db.Playlists.Add(new PlaylistEntity
+            {
+                Id = "pl-del-2",
+                Name = "Second Mix",
+                SourceUrl = "https://example.com/second",
+                TrackCount = 0,
+            });
+            db.SaveChanges();
+        }
+
+        var cut = RenderLoaded();
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.FindAll(".playlist-card"), Has.Count.EqualTo(2)), TimeSpan.FromSeconds(3));
+
+        cut.FindAll(".list-toolbar button").Single(b => b.TextContent.Contains("Select")).Click();
+        cut.FindAll(".playlist-card a.playlist-cover")[0].Click();
+        cut.FindAll(".playlist-card a.playlist-cover")[1].Click();
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Find(".selection-all").TextContent, Does.Contain("2 selected")),
+            TimeSpan.FromSeconds(3));
+
+        cut.FindAll(".selection-actions button").Single(b => b.TextContent.Contains("Remove")).Click();
+        Assert.That(cut.Markup, Does.Contain("Remove 2 playlists?"),
+            "the bulk dialog asks before deleting several at once");
+        cut.FindAll("button").Single(b => b.TextContent.Trim() == "Remove 2 playlists").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            using var db = new TestSqliteFactory(_dbPath).CreateDbContext();
+            Assert.That(db.Playlists.Count(), Is.EqualTo(0), "both selected playlists are gone");
+        }, TimeSpan.FromSeconds(3));
+        Assert.That(File.Exists(file), Is.True,
+            "a bulk remove never deletes music files; that stays a per-playlist choice");
     }
 
     [Test]

@@ -23,6 +23,24 @@
     <div class="topbar-actions">
         @if (jobs.Count > 0)
         {
+            <button class="btn-modern secondary" @onclick="RunAllNow"
+                    disabled="@(runningAll || runningJobs.Count > 0)"
+                    title="Run every sync job once, one after the other">
+                <Icon Name="play" Size="16" />
+                @(runningAll ? $"Running {runAllDone}/{runAllTotal}…" : "Run all now")
+            </button>
+        }
+        <button class="btn-modern primary" @onclick="StartNewJob"><Icon Name="plus" Size="16" /> New sync job</button>
+    </div>
+</section>
+
+@if (jobs.Count > 0)
+{
+    <section class="list-toolbar" aria-label="Sync job controls">
+        <div class="list-toolbar-left">
+            <span class="list-count">@jobs.Count sync job@(jobs.Count == 1 ? "" : "s")</span>
+        </div>
+        <div class="list-toolbar-actions">
             <div class="view-switch" role="group" aria-label="Sync job layout">
                 <button class="view-chip @(syncJobsView == "cards" ? "on" : null)" title="Card view"
                         aria-pressed="@(syncJobsView == "cards" ? "true" : "false")"
@@ -35,16 +53,9 @@
                     <Icon Name="rows" Size="15" /> <span>Rows</span>
                 </button>
             </div>
-            <button class="btn-modern secondary" @onclick="RunAllNow"
-                    disabled="@(runningAll || runningJobs.Count > 0)"
-                    title="Run every sync job once, one after the other">
-                <Icon Name="play" Size="16" />
-                @(runningAll ? $"Running {runAllDone}/{runAllTotal}…" : "Run all now")
-            </button>
-        }
-        <button class="btn-modern primary" @onclick="StartNewJob"><Icon Name="plus" Size="16" /> New sync job</button>
-    </div>
-</section>
+        </div>
+    </section>
+}
 
 @if (showWizard)
 {
@@ -401,17 +412,33 @@
     <section class="entity-rows">
         @foreach (var job in jobs)
         {
-            <div class="entity-row">
+            <div class="entity-row sync-job-row" @key="job.Id">
                 <span class="entity-row-main">
                     <strong>@job.Name</strong>
-                    <small>@JobTargetsLabel(job)</small>
+                    <small class="job-source-line">
+                        @if (ShowSource(job))
+                        {
+                            if (SourceHref(job) is { } sourceHref)
+                            {
+                                <a class="job-source-link" href="@sourceHref">@SourceLabel(job)</a>
+                            }
+                            else
+                            {
+                                <span>@SourceLabel(job)</span>
+                            }
+                        }
+                        @foreach (var chip in TargetChipsOf(job))
+                        {
+                            <span class="target-inline"><Icon Name="@chip.Icon" Size="12" /> @chip.Label</span>
+                        }
+                    </small>
                 </span>
                 <span class="entity-row-state">
                     <StatusPill Variant="@StatusVariant(job)">@StatusLabel(job)</StatusPill>
                 </span>
                 <span class="entity-row-meta">
-                    <span>Last run: @(job.LastRunAt?.ToString("g") ?? "never")</span>
-                    <span>Schedule: @job.Schedule@(nextRunLabels.GetValueOrDefault(job.Id, ""))</span>
+                    <span>@LastRunLabel(job)</span>
+                    <span>@ScheduleLabel(job)</span>
                 </span>
                 <span class="entity-row-actions">
                     <button class="btn-modern small primary" title="Run this job now"
@@ -419,15 +446,9 @@
                         <Icon Name="play" Size="14" />
                         <span class="btn-label">@(runningJobs.Contains(job.Id) ? "Running…" : "Run now")</span>
                     </button>
-                    <button class="btn-modern small ghost" title="Run history" @onclick="() => ViewJobLog(job)">
-                        <Icon Name="terminal" Size="14" /> <span class="btn-label">Log</span>
-                    </button>
-                    <button class="btn-modern small ghost" title="Edit this job" @onclick="() => StartEditJob(job)">
-                        <Icon Name="pencil" Size="14" /> <span class="btn-label">Edit</span>
-                    </button>
-                    <button class="btn-modern small ghost" title="Delete this job" @onclick="() => AskDeleteJob(job)">
-                        <Icon Name="trash" Size="14" /> <span class="btn-label">Delete</span>
-                    </button>
+                    <CardMenu Label="Sync job actions">
+                        @JobMenu(job)
+                    </CardMenu>
                 </span>
             </div>
         }
@@ -435,36 +456,65 @@
 }
 else
 {
-<section class="content-grid two">
-    @foreach (var job in jobs)
-    {
-        <div class="panel-card">
-            <div class="panel-header">
-                <div>
-                    <span class="eyebrow">@JobTargetsLabel(job)</span>
-                    <h2>@job.Name</h2>
+    <section class="content-grid two">
+        @foreach (var job in jobs)
+        {
+            <div class="panel-card job-card" @key="job.Id">
+                <div class="panel-header">
+                    <div class="job-heading">
+                        <h2>@job.Name</h2>
+                        @if (ShowSource(job))
+                        {
+                            <small class="job-source-line">
+                                @if (SourceHref(job) is { } sourceHref)
+                                {
+                                    <a class="job-source-link" href="@sourceHref">@SourceLabel(job)</a>
+                                }
+                                else
+                                {
+                                    <span>@SourceLabel(job)</span>
+                                }
+                            </small>
+                        }
+                    </div>
+                    <StatusPill Variant="@StatusVariant(job)">
+                        @StatusLabel(job)
+                    </StatusPill>
                 </div>
-                <StatusPill Variant="@StatusVariant(job)">
-                    @StatusLabel(job)
-                </StatusPill>
+                <div class="target-chips">
+                    @foreach (var chip in TargetChipsOf(job))
+                    {
+                        <span class="target-chip"><Icon Name="@chip.Icon" Size="13" /> @chip.Label</span>
+                    }
+                </div>
+                <p class="job-summary">@JobSummary(job)</p>
+                @if (job.LastRunTotalTracks > 0)
+                {
+                    var progressVariant = StatusVariant(job);
+                    <div class="job-progress @(progressVariant == "err" ? "is-failed" : progressVariant == "warn" ? "is-warn" : "is-ok")"
+                         title="@job.LastRunResolvedTracks of @job.LastRunTotalTracks tracks resolved">
+                        <div class="progress-track">
+                            <div class="progress-fill" style="width:@JobProgressPercent(job)%"></div>
+                        </div>
+                        <small>@job.LastRunResolvedTracks of @job.LastRunTotalTracks tracks resolved</small>
+                    </div>
+                }
+                <div class="job-meta">
+                    <small>@LastRunLabel(job)</small>
+                    <small>@ScheduleLabel(job)</small>
+                </div>
+                <div class="job-footer">
+                    <button class="btn-modern primary" @onclick="() => RunJobNow(job.Id)" disabled="@(runningAll || runningJobs.Contains(job.Id))">
+                        <Icon Name="play" Size="14" />
+                        @(runningJobs.Contains(job.Id) ? "Running..." : "Run now")
+                    </button>
+                    <CardMenu Label="Sync job actions">
+                        @JobMenu(job)
+                    </CardMenu>
+                </div>
             </div>
-            <p>@job.LastRunSummary</p>
-            <div class="job-meta">
-                <small>Last run: @(job.LastRunAt?.ToString("g") ?? "never")</small>
-                <small>Schedule: @job.Schedule@(nextRunLabels.GetValueOrDefault(job.Id, ""))</small>
-            </div>
-            <div class="job-footer">
-                <button class="btn-modern primary" @onclick="() => RunJobNow(job.Id)" disabled="@(runningAll || runningJobs.Contains(job.Id))">
-                    <Icon Name="play" Size="14" />
-                    @(runningJobs.Contains(job.Id) ? "Running..." : "Run now")
-                </button>
-                <button class="btn-modern secondary" @onclick="() => ViewJobLog(job)"><Icon Name="terminal" Size="14" /> Log</button>
-                <button class="btn-modern ghost" @onclick="() => StartEditJob(job)"><Icon Name="pencil" Size="14" /> Edit</button>
-                <button class="btn-modern ghost" @onclick="() => AskDeleteJob(job)"><Icon Name="trash" Size="14" /> Delete</button>
-            </div>
-        </div>
-    }
-</section>
+        }
+    </section>
 }
 
 @if (deleteJobId is { } doomedJobId)
@@ -601,7 +651,10 @@ else
     private string StatusLabel(SyncJobEntity job)
     {
         if (runningJobs.Contains(job.Id)) return "running";
-        return string.IsNullOrEmpty(job.LastRunStatus) ? "never run" : job.LastRunStatus;
+        if (string.IsNullOrWhiteSpace(job.LastRunStatus)
+            || string.Equals(job.LastRunStatus, "Pending", StringComparison.OrdinalIgnoreCase))
+            return "not run yet";
+        return job.LastRunStatus;
     }
 
     /// <summary>
@@ -619,6 +672,87 @@ else
         }
         return job.LastRunStatus == "Failed" ? "err" : "neutral";
     }
+
+    /// <summary>The card and row menu: run history, editing and removal.</summary>
+    private RenderFragment JobMenu(SyncJobEntity job) => @<text>
+        <button title="Run history" @onclick="() => ViewJobLog(job)">
+            <Icon Name="terminal" Size="14" /> Log
+        </button>
+        <button title="Edit this job" @onclick="() => StartEditJob(job)">
+            <Icon Name="pencil" Size="14" /> Edit
+        </button>
+        <div class="card-menu-sep"></div>
+        <button class="danger" title="Delete this job"
+                disabled="@(runningAll || runningJobs.Contains(job.Id))"
+                @onclick="() => AskDeleteJob(job)">
+            <Icon Name="trash" Size="14" /> Delete
+        </button>
+    </text>;
+
+    /// <summary>The playlist or folder a job publishes, for the card subtitle.</summary>
+    private string SourceLabel(SyncJobEntity job)
+    {
+        if (job.SourceId is { Length: > 0 } sourceId
+            && sources.FirstOrDefault(s => s.Id == sourceId) is { } playlist)
+        {
+            return playlist.Name;
+        }
+        if (job.SourceId is null && !string.IsNullOrWhiteSpace(job.SearchLocationPaths))
+        {
+            try
+            {
+                var paths = JsonSerializer.Deserialize<List<string>>(job.SearchLocationPaths);
+                if (paths?.FirstOrDefault(p => !string.IsNullOrWhiteSpace(p)) is { } path)
+                {
+                    var trimmed = path.TrimEnd('/', '\\');
+                    var name = Path.GetFileName(trimmed);
+                    return string.IsNullOrWhiteSpace(name) ? trimmed : name;
+                }
+            }
+            catch (JsonException)
+            {
+                // A damaged row keeps a plain label instead of breaking the page.
+            }
+        }
+        return "No source";
+    }
+
+    /// <summary>A saved playlist gets a link to its page; a folder has none.</summary>
+    private string? SourceHref(SyncJobEntity job)
+        => job.SourceId is { Length: > 0 } id && sources.Any(s => s.Id == id)
+            ? $"/playlists/{id}"
+            : null;
+
+    /// <summary>The job name usually equals the playlist name: do not repeat it.</summary>
+    private bool ShowSource(SyncJobEntity job)
+        => !string.Equals(SourceLabel(job), job.Name, StringComparison.Ordinal);
+
+    /// <summary>One compact chip per target: M3U or a media server profile.</summary>
+    private List<(string Icon, string Label)> TargetChipsOf(SyncJobEntity job)
+        => SyncJobMapping.TargetsOf(job).Select(target =>
+        {
+            if (target.Kind == OutputTargetType.M3uFile)
+                return ("list-music", "M3U file");
+            var profile = mediaServerProfiles.FirstOrDefault(p => p.Id == target.ProfileId);
+            return (TargetIcon(profile?.Kind ?? target.Kind.ToString()),
+                profile?.Name ?? TargetLabel(target.Kind));
+        }).ToList();
+
+    private static string JobSummary(SyncJobEntity job)
+        => string.IsNullOrWhiteSpace(job.LastRunSummary)
+            ? job.LastRunAt is null ? "This job has not run yet." : "No run summary recorded."
+            : job.LastRunSummary;
+
+    private static int JobProgressPercent(SyncJobEntity job)
+        => job.LastRunTotalTracks <= 0
+            ? 0
+            : Math.Clamp(job.LastRunResolvedTracks * 100 / job.LastRunTotalTracks, 0, 100);
+
+    private static string LastRunLabel(SyncJobEntity job)
+        => $"Last run: {(job.LastRunAt?.ToLocalTime().ToString("g") ?? "never")}";
+
+    private string ScheduleLabel(SyncJobEntity job)
+        => $"Schedule: {job.Schedule}{nextRunLabels.GetValueOrDefault(job.Id, "")}";
 
     /// <summary>
     /// Runs every job once, one after the other, keeping the page's live
@@ -713,19 +847,6 @@ else
                 names.Add($"{TargetLabel(legacyConnectionKind.ToString())} (saved connection)");
             return names.Count == 0 ? "none yet" : string.Join(", ", names);
         }
-    }
-
-    /// <summary>The card's eyebrow: every target of a stored job.</summary>
-    private string JobTargetsLabel(SyncJobEntity job)
-    {
-        var labels = SyncJobMapping.TargetsOf(job).Select(t => t.Kind switch
-        {
-            OutputTargetType.M3uFile => "M3U file",
-            _ => mediaServerProfiles.FirstOrDefault(p => p.Id == t.ProfileId) is { } profile
-                ? $"{TargetLabel(t.Kind.ToString())} ({profile.Name})"
-                : TargetLabel(t.Kind.ToString()),
-        });
-        return string.Join(" + ", labels);
     }
 
     /// <summary>
