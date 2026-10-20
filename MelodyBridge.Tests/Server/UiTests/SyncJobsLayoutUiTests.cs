@@ -222,6 +222,55 @@ public class SyncJobsLayoutUiTests
         }, TimeSpan.FromSeconds(3));
     }
 
+    [Test]
+    public async Task JobCard_OrderStaysPut_WhenARunFinishesAndAnotherJobBecomesNewer()
+    {
+        var factory = _ctx.Services.GetRequiredService<IDbContextFactory<MelodyBridgeDbContext>>();
+        using (var db = factory.CreateDbContext())
+        {
+            db.SyncJobs.Add(new SyncJobEntity
+            {
+                Id = "j-later",
+                Name = "Later Job",
+                SourceId = "src-1",
+                SearchLocationPaths = "[]",
+                Schedule = "Manual",
+                OutputTarget = "M3uFile",
+                M3uOutputPath = "/app/playlists/later.m3u",
+                LastRunAt = DateTime.UtcNow.AddDays(-2),
+                LastRunStatus = "Completed",
+            });
+            db.SaveChanges();
+        }
+
+        var gate = new TaskCompletionSource<SyncJobRunLog>();
+        _jobRunner.Setup(r => r.RunJobAsync(It.IsAny<SyncJob>(), It.IsAny<CancellationToken>()))
+            .Returns(gate.Task);
+        var cut = _ctx.Render<SyncJobs>();
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.FindAll(".panel-card h2").Select(h => h.TextContent.Trim()),
+                Is.EqualTo(new[] { "Layout Job", "Later Job" })), TimeSpan.FromSeconds(3));
+
+        var firstRun = cut.FindAll(".panel-card")
+            .Single(c => c.TextContent.Contains("Layout Job"))
+            .QuerySelector("button.btn-modern.primary")!;
+        var click = cut.InvokeAsync(() => firstRun.Click());
+
+        using (var db = factory.CreateDbContext())
+        {
+            db.SyncJobs.Single(j => j.Id == "j-later").LastRunAt = DateTime.UtcNow;
+            db.SaveChanges();
+        }
+        gate.SetResult(new SyncJobRunLog(DateTime.UtcNow, SyncStatus.Completed, "ok", 1, 1));
+        await click;
+
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.FindAll(".panel-card h2").Select(h => h.TextContent.Trim()),
+                Is.EqualTo(new[] { "Layout Job", "Later Job" }),
+                "a finished run must not teleport cards while the user is looking at them"),
+            TimeSpan.FromSeconds(3));
+    }
+
     private class InMemFactory : IDbContextFactory<MelodyBridgeDbContext>
     {
         private readonly DbContextOptions<MelodyBridgeDbContext> _options;

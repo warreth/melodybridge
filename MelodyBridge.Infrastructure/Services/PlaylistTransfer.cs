@@ -86,8 +86,7 @@ internal sealed class PlaylistTransfer
                 if (entity is null) continue;
 
                 var bytes = await ExportCsvAsync(playlistId, ct);
-                var baseName = string.Concat(entity.Name.Select(c =>
-                    Path.GetInvalidFileNameChars().Contains(c) ? '_' : c));
+                var baseName = SafeFileNames.Sanitize(entity.Name);
                 if (string.IsNullOrWhiteSpace(baseName)) baseName = "playlist";
 
                 var name = baseName;

@@ -128,11 +128,26 @@ public static class QuickSyncJobs
                 .ToListAsync(ct);
             var existingPlaylists = existingPlaylistIds.ToHashSet(StringComparer.Ordinal);
 
-            var taken = await db.SyncJobs
+            // Read every job once: the source ids prevent a second job for
+            // a playlist, and the M3U paths let a new job choose a unique
+            // file even when names collide with each other or an old job.
+            var existingJobs = await db.SyncJobs.ToListAsync(ct);
+            var takenSet = existingJobs
                 .Where(j => j.SourceId != null)
                 .Select(j => j.SourceId!)
-                .ToListAsync(ct);
-            var takenSet = taken.ToHashSet(StringComparer.Ordinal);
+                .ToHashSet(StringComparer.Ordinal);
+            var usedM3uPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var existingJob in existingJobs)
+            {
+                foreach (var target in SyncJobMapping.TargetsOf(existingJob))
+                {
+                    if (target.Kind == OutputTargetType.M3uFile
+                        && !string.IsNullOrWhiteSpace(target.M3uPath))
+                    {
+                        usedM3uPaths.Add(PathKey(target.M3uPath));
+                    }
+                }
+            }
 
             foreach (var (playlistId, name) in wanted)
             {
@@ -161,7 +176,7 @@ public static class QuickSyncJobs
                 {
                     targets.Add(new SyncTarget(
                         OutputTargetType.M3uFile,
-                        M3uPath: M3uPathFor(options.M3uDirectory!, name)));
+                        M3uPath: UniqueM3uPathFor(options.M3uDirectory!, name, usedM3uPaths)));
                 }
                 targets.AddRange(existingProfiles.Select(p =>
                     new SyncTarget(MediaServerKinds.OutputTargetFor(p.Kind), ProfileId: p.Id)));
@@ -194,12 +209,23 @@ public static class QuickSyncJobs
             _ => (nameof(SyncJobSchedule.Manual), null),
         };
 
-    /// <summary>The playlist's M3U file inside the configured output folder.</summary>
-    private static string M3uPathFor(string directory, string playlistName)
+    /// <summary>
+    /// The playlist's M3U file inside the configured output folder. The
+    /// name is sanitized for every platform, and a suffix keeps two
+    /// playlists (or an existing job) from writing the same file.
+    /// </summary>
+    private static string UniqueM3uPathFor(
+        string directory, string playlistName, HashSet<string> usedPaths)
     {
-        var name = string.IsNullOrWhiteSpace(playlistName) ? "playlist" : playlistName.Trim();
-        var safeName = string.Concat(name.Select(c =>
-            Path.GetInvalidFileNameChars().Contains(c) ? '_' : c));
-        return Path.Combine(directory.TrimEnd('/', '\\'), safeName + ".m3u");
+        var baseName = SafeFileNames.Sanitize(playlistName);
+        var folder = directory.TrimEnd('/', '\\');
+        var candidate = Path.Combine(folder, baseName + ".m3u");
+        for (var suffix = 2; !usedPaths.Add(PathKey(candidate)); suffix++)
+            candidate = Path.Combine(folder, $"{baseName} ({suffix}).m3u");
+        return candidate;
     }
+
+    /// <summary>One comparison form for paths that may use either separator.</summary>
+    private static string PathKey(string path)
+        => path.Replace('\\', '/').TrimEnd('/');
 }

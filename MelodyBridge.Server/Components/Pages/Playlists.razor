@@ -55,7 +55,8 @@
     {
         <section class="selection-bar" aria-label="Playlist selection">
             <label class="selection-all">
-                <input type="checkbox" checked="@AllSelected" @onchange="ToggleSelectAll" />
+                <input type="checkbox" checked="@AllSelected" @onchange="ToggleSelectAll"
+                       aria-label="Select all visible playlists" disabled="@busy" />
                 <span>@selectedPlaylistIds.Count selected</span>
             </label>
             <div class="selection-actions">
@@ -71,7 +72,7 @@
                 <button class="btn-modern ghost small danger-text" @onclick="AskBulkDelete" disabled="@(busy || selectedPlaylistIds.Count == 0)">
                     <Icon Name="trash" Size="14" /> Remove
                 </button>
-                <button class="btn-modern ghost small" @onclick="ExitSelection">Cancel</button>
+                <button class="btn-modern ghost small" @onclick="ExitSelection" disabled="@busy">Cancel</button>
             </div>
         </section>
     }
@@ -92,8 +93,9 @@
             <div class="list-toolbar-actions">
                 <button class="filter-chip attention @(needsAttentionOnly ? "active" : null)"
                         @onclick="ToggleNeedsAttention"
+                        aria-pressed="@(needsAttentionOnly ? "true" : "false")"
                         disabled="@(NeedsAttentionCount == 0 && !needsAttentionOnly)"
-                        title="Show playlists with a failed sync, a partial snapshot or failed track downloads">
+                        title="Show playlists with a failed or partial sync, failed downloads, or tracks waiting for a quality or dedup review">
                     <Icon Name="alert" Size="13" /> Needs attention
                     @if (NeedsAttentionCount > 0)
                     {
@@ -131,7 +133,7 @@ else if (playlists.Count == 0)
 else if (visiblePlaylists.Count == 0)
 {
     <EmptyState IconName="check-circle" Title="Nothing needs attention">
-        No playlist has a failed sync, a partial snapshot or failed track downloads.
+        No playlist has a failed or partial sync, failed downloads, or tracks waiting for a quality or dedup review.
     </EmptyState>
 }
 else if (playlistsView == "rows")
@@ -147,13 +149,16 @@ else if (playlistsView == "rows")
                 {
                     <input class="row-select" type="checkbox" checked="@selected"
                            @onchange="e => ToggleSelection(playlist.Id, e)"
+                           disabled="@busy"
                            aria-label="Select @playlist.Name" />
                 }
                 <a class="entity-row-link" href="@(selectionMode ? null : $"/playlists/{playlist.Id}")"
-                   title="Open @playlist.Name" @onclick="() => ToggleSelectionIfSelecting(playlist.Id)"
+                   title="@(selectionMode ? (selected ? $"Deselect {playlist.Name}" : $"Select {playlist.Name}") : $"Open {playlist.Name}")"
+                   @onclick="() => ToggleSelectionIfSelecting(playlist.Id)"
                    role="@(selectionMode ? "button" : null)"
-                   tabindex="@(selectionMode ? "0" : null)"
+                   tabindex="@(selectionMode && !busy ? "0" : null)"
                    aria-pressed="@(selectionMode ? (selected ? "true" : "false") : null)"
+                   aria-disabled="@(selectionMode && busy ? "true" : null)"
                    @onkeydown="e => OnSelectionKeyDown(e, playlist.Id)">
                     <span class="entity-row-cover">
                         @if (!string.IsNullOrEmpty(playlist.CoverImageUrl))
@@ -170,6 +175,7 @@ else if (playlistsView == "rows")
                             @if (playlist.IsPinned)
                             {
                                 <Icon Name="pin" Size="12" Class="pin-mark" />
+                                <span class="visually-hidden">Pinned: </span>
                             }
                             @playlist.Name
                         </strong>
@@ -248,10 +254,12 @@ else
             var selected = selectedPlaylistIds.Contains(playlist.Id);
             <div class="panel-card playlist-card @(selectionMode ? "selecting" : null) @(selected ? "selected" : null)" @key="playlist.Id">
                 <a class="playlist-cover" href="@(selectionMode ? null : $"/playlists/{playlist.Id}")"
-                   title="Open @playlist.Name" @onclick="() => ToggleSelectionIfSelecting(playlist.Id)"
+                   title="@(selectionMode ? (selected ? $"Deselect {playlist.Name}" : $"Select {playlist.Name}") : $"Open {playlist.Name}")"
+                   @onclick="() => ToggleSelectionIfSelecting(playlist.Id)"
                    role="@(selectionMode ? "button" : null)"
-                   tabindex="@(selectionMode ? "0" : null)"
+                   tabindex="@(selectionMode && !busy ? "0" : null)"
                    aria-pressed="@(selectionMode ? (selected ? "true" : "false") : null)"
+                   aria-disabled="@(selectionMode && busy ? "true" : null)"
                    @onkeydown="e => OnSelectionKeyDown(e, playlist.Id)">
                     @if (!string.IsNullOrEmpty(playlist.CoverImageUrl))
                     {
@@ -288,14 +296,17 @@ else
                             @if (playlist.IsPinned)
                             {
                                 <Icon Name="pin" Size="12" Class="pin-mark" />
+                                <span class="visually-hidden">Pinned: </span>
                             }
                             @(playlist.IsManualImport ? "Imported" : playlist.SourcePlatform.ToString())
                         </span>
                         <h2>
                             <a href="@(selectionMode ? null : $"/playlists/{playlist.Id}")"
+                               title="@(selectionMode ? (selected ? $"Deselect {playlist.Name}" : $"Select {playlist.Name}") : $"Open {playlist.Name}")"
                                role="@(selectionMode ? "button" : null)"
-                               tabindex="@(selectionMode ? "0" : null)"
+                               tabindex="@(selectionMode && !busy ? "0" : null)"
                                aria-pressed="@(selectionMode ? (selected ? "true" : "false") : null)"
+                               aria-disabled="@(selectionMode && busy ? "true" : null)"
                                @onclick="() => ToggleSelectionIfSelecting(playlist.Id)"
                                @onkeydown="e => OnSelectionKeyDown(e, playlist.Id)">@playlist.Name</a>
                         </h2>
@@ -740,7 +751,10 @@ else
                                     }
                                     else
                                     {
-                                        <span>One .m3u per playlist in <span class="text-muted">@publishM3uFolder</span></span>
+                                        <span>
+                                            One .m3u per playlist in <span class="text-muted">@publishM3uFolder</span>.
+                                            Names that collide get a numbered suffix.
+                                        </span>
                                     }
                                 </small>
                             </span>
@@ -759,7 +773,14 @@ else
                         }
                     </div>
                     <div class="publish-schedule">
-                        <SchedulePicker Label="Schedule for every job" @bind-Value="publishSchedule" />
+                        <SchedulePicker Label="Schedule for every job" @bind-Value="publishSchedule"
+                                        ValidityChanged="valid => publishScheduleValid = valid" />
+                        @if (!publishScheduleValid)
+                        {
+                            <p class="publish-option-note sync-warn">
+                                Enter a valid five-field cron expression before creating jobs.
+                            </p>
+                        }
                         <p class="publish-option-note">
                             Applies to every job created here. Change one later on the
                             <a href="/sync-jobs">Sync jobs</a> page.
@@ -885,6 +906,7 @@ else
     private bool publishM3uEnabled;
     private string publishM3uFolder = "/app/playlists";
     private ScanSchedule publishSchedule = ScanSchedule.Manual;
+    private bool publishScheduleValid = true;
 
     private List<PlaylistEntity> publishablePlaylists
         => playlists.Where(p => !jobPlaylistIds.Contains(p.Id)).ToList();
@@ -904,7 +926,8 @@ else
 
     private bool CanPublish => publishPlaylistIds.Count > 0
         && (publishProfileIds.Count > 0 || publishM3uEnabled)
-        && (!publishM3uEnabled || !string.IsNullOrWhiteSpace(publishM3uFolder));
+        && (!publishM3uEnabled || !string.IsNullOrWhiteSpace(publishM3uFolder))
+        && publishScheduleValid;
 
     private string PublishButtonLabel => publishPlaylistIds.Count switch
     {
@@ -922,6 +945,7 @@ else
         publishing = false;
         publishM3uEnabled = false;
         publishSchedule = ScanSchedule.Manual;
+        publishScheduleValid = true;
         publishM3uFolder = await Settings.GetAsync("playlist_path", "/app/playlists");
         publishProfiles = (await ServerProfiles.GetAllAsync()).ToList();
         jobPlaylistIds = await QuickSyncJobs.PlaylistsWithJobAsync(DbFactory);
@@ -959,6 +983,11 @@ else
 
     private async Task CreatePublishJobs()
     {
+        if (!publishScheduleValid)
+        {
+            publishError = "Enter a valid five-field cron expression before creating jobs.";
+            return;
+        }
         if (!CanPublish) return;
         publishing = true;
         publishError = string.Empty;
@@ -1134,32 +1163,47 @@ else
 
     private void ToggleSelectionIfSelecting(string playlistId)
     {
-        if (selectionMode) ToggleSelection(playlistId);
+        if (selectionMode && !busy) ToggleSelection(playlistId);
     }
 
     /// <summary>A card cover or title acts as a selection button in
     /// selection mode, so keyboard users can toggle it too.</summary>
     private void OnSelectionKeyDown(KeyboardEventArgs e, string playlistId)
     {
-        if (!selectionMode) return;
+        if (!selectionMode || busy) return;
         if (e.Key is "Enter" or " " or "Spacebar")
             ToggleSelection(playlistId);
     }
 
     private void ToggleSelection(string playlistId)
     {
+        if (busy) return;
         if (!selectedPlaylistIds.Remove(playlistId))
             selectedPlaylistIds.Add(playlistId);
     }
 
     private void ToggleSelection(string playlistId, ChangeEventArgs e)
     {
+        if (busy) return;
         if (e.Value is true) selectedPlaylistIds.Add(playlistId);
         else selectedPlaylistIds.Remove(playlistId);
     }
 
+    /// <summary>
+    /// A runtime status change can remove a playlist from the attention
+    /// filter while it is selected. Drop hidden ids so the count, visible
+    /// cards and bulk actions never disagree.
+    /// </summary>
+    private void ReconcileSelectionWithVisible()
+    {
+        if (!selectionMode || !needsAttentionOnly || selectedPlaylistIds.Count == 0) return;
+        var visibleIds = visiblePlaylists.Select(p => p.Id).ToHashSet(StringComparer.Ordinal);
+        selectedPlaylistIds.RemoveWhere(id => !visibleIds.Contains(id));
+    }
+
     private void ToggleSelectAll(ChangeEventArgs e)
     {
+        if (busy) return;
         if (e.Value is true)
         {
             foreach (var playlist in visiblePlaylists)
@@ -1281,8 +1325,7 @@ else
     private async Task DownloadCsvAsync(PlaylistEntity playlist)
     {
         var bytes = await Store.ExportCsvAsync(playlist.Id);
-        var safeName = string.Concat(playlist.Name.Select(c =>
-            Path.GetInvalidFileNameChars().Contains(c) ? '_' : c));
+        var safeName = Csv.SafeFileName(playlist.Name);
         await JS.InvokeVoidAsync("melody.downloadFile", $"{safeName}.csv", "text/csv", bytes);
     }
 
@@ -1291,10 +1334,13 @@ else
         var selected = playlists.Where(p => selectedPlaylistIds.Contains(p.Id)).ToList();
         if (selected.Count == 0 || busy) return;
         busy = true;
+        message = string.Empty;
+        messageIsError = false;
         StateHasChanged();
         var refreshed = 0;
         var skipped = 0;
         var failed = 0;
+        var failures = new List<string>();
         Notifications.Info($"Refreshing {selected.Count} playlist{(selected.Count == 1 ? "" : "s")}…");
         try
         {
@@ -1310,9 +1356,10 @@ else
                     await Store.RefreshAsync(playlist.Id);
                     refreshed++;
                 }
-                catch
+                catch (Exception ex)
                 {
                     failed++;
+                    failures.Add($"{playlist.Name}: {ex.Message}");
                 }
             }
             await Load(showSkeleton: false);
@@ -1325,14 +1372,26 @@ else
         var summary = $"Refreshed {refreshed} playlist{(refreshed == 1 ? "" : "s")}";
         if (skipped > 0) summary += $"; {skipped} import{(skipped == 1 ? "" : "s")} skipped";
         if (failed > 0) summary += $"; {failed} failed";
-        if (failed > 0) Notifications.Warn(summary + ".");
-        else Notifications.Success(summary + ".");
+        if (failed > 0)
+        {
+            var details = string.Join("; ", failures.Take(3));
+            if (failures.Count > 3) details += $"; and {failures.Count - 3} more";
+            message = summary + ". " + details;
+            messageIsError = true;
+            Notifications.Warn(summary + ".");
+        }
+        else
+        {
+            Notifications.Success(summary + ".");
+        }
     }
 
     private async Task DownloadMissingSelected()
     {
         var selected = playlists.Where(p => selectedPlaylistIds.Contains(p.Id)).ToList();
         if (selected.Count == 0) return;
+        message = string.Empty;
+        messageIsError = false;
         var started = 0;
         var empty = 0;
         var active = 0;
@@ -1364,37 +1423,35 @@ else
         var selected = playlists.Where(p => selectedPlaylistIds.Contains(p.Id)).ToList();
         if (selected.Count == 0 || busy) return;
         busy = true;
+        message = string.Empty;
+        messageIsError = false;
         StateHasChanged();
-        var exported = 0;
         try
         {
             if (selected.Count == 1)
             {
                 await DownloadCsvAsync(selected[0]);
-                exported = 1;
+                Notifications.Success($"Exported '{selected[0].Name}'.");
             }
             else
             {
                 var bytes = await Store.ExportCsvZipAsync(selected.Select(p => p.Id));
                 await JS.InvokeVoidAsync("melody.downloadFile", "playlists-csv.zip", "application/zip", bytes);
-                exported = selected.Count;
+                Notifications.Success($"Exported {selected.Count} playlists as a zip.");
             }
         }
-        catch
+        catch (Exception ex)
         {
-            // The toast below reports how many made it.
+            var what = selected.Count == 1 ? $"'{selected[0].Name}'" : $"{selected.Count} playlists";
+            message = $"Could not export {what}: {ex.Message}";
+            messageIsError = true;
+            Notifications.Error("Export failed. See the message above the list.");
         }
         finally
         {
             busy = false;
             StateHasChanged();
         }
-        if (exported == selected.Count)
-            Notifications.Success(selected.Count == 1
-                ? $"Exported '{selected[0].Name}'."
-                : $"Exported {exported} playlists as a zip.");
-        else
-            Notifications.Warn($"Exported {exported} of {selected.Count} playlists.");
     }
 
     private List<string>? bulkDeleteIds;
@@ -1473,6 +1530,7 @@ else
         refreshTimer = new Timer(_ => InvokeAsync(async () =>
         {
             downloadStats = await Store.GetDownloadStatsAsync();
+            ReconcileSelectionWithVisible();
             StateHasChanged();
         }), null, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2));
     }
@@ -1499,6 +1557,7 @@ else
             selectedPlaylistIds.RemoveWhere(id => !liveIds.Contains(id));
         }
         if (playlists.Count == 0) needsAttentionOnly = false;
+        ReconcileSelectionWithVisible();
         if (showSkeleton) loading = false;
     }
 
@@ -1625,6 +1684,13 @@ else
         }
     }
 
+    /// <summary>The public URL for one account playlist, shared by batch
+    /// import so Spotify and YouTube never drift apart.</summary>
+    public static string AccountSourceUrl(string accountProvider, string playlistId)
+        => accountProvider == YouTubeAccountProvider.ProviderName
+            ? $"https://www.youtube.com/playlist?list={playlistId}"
+            : $"https://open.spotify.com/playlist/{playlistId}";
+
     /// <summary>
     /// Import every ticked account playlist in one pass. Each result keeps
     /// its id so the success dialog can offer an Edit link; a failed
@@ -1647,9 +1713,7 @@ else
                 // Both Spotify connections can import through the plain add
                 // flow: the store prefers the account when one is connected,
                 // and private playlists then work too.
-                var url = accountListProvider == YouTubeAccountProvider.ProviderName
-                    ? $"https://www.youtube.com/playlist?list={playlist.Id}"
-                    : $"https://open.spotify.com/playlist/{playlist.Id}";
+                var url = AccountSourceUrl(accountListProvider, playlist.Id);
                 try
                 {
                     var (added, newlySaved) = await Store.AddOrRefreshDetailedAsync(url, TargetOrNull());

@@ -1143,6 +1143,7 @@ select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-s
     align-items: center;
     gap: .3rem;
     max-width: 100%;
+    min-width: 0;
     padding: .2rem .5rem;
     border: 1px solid var(--border);
     border-radius: 999px;
@@ -1153,15 +1154,29 @@ select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-s
     text-overflow: ellipsis;
     white-space: nowrap;
 }
+.target-chip-text {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
 .target-inline {
     display: inline-flex;
     align-items: center;
     gap: .2rem;
     margin-left: 0;
+    max-width: 100%;
+    min-width: 0;
     color: var(--muted-2);
     white-space: nowrap;
 }
 .target-inline .icon { flex: 0 0 auto; }
+.target-inline-text {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
 .job-summary {
     margin: 0;
     color: var(--muted);

@@ -433,6 +433,62 @@ public class PlaylistsPageTests
         db.SaveChanges();
     }
 
+    private sealed class StubSpotifyAccountProvider : MelodyBridge.Infrastructure.Accounts.SpotifyAccountProvider
+    {
+        private readonly IReadOnlyList<UserPlaylist> _playlists;
+
+        public StubSpotifyAccountProvider(
+            MelodyBridge.Infrastructure.Accounts.AccountTokenStore tokens,
+            IReadOnlyList<UserPlaylist> playlists)
+            : base(tokens, NullLogger<MelodyBridge.Infrastructure.Accounts.SpotifyAccountProvider>.Instance)
+        {
+            _playlists = playlists;
+        }
+
+        public override Task<bool> IsConnectedAsync(CancellationToken ct = default)
+            => Task.FromResult(true);
+
+        public override Task<IReadOnlyList<UserPlaylist>> GetUserPlaylistsAsync(CancellationToken ct = default)
+            => Task.FromResult(_playlists);
+    }
+
+    private sealed class StubSourceProvider : ISourceProvider
+    {
+        public string Name => "Stub";
+        public Platform Platform => Platform.Spotify;
+
+        public bool CanHandle(string sourceIdentifier)
+            => sourceIdentifier.StartsWith("https://open.spotify.com/playlist/", StringComparison.Ordinal);
+
+        public Task<Playlist> GetPlaylistAsync(string sourceIdentifier)
+        {
+            if (sourceIdentifier.EndsWith("/bad", StringComparison.Ordinal)
+                || sourceIdentifier.EndsWith("/bad-one", StringComparison.Ordinal)
+                || sourceIdentifier.EndsWith("/bad-two", StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("source unavailable");
+            }
+            if (!sourceIdentifier.EndsWith("/good", StringComparison.Ordinal))
+                throw new InvalidOperationException($"unexpected source url: {sourceIdentifier}");
+
+            return Task.FromResult(new Playlist
+            {
+                Id = "good",
+                Name = "Good Mix",
+                Tracks = new List<Track>
+                {
+                    new()
+                    {
+                        Title = "One",
+                        Artist = "Artist",
+                        SongID = new SongID(Platform.Spotify, "good-1"),
+                        PlatformSongID = new SongID(Platform.Spotify, "good-1"),
+                    },
+                },
+            });
+        }
+    }
+
     private sealed class SqliteFactory(string dbPath) : IDbContextFactory<MelodyBridgeDbContext>
     {
         public MelodyBridgeDbContext CreateDbContext()
@@ -546,6 +602,9 @@ public class PlaylistsPageTests
             }), "the bulk bar offers the same everyday actions");
             Assert.That(cut.FindAll(".playlist-card .select-check"), Has.Count.EqualTo(2),
                 "every card gets a selection mark");
+            Assert.That(cut.Find(".selection-all input").GetAttribute("aria-label"),
+                Is.EqualTo("Select all visible playlists"),
+                "the select-all checkbox explains what it does");
         }, TimeSpan.FromSeconds(3));
 
         cut.FindAll(".playlist-card a.playlist-cover").First().Click();
@@ -554,6 +613,9 @@ public class PlaylistsPageTests
         {
             Assert.That(cut.FindAll(".playlist-card.selected"), Has.Count.EqualTo(1),
                 "clicking a cover selects the card instead of navigating");
+            Assert.That(cut.FindAll(".playlist-card a.playlist-cover").First().GetAttribute("title"),
+                Does.StartWith("Deselect ").Or.StartWith("Select "),
+                "selection mode says what a click will do");
             Assert.That(cut.Find(".selection-all").TextContent, Does.Contain("1 selected"));
         }, TimeSpan.FromSeconds(3));
     }
@@ -605,6 +667,8 @@ public class PlaylistsPageTests
                 "a pinned playlist sorts above the chosen order");
             Assert.That(cut.FindAll(".playlist-card .pin-mark"), Has.Count.EqualTo(1),
                 "the card shows why it is on top");
+            Assert.That(cut.Markup, Does.Contain("Pinned:"),
+                "the pin marker also has text for screen readers");
         }, TimeSpan.FromSeconds(3));
 
         using (var db = new SqliteFactory(_dbPath).CreateDbContext())
@@ -642,10 +706,14 @@ public class PlaylistsPageTests
         var filter = cut.Find(".filter-chip.attention");
         Assert.That(filter.TextContent, Does.Contain("2"),
             "the chip counts both attention playlists");
+        Assert.That(filter.GetAttribute("aria-pressed"), Is.EqualTo("false"),
+            "the filter exposes its toggle state");
         filter.Click();
 
         cut.WaitForAssertion(() =>
         {
+            Assert.That(cut.Find(".filter-chip.attention").GetAttribute("aria-pressed"),
+                Is.EqualTo("true"), "the active filter says it is pressed");
             var names = cut.FindAll(".playlist-card h2").Select(h => h.TextContent.Trim()).ToList();
             Assert.That(names, Is.EquivalentTo(new[] { "Failed Tracks", "Broken Sync" }),
                 "the filter hides the healthy playlist");
@@ -656,6 +724,105 @@ public class PlaylistsPageTests
         cut.WaitForAssertion(() =>
             Assert.That(cut.FindAll(".playlist-card"), Has.Count.EqualTo(3),
                 "turning the filter off restores the full list"), TimeSpan.FromSeconds(3));
+    }
+
+    [Test]
+    public void Playlists_PublishWizard_RefusesAnInvalidCustomCron()
+    {
+        SeedOnePlaylist("Jazz Classics", 3, Platform.Spotify);
+        SeedProfile("Home Jellyfin");
+        var cut = _ctx.Render<Playlists>();
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("Jazz Classics")), TimeSpan.FromSeconds(3));
+        cut.FindAll("button").Single(b => b.TextContent.Contains("Publish")).Click();
+        cut.WaitForAssertion(() => Assert.That(cut.FindAll(".publish-option"), Is.Not.Empty),
+            TimeSpan.FromSeconds(3));
+
+        cut.FindAll(".publish-option")
+            .Single(o => o.TextContent.Contains("Jazz Classics"))
+            .QuerySelector("input")!.Change(true);
+        cut.FindAll(".publish-option")
+            .Single(o => o.TextContent.Contains("Home Jellyfin"))
+            .QuerySelector("input")!.Change(true);
+        cut.Find(".publish-schedule select").Change("Cron");
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.FindAll(".publish-schedule input"), Has.Count.EqualTo(1)),
+            TimeSpan.FromSeconds(3));
+        cut.Find(".publish-schedule input").Input("not a cron");
+
+        cut.WaitForAssertion(() =>
+        {
+            var create = cut.FindAll(".wizard-footer button")
+                .Single(b => b.TextContent.Contains("Create 1 sync job"));
+            Assert.That(create.HasAttribute("disabled"), Is.True,
+                "an invalid custom cron blocks creation");
+            Assert.That(cut.Markup, Does.Contain("Enter a valid five-field cron expression"));
+        }, TimeSpan.FromSeconds(3));
+
+        cut.Find(".publish-schedule input").Input("5 4 * * *");
+
+        cut.WaitForAssertion(() =>
+        {
+            var create = cut.FindAll(".wizard-footer button")
+                .Single(b => b.TextContent.Contains("Create 1 sync job"));
+            Assert.That(create.HasAttribute("disabled"), Is.False,
+                "a valid expression enables creation again");
+        }, TimeSpan.FromSeconds(3));
+
+        cut.FindAll(".wizard-footer button")
+            .Single(b => b.TextContent.Contains("Create 1 sync job")).Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            using var db = new SqliteFactory(_dbPath).CreateDbContext();
+            var job = db.SyncJobs.Single();
+            Assert.That(job.Schedule, Is.EqualTo("Cron"));
+            Assert.That(job.CronExpression, Is.EqualTo("5 4 * * *"));
+        }, TimeSpan.FromSeconds(5));
+    }
+
+    [Test]
+    public async Task Playlists_NeedsAttention_DropsARecoveredPlaylistFromTheSelection()
+    {
+        SeedOnePlaylist("Recovering Mix", 2, Platform.Spotify);
+        using (var db = new SqliteFactory(_dbPath).CreateDbContext())
+        {
+            db.Tracks.First(t => t.PlaylistEntityId == db.Playlists.Single().Id).DownloadStatus = "failed";
+            db.SaveChanges();
+        }
+
+        var cut = _ctx.Render<Playlists>();
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.FindAll(".playlist-card"), Has.Count.EqualTo(1)), TimeSpan.FromSeconds(5));
+
+        cut.Find(".filter-chip.attention").Click();
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.FindAll(".playlist-card"), Has.Count.EqualTo(1)), TimeSpan.FromSeconds(3));
+        cut.FindAll(".list-toolbar button").Single(b => b.TextContent.Contains("Select")).Click();
+        cut.FindAll(".playlist-card a.playlist-cover").Single().Click();
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Find(".selection-all").TextContent, Does.Contain("1 selected")),
+            TimeSpan.FromSeconds(3));
+
+        // The fix resolves while selection mode is open. The next stats
+        // reload, which the timer drives in the running app, must remove
+        // the now hidden id instead of leaving a phantom bulk action.
+        using (var db = new SqliteFactory(_dbPath).CreateDbContext())
+        {
+            db.Tracks.First(t => t.DownloadStatus == "failed").DownloadStatus = "downloaded";
+            db.SaveChanges();
+        }
+        var load = typeof(Playlists).GetMethod("Load",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+        await cut.InvokeAsync(() => (Task)load.Invoke(cut.Instance, new object[] { false })!);
+        cut.Render();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.Find(".selection-all").TextContent, Does.Contain("0 selected"),
+                "the hidden playlist is no longer part of the selection");
+            Assert.That(cut.Markup, Does.Contain("Nothing needs attention"));
+        }, TimeSpan.FromSeconds(3));
     }
 
     [Test]
@@ -694,6 +861,117 @@ public class PlaylistsPageTests
             Assert.That(import.TextContent, Does.Contain("Import 2 selected"));
             Assert.That(import.HasAttribute("disabled"), Is.False);
         }, TimeSpan.FromSeconds(3));
+    }
+
+    [Test]
+    public void Playlists_AccountImport_BatchImportsGoodPlaylistsAndReportsFailures()
+    {
+        var tokenStore = new MelodyBridge.Infrastructure.Accounts.AccountTokenStore(
+            new SqliteFactory(_dbPath), NullLogger<MelodyBridge.Infrastructure.Accounts.AccountTokenStore>.Instance);
+        _ctx.Services.AddSingleton<MelodyBridge.Infrastructure.Accounts.SpotifyAccountProvider>(
+            new StubSpotifyAccountProvider(tokenStore, new[]
+            {
+                new UserPlaylist("good", "Good Mix", "Warre", 1, false),
+                new UserPlaylist("bad", "Bad Mix", "Warre", 1, false),
+            }));
+
+        var manager = new MelodyBridge.Application.Services.DownloadManager(
+            new EmptyRegistry(),
+            NullLogger<MelodyBridge.Application.Services.DownloadManager>.Instance);
+        _ctx.Services.AddSingleton(new PlaylistStore(
+            new SqliteFactory(_dbPath), new ISourceProvider[] { new StubSourceProvider() },
+            manager, NullLogger<PlaylistStore>.Instance));
+
+        var cut = _ctx.Render<Playlists>();
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("Add playlist")), TimeSpan.FromSeconds(3));
+        cut.Find("div.topbar-actions button.ghost").Click();
+        cut.WaitForAssertion(() =>
+        {
+            var card = cut.FindAll(".account-card")
+                .First(c => c.QuerySelector("strong")?.TextContent.Trim() == "Spotify");
+            card.QuerySelectorAll("button")
+                .Single(b => b.TextContent.Contains("Show my playlists")).Click();
+        }, TimeSpan.FromSeconds(3));
+
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.FindAll(".account-playlist-table tbody tr"), Has.Count.EqualTo(2)),
+            TimeSpan.FromSeconds(3));
+        cut.Find(".account-list-toolbar .selection-all input").Change(true);
+        cut.Find(".account-list-toolbar button").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.FindAll(".import-result"), Has.Count.EqualTo(1),
+                "the successful playlist is listed in the result dialog");
+            Assert.That(cut.Find(".import-result").TextContent, Does.Contain("Good Mix"));
+            Assert.That(cut.Find(".import-result a").GetAttribute("href"), Does.StartWith("/playlists/"));
+            Assert.That(cut.Markup, Does.Contain("Bad Mix: source unavailable"),
+                "the failed playlist is named with its reason");
+        }, TimeSpan.FromSeconds(5));
+
+        using var db = new SqliteFactory(_dbPath).CreateDbContext();
+        Assert.That(db.Playlists.Count(), Is.EqualTo(1), "only the successful import persists");
+        Assert.That(db.Playlists.Single().Name, Is.EqualTo("Good Mix"));
+    }
+
+    [Test]
+    public void Playlists_AccountImport_AllFailuresKeepTheImportPanelOpen()
+    {
+        var tokenStore = new MelodyBridge.Infrastructure.Accounts.AccountTokenStore(
+            new SqliteFactory(_dbPath), NullLogger<MelodyBridge.Infrastructure.Accounts.AccountTokenStore>.Instance);
+        _ctx.Services.AddSingleton<MelodyBridge.Infrastructure.Accounts.SpotifyAccountProvider>(
+            new StubSpotifyAccountProvider(tokenStore, new[]
+            {
+                new UserPlaylist("bad-one", "Bad One", "Warre", 1, false),
+                new UserPlaylist("bad-two", "Bad Two", "Warre", 1, false),
+            }));
+
+        var manager = new MelodyBridge.Application.Services.DownloadManager(
+            new EmptyRegistry(),
+            NullLogger<MelodyBridge.Application.Services.DownloadManager>.Instance);
+        _ctx.Services.AddSingleton(new PlaylistStore(
+            new SqliteFactory(_dbPath), new ISourceProvider[] { new StubSourceProvider() },
+            manager, NullLogger<PlaylistStore>.Instance));
+
+        var cut = _ctx.Render<Playlists>();
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("Add playlist")), TimeSpan.FromSeconds(3));
+        cut.Find("div.topbar-actions button.ghost").Click();
+        cut.WaitForAssertion(() =>
+        {
+            var card = cut.FindAll(".account-card")
+                .First(c => c.QuerySelector("strong")?.TextContent.Trim() == "Spotify");
+            card.QuerySelectorAll("button")
+                .Single(b => b.TextContent.Contains("Show my playlists")).Click();
+        }, TimeSpan.FromSeconds(3));
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.FindAll(".account-playlist-table tbody tr"), Has.Count.EqualTo(2)),
+            TimeSpan.FromSeconds(3));
+        cut.Find(".account-list-toolbar .selection-all input").Change(true);
+        cut.Find(".account-list-toolbar button").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.Markup, Does.Contain("Import your music"),
+                "the import panel stays open when every playlist fails");
+            Assert.That(cut.Markup, Does.Contain("Bad One: source unavailable"));
+            Assert.That(cut.FindAll(".import-result"), Is.Empty);
+        }, TimeSpan.FromSeconds(5));
+    }
+
+    [Test]
+    public void AccountSourceUrl_UsesTheProviderPlatform()
+    {
+        Assert.Multiple(() =>
+        {
+            Assert.That(Playlists.AccountSourceUrl(
+                    MelodyBridge.Infrastructure.Accounts.SpotifyAccountProvider.ProviderName, "abc"),
+                Is.EqualTo("https://open.spotify.com/playlist/abc"));
+            Assert.That(Playlists.AccountSourceUrl(
+                    MelodyBridge.Infrastructure.Accounts.YouTubeAccountProvider.ProviderName, "xyz"),
+                Is.EqualTo("https://www.youtube.com/playlist?list=xyz"));
+        });
     }
 
     [Test]

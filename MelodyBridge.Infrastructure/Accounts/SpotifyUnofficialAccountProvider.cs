@@ -155,7 +155,7 @@ public class SpotifyUnofficialAccountProvider : IAccountSourceProvider
                + $"{playlists.Count} playlists{version}.";
     }
 
-    public async Task<IReadOnlyList<UserPlaylist>> GetUserPlaylistsAsync(CancellationToken ct = default)
+    public virtual async Task<IReadOnlyList<UserPlaylist>> GetUserPlaylistsAsync(CancellationToken ct = default)
     {
         var result = new List<UserPlaylist>();
         var offset = 0;

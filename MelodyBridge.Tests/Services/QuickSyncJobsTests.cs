@@ -214,6 +214,57 @@ public class QuickSyncJobsTests
     }
 
     [Test]
+    public async Task Create_WithM3u_KeepsCollidingPlaylistNamesInSeparateFiles()
+    {
+        await SeedPlaylistsAsync(("p1", "AC/DC"), ("p2", "AC_DC"));
+        await SeedProfileAsync("px1", "JF", "Jellyfin");
+
+        var result = await QuickSyncJobs.CreateAsync(_factory, _profiles,
+            new[] { ("p1", "AC/DC"), ("p2", "AC_DC") }, new[] { "px1" },
+            new QuickSyncOptions(ScanSchedule.Manual, M3uEnabled: true, M3uDirectory: "/playlists"));
+
+        Assert.That(result.Created, Has.Count.EqualTo(2));
+        await using var db = _factory.CreateDbContext();
+        var paths = db.SyncJobs
+            .AsEnumerable()
+            .Select(j => SyncJobMapping.TargetsOf(j)
+                .Single(t => t.Kind == OutputTargetType.M3uFile).M3uPath)
+            .ToList();
+        Assert.That(paths, Is.EquivalentTo(new[]
+        {
+            Path.Combine("/playlists", "AC_DC.m3u"),
+            Path.Combine("/playlists", "AC_DC (2).m3u"),
+        }), "names that sanitize to the same file get distinct paths");
+        Assert.That(paths.Distinct(StringComparer.OrdinalIgnoreCase).Count(), Is.EqualTo(2));
+    }
+
+    [Test]
+    public async Task Create_WithM3u_AvoidsAPathAnExistingJobAlreadyUses()
+    {
+        await SeedPlaylistsAsync(("p1", "Jazz"));
+        await SeedProfileAsync("px1", "JF", "Jellyfin");
+        await using (var db = _factory.CreateDbContext())
+        {
+            var existing = new SyncJobEntity { Name = "Old Jazz", SourceId = "other" };
+            SyncJobMapping.ApplyTargets(existing,
+                new[] { new SyncTarget(OutputTargetType.M3uFile, M3uPath: "/playlists/Jazz.m3u") });
+            db.SyncJobs.Add(existing);
+            await db.SaveChangesAsync();
+        }
+
+        var result = await QuickSyncJobs.CreateAsync(_factory, _profiles,
+            new[] { ("p1", "Jazz") }, new[] { "px1" },
+            new QuickSyncOptions(ScanSchedule.Manual, M3uEnabled: true, M3uDirectory: "/playlists"));
+
+        Assert.That(result.Created, Has.Count.EqualTo(1));
+        var created = result.Created[0];
+        Assert.That(SyncJobMapping.TargetsOf(created)
+                .Single(t => t.Kind == OutputTargetType.M3uFile).M3uPath,
+            Is.EqualTo(Path.Combine("/playlists", "Jazz (2).m3u")),
+            "the new job never overwrites a file another job already owns");
+    }
+
+    [Test]
     public async Task Create_WithM3uOnly_WorksWithoutAProfile()
     {
         await SeedPlaylistsAsync(("p1", "Jazz"));

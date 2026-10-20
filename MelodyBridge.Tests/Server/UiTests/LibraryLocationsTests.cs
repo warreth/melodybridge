@@ -169,7 +169,7 @@ public class LibraryLocationsTests
         cut.Render();
 
         // Custom mode shows the free-text cron input; type a real expression.
-        cut.Find("input[placeholder='30 4 * * *']").Change("0 22 * * 5");
+        cut.Find("input[placeholder='30 4 * * *']").Input("0 22 * * 5");
         cut.Render();
 
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Add location" && b.ClassList.Contains("primary")).Click();

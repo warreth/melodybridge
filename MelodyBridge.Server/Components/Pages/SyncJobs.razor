@@ -437,7 +437,7 @@
                         }
                         @foreach (var chip in TargetChipsOf(job))
                         {
-                            <span class="target-inline"><Icon Name="@chip.Icon" Size="12" /> @chip.Label</span>
+                            <span class="target-inline"><Icon Name="@chip.Icon" Size="12" /> <span class="target-inline-text">@chip.Label</span></span>
                         }
                     </small>
                 </span>
@@ -492,7 +492,7 @@ else
                 <div class="target-chips">
                     @foreach (var chip in TargetChipsOf(job))
                     {
-                        <span class="target-chip"><Icon Name="@chip.Icon" Size="13" /> @chip.Label</span>
+                        <span class="target-chip"><Icon Name="@chip.Icon" Size="13" /> <span class="target-chip-text">@chip.Label</span></span>
                     }
                 </div>
                 <p class="job-summary">@JobSummary(job)</p>

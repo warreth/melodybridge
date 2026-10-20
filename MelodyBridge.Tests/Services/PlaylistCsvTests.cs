@@ -149,6 +149,70 @@ public class PlaylistCsvTests
     }
 
     [Test]
+    public void SafeFileNames_ReplacesPortableSeparatorsAndReservedNames()
+    {
+        Assert.Multiple(() =>
+        {
+            Assert.That(SafeFileNames.Sanitize("AC\\DC"), Is.EqualTo("AC_DC"),
+                "a Windows separator can never become a Linux folder path");
+            Assert.That(SafeFileNames.Sanitize("AC/DC"), Is.EqualTo("AC_DC"),
+                "a Unix separator is replaced too");
+            Assert.That(SafeFileNames.Sanitize("..\\..\\evil"), Is.EqualTo(".._.._evil"),
+                "dot segments never survive as path separators");
+            Assert.That(SafeFileNames.Sanitize(".."), Is.EqualTo("playlist"),
+                "a lone dot segment falls back");
+            Assert.That(SafeFileNames.Sanitize("CON"), Is.EqualTo("_CON"),
+                "Windows reserved device names are prefixed");
+            Assert.That(SafeFileNames.Sanitize("name. "), Is.EqualTo("name"),
+                "trailing dots and spaces are removed");
+            Assert.That(SafeFileNames.Sanitize(""), Is.EqualTo("playlist"),
+                "an empty name gets a stable fallback");
+        });
+    }
+
+    [Test]
+    public async Task ExportCsvZipAsync_EntryNamesArePortableAndFlat()
+    {
+        var dbPath = NewDbPath();
+        try
+        {
+            var store = await NewStoreAsync(dbPath);
+            var factory = await NewDbFactoryOnly(dbPath);
+            await using (var db = factory.CreateDbContext())
+            {
+                var names = new[] { "AC\\DC", "..\\..\\evil", "CON" };
+                for (var i = 0; i < names.Length; i++)
+                {
+                    db.Playlists.Add(new PlaylistEntity
+                    {
+                        Id = $"zip-safe-{i}",
+                        Name = names[i],
+                        SourceUrl = $"stub:zip-safe-{i}",
+                        Tracks = new List<TrackEntity>
+                        {
+                            new() { MelodyId = $"zs{i}", Title = "One", Position = 0, DownloadStatus = "pending" },
+                        },
+                    });
+                }
+                await db.SaveChangesAsync();
+            }
+
+            var bytes = await store.ExportCsvZipAsync(
+                new[] { "zip-safe-0", "zip-safe-1", "zip-safe-2" });
+
+            using var archive = new ZipArchive(new MemoryStream(bytes), ZipArchiveMode.Read);
+            var entryNames = archive.Entries.Select(e => e.FullName).ToList();
+            Assert.That(entryNames, Is.EqualTo(new[]
+            {
+                "AC_DC.csv", ".._.._evil.csv", "_CON.csv",
+            }), "names are flat, portable and safe for Windows extractors");
+            Assert.That(entryNames.Any(n => n.Contains('/') || n.Contains('\\')), Is.False,
+                "no entry may carry a directory separator");
+        }
+        finally { TryDelete(dbPath); }
+    }
+
+    [Test]
     public async Task ExportCsvZipAsync_PutsEachPlaylistInItsOwnEntry()
     {
         var dbPath = NewDbPath();

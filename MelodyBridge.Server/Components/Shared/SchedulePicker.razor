@@ -19,7 +19,7 @@
     {
         <label class="wide">
             Cron expression (minute hour day-of-month month day-of-week)
-            <input @bind="CronText" placeholder="30 4 * * *" />
+            <input @bind="CronText" @bind:event="oninput" placeholder="30 4 * * *" />
         </label>
         <div class="hint-box wide">
             Five-field cron with minute precision, for example
@@ -40,6 +40,14 @@
     [Parameter] public ScanSchedule Value { get; set; }
 
     [Parameter] public EventCallback<ScanSchedule> ValueChanged { get; set; }
+
+    /// <summary>
+    /// Fires whenever the editor's validity changes. A custom cron that
+    /// does not parse emits false; every named option emits true. Callers
+    /// that create work from the value (quick publish) use it to block
+    /// saving instead of silently keeping an older schedule.
+    /// </summary>
+    [Parameter] public EventCallback<bool> ValidityChanged { get; set; }
 
     /// <summary>The field label; callers name the schedule after what it
     /// drives ("Auto-sync schedule") without wrapping the picker in a
@@ -85,6 +93,8 @@
     private async Task PushAsync()
     {
         var schedule = Build();
+        if (ValidityChanged.HasDelegate)
+            await ValidityChanged.InvokeAsync(schedule is not null);
         if (schedule is { } valid)
         {
             Value = valid;

@@ -14,9 +14,9 @@ public static class Csv
             : $"\"{value.Replace("\"", "\"\"")}\"";
     }
 
-    /// <summary>playlist name with characters illegal in filenames replaced by '_'.</summary>
+    /// <summary>playlist name as one portable, safe file name.</summary>
     public static string SafeFileName(string name)
-        => string.Concat(name.Select(c => Path.GetInvalidFileNameChars().Contains(c) ? '_' : c));
+        => SafeFileNames.Sanitize(name);
 }
 
 internal static class StringTruncateExtensions
