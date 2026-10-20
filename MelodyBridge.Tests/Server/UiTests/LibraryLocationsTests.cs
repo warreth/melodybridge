@@ -168,7 +168,7 @@ public class LibraryLocationsTests
         selects[0].Change("Cron"); // mode
         cut.Render();
 
-        // Custom mode shows the free-text cron input; type a real expression.
+        // Custom mode shows the free-text cron input; commit a real expression.
         cut.Find("input[placeholder='30 4 * * *']").Change("0 22 * * 5");
         cut.Render();
 

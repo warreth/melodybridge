@@ -47,19 +47,23 @@ public class AccentPaletteContractTests
     }
 
     [Test]
-    public void MobileNavigation_CollapsesIntoAWrappingStrip()
+    public void MobileNavigation_BecomesAScrollableStrip()
     {
         var css = StyleSheet;
         // A 600px column of links above every page was the old defect:
         // below tablet the sidebar must become a compact strip whose nav
-        // wraps, and the section headings disappear.
+        // stays on one scrollable row, and the section headings disappear.
         var media = Regex.Match(css, @"@media \(max-width: 1100px\) \{.*?\n\}", RegexOptions.Singleline);
 
         Assert.That(media.Success, Is.True, "the tablet media query exists");
-        Assert.That(media.Value, Does.Contain(".app-nav { display: flex;"),
+        Assert.That(media.Value, Does.Contain(".app-nav {"),
+            "the responsive nav rule exists");
+        Assert.That(media.Value, Does.Contain("display: flex;"),
             "the responsive nav must be a flex strip");
-        Assert.That(media.Value, Does.Contain("flex-wrap: wrap"),
-            "the nav must wrap instead of stacking a tall column");
+        Assert.That(media.Value, Does.Contain("flex-wrap: nowrap"),
+            "the nav scrolls sideways instead of wrapping into several rows");
+        Assert.That(media.Value, Does.Contain("overflow-x: auto"),
+            "the strip needs its own horizontal scroll");
         Assert.That(media.Value, Does.Contain(".nav-section-header { display: none;"),
             "section headings would each consume a whole row on a phone");
         Assert.That(media.Value, Does.Contain(".app-sidebar {"),

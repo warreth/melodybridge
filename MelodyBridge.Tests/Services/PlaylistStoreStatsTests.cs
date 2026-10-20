@@ -101,13 +101,48 @@ public class PlaylistStoreStatsTests
             }
 
             var stats = await store.GetDownloadStatsAsync();
-            var (downloaded, failed, total, sizeBytes) = stats[playlist.Id];
+            var (downloaded, failed, total, sizeBytes, attention) = stats[playlist.Id];
 
             Assert.That(downloaded, Is.EqualTo(1));
             Assert.That(failed, Is.EqualTo(1));
             Assert.That(total, Is.EqualTo(2));
+            Assert.That(attention, Is.EqualTo(1), "a failed download needs attention");
             Assert.That(sizeBytes, Is.EqualTo(10_000_000),
                 "the failed file's bytes must not count as size on disk");
+        }
+        finally
+        {
+            File.Delete(dbPath);
+        }
+    }
+
+    [Test]
+    public async Task DownloadStats_OpenQualityReview_CountsAsAttention()
+    {
+        var dbPath = NewDbPath();
+        try
+        {
+            var factory = await NewDbFactory(dbPath);
+            var store = NewStore(factory, new StubSourceProvider());
+            var (playlist, _) = await store.AddOrRefreshDetailedAsync("stub:playlist");
+
+            await using (var db = await factory.CreateDbContextAsync())
+            {
+                var track = db.Tracks.First(t => t.ExternalId == "t1");
+                track.DownloadStatus = "downloaded";
+                track.ReviewKind = "quality";
+                await db.SaveChangesAsync();
+            }
+
+            var stats = await store.GetDownloadStatsAsync();
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(stats[playlist.Id].attention, Is.EqualTo(1),
+                    "a downloaded file waiting for a review still needs a human");
+                Assert.That(stats[playlist.Id].failed, Is.EqualTo(0),
+                    "it is not a failed download");
+            });
         }
         finally
         {
@@ -285,6 +320,83 @@ public class PlaylistStoreStatsTests
             {
                 var off = await db.Playlists.AsNoTracking().SingleAsync(p => p.Id == playlist.Id);
                 Assert.That(off.AutoDownloadEnabled, Is.False, "the toggle turns back off");
+            }
+        }
+        finally
+        {
+            File.Delete(dbPath);
+        }
+    }
+
+    [Test]
+    public async Task SetPinned_PersistsAcrossAStoreReload()
+    {
+        var dbPath = NewDbPath();
+        try
+        {
+            var factory = await NewDbFactory(dbPath);
+            await using (var db = factory.CreateDbContext())
+            {
+                db.Playlists.Add(new PlaylistEntity
+                {
+                    Id = "pin-1",
+                    Name = "Pin me",
+                    SourceUrl = "stub:pin-1",
+                });
+                await db.SaveChangesAsync();
+            }
+            var store = NewStore(factory);
+
+            await store.SetPinnedAsync("pin-1", true);
+
+            await using (var check = factory.CreateDbContext())
+            {
+                var row = await check.Playlists.AsNoTracking().SingleAsync(p => p.Id == "pin-1");
+                Assert.That(row.IsPinned, Is.True, "the pin is stored on the playlist row");
+            }
+            await store.SetPinnedAsync("pin-1", false);
+            await using (var check = factory.CreateDbContext())
+            {
+                var row = await check.Playlists.AsNoTracking().SingleAsync(p => p.Id == "pin-1");
+                Assert.That(row.IsPinned, Is.False, "unpin clears the same row");
+            }
+        }
+        finally
+        {
+            File.Delete(dbPath);
+        }
+    }
+
+    [Test]
+    public async Task SchemaPatcher_OldPlaylists_GainThePinnedColumn()
+    {
+        var dbPath = NewDbPath();
+        try
+        {
+            var factory = await NewDbFactory(dbPath);
+            await using (var db = factory.CreateDbContext())
+            {
+                db.Playlists.Add(new PlaylistEntity
+                {
+                    Id = "old-pin",
+                    Name = "Old pin",
+                    SourceUrl = "stub:old-pin",
+                });
+                await db.SaveChangesAsync();
+                await db.Database.ExecuteSqlRawAsync("ALTER TABLE Playlists DROP COLUMN IsPinned");
+            }
+
+            await using (var db = factory.CreateDbContext())
+                await SchemaPatcher.PatchAsync(db);
+
+            await using (var check = factory.CreateDbContext())
+            {
+                var row = await check.Playlists.AsNoTracking().SingleAsync(p => p.Id == "old-pin");
+                Assert.Multiple(() =>
+                {
+                    Assert.That(row.IsPinned, Is.False, "existing rows stay unpinned");
+                    Assert.That(row.Name, Is.EqualTo("Old pin"), "data survives the patch");
+                });
             }
         }
         finally

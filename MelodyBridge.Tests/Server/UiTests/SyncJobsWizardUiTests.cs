@@ -212,6 +212,7 @@ public class SyncJobsWizardUiTests
         }
 
         var cut = _ctx.Render<SyncJobs>();
+        cut.Find("button.card-menu-trigger").Click();
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Edit").Click();
         Next(cut); // step 2
 
@@ -435,6 +436,7 @@ public class SyncJobsWizardUiTests
         }
 
         var cut = _ctx.Render<SyncJobs>();
+        cut.Find("button.card-menu-trigger").Click();
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Edit").Click();
         Next(cut, 2);
 
@@ -483,6 +485,7 @@ public class SyncJobsWizardUiTests
         Assert.That(store.DeleteAsync("prof-dead").GetAwaiter().GetResult(), Is.True);
 
         var cut = _ctx.Render<SyncJobs>();
+        cut.Find("button.card-menu-trigger").Click();
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Edit").Click();
         Next(cut, 2);
 
@@ -536,6 +539,7 @@ public class SyncJobsWizardUiTests
         }
 
         var cut = _ctx.Render<SyncJobs>();
+        cut.Find("button.card-menu-trigger").Click();
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Edit").Click();
         Next(cut, 2);
         Assert.That(cut.Markup, Does.Contain("saved in this job"));
@@ -580,6 +584,7 @@ public class SyncJobsWizardUiTests
         }
 
         var cut = _ctx.Render<SyncJobs>();
+        cut.Find("button.card-menu-trigger").Click();
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Edit").Click();
         Next(cut, 2);
 
@@ -620,6 +625,40 @@ public class SyncJobsWizardUiTests
         var value = cut.Find("input[placeholder='/app/playlists/playlist.m3u']").GetAttribute("value");
         Assert.That(value, Is.EqualTo("/srv/playlists/My List.m3u"),
             "the Playlist output folder setting names the folder, the job name the file");
+    }
+
+    [Test]
+    public void Step3_M3uPath_PrefillAvoidsAnExistingJobPath()
+    {
+        new MelodyBridge.Infrastructure.Services.SettingsStore(_dbFactory)
+            .SetAsync("playlist_path", "/srv/playlists").GetAwaiter().GetResult();
+        SeedScanLocations("/music");
+        SeedPlaylist("p1", "My List");
+        using (var db = _dbFactory.CreateDbContext())
+        {
+            db.SyncJobs.Add(new SyncJobEntity
+            {
+                Id = "job-existing",
+                Name = "Existing",
+                SourceId = "p1",
+                SearchLocationPaths = "[]",
+                OutputTarget = "M3uFile",
+                M3uOutputPath = "/srv/playlists/My List.m3u",
+                Schedule = "Manual",
+            });
+            db.SaveChanges();
+        }
+
+        var cut = OpenWizard();
+        cut.FindAll("select")
+            .Single(s => s.QuerySelectorAll("option")
+                .Any(o => o.GetAttribute("value") == "p1"))
+            .Change("p1");
+        Next(cut, 2);
+
+        var value = cut.Find("input[placeholder='/app/playlists/playlist.m3u']").GetAttribute("value");
+        Assert.That(value, Is.EqualTo("/srv/playlists/My List (2).m3u"),
+            "the prefill does not reuse a path another job already writes");
     }
 
     // ── C3: multiple remap rules ────────────────────────────────────
@@ -694,6 +733,7 @@ public class SyncJobsWizardUiTests
         }
 
         var cut = _ctx.Render<SyncJobs>();
+        cut.Find("button.card-menu-trigger").Click();
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Edit").Click();
         Next(cut); // -> output step
         WalkToReview(cut);
@@ -849,6 +889,7 @@ public class SyncJobsWizardUiTests
         }
 
         var cut = _ctx.Render<SyncJobs>();
+        cut.Find("button.card-menu-trigger").Click();
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Log").Click();
 
         Assert.That(cut.Markup, Does.Contain("Logged job"));

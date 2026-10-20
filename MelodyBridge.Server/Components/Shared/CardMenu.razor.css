@@ -1,20 +1,20 @@
 .card-menu { position: relative; }
 
 .card-menu-trigger {
-    list-style: none;
     cursor: pointer;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     width: 32px;
     height: 32px;
+    padding: 0;
     border-radius: 8px;
     border: 1px solid var(--border);
     background: var(--surface-2);
     color: var(--muted);
 }
-.card-menu-trigger::-webkit-details-marker { display: none; }
 .card-menu-trigger:hover { color: var(--text); border-color: var(--border-strong); }
+.card-menu-trigger[aria-expanded="true"] { background: var(--surface-3); color: var(--text); border-color: var(--border-strong); }
 
 .card-menu-items {
     position: absolute;
@@ -48,3 +48,10 @@
 }
 ::deep button:hover { background: var(--surface-3); }
 ::deep button.danger { color: var(--danger); }
+::deep button:disabled { opacity: .45; cursor: not-allowed; }
+::deep button:disabled:hover { background: transparent; }
+::deep .card-menu-sep {
+    height: 1px;
+    margin: .25rem .3rem;
+    background: var(--border);
+}

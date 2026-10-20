@@ -21,12 +21,12 @@ public class PlaylistStoreSurfaceTests
         // Queries, lifecycle and maintenance
         "GetAllAsync", "GetDownloadStatsAsync", "GetSavedExternalIdsAsync", "RemoveTrackAsync",
         "GetByIdAsync", "DeleteAsync", "UpdateSettingsAsync", "UpdateScheduleAsync",
-        "GetDueForAutoSyncAsync", "RecomputeMissingFactsAsync", "RetagLibraryAsync",
+        "SetPinnedAsync", "GetDueForAutoSyncAsync", "RecomputeMissingFactsAsync", "RetagLibraryAsync",
         // Sources and snapshots
         "AddOrRefreshAsync", "AddOrRefreshDetailedAsync", "AddOrRefreshLikedAsync",
         "ImportFileAsync", "RefreshAsync",
         // Transfer
-        "ExportAsync", "ExportCsvAsync", "ImportAsync",
+        "ExportAsync", "ExportCsvAsync", "ExportCsvZipAsync", "ImportAsync",
     };
 
     [Test]

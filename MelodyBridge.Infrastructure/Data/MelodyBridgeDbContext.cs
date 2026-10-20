@@ -298,6 +298,12 @@ public class PlaylistEntity
     /// requested container (a FLAC request landing on the best lossy file).
     /// </summary>
     public bool AllowContainerChange { get; set; } = true;
+    /// <summary>
+    /// User-pinned playlists sort above the rest of the list, whatever
+    /// sort order is chosen. Purely a view preference, no effect on sync
+    /// or downloads.
+    /// </summary>
+    public bool IsPinned { get; set; }
     public List<TrackEntity> Tracks { get; set; } = new();
 
     /// <summary>

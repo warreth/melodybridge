@@ -104,10 +104,11 @@ public class PageRefactorUiTests
             Assert.That(cut.Markup, Does.Contain("Menu Mix")), TimeSpan.FromSeconds(3));
 
         var card = cut.Find(".playlist-card");
-        Assert.That(card.QuerySelector("details.card-menu"), Is.Not.Null,
+        Assert.That(card.QuerySelector("div.card-menu"), Is.Not.Null,
             "the card carries the shared action menu");
-        Assert.That(card.QuerySelector("summary.card-menu-trigger"), Is.Not.Null,
-            "the trigger is the three-dot summary");
+        Assert.That(card.QuerySelector("button.card-menu-trigger"), Is.Not.Null,
+            "the trigger is the three-dot button");
+        card.QuerySelector("button.card-menu-trigger")!.Click();
         Assert.That(cut.FindAll("button[title='Remove this playlist']").Count(), Is.EqualTo(1),
             "the remove action sits inside the menu");
     }
@@ -120,6 +121,7 @@ public class PageRefactorUiTests
         cut.WaitForAssertion(() =>
             Assert.That(cut.Markup, Does.Contain("Menu Mix")), TimeSpan.FromSeconds(3));
 
+        cut.Find("button.card-menu-trigger").Click();
         cut.Find("button[title='Remove this playlist']").Click();
 
         Assert.That(cut.Markup, Does.Contain("Remove 'Menu Mix'?"),
@@ -235,10 +237,17 @@ public class PageRefactorUiTests
             Assert.That(cut.Markup, Does.Contain("Footer Job")), TimeSpan.FromSeconds(3));
 
         var footer = cut.Find(".job-footer");
-        var labels = footer.QuerySelectorAll("button").Select(b => b.TextContent.Trim()).ToList();
-        Assert.That(labels, Is.EqualTo(new[] { "Run now", "Log", "Edit", "Delete" }),
-            "the four actions align in one inline footer");
-        Assert.That(footer.QuerySelector("span.pill"), Is.Null,
+        var run = footer.QuerySelectorAll("button.btn-modern").Select(b => b.TextContent.Trim()).ToList();
+        Assert.That(run, Is.EqualTo(new[] { "Run now" }),
+            "the primary run action stays visible in the footer");
+        Assert.That(footer.QuerySelector("div.card-menu"), Is.Not.Null,
+            "log, edit and delete live behind the shared actions menu");
+        footer.QuerySelector("button.card-menu-trigger")!.Click();
+        var opened = cut.Find(".job-footer");
+        var labels = opened.QuerySelectorAll(".card-menu-items button").Select(b => b.TextContent.Trim()).ToList();
+        Assert.That(labels, Is.EqualTo(new[] { "Log", "Edit", "Delete" }),
+            "the menu holds the secondary and destructive actions");
+        Assert.That(opened.QuerySelector("span.pill"), Is.Null,
             "the status pill stays in the header, not the footer");
     }
 

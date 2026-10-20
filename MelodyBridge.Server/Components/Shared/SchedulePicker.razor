@@ -19,7 +19,14 @@
     {
         <label class="wide">
             Cron expression (minute hour day-of-month month day-of-week)
-            <input @bind="CronText" placeholder="30 4 * * *" />
+            @if (LiveValidation)
+            {
+                <input @bind="CronText" @bind:event="oninput" placeholder="30 4 * * *" />
+            }
+            else
+            {
+                <input @bind="CronText" placeholder="30 4 * * *" />
+            }
         </label>
         <div class="hint-box wide">
             Five-field cron with minute precision, for example
@@ -35,11 +42,27 @@
 
     private ScheduleKind _kind = ScheduleKind.Manual;
     private string _cronText = "0 4 * * *";
+    private ScanSchedule? _lastSeenValue;
 
     /// <summary>Current editor state as a schedule.</summary>
     [Parameter] public ScanSchedule Value { get; set; }
 
     [Parameter] public EventCallback<ScanSchedule> ValueChanged { get; set; }
+
+    /// <summary>
+    /// Fires whenever the editor's validity changes. A custom cron that
+    /// does not parse emits false; every named option emits true. Callers
+    /// that create work from the value (quick publish) use it to block
+    /// saving instead of silently keeping an older schedule.
+    /// </summary>
+    [Parameter] public EventCallback<bool> ValidityChanged { get; set; }
+
+    /// <summary>
+    /// Validate and emit while the user types. Off by default because
+    /// pages that autosave on ValueChanged should write once on change,
+    /// not on every intermediate valid cron expression.
+    /// </summary>
+    [Parameter] public bool LiveValidation { get; set; }
 
     /// <summary>The field label; callers name the schedule after what it
     /// drives ("Auto-sync schedule") without wrapping the picker in a
@@ -63,6 +86,10 @@
         // Seed the editor from the incoming value: a named preset selects
         // itself, an interval row (older data) presents itself as the
         // equivalent custom expression, everything else is custom text.
+        // A parent render with the same value must not overwrite raw cron
+        // text while the user is typing an incomplete expression.
+        if (_lastSeenValue == Value) return;
+        _lastSeenValue = Value;
         var v = Value;
         if (v.Mode == ScanScheduleMode.Manual)
         {
@@ -85,9 +112,12 @@
     private async Task PushAsync()
     {
         var schedule = Build();
+        if (ValidityChanged.HasDelegate)
+            await ValidityChanged.InvokeAsync(schedule is not null);
         if (schedule is { } valid)
         {
             Value = valid;
+            _lastSeenValue = valid;
             await ValueChanged.InvokeAsync(valid);
         }
     }

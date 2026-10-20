@@ -225,7 +225,7 @@ public class YouTubeAccountProvider : IAccountSourceProvider
         });
     }
 
-    public async Task<IReadOnlyList<UserPlaylist>> GetUserPlaylistsAsync(CancellationToken ct = default)
+    public virtual async Task<IReadOnlyList<UserPlaylist>> GetUserPlaylistsAsync(CancellationToken ct = default)
     {
         using var service = await GetServiceAsync(ct);
         var result = new List<UserPlaylist>();

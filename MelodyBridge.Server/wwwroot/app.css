@@ -167,6 +167,7 @@ h1:focus { outline: none; }
     position: sticky;
     top: 0;
     height: 100vh;
+    min-width: 0;
     padding: 1rem;
     background: var(--surface);
     border-right: 1px solid var(--border);
@@ -693,6 +694,12 @@ select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-s
     color: var(--muted);
     border: 1px solid var(--border);
 }
+.quality-badge.warn {
+    color: var(--warning);
+    background: var(--warning-soft);
+    border-color: rgba(251, 191, 36, .25);
+}
+:root[data-theme="light"] .quality-badge.warn { color: #92400e; }
 .pill.outline {
     background: transparent;
     border: 1px solid var(--border);
@@ -1030,11 +1037,278 @@ select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-s
 }
 /* Row actions: keep buttons on one line, shrink to icons on phones. */
 .entity-row-actions { display: flex; align-items: center; gap: .35rem; flex-wrap: wrap; }
+
+/* -- List toolbar and selection -------------------------------- */
+/* The quiet row above a list: count and sort on the left, layout and
+   selection on the right. It keeps page-title actions and list controls
+   from competing for the same line. */
+.list-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: .75rem;
+    flex-wrap: wrap;
+    margin: 1rem 0 .75rem;
+}
+.list-toolbar-left,
+.list-toolbar-actions { display: flex; align-items: center; gap: .55rem; flex-wrap: wrap; min-width: 0; }
+.list-count { color: var(--muted); font-size: .84rem; white-space: nowrap; }
+.filter-chip.attention { display: inline-flex; align-items: center; gap: .35rem; }
+.filter-chip.attention:disabled { opacity: .5; cursor: not-allowed; }
+.filter-count {
+    display: inline-grid;
+    place-items: center;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 .3rem;
+    border: 1px solid rgba(251, 191, 36, .25);
+    border-radius: 999px;
+    background: var(--warning-soft);
+    color: var(--warning);
+    font-size: .68rem;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+}
+.filter-chip.attention.active .filter-count {
+    background: var(--accent);
+    border-color: transparent;
+    color: var(--accent-contrast);
+}
+.pin-mark { color: var(--accent-text); margin-right: .25rem; vertical-align: -1px; }
+.list-toolbar + .content-grid,
+.list-toolbar + .entity-rows,
+.selection-bar + .content-grid,
+.selection-bar + .entity-rows { margin-top: 0; }
+.sort-control {
+    display: inline-flex;
+    align-items: center;
+    gap: .35rem;
+    padding: .1rem .15rem .1rem .55rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface);
+    color: var(--muted);
+    min-height: 34px;
+}
+.sort-control select {
+    width: auto;
+    min-width: 8.5rem;
+    min-height: 30px;
+    padding: .2rem 1.6rem .2rem .25rem;
+    border: 0;
+    background: transparent;
+    color: var(--text);
+    font-size: .84rem;
+    box-shadow: none;
+}
+.sort-control select:focus { box-shadow: none; }
+.sort-control:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+
+.selection-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: .75rem;
+    flex-wrap: wrap;
+    margin: 1rem 0 .75rem;
+    padding: .55rem .7rem;
+    border: 1px solid var(--accent);
+    border-radius: var(--radius);
+    background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+}
+.selection-all { display: inline-flex; align-items: center; gap: .5rem; font-size: .88rem; font-weight: 600; }
+.selection-all input { width: 17px; height: 17px; accent-color: var(--accent-strong); }
+.selection-actions { display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; }
+.danger-text { color: var(--danger); }
+.danger-text:hover { color: var(--danger); border-color: rgba(251, 113, 133, .4); }
+
+.link-button {
+    display: inline-flex;
+    align-items: center;
+    gap: .3rem;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--accent-text);
+    font: inherit;
+    font-size: .84rem;
+    font-weight: 600;
+    text-decoration: none;
+    cursor: pointer;
+}
+.link-button:hover { text-decoration: underline; }
+
+/* Selection overlays: the card or row gets an accent edge, and the
+   checkbox floats over the cover without hiding it. */
+.playlist-card.selected,
+.entity-row.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent-soft); }
+.entity-row.selecting { cursor: pointer; }
+.row-select { width: 18px; height: 18px; flex: 0 0 auto; accent-color: var(--accent-strong); }
+.select-check {
+    position: absolute;
+    top: .5rem;
+    left: .5rem;
+    display: grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 999px;
+    border: 2px solid rgba(0, 0, 0, .22);
+    background: rgba(255, 255, 255, .88);
+    color: transparent;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, .25);
+}
+.select-check.on { background: var(--accent-strong); border-color: var(--accent-strong); color: var(--accent-contrast); }
+
+/* -- Sync jobs ------------------------------------------------ */
+.job-card { display: flex; flex-direction: column; gap: .7rem; }
+.job-heading { min-width: 0; }
+.job-heading h2 { margin: 0; font-size: 1.08rem; overflow: hidden; text-overflow: ellipsis; }
+.job-source-line {
+    display: flex;
+    align-items: center;
+    gap: .45rem;
+    flex-wrap: wrap;
+    color: var(--muted);
+    margin-top: .1rem;
+}
+.job-source-link { color: var(--muted); text-decoration: none; }
+.job-source-link:hover { color: var(--accent-text); text-decoration: underline; }
+.target-chips { display: flex; flex-wrap: wrap; gap: .35rem; }
+.target-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: .3rem;
+    max-width: 100%;
+    min-width: 0;
+    padding: .2rem .5rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--surface-2);
+    color: var(--muted);
+    font-size: .74rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.target-chip-text {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.target-inline {
+    display: inline-flex;
+    align-items: center;
+    gap: .2rem;
+    margin-left: 0;
+    max-width: 100%;
+    min-width: 0;
+    color: var(--muted-2);
+    white-space: nowrap;
+}
+.target-inline .icon { flex: 0 0 auto; }
+.target-inline-text {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.job-summary {
+    margin: 0;
+    color: var(--muted);
+    font-size: .9rem;
+    line-height: 1.45;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+.job-progress { display: grid; gap: .3rem; }
+.job-progress small { color: var(--muted-2); font-size: .75rem; }
+.job-progress .progress-track { height: 5px; }
+.job-progress.is-failed .progress-fill { background: var(--danger); }
+.job-progress.is-warn .progress-fill { background: var(--warning); }
+.job-progress.is-ok .progress-fill { background: linear-gradient(90deg, var(--accent), var(--success)); }
+.job-card .job-meta {
+    display: flex;
+    gap: .35rem 1rem;
+    flex-wrap: wrap;
+    margin-top: .1rem;
+    color: var(--muted-2);
+}
+.job-card .job-meta small { font-size: .78rem; }
+.job-footer {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: .5rem;
+    margin-top: auto;
+    padding-top: .7rem;
+    border-top: 1px solid var(--border);
+}
+.job-footer .card-menu { margin-left: auto; }
+
+/* -- Account import and quick publish ------------------------- */
+.section-title-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: .75rem;
+    flex-wrap: wrap;
+}
+.section-title-row h3 { margin: 0; }
+.account-list-toolbar {
+    display: flex;
+    align-items: center;
+    gap: .6rem;
+    flex-wrap: wrap;
+    margin: .75rem 0 .5rem;
+}
+.account-list-toolbar .btn-modern { margin-left: auto; }
+.account-playlist-table .col-select { width: 2rem; }
+.account-playlist-table tr.selected td { background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.account-playlist-table input[type=checkbox] { width: 17px; height: 17px; accent-color: var(--accent-strong); }
+@media (max-width: 720px) {
+    .table-wrap .account-playlist-table { min-width: 0; }
+    .account-playlist-table .col-owner,
+    .account-playlist-table .col-tracks { display: none; }
+}
+.import-results { display: grid; gap: .45rem; }
+.import-result {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: .75rem;
+    padding: .6rem .7rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface-2);
+}
+.import-result > div { min-width: 0; display: grid; gap: .1rem; }
+.import-result strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.import-result small { color: var(--muted); }
+.publish-schedule { display: grid; gap: .25rem; }
+.publish-schedule .form-grid { margin: 0; }
+
 @media (max-width: 640px) {
     .entity-row-meta { display: none; }
     .entity-row-actions .btn-label { display: none; }
     .view-chip span { display: none; }
     .view-chip { padding: .38rem; }
+    .list-toolbar { align-items: stretch; }
+    .list-toolbar-left,
+    .list-toolbar-actions { width: auto; }
+    .list-toolbar-left.with-sort { flex: 1 1 100%; justify-content: space-between; }
+    .list-toolbar-actions { margin-left: auto; }
+    .sort-control { flex: 1 1 auto; }
+    .sort-control select { flex: 1 1 auto; min-width: 0; width: 100%; }
+    .selection-bar { align-items: stretch; }
+    .selection-actions { width: 100%; }
+    .selection-actions .btn-modern { flex: 1 1 auto; }
+    .account-list-toolbar .btn-modern { margin-left: 0; width: 100%; }
+    .import-result { align-items: stretch; flex-direction: column; }
+    .import-result .btn-modern { justify-content: center; }
 }
 textarea {
     width: 100%;
@@ -1323,11 +1597,26 @@ td.file-path {
     }
     .brand-block { padding: 0; margin: 0; border-bottom: 0; flex: 0 0 auto; }
     /* Nav gets its own full-width row; brand and theme toggle share the
-       first row. */
-    .app-nav { display: flex; flex-direction: row; flex-wrap: wrap; gap: .25rem; flex: 1 1 100%; order: 3; }
+       first row. Phones scroll the row sideways instead of wrapping into
+       three lines of pills. */
+    .app-nav {
+        display: flex;
+        flex-direction: row;
+        flex-wrap: nowrap;
+        gap: .25rem;
+        flex: 1 1 100%;
+        order: 3;
+        min-width: 0;
+        overflow-x: auto;
+        overscroll-behavior-x: contain;
+        scrollbar-width: none;
+        -webkit-overflow-scrolling: touch;
+        padding-bottom: .1rem;
+    }
+    .app-nav::-webkit-scrollbar { display: none; }
     .nav-section { display: contents; margin: 0; }
     .nav-section-header { display: none; }
-    .app-nav .nav-link { min-height: 34px; padding: .4rem .65rem; font-size: .85rem; }
+    .app-nav .nav-link { flex: 0 0 auto; white-space: nowrap; min-height: 34px; padding: .4rem .65rem; font-size: .85rem; }
     .sidebar-footer { position: static; margin: 0 0 0 auto; padding: 0; border: 0; background: none; order: 2; }
     .app-content { width: 100%; }
     .hero-panel,
@@ -1344,8 +1633,54 @@ td.file-path {
     .stat-grid,
     .form-grid { grid-template-columns: minmax(0, 1fr); }
     .page-title { display: block; }
+    .page-title .topbar-actions {
+        display: flex;
+        justify-content: flex-start;
+        gap: .5rem;
+        margin-top: .85rem;
+    }
+    .page-title .topbar-actions > .btn-modern { flex: 1 1 auto; }
+    .detail-header .detail-actions > .btn-modern { flex: 0 1 auto; }
     .provider-row { grid-template-columns: 32px 1fr auto; }
     .provider-qualities { display: none; }
+
+    /* One-column playlist cards stay compact: the cover sits beside the
+       text instead of swallowing a phone screen. */
+    .content-grid.three .playlist-card {
+        display: grid;
+        grid-template-columns: 84px minmax(0, 1fr);
+        grid-template-rows: auto auto 1fr;
+        gap: .3rem .8rem;
+        align-items: start;
+    }
+    .content-grid.three .playlist-card .playlist-cover {
+        grid-column: 1;
+        grid-row: 1 / span 3;
+        width: 84px;
+    }
+    .content-grid.three .playlist-card .panel-header {
+        grid-column: 2;
+        grid-row: 1;
+        margin-bottom: 0;
+        min-width: 0;
+    }
+    .content-grid.three .playlist-card .panel-header h2 { font-size: .98rem; }
+    .content-grid.three .playlist-card .card-tags { grid-column: 2; grid-row: 2; }
+    .content-grid.three .playlist-card .job-meta {
+        grid-column: 2;
+        grid-row: 3;
+        display: block;
+        line-height: 1.45;
+    }
+    .content-grid.three .playlist-card .job-meta span { white-space: nowrap; }
+    .content-grid.three .playlist-card .card-menu-trigger { width: 28px; height: 28px; }
+    .content-grid.three .playlist-card .card-tags .quality-badge { font-size: .68rem; }
+
+    .entity-row { align-items: flex-start; }
+    .entity-row-main small { white-space: normal; }
+    .target-inline { margin-left: 0; }
+    .job-card .job-meta { display: grid; gap: .2rem; }
+    .job-footer .btn-modern { flex: 0 1 auto; }
 }
 /* -- Downloads page: waterfall rank numbers --------------------- */
 .provider-rank {

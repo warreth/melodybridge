@@ -17,11 +17,25 @@ public sealed record QuickSyncResult(
     IReadOnlyList<QuickSyncSkip> Skipped);
 
 /// <summary>
+/// The choices the quick publish dialog applies to every playlist it
+/// turns into a job. The defaults keep the original behaviour: manual
+/// schedule, media server profiles only.
+/// </summary>
+public sealed record QuickSyncOptions(
+    ScanSchedule Schedule,
+    bool M3uEnabled = false,
+    string? M3uDirectory = null)
+{
+    public static QuickSyncOptions Default { get; } =
+        new(ScanSchedule.Manual);
+}
+
+/// <summary>
 /// The simplified path from a saved playlist to a publishing job: one
-/// Manual job per playlist, named after the playlist, pointing at the
-/// media server profiles the user ticked. Everything else (schedules,
-/// path remaps, M3U output, single-target edits) stays on the full Sync
-/// jobs page; the jobs this creates open there like any other.
+/// job per playlist, named after the playlist, with the schedule and
+/// targets the user ticked. Path remaps and per-playlist edits stay on
+/// the full Sync jobs page; the jobs this creates open there like any
+/// other.
 /// </summary>
 public static class QuickSyncJobs
 {
@@ -50,22 +64,25 @@ public static class QuickSyncJobs
     }
 
     /// <summary>
-    /// Creates one job per distinct playlist id: Manual schedule, the
-    /// playlist as its source, and one target per ticked profile. The
-    /// playlist ids and the profiles are re-read here, so a playlist or
-    /// profile deleted since the dialog opened is reported instead of
-    /// stored as a dangling target. Returns the created jobs and every
-    /// skipped playlist with its reason, in playlist order.
+    /// Creates one job per distinct playlist id: the playlist as its
+    /// source, the requested schedule, and one target per ticked profile,
+    /// plus an M3U file when requested. The playlist ids and the profiles
+    /// are re-read here, so a playlist or profile deleted since the dialog
+    /// opened is reported instead of stored as a dangling target. Returns
+    /// the created jobs and every skipped playlist with its reason, in
+    /// playlist order.
     /// </summary>
     public static async Task<QuickSyncResult> CreateAsync(
         IDbContextFactory<MelodyBridgeDbContext> dbFactory,
         MediaServerProfileStore profileStore,
         IEnumerable<(string PlaylistId, string Name)> playlists,
         IReadOnlyList<string> profileIds,
+        QuickSyncOptions? options = null,
         CancellationToken ct = default)
     {
         var created = new List<SyncJobEntity>();
         var skipped = new List<QuickSyncSkip>();
+        options ??= QuickSyncOptions.Default;
 
         await CreateGate.WaitAsync(ct);
         try
@@ -77,15 +94,22 @@ public static class QuickSyncJobs
                 .ToList();
             if (wanted.Count == 0) return new(created, skipped);
 
+            if (!options.M3uEnabled && profileIds.Count == 0)
+            {
+                foreach (var (_, name) in wanted)
+                    skipped.Add(new(name, "no target was selected"));
+                return new(created, skipped);
+            }
+            if (options.M3uEnabled && string.IsNullOrWhiteSpace(options.M3uDirectory))
+            {
+                foreach (var (_, name) in wanted)
+                    skipped.Add(new(name, "the M3U output folder is not set"));
+                return new(created, skipped);
+            }
+
             var existingProfiles = (await profileStore.GetAllAsync(ct))
                 .Where(p => profileIds.Contains(p.Id, StringComparer.Ordinal))
                 .ToList();
-            if (profileIds.Count == 0)
-            {
-                foreach (var (_, name) in wanted)
-                    skipped.Add(new(name, "no media server profile was selected"));
-                return new(created, skipped);
-            }
             var missingProfile = existingProfiles.Count != profileIds.Count;
             if (missingProfile)
             {
@@ -93,6 +117,8 @@ public static class QuickSyncJobs
                     skipped.Add(new(name, "a selected media server profile no longer exists"));
                 return new(created, skipped);
             }
+
+            var (schedule, cron) = StoredSchedule(options.Schedule);
 
             await using var db = await dbFactory.CreateDbContextAsync(ct);
             var wantedIds = wanted.Select(p => p.PlaylistId).ToList();
@@ -102,11 +128,26 @@ public static class QuickSyncJobs
                 .ToListAsync(ct);
             var existingPlaylists = existingPlaylistIds.ToHashSet(StringComparer.Ordinal);
 
-            var taken = await db.SyncJobs
+            // Read every job once: the source ids prevent a second job for
+            // a playlist, and the M3U paths let a new job choose a unique
+            // file even when names collide with each other or an old job.
+            var existingJobs = await db.SyncJobs.ToListAsync(ct);
+            var takenSet = existingJobs
                 .Where(j => j.SourceId != null)
                 .Select(j => j.SourceId!)
-                .ToListAsync(ct);
-            var takenSet = taken.ToHashSet(StringComparer.Ordinal);
+                .ToHashSet(StringComparer.Ordinal);
+            var usedM3uPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var existingJob in existingJobs)
+            {
+                foreach (var target in SyncJobMapping.TargetsOf(existingJob))
+                {
+                    if (target.Kind == OutputTargetType.M3uFile
+                        && !string.IsNullOrWhiteSpace(target.M3uPath))
+                    {
+                        usedM3uPaths.Add(SafeFileNames.PathKey(target.M3uPath));
+                    }
+                }
+            }
 
             foreach (var (playlistId, name) in wanted)
             {
@@ -125,12 +166,22 @@ public static class QuickSyncJobs
                 {
                     Name = name,
                     SourceId = playlistId,
-                    Schedule = nameof(SyncJobSchedule.Manual),
+                    Schedule = schedule,
+                    CronExpression = cron,
                     CreatedAt = DateTime.UtcNow,
                     LastRunStatus = "Pending",
                 };
-                SyncJobMapping.ApplyTargets(entity, existingProfiles.Select(p =>
+                var targets = new List<SyncTarget>();
+                if (options.M3uEnabled)
+                {
+                    var m3uPath = SafeFileNames.UniqueFile(
+                        options.M3uDirectory!, name, ".m3u", usedM3uPaths);
+                    usedM3uPaths.Add(SafeFileNames.PathKey(m3uPath));
+                    targets.Add(new SyncTarget(OutputTargetType.M3uFile, M3uPath: m3uPath));
+                }
+                targets.AddRange(existingProfiles.Select(p =>
                     new SyncTarget(MediaServerKinds.OutputTargetFor(p.Kind), ProfileId: p.Id)));
+                SyncJobMapping.ApplyTargets(entity, targets);
                 db.SyncJobs.Add(entity);
                 takenSet.Add(playlistId);
                 created.Add(entity);
@@ -145,4 +196,17 @@ public static class QuickSyncJobs
 
         return new(created, skipped);
     }
+
+    /// <summary>
+    /// The stored schedule pair for a job row: named presets keep their
+    /// label (the scheduler resolves them from the shared preset table),
+    /// a custom expression is stored as Cron plus its text.
+    /// </summary>
+    private static (string Schedule, string? Cron) StoredSchedule(ScanSchedule schedule)
+        => schedule.Mode switch
+        {
+            ScanScheduleMode.Cron when schedule.NamedPreset is { } preset => (preset, null),
+            ScanScheduleMode.Cron => (nameof(SyncJobSchedule.Cron), schedule.Cron),
+            _ => (nameof(SyncJobSchedule.Manual), null),
+        };
 }

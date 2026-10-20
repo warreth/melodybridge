@@ -34,26 +34,9 @@
     display: block;
 }
 
-.sync-job-heading {
-    min-width: 0;
-}
-
-.sync-job-heading h2 {
-    overflow-wrap: anywhere;
-}
-
 .sync-job-row-cover:hover {
     box-shadow: 0 0 0 2px var(--accent-soft);
 }
-
-.sync-job-wide-actions,
-.sync-job-compact-actions {
-    display: flex;
-    align-items: center;
-    gap: .35rem;
-}
-
-.sync-job-compact-actions { display: none; }
 
 /* On phones and tablets the row becomes two lines: cover, title and
    actions on the first, status directly under the title. Keeping the
@@ -83,13 +66,6 @@
         align-self: center;
     }
     .sync-job-row .entity-row-meta { display: none; }
-}
-
-/* Phones trade the three secondary row buttons for one menu, which
-   leaves the job title room to breathe. */
-@media (max-width: 720px) {
-    .sync-job-wide-actions { display: none; }
-    .sync-job-compact-actions { display: inline-flex; }
 }
 
 /* Card actions: one horizontal toolbar under a hairline. Wraps gracefully

@@ -56,7 +56,7 @@ internal sealed class PlaylistQueries
     /// Download counters and the bytes the finished files take on disk,
     /// per playlist id, for the playlist cards.
     /// </summary>
-    public async Task<Dictionary<string, (int downloaded, int failed, int total, long sizeBytes)>> GetDownloadStatsAsync(CancellationToken ct = default)
+    public async Task<Dictionary<string, (int downloaded, int failed, int total, long sizeBytes, int attention)>> GetDownloadStatsAsync(CancellationToken ct = default)
     {
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var rows = await db.Tracks.AsNoTracking()
@@ -69,12 +69,31 @@ internal sealed class PlaylistQueries
                 Total = g.Count(),
                 SizeBytes = g.Where(t => t.DownloadStatus == "downloaded")
                     .Sum(t => t.FileSizeBytes ?? 0),
+                // The same rows the playlist page's Needs attention filter
+                // shows: failed downloads and open quality or dedup reviews.
+                Attention = g.Count(t => t.DownloadStatus == "failed"
+                    || t.DownloadStatus == "needs-review"
+                    || (t.DownloadStatus == "downloaded" && t.ReviewKind != null)),
             })
             .ToListAsync(ct);
 
         return rows
             .Where(r => r.Id is not null)
-            .ToDictionary(r => r.Id!, r => (r.Downloaded, r.Failed, r.Total, r.SizeBytes));
+            .ToDictionary(r => r.Id!, r => (r.Downloaded, r.Failed, r.Total, r.SizeBytes, r.Attention));
+    }
+
+    /// <summary>
+    /// Pins or unpins one playlist. The list order is a view concern;
+    /// the row keeps the choice across visits and sorts above the others.
+    /// </summary>
+    public async Task SetPinnedAsync(string playlistId, bool pinned, CancellationToken ct = default)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var playlist = await db.Playlists.FirstOrDefaultAsync(p => p.Id == playlistId, ct);
+        if (playlist is null || playlist.IsPinned == pinned) return;
+        playlist.IsPinned = pinned;
+        await db.SaveChangesAsync(ct);
+        _changes.Bump();
     }
 
     /// <summary>

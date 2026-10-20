@@ -247,10 +247,13 @@ public class SharedUiComponentsTests
             .Add(m => m.Label, "Playlist actions")
             .Add(m => m.ChildContent, "<button>Remove</button>"));
 
-        var details = cut.Find("details.card-menu");
-        Assert.That(details, Is.Not.Null, "the menu is a details element");
-        var summary = cut.Find("summary.card-menu-trigger");
-        Assert.That(summary.GetAttribute("aria-label"), Is.EqualTo("Playlist actions"));
+        var menu = cut.Find("div.card-menu");
+        Assert.That(menu, Is.Not.Null, "the menu is a stateful container");
+        var trigger = cut.Find("button.card-menu-trigger");
+        Assert.That(trigger.GetAttribute("aria-label"), Is.EqualTo("Playlist actions"));
+        Assert.That(trigger.GetAttribute("aria-expanded"), Is.EqualTo("false"));
+        Assert.That(cut.FindAll(".card-menu-items"), Is.Empty,
+            "the items stay out of the DOM until the menu opens");
     }
 
     [Test]
@@ -268,10 +271,40 @@ public class SharedUiComponentsTests
         };
         var cut = _ctx.Render<CardMenu>(p => p.Add(m => m.ChildContent, items));
 
+        cut.Find("button.card-menu-trigger").Click();
+        Assert.That(cut.Find("button.card-menu-trigger").GetAttribute("aria-expanded"), Is.EqualTo("true"));
         cut.Find("button.danger").Click();
 
         Assert.That(clicked, Is.True, "the menu item click runs the real handler");
-        Assert.That(cut.FindAll("button").Count(), Is.EqualTo(1), "exactly the item button renders");
+        Assert.That(cut.FindAll(".card-menu-items"), Is.Empty,
+            "clicking an item closes the menu again");
+    }
+
+    // ── ImportResultDialog ─────────────────────────────────────
+
+    [Test]
+    public void ImportResultDialog_ListsEverySavedPlaylist_WithAnEditLink()
+    {
+        var cut = _ctx.Render<ImportResultDialog>(p => p
+            .Add(d => d.Show, true)
+            .Add(d => d.Results, new[]
+            {
+                new ImportedPlaylistResult("p1", "Jazz Classics", 12, true),
+                new ImportedPlaylistResult("p2", "Synthwave", 8, false),
+            })
+            .Add(d => d.Failures, new[] { "Broken Mix: source unavailable" }));
+
+        var rows = cut.FindAll(".import-result");
+        Assert.That(rows, Has.Count.EqualTo(2),
+            "the success dialog names every imported playlist");
+        var links = rows.Select(r => r.QuerySelector("a")!.GetAttribute("href")).ToList();
+        Assert.That(links, Is.EqualTo(new[] { "/playlists/p1", "/playlists/p2" }),
+            "each playlist leads to its own page for editing");
+        Assert.That(cut.Markup, Does.Contain("Broken Mix: source unavailable"),
+            "a playlist that failed is named instead of hidden");
+        Assert.That(rows[0].TextContent, Does.Contain("12 tracks"));
+        Assert.That(rows[1].TextContent, Does.Contain("updated"),
+            "a re-import says it updated instead of imported");
     }
 
     // ── ConfirmDialog ──────────────────────────────────────────

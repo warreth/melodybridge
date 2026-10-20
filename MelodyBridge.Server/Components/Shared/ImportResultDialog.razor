@@ -1,0 +1,60 @@
+@namespace MelodyBridge.Server.Components.Shared
+
+@if (Show)
+{
+    <div class="wizard-overlay" @onclick="() => OnClose.InvokeAsync()">
+        <div class="wizard-modal" @onclick:stopPropagation="true">
+            <div class="wizard-header">
+                <div>
+                    <span class="eyebrow">Import complete</span>
+                    <h2>@Results.Count playlist@(Results.Count == 1 ? "" : "s") saved</h2>
+                    <p class="text-muted">
+                        @(Results.Count == 1 ? "It is" : "They are") saved with the default download settings.
+                        Open a playlist to review its quality, schedule or folder before downloading.
+                    </p>
+                </div>
+                <button class="icon-button" title="Close" @onclick="() => OnClose.InvokeAsync()"><Icon Name="x" Size="18" /></button>
+            </div>
+            <div class="wizard-body">
+                <div class="import-results">
+                    @foreach (var result in Results)
+                    {
+                        <div class="import-result">
+                            <div>
+                                <strong>@result.Name</strong>
+                                <small>@result.TrackCount track@(result.TrackCount == 1 ? "" : "s") · @(result.NewlySaved ? "imported" : "updated")</small>
+                            </div>
+                            <a class="btn-modern secondary small" href="/playlists/@result.Id">
+                                <Icon Name="pencil" Size="14" /> Edit playlist
+                            </a>
+                        </div>
+                    }
+                </div>
+                @if (Failures.Count > 0)
+                {
+                    <div class="result-box error">
+                        @foreach (var failure in Failures)
+                        {
+                            <div>@failure</div>
+                        }
+                    </div>
+                }
+            </div>
+            <div class="wizard-footer">
+                <div class="flex-actions"></div>
+                <div class="wizard-actions">
+                    <button class="btn-modern primary" @onclick="() => OnClose.InvokeAsync()">Done</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool Show { get; set; }
+    [Parameter] public IReadOnlyList<ImportedPlaylistResult> Results { get; set; } =
+        Array.Empty<ImportedPlaylistResult>();
+    [Parameter] public IReadOnlyList<string> Failures { get; set; } =
+        Array.Empty<string>();
+    [Parameter] public EventCallback OnClose { get; set; }
+}

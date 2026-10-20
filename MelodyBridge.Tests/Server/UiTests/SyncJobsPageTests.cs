@@ -173,11 +173,6 @@ public class SyncJobsPageTests
             Assert.That(cover, Is.Not.Null, "the compact row keeps the source cover");
             Assert.That(cover!.QuerySelector("img")?.GetAttribute("src"),
                 Is.EqualTo("https://images.example/weekly.jpg"));
-            var compactMenu = row.QuerySelector(".sync-job-compact-actions");
-            Assert.That(compactMenu, Is.Not.Null,
-                "narrow rows pack Log, Edit and Delete into one menu");
-            Assert.That(compactMenu!.TextContent,
-                Does.Contain("Log").And.Contain("Edit").And.Contain("Delete"));
         }, TimeSpan.FromSeconds(3));
     }
 
@@ -247,6 +242,45 @@ public class SyncJobsPageTests
         using var db = _dbFactory.CreateDbContext();
         Assert.That(db.DownloaderSettings.Any(s => s.Key == "syncjobs_view" && s.Value == "rows"),
             Is.True, "the choice sticks for the next visit");
+    }
+
+    [Test]
+    public void SyncJobs_SortByStatus_PutsFailuresFirst_AndPersists()
+    {
+        var cut = _ctx.Render<SyncJobs>();
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.FindAll(".panel-card"), Has.Count.EqualTo(2)), TimeSpan.FromSeconds(3));
+        Assert.That(cut.FindAll(".panel-card h2").First().TextContent.Trim(),
+            Is.EqualTo("Weekly Sync"), "the default order is the most recent run");
+
+        cut.Find(".sort-control select").Change("status");
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.FindAll(".panel-card h2").First().TextContent.Trim(),
+                Is.EqualTo("Failed Job"), "a failed job is the first thing to look at");
+        }, TimeSpan.FromSeconds(3));
+
+        using var db = _dbFactory.CreateDbContext();
+        Assert.That(db.DownloaderSettings.Any(s => s.Key == "syncjobs_sort" && s.Value == "status"),
+            Is.True, "the chosen sort sticks for the next visit");
+    }
+
+    [Test]
+    public void SyncJobs_SortByNextRun_PutsScheduledJobsBeforeManualOnes()
+    {
+        var cut = _ctx.Render<SyncJobs>();
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.FindAll(".panel-card"), Has.Count.EqualTo(2)), TimeSpan.FromSeconds(3));
+
+        cut.Find(".sort-control select").Change("next-run");
+
+        cut.WaitForAssertion(() =>
+        {
+            var names = cut.FindAll(".panel-card h2").Select(h => h.TextContent.Trim()).ToList();
+            Assert.That(names, Is.EqualTo(new[] { "Weekly Sync", "Failed Job" }),
+                "a scheduled job with an upcoming run comes before a manual job");
+        }, TimeSpan.FromSeconds(3));
     }
 
     [Test]
@@ -377,6 +411,7 @@ public class SyncJobsPageTests
     public void EditButton_OpensWizard_HydratedWithJobValues()
     {
         var cut = _ctx.Render<SyncJobs>();
+        cut.FindAll("button.card-menu-trigger").First().Click();
         var editBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Edit");
         editBtn.Click();
 
@@ -390,6 +425,7 @@ public class SyncJobsPageTests
     public void EditJob_SaveUpdates_ExistingEntity_InDb()
     {
         var cut = _ctx.Render<SyncJobs>();
+        cut.FindAll("button.card-menu-trigger").First().Click();
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Edit").Click();
 
         // walk to the review step and save (step 1 needs a source, and

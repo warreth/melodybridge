@@ -152,6 +152,7 @@ public class SyncJobsReviewUiTests
         }
 
         var cut = _ctx.Render<SyncJobs>();
+        cut.Find("button.card-menu-trigger").Click();
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Edit").Click();
 
         Assert.That(cut.Markup, Does.Contain("Pick your playlist"),

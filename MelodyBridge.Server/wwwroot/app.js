@@ -1,4 +1,8 @@
 // MelodyBridge client helpers. Plain JS, no dependencies.
+// The control that opened the current dialog, so focus can return to it.
+// Declared here because both the helpers and the modal observer use it.
+let modalTrigger = null;
+
 window.melody = (() => {
     const THEME_KEY = 'mb-theme';
     const ACCENT_KEY = 'mb-accent';
@@ -220,6 +224,13 @@ window.melody = (() => {
         tick();
     }
 
+    // A menu item is removed together with its menu when the dialog opens,
+    // so the trigger is the stable control to return to. Blazor calls this
+    // before the dialog close handler runs its own focus pass.
+    function rememberModalTrigger(element) {
+        if (element && element.isConnected) modalTrigger = element;
+    }
+
     return {
         setTheme,
         setAccent,
@@ -237,6 +248,7 @@ window.melody = (() => {
         hideSpotlight,
         dismissErrorUi,
         focusSelector,
+        rememberModalTrigger,
         // Copy text to the system clipboard and report whether it worked.
         // navigator.clipboard only exists in secure contexts (https or
         // localhost), and plain-http hosts are common for self-hosted
@@ -376,8 +388,19 @@ function closeTopModal(overlay) {
     overlay.click();
 }
 
-// The control that opened the current dialog, so focus can return to it.
-let modalTrigger = null;
+// The element that had focus when a dialog was opened. A menu item is
+// gone by the time the dialog closes, so fall back to its menu trigger.
+function modalReturnTarget() {
+    const active = document.activeElement;
+    if (!active) return null;
+    const item = active.closest && active.closest('.card-menu-items');
+    if (item) {
+        const menu = item.closest('.card-menu');
+        const trigger = menu && menu.querySelector('.card-menu-trigger');
+        if (trigger) return trigger;
+    }
+    return active;
+}
 
 const modalObserver = new MutationObserver((mutations) => {
     for (const mutation of mutations) {
@@ -387,7 +410,7 @@ const modalObserver = new MutationObserver((mutations) => {
                 ? node
                 : node.querySelector && node.querySelector('.wizard-overlay');
             if (modal) {
-                if (!modalTrigger) modalTrigger = document.activeElement;
+                if (!modalTrigger) modalTrigger = modalReturnTarget();
                 requestAnimationFrame(() => focusFirstInModal(modal));
             }
         }

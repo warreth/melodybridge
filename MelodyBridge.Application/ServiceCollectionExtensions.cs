@@ -268,6 +268,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<MelodyBridge.Infrastructure.Services.PluginAuthMonitor>();
         services.AddSingleton<IDownloadManager, DownloadManager>();
         services.AddSingleton<DownloadCoordinator>();
+        services.AddSingleton<IDownloadCoordinator>(sp => sp.GetRequiredService<DownloadCoordinator>());
         // The auto-sync scheduler starts runs through the Core trigger,
         // so Infrastructure never has to reference Application.
         services.AddSingleton<IDownloadTrigger>(sp => sp.GetRequiredService<DownloadCoordinator>());

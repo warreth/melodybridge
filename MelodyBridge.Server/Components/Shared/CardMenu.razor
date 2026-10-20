@@ -1,19 +1,64 @@
-@* Card action menu: the "..." dropdown every card shares. Uses the
-   native details element, so it works without JS interop and stays
-   testable in bUnit. Clicking any item closes the menu. *@
-<details class="card-menu">
-    <summary class="card-menu-trigger" title="@Label" aria-label="@Label">
+@* Card action menu: the "..." dropdown every card shares. A plain
+   Blazor toggle instead of <details>, so an item click really closes it
+   and the state stays testable in bUnit. The trigger's focus handoff is
+   the one part that needs the browser. *@
+@inject IJSRuntime JS
+<div class="card-menu @(_open ? "open" : null)">
+    <button type="button" class="card-menu-trigger" title="@Label" aria-label="@Label"
+            aria-expanded="@(_open ? "true" : "false")" @onclick="Toggle" @ref="_trigger">
         <Icon Name="dots" Size="18" />
-    </summary>
-    <div class="card-menu-items" @onclick="Close">
-        @ChildContent
-    </div>
-</details>
+    </button>
+    @if (_open)
+    {
+        <div class="card-menu-items" @onclick="Close">
+            @ChildContent
+        </div>
+    }
+</div>
 
 @code {
     [Parameter] public RenderFragment? ChildContent { get; set; }
     [Parameter] public string Label { get; set; } = "More actions";
+    /// <summary>
+    /// Optional per-click veto for returning focus to the trigger. A menu
+    /// with both plain actions and dialog actions returns true for the
+    /// plain ones and false for the one that opens a surface. A false
+    /// answer hands the trigger to the modal close path instead, so focus
+    /// comes back after the dialog closes rather than while it is still
+    /// open.
+    /// </summary>
+    [Parameter] public Func<bool>? ShouldFocusTriggerOnClose { get; set; }
 
-    /// <summary>Any item click closes the menu; the summary reopens it.</summary>
-    private void Close() { }
+    private bool _open;
+    private ElementReference _trigger;
+
+    private void Toggle() => _open = !_open;
+
+    /// <summary>Any item click closes the menu. Focus returns to the
+    /// trigger only when the action does not open another surface.</summary>
+    private async Task Close()
+    {
+        _open = false;
+        if (ShouldFocusTriggerOnClose is null || ShouldFocusTriggerOnClose())
+        {
+            try
+            {
+                await _trigger.FocusAsync();
+            }
+            catch
+            {
+                // Interop is unavailable during prerender and in some tests.
+            }
+            return;
+        }
+
+        try
+        {
+            await JS.InvokeVoidAsync("melody.rememberModalTrigger", _trigger);
+        }
+        catch
+        {
+            // Interop is unavailable during prerender and in some tests.
+        }
+    }
 }

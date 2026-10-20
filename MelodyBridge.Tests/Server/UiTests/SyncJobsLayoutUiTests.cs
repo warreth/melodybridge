@@ -139,8 +139,15 @@ public class SyncJobsLayoutUiTests
         var card = cut.FindAll(".panel-card").First(c => c.TextContent.Contains("Layout Job"));
         var footer = card.QuerySelector(".job-footer");
         Assert.That(footer, Is.Not.Null, "card actions must live in a .job-footer toolbar");
-        var labels = footer.QuerySelectorAll("button").Select(b => b.TextContent.Trim()).ToList();
-        Assert.That(labels, Is.EqualTo(new[] { "Run now", "Log", "Edit", "Delete" }));
+        var labels = footer.QuerySelectorAll("button.btn-modern").Select(b => b.TextContent.Trim()).ToList();
+        Assert.That(labels, Is.EqualTo(new[] { "Run now" }),
+            "the primary run action stays visible");
+        footer.QuerySelector("button.card-menu-trigger")!.Click();
+        var opened = cut.Find(".job-footer");
+        var menuLabels = opened.QuerySelectorAll(".card-menu-items button")
+            .Select(b => b.TextContent.Trim()).ToList();
+        Assert.That(menuLabels, Is.EqualTo(new[] { "Log", "Edit", "Delete" }),
+            "the secondary actions live behind the shared menu");
     }
 
     [Test]
@@ -161,10 +168,10 @@ public class SyncJobsLayoutUiTests
 
         var cut = _ctx.Render<SyncJobs>();
         var card = cut.FindAll(".panel-card").First(c => c.TextContent.Contains("Layout Job"));
-        var eyebrow = card.QuerySelector(".eyebrow");
-        Assert.That(eyebrow!.TextContent,
-            Is.EqualTo("M3U file + Jellyfin + Plex"),
-            "the card names every target; profiles without a name yet fall back to the kind");
+        var chips = card.QuerySelectorAll(".target-chips .target-chip")
+            .Select(c => c.TextContent.Trim()).ToList();
+        Assert.That(chips, Is.EqualTo(new[] { "M3U file", "Jellyfin", "Plex" }),
+            "the card names every target as a compact chip; profiles without a name fall back to the kind");
     }
 
     [Test]
@@ -213,6 +220,55 @@ public class SyncJobsLayoutUiTests
             Assert.That(back!.GetAttribute("disabled"), Is.Null,
                 "Run now re-enables after the run completes");
         }, TimeSpan.FromSeconds(3));
+    }
+
+    [Test]
+    public async Task JobCard_OrderStaysPut_WhenARunFinishesAndAnotherJobBecomesNewer()
+    {
+        var factory = _ctx.Services.GetRequiredService<IDbContextFactory<MelodyBridgeDbContext>>();
+        using (var db = factory.CreateDbContext())
+        {
+            db.SyncJobs.Add(new SyncJobEntity
+            {
+                Id = "j-later",
+                Name = "Later Job",
+                SourceId = "src-1",
+                SearchLocationPaths = "[]",
+                Schedule = "Manual",
+                OutputTarget = "M3uFile",
+                M3uOutputPath = "/app/playlists/later.m3u",
+                LastRunAt = DateTime.UtcNow.AddDays(-2),
+                LastRunStatus = "Completed",
+            });
+            db.SaveChanges();
+        }
+
+        var gate = new TaskCompletionSource<SyncJobRunLog>();
+        _jobRunner.Setup(r => r.RunJobAsync(It.IsAny<SyncJob>(), It.IsAny<CancellationToken>()))
+            .Returns(gate.Task);
+        var cut = _ctx.Render<SyncJobs>();
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.FindAll(".panel-card h2").Select(h => h.TextContent.Trim()),
+                Is.EqualTo(new[] { "Layout Job", "Later Job" })), TimeSpan.FromSeconds(3));
+
+        var firstRun = cut.FindAll(".panel-card")
+            .Single(c => c.TextContent.Contains("Layout Job"))
+            .QuerySelector("button.btn-modern.primary")!;
+        var click = cut.InvokeAsync(() => firstRun.Click());
+
+        using (var db = factory.CreateDbContext())
+        {
+            db.SyncJobs.Single(j => j.Id == "j-later").LastRunAt = DateTime.UtcNow;
+            db.SaveChanges();
+        }
+        gate.SetResult(new SyncJobRunLog(DateTime.UtcNow, SyncStatus.Completed, "ok", 1, 1));
+        await click;
+
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.FindAll(".panel-card h2").Select(h => h.TextContent.Trim()),
+                Is.EqualTo(new[] { "Layout Job", "Later Job" }),
+                "a finished run must not teleport cards while the user is looking at them"),
+            TimeSpan.FromSeconds(3));
     }
 
     private class InMemFactory : IDbContextFactory<MelodyBridgeDbContext>

@@ -1217,7 +1217,7 @@ else
         try
         {
             var bytes = await Store.ExportCsvAsync(PlaylistId);
-            var safeName = string.Concat(playlist.Name.Select(c => Path.GetInvalidFileNameChars().Contains(c) ? '_' : c));
+            var safeName = Csv.SafeFileName(playlist.Name);
             await JS.InvokeVoidAsync("melody.downloadFile", $"{safeName}.csv", "text/csv", bytes);
             Notifications.Success("CSV exported.");
         }

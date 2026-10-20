@@ -196,7 +196,7 @@ public class SpotifyAccountProvider : IAccountSourceProvider
         return new SpotifyClient(newTokens.AccessToken);
     }
 
-    public async Task<IReadOnlyList<UserPlaylist>> GetUserPlaylistsAsync(CancellationToken ct = default)
+    public virtual async Task<IReadOnlyList<UserPlaylist>> GetUserPlaylistsAsync(CancellationToken ct = default)
     {
         var client = await GetClientAsync(ct);
         var result = new List<UserPlaylist>();

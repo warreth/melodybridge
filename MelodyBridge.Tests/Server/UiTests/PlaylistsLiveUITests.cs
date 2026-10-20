@@ -60,11 +60,14 @@ public class PlaylistsLiveUITests
         // The coordinator resolves the store and db factory from the
         // provider per run, like the real app does.
         _ctx.Services.AddSingleton<Application.Services.DownloadCoordinator>();
+        _ctx.Services.AddSingleton<Application.Services.IDownloadCoordinator>(sp =>
+            sp.GetRequiredService<Application.Services.DownloadCoordinator>());
         _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Services.SettingsStore(factory));
         // The page renders the publish strip, which lists the configured
         // media servers.
         _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Services.MediaServerProfileStore(
             new MelodyBridge.Infrastructure.Services.SettingsStore(factory)));
+        _ctx.Services.AddSingleton(new MelodyBridge.Server.Services.NotificationService());
     }
 
     [TearDown]

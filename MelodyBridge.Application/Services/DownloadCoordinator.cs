@@ -52,7 +52,7 @@ public record DownloadRun(
 /// Pause is cooperative: the runner waits on a gate between tracks, so the
 /// in-flight track always finishes and no half files are left behind.
 /// </summary>
-public class DownloadCoordinator : IDownloadTrigger
+public class DownloadCoordinator : IDownloadCoordinator
 {
     private readonly IServiceProvider _services;
     private readonly ILogger<DownloadCoordinator> _logger;
