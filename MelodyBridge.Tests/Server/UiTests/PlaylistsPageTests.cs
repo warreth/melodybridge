@@ -520,8 +520,8 @@ public class PlaylistsPageTests
             .Select(b => b.TextContent.Trim()).ToList();
         Assert.That(labels, Is.EqualTo(new[]
         {
-            "Refresh", "Download missing", "Export CSV", "Remove",
-        }), "the menu carries the everyday actions, not only removal");
+            "Pin to top", "Refresh", "Download missing", "Export CSV", "Remove",
+        }), "the menu carries the pin and the everyday actions, not only removal");
     }
 
     [Test]
@@ -583,6 +583,79 @@ public class PlaylistsPageTests
                 "a bulk export is one download, not a burst the browser may block");
             Assert.That(call.Arguments[1], Is.EqualTo("application/zip"));
         }, TimeSpan.FromSeconds(3));
+    }
+
+    [Test]
+    public void Playlists_PinAction_MovesThePlaylistToTheTopAndPersists()
+    {
+        SeedOnePlaylist("Alpha Mix", 2, Platform.Spotify);
+        SeedOnePlaylist("Zulu Mix", 3, Platform.Spotify);
+        var cut = _ctx.Render<Playlists>();
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.FindAll(".playlist-card"), Has.Count.EqualTo(2)), TimeSpan.FromSeconds(5));
+
+        var zulu = cut.FindAll(".playlist-card").Single(c => c.TextContent.Contains("Zulu Mix"));
+        zulu.QuerySelector("button.card-menu-trigger")!.Click();
+        cut.FindAll("button").Single(b => b.TextContent.Contains("Pin to top")).Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            var names = cut.FindAll(".playlist-card h2").Select(h => h.TextContent.Trim()).ToList();
+            Assert.That(names.First(), Is.EqualTo("Zulu Mix"),
+                "a pinned playlist sorts above the chosen order");
+            Assert.That(cut.FindAll(".playlist-card .pin-mark"), Has.Count.EqualTo(1),
+                "the card shows why it is on top");
+        }, TimeSpan.FromSeconds(3));
+
+        using (var db = new SqliteFactory(_dbPath).CreateDbContext())
+            Assert.That(db.Playlists.Single(p => p.Name == "Zulu Mix").IsPinned, Is.True);
+
+        cut.FindAll(".playlist-card").First()
+            .QuerySelector("button.card-menu-trigger")!.Click();
+        cut.FindAll("button").Single(b => b.TextContent.Contains("Unpin")).Click();
+        cut.WaitForAssertion(() =>
+        {
+            var names = cut.FindAll(".playlist-card h2").Select(h => h.TextContent.Trim()).ToList();
+            Assert.That(names.First(), Is.EqualTo("Alpha Mix"), "unpinning restores the normal order");
+        }, TimeSpan.FromSeconds(3));
+    }
+
+    [Test]
+    public void Playlists_NeedsAttention_FiltersToFailedSyncsAndTracks()
+    {
+        SeedOnePlaylist("Healthy Mix", 2, Platform.Spotify);
+        SeedOnePlaylist("Failed Tracks", 3, Platform.Spotify);
+        SeedOnePlaylist("Broken Sync", 1, Platform.Spotify);
+        using (var db = new SqliteFactory(_dbPath).CreateDbContext())
+        {
+            var failedTrack = db.Tracks.First(t => t.PlaylistEntityId ==
+                db.Playlists.Single(p => p.Name == "Failed Tracks").Id);
+            failedTrack.DownloadStatus = "failed";
+            db.Playlists.Single(p => p.Name == "Broken Sync").LastSyncStatus = SyncStatus.Failed;
+            db.SaveChanges();
+        }
+
+        var cut = _ctx.Render<Playlists>();
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.FindAll(".playlist-card"), Has.Count.EqualTo(3)), TimeSpan.FromSeconds(5));
+
+        var filter = cut.Find(".filter-chip.attention");
+        Assert.That(filter.TextContent, Does.Contain("2"),
+            "the chip counts both attention playlists");
+        filter.Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            var names = cut.FindAll(".playlist-card h2").Select(h => h.TextContent.Trim()).ToList();
+            Assert.That(names, Is.EquivalentTo(new[] { "Failed Tracks", "Broken Sync" }),
+                "the filter hides the healthy playlist");
+            Assert.That(cut.Find(".list-count").TextContent, Does.Contain("2 playlists"));
+        }, TimeSpan.FromSeconds(3));
+
+        cut.Find(".filter-chip.attention").Click();
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.FindAll(".playlist-card"), Has.Count.EqualTo(3),
+                "turning the filter off restores the full list"), TimeSpan.FromSeconds(3));
     }
 
     [Test]

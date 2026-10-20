@@ -79,7 +79,7 @@
     {
         <section class="list-toolbar" aria-label="Playlist controls">
             <div class="list-toolbar-left with-sort">
-                <span class="list-count">@playlists.Count @(playlists.Count == 1 ? "playlist" : "playlists")</span>
+                <span class="list-count">@visiblePlaylists.Count @(visiblePlaylists.Count == 1 ? "playlist" : "playlists")</span>
                 <label class="sort-control" title="Sort playlists">
                     <Icon Name="arrow-up-down" Size="14" />
                     <select value="@playlistSort" @onchange="OnSortChanged" aria-label="Sort playlists">
@@ -90,6 +90,16 @@
                 </label>
             </div>
             <div class="list-toolbar-actions">
+                <button class="filter-chip attention @(needsAttentionOnly ? "active" : null)"
+                        @onclick="ToggleNeedsAttention"
+                        disabled="@(NeedsAttentionCount == 0 && !needsAttentionOnly)"
+                        title="Show playlists with a failed sync, a partial snapshot or failed track downloads">
+                    <Icon Name="alert" Size="13" /> Needs attention
+                    @if (NeedsAttentionCount > 0)
+                    {
+                        <span class="filter-count">@NeedsAttentionCount</span>
+                    }
+                </button>
                 <div class="view-switch" role="group" aria-label="Playlist layout">
                     <button class="view-chip @(playlistsView == "cards" ? "on" : null)" title="Card view"
                             aria-pressed="@(playlistsView == "cards" ? "true" : "false")"
@@ -118,12 +128,18 @@ else if (playlists.Count == 0)
 {
     <EmptyState IconName="list-music" Title="No playlists yet">Paste a public Spotify or YouTube playlist link to save its tracks locally.</EmptyState>
 }
+else if (visiblePlaylists.Count == 0)
+{
+    <EmptyState IconName="check-circle" Title="Nothing needs attention">
+        No playlist has a failed sync, a partial snapshot or failed track downloads.
+    </EmptyState>
+}
 else if (playlistsView == "rows")
 {
     <section class="entity-rows">
-        @foreach (var playlist in sortedPlaylists)
+        @foreach (var playlist in visiblePlaylists)
         {
-            var (downloaded, failed, total, sizeBytes) = downloadStats.GetValueOrDefault(playlist.Id, (0, 0, 0, 0));
+            var (downloaded, failed, total, sizeBytes, attention) = downloadStats.GetValueOrDefault(playlist.Id, (0, 0, 0, 0, 0));
             var run = Coordinator.RunFor(playlist.Id);
             var selected = selectedPlaylistIds.Contains(playlist.Id);
             <div class="entity-row @(selectionMode ? "selecting" : null) @(selected ? "selected" : null)" @key="playlist.Id">
@@ -150,7 +166,13 @@ else if (playlistsView == "rows")
                         }
                     </span>
                     <span class="entity-row-main">
-                        <strong>@playlist.Name</strong>
+                        <strong>
+                            @if (playlist.IsPinned)
+                            {
+                                <Icon Name="pin" Size="12" Class="pin-mark" />
+                            }
+                            @playlist.Name
+                        </strong>
                         <small>
                             @(playlist.IsManualImport ? "Imported" : playlist.SourcePlatform.ToString())
                             · @playlist.TrackCount track@(playlist.TrackCount == 1 ? "" : "s")
@@ -185,6 +207,18 @@ else if (playlistsView == "rows")
                         {
                             <StatusPill Variant="warn" Title="@playlist.SyncWarning">partial</StatusPill>
                         }
+                        @if (playlist.LastSyncStatus == SyncStatus.Failed)
+                        {
+                            <StatusPill Variant="err" Title="The last source sync failed">sync failed</StatusPill>
+                        }
+                        @if (failed > 0)
+                        {
+                            <StatusPill Variant="err" Title="Tracks that failed to download">@failed failed</StatusPill>
+                        }
+                        @if (attention > failed)
+                        {
+                            <StatusPill Variant="warn" Title="Downloaded tracks waiting for a quality or dedup decision">@(attention - failed) review@(attention - failed == 1 ? "" : "s")</StatusPill>
+                        }
                     </span>
                     <span class="entity-row-meta">
                         @if (sizeBytes > 0)
@@ -207,9 +241,9 @@ else if (playlistsView == "rows")
 else
 {
     <section class="content-grid three">
-        @foreach (var playlist in sortedPlaylists)
+        @foreach (var playlist in visiblePlaylists)
         {
-            var (downloaded, failed, total, sizeBytes) = downloadStats.GetValueOrDefault(playlist.Id, (0, 0, 0, 0));
+            var (downloaded, failed, total, sizeBytes, attention) = downloadStats.GetValueOrDefault(playlist.Id, (0, 0, 0, 0, 0));
             var run = Coordinator.RunFor(playlist.Id);
             var selected = selectedPlaylistIds.Contains(playlist.Id);
             <div class="panel-card playlist-card @(selectionMode ? "selecting" : null) @(selected ? "selected" : null)" @key="playlist.Id">
@@ -250,7 +284,13 @@ else
                 </a>
                 <div class="panel-header">
                     <div>
-                        <span class="eyebrow">@(playlist.IsManualImport ? "Imported" : playlist.SourcePlatform.ToString())</span>
+                        <span class="eyebrow">
+                            @if (playlist.IsPinned)
+                            {
+                                <Icon Name="pin" Size="12" Class="pin-mark" />
+                            }
+                            @(playlist.IsManualImport ? "Imported" : playlist.SourcePlatform.ToString())
+                        </span>
                         <h2>
                             <a href="@(selectionMode ? null : $"/playlists/{playlist.Id}")"
                                role="@(selectionMode ? "button" : null)"
@@ -280,6 +320,18 @@ else
                     @if (sizeBytes > 0)
                     {
                         <span class="quality-badge">@TrackDisplay.Size(sizeBytes) on disk</span>
+                    }
+                    @if (playlist.LastSyncStatus == SyncStatus.Failed)
+                    {
+                        <span class="quality-badge warn" title="The last source sync failed">sync failed</span>
+                    }
+                    @if (failed > 0)
+                    {
+                        <span class="quality-badge warn" title="Tracks that failed to download">@failed failed</span>
+                    }
+                    @if (attention > failed)
+                    {
+                        <span class="quality-badge warn" title="Downloaded tracks waiting for a quality or dedup decision">@(attention - failed) review@(attention - failed == 1 ? "" : "s")</span>
                     }
                 </div>
                 <small class="job-meta">
@@ -765,7 +817,7 @@ else
 
 @code {
     private List<PlaylistEntity> playlists = new();
-    private Dictionary<string, (int downloaded, int failed, int total, long sizeBytes)> downloadStats = new();
+    private Dictionary<string, (int downloaded, int failed, int total, long sizeBytes, int attention)> downloadStats = new();
     private bool loading = true;
     private bool busy;
     private bool showAddForm;
@@ -777,6 +829,8 @@ else
     private string playlistsView = "cards";
     /// <summary>Sort order for the saved playlists, kept in settings.</summary>
     private string playlistSort = "recent";
+    /// <summary>Narrows the list to playlists with failures or warnings.</summary>
+    private bool needsAttentionOnly;
     /// <summary>Selection mode turns the toolbar into bulk actions.</summary>
     private bool selectionMode;
     private readonly HashSet<string> selectedPlaylistIds = new(StringComparer.Ordinal);
@@ -846,7 +900,7 @@ else
         && accountPlaylists.All(p => accountSelection.Contains(p.Id));
 
     private bool AllSelected =>
-        playlists.Count > 0 && playlists.All(p => selectedPlaylistIds.Contains(p.Id));
+        visiblePlaylists.Count > 0 && visiblePlaylists.All(p => selectedPlaylistIds.Contains(p.Id));
 
     private bool CanPublish => publishPlaylistIds.Count > 0
         && (publishProfileIds.Count > 0 || publishM3uEnabled)
@@ -1010,22 +1064,54 @@ else
     /// <summary>Quality presets shared with the settings page: one list, one truth.</summary>
     private static string QualityLabel(string preferredFormat) => QualityPresets.LabelFor(preferredFormat);
 
-    /// <summary>The page order; the toolbar writes the setting and this
-    /// reads it, so cards and rows never sort differently.</summary>
+    /// <summary>The page order; pinned playlists stay above every sort
+    /// order, then the toolbar choice applies. The filter narrows the
+    /// same list so the count, empty state and bulk select all agree.</summary>
     private List<PlaylistEntity> sortedPlaylists => playlistSort switch
     {
         "name" => playlists
-            .OrderBy(p => p.Name, StringComparer.CurrentCultureIgnoreCase)
+            .OrderByDescending(p => p.IsPinned)
+            .ThenBy(p => p.Name, StringComparer.CurrentCultureIgnoreCase)
             .ToList(),
         "tracks" => playlists
-            .OrderByDescending(p => p.TrackCount)
+            .OrderByDescending(p => p.IsPinned)
+            .ThenByDescending(p => p.TrackCount)
             .ThenBy(p => p.Name, StringComparer.CurrentCultureIgnoreCase)
             .ToList(),
         _ => playlists
-            .OrderByDescending(p => p.LastSyncAt ?? DateTime.MinValue)
+            .OrderByDescending(p => p.IsPinned)
+            .ThenByDescending(p => p.LastSyncAt ?? DateTime.MinValue)
             .ThenBy(p => p.Name, StringComparer.CurrentCultureIgnoreCase)
             .ToList(),
     };
+
+    private List<PlaylistEntity> visiblePlaylists => needsAttentionOnly
+        ? sortedPlaylists.Where(NeedsAttention).ToList()
+        : sortedPlaylists;
+
+    private int NeedsAttentionCount => playlists.Count(NeedsAttention);
+
+    /// <summary>
+    /// A playlist needs attention when the last source sync failed or was
+    /// incomplete, or when importing left failed tracks behind. Pending
+    /// downloads are normal work, not a problem.
+    /// </summary>
+    private bool NeedsAttention(PlaylistEntity playlist)
+    {
+        if (playlist.LastSyncStatus is SyncStatus.Failed or SyncStatus.CompletedWithWarning)
+            return true;
+        if (!string.IsNullOrWhiteSpace(playlist.SyncWarning))
+            return true;
+        var stats = downloadStats.GetValueOrDefault(playlist.Id, (0, 0, 0, 0, 0));
+        return stats.attention > 0;
+    }
+
+    private void ToggleNeedsAttention()
+    {
+        needsAttentionOnly = !needsAttentionOnly;
+        if (needsAttentionOnly && selectedPlaylistIds.Count > 0)
+            selectedPlaylistIds.Clear();
+    }
 
     private async Task OnSortChanged(ChangeEventArgs e)
     {
@@ -1076,7 +1162,7 @@ else
     {
         if (e.Value is true)
         {
-            foreach (var playlist in playlists)
+            foreach (var playlist in visiblePlaylists)
                 selectedPlaylistIds.Add(playlist.Id);
         }
         else
@@ -1085,8 +1171,13 @@ else
         }
     }
 
-    /// <summary>The card and row menu: the everyday actions, then Remove.</summary>
+    /// <summary>The card and row menu: pin, the everyday actions, then Remove.</summary>
     private RenderFragment PlaylistMenu(PlaylistEntity playlist) => @<text>
+        <button title="@(playlist.IsPinned ? "Send this playlist back to the normal sort order" : "Keep this playlist above the others")"
+                @onclick="() => TogglePin(playlist)">
+            <Icon Name="pin" Size="14" /> @(playlist.IsPinned ? "Unpin" : "Pin to top")
+        </button>
+        <div class="card-menu-sep"></div>
         <button title="@(playlist.IsManualImport ? "Imported playlists update by re-uploading their file" : "Fetch the latest track list from the source")"
                 disabled="@(busy || playlist.IsManualImport)"
                 @onclick="() => RefreshPlaylist(playlist)">
@@ -1106,6 +1197,26 @@ else
             <Icon Name="trash" Size="14" /> Remove
         </button>
     </text>;
+
+    private async Task TogglePin(PlaylistEntity playlist)
+    {
+        var pinned = !playlist.IsPinned;
+        playlist.IsPinned = pinned;
+        StateHasChanged();
+        try
+        {
+            await Store.SetPinnedAsync(playlist.Id, pinned);
+            Notifications.Success(pinned
+                ? $"Pinned '{playlist.Name}' to the top."
+                : $"Unpinned '{playlist.Name}'.");
+        }
+        catch (Exception ex)
+        {
+            playlist.IsPinned = !pinned;
+            Notifications.Error($"Could not update the pin for '{playlist.Name}': {ex.Message}");
+            StateHasChanged();
+        }
+    }
 
     private async Task RefreshPlaylist(PlaylistEntity playlist)
     {
@@ -1387,6 +1498,7 @@ else
             var liveIds = playlists.Select(p => p.Id).ToHashSet(StringComparer.Ordinal);
             selectedPlaylistIds.RemoveWhere(id => !liveIds.Contains(id));
         }
+        if (playlists.Count == 0) needsAttentionOnly = false;
         if (showSkeleton) loading = false;
     }
 

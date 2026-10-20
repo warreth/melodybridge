@@ -203,6 +203,45 @@ public class SyncJobsPageTests
     }
 
     [Test]
+    public void SyncJobs_SortByStatus_PutsFailuresFirst_AndPersists()
+    {
+        var cut = _ctx.Render<SyncJobs>();
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.FindAll(".panel-card"), Has.Count.EqualTo(2)), TimeSpan.FromSeconds(3));
+        Assert.That(cut.FindAll(".panel-card h2").First().TextContent.Trim(),
+            Is.EqualTo("Weekly Sync"), "the default order is the most recent run");
+
+        cut.Find(".sort-control select").Change("status");
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.FindAll(".panel-card h2").First().TextContent.Trim(),
+                Is.EqualTo("Failed Job"), "a failed job is the first thing to look at");
+        }, TimeSpan.FromSeconds(3));
+
+        using var db = _dbFactory.CreateDbContext();
+        Assert.That(db.DownloaderSettings.Any(s => s.Key == "syncjobs_sort" && s.Value == "status"),
+            Is.True, "the chosen sort sticks for the next visit");
+    }
+
+    [Test]
+    public void SyncJobs_SortByNextRun_PutsScheduledJobsBeforeManualOnes()
+    {
+        var cut = _ctx.Render<SyncJobs>();
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.FindAll(".panel-card"), Has.Count.EqualTo(2)), TimeSpan.FromSeconds(3));
+
+        cut.Find(".sort-control select").Change("next-run");
+
+        cut.WaitForAssertion(() =>
+        {
+            var names = cut.FindAll(".panel-card h2").Select(h => h.TextContent.Trim()).ToList();
+            Assert.That(names, Is.EqualTo(new[] { "Weekly Sync", "Failed Job" }),
+                "a scheduled job with an upcoming run comes before a manual job");
+        }, TimeSpan.FromSeconds(3));
+    }
+
+    [Test]
     public void SyncJobs_WithoutJobs_HidesRunAllNow()
     {
         using (var db = _dbFactory.CreateDbContext())

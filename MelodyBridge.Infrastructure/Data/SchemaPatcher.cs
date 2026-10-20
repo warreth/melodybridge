@@ -79,6 +79,8 @@ public static class SchemaPatcher
         // A spectrum review the user settled with Keep: recompute must not
         // reopen it for the same file.
         ("Tracks", "SpectrumAccepted", "INTEGER NOT NULL DEFAULT 0"),
+        // Pinned playlists stay at the top of every sort order.
+        ("Playlists", "IsPinned", "INTEGER NOT NULL DEFAULT 0"),
     };
 
     public static async Task PatchAsync(MelodyBridgeDbContext db, CancellationToken ct = default)

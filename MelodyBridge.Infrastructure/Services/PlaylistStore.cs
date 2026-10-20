@@ -189,12 +189,16 @@ public class PlaylistStore
     public Task<List<PlaylistEntity>> GetAllAsync(CancellationToken ct = default)
         => _queries.GetAllAsync(ct);
 
-    public Task<Dictionary<string, (int downloaded, int failed, int total, long sizeBytes)>> GetDownloadStatsAsync(CancellationToken ct = default)
+    public Task<Dictionary<string, (int downloaded, int failed, int total, long sizeBytes, int attention)>> GetDownloadStatsAsync(CancellationToken ct = default)
         => _queries.GetDownloadStatsAsync(ct);
 
     public Task<HashSet<string>> GetSavedExternalIdsAsync(
         Platform platform, CancellationToken ct = default)
         => _queries.GetSavedExternalIdsAsync(platform, ct);
+
+    /// <summary>Pins or unpins a playlist for the top of the list.</summary>
+    public Task SetPinnedAsync(string playlistId, bool pinned, CancellationToken ct = default)
+        => _queries.SetPinnedAsync(playlistId, pinned, ct);
 
     public Task<bool> RemoveTrackAsync(string playlistId, int trackId, bool deleteFile, CancellationToken ct = default)
         => _queries.RemoveTrackAsync(playlistId, trackId, deleteFile, ct);

@@ -37,8 +37,16 @@
 @if (jobs.Count > 0)
 {
     <section class="list-toolbar" aria-label="Sync job controls">
-        <div class="list-toolbar-left">
+        <div class="list-toolbar-left with-sort">
             <span class="list-count">@jobs.Count sync job@(jobs.Count == 1 ? "" : "s")</span>
+            <label class="sort-control" title="Sort sync jobs">
+                <Icon Name="arrow-up-down" Size="14" />
+                <select value="@syncJobsSort" @onchange="OnSyncJobsSortChanged" aria-label="Sort sync jobs">
+                    <option value="last-run">Last run</option>
+                    <option value="next-run">Next run</option>
+                    <option value="status">Status</option>
+                </select>
+            </label>
         </div>
         <div class="list-toolbar-actions">
             <div class="view-switch" role="group" aria-label="Sync job layout">
@@ -604,6 +612,8 @@ else
     private int runAllTotal;
     /// <summary>Card grid or compact rows, kept in settings across visits.</summary>
     private string syncJobsView = "cards";
+    /// <summary>Job order: last run, next run or status, kept in settings.</summary>
+    private string syncJobsSort = "last-run";
     /// <summary>" · next run ..." per job, computed once per load (the cron
     /// walk is not free and the card re-renders often).</summary>
     private Dictionary<string, string> nextRunLabels = new();
@@ -636,6 +646,8 @@ else
         defaultM3uFolder = await Settings.GetAsync("playlist_path", "/app/playlists");
         syncJobsView = await Settings.GetAsync("syncjobs_view", "cards");
         if (syncJobsView is not ("cards" or "rows")) syncJobsView = "cards";
+        syncJobsSort = await Settings.GetAsync("syncjobs_sort", "last-run");
+        if (syncJobsSort is not ("last-run" or "next-run" or "status")) syncJobsSort = "last-run";
         await LoadDataAsync();
         await ReloadProfiles();
     }
@@ -645,6 +657,49 @@ else
         if (syncJobsView == view) return;
         syncJobsView = view;
         await Settings.SetAsync("syncjobs_view", view);
+    }
+
+    private async Task OnSyncJobsSortChanged(ChangeEventArgs e)
+    {
+        var value = e.Value?.ToString() ?? "last-run";
+        syncJobsSort = value is "next-run" or "status" ? value : "last-run";
+        jobs = SortJobs(jobs);
+        jobOrder = jobs.Select(j => j.Id).ToList();
+        await Settings.SetAsync("syncjobs_sort", syncJobsSort);
+    }
+
+    /// <summary>
+    /// The list order. Last run is the default and puts never-run jobs
+    /// last; next run puts manual jobs after every scheduled one; status
+    /// puts failures first, then jobs that never ran, then completed runs.
+    /// </summary>
+    private List<SyncJobEntity> SortJobs(IEnumerable<SyncJobEntity> source)
+        => syncJobsSort switch
+        {
+            "next-run" => source
+                .OrderBy(j => NextRunOf(j) ?? DateTimeOffset.MaxValue)
+                .ThenBy(j => j.Name)
+                .ToList(),
+            "status" => source
+                .OrderBy(StatusRank)
+                .ThenBy(j => j.Name)
+                .ToList(),
+            _ => source
+                .OrderByDescending(j => j.LastRunAt ?? DateTime.MinValue)
+                .ThenBy(j => j.Name)
+                .ToList(),
+        };
+
+    private int StatusRank(SyncJobEntity job)
+    {
+        if (runningJobs.Contains(job.Id)) return 0;
+        if (string.Equals(job.LastRunStatus, "Failed", StringComparison.OrdinalIgnoreCase)) return 1;
+        if (string.IsNullOrWhiteSpace(job.LastRunStatus)
+            || string.Equals(job.LastRunStatus, "Pending", StringComparison.OrdinalIgnoreCase)) return 2;
+        if (string.Equals(job.LastRunStatus, "Completed", StringComparison.OrdinalIgnoreCase)
+            && job.LastRunTotalTracks > 0 && job.LastRunResolvedTracks == 0) return 3;
+        if (string.Equals(job.LastRunStatus, "Completed", StringComparison.OrdinalIgnoreCase)) return 4;
+        return 5;
     }
 
     /// <summary>The card pill: running wins over the last recorded run.</summary>
@@ -901,6 +956,10 @@ else
                 .OrderBy(j => jobOrder.IndexOf(j.Id) is var i && i >= 0 ? i : int.MaxValue)
                 .ThenBy(j => j.Name)
                 .ToList();
+        }
+        else
+        {
+            loaded = SortJobs(loaded);
         }
         jobs = loaded;
         jobOrder = jobs.Select(j => j.Id).ToList();
