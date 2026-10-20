@@ -79,7 +79,9 @@ public sealed class ToastObserverService(
         ToastEvent notification, bool notifyDownloads, bool notifyFailures, CancellationToken ct)
     {
         if (NotificationRouting.ShouldToast(notification, notifyDownloads, notifyFailures))
-            notifications.Background(notification.Message, notification.Level);
+            notifications.Background(
+                notification.Message, notification.Level,
+                notification.ActionLabel, notification.ActionUrl);
         await ntfy.NotifyAsync(notification.Category, notification.Message, notification.Level, ct);
     }
 

@@ -39,7 +39,9 @@ internal sealed class ToastDecisions
             var failed = run.Failed > 0 ? $" ({run.Failed} failed)" : string.Empty;
             yield return new ToastEvent(NotificationCategories.Downloads,
                 $"'{run.PlaylistName}' finished: {run.Done} of {run.Total} done{failed}.",
-                run.Failed > 0 ? "warn" : "success");
+                run.Failed > 0 ? "warn" : "success",
+                run.Failed > 0 ? "Review failed" : "Open playlist",
+                $"/playlists/{run.PlaylistId}");
         }
     }
 

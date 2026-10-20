@@ -35,6 +35,8 @@ public class ToastDecisionsTests
             Assert.That(events[0].Category, Is.EqualTo(NotificationCategories.Downloads));
             Assert.That(events[0].Message, Does.Contain("'Mix' finished: 3 of 3"));
             Assert.That(events[0].Level, Is.EqualTo("success"));
+            Assert.That(events[0].ActionLabel, Is.EqualTo("Open playlist"));
+            Assert.That(events[0].ActionUrl, Is.EqualTo("/playlists/pl-1"));
         });
     }
 
@@ -66,6 +68,8 @@ public class ToastDecisionsTests
         Assert.That(events, Has.Count.EqualTo(1));
         Assert.That(events[0].Level, Is.EqualTo("warn"));
         Assert.That(events[0].Message, Does.Contain("2 failed"));
+        Assert.That(events[0].ActionLabel, Is.EqualTo("Review failed"));
+        Assert.That(events[0].ActionUrl, Is.EqualTo("/playlists/pl-1"));
     }
 
     [Test]

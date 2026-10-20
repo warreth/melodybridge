@@ -1,6 +1,7 @@
 @inherits LayoutComponentBase
 @using MelodyBridge.Core
 @using MelodyBridge.Server.Services
+@using Microsoft.JSInterop
 @inject DevPanelService DevPanel
 @inject NotificationService Notifications
 @implements IDisposable
@@ -12,10 +13,24 @@
             <span class="brand-text">Melody<strong>Bridge</strong></span>
         </a>
         <NavMenu />
+        <DownloadActivityChip />
         <div class="sidebar-footer">
-            <button class="theme-toggle" @onclick="ToggleTheme" title="Toggle theme">
-                <span class="theme-icon"><Icon Name="@(_isDark ? "moon" : "sun")" Size="18" /></span>
-            </button>
+            <div class="sidebar-tools">
+                <button class="theme-toggle notification-bell" title="Notifications"
+                        aria-label="Notifications"
+                        aria-expanded="@(_historyOpen ? "true" : "false")"
+                        @onclick="ToggleHistory">
+                    <Icon Name="bell" Size="18" />
+                    @if (_unread > 0)
+                    {
+                        <span class="bell-count" aria-label="@_unread unread">@_unread</span>
+                    }
+                </button>
+                <button class="theme-toggle" @onclick="CycleTheme" title="@ThemeTitle"
+                        aria-label="@ThemeTitle">
+                    <span class="theme-icon"><Icon Name="@ThemeIcon" Size="18" /></span>
+                </button>
+            </div>
             <span class="version-badge" title="MelodyBridge version">v@(AppInfo.Version)</span>
         </div>
     </aside>
@@ -27,6 +42,50 @@
     </div>
 </div>
 
+@if (_historyOpen)
+{
+    <section class="notification-panel" role="dialog" aria-label="Notification history">
+        <div class="notification-head">
+            <div>
+                <span class="eyebrow">Activity</span>
+                <strong>Notifications</strong>
+            </div>
+            <div class="flex-actions">
+                @if (_history.Count > 0)
+                {
+                    <button class="btn-modern small ghost" @onclick="ClearHistory">Clear</button>
+                }
+                <button class="icon-button" title="Close" @onclick="CloseHistory">
+                    <Icon Name="x" Size="15" />
+                </button>
+            </div>
+        </div>
+        @if (_history.Count == 0)
+        {
+            <EmptyState IconName="bell" Title="Nothing yet">Downloads, plugin logins and sync results appear here.</EmptyState>
+        }
+        else
+        {
+            <div class="notification-list">
+                @foreach (var item in _history.Take(20))
+                {
+                    <div class="notification-row @item.Level">
+                        <span class="notification-dot" aria-hidden="true"></span>
+                        <div class="notification-copy">
+                            <span>@item.Message</span>
+                            <small>@item.CreatedAtUtc.ToLocalTime().ToString("HH:mm")</small>
+                        </div>
+                        @if (item.ActionLabel is { Length: > 0 } label && item.ActionUrl is { Length: > 0 } url)
+                        {
+                            <a class="notification-action" href="@url" @onclick="CloseHistory">@label</a>
+                        }
+                    </div>
+                }
+            </div>
+        }
+    </section>
+}
+
 @if (_toasts.Count > 0)
 {
     <div class="toast-stack">
@@ -34,7 +93,13 @@
         {
             <div class="toast-item @toast.Level">
                 <span>@toast.Message</span>
-                <button class="toast-close" @onclick="() => DismissToast(toast)"><Icon Name="x" Size="14" /></button>
+                @if (toast.ActionLabel is { Length: > 0 } label && toast.ActionUrl is { Length: > 0 } url)
+                {
+                    <a class="toast-action" href="@url" @onclick="() => DismissToast(toast)">@label</a>
+                }
+                <button class="toast-close" @onclick="() => DismissToast(toast)" aria-label="Dismiss">
+                    <Icon Name="x" Size="14" />
+                </button>
             </div>
         }
     </div>
@@ -42,12 +107,36 @@
 
 @code {
     private bool _isDark = true;
+    private string _themePreference = "auto";
     private List<AppNotification> _toasts = [];
+    private List<AppNotification> _history = [];
+    private int _unread;
+    private bool _historyOpen;
+    private DotNetObjectReference<MainLayout>? _themeRef;
 
     [Inject] private IJSRuntime JS { get; set; } = default!;
 
+    private string ThemeIcon => _themePreference switch
+    {
+        "light" => "sun",
+        "dark" => "moon",
+        _ => "monitor",
+    };
+
+    private string ThemeTitle => _themePreference switch
+    {
+        "light" => "Theme: Light",
+        "dark" => "Theme: Dark",
+        _ => "Theme: Auto (follows system)",
+    };
+
     protected override void OnInitialized()
-        => Notifications.Changed += RefreshToasts;
+    {
+        Notifications.Changed += RefreshNotifications;
+        // A background watcher may have pushed a login problem before this
+        // circuit existed; the history and the bell still need it.
+        RefreshNotifications();
+    }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -57,7 +146,14 @@
             // The browser applies the stored theme on load; the icon must
             // start in sync with it instead of always claiming dark.
             var theme = await JS.InvokeAsync<string>("melody.getTheme");
+            var preference = await JS.InvokeAsync<string>("melody.getThemePreference");
+            _themePreference = preference is "auto" or "light" or "dark"
+                ? preference
+                : theme == "light" ? "light" : "dark";
             _isDark = !string.Equals(theme, "light", StringComparison.OrdinalIgnoreCase);
+
+            _themeRef = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("melody.watchTheme", _themeRef);
             StateHasChanged();
         }
         catch
@@ -66,19 +162,73 @@
         }
     }
 
-    private void RefreshToasts()
+    private void RefreshNotifications()
     {
-        _toasts = Notifications.Snapshot().Take(4).ToList();
+        _toasts = Notifications.Snapshot().Take(3).ToList();
+        _history = Notifications.History().Take(20).ToList();
+        _unread = Notifications.UnreadCount;
         _ = InvokeAsync(StateHasChanged);
     }
 
     private void DismissToast(AppNotification toast) => Notifications.Dismiss(toast);
 
-    private void ToggleTheme()
+    private void ToggleHistory()
     {
-        _isDark = !_isDark;
-        _ = JS.InvokeVoidAsync("melody.setTheme", _isDark ? "dark" : "light");
+        _historyOpen = !_historyOpen;
+        if (_historyOpen)
+        {
+            Notifications.MarkAllSeen();
+            _unread = 0;
+            _history = Notifications.History().Take(20).ToList();
+        }
     }
 
-    public void Dispose() => Notifications.Changed -= RefreshToasts;
+    private void CloseHistory() => _historyOpen = false;
+
+    private void ClearHistory()
+    {
+        Notifications.ClearHistory();
+        _history = [];
+        _unread = 0;
+    }
+
+    private async Task CycleTheme()
+    {
+        var next = _themePreference switch
+        {
+            "auto" => "light",
+            "light" => "dark",
+            _ => "auto",
+        };
+
+        try
+        {
+            var effective = await JS.InvokeAsync<string>("melody.setTheme", next);
+            _themePreference = next;
+            if (effective is "light" or "dark")
+                _isDark = effective == "dark";
+        }
+        catch
+        {
+            // Keep the chosen mode even when interop is unavailable.
+            _themePreference = next;
+            _isDark = next switch { "light" => false, "dark" => true, _ => _isDark };
+        }
+
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public Task OnThemeChanged(string preference, string effective)
+    {
+        _themePreference = preference is "auto" or "light" or "dark" ? preference : "auto";
+        _isDark = effective != "light";
+        return InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        Notifications.Changed -= RefreshNotifications;
+        _themeRef?.Dispose();
+    }
 }

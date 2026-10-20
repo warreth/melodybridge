@@ -27,6 +27,7 @@ public class GuidedTourTests
     public void Setup()
     {
         _ctx = new Bunit.TestContext();
+        _ctx.Services.AddPluginAuthMonitor();
         _dbPath = Path.Combine(Path.GetTempPath(), $"mb-tour-{Guid.NewGuid():N}.db");
         var factory = new TestSqliteFactory(_dbPath);
         using (var db = factory.CreateDbContext())

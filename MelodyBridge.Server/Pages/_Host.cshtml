@@ -20,12 +20,15 @@
                 theme = localStorage.getItem('mb-theme');
                 accent = localStorage.getItem('mb-accent');
             } catch (e) { /* private mode */ }
-            if (theme !== 'light' && theme !== 'dark') {
+            var mode = (theme === 'light' || theme === 'dark' || theme === 'auto') ? theme : 'auto';
+            var effective = mode;
+            if (mode === 'auto') {
                 try {
-                    theme = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
-                } catch (e) { theme = 'light'; }
+                    effective = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+                } catch (e) { effective = 'light'; }
             }
-            document.documentElement.setAttribute('data-theme', theme);
+            document.documentElement.setAttribute('data-theme-pref', mode);
+            document.documentElement.setAttribute('data-theme', effective);
             if (accent) document.documentElement.setAttribute('data-accent', accent);
         })();
     </script>

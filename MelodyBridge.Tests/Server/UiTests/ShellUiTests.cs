@@ -47,6 +47,28 @@ public class ShellUiTests
     }
 
     [Test]
+    public void ThemeToggle_CyclesFromLightToDark()
+    {
+        _ctx.JSInterop.Setup<string>("melody.getTheme").SetResult("light");
+        _ctx.JSInterop.Setup<string>("melody.getThemePreference").SetResult("light");
+        _ctx.JSInterop.Setup<string>("melody.setTheme", _ => true).SetResult("dark");
+
+        var cut = _ctx.Render<MainLayout>();
+        cut.WaitForAssertion(() => Assert.That(
+            cut.Find(".theme-icon svg").GetAttribute("data-icon"), Is.EqualTo("sun")));
+
+        cut.FindAll(".theme-toggle").Last().Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.Find(".theme-icon svg").GetAttribute("data-icon"),
+                Is.EqualTo("moon"));
+            Assert.That(cut.FindAll(".theme-toggle").Last().GetAttribute("title"),
+                Is.EqualTo("Theme: Dark"));
+        });
+    }
+
+    [Test]
     public void VersionBadge_EvaluatesInsteadOfRenderingTemplate()
     {
         var cut = _ctx.Render<MainLayout>();

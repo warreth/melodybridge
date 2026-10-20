@@ -1,0 +1,48 @@
+@using MelodyBridge.Application.Services
+@using Microsoft.Extensions.DependencyInjection
+@implements IDisposable
+
+@if (summary.Runs > 0)
+{
+    <a class="download-chip" href="/plugins#live-downloads" title="@summary.Headline, @summary.Detail">
+        <span class="download-chip-icon">
+            <Icon Name="download" Size="15" />
+        </span>
+        <span class="download-chip-copy">
+            <strong>@summary.Headline</strong>
+            <small>@summary.Detail</small>
+        </span>
+        <span class="download-chip-track" aria-hidden="true">
+            <span style="width:@summary.Percent%"></span>
+        </span>
+    </a>
+}
+
+@code {
+    private DownloadActivitySummary summary = DownloadActivitySummary.From(Array.Empty<DownloadRun>());
+    private Timer? _timer;
+    private DownloadCoordinator? _coordinator;
+
+    [Inject] private IServiceProvider Services { get; set; } = default!;
+
+    protected override void OnInitialized()
+    {
+        _coordinator = Services.GetService<DownloadCoordinator>();
+        if (_coordinator is null) return;
+
+        Refresh();
+        _timer = new Timer(_ => InvokeAsync(() =>
+        {
+            Refresh();
+            StateHasChanged();
+        }), null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
+    }
+
+    private void Refresh()
+    {
+        if (_coordinator is null) return;
+        summary = DownloadActivitySummary.From(_coordinator.Snapshot());
+    }
+
+    public void Dispose() => _timer?.Dispose();
+}

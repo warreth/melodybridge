@@ -84,6 +84,12 @@ window.melody = (() => {
         return ACCENTS.includes(value) ? value : 'teal';
     }
 
+    // The fragment is not sent to the server, so an initial deep link
+    // arrives in Blazor without it; read the browser's copy once.
+    function getHash() {
+        return window.location.hash || '';
+    }
+
     // The effective theme the browser actually shows.
     function getTheme() {
         const attr = document.documentElement.getAttribute('data-theme');
@@ -169,21 +175,27 @@ window.melody = (() => {
         if (el) el.focus();
     }
 
-    // Scroll a plugin card into view and flash it, retrying until Blazor
-    // has rendered the card after a deep link or a toast action.
-    function revealPlugin(pluginId) {
+    // Scroll an element into view, retrying until Blazor has rendered it
+    // after a deep link or a toast action.
+    function revealElement(elementId, flash) {
         let tries = 0;
         const tick = () => {
-            const el = document.getElementById('plugin-' + pluginId);
+            const el = document.getElementById(elementId);
             if (el) {
                 el.scrollIntoView({ block: 'center', behavior: 'smooth' });
-                el.classList.add('highlight');
-                setTimeout(() => el.classList.remove('highlight'), 1800);
+                if (flash) {
+                    el.classList.add('highlight');
+                    setTimeout(() => el.classList.remove('highlight'), 1800);
+                }
                 return;
             }
             if (tries++ < 60) requestAnimationFrame(tick);
         };
         tick();
+    }
+
+    function revealPlugin(pluginId) {
+        revealElement('plugin-' + pluginId, true);
     }
 
     // Remember where a scroll container was when a dialog closed.
@@ -214,7 +226,9 @@ window.melody = (() => {
         getAccent,
         getTheme,
         getThemePreference,
+        getHash,
         watchTheme,
+        revealElement,
         revealPlugin,
         saveScroll,
         restoreScroll,

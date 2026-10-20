@@ -1,0 +1,60 @@
+/* Sidebar download chip: one glance at live runs from any page. */
+.download-chip {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: .55rem;
+    margin-top: .75rem;
+    padding: .55rem .65rem .65rem;
+    overflow: hidden;
+    border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+    border-radius: var(--radius);
+    background: var(--accent-soft);
+    color: var(--text);
+    text-decoration: none;
+}
+
+.download-chip:hover { border-color: var(--accent); }
+
+.download-chip-icon {
+    width: 28px;
+    height: 28px;
+    display: inline-grid;
+    place-items: center;
+    flex-shrink: 0;
+    border-radius: 8px;
+    background: var(--surface);
+    color: var(--accent-text);
+}
+
+.download-chip-copy { display: grid; gap: .05rem; min-width: 0; }
+.download-chip-copy strong { font-size: .8rem; line-height: 1.25; }
+.download-chip-copy small {
+    color: var(--muted);
+    font-size: .72rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.download-chip-track {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 2px;
+    background: var(--surface-3);
+}
+
+.download-chip-track > span {
+    display: block;
+    height: 100%;
+    background: var(--accent-strong);
+    transition: width .3s ease;
+}
+
+@media (max-width: 1100px) {
+    .download-chip {
+        order: 4;
+        flex: 1 1 100%;
+        margin-top: .35rem;
+    }
+}

@@ -100,6 +100,10 @@ public sealed class PluginAuthWatchService : BackgroundService
 
             _monitor.Observe(plugin);
         }
+
+        // The page may have discovered the same problem before this
+        // service subscribed, so push the current set once per sweep.
+        SyncToasts();
     }
 
     /// <summary>
@@ -110,7 +114,7 @@ public sealed class PluginAuthWatchService : BackgroundService
     {
         // Parallel downloads can report issues at the same time; one lock
         // keeps the toast de-duplication and the notification order sane.
-        var fresh = new List<string>();
+        var fresh = new List<(string Message, string Label, string Url)>();
         lock (_toastGate)
         {
             var current = _monitor.Snapshot();
@@ -121,7 +125,8 @@ public sealed class PluginAuthWatchService : BackgroundService
                     continue;
 
                 _toasted[issue.PluginId] = issue.Message;
-                fresh.Add($"{issue.PluginName}: {issue.Message}");
+                fresh.Add(($"{issue.PluginName}: {issue.Message}", "Fix plugin",
+                    $"/plugins#plugin-{issue.PluginId}"));
             }
 
             foreach (var resolved in _toasted.Keys
@@ -130,7 +135,7 @@ public sealed class PluginAuthWatchService : BackgroundService
                 _toasted.Remove(resolved);
         }
 
-        foreach (var message in fresh)
-            _notifications.Error(message);
+        foreach (var (message, label, url) in fresh)
+            _notifications.Error(message, label, url);
     }
 }
