@@ -144,7 +144,7 @@ public static class QuickSyncJobs
                     if (target.Kind == OutputTargetType.M3uFile
                         && !string.IsNullOrWhiteSpace(target.M3uPath))
                     {
-                        usedM3uPaths.Add(PathKey(target.M3uPath));
+                        usedM3uPaths.Add(SafeFileNames.PathKey(target.M3uPath));
                     }
                 }
             }
@@ -174,9 +174,10 @@ public static class QuickSyncJobs
                 var targets = new List<SyncTarget>();
                 if (options.M3uEnabled)
                 {
-                    targets.Add(new SyncTarget(
-                        OutputTargetType.M3uFile,
-                        M3uPath: UniqueM3uPathFor(options.M3uDirectory!, name, usedM3uPaths)));
+                    var m3uPath = SafeFileNames.UniqueFile(
+                        options.M3uDirectory!, name, ".m3u", usedM3uPaths);
+                    usedM3uPaths.Add(SafeFileNames.PathKey(m3uPath));
+                    targets.Add(new SyncTarget(OutputTargetType.M3uFile, M3uPath: m3uPath));
                 }
                 targets.AddRange(existingProfiles.Select(p =>
                     new SyncTarget(MediaServerKinds.OutputTargetFor(p.Kind), ProfileId: p.Id)));
@@ -208,24 +209,4 @@ public static class QuickSyncJobs
             ScanScheduleMode.Cron => (nameof(SyncJobSchedule.Cron), schedule.Cron),
             _ => (nameof(SyncJobSchedule.Manual), null),
         };
-
-    /// <summary>
-    /// The playlist's M3U file inside the configured output folder. The
-    /// name is sanitized for every platform, and a suffix keeps two
-    /// playlists (or an existing job) from writing the same file.
-    /// </summary>
-    private static string UniqueM3uPathFor(
-        string directory, string playlistName, HashSet<string> usedPaths)
-    {
-        var baseName = SafeFileNames.Sanitize(playlistName);
-        var folder = directory.TrimEnd('/', '\\');
-        var candidate = Path.Combine(folder, baseName + ".m3u");
-        for (var suffix = 2; !usedPaths.Add(PathKey(candidate)); suffix++)
-            candidate = Path.Combine(folder, $"{baseName} ({suffix}).m3u");
-        return candidate;
-    }
-
-    /// <summary>One comparison form for paths that may use either separator.</summary>
-    private static string PathKey(string path)
-        => path.Replace('\\', '/').TrimEnd('/');
 }

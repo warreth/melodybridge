@@ -80,7 +80,7 @@
                         <span class="text-muted">Editing "@draft.Name"</span>
                     }
                 </div>
-                <button class="icon-button" title="Close" @onclick="CancelWizard"><Icon Name="x" Size="18" /></button>
+                <button class="icon-button" title="Close" @onclick="CancelWizard" @ref="_wizardCloseButton"><Icon Name="x" Size="18" /></button>
             </div>
             <div class="wizard-body">
                 @if (currentStep == 0)
@@ -454,7 +454,7 @@
                         <Icon Name="play" Size="14" />
                         <span class="btn-label">@(runningJobs.Contains(job.Id) ? "Running…" : "Run now")</span>
                     </button>
-                    <CardMenu Label="Sync job actions">
+                    <CardMenu Label="Sync job actions" FocusTriggerOnClose="false">
                         @JobMenu(job)
                     </CardMenu>
                 </span>
@@ -516,7 +516,7 @@ else
                         <Icon Name="play" Size="14" />
                         @(runningJobs.Contains(job.Id) ? "Running..." : "Run now")
                     </button>
-                    <CardMenu Label="Sync job actions">
+                    <CardMenu Label="Sync job actions" FocusTriggerOnClose="false">
                         @JobMenu(job)
                     </CardMenu>
                 </div>
@@ -543,14 +543,14 @@ else
 
 @if (showLog)
 {
-    <div class="wizard-overlay" @onclick="() => showLog = false">
+    <div class="wizard-overlay" @onclick="CloseLog">
         <div class="wizard-modal log-modal" @onclick:stopPropagation="true">
             <div class="wizard-header">
                 <div>
                     <span class="eyebrow">Run history</span>
                     <h2>@logJobName</h2>
                 </div>
-                <button class="icon-button" title="Close" @onclick="() => showLog = false"><Icon Name="x" Size="18" /></button>
+                <button class="icon-button" title="Close" @onclick="CloseLog" @ref="_logCloseButton"><Icon Name="x" Size="18" /></button>
             </div>
             <div class="wizard-body">
                 @if (logEntries.Count == 0)
@@ -604,6 +604,10 @@ else
     private bool showLog;
     private string logJobName = "";
     private List<SyncJobRunEntity> logEntries = new();
+    private ElementReference _wizardCloseButton;
+    private ElementReference _logCloseButton;
+    private bool _focusWizard;
+    private bool _focusLog;
     private HashSet<string> runningJobs = new();
     /// <summary>True while "Run all now" walks every job; the buttons and
     /// the header label read it.</summary>
@@ -650,6 +654,34 @@ else
         if (syncJobsSort is not ("last-run" or "next-run" or "status")) syncJobsSort = "last-run";
         await LoadDataAsync();
         await ReloadProfiles();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_focusWizard && showWizard)
+        {
+            _focusWizard = false;
+            try
+            {
+                await _wizardCloseButton.FocusAsync();
+            }
+            catch
+            {
+                // Interop is unavailable during prerender and in some tests.
+            }
+        }
+        else if (_focusLog && showLog)
+        {
+            _focusLog = false;
+            try
+            {
+                await _logCloseButton.FocusAsync();
+            }
+            catch
+            {
+                // Interop is unavailable during prerender and in some tests.
+            }
+        }
     }
 
     private async Task SetSyncJobsView(string view)
@@ -916,9 +948,13 @@ else
         if (string.IsNullOrWhiteSpace(defaultM3uFolder)) return;
 
         var name = string.IsNullOrWhiteSpace(draft.Name) ? "playlist" : draft.Name.Trim();
-        var safeName = string.Concat(name.Select(c =>
-            Path.GetInvalidFileNameChars().Contains(c) ? '_' : c));
-        draft.M3uOutputPath = Path.Combine(defaultM3uFolder.TrimEnd('/', '\\'), safeName + ".m3u");
+        var used = jobs
+            .SelectMany(SyncJobMapping.TargetsOf)
+            .Where(t => t.Kind == OutputTargetType.M3uFile && !string.IsNullOrWhiteSpace(t.M3uPath))
+            .Select(t => t.M3uPath!)
+            .ToList();
+        draft.M3uOutputPath = SafeFileNames.UniqueFile(
+            defaultM3uFolder, name, ".m3u", used);
     }
 
     private async Task ReloadProfiles()
@@ -988,6 +1024,7 @@ else
         currentStep = 0;
         stepError = null;
         showWizard = true;
+        _focusWizard = true;
     }
 
     private void StartEditJob(SyncJobEntity job)
@@ -1024,9 +1061,20 @@ else
         currentStep = 0;
         stepError = null;
         showWizard = true;
+        _focusWizard = true;
     }
 
-    private void CancelWizard() { showWizard = false; }
+    private void CancelWizard()
+    {
+        showWizard = false;
+        _focusWizard = false;
+    }
+
+    private void CloseLog()
+    {
+        showLog = false;
+        _focusLog = false;
+    }
 
     private string GetStepTitle() => currentStep switch
     {
@@ -1320,6 +1368,7 @@ else
         await using var db = await DbFactory.CreateDbContextAsync();
         logEntries = await db.SyncJobRuns.Where(r => r.SyncJobId == job.Id).OrderByDescending(r => r.Timestamp).Take(20).ToListAsync();
         showLog = true;
+        _focusLog = true;
     }
 
     // Delete flow: the card asks, the dialog confirms.

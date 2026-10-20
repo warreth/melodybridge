@@ -171,6 +171,29 @@ public class PlaylistCsvTests
     }
 
     [Test]
+    public void SafeFileNames_UniqueFile_HonoursExistingTargetsAndSanitizes()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "melodybridge-playlists");
+        var used = new[]
+        {
+            Path.Combine(directory, "AC_DC.m3u"),
+            Path.Combine(directory, "AC_DC (2).m3u"),
+        };
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(
+                SafeFileNames.UniqueFile(directory, "AC/DC", ".m3u", used),
+                Is.EqualTo(Path.Combine(directory, "AC_DC (3).m3u")),
+                "the same numbered suffix avoids a path a job already uses");
+            Assert.That(
+                SafeFileNames.UniqueFile(directory, "CON", "m3u", Array.Empty<string>()),
+                Is.EqualTo(Path.Combine(directory, "_CON.m3u")),
+                "the manual wizard uses the same reserved-name rule as quick publish");
+        });
+    }
+
+    [Test]
     public async Task ExportCsvZipAsync_EntryNamesArePortableAndFlat()
     {
         var dbPath = NewDbPath();

@@ -774,6 +774,7 @@ else
                     </div>
                     <div class="publish-schedule">
                         <SchedulePicker Label="Schedule for every job" @bind-Value="publishSchedule"
+                                        LiveValidation="true"
                                         ValidityChanged="valid => publishScheduleValid = valid" />
                         @if (!publishScheduleValid)
                         {
@@ -1389,33 +1390,42 @@ else
     private async Task DownloadMissingSelected()
     {
         var selected = playlists.Where(p => selectedPlaylistIds.Contains(p.Id)).ToList();
-        if (selected.Count == 0) return;
+        if (selected.Count == 0 || busy) return;
+        busy = true;
         message = string.Empty;
         messageIsError = false;
+        StateHasChanged();
         var started = 0;
         var empty = 0;
         var active = 0;
-        foreach (var playlist in selected)
+        try
         {
-            if (Coordinator.IsActive(playlist.Id))
+            foreach (var playlist in selected)
             {
-                active++;
-                continue;
+                if (Coordinator.IsActive(playlist.Id))
+                {
+                    active++;
+                    continue;
+                }
+                if (!await Coordinator.HasPendingWorkAsync(playlist.Id))
+                {
+                    empty++;
+                    continue;
+                }
+                Coordinator.Start(playlist.Id);
+                started++;
             }
-            if (!await Coordinator.HasPendingWorkAsync(playlist.Id))
-            {
-                empty++;
-                continue;
-            }
-            Coordinator.Start(playlist.Id);
-            started++;
+        }
+        finally
+        {
+            busy = false;
+            StateHasChanged();
         }
         var summary = $"Started downloads for {started} playlist{(started == 1 ? "" : "s")}";
         if (empty > 0) summary += $"; {empty} had nothing missing";
         if (active > 0) summary += $"; {active} already running";
         if (started > 0) Notifications.Success(summary + ".");
         else Notifications.Info(summary + ".");
-        StateHasChanged();
     }
 
     private async Task ExportSelected()

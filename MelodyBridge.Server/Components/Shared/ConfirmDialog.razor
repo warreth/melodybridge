@@ -15,7 +15,7 @@
                 @ChildContent
             </div>
             <div class="wizard-footer">
-                <button class="btn-modern secondary" @onclick="() => OnCancel.InvokeAsync()">Cancel</button>
+                <button class="btn-modern secondary" @onclick="() => OnCancel.InvokeAsync()" @ref="_cancelButton">Cancel</button>
                 <span></span>
                 <button class="btn-modern danger" @onclick="() => OnConfirm.InvokeAsync()" disabled="@Busy">
                     @(Busy ? "Working…" : ConfirmLabel)
@@ -42,4 +42,27 @@
     [Parameter] public EventCallback OnConfirm { get; set; }
     [Parameter] public EventCallback OnCancel { get; set; }
     [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    private ElementReference _cancelButton;
+    private bool _focusedOpenDialog;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (Show && !_focusedOpenDialog)
+        {
+            _focusedOpenDialog = true;
+            try
+            {
+                await _cancelButton.FocusAsync();
+            }
+            catch
+            {
+                // Interop is unavailable during prerender and in some tests.
+            }
+        }
+        else if (!Show)
+        {
+            _focusedOpenDialog = false;
+        }
+    }
 }

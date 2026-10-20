@@ -43,4 +43,26 @@ public static class SafeFileNames
 
         return cleaned.Length == 0 ? fallback : cleaned;
     }
+
+    /// <summary>
+    /// A unique file name inside one folder for a list of paths already in
+    /// use. The same numbered suffix keeps quick publish and the manual
+    /// wizard from choosing the same M3U file.
+    /// </summary>
+    public static string UniqueFile(
+        string directory, string name, string extension, IEnumerable<string> usedPaths)
+    {
+        var baseName = Sanitize(name);
+        var folder = Path.TrimEndingDirectorySeparator(directory);
+        var suffixExtension = extension.StartsWith('.') ? extension : "." + extension;
+        var used = usedPaths.Select(PathKey).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var candidate = Path.Combine(folder, baseName + suffixExtension);
+        for (var suffix = 2; used.Contains(PathKey(candidate)); suffix++)
+            candidate = Path.Combine(folder, $"{baseName} ({suffix}){suffixExtension}");
+        return candidate;
+    }
+
+    /// <summary>One comparison form for paths that may use either separator.</summary>
+    public static string PathKey(string path)
+        => path.Replace('\\', '/').TrimEnd('/');
 }

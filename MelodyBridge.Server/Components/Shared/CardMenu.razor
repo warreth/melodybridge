@@ -17,18 +17,24 @@
 @code {
     [Parameter] public RenderFragment? ChildContent { get; set; }
     [Parameter] public string Label { get; set; } = "More actions";
+    /// <summary>
+    /// Return keyboard focus to the trigger after an item click. Turn this
+    /// off when the item opens a dialog or wizard: that surface owns focus
+    /// next and the trigger may be covered by it.
+    /// </summary>
+    [Parameter] public bool FocusTriggerOnClose { get; set; } = true;
 
     private bool _open;
     private ElementReference _trigger;
 
     private void Toggle() => _open = !_open;
 
-    /// <summary>Any item click closes the menu and returns focus to the
-    /// trigger, so keyboard users do not lose their place when the items
-    /// leave the DOM.</summary>
+    /// <summary>Any item click closes the menu. Focus returns to the
+    /// trigger only when the action does not open another surface.</summary>
     private async Task Close()
     {
         _open = false;
+        if (!FocusTriggerOnClose) return;
         try
         {
             await _trigger.FocusAsync();
