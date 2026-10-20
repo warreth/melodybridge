@@ -17,7 +17,11 @@
             </StatusPill>
         }
         <small class="location-meta">
-            <span>@FileCount files with MELODY_ID</span>
+            <span>@FileCount @(FileCount == 1 ? "file" : "files") with MELODY_ID</span>
+            @if (!string.IsNullOrEmpty(FolderSize))
+            {
+                <span>@FolderSize</span>
+            }
             <span>@ScheduleText</span>
             <span>last scan @LastScanText</span>
         </small>
@@ -35,6 +39,8 @@
 @code {
     [Parameter, EditorRequired] public ScanLocationEntity Location { get; set; } = null!;
     [Parameter] public int FileCount { get; set; }
+    /// <summary>Human file size of the files under this location, empty when unknown.</summary>
+    [Parameter] public string? FolderSize { get; set; }
     /// <summary>True when the location sits inside a configured archive root.</summary>
     [Parameter] public bool IsArchive { get; set; }
     /// <summary>Pass the resolved schedule so the card never parses the row twice.</summary>

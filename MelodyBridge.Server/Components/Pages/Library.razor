@@ -27,6 +27,17 @@
     </div>
 </section>
 
+<section class="stat-grid">
+    <StatCard IconName="library" Label="Library files" Value="@footprint.Files.ToString()"
+              Caption="Files with a MELODY_ID tag" />
+    <StatCard IconName="hard-drive" Label="Library size" Value="@SizeText(footprint.Bytes)"
+              Caption="Main files and archive copies" />
+    <StatCard IconName="archive" Label="Archive copies" Value="@footprint.ArchiveFiles.ToString()"
+              Caption="@($"{SizeText(footprint.ArchiveBytes)} in extra copies")" />
+    <StatCard IconName="folder" Label="Scan folders" Value="@locations.Count.ToString()"
+              Caption="@ArchiveLocationsCaption" />
+</section>
+
 @if (scanResult != null)
 {
     <section class="panel-card">
@@ -58,6 +69,7 @@
             {
                 <LibraryLocationCard Location="loc"
                                      FileCount="@FileCount(loc)"
+                                     FolderSize="@FolderSizeText(loc)"
                                      IsArchive="@IsArchivePath(loc)"
                                      Schedule="@LocationSchedule.Of(loc)"
                                      OnEdit="ShowEditLocation"
@@ -123,7 +135,9 @@
     private List<ScanLocationEntity> locations = new();
     /// <summary>Archive roots (global plus per playlist) for the folder badge.</summary>
     private List<string> archiveRoots = new();
-    private Dictionary<int, int> filesPerLocation = new();
+    /// <summary>Files and bytes per scan location, current files plus archive copies.</summary>
+    private Dictionary<int, LocationFootprint> footprints = new();
+    private LibraryFootprint footprint = new(0, 0, 0, 0);
     private bool scanning;
     private string? scanResult;
     private bool scanResultOk;
@@ -154,16 +168,70 @@
         if (!string.IsNullOrWhiteSpace(globalArchive)) archiveRoots.Add(globalArchive);
 
         // Files with a MELODY_ID per location: a track belongs to the folder
-        // its current path lives under. Counted in memory: location paths are
-        // prefixes and SQL LIKE with a leading wildcard would not use an index.
-        var withIds = await db.Tracks
-            .Where(t => t.MelodyId != null && t.CurrentPath != null)
-            .Select(t => new { t.MelodyId, t.CurrentPath })
+        // its current path lives under, and its archive copy belongs to the
+        // archive folder. ArchivePath is a second real file on disk, so it is
+        // counted where it lives instead of being folded into the main row.
+        var tracks = await db.Tracks.AsNoTracking()
+            .Where(t => t.MelodyId != null
+                        && (t.CurrentPath != null || t.ArchivePath != null))
+            .Select(t => new { t.CurrentPath, t.ArchivePath, t.FileSizeBytes })
             .ToListAsync();
-        filesPerLocation = locations.ToDictionary(
-            l => l.Id,
-            l => withIds.Count(t => LocationContains(l.Path, t.CurrentPath!)));
+
+        // One entry per file path: two rows can share a path (dedup
+        // hardlinks) and must not count twice. The download row knows its
+        // current file size; an archive copy can differ from the main file,
+        // so it is measured on disk.
+        var byPath = new Dictionary<string, long?>(StringComparer.OrdinalIgnoreCase);
+        foreach (var track in tracks)
+        {
+            if (!string.IsNullOrWhiteSpace(track.CurrentPath))
+                byPath.TryAdd(track.CurrentPath!, track.FileSizeBytes);
+            if (!string.IsNullOrWhiteSpace(track.ArchivePath))
+                byPath.TryAdd(track.ArchivePath!, null);
+        }
+        var sized = byPath
+            .Select(file => (file.Key, Bytes: FileBytes(file.Key, file.Value)))
+            .ToList();
+        var archiveFiles = sized.Where(file => IsArchiveFile(file.Key)).ToList();
+        footprint = new LibraryFootprint(
+            sized.Count,
+            sized.Sum(file => file.Bytes),
+            archiveFiles.Count,
+            archiveFiles.Sum(file => file.Bytes));
+        footprints = locations.ToDictionary(
+            location => location.Id,
+            location =>
+            {
+                var matched = sized
+                    .Where(file => LocationContains(location.Path, file.Key))
+                    .ToList();
+                return new LocationFootprint(matched.Count, matched.Sum(file => file.Bytes));
+            });
     }
+
+    private sealed record LocationFootprint(int Files, long Bytes);
+
+    private sealed record LibraryFootprint(int Files, long Bytes, int ArchiveFiles, long ArchiveBytes);
+
+    /// <summary>Known row size first (downloads and scans store it), otherwise
+    /// one stat for files the database has no size for, archive copies above
+    /// all. A missing file reads as zero, never as an error on the page.</summary>
+    private static long FileBytes(string path, long? known)
+    {
+        if (known is > 0) return known.Value;
+        try
+        {
+            var info = new FileInfo(path);
+            return info.Exists ? info.Length : 0;
+        }
+        catch
+        {
+            return 0;
+        }
+    }
+
+    private static string SizeText(long bytes)
+        => TrackDisplay.Size(bytes) is { Length: > 0 } text ? text : "0 B";
 
     private static bool LocationContains(string locationPath, string filePath)
         => filePath.StartsWith(locationPath, StringComparison.OrdinalIgnoreCase)
@@ -172,7 +240,23 @@
                || filePath[locationPath.Length] == Path.AltDirectorySeparatorChar);
 
     private int FileCount(ScanLocationEntity loc)
-        => filesPerLocation.TryGetValue(loc.Id, out var n) ? n : 0;
+        => footprints.TryGetValue(loc.Id, out var fp) ? fp.Files : 0;
+
+    private string FolderSizeText(ScanLocationEntity loc)
+        => footprints.TryGetValue(loc.Id, out var fp) ? SizeText(fp.Bytes) : "0 B";
+
+    private string ArchiveLocationsCaption
+    {
+        get
+        {
+            var count = locations.Count(IsArchivePath);
+            return count == 1 ? "1 archive folder" : $"{count} archive folders";
+        }
+    }
+
+    /// <summary>True when a file lives under one of the archive roots.</summary>
+    private bool IsArchiveFile(string filePath)
+        => archiveRoots.Any(root => LocationContains(root, filePath));
 
     /// <summary>A scan location inside an archive root: its files are copies,
     /// never adopted as a track's main file.</summary>
