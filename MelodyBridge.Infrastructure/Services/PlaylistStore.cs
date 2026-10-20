@@ -129,8 +129,9 @@ public class PlaylistStore
         string playlistId, string? outputDirectoryOverride = null, int limit = int.MaxValue, CancellationToken ct = default)
         => _pipeline.DownloadMissingAsync(playlistId, outputDirectoryOverride, limit, ct);
 
-    public Task<string> DownloadTrackAsync(int trackId, CancellationToken ct = default)
-        => _pipeline.DownloadTrackAsync(trackId, ct);
+    public Task<string> DownloadTrackAsync(
+        int trackId, CancellationToken ct = default, bool avoidLastProvider = false)
+        => _pipeline.DownloadTrackAsync(trackId, ct, avoidLastProvider);
 
     /// <summary>Candidates every enabled plugin offers for one track; the optional callback streams hits.</summary>
     public Task<IReadOnlyList<DownloadCandidate>> SearchCandidatesAsync(

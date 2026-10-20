@@ -25,6 +25,17 @@
         {
             <button class="btn-modern ghost" @onclick="OnRefresh" disabled="@Busy">@(Busy ? "Fetching…" : "Refresh")</button>
         }
+        @if (FailedCount > 0)
+        {
+            <button class="btn-modern secondary" @onclick="OnRetryFailed" disabled="@(Busy || Retrying)">
+                <Icon Name="refresh" Size="14" />
+                @(Retrying ? "Retrying…" : $"Retry failed ({FailedCount})")
+            </button>
+            <button class="btn-modern ghost" @onclick="OnRetryElsewhere" disabled="@(Busy || Retrying)"
+                    title="Retry the failed tracks and skip the plugin that failed last time">
+                Retry elsewhere
+            </button>
+        }
         @if (ShowDownloadGroup)
         {
             @if (DownloadState == Application.Services.DownloadRunState.Paused)
@@ -64,7 +75,13 @@
     [Parameter] public Application.Services.DownloadRunState DownloadState { get; set; }
     /// <summary>Any page-level action in flight: buttons disable.</summary>
     [Parameter] public bool Busy { get; set; }
+    /// <summary>Tracks currently in the failed state, used for the bulk retry buttons.</summary>
+    [Parameter] public int FailedCount { get; set; }
+    /// <summary>True while the bulk retry loop is running.</summary>
+    [Parameter] public bool Retrying { get; set; }
 
+    [Parameter] public EventCallback OnRetryFailed { get; set; }
+    [Parameter] public EventCallback OnRetryElsewhere { get; set; }
     [Parameter] public EventCallback OnRefresh { get; set; }
     [Parameter] public EventCallback OnStart { get; set; }
     [Parameter] public EventCallback OnPause { get; set; }

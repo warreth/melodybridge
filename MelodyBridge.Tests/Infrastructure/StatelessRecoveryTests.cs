@@ -72,6 +72,7 @@ public class StatelessRecoveryTests
         { Calls++; return Task.FromResult<string?>(null); }
         public IReadOnlyList<DownloadProgress> SnapshotProgress() => Array.Empty<DownloadProgress>();
         public string? LastPluginId(string melodyId) => null;
+        public string? LastAttemptedPluginId(string melodyId) => null;
         public string? LastFailure(string melodyId) => null;
     }
 

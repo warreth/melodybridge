@@ -1,6 +1,7 @@
 using Bunit;
 using MelodyBridge.Application.Services;
 using MelodyBridge.Core;
+using Microsoft.AspNetCore.Components;
 using MelodyBridge.Infrastructure.Data;
 using MelodyBridge.Infrastructure.Services;
 using MelodyBridge.Server.Components.Pages;
@@ -29,10 +30,12 @@ public class SourcePickerUiTests
     /// <summary>A plugin with one hit; downloads real MP3 bytes.</summary>
     private sealed class PickPlugin : IDownloader
     {
-        public string Id => "pick";
-        public string Name => "Pick plugin";
+        public string Id { get; init; } = "pick";
+        public string Name { get; init; } = "Pick plugin";
         public PluginCapabilities Capabilities { get; set; } = PluginCapabilities.Any;
         public string? HitTitle { get; set; } = "The Real Song";
+        /// <summary>Optional multi-candidate result for filter tests.</summary>
+        public List<DownloaderSearchHit>? Hits { get; set; }
         public int DownloadCalls { get; private set; }
         /// <summary>When set, the search waits for it: races can be staged.</summary>
         public TaskCompletionSource? SearchGate { get; set; }
@@ -61,7 +64,7 @@ public class SourcePickerUiTests
             await WaitForGateAsync(query);
             if (HitTitle is null) return null;
             return new DownloaderSearchHit(
-                $"Hit for {query.Title}", "The Artist", $"https://pick.example/{query.Title}",
+                $"Hit for {query.Title}", "The Artist", $"https://pick.example/{Id}/{query.Title}",
                 TimeSpan.FromSeconds(210), MatchConfidence: MatchConfidence.Low,
                 BitDepth: HitBitDepth, SampleRateHz: HitSampleRate);
         }
@@ -70,11 +73,12 @@ public class SourcePickerUiTests
             TrackQuery query, CancellationToken ct = default)
         {
             await WaitForGateAsync(query);
+            if (Hits is not null) return Hits;
             if (HitTitle is null) return Array.Empty<DownloaderSearchHit>();
             return new[]
             {
                 new DownloaderSearchHit(
-                    $"Hit for {query.Title}", "The Artist", $"https://pick.example/{query.Title}",
+                    $"Hit for {query.Title}", "The Artist", $"https://pick.example/{Id}/{query.Title}",
                     TimeSpan.FromSeconds(210), MatchConfidence: MatchConfidence.Low,
                     BitDepth: HitBitDepth, SampleRateHz: HitSampleRate),
             };
@@ -109,6 +113,7 @@ public class SourcePickerUiTests
     }
 
     private PickPlugin _plugin = null!;
+    private PickPlugin _other = null!;
     private TestSqliteFactory _factory = null!;
 
     [SetUp]
@@ -149,9 +154,12 @@ public class SourcePickerUiTests
         }
 
         _plugin = new PickPlugin();
+        // A silent second source, available for the filter test without
+        // changing what every other test sees.
+        _other = new PickPlugin { Id = "other", Name = "Other plugin", HitTitle = null };
         _factory = factory;
         _ctx.Services.AddSingleton<IDbContextFactory<MelodyBridgeDbContext>>(factory);
-        _ctx.Services.AddDownloadPages(factory, _plugin);
+        _ctx.Services.AddDownloadPages(factory, _plugin, _other);
     }
 
     [TearDown]
@@ -165,6 +173,15 @@ public class SourcePickerUiTests
         }
     }
 
+    private static async Task OpenPickerAsync(IRenderedComponent<PlaylistDetails> cut)
+    {
+        cut.WaitForAssertion(() => Assert.That(
+            cut.FindAll("button").Any(b => b.TextContent.Trim() == "Choose source"),
+            Is.True), TimeSpan.FromSeconds(5));
+        await cut.InvokeAsync(() => cut.FindAll("button")
+            .Single(b => b.TextContent.Trim() == "Choose source").Click());
+    }
+
     private IRenderedComponent<PlaylistDetails> RenderPage()
     {
         var cut = _ctx.Render<PlaylistDetails>(p => p.Add(p => p.PlaylistId, "pl-pick"));
@@ -174,11 +191,11 @@ public class SourcePickerUiTests
     }
 
     [Test]
-    public void Picker_ListsEveryCandidate_AndPickingOneDownloadsIt()
+    public async Task Picker_ListsEveryCandidate_AndPickingOneDownloadsIt()
     {
         var cut = RenderPage();
 
-        cut.FindAll("button").Single(b => b.TextContent.Trim() == "Choose source").Click();
+        await OpenPickerAsync(cut);
 
         cut.WaitForAssertion(() =>
         {
@@ -190,7 +207,7 @@ public class SourcePickerUiTests
                 "a hit the automatic match refused is labelled, not hidden");
         }, TimeSpan.FromSeconds(5));
 
-        cut.Find(".source-candidate button").Click();
+        await cut.InvokeAsync(() => cut.Find(".source-candidate .btn-modern.primary").Click());
 
         cut.WaitForAssertion(() =>
         {
@@ -218,30 +235,38 @@ public class SourcePickerUiTests
     }
 
     [Test]
-    public void Picker_ExplainsAnEnabledPluginThatWasNotSearched()
+    public async Task Picker_ExplainsAnEnabledPluginThatWasNotSearched()
     {
         _ctx.Services.AddSingleton<IDownloaderRegistry>(
             new ListDownloaderRegistry(new DownPlugin()));
 
         var cut = RenderPage();
-        cut.FindAll("button").Single(b => b.TextContent.Trim() == "Choose source").Click();
+        await OpenPickerAsync(cut);
 
         cut.WaitForAssertion(() =>
         {
             Assert.That(cut.Markup, Does.Contain("Not searched right now"));
             Assert.That(cut.Markup, Does.Contain("Down plugin"));
             Assert.That(cut.Markup, Does.Contain("The service did not answer"));
+            Assert.That(
+                cut.FindAll("button[title='Why is this missing? Open the plugin card']"),
+                Is.Not.Empty);
         }, TimeSpan.FromSeconds(5));
+
+        await cut.InvokeAsync(() => cut
+            .Find("button[title='Why is this missing? Open the plugin card']").Click());
+        Assert.That(_ctx.Services.GetRequiredService<NavigationManager>().Uri,
+            Does.EndWith("/plugins#plugin-down"));
     }
 
     [Test]
-    public void Picker_ExplainsAPluginWhoseLoginNeedsAttention()
+    public async Task Picker_ExplainsAPluginWhoseLoginNeedsAttention()
     {
         var monitor = _ctx.Services.GetRequiredService<PluginAuthMonitor>();
         monitor.Report("qobuz", "Qobuz", "The Qobuz token expired");
 
         var cut = RenderPage();
-        cut.FindAll("button").Single(b => b.TextContent.Trim() == "Choose source").Click();
+        await OpenPickerAsync(cut);
 
         cut.WaitForAssertion(() =>
         {
@@ -307,12 +332,12 @@ public class SourcePickerUiTests
     }
 
     [Test]
-    public void Picker_WithoutResults_SaysSo()
+    public async Task Picker_WithoutResults_SaysSo()
     {
         _plugin.HitTitle = null;
         var cut = RenderPage();
 
-        cut.FindAll("button").Single(b => b.TextContent.Trim() == "Choose source").Click();
+        await OpenPickerAsync(cut);
 
         cut.WaitForAssertion(() =>
             Assert.That(cut.Markup, Does.Contain("No plugin returned a result")),
@@ -320,7 +345,219 @@ public class SourcePickerUiTests
     }
 
     [Test]
-    public void Picker_IsOfferedOnADownloadedRow_ForRepairingAWrongMatch()
+    public async Task Picker_ConfidenceFilter_NarrowsTheList()
+    {
+        _plugin.Hits = new List<DownloaderSearchHit>
+        {
+            new("Sure hit", "The Artist", "https://pick.example/sure",
+                TimeSpan.FromSeconds(210), MatchConfidence: MatchConfidence.High),
+            new("Maybe hit", "The Artist", "https://pick.example/maybe",
+                TimeSpan.FromSeconds(211), MatchConfidence: MatchConfidence.Low),
+        };
+        var cut = RenderPage();
+        await OpenPickerAsync(cut);
+        cut.WaitForAssertion(() => Assert.That(cut.FindAll(".source-candidate").Count, Is.EqualTo(2)));
+
+        var confidence = cut.Find("select[aria-label='Filter by match confidence']");
+        confidence.Change("high");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(cut.FindAll(".source-candidate").Count, Is.EqualTo(1));
+            Assert.That(cut.Find(".source-candidate").TextContent, Does.Contain("Sure hit"));
+            Assert.That(cut.Find(".source-filter-count").TextContent.Trim(), Is.EqualTo("1 of 2"));
+        });
+    }
+
+    [Test]
+    public async Task Picker_CanServeFilter_HidesSourcesOutsideTheTarget()
+    {
+        using (var db = new TestSqliteFactory(_dbPath).CreateDbContext())
+        {
+            var playlist = db.Playlists.Single();
+            playlist.PreferredFormat = "preset:lossless";
+            db.SaveChanges();
+        }
+        _plugin.Capabilities = PluginCapabilities.Lossy(AudioFormat.Mp3, 128, 320);
+
+        var cut = RenderPage();
+        await OpenPickerAsync(cut);
+        cut.WaitForAssertion(() => Assert.That(cut.FindAll(".source-candidate").Count, Is.EqualTo(1)));
+
+        var checkbox = cut.Find(".source-filter-check input");
+        checkbox.Change(true);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(cut.FindAll(".source-candidate").Count, Is.EqualTo(0));
+            Assert.That(cut.Markup, Does.Contain("No candidate matches these filters"));
+        });
+    }
+
+    [Test]
+    public async Task Picker_PluginFilter_KeepsOnlyThatSource()
+    {
+        _other.Hits = new List<DownloaderSearchHit>
+        {
+            new("Other hit", "The Artist", "https://pick.example/other/other-hit",
+                TimeSpan.FromSeconds(210), MatchConfidence: MatchConfidence.High),
+        };
+
+        var cut = RenderPage();
+        await OpenPickerAsync(cut);
+        cut.WaitForAssertion(() => Assert.That(cut.FindAll(".source-candidate").Count,
+            Is.EqualTo(2)));
+
+        cut.Find("select[aria-label='Filter by plugin']").Change("other");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(cut.FindAll(".source-candidate").Count, Is.EqualTo(1));
+            Assert.That(cut.Find(".source-candidate").TextContent, Does.Contain("Other hit"));
+            Assert.That(cut.Find(".source-candidate").TextContent, Does.Not.Contain("Hit for The Real Song"));
+        });
+    }
+
+    [Test]
+    public async Task Picker_CopySourceUrl_CopiesTheCandidateLink()
+    {
+        _ctx.JSInterop.Setup<bool>("melody.copyText", _ => true).SetResult(true);
+        var cut = RenderPage();
+        await OpenPickerAsync(cut);
+        cut.WaitForAssertion(() => Assert.That(cut.FindAll(".source-candidate").Count, Is.EqualTo(1)));
+
+        await cut.InvokeAsync(() => cut.Find("button[title='Copy source URL']").Click());
+
+        Assert.That(_ctx.JSInterop.Invocations.Any(invocation =>
+            invocation.Identifier == "melody.copyText"
+            && invocation.Arguments.Any(argument => argument?.ToString()?.Contains("pick.example") == true)),
+            Is.True);
+    }
+
+    [Test]
+    public async Task Picker_OpenSettingsAndFixActions_NavigateToThePluginCard()
+    {
+        var cut = RenderPage();
+        await OpenPickerAsync(cut);
+        cut.WaitForAssertion(() => Assert.That(cut.FindAll(".source-candidate").Count, Is.EqualTo(1)));
+
+        await cut.InvokeAsync(() => cut.Find("button[title='Open Pick plugin settings']").Click());
+
+        Assert.That(_ctx.Services.GetRequiredService<NavigationManager>().Uri,
+            Does.EndWith("/plugins#plugin-pick"));
+    }
+
+    [Test]
+    public async Task Picker_EmptyStateOffersAFixButtonForALoginProblem()
+    {
+        _plugin.HitTitle = null;
+        _ctx.Services.GetRequiredService<PluginAuthMonitor>()
+            .Report("qobuz", "Qobuz", "The Qobuz token was rejected");
+        var cut = RenderPage();
+        await OpenPickerAsync(cut);
+
+        cut.WaitForAssertion(() => Assert.That(cut.FindAll(".source-empty-actions button").Count,
+            Is.EqualTo(1)), TimeSpan.FromSeconds(5));
+        await cut.InvokeAsync(() => cut.FindAll(".source-empty-actions button").Single().Click());
+
+        Assert.That(_ctx.Services.GetRequiredService<NavigationManager>().Uri,
+            Does.EndWith("/plugins#plugin-qobuz"));
+    }
+
+    [Test]
+    public async Task Picker_RemembersTheConfidenceFilterAfterCloseAndReopen()
+    {
+        _plugin.Hits = new List<DownloaderSearchHit>
+        {
+            new("Sure hit", "The Artist", "https://pick.example/sure",
+                TimeSpan.FromSeconds(210), MatchConfidence: MatchConfidence.High),
+            new("Maybe hit", "The Artist", "https://pick.example/maybe",
+                TimeSpan.FromSeconds(211), MatchConfidence: MatchConfidence.Low),
+        };
+        var cut = RenderPage();
+        await OpenPickerAsync(cut);
+        cut.WaitForAssertion(() => Assert.That(cut.FindAll(".source-candidate").Count, Is.EqualTo(2)));
+
+        cut.Find("select[aria-label='Filter by match confidence']").Change("high");
+        cut.FindAll("button").Single(button => button.TextContent.Trim() == "Close").Click();
+
+        await OpenPickerAsync(cut);
+        var confidence = cut.Find("select[aria-label='Filter by match confidence']");
+        Assert.That(confidence.GetAttribute("value"), Is.EqualTo("high"));
+    }
+
+    [Test]
+    public async Task Playlist_RetryAllFailed_DownloadsEveryFailedTrack()
+    {
+        using (var db = new TestSqliteFactory(_dbPath).CreateDbContext())
+        {
+            for (var i = 0; i < 2; i++)
+            {
+                db.Tracks.Add(new TrackEntity
+                {
+                    PlaylistEntityId = "pl-pick",
+                    MelodyId = $"mel-failed-{i}",
+                    Title = $"Failed Song {i}",
+                    Artist = "The Artist",
+                    Position = 10 + i,
+                    DurationMs = 200_000,
+                    DownloadStatus = "failed",
+                });
+            }
+            db.SaveChanges();
+        }
+
+        var cut = RenderPage();
+        cut.WaitForAssertion(() => Assert.That(cut.Markup, Does.Contain("Retry failed (2)")),
+            TimeSpan.FromSeconds(5));
+
+        await cut.InvokeAsync(() => cut.FindAll("button")
+            .Single(button => button.TextContent.Contains("Retry failed")).Click());
+
+        cut.WaitForAssertion(() =>
+        {
+            var rows = cut.FindAll("tr").Where(row => row.TextContent.Contains("Failed Song")).ToList();
+            Assert.That(rows, Has.Count.EqualTo(2));
+            Assert.That(rows.All(row => row.TextContent.Contains("downloaded")), Is.True);
+        }, TimeSpan.FromSeconds(15));
+        Assert.That(_plugin.DownloadCalls, Is.EqualTo(2));
+    }
+
+    [Test]
+    public async Task Playlist_RetryDeepLink_DownloadsTheTrackOnLoad()
+    {
+        int retryId;
+        using (var db = new TestSqliteFactory(_dbPath).CreateDbContext())
+        {
+            var track = new TrackEntity
+            {
+                PlaylistEntityId = "pl-pick",
+                MelodyId = "mel-retry-link",
+                Title = "Retry Me",
+                Artist = "The Artist",
+                Position = 20,
+                DurationMs = 200_000,
+                DownloadStatus = "failed",
+            };
+            db.Tracks.Add(track);
+            db.SaveChanges();
+            retryId = track.Id;
+        }
+
+        _ctx.Services.GetRequiredService<NavigationManager>()
+            .NavigateTo($"/playlists/pl-pick?retryTrack={retryId}");
+        var cut = _ctx.Render<PlaylistDetails>(p => p
+            .Add(page => page.PlaylistId, "pl-pick"));
+
+        cut.WaitForAssertion(() =>
+        {
+            var row = cut.FindAll("tr").Single(r => r.TextContent.Contains("Retry Me"));
+            Assert.That(row.TextContent, Does.Contain("downloaded"));
+        }, TimeSpan.FromSeconds(10));
+    }
+
+    [Test]
+    public async Task Picker_IsOfferedOnADownloadedRow_ForRepairingAWrongMatch()
     {
         using (var db = new TestSqliteFactory(_dbPath).CreateDbContext())
         {
@@ -332,11 +569,11 @@ public class SourcePickerUiTests
         var cut = RenderPage();
 
         // The repair flow starts from the row itself, whatever its status.
-        cut.FindAll("button").Single(b => b.TextContent.Trim() == "Choose source").Click();
+        await OpenPickerAsync(cut);
         cut.WaitForAssertion(() =>
             Assert.That(cut.FindAll(".source-candidate"), Has.Count.EqualTo(1)), TimeSpan.FromSeconds(5));
 
-        cut.Find(".source-candidate button").Click();
+        await cut.InvokeAsync(() => cut.Find(".source-candidate .btn-modern.primary").Click());
 
         cut.WaitForAssertion(() =>
         {
@@ -347,11 +584,11 @@ public class SourcePickerUiTests
         }, TimeSpan.FromSeconds(10));
     }
     [Test]
-    public void Picker_ShowsTheOriginalLength_AndHowEachHitDiffers()
+    public async Task Picker_ShowsTheOriginalLength_AndHowEachHitDiffers()
     {
         var cut = RenderPage();
 
-        cut.FindAll("button").Single(b => b.TextContent.Trim() == "Choose source").Click();
+        await OpenPickerAsync(cut);
 
         cut.WaitForAssertion(() =>
         {
@@ -371,7 +608,7 @@ public class SourcePickerUiTests
     }
 
     [Test]
-    public void Picker_ShowsTheExactSourceQuality_AndFlagsALossyPickBelowTheFlacTarget()
+    public async Task Picker_ShowsTheExactSourceQuality_AndFlagsALossyPickBelowTheFlacTarget()
     {
         SetPreferredFormat("preset:lossless");
         _plugin.Capabilities = PluginCapabilities.Lossy(AudioFormat.Aac, 128, 320);
@@ -379,7 +616,7 @@ public class SourcePickerUiTests
             "mp4a.40.2", 160, 44100, null, Lossless: false);
 
         var cut = RenderPage();
-        cut.FindAll("button").Single(b => b.TextContent.Trim() == "Choose source").Click();
+        await OpenPickerAsync(cut);
 
         cut.WaitForAssertion(() =>
         {
@@ -396,14 +633,14 @@ public class SourcePickerUiTests
     }
 
     [Test]
-    public void Picker_FlagsAMatchingLosslessSource()
+    public async Task Picker_FlagsAMatchingLosslessSource()
     {
         SetPreferredFormat("preset:lossless");
         _plugin.Capabilities = PluginCapabilities.LosslessSources();
         _plugin.ProbeResult = new CandidateAudioQuality("flac", null, 44100, 16, Lossless: true);
 
         var cut = RenderPage();
-        cut.FindAll("button").Single(b => b.TextContent.Trim() == "Choose source").Click();
+        await OpenPickerAsync(cut);
 
         cut.WaitForAssertion(() =>
         {
@@ -417,14 +654,14 @@ public class SourcePickerUiTests
     }
 
     [Test]
-    public void Picker_DoesNotCallAnUnknownBitrateAMatch_OnACappedTarget()
+    public async Task Picker_DoesNotCallAnUnknownBitrateAMatch_OnACappedTarget()
     {
         SetPreferredFormat("preset:saver");
         _plugin.Capabilities = PluginCapabilities.LosslessSources();
         _plugin.ProbeResult = new CandidateAudioQuality("flac", null, 44100, 16, Lossless: true);
 
         var cut = RenderPage();
-        cut.FindAll("button").Single(b => b.TextContent.Trim() == "Choose source").Click();
+        await OpenPickerAsync(cut);
 
         cut.WaitForAssertion(() =>
         {
@@ -439,14 +676,14 @@ public class SourcePickerUiTests
     }
 
     [Test]
-    public void Picker_SaysAPickWillBeConverted_WhenThePluginCanServeAnExplicitTarget()
+    public async Task Picker_SaysAPickWillBeConverted_WhenThePluginCanServeAnExplicitTarget()
     {
         SetPreferredFormat("mp3:192-320");
         _plugin.Capabilities = PluginCapabilities.Lossy(AudioFormat.Mp3, 64, 320);
         _plugin.ProbeResult = new CandidateAudioQuality("opus", 128, 48000, null, Lossless: false);
 
         var cut = RenderPage();
-        cut.FindAll("button").Single(b => b.TextContent.Trim() == "Choose source").Click();
+        await OpenPickerAsync(cut);
 
         cut.WaitForAssertion(() =>
         {
@@ -458,7 +695,7 @@ public class SourcePickerUiTests
     }
 
     [Test]
-    public void Picker_PrefersTheTracksOwnFactsOverTheConfiguredTier()
+    public async Task Picker_PrefersTheTracksOwnFactsOverTheConfiguredTier()
     {
         SetPreferredFormat("auto");
         _plugin.Capabilities = PluginCapabilities.LosslessSources();
@@ -468,7 +705,7 @@ public class SourcePickerUiTests
             "flac", null, 96000, 24, Lossless: true, Note: "up to your configured Qobuz tier");
 
         var cut = RenderPage();
-        cut.FindAll("button").Single(b => b.TextContent.Trim() == "Choose source").Click();
+        await OpenPickerAsync(cut);
 
         cut.WaitForAssertion(() =>
         {
@@ -480,7 +717,7 @@ public class SourcePickerUiTests
     }
 
     [Test]
-    public void Picker_ClampsTheTrackMaximumToTheConfiguredTier()
+    public async Task Picker_ClampsTheTrackMaximumToTheConfiguredTier()
     {
         SetPreferredFormat("auto");
         _plugin.Capabilities = PluginCapabilities.LosslessSources();
@@ -490,7 +727,7 @@ public class SourcePickerUiTests
             "flac", null, 44100, 16, Lossless: true, Note: "up to your configured Qobuz tier");
 
         var cut = RenderPage();
-        cut.FindAll("button").Single(b => b.TextContent.Trim() == "Choose source").Click();
+        await OpenPickerAsync(cut);
 
         cut.WaitForAssertion(() =>
         {
@@ -503,17 +740,17 @@ public class SourcePickerUiTests
     }
 
     [Test]
-    public void Picker_ShowsProgressWhileAPickDownloads()
+    public async Task Picker_ShowsProgressWhileAPickDownloads()
     {
         var gate = new TaskCompletionSource();
         _plugin.DownloadGate = gate;
         var cut = RenderPage();
 
-        cut.FindAll("button").Single(b => b.TextContent.Trim() == "Choose source").Click();
+        await OpenPickerAsync(cut);
         cut.WaitForAssertion(() =>
             Assert.That(cut.FindAll(".source-candidate"), Has.Count.EqualTo(1)), TimeSpan.FromSeconds(5));
 
-        cut.Find(".source-candidate button").Click();
+        await cut.InvokeAsync(() => cut.Find(".source-candidate .btn-modern.primary").Click());
         cut.WaitForAssertion(() =>
         {
             Assert.That(cut.Markup, Does.Contain("Downloading…"),
@@ -531,16 +768,16 @@ public class SourcePickerUiTests
     }
 
     [Test]
-    public void Picker_KeepsTheDialogOpen_AndNamesTheFailingSource()
+    public async Task Picker_KeepsTheDialogOpen_AndNamesTheFailingSource()
     {
         _plugin.FailDownload = true;
         var cut = RenderPage();
 
-        cut.FindAll("button").Single(b => b.TextContent.Trim() == "Choose source").Click();
+        await OpenPickerAsync(cut);
         cut.WaitForAssertion(() =>
             Assert.That(cut.FindAll(".source-candidate"), Has.Count.EqualTo(1)), TimeSpan.FromSeconds(5));
 
-        cut.Find(".source-candidate button").Click();
+        await cut.InvokeAsync(() => cut.Find(".source-candidate .btn-modern.primary").Click());
 
         cut.WaitForAssertion(() =>
         {
@@ -588,11 +825,11 @@ public class SourcePickerUiTests
         _plugin.DownloadGate = gate;
         var cut = RenderPage();
 
-        cut.FindAll("button").Single(b => b.TextContent.Trim() == "Choose source").Click();
+        await OpenPickerAsync(cut);
         cut.WaitForAssertion(() =>
             Assert.That(cut.FindAll(".source-candidate"), Has.Count.EqualTo(1)), TimeSpan.FromSeconds(5));
 
-        cut.Find(".source-candidate button").Click();
+        await cut.InvokeAsync(() => cut.Find(".source-candidate .btn-modern.primary").Click());
         cut.WaitForAssertion(() =>
             Assert.That(cut.Markup, Does.Contain("Downloading…")), TimeSpan.FromSeconds(5));
 

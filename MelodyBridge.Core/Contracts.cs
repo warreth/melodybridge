@@ -150,6 +150,12 @@ public interface IDownloadManager
     /// </summary>
     string? LastPluginId(string melodyId);
     /// <summary>
+    /// Id of the last plugin that actually searched for this melodyId,
+    /// whether it delivered or not. A bulk "retry elsewhere" uses it to
+    /// leave out the provider that just failed.
+    /// </summary>
+    string? LastAttemptedPluginId(string melodyId);
+    /// <summary>
     /// Why the last DownloadTrackAsync for this melodyId produced nothing:
     /// files outside the quality filters, or no hit at all. Null when the
     /// last call succeeded or never ran.

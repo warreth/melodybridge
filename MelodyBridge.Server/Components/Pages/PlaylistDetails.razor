@@ -45,7 +45,11 @@ else
                             OnResume="ResumeDownload"
                             OnCancel="CancelDownload"
                             OnExport="ExportCsv"
-                            OnDelete="AskDelete">
+                            OnDelete="AskDelete"
+                            FailedCount="@FailedCount"
+                            Retrying="@retryingFailed"
+                            OnRetryFailed="() => RetryAllFailedAsync(avoidLastProvider: false)"
+                            OnRetryElsewhere="() => RetryAllFailedAsync(avoidLastProvider: true)">
         <MetaLine>
             @playlist.TrackCount @(playlist.TrackCount == 1 ? "track" : "tracks")
             @if (!string.IsNullOrEmpty(playlist.Owner))
@@ -69,6 +73,19 @@ else
             }
         </MetaLine>
     </PlaylistActionsHeader>
+
+    @if (retryingFailed)
+    {
+        <section class="panel-card bulk-retry-live">
+            <div class="download-live-head">
+                <strong>Retrying failed tracks</strong>
+                <span>@bulkRetryDone of @bulkRetryTotal</span>
+            </div>
+            <div class="progress-track">
+                <div class="progress-fill" style="width:@BulkRetryPercent%"></div>
+            </div>
+        </section>
+    }
 
     @if (confirmDelete)
     {
@@ -371,6 +388,7 @@ else
                         <Icon Name="x" Size="18" />
                     </button>
                 </div>
+                <div class="wizard-body source-results">
                 @if (sourceAuthIssues.Count > 0)
                 {
                     <div class="source-auth-note" role="status">
@@ -379,7 +397,13 @@ else
                             <strong>Some plugins are not searched because their login needs attention</strong>
                             @foreach (var issue in sourceAuthIssues)
                             {
-                                <span><b>@issue.PluginName</b> @issue.Message</span>
+                                <div class="source-note-row">
+                                    <span><b>@issue.PluginName</b> @issue.Message</span>
+                                    <button class="btn-modern small ghost"
+                                            @onclick="() => OpenPluginSettings(issue.PluginId)">
+                                        Fix
+                                    </button>
+                                </div>
                             }
                         </div>
                     </div>
@@ -392,7 +416,15 @@ else
                             <strong>Not searched right now</strong>
                             @foreach (var note in sourcePluginNotes)
                             {
-                                <span><b>@note.Name</b> @note.Reason</span>
+                                <div class="source-note-row">
+                                    <span><b>@note.Name</b> @note.Reason</span>
+                                    <button class="btn-modern small ghost source-why"
+                                            title="Why is this missing? Open the plugin card"
+                                            aria-label="Why is this missing? Open the plugin card"
+                                            @onclick="() => OpenPluginSettings(note.PluginId)">
+                                        Why?
+                                    </button>
+                                </div>
                             }
                         </div>
                     </div>
@@ -401,7 +433,36 @@ else
                 {
                     <div class="source-progress" aria-hidden="true"><span></span></div>
                 }
-                <div class="wizard-body source-results">
+                @if (!searchingSources && sourceCandidates.Count > 0)
+                {
+                    <div class="source-filters">
+                        <label>
+                            <span>Plugin</span>
+                            <select @bind="sourceFilterPlugin" aria-label="Filter by plugin">
+                                <option value="all">All plugins</option>
+                                @foreach (var option in SourcePluginOptions)
+                                {
+                                    <option value="@option.Id">@option.Name</option>
+                                }
+                            </select>
+                        </label>
+                        <label>
+                            <span>Match</span>
+                            <select @bind="sourceFilterConfidence" aria-label="Filter by match confidence">
+                                <option value="all">All matches</option>
+                                <option value="high">Likely</option>
+                                <option value="low">Unsure</option>
+                            </select>
+                        </label>
+                        <label class="source-filter-check">
+                            <input type="checkbox" @bind="sourceFilterCanServeOnly" />
+                            <span>Can serve target</span>
+                        </label>
+                        <span class="source-filter-count">
+                            @VisibleSourceCandidates.Count of @sourceCandidates.Count
+                        </span>
+                    </div>
+                }
                     @if (searchingSources)
                     {
                         <div class="source-searching">
@@ -421,8 +482,34 @@ else
                             No plugin returned a result for this track. Check the plugin settings
                             (tokens, tools) or try again later.
                         </div>
+                        @if (sourceAuthIssues.Count > 0 || sourcePluginNotes.Count > 0)
+                        {
+                            <div class="source-empty-actions">
+                                @foreach (var issue in sourceAuthIssues.Take(3))
+                                {
+                                    <button class="btn-modern small ghost"
+                                            @onclick="() => OpenPluginSettings(issue.PluginId)">
+                                        Fix @issue.PluginName
+                                    </button>
+                                }
+                                @foreach (var note in sourcePluginNotes.Take(3))
+                                {
+                                    <button class="btn-modern small ghost"
+                                            @onclick="() => OpenPluginSettings(note.PluginId)">
+                                        Open @note.Name
+                                    </button>
+                                }
+                            </div>
+                        }
                     }
-                    @foreach (var candidate in sourceCandidates)
+                    @if (!searchingSources && sourceCandidates.Count > 0 && VisibleSourceCandidates.Count == 0)
+                    {
+                        <div class="hint-box">
+                            No candidate matches these filters.
+                            <button class="btn-modern small ghost" @onclick="ClearSourceFilters">Clear filters</button>
+                        </div>
+                    }
+                    @foreach (var candidate in VisibleSourceCandidates)
                     {
                         var busy = downloadingCandidateUrl == candidate.SourceUrl;
                         <div class="source-candidate @(busy ? "busy" : null)">
@@ -474,6 +561,18 @@ else
                                 @(candidate.Confidence == MatchConfidence.High ? "likely" : "unsure")
                             </StatusPill>
                             <StatusPill Variant="neutral">@candidate.PluginName</StatusPill>
+                            <div class="source-candidate-tools">
+                                <button class="icon-button" title="Copy source URL"
+                                        aria-label="Copy source URL from @candidate.PluginName"
+                                        @onclick="() => CopySourceUrlAsync(candidate)">
+                                    <Icon Name="copy" Size="14" />
+                                </button>
+                                <button class="icon-button" title="Open @candidate.PluginName settings"
+                                        aria-label="Open @candidate.PluginName settings"
+                                        @onclick="() => OpenPluginSettings(candidate.PluginId)">
+                                    <Icon Name="sliders" Size="14" />
+                                </button>
+                            </div>
                             @if (busy)
                             {
                                 <span class="source-downloading"><span class="spinner"></span> Downloading… @downloadElapsedSeconds s</span>
@@ -612,6 +711,8 @@ else
 
 @code {
     [Parameter] public string PlaylistId { get; set; } = string.Empty;
+    /// <summary>Deep link from a failed-download toast: retry this track on load.</summary>
+    [SupplyParameterFromQuery(Name = "retryTrack")] public int? RetryTrackId { get; set; }
 
     private PlaylistEntity? playlist;
     private bool loading = true;
@@ -656,6 +757,10 @@ else
     private int deleteFileCount;
     private long deleteFileSizeBytes;
     private readonly HashSet<int> retryingTrackIds = new();
+    private bool retryingFailed;
+    private int bulkRetryDone;
+    private int bulkRetryTotal;
+    private int? handledRetryTrackId;
     private int reviewCount;
     private bool confirmDelete;
     private bool deleteFilesWithPlaylist;
@@ -696,6 +801,7 @@ else
     protected override async Task OnInitializedAsync()
     {
         await Load();
+
         // Poll the coordinator for the progress bar and the store's write
         // stamp for everything else: a download this page did not start,
         // a background reconcile or another circuit's retry moves the
@@ -722,6 +828,19 @@ else
             if (reload || active)
                 StateHasChanged();
         }), null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
+    }
+
+    /// <summary>
+    /// The failed-download toast links back with retryTrack; handle it on
+    /// first load and when the router reuses this page with a new query.
+    /// </summary>
+    protected override async Task OnParametersSetAsync()
+    {
+        if (RetryTrackId is not { } retryId || handledRetryTrackId == retryId) return;
+        handledRetryTrackId = retryId;
+        if ((playlist?.Tracks ?? new List<TrackEntity>())
+            .FirstOrDefault(track => track.Id == retryId) is { } track)
+            await RetryTrack(track);
     }
 
     private async Task Load()
@@ -1119,7 +1238,8 @@ else
                     Notifications.Info("This track is already being downloaded by a running batch.");
                     break;
                 default:
-                    Notifications.Warn($"Download failed for '{track.Title}'.");
+                    Notifications.Warn($"Download failed for '{track.Title}'.",
+                        "Retry", $"/playlists/{PlaylistId}?retryTrack={track.Id}");
                     break;
             }
         }
@@ -1127,6 +1247,65 @@ else
         {
             retryingTrackIds.Remove(track.Id);
             busy = false;
+        }
+    }
+
+    /// <summary>
+    /// Retries every failed track in one pass. The normal version keeps
+    /// the waterfall order; the "elsewhere" version also skips the
+    /// provider that failed the track last time, so one dead source does
+    /// not fail the whole batch again.
+    /// </summary>
+    private async Task RetryAllFailedAsync(bool avoidLastProvider)
+    {
+        if (playlist is null || retryingFailed) return;
+        var failed = (playlist.Tracks ?? new List<TrackEntity>())
+            .Where(track => track.DownloadStatus == "failed")
+            .ToList();
+        if (failed.Count == 0) return;
+
+        retryingFailed = true;
+        bulkRetryTotal = failed.Count;
+        bulkRetryDone = 0;
+        busy = true;
+        StateHasChanged();
+
+        var downloaded = 0;
+        var stillFailed = 0;
+        try
+        {
+            foreach (var track in failed)
+            {
+                retryingTrackIds.Add(track.Id);
+                bulkRetryDone++;
+                StateHasChanged();
+                try
+                {
+                    var result = await Store.DownloadTrackAsync(
+                        track.Id, avoidLastProvider: avoidLastProvider);
+                    if (result == "downloaded") downloaded++;
+                    else if (result == "failed") stillFailed++;
+                }
+                finally
+                {
+                    retryingTrackIds.Remove(track.Id);
+                }
+            }
+
+            await Load();
+            if (stillFailed == 0)
+                Notifications.Success(
+                    $"Retried {failed.Count} failed track{(failed.Count == 1 ? "" : "s")}: all downloaded.");
+            else
+                Notifications.Warn(
+                    $"Retried {failed.Count} failed track{(failed.Count == 1 ? "" : "s")}: {downloaded} downloaded, {stillFailed} still failed.",
+                    "View failed", $"/playlists/{PlaylistId}");
+        }
+        finally
+        {
+            retryingFailed = false;
+            busy = false;
+            StateHasChanged();
         }
     }
 
@@ -1276,9 +1455,32 @@ else
     private IReadOnlyList<DownloadCandidate> sourceCandidates = Array.Empty<DownloadCandidate>();
     private IReadOnlyList<PluginAuthIssue> sourceAuthIssues = Array.Empty<PluginAuthIssue>();
     private IReadOnlyList<SourcePluginNote> sourcePluginNotes = Array.Empty<SourcePluginNote>();
+    private string sourceFilterPlugin = "all";
+    private string sourceFilterConfidence = "all";
+    private bool sourceFilterCanServeOnly;
 
     /// <summary>A plugin the picker did not search, with the reason it gave.</summary>
-    private sealed record SourcePluginNote(string Name, string Reason);
+    private sealed record SourcePluginNote(string PluginId, string Name, string Reason);
+
+    /// <summary>Distinct plugins in the current result list, for the filter.</summary>
+    private IReadOnlyList<(string Id, string Name)> SourcePluginOptions => sourceCandidates
+        .Select(candidate => (candidate.PluginId, candidate.PluginName))
+        .Distinct()
+        .OrderBy(option => option.PluginName, StringComparer.OrdinalIgnoreCase)
+        .ToList();
+
+    /// <summary>The candidates left after the plugin, confidence and target filters.</summary>
+    private IReadOnlyList<DownloadCandidate> VisibleSourceCandidates => sourceCandidates
+        .Where(candidate => sourceFilterPlugin == "all"
+            || string.Equals(candidate.PluginId, sourceFilterPlugin, StringComparison.OrdinalIgnoreCase))
+        .Where(candidate => sourceFilterConfidence switch
+        {
+            "high" => candidate.Confidence == MatchConfidence.High,
+            "low" => candidate.Confidence == MatchConfidence.Low,
+            _ => true,
+        })
+        .Where(candidate => !sourceFilterCanServeOnly || candidate.CanServeRequested)
+        .ToList();
     private bool searchingSources;
     private bool downloadingCandidate;
     /// <summary>The candidate URL currently downloading, so only its row
@@ -1321,6 +1523,10 @@ else
 
     private void CloseSourcePicker()
     {
+        // Keep the reader's place for the next open.
+        if (chooseSourceTrack is { } closingTrack)
+            _ = SaveSourceScrollAsync(closingTrack.Id);
+
         // A search still in flight must not write into a later dialog.
         sourceSearchGeneration++;
         downloadTicker?.Cancel();
@@ -1334,6 +1540,57 @@ else
         probingCandidateUrls.Clear();
         sourcePluginNotes = Array.Empty<SourcePluginNote>();
         chooseSourceTrack = null;
+    }
+
+    /// <summary>Deep-links to the plugin card and opens its settings there.</summary>
+    private void OpenPluginSettings(string pluginId)
+        => Navigation.NavigateTo($"plugins#plugin-{pluginId}");
+
+    private async Task CopySourceUrlAsync(DownloadCandidate candidate)
+    {
+        bool copied;
+        try
+        {
+            copied = await JS.InvokeAsync<bool>("melody.copyText", candidate.SourceUrl);
+        }
+        catch
+        {
+            copied = false;
+        }
+
+        if (copied) Notifications.Success($"Source URL from {candidate.PluginName} copied.");
+        else Notifications.Warn("The browser would not let the page copy the source URL.");
+    }
+
+    private void ClearSourceFilters()
+    {
+        sourceFilterPlugin = "all";
+        sourceFilterConfidence = "all";
+        sourceFilterCanServeOnly = false;
+    }
+
+    private async Task SaveSourceScrollAsync(int trackId)
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("melody.saveScroll", $"source-{trackId}", ".source-results");
+        }
+        catch
+        {
+            // Scroll memory is a convenience.
+        }
+    }
+
+    private async Task RestoreSourceScrollAsync(int trackId)
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("melody.restoreScroll", $"source-{trackId}", ".source-results");
+        }
+        catch
+        {
+            // Scroll memory is a convenience.
+        }
     }
 
     private async Task SearchSourcesAgain() => await SearchSourcesAsync();
@@ -1381,11 +1638,16 @@ else
                 {
                     sourceCandidates = candidates;
                     sourcePluginNotes = UnavailableSourceNotes();
+                    if (sourceFilterPlugin != "all"
+                        && candidates.All(candidate => !string.Equals(
+                            candidate.PluginId, sourceFilterPlugin, StringComparison.OrdinalIgnoreCase)))
+                        sourceFilterPlugin = "all";
                     foreach (var candidate in candidates)
                         StartCandidateProbe(candidate, generation, trackId);
                 }
                 searchingSources = false;
                 StateHasChanged();
+                _ = RestoreSourceScrollAsync(trackId);
             }
         }
     }
@@ -1400,7 +1662,7 @@ else
             .Where(plugin => plugin is not IPluginAuthStatusProvider
                 { AuthStatus.NeedsAttention: true })
             .Select(plugin => new SourcePluginNote(
-                plugin.Name, plugin.LastUnavailableReason ?? ""))
+                plugin.Id, plugin.Name, plugin.LastUnavailableReason ?? ""))
             .Where(note => note.Reason.Length > 0)
             .ToList();
 
@@ -1844,6 +2106,11 @@ else
         => reviewCount == 1 ? "1 downloaded track needs" : $"{reviewCount} downloaded tracks need";
 
     private int attentionCount => (playlist?.Tracks ?? new List<TrackEntity>()).Count(NeedsAttention);
+    private int FailedCount => (playlist?.Tracks ?? new List<TrackEntity>())
+        .Count(track => track.DownloadStatus == "failed");
+    private int BulkRetryPercent => bulkRetryTotal == 0
+        ? 0
+        : Math.Min(100, bulkRetryDone * 100 / bulkRetryTotal);
 
     private void ToggleAttentionOnly()
     {

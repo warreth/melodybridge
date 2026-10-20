@@ -1,0 +1,28 @@
+/* Six actions can take more room than the title has to spare. Keep a
+   readable title column and let the action group wrap instead of
+   squeezing the playlist name into three lines. */
+.detail-header {
+    flex-wrap: wrap;
+    row-gap: .65rem;
+    align-items: flex-start;
+}
+
+.playlist-header {
+    flex: 1 1 22rem;
+    min-width: 0;
+}
+
+.detail-actions {
+    flex: 1 1 auto;
+}
+
+@media (max-width: 900px) {
+    /* The header stacks here, so a horizontal flex-basis would turn into
+       a tall empty block above the title. */
+    .playlist-header,
+    .detail-actions { flex: 0 1 auto; }
+}
+
+@media (min-width: 901px) {
+    .playlist-header { min-width: 22rem; }
+}

@@ -118,6 +118,71 @@ public class DownloadTrackAsyncTests
         public Task SetConfigAsync(string id, string key, string? value, CancellationToken ct = default) => Task.CompletedTask;
     }
 
+    private sealed class RecordingDownloadManager : IDownloadManager
+    {
+        public string? LastAttempted = "qobuz";
+        public string? SeenAvoid;
+
+        public Task<string?> DownloadAsync(string sourceUrl, string outputDirectory, string melodyId, CancellationToken ct = default)
+            => Task.FromResult<string?>(null);
+
+        public Task<string?> DownloadTrackAsync(TrackQuery query, string outputDirectory, string melodyId,
+            DownloadFallback? fallback = null, string? avoidPluginId = null, CancellationToken ct = default)
+        {
+            SeenAvoid = avoidPluginId;
+            return Task.FromResult<string?>(null);
+        }
+
+        public Task<IReadOnlyList<DownloadCandidate>> SearchCandidatesAsync(TrackQuery query, CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<DownloadCandidate>>(Array.Empty<DownloadCandidate>());
+
+        public Task<IReadOnlyList<DownloadCandidate>> SearchCandidatesAsync(TrackQuery query,
+            Action<DownloadCandidate>? onCandidate, CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<DownloadCandidate>>(Array.Empty<DownloadCandidate>());
+
+        public Task<string?> DownloadCandidateAsync(DownloadCandidate candidate, TrackQuery query,
+            string outputDirectory, string melodyId, CancellationToken ct = default)
+            => Task.FromResult<string?>(null);
+
+        public IReadOnlyList<DownloadProgress> SnapshotProgress() => Array.Empty<DownloadProgress>();
+        public string? LastPluginId(string melodyId) => null;
+        public string? LastAttemptedPluginId(string melodyId) => LastAttempted;
+        public string? LastFailure(string melodyId) => "no hit";
+    }
+
+    [Test]
+    public async Task RetryEverywhere_SetsTheAvoidHintFromTheLastAttemptedPlugin()
+    {
+        var dbPath = NewDbPath();
+        try
+        {
+            var factory = await NewDbFactory(dbPath);
+            var target = Path.Combine(Path.GetTempPath(), $"mb-retry-{Guid.NewGuid():N}");
+            var ids = await SeedPlaylistAsync(factory, target,
+                ("mel-retry", "Get Lucky", "Daft Punk"));
+            await using (var db = factory.CreateDbContext())
+            {
+                var track = await db.Tracks.SingleAsync(t => t.Id == ids[0]);
+                track.DownloadStatus = "failed";
+                await db.SaveChangesAsync();
+            }
+
+            var manager = new RecordingDownloadManager();
+            var store = new PlaylistStore(factory, new ISourceProvider[] { new StubSourceProvider() },
+                manager, NullLogger<PlaylistStore>.Instance);
+
+            await store.DownloadTrackAsync(ids[0], avoidLastProvider: true);
+
+            Assert.That(manager.SeenAvoid, Is.EqualTo("qobuz"),
+                "the retry must leave out the provider that failed last time");
+        }
+        finally
+        {
+            foreach (var suffix in new[] { "", "-wal", "-shm" })
+                try { File.Delete(dbPath + suffix); } catch { }
+        }
+    }
+
     /// <summary>Seeds one playlist with pending tracks; returns their row ids in order.</summary>
     private static async Task<List<int>> SeedPlaylistAsync(
         IDbContextFactory<MelodyBridgeDbContext> factory, string targetDir,

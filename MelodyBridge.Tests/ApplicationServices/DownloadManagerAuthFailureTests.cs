@@ -77,6 +77,40 @@ public class DownloadManagerAuthFailureTests
             "a probe that reports a valid login clears the old red mark");
     }
 
+    [Test]
+    public async Task LastAttemptedPlugin_IsRecordedEvenWhenTheDownloadFails()
+    {
+        var manager = new DownloadManager(
+            new ListDownloaderRegistry(new SearchingDownloader()),
+            NullLogger<DownloadManager>.Instance);
+
+        await manager.DownloadTrackAsync(
+            new TrackQuery("Daft Punk", "Around the World", DownloadQuality.Any),
+            Path.GetTempPath(), "mel-attempt");
+
+        Assert.That(manager.LastAttemptedPluginId("mel-attempt"), Is.EqualTo("qobuz"),
+            "a retry elsewhere needs the provider that just failed");
+    }
+
+    private sealed class SearchingDownloader : IDownloader
+    {
+        public string Id => "qobuz";
+        public string Name => "Qobuz";
+        public string Description => "test";
+        public PluginCapabilities Capabilities => PluginCapabilities.Any;
+        public Task<bool> IsAvailableAsync(CancellationToken ct = default) => Task.FromResult(true);
+
+        public Task<DownloaderSearchHit?> SearchAsync(TrackQuery query, CancellationToken ct = default)
+            => Task.FromResult<DownloaderSearchHit?>(new DownloaderSearchHit(
+                "Around the World", "Daft Punk", "https://qobuz.example/1",
+                TimeSpan.FromSeconds(429), MatchConfidence: MatchConfidence.High));
+
+        public Task<DownloaderDownloadResult> DownloadAsync(
+            string sourceUrl, string outputDirectory, string? melodyId,
+            DownloadQuality? quality = null, CancellationToken ct = default)
+            => Task.FromResult(new DownloaderDownloadResult(false, null, "dead link"));
+    }
+
     private sealed class HealthyAuthDownloader : IDownloader, IPluginAuthStatusProvider
     {
         public string Id => "qobuz";

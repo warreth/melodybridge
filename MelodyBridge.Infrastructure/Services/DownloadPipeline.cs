@@ -1,4 +1,5 @@
 using MelodyBridge.Core;
+using MelodyBridge.Core.Logging;
 using MelodyBridge.Infrastructure.Audio;
 using MelodyBridge.Infrastructure.Data;
 using MelodyBridge.Infrastructure.Files;
@@ -126,9 +127,11 @@ internal sealed class DownloadPipeline
     /// returns "downloaded", "failed" or "claimed-by-another-run",
     /// never touching any other track of the playlist.
     /// </summary>
-    public async Task<string> DownloadTrackAsync(int trackId, CancellationToken ct = default)
+    public async Task<string> DownloadTrackAsync(
+        int trackId, CancellationToken ct = default, bool avoidLastProvider = false)
     {
         int id;
+        string? avoidPluginId = null;
         string dir, preferredFormat;
         bool strict, allowContainerChange;
         await using (var db = await _dbFactory.CreateDbContextAsync(ct))
@@ -137,6 +140,12 @@ internal sealed class DownloadPipeline
                 .FirstOrDefaultAsync(t => t.Id == trackId, ct);
             if (track is null) return "not-found";
             id = track.Id;
+
+            if (avoidLastProvider && track.DownloadStatus == "failed"
+                && !string.IsNullOrWhiteSpace(track.MelodyId))
+            {
+                avoidPluginId = _downloadManager.LastAttemptedPluginId(track.MelodyId);
+            }
 
             var playlist = await db.Playlists.AsNoTracking()
                 .FirstOrDefaultAsync(p => p.Id == track.PlaylistEntityId, ct);
@@ -165,6 +174,16 @@ internal sealed class DownloadPipeline
             if (claimed != 1) return "claimed-by-another-run";
         }
 
+        // The hint is consumed by the claimed-track step, so it must be
+        // on the row before that step reads it.
+        if (!string.IsNullOrWhiteSpace(avoidPluginId))
+        {
+            await using var db = await _dbFactory.CreateDbContextAsync(ct);
+            await db.Tracks
+                .Where(t => t.Id == id)
+                .ExecuteUpdateAsync(s => s.SetProperty(t => t.AvoidPluginId, avoidPluginId), ct);
+        }
+
         return await DownloadClaimedTrackAsync(
             id, dir, preferredFormat, strict, allowContainerChange, _verification(), ct);
     }
@@ -184,6 +203,9 @@ internal sealed class DownloadPipeline
         // otherwise the claimed row stays in_progress forever.
         var track = await db.Tracks.FindAsync(new object[] { trackId }, CancellationToken.None);
         if (track is null) return "skipped";
+
+        using var correlation = LogCorrelation.Begin(
+            $"Track: {track.Artist ?? "Unknown artist"} - {track.Title ?? track.MelodyId ?? "Unknown track"}");
 
         // The retry hint is one-shot: consume it now, whatever happens
         // next, so a failed attempt never locks the provider out forever.

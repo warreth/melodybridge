@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using MelodyBridge.Core;
+using MelodyBridge.Core.Logging;
 using MelodyBridge.Infrastructure.Audio;
 using MelodyBridge.Infrastructure.Files;
 using MelodyBridge.Infrastructure.Services;
@@ -88,6 +89,9 @@ public class DownloadManager : IDownloadManager
 
     /// <summary>Which plugin produced the last successful file per melodyId.</summary>
     private readonly ConcurrentDictionary<string, string> _lastPlugin = new();
+
+    /// <summary>Which plugin last searched for the track, successful or not.</summary>
+    private readonly ConcurrentDictionary<string, string> _lastAttemptedPlugin = new();
 
     /// <summary>
     /// Every candidate the enabled plugins offer for a track, best first,
@@ -178,6 +182,7 @@ public class DownloadManager : IDownloadManager
         DownloadCandidate candidate, TrackQuery query, string outputDirectory,
         string melodyId, CancellationToken ct = default)
     {
+        using var correlation = LogCorrelation.Begin($"Track: {query.Artist} - {query.Title}");
         var downloader = _registry.GetEnabled().FirstOrDefault(d => d.Id == candidate.PluginId);
         if (downloader is null)
         {
@@ -185,6 +190,7 @@ public class DownloadManager : IDownloadManager
             return null;
         }
 
+        _lastAttemptedPlugin[melodyId] = downloader.Id;
         _state.SetProgress(new DownloadProgress(
             melodyId, query.Title, "downloading", downloader.Name, null, candidate.Confidence));
         try
@@ -273,6 +279,10 @@ public class DownloadManager : IDownloadManager
         => _lastPlugin.TryGetValue(melodyId, out var id) ? id : null;
 
     /// <inheritdoc />
+    public string? LastAttemptedPluginId(string melodyId)
+        => _lastAttemptedPlugin.TryGetValue(melodyId, out var id) ? id : null;
+
+    /// <inheritdoc />
     public async Task<string?> DownloadAsync(string sourceUrl, string outputDirectory, string melodyId, CancellationToken ct = default)
     {
         // Direct URL case: let plugins download the URL as-is.
@@ -338,6 +348,7 @@ public class DownloadManager : IDownloadManager
         TrackQuery query, string outputDirectory, string melodyId,
         DownloadFallback? fallback = null, string? avoidPluginId = null, CancellationToken ct = default)
     {
+        using var correlation = LogCorrelation.Begin($"Track: {query.Artist} - {query.Title}");
         var (pluginBudget, trackBudget) = await BudgetsAsync(ct);
 
         // One wall-clock cap for the whole track, every plugin and ladder
@@ -482,6 +493,7 @@ public class DownloadManager : IDownloadManager
                         continue;
                     }
 
+                    _lastAttemptedPlugin[melodyId] = downloader.Id;
                     var hit = await SearchAsync(downloader, query, pluginCt);
                     _auth?.Observe(downloader);
                     if (hit is null)
@@ -665,7 +677,7 @@ public class DownloadManager : IDownloadManager
             if (available) return true;
 
             if (AuthProblem(downloader) is { } problem)
-                _logger.LogWarning("{Name} needs a login fix: {Reason}", downloader.Name, problem);
+                _logger.LogDebug("{Name} needs a login fix: {Reason}", downloader.Name, problem);
             else
                 _logger.LogDebug("Skipping {Name}: unavailable", downloader.Name);
             return false;
