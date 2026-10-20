@@ -425,3 +425,11 @@
     padding-left: .8rem;
     border-left: 2px solid var(--border);
 }
+
+/* A run's pause/cancel pair needs its own row on a phone; beside the
+   title it squeezed the track and progress text into a thin column. */
+@media (max-width: 640px) {
+    .qi-item { align-items: stretch; flex-direction: column; }
+    .qi-item .qi-meta { white-space: normal; overflow: visible; }
+    .qi-item .flex-actions { justify-content: flex-start; }
+}

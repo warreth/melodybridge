@@ -133,7 +133,7 @@
 
 @if (runs.Count > 0)
 {
-    <section class="panel-card">
+    <section class="panel-card" id="live-downloads">
         <div class="panel-header">
             <div>
                 <span class="eyebrow">Active</span>
@@ -411,7 +411,7 @@
     private readonly ConcurrentDictionary<string, byte> checkingPlugins = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, DateTimeOffset> lastChecked = new(StringComparer.OrdinalIgnoreCase);
     private string? testingPluginId;
-    private bool fragmentHandled;
+    private string? handledFragment;
     private QualityPresets.Id routePreset = QualityPresets.Id.Lossless;
     private string? ytDlpVersion;
     private string? ytDlpMessage;
@@ -419,6 +419,11 @@
 
     protected override async Task OnInitializedAsync()
     {
+        // Show an active run on the first render, before the slower plugin
+        // probes: the sidebar chip links straight to this section.
+        runs = Coordinator.Snapshot()
+            .Where(r => r.State != Application.Services.DownloadRunState.Finished)
+            .ToList();
         _ = Registry.GetEnabled(); // force cache load
         await ReorderPluginsAsync();
         // The background login sweep may already know about a stale token:
@@ -449,14 +454,75 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (fragmentHandled) return;
         var fragment = Nav.ToAbsoluteUri(Nav.Uri).Fragment.TrimStart('#');
-        if (!fragment.StartsWith("plugin-", StringComparison.OrdinalIgnoreCase)) return;
-        fragmentHandled = true;
+        if (string.Equals(fragment, handledFragment, StringComparison.Ordinal)) return;
+
+        // An initial request never sends the fragment to the server, so
+        // Blazor's Uri has none. Read the browser's hash for deep links.
+        if (fragment.Length == 0)
+        {
+            try
+            {
+                // Loose test runtimes return null for an unset string result.
+                fragment = (await JS.InvokeAsync<string>("melody.getHash"))?.TrimStart('#') ?? string.Empty;
+            }
+            catch (JSException)
+            {
+                return;
+            }
+            catch (JSDisconnectedException)
+            {
+                return;
+            }
+            catch (InvalidOperationException)
+            {
+                return;
+            }
+        }
+
+        if (fragment.Length == 0)
+        {
+            handledFragment = fragment;
+            return;
+        }
+
+        if (string.Equals(fragment, "live-downloads", StringComparison.OrdinalIgnoreCase))
+        {
+            handledFragment = fragment;
+            try
+            {
+                await JS.InvokeVoidAsync("melody.revealElement", "live-downloads", false);
+            }
+            catch (JSException)
+            {
+                // The section still renders; only the scroll is lost.
+            }
+            catch (JSDisconnectedException)
+            {
+                // The section still renders; only the scroll is lost.
+            }
+            catch (InvalidOperationException)
+            {
+                // No JS runtime in a static render.
+            }
+            return;
+        }
+
+        if (!fragment.StartsWith("plugin-", StringComparison.OrdinalIgnoreCase))
+        {
+            handledFragment = fragment;
+            return;
+        }
 
         var id = fragment["plugin-".Length..];
-        if (orderedPlugins.Any(plugin => string.Equals(plugin.Id, id, StringComparison.OrdinalIgnoreCase)))
-            await OpenAuthSettings(id);
+        // The first render can happen before the registry has loaded, so
+        // wait for a render that actually has the card before marking the
+        // link handled and opening its settings.
+        if (!orderedPlugins.Any(plugin => string.Equals(plugin.Id, id, StringComparison.OrdinalIgnoreCase)))
+            return;
+
+        handledFragment = fragment;
+        await OpenAuthSettings(id);
     }
 
     /// <summary>Loads every plugin's config fields from the registry store.</summary>
@@ -583,15 +649,24 @@
             MarkChecking();
 
             var results = new ConcurrentDictionary<string, PluginStatus>(StringComparer.OrdinalIgnoreCase);
-            await Parallel.ForEachAsync(
-                orderedPlugins,
-                new ParallelOptions { MaxDegreeOfParallelism = 4 },
-                async (plugin, _) =>
+            // Task.WhenAll plus a gate keeps four probes in flight without
+            // the thread-pool scheduler that Parallel.ForEachAsync uses;
+            // that scheduler can starve a component render under load.
+            using var gate = new SemaphoreSlim(4);
+            await Task.WhenAll(orderedPlugins.Select(async plugin =>
+            {
+                await gate.WaitAsync();
+                try
                 {
                     using var budget = new CancellationTokenSource(TimeSpan.FromSeconds(30));
                     var (ready, reason) = await ProbePluginAsync(plugin, budget.Token);
                     results[plugin.Id] = new PluginStatus(ready, reason);
-                });
+                }
+                finally
+                {
+                    gate.Release();
+                }
+            }));
 
             availability = new Dictionary<string, PluginStatus>(results, StringComparer.OrdinalIgnoreCase);
             authIssues = AuthMonitor.Snapshot();
@@ -749,6 +824,10 @@
         catch (JSException)
         {
             // Interop unavailable (prerender, tests): the panel still opens.
+        }
+        catch (JSDisconnectedException)
+        {
+            // The circuit is gone; the panel state is moot.
         }
         catch (InvalidOperationException)
         {
