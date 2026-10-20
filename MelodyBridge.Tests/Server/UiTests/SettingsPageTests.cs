@@ -57,6 +57,68 @@ public class SettingsPageTests
     }
 
     [Test]
+    public async Task SettingsSearch_FindsThemeAndOpensAbout()
+    {
+        var cut = _ctx.Render<Settings>();
+
+        cut.Find(".settings-search-input").Input("theme");
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.FindAll(".settings-search-result").Count, Is.GreaterThan(0));
+            Assert.That(cut.Find(".settings-search-results").TextContent, Does.Contain("Theme"));
+        });
+
+        await cut.InvokeAsync(() => cut.FindAll(".settings-search-result")
+            .Single(result => result.TextContent.Contains("Theme"))
+            .Click());
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(cut.Find("button[data-tab='about']").GetAttribute("class"), Does.Contain("active"));
+            Assert.That(cut.Markup, Does.Contain("Theme and color"));
+            Assert.That(cut.Find(".settings-search-input").GetAttribute("value"), Is.Empty,
+                "the search clears after a jump");
+        });
+    }
+
+    [Test]
+    public void SettingsSearch_NoMatch_SaysSo()
+    {
+        var cut = _ctx.Render<Settings>();
+
+        cut.Find(".settings-search-input").Input("nothing-matches-this");
+
+        Assert.That(cut.Find(".settings-search-empty").TextContent,
+            Does.Contain("No setting matches"));
+    }
+
+    [Test]
+    public async Task ThemeChoice_OffersLightDarkAuto_AndStoresTheClick()
+    {
+        _ctx.JSInterop.Setup<string>("melody.setTheme", _ => true).SetResult("dark");
+        var cut = _ctx.Render<Settings>();
+        await cut.InvokeAsync(() => cut.Find("button[data-tab='about']").Click());
+
+        var options = cut.FindAll(".theme-choice-option");
+        Assert.That(options.Select(option => option.TextContent.Trim()),
+            Is.EquivalentTo(new[] { "Light", "Dark", "Auto" }));
+
+        await cut.InvokeAsync(() => options.Single(option => option.TextContent.Contains("Dark")).Click());
+        var dark = cut.FindAll(".theme-choice-option")
+            .Single(option => option.TextContent.Contains("Dark"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(dark.GetAttribute("class"), Does.Contain("active"));
+            Assert.That(dark.GetAttribute("aria-checked"), Is.EqualTo("true"));
+            Assert.That(_ctx.JSInterop.Invocations.Any(invocation =>
+                invocation.Identifier == "melody.setTheme"
+                && invocation.Arguments.Contains("dark")), Is.True);
+        });
+    }
+
+    [Test]
     public void Settings_Renders_Title_And_Tabs()
     {
         var cut = _ctx.Render<Settings>();

@@ -42,6 +42,34 @@
     </div>
 </section>
 
+<div class="settings-search">
+    <Icon Name="search" Size="16" Class="settings-search-icon" />
+    <input class="settings-search-input" type="search"
+           placeholder="Search settings, for example theme, ntfy or Jellyfin"
+           aria-label="Search settings"
+           @bind="settingsSearch" @bind:event="oninput" />
+    @if (SearchMatches.Count > 0)
+    {
+        <div class="settings-search-results" role="listbox" aria-label="Matching settings">
+            @foreach (var hit in SearchMatches)
+            {
+                <button type="button" class="settings-search-result" role="option"
+                        @onclick="() => JumpToSetting(hit)">
+                    <span>
+                        <strong>@hit.Label</strong>
+                        <small>@hit.Detail</small>
+                    </span>
+                    <span class="settings-search-tab">@hit.TabLabel</span>
+                </button>
+            }
+        </div>
+    }
+    else if (settingsSearch.Trim().Length >= 2)
+    {
+        <div class="settings-search-empty">No setting matches "@settingsSearch.Trim()".</div>
+    }
+</div>
+
 <TabStrip Tabs="TabStripTabs" ActiveId="@activeTab"
            OnSelect="SelectTab" AriaLabel="Settings sections" />
 
@@ -801,13 +829,29 @@ else if (activeTab == "about")
         <div class="settings-head">
             <div>
                 <span class="eyebrow">Appearance</span>
-                <h2>Accent color</h2>
+                <h2>Theme and color</h2>
             </div>
         </div>
         <div class="settings-section">
             <p class="panel-description">
+                Choose a theme or let MelodyBridge follow your device. Saved in
+                this browser only.
+            </p>
+            <div class="theme-choice" role="radiogroup" aria-label="Theme">
+                @foreach (var mode in ThemeModes)
+                {
+                    var active = _themePreference == mode.Id;
+                    <button type="button" class="theme-choice-option @(active ? "active" : "")"
+                            role="radio" aria-checked="@(active ? "true" : "false")"
+                            @onclick="() => PickTheme(mode.Id)">
+                        <Icon Name="@mode.Icon" Size="16" />
+                        <span>@mode.Label</span>
+                    </button>
+                }
+            </div>
+            <p class="panel-description">
                 Colors the active tab, buttons and highlights across the whole
-                app, the guided tour included. Saved in this browser only.
+                app, the guided tour included.
             </p>
             <div class="accent-picker" role="radiogroup" aria-label="Accent color">
                 @foreach (var accent in AccentOptions)
@@ -894,6 +938,77 @@ else if (activeTab == "about")
     private static readonly string[] AccentOptions = ["teal", "blue", "violet", "rose", "amber"];
     private string _activeAccent = "teal";
 
+    private static readonly (string Id, string Label, string Icon)[] ThemeModes =
+    [
+        ("light", "Light", "sun"),
+        ("dark", "Dark", "moon"),
+        ("auto", "Auto", "monitor"),
+    ];
+    private string _themePreference = "auto";
+
+    private void PickTheme(string mode)
+    {
+        if (!ThemeModes.Any(option => option.Id == mode)) return;
+        _themePreference = mode;
+        _ = JS.InvokeVoidAsync("melody.setTheme", mode);
+    }
+
+    private string settingsSearch = "";
+
+    private sealed record SettingsSearchHit(
+        string Label, string Tab, string Detail, string Keywords)
+    {
+        public string TabLabel => Tabs.FirstOrDefault(tab => tab.Id == Tab).Label ?? Tab;
+    }
+
+    // A curated index: the Settings page is too large to full-text filter
+    // from a component, so the search jumps to the tab that owns a field.
+    private static readonly SettingsSearchHit[] SearchIndex =
+    [
+        new("Spotify account", "accounts", "Connect, disconnect and private playlists", "spotify login oauth client id"),
+        new("Spotify web session", "accounts", "Unofficial cookie login for free accounts", "spotify cookie unofficial web session"),
+        new("YouTube account", "accounts", "Connect or disconnect the Google login", "youtube google oauth client secret"),
+        new("Jellyfin server", "media-servers", "URL, API key and user", "jellyfin media server connection"),
+        new("Plex server", "media-servers", "URL and token", "plex media server token"),
+        new("Subsonic or Navidrome", "media-servers", "URL, user and password", "subsonic navidrome server"),
+        new("Music folder", "paths", "Where downloads and the library live", "music path download folder"),
+        new("Playlist folders", "paths", "One folder per playlist or a flat folder", "playlist folder layout"),
+        new("Archive folder", "paths", "Where archive copies are written", "archive folder format copy"),
+        new("Default quality", "quality", "Space Saver, High Quality, Lossless or no filter", "quality mp3 flac lossless bitrate"),
+        new("FlareSolverr", "network", "Cloudflare solver for Lucida", "flaresolverr cloudflare lucida solver"),
+        new("Notifications", "notifications", "Toast rules for downloads and failures", "toast notification download failure"),
+        new("ntfy push", "notifications", "Topic, server and token for phone alerts", "ntfy push phone alert topic token"),
+        new("Theme", "about", "Light, Dark or Auto", "theme dark light auto appearance"),
+        new("Accent color", "about", "Teal, blue, violet, rose or amber", "accent color theme"),
+        new("Export logs", "about", "Download the recent log buffer", "logs export diagnostics"),
+        new("Database backup", "about", "Export or import the SQLite database", "database backup export import restore"),
+        new("Update check", "about", "Release channel and version", "update version release beta"),
+        new("Guided tour", "about", "Show the dashboard tour again", "tour help intro"),
+        new("Setup checklist", "about", "Show the first-run checklist again", "setup checklist intro getting started"),
+    ];
+
+    private IReadOnlyList<SettingsSearchHit> SearchMatches
+    {
+        get
+        {
+            var query = settingsSearch.Trim();
+            if (query.Length < 2) return Array.Empty<SettingsSearchHit>();
+            return SearchIndex
+                .Where(hit => hit.Label.Contains(query, StringComparison.OrdinalIgnoreCase)
+                    || hit.Detail.Contains(query, StringComparison.OrdinalIgnoreCase)
+                    || hit.Keywords.Contains(query, StringComparison.OrdinalIgnoreCase))
+                .OrderBy(hit => hit.Label, StringComparer.OrdinalIgnoreCase)
+                .Take(8)
+                .ToList();
+        }
+    }
+
+    private void JumpToSetting(SettingsSearchHit hit)
+    {
+        settingsSearch = "";
+        SelectTab(hit.Tab);
+    }
+
     private void PickAccent(string accent)
     {
         if (!AccentOptions.Contains(accent)) return;
@@ -909,6 +1024,17 @@ else if (activeTab == "about")
         if (!firstRender) return;
         var stored = await JS.InvokeAsync<string>("melody.getAccent");
         if (AccentOptions.Contains(stored)) _activeAccent = stored;
+
+        try
+        {
+            var theme = await JS.InvokeAsync<string>("melody.getThemePreference");
+            if (ThemeModes.Any(option => option.Id == theme))
+                _themePreference = theme;
+        }
+        catch (JSException)
+        {
+            // Interop unavailable (tests, static render): keep Auto.
+        }
     }
 
     private string activeTab = "accounts";
