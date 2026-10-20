@@ -265,6 +265,8 @@ public class PlaylistsPageTests
         cut.WaitForAssertion(() =>
             Assert.That(cut.Markup, Does.Contain("Auto-sync schedule")), TimeSpan.FromSeconds(3));
 
+        cut.Find("input[placeholder^='https://open.spotify.com']")
+            .Change("https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M");
         var schedule = cut.FindAll("select")
             .Single(s => s.QuerySelectorAll("option").Any(o => o.TextContent == "Cron"));
         schedule.Change("Cron");
@@ -283,8 +285,22 @@ public class PlaylistsPageTests
                 "the form says why saving is blocked");
         }, TimeSpan.FromSeconds(3));
 
+        // bUnit dispatches the click even though the button is disabled, so
+        // this reaches Add() with a valid URL and proves the guard itself.
+        cut.FindAll(".wizard-footer button")
+            .Single(b => b.TextContent.Contains("Fetch & save")).Click();
+        cut.WaitForAssertion(() =>
+        {
+            var error = cut.FindAll(".wizard-footer .wizard-error");
+            Assert.That(error, Has.Count.EqualTo(1),
+                "a save attempt with an invalid schedule reports the guard");
+            Assert.That(error[0].TextContent, Does.Contain("valid five-field cron expression"),
+                "the guard names the schedule problem");
+        }, TimeSpan.FromSeconds(3));
+
         using (var db = new SqliteFactory(_dbPath).CreateDbContext())
-            Assert.That(db.Playlists.Count(), Is.Zero, "nothing was saved with a stale schedule");
+            Assert.That(db.Playlists.Count(), Is.Zero,
+                "nothing was saved with a stale schedule even when Add() is reached");
 
         cut.Find("input[placeholder='30 4 * * *']").Input("5 4 * * *");
         cut.WaitForAssertion(() =>
