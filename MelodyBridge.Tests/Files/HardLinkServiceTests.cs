@@ -95,6 +95,38 @@ public class HardLinkServiceTests
     }
 
     [Test]
+    public void SameFile_TwoNamesForOneFile_True()
+    {
+        var target = Path.Combine(_dir, "same-a.mp3");
+        var link = Path.Combine(_dir, "same-b.mp3");
+        File.WriteAllText(target, "same bytes");
+        _svc.Create(link, target);
+
+        Assert.That(_svc.SameFile(target, link), Is.True,
+            "an existing hard link is already the requested end state");
+    }
+
+    [Test]
+    public void SameFile_TwoCopies_False()
+    {
+        var a = Path.Combine(_dir, "copy-a.mp3");
+        var b = Path.Combine(_dir, "copy-b.mp3");
+        File.WriteAllText(a, "same bytes");
+        File.Copy(a, b);
+
+        Assert.That(_svc.SameFile(a, b), Is.False,
+            "equal contents are not the same inode");
+    }
+
+    [Test]
+    public void SameFile_MissingPath_False()
+    {
+        var a = Path.Combine(_dir, "present.mp3");
+        File.WriteAllText(a, "x");
+        Assert.That(_svc.SameFile(a, Path.Combine(_dir, "ghost.mp3")), Is.False);
+    }
+
+    [Test]
     public void Create_MissingTarget_ThrowsIOException()
     {
         var missing = Path.Combine(_dir, "nope.mp3");

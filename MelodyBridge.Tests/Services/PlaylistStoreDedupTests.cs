@@ -167,6 +167,66 @@ public class PlaylistStoreDedupTests
     }
 
     [Test]
+    public async Task ExistingLinkWithTheRightBytes_IsAdoptedInsteadOfRelinked()
+    {
+        // A previous linking pass put the file in B's folder, then the row
+        // ended up pending again (a refresh that lost the row's facts, for
+        // example). The file is already the right hard link; linking it a
+        // second time can only fail with EEXIST.
+        var (dirA, dirB, sourceFile) = SetupTwoPlaylists();
+        var (_, trackBId) = await SeedSharedTrack(dirA, dirB, sourceFile);
+        var linkPath = Path.Combine(dirB, Path.GetFileName(sourceFile));
+        new HardLinkService().Create(linkPath, sourceFile);
+
+        var store = NewStore(new ThrowingDownloader());
+        var (downloaded, failed) = await store.DownloadMissingAsync("pl-b");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That((downloaded, failed), Is.EqualTo((1, 0)),
+                "an existing link to the same bytes is the desired end state");
+            var row = ReadTrack(_factory, trackBId)!;
+            Assert.That(row.DownloadStatus, Is.EqualTo("downloaded"));
+            Assert.That(row.CurrentPath, Is.EqualTo(linkPath));
+            Assert.That(row.IsHardLink, Is.True);
+            Assert.That(new HardLinkService().LinkCount(linkPath), Is.EqualTo(2),
+                "no second link was added on top of the existing one");
+        });
+    }
+
+    [Test]
+    public async Task ExistingFileWithItsOwnArchiveLink_IsReplacedByTheSharedLink()
+    {
+        // The row went back to pending while its old download is still in
+        // the folder, hardlinked to its archive copy. That name is this
+        // row's slot, so dedup replaces it with a link to the other
+        // playlist instead of failing on EEXIST.
+        var (dirA, dirB, sourceFile) = SetupTwoPlaylists();
+        var (_, trackBId) = await SeedSharedTrack(dirA, dirB, sourceFile);
+        var oldPrimary = Path.Combine(dirB, Path.GetFileName(sourceFile));
+        var oldArchive = Path.Combine(dirB, "old-archive.mp3");
+        File.WriteAllText(oldPrimary, "old download bytes");
+        new HardLinkService().Create(oldArchive, oldPrimary);
+
+        var store = NewStore(new ThrowingDownloader());
+        var (downloaded, failed) = await store.DownloadMissingAsync("pl-b");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That((downloaded, failed), Is.EqualTo((1, 0)));
+            var links = new HardLinkService();
+            Assert.That(links.SameFile(oldPrimary, sourceFile), Is.True,
+                "the playlist slot now shares the other playlist's bytes");
+            Assert.That(File.ReadAllText(oldPrimary), Is.EqualTo("real audio bytes would be here"));
+            var row = ReadTrack(_factory, trackBId)!;
+            Assert.That(row.DownloadStatus, Is.EqualTo("downloaded"));
+            Assert.That(row.CurrentPath, Is.EqualTo(oldPrimary));
+            Assert.That(links.SameFile(oldArchive, oldPrimary), Is.False,
+                "the old archive name kept its own bytes");
+        });
+    }
+
+    [Test]
     public async Task Dedup_SharesTheExistingArchiveCopy_InsteadOfDuplicatingBytes()
     {
         var (dirA, dirB, sourceFile) = SetupTwoPlaylists();

@@ -271,6 +271,13 @@ public interface IHardLinkService
     bool SameFileSystem(string pathA, string pathB);
 
     /// <summary>
+    /// True when both paths name the same inode, so one is already the
+    /// hard link the other would create. False when either file is
+    /// missing or cannot be read.
+    /// </summary>
+    bool SameFile(string pathA, string pathB);
+
+    /// <summary>
     /// Number of hard links to the file (1 = no other names). Unix reports
     /// the count from stat; Windows needs GetFileInformationByHandle.
     /// Null when the count cannot be read: the caller must then assume

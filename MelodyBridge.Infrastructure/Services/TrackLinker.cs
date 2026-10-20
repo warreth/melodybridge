@@ -154,11 +154,16 @@ public sealed class TrackLinker
         // decision, never a silent copy.
         var linkPath = Path.Combine(folder, Path.GetFileName(candidate.ExistingPath));
         var alreadyOwnName = PlaylistRules.PathEquals(linkPath, candidate.ExistingPath);
-        if (!alreadyOwnName && !TryHardLink(linkPath, candidate.ExistingPath))
+        var replaceExisting = !alreadyOwnName
+            && File.Exists(linkPath)
+            && !_hardLinks.SameFile(linkPath, candidate.ExistingPath)
+            && await PathIsFreeAsync(db, track.Id, linkPath, ct);
+        if (!alreadyOwnName
+            && !TryHardLink(linkPath, candidate.ExistingPath, replaceExisting, out var linkFailure))
         {
             _logger.LogInformation(
-                "Hard link for '{Title}' failed ({Source} -> {Target}); leaving the track for a real download",
-                track.Title, candidate.ExistingPath, linkPath);
+                "Hard link for '{Title}' failed ({Source} -> {Target}): {Reason}; leaving the track for a real download",
+                track.Title, candidate.ExistingPath, linkPath, linkFailure ?? "unknown error");
             return TrackLinkOutcome.LinkFailed;
         }
 
@@ -406,8 +411,12 @@ public sealed class TrackLinker
         {
             var archiveFileName = Path.GetFileName(existingArchive);
             var archiveLink = Path.Combine(archiveTarget.Folder, archiveFileName);
+            var replaceExisting = !PlaylistRules.PathEquals(archiveLink, existingArchive)
+                && File.Exists(archiveLink)
+                && !_hardLinks.SameFile(archiveLink, existingArchive)
+                && await PathIsFreeAsync(db, track.Id, archiveLink, ct);
             if (PlaylistRules.PathEquals(archiveLink, existingArchive)
-                || TryHardLink(archiveLink, existingArchive))
+                || TryHardLink(archiveLink, existingArchive, replaceExisting, out _))
             {
                 track.ArchivePath = archiveLink;
                 return;
@@ -505,26 +514,63 @@ public sealed class TrackLinker
         return new ArchiveTarget(true, folder.Length == 0 ? null : folder, format);
     }
 
+    /// <summary>
+    /// True when no other row points at this path, so replacing the name
+    /// cannot take another track's file away.
+    /// </summary>
+    private static async Task<bool> PathIsFreeAsync(
+        MelodyBridgeDbContext db, int trackId, string path, CancellationToken ct)
+        => !await db.Tracks.AsNoTracking()
+            .AnyAsync(t => t.Id != trackId
+                && (t.CurrentPath == path || t.ArchivePath == path), ct);
+
     /// <summary>One hard link, best effort: false on any link failure.
     /// The failure family is wider than IOException: read-only targets and
     /// unsupported filesystems surface as UnauthorizedAccessException or
     /// NotSupportedException, and none of them may take the caller down.</summary>
     public bool TryHardLink(string linkPath, string targetPath)
+        => TryHardLink(linkPath, targetPath, replaceExisting: false, out _);
+
+    /// <summary>
+    /// The same link attempt, with the OS failure spelled out. A pending
+    /// row often finds its own file already in place, or an earlier pass
+    /// already made this exact link; that is success, not EEXIST. The
+    /// caller decides whether an existing name may be replaced, after
+    /// checking that no other row still points at it.
+    /// </summary>
+    public bool TryHardLink(
+        string linkPath, string targetPath, bool replaceExisting, out string? failure)
     {
+        failure = null;
         try
         {
-            if (File.Exists(linkPath) && _hardLinks.LinkCount(linkPath) is not > 1)
-                File.Delete(linkPath); // stale unlinked file from an earlier run
+            if (File.Exists(linkPath))
+            {
+                if (_hardLinks.SameFile(linkPath, targetPath))
+                    return true;
+                if (!replaceExisting)
+                    throw new IOException($"destination already exists: {linkPath}");
+                File.Delete(linkPath);
+            }
             var folder = Path.GetDirectoryName(linkPath);
             if (!string.IsNullOrEmpty(folder)) Directory.CreateDirectory(folder);
             _hardLinks.Create(linkPath, targetPath);
             return true;
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            // A concurrent attempt may have made the link between the
+            // check and Create; accept the desired end state.
+            if (File.Exists(linkPath) && _hardLinks.SameFile(linkPath, targetPath))
+                return true;
+            failure = ex.Message;
             return false;
         }
     }
+
+    /// <summary>The same attempt without the replacement decision.</summary>
+    public bool TryHardLink(string linkPath, string targetPath, out string? failure)
+        => TryHardLink(linkPath, targetPath, replaceExisting: false, out failure);
 }
 
 /// <summary>What a linking attempt did with the row.</summary>
