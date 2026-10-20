@@ -93,3 +93,6 @@ scripts/shot-syncjobs.mjs
 # package-lock.json are the committed docs-tooling pair)
 pnpm-lock.yaml
 pnpm-workspace.yaml
+
+# Crash dumps from local debugging
+core.*
