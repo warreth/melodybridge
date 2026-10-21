@@ -77,14 +77,30 @@ public static class SqliteDatabase
     }
 
     /// <summary>
+    /// How long a write may keep retrying a busy database before it
+    /// gives up. The command timeout already waits 30 seconds per
+    /// attempt, so the first attempt alone can take that long; the budget
+    /// bounds the retries on top of it. Without a budget three attempts
+    /// would block a worker for 90 seconds, and a cancel would wait for
+    /// all of it.
+    /// </summary>
+    public static readonly TimeSpan BusyRetryBudget = TimeSpan.FromSeconds(60);
+
+    /// <summary>
     /// Runs a write and retries a few times when SQLite reports a busy
     /// database. The command timeout already waits 30 seconds; this covers
     /// the overlap with another writer without turning it into a stuck
-    /// track row.
+    /// track row. The retries stop at <see cref="BusyRetryBudget"/>, so a
+    /// database that stays locked costs one budget, not one budget per
+    /// attempt.
     /// </summary>
     public static async Task<T> RetryBusyAsync<T>(
-        Func<Task<T>> action, int attempts = 3, CancellationToken ct = default)
+        Func<Task<T>> action,
+        int attempts = 3,
+        CancellationToken ct = default,
+        TimeSpan? budget = null)
     {
+        var deadline = DateTime.UtcNow + (budget ?? BusyRetryBudget);
         for (var attempt = 1; ; attempt++)
         {
             try
@@ -93,6 +109,8 @@ public static class SqliteDatabase
             }
             catch (Exception ex) when (attempt < attempts && IsBusy(ex))
             {
+                if (DateTime.UtcNow >= deadline)
+                    throw;
                 await Task.Delay(TimeSpan.FromMilliseconds(200 * attempt), ct);
             }
         }

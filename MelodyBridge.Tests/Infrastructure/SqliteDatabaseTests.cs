@@ -165,6 +165,46 @@ public class SqliteDatabaseTests
     }
 
     [Test]
+    public void RetryBusyAsync_StopsWhenTheBudgetIsSpent()
+    {
+        // A database that stays locked must not cost one full command
+        // timeout per attempt: the retries share one budget, so a stuck
+        // database blocks a worker for the budget and not for the budget
+        // times the attempts.
+        var calls = 0;
+        Assert.ThrowsAsync<DbUpdateException>(async () =>
+            await SqliteDatabase.RetryBusyAsync<int>(() =>
+            {
+                calls++;
+                return Task.FromException<int>(
+                    new DbUpdateException("save failed", new SqliteException("database is locked", 5)));
+            }, attempts: 3, budget: TimeSpan.Zero));
+
+        Assert.That(calls, Is.EqualTo(1),
+            "a spent budget ends the retries instead of starting another attempt");
+    }
+
+    [Test]
+    public async Task RetryBusyAsync_KeepsRetryingWhileTheBudgetLasts()
+    {
+        var calls = 0;
+        var result = await SqliteDatabase.RetryBusyAsync(async () =>
+        {
+            calls++;
+            await Task.Yield();
+            if (calls < 3)
+                throw new DbUpdateException("save failed", new SqliteException("database is locked", 5));
+            return 7;
+        }, attempts: 3, budget: TimeSpan.FromSeconds(30));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.EqualTo(7));
+            Assert.That(calls, Is.EqualTo(3));
+        });
+    }
+
+    [Test]
     public void DeleteSidecars_RemovesTheWriteAheadLogAndTheSharedMemoryFile()
     {
         var path = NewDbPath();
