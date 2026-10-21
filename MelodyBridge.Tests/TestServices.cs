@@ -45,6 +45,9 @@ public static class TestServices
         services.AddSingleton(new DatabaseBackupService(dbFactory,
             NullLogger<DatabaseBackupService>.Instance));
         services.AddSingleton(new MelodyBridge.Server.Services.NotificationService());
+        // Advanced mode flips this singleton and the sidebar reads it. Tests
+        // that need their own instance register it after this call.
+        services.AddSingleton(new MelodyBridge.Server.Services.DevPanelService());
         // Account connections: the pages inject the Spotify providers
         // directly, so the real (network-free until used) ones are
         // registered over the test database. Tests that need their own

@@ -733,8 +733,8 @@ select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-s
     position: absolute;
     cursor: pointer;
     inset: 0;
-    background: var(--surface-2);
-    border: 1px solid var(--border);
+    background: var(--surface-3);
+    border: 1px solid var(--border-strong);
     border-radius: 22px;
     transition: .2s;
 }

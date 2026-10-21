@@ -5,6 +5,7 @@
 @inject SettingsStore Settings
 @inject PlaylistStore PlaylistStore
 @inject NotificationService Notifications
+@inject DevPanelService DevPanel
 
 <PageTitle>Advanced - MelodyBridge</PageTitle>
 
@@ -27,6 +28,34 @@
 </section>
 
 <section class="content-grid two advanced-grid">
+    <div class="settings-card">
+        <div class="settings-head">
+            <div>
+                <span class="eyebrow">Developer</span>
+                <h2>Advanced mode</h2>
+            </div>
+        </div>
+        <label class="toggle-switch wide">
+            <input type="checkbox" @bind="advancedMode" @bind:after="MarkDirty" />
+            <span class="toggle-slider"></span>
+            <span>Show developer tools and technical details</span>
+        </label>
+        <div class="hint-box">
+            Adds the Dev panel to the sidebar: raw request logs, provider
+            tests and download attempts. It also reveals the longer notes
+            about unofficial accounts. Leave it off for the everyday
+            interface.
+        </div>
+        @if (DevPanel.Enabled)
+        {
+            <p>
+                <a class="btn-modern secondary" href="/dev">
+                    <Icon Name="terminal" Size="16" /> Open the Dev panel
+                </a>
+            </p>
+        }
+    </div>
+
     <div class="settings-card">
         <div class="settings-head">
             <div>
@@ -164,6 +193,7 @@
     private bool showFilename;
     private bool dedupEnabled = true;
     private bool logDatabaseActivity;
+    private bool advancedMode;
     private bool recomputing;
     private bool retagging;
     private string? retagResult;
@@ -183,6 +213,7 @@
         showFilename = await Settings.GetBoolAsync("show_filename", false);
         dedupEnabled = await Settings.GetBoolAsync(PlaylistStore.DedupSettingKey, true);
         logDatabaseActivity = await Settings.GetBoolAsync(DatabaseLogSwitch.SettingKey, false);
+        advancedMode = await Settings.GetBoolAsync(DevPanelService.AdvancedSettingKey, DevPanel.Enabled);
     }
 
     private async Task SaveAll()
@@ -206,9 +237,11 @@
             await Settings.SetAsync("show_filename", showFilename ? "true" : "false");
             await Settings.SetAsync(PlaylistStore.DedupSettingKey, dedupEnabled ? "true" : "false");
             await Settings.SetAsync(DatabaseLogSwitch.SettingKey, logDatabaseActivity ? "true" : "false");
+            await Settings.SetAsync(DevPanelService.AdvancedSettingKey, advancedMode ? "true" : "false");
             // Applies immediately, no restart: the log pipeline reads the
             // switch on every entry.
             DatabaseLogSwitch.Set(logDatabaseActivity);
+            DevPanel.Enabled = advancedMode;
             dirty = false;
             if (wasClamped)
             {

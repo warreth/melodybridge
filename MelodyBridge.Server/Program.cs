@@ -74,7 +74,8 @@ builder.Services.AddSingleton<MelodyBridge.Server.Services.NtfyNotifier>();
 builder.Services.AddSingleton<MelodyBridge.Core.IBackgroundFailureSink,
     MelodyBridge.Server.Services.BackgroundFailureSink>();
 
-// Dev panel (singleton, off by default: enable via DevPanel__Enabled=true env var)
+// Dev panel (singleton). Off by default; advanced mode in the UI turns it
+// on, and DevPanel__Enabled=true still forces it on for containers.
 var devPanel = new DevPanelService(logCollector);
 devPanel.Enabled = builder.Configuration.GetValue<bool>("DevPanel:Enabled");
 builder.Services.AddSingleton(devPanel);
@@ -94,6 +95,13 @@ using (var scope = app.Services.CreateScope())
     using var db = dbFactory.CreateDbContext();
     db.Database.EnsureCreated();
     await SchemaPatcher.PatchAsync(db);
+
+    // Advanced mode is a stored preference, so the sidebar and pages agree
+    // right after a restart. The environment variable above is the fallback
+    // for an install with no row yet.
+    devPanel.Enabled = await scope.ServiceProvider
+        .GetRequiredService<SettingsStore>()
+        .GetBoolAsync(DevPanelService.AdvancedSettingKey, devPanel.Enabled);
 
     // Stale-claim recovery: a track claimed "in_progress" by a run that
     // died (crash, hard shutdown) can never be claimed again. Nothing can

@@ -63,6 +63,20 @@ public class NavMenuActiveStateTests
     }
 
     [Test]
+    public void DevPanelLink_AppearsWhenAdvancedModeTurnsOn()
+    {
+        var panel = _ctx.Services.GetRequiredService<DevPanelService>();
+        var nav = _ctx.Render<NavMenu>();
+        Assert.That(nav.Markup, Does.Not.Contain("Dev panel"),
+            "the developer entry stays hidden until advanced mode is on");
+
+        panel.Enabled = true;
+
+        nav.WaitForAssertion(() => Assert.That(nav.Markup, Does.Contain("Dev panel")),
+            TimeSpan.FromSeconds(3));
+    }
+
+    [Test]
     public void PlaylistsRoute_MarksOnlyThePlaylistsLink()
     {
         var nav = RenderNavAt("/playlists");
