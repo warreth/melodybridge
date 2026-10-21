@@ -29,6 +29,8 @@ public class HomePageTests
     private ScriptedDirectory _jellyfinDirectory = null!;
     private ScriptedDirectory _plexDirectory = null!;
     private ScriptedDirectory _subsonicDirectory = null!;
+    private InMemFactory _dbFactory = null!;
+    private DataChangeTracker _changes = null!;
 
     [SetUp]
     public void Setup()
@@ -44,7 +46,9 @@ public class HomePageTests
         var options = new DbContextOptionsBuilder<MelodyBridgeDbContext>()
             .UseInMemoryDatabase($"HomeTest_{Guid.NewGuid()}")
             .Options;
-        var dbFactory = new InMemFactory(options);
+        _dbFactory = new InMemFactory(options);
+        _changes = new DataChangeTracker();
+        var dbFactory = _dbFactory;
 
         using (var db = dbFactory.CreateDbContext())
         {
@@ -59,6 +63,7 @@ public class HomePageTests
 
         _ctx.Services.AddSingleton<IDownloaderRegistry>(_providerRegistry.Object);
         _ctx.Services.AddSingleton<IDbContextFactory<MelodyBridgeDbContext>>(dbFactory);
+        _ctx.Services.AddSingleton(_changes);
         var settingsStore = new SettingsStore(dbFactory);
         _ctx.Services.AddSingleton(settingsStore);
         _ctx.Services.AddSingleton(new MediaServerProfileStore(settingsStore));
@@ -236,6 +241,43 @@ public class HomePageTests
     }
 
     [Test]
+    public async Task Dashboard_IdleTick_DoesNotQueryAndVersionBumpReloads()
+    {
+        var dbFactory = _ctx.Services.GetRequiredService<IDbContextFactory<MelodyBridgeDbContext>>();
+        using (var db = dbFactory.CreateDbContext())
+        {
+            db.DownloaderSettings.Add(new DownloaderSettingEntity { Key = "intro_dismissed", Value = "true" });
+            db.SaveChanges();
+        }
+
+        var cut = _ctx.Render<Home>();
+        cut.WaitForState(() => cut.Markup.Contains("Recent sync runs"), TimeSpan.FromSeconds(3));
+        var contextsAfterLoad = _dbFactory.Contexts;
+
+        await cut.InvokeAsync(() => cut.Instance.RefreshForTimerAsync());
+
+        Assert.That(_dbFactory.Contexts, Is.EqualTo(contextsAfterLoad),
+            "an idle tick must not re-run the stored statistics");
+
+        using (var db = dbFactory.CreateDbContext())
+        {
+            db.Playlists.Add(new PlaylistEntity
+            {
+                Id = "p-new", Name = "New arrival", SourceUrl = "s:new", TrackCount = 3,
+            });
+            db.SaveChanges();
+        }
+        _changes.Bump();
+
+        await cut.InvokeAsync(() => cut.Instance.RefreshForTimerAsync());
+
+        Assert.That(_dbFactory.Contexts, Is.GreaterThan(contextsAfterLoad),
+            "a store change must make the next tick re-read");
+        cut.WaitForAssertion(() => Assert.That(cut.Markup, Does.Contain("New arrival")),
+            TimeSpan.FromSeconds(3));
+    }
+
+    [Test]
     public async Task Dashboard_ConnectionRows_NameTheAccountAndNeverGuessReady()
     {
         var dbFactory = _ctx.Services.GetRequiredService<IDbContextFactory<MelodyBridgeDbContext>>();
@@ -407,6 +449,12 @@ public class HomePageTests
     {
         private readonly DbContextOptions<MelodyBridgeDbContext> _options;
         public InMemFactory(DbContextOptions<MelodyBridgeDbContext> options) => _options = options;
-        public MelodyBridgeDbContext CreateDbContext() => new(_options);
+        public int Contexts { get; private set; }
+
+        public MelodyBridgeDbContext CreateDbContext()
+        {
+            Contexts++;
+            return new MelodyBridgeDbContext(_options);
+        }
     }
 }

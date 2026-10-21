@@ -7,6 +7,7 @@
 @inject SpotifyAccountProvider SpotifyAccount
 @inject YouTubeAccountProvider YouTubeAccount
 @inject IMediaServerStatusProbe MediaProbe
+@inject MelodyBridge.Infrastructure.Services.DataChangeTracker Changes
 @implements IDisposable
 
 <PageTitle>@(showIntro ? "Welcome - MelodyBridge" : "Dashboard - MelodyBridge")</PageTitle>
@@ -46,7 +47,7 @@
                 <span class="eyebrow">Setup</span>
                 <h2>Get everything running (@doneSteps of 3)</h2>
             </div>
-            <button class="btn-modern ghost small" @onclick="RefreshStats">Refresh</button>
+            <button class="btn-modern ghost small" @onclick="RefreshNowAsync">Refresh</button>
         </div>
         <MountWarning />
         <div class="workflow-list">
@@ -163,7 +164,7 @@ else
         </div>
         <div class="topbar-actions">
             <small class="text-muted updated-note">Updated @_lastUpdated.ToString("HH:mm:ss")</small>
-            <button class="btn-modern ghost" @onclick="RefreshStats">Refresh</button>
+            <button class="btn-modern ghost" @onclick="RefreshNowAsync">Refresh</button>
         </div>
     </section>
 
@@ -406,6 +407,10 @@ else
     /// stays visible even though every step is already done.</summary>
     private bool _introRestarted;
     private Timer? _timer;
+    private long observedVersion = -1;
+    private long observedLogVersion = -1;
+    private DateTime lastStoredRefresh = DateTime.MinValue;
+    private int refreshGate;
 
     private bool step1Done => playlistsCount > 0;
     private bool step2Done => downloadedCount > 0;
@@ -493,16 +498,10 @@ else
         _introRestarted = restarted;
         showIntro = !dismissed || restarted;
         await RefreshStats();
+        MarkRefreshed();
 
         // Keep the dashboard current without a manual refresh.
-        if (!showIntro)
-        {
-            _timer = new Timer(_ => InvokeAsync(async () =>
-            {
-                await RefreshStats();
-                StateHasChanged();
-            }), null, 5000, 5000);
-        }
+        if (!showIntro) StartRefreshTimer();
     }
 
     private async Task SkipIntro()
@@ -511,11 +510,68 @@ else
         await Settings.SetAsync("intro_restarted", "false");
         showIntro = false;
         await RefreshStats();
-        _timer = new Timer(_ => InvokeAsync(async () =>
+        MarkRefreshed();
+        StartRefreshTimer();
+    }
+
+    private void StartRefreshTimer()
+    {
+        _timer?.Dispose();
+        _timer = new Timer(_ => InvokeAsync(RefreshForTimerAsync), null, 5000, 5000);
+    }
+
+    private void MarkRefreshed()
+    {
+        observedVersion = Changes.Version;
+        observedLogVersion = LogCollector.Version;
+        lastStoredRefresh = DateTime.UtcNow;
+    }
+
+    /// <summary>
+    /// The five-second tick used to re-run ten queries and two account
+    /// reads even when nothing had happened. Now it redraws only when the
+    /// store or the log buffer moved; a slower fallback catches changes
+    /// that do not bump either stamp, such as a sync-job run or a media
+    /// server coming back.
+    /// </summary>
+    internal async Task RefreshForTimerAsync()
+    {
+        if (Interlocked.CompareExchange(ref refreshGate, 1, 0) == 1) return;
+        try
+        {
+            var version = Changes.Version;
+            var logVersion = LogCollector.Version;
+            var due = DateTime.UtcNow - lastStoredRefresh >= TimeSpan.FromSeconds(30);
+            if (!due && version == observedVersion && logVersion == observedLogVersion)
+                return;
+
+            await RefreshStats();
+            MarkRefreshed();
+            StateHasChanged();
+        }
+        finally
+        {
+            Interlocked.Exchange(ref refreshGate, 0);
+        }
+    }
+
+    /// <summary>The Refresh button: always re-reads, even when no stamp moved.</summary>
+    private async Task RefreshNowAsync()
+    {
+        if (Interlocked.CompareExchange(ref refreshGate, 1, 0) == 1) return;
+        try
         {
             await RefreshStats();
+            MarkRefreshed();
+            // The intro can hand over to the dashboard here, so the timer
+            // that keeps the dashboard current has to start now.
+            if (!showIntro && _timer is null) StartRefreshTimer();
             StateHasChanged();
-        }), null, 5000, 5000);
+        }
+        finally
+        {
+            Interlocked.Exchange(ref refreshGate, 0);
+        }
     }
 
     /// <summary>
