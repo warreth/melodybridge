@@ -95,6 +95,14 @@ async function shootTheme(browser, theme) {
     try {
       await page.goto(baseUrl + path, { waitUntil: 'networkidle', timeout: 30000 })
       await page.waitForTimeout(600)
+      // The Plugins page checks every provider after the first paint, so
+      // its pills and the yt-dlp version land a moment later. Wait for
+      // them, or the shot shows a page that is still checking.
+      if (path === '/plugins') {
+        await page.waitForFunction(
+          () => !document.body.innerText.includes('checking…'),
+          null, { timeout: 30000 }).catch(() => {})
+      }
       // init() re-runs after the storage seed on first paint; re-assert.
       const applied = await page.evaluate(t => {
         if (document.documentElement.getAttribute('data-theme') !== t)
