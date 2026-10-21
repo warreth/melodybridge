@@ -310,7 +310,7 @@ uses Deezer's public search as the source of record, with MusicBrainz
 as a fallback when Deezer has no confident match (one request per
 second, a real User-Agent, no key).
 
-`DownloadCoordinator` runs each playlist with up to `download_max_concurrent` parallel workers (setting, default 2, clamp 1-8, Advanced page). Each run snapshots its work list (pending/failed tracks, Position order) and every track is attempted exactly once per run: a permanently failing track can no longer spin the run forever, and the visible queue plus ETA count the work still in flight. The store's claim (`DownloadTrackAsync(int)`) is still atomic, so a single-track click and a running batch never download the same track twice. A provider cancellation or a transient exception is retried once, then that track is marked failed without stopping the worker. Stale `in_progress` claims (crash, hard shutdown) are reset to pending at startup and when a new run starts for the playlist.
+`DownloadCoordinator` runs each playlist with up to `download_max_concurrent` parallel workers (setting, default 2, clamp 1-8, Advanced page). Each run snapshots its work list (pending/failed tracks, Position order) and every track is attempted exactly once per run: a permanently failing track can no longer spin the run forever, and the visible queue plus ETA count the work still in flight. The store's claim (`DownloadTrackAsync(int)`) is still atomic, so a single-track click and a running batch never download the same track twice. A provider cancellation or a transient exception is retried once, then that track is marked failed without stopping the worker. A claim that a dead run left behind (crash, hard shutdown) is reset to pending at startup, and a new run resets only the claims nobody holds: a single-track download that is running keeps its row.
 
 A playlist refresh updates the rows it already has in place: the row id, download state, file paths and measured facts survive, and a source row that did not change costs no write. Rows the source removed still follow the sync mode. Because a refresh can still add or drop rows, auto-sync and the Refresh actions skip a playlist while its run is active; the playlist stays due and is refreshed after the run. The track table renders one page of 100 rows, keeps the sorted list and queue labels cached between ticks, and asks the page to check archive files only for the visible slice. A 3000-track playlist therefore no longer builds every row and stats every archive path on each poll.
 
@@ -434,7 +434,21 @@ SchemaPatcher step migrates older databases that had the unique one.
 
 ## Database concurrency
 
-SQLite starts in rollback-journal mode, where a read transaction blocks a write. A playlist page reading thousands of rows while a download run writes track status would wait out the 30 second busy timeout and fail with `database is locked`, leaving the row in `in_progress`. `SqliteDatabase.EnableWalAsync` runs at startup, before the first context is created, and switches the database file to WAL. The mode persists in the file, so every later connection reads and writes at the same time. The connection string keeps a 30 second `Default Timeout`, and the download status save retries a short busy overlap before it gives up. Startup and every new download run reset stale `in_progress` rows to pending.
+SQLite starts in rollback-journal mode, where a read transaction blocks a write. A playlist page reading thousands of rows while a download run writes track status would wait out the 30 second busy timeout and fail with `database is locked`, leaving the row in `in_progress`. `SqliteDatabase.EnableWalAsync` runs at startup, before the first context is created, and switches the database file to WAL. The mode persists in the file, so later connections read while one writer writes. The connection string keeps a 30 second `Default Timeout`, and a busy write is retried a few times. The retries share one budget (`SqliteDatabase.BusyRetryBudget`), so a database that stays locked costs one budget instead of one budget per attempt.
+
+## Claims and stale rows
+
+A track row in `in_progress` is held by a download that is running. The row survives a crash, so the row alone cannot tell a live download from a dead one: `LiveTrackClaims` holds the claims that are live in this process, and the download pipeline registers a track before it claims the row.
+
+- Startup resets every `in_progress` row to pending. Nothing can be in flight at startup, so they are all stale.
+- A new run resets only the claims nobody holds. A single-track download that is running right now keeps its row, and the run leaves that track alone instead of downloading it a second time.
+- The coordinator's ETA is paced by the run's own progress, not by the playlist's total download count. A playlist that was mostly downloaded before says nothing about how fast the current run moves.
+
+## Database restore
+
+A database in WAL mode is three files: the database, its `-wal` and its `-shm`. Replacing only the database and leaving the log behind means the next connection replays the old log over the new file: the restored rows are gone and the old ones are back, with `integrity_check` reporting that everything is fine.
+
+The import therefore never touches the live database. `DatabaseBackupService.ImportZipAsync` validates the uploaded zip and stages it next to the live file as `<database>.pending-restore`. The next start applies it: `DatabaseRestore.Apply` runs before the first connection opens, folds the write-ahead log into the live database, removes the sidecars, parks the live file as `.preimport.bak` and moves the staged file into place. A staged file without a schema is rejected and the live database stays as it is.
 
 ## Dependency injection
 

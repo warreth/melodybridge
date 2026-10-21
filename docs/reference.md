@@ -146,8 +146,8 @@ device and switches with it. The accent picker below it colors tabs, buttons and
 highlights, the guided tour included. Both are stored in this browser only.
 
 **Export logs** writes the most recent 1000 entries as a text file. The database
-section exports a zip snapshot; importing one replaces the database, and you
-restart the app afterwards.
+section exports a zip snapshot; importing one stages it, and the next start swaps
+it in and parks the previous database next to it as `.preimport.bak`.
 
 ## The dashboard
 
