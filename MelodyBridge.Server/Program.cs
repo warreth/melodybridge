@@ -27,7 +27,8 @@ builder.Services.AddScoped(sp => new HttpClient
 // application and writable state lives under a mounted /app/state.
 var dbFile = Environment.GetEnvironmentVariable("MELODYBRIDGE_DB") ?? "melodybridge.db";
 builder.Services.AddDbContextFactory<MelodyBridgeDbContext>(options =>
-    options.UseSqlite($"Data Source={dbFile};Default Timeout=30"));
+    options.UseSqlite(
+        $"Data Source={dbFile};Default Timeout={SqliteDatabase.BusyTimeoutSeconds}"));
 builder.Services.AddScoped<MelodyBridgeDbContext>(sp =>
     sp.GetRequiredService<IDbContextFactory<MelodyBridgeDbContext>>().CreateDbContext());
 
@@ -85,6 +86,19 @@ builder.Services.AddDataProtection()
     .SetApplicationName("MelodyBridge");
 
 var app = builder.Build();
+
+// WAL is what lets the UI read a large playlist while a download run
+// writes track status. Without it the default rollback journal makes the
+// two wait for each other, and a write can time out with "database is
+// locked". The mode is stored in the database file, so this one call
+// covers every connection for the rest of the app's life.
+var journalMode = await SqliteDatabase.EnableWalAsync(dbFile);
+if (string.Equals(journalMode, "wal", StringComparison.OrdinalIgnoreCase))
+    app.Logger.LogInformation("SQLite journal mode: WAL");
+else
+    app.Logger.LogWarning(
+        "SQLite journal mode is {Mode}, not WAL; concurrent reads and writes can block each other",
+        journalMode);
 
 // Ensure database is created with all entities before anything reads it,
 // then upgrade pre-existing databases in place (added columns, ...).

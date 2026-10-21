@@ -64,6 +64,9 @@ public class PlaylistStoreSyncModeTests
 
         public void RemoveTrack(string id) => _tracks.RemoveAll(t => t.SongID!.ID == id);
 
+        public void RenameTrack(string id, string title)
+            => _tracks.Single(t => t.SongID!.ID == id).Title = title;
+
         public bool CanHandle(string sourceIdentifier) => sourceIdentifier.Contains("stub:", StringComparison.Ordinal);
 
         public Task<Playlist> GetPlaylistAsync(string sourceIdentifier)
@@ -185,6 +188,50 @@ public class PlaylistStoreSyncModeTests
             Assert.That(t1.MelodyId, Is.EqualTo(t1Melody), "MelodyId must be stable across syncs");
             Assert.That(t1.DownloadStatus, Is.EqualTo("downloaded"), "download state must survive");
             Assert.That(t1.CurrentPath, Is.EqualTo("/music/song1.mp3"));
+        }
+        finally { TryDelete(dbPath); }
+    }
+
+    [Test]
+    public async Task Resync_ReusesTheRowAndUpdatesSourceMetadataInPlace()
+    {
+        var dbPath = NewDbPath();
+        try
+        {
+            var factory = await NewDbFactory(dbPath);
+            var provider = new StubSourceProvider(
+                ("t1", "Song One", "Artist A"),
+                ("t2", "Song Two", "Artist B"));
+            var store = NewStore(factory, provider);
+
+            var first = await store.AddOrRefreshAsync("stub:playlist");
+            var t1RowId = first.Tracks.Single(t => t.ExternalId == "t1").Id;
+
+            await using (var db = await factory.CreateDbContextAsync())
+            {
+                var track = db.Tracks.Single(t => t.ExternalId == "t1");
+                track.DownloadStatus = "downloaded";
+                track.CurrentPath = "/music/song1.mp3";
+                track.Bitrate = 320;
+                await db.SaveChangesAsync();
+            }
+
+            // The source renames the track; the row must update without
+            // being deleted and inserted under a new id.
+            provider.RenameTrack("t1", "Song One (Remastered)");
+            await store.AddOrRefreshAsync("stub:playlist");
+
+            await using var db2 = await factory.CreateDbContextAsync();
+            var t1 = await db2.Tracks.AsNoTracking().SingleAsync(t => t.ExternalId == "t1");
+            Assert.Multiple(() =>
+            {
+                Assert.That(t1.Id, Is.EqualTo(t1RowId), "a refresh must reuse the existing row");
+                Assert.That(t1.Title, Is.EqualTo("Song One (Remastered)"));
+                Assert.That(t1.DownloadStatus, Is.EqualTo("downloaded"));
+                Assert.That(t1.CurrentPath, Is.EqualTo("/music/song1.mp3"));
+                Assert.That(t1.Bitrate, Is.EqualTo(320), "measured audio facts survive");
+            });
+            Assert.That(await db2.Tracks.CountAsync(), Is.EqualTo(2), "no duplicate rows");
         }
         finally { TryDelete(dbPath); }
     }

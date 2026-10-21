@@ -310,7 +310,9 @@ uses Deezer's public search as the source of record, with MusicBrainz
 as a fallback when Deezer has no confident match (one request per
 second, a real User-Agent, no key).
 
-`DownloadCoordinator` runs each playlist with up to `download_max_concurrent` parallel workers (setting, default 2, clamp 1-8, Advanced page). Each run snapshots its work list (pending/failed tracks, Position order) and every track is attempted exactly once per run: a permanently failing track can no longer spin the run forever, and the visible queue plus ETA count the work still in flight. The store's claim (`DownloadTrackAsync(int)`) is still atomic, so a single-track click and a running batch never download the same track twice. Stale `in_progress` claims (crash, hard shutdown) are reset to pending at startup.
+`DownloadCoordinator` runs each playlist with up to `download_max_concurrent` parallel workers (setting, default 2, clamp 1-8, Advanced page). Each run snapshots its work list (pending/failed tracks, Position order) and every track is attempted exactly once per run: a permanently failing track can no longer spin the run forever, and the visible queue plus ETA count the work still in flight. The store's claim (`DownloadTrackAsync(int)`) is still atomic, so a single-track click and a running batch never download the same track twice. A provider cancellation or a transient exception is retried once, then that track is marked failed without stopping the worker. Stale `in_progress` claims (crash, hard shutdown) are reset to pending at startup and when a new run starts for the playlist.
+
+A playlist refresh updates the rows it already has in place: the row id, download state, file paths and measured facts survive, and a source row that did not change costs no write. Rows the source removed still follow the sync mode. Because a refresh can still add or drop rows, auto-sync and the Refresh actions skip a playlist while its run is active; the playlist stays due and is refreshed after the run. The track table renders one page of 100 rows, keeps the sorted list and queue labels cached between ticks, and asks the page to check archive files only for the visible slice. A 3000-track playlist therefore no longer builds every row and stats every archive path on each poll.
 
 ### Other key types
 
@@ -429,6 +431,10 @@ The setting `dedup_enabled` (default on) toggles the whole feature from
 the Advanced page. `Tracks.MelodyId` carries a plain (non-unique) index:
 the same source track legitimately lives in several playlists, and a
 SchemaPatcher step migrates older databases that had the unique one.
+
+## Database concurrency
+
+SQLite starts in rollback-journal mode, where a read transaction blocks a write. A playlist page reading thousands of rows while a download run writes track status would wait out the 30 second busy timeout and fail with `database is locked`, leaving the row in `in_progress`. `SqliteDatabase.EnableWalAsync` runs at startup, before the first context is created, and switches the database file to WAL. The mode persists in the file, so every later connection reads and writes at the same time. The connection string keeps a 30 second `Default Timeout`, and the download status save retries a short busy overlap before it gives up. Startup and every new download run reset stale `in_progress` rows to pending.
 
 ## Dependency injection
 

@@ -347,74 +347,58 @@ internal sealed class PlaylistSnapshots
             }
         }
 
-        // Replace the remaining snapshot with the fresh source state,
-        // preserving identity, status and the measured facts for
-        // surviving tracks. Withheld (partial-fetch) rows stay attached
-        // and survive untouched.
-        db.Tracks.RemoveRange(entity.Tracks.Except(withheld).ToList());
-        var rebuilt = incoming
-            .Select((t, i) =>
+        // Update the surviving rows in place. Reusing the entity keeps its
+        // id, download state and measured facts, and an unchanged source
+        // row costs no write at all: the old delete-everything-and-insert
+        // approach rewrote a 3000-track playlist on every refresh and held
+        // SQLite's single writer for seconds. Withheld (partial-fetch) rows
+        // stay attached and survive untouched.
+        var reusedTrackIds = new HashSet<int>();
+        var rebuilt = new List<TrackEntity>(incoming.Count + withheld.Count);
+        for (var i = 0; i < incoming.Count; i++)
+        {
+            var source = incoming[i];
+            var externalId = source.PlatformSongID?.ID ?? source.SongID?.ID;
+            TrackEntity? prior = null;
+            if (externalId is not null
+                && priorsByExternalId.TryGetValue(externalId, out var priors)
+                && priors.Count > 0)
             {
-                var externalId = t.PlatformSongID?.ID ?? t.SongID?.ID;
-                TrackEntity? prior = null;
-                if (externalId is not null
-                    && priorsByExternalId.TryGetValue(externalId, out var priors)
-                    && priors.Count > 0)
-                {
-                    prior = priors.Dequeue();
-                }
-                var mapped = PlaylistRules.MapTrack(t, providerPlatform, entity.Id, i);
-                mapped.IsLiked = t.IsLiked;
-                if (prior is not null)
-                {
-                    mapped.MelodyId = prior.MelodyId;
-                    mapped.CurrentPath = prior.CurrentPath;
-                    mapped.DownloadStatus = prior.DownloadStatus;
-                    mapped.DownloadError = prior.DownloadError;
-                    // A resolved ISRC survives a refresh that does not
-                    // carry one (embed scrape, YouTube).
-                    mapped.Isrc ??= prior.Isrc;
-                    // Download metadata survives too: a refresh must not
-                    // lose the album, the cover, the release credit or the
-                    // lyrics the pipeline already paid for. A source that
-                    // temporarily loses album data (a fallback scrape)
-                    // must not blank a stored album.
-                    mapped.Album ??= prior.Album;
-                    mapped.AlbumArtist ??= prior.AlbumArtist;
-                    mapped.CoverUrl ??= prior.CoverUrl;
-                    mapped.Lyrics ??= prior.Lyrics;
-                    // The audio facts and flags measure the file on disk:
-                    // a refresh must not lose them, or the track table
-                    // goes blank and dedup can no longer verify an
-                    // existing copy.
-                    mapped.Bitrate = prior.Bitrate;
-                    mapped.SampleRateHz = prior.SampleRateHz;
-                    mapped.FileSizeBytes = prior.FileSizeBytes;
-                    mapped.ArchivePath = prior.ArchivePath;
-                    mapped.IsHardLink = prior.IsHardLink;
-                    mapped.Warning = prior.Warning;
-                    mapped.LastSeenAt = prior.LastSeenAt;
-                    mapped.SkipDedup = prior.SkipDedup;
-                    // An open quality review and its retry hint describe
-                    // the file and the provider, not the source metadata:
-                    // a refresh must not silently drop the Keep/Retry
-                    // decision or the one-shot avoid hint.
-                    mapped.ReviewKind = prior.ReviewKind;
-                    mapped.ReviewText = prior.ReviewText;
-                    mapped.SpectrumAccepted = prior.SpectrumAccepted;
-                    mapped.SourcePluginId = prior.SourcePluginId;
-                    mapped.AvoidPluginId = prior.AvoidPluginId;
-                    if (!string.IsNullOrEmpty(prior.MediaType))
-                        mapped.MediaType = prior.MediaType;
-                }
-                return mapped;
-            })
+                prior = priors.Dequeue();
+            }
+
+            var mapped = PlaylistRules.MapTrack(source, providerPlatform, entity.Id, i);
+            mapped.IsLiked = source.IsLiked;
+            if (prior is null)
+            {
+                rebuilt.Add(mapped);
+                continue;
+            }
+
+            ApplySourceMetadata(prior, mapped);
+            reusedTrackIds.Add(prior.Id);
+            rebuilt.Add(prior);
+        }
+
+        // Rows the source no longer lists (and duplicate leftovers) go.
+        // History rows the additive mode detached above are not touched
+        // again here.
+        var removedIds = removed.Select(t => t.Id).ToHashSet();
+        var stale = entity.Tracks
+            .Except(withheld)
+            .Where(t => !reusedTrackIds.Contains(t.Id) && !removedIds.Contains(t.Id))
             .ToList();
+        db.Tracks.RemoveRange(stale);
+
         rebuilt.AddRange(withheld);
         entity.Tracks = rebuilt;
 
         if (isNew) db.Playlists.Add(entity);
-        await db.SaveChangesAsync(ct);
+        await SqliteDatabase.RetryBusyAsync(async () =>
+        {
+            await db.SaveChangesAsync(ct);
+            return true;
+        }, ct: ct);
         _changes.Bump();
 
         // The library may already hold some of these tracks (the same
@@ -444,6 +428,40 @@ internal sealed class PlaylistSnapshots
             trackCount == 1 ? "track" : "tracks");
 
         return (entity, isNew);
+    }
+
+    /// <summary>
+    /// Copies the source-owned columns of a fresh mapping onto the row that
+    /// already exists. Local columns (download state, file paths, measured
+    /// audio facts, review flags) are left alone. Source fields that can
+    /// disappear in a partial fetch only overwrite a stored value when the
+    /// source has one.
+    /// </summary>
+    private static void ApplySourceMetadata(TrackEntity row, TrackEntity source)
+    {
+        row.ExternalId = source.ExternalId;
+        row.ExternalPlatform = source.ExternalPlatform;
+        row.Title = source.Title;
+        row.Artist = source.Artist;
+        row.DurationMs = source.DurationMs;
+        row.SourceUrl = source.SourceUrl;
+        row.Platform = source.Platform;
+        row.Position = source.Position;
+        row.IsLiked = source.IsLiked;
+        row.PlaylistSnapshotId = null;
+        row.Album = source.Album ?? row.Album;
+        row.AlbumArtist = source.AlbumArtist ?? row.AlbumArtist;
+        row.CoverUrl = source.CoverUrl ?? row.CoverUrl;
+        row.Lyrics = source.Lyrics ?? row.Lyrics;
+        // A resolved ISRC survives a refresh that does not carry one
+        // (embed scrape, YouTube).
+        row.Isrc = source.Isrc ?? row.Isrc;
+        // The measured media type describes the file on disk, so it wins
+        // over the source's value when the row already has one.
+        if (string.IsNullOrEmpty(row.MediaType))
+            row.MediaType = source.MediaType;
+        // MelodyId deliberately stays: a legacy mb-{guid} tag keeps
+        // matching the file on disk.
     }
 
     /// <summary>Re-fetch an already persisted playlist from its source.</summary>
