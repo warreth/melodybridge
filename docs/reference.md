@@ -222,7 +222,8 @@ them means re-importing the file.
 Each track row shows its state and, once downloaded, the real quality: bitrate,
 sample rate, format and file size. The list shows 100 tracks per page; the pager
 below it moves through the rest, so a playlist with thousands of tracks opens
-quickly. Every column header sorts the list; click it again to reverse the order. Next to the status pill sits a small archive check:
+quickly. Every column header sorts the list; click it again to reverse the
+order. Next to the status pill sits a small archive check:
 a green check when this track's archive copy is on disk, a quiet dash when the
 track has no copy yet, and a warning when the recorded copy has vanished. With
 no archive path configured for the playlist the check stays away. Click the
@@ -278,8 +279,8 @@ archive copies.
   right away.
 - **Export CSV** downloads the whole track list as a spreadsheet.
 - **Refresh** fetches the playlist again and applies the sync mode. A refresh
-  waits while that playlist has a download run, because replacing the track
-  rows would pull the work list out from under the run.
+  waits while that playlist has a download run, because it can add or remove
+  rows under the run.
 - **Download missing** starts a download run. While one is live, the button is
   replaced by **Pause**, **Resume** and **Cancel**.
 - When tracks are failed, **Retry failed (N)** retries all of them in the normal
