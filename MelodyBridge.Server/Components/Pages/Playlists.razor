@@ -848,7 +848,8 @@ else
 
 @code {
     private List<PlaylistEntity> playlists = new();
-    private Dictionary<string, (int downloaded, int failed, int total, long sizeBytes, int attention)> downloadStats = new();
+    private Application.Services.DownloadStatsRefresher statsRefresher = null!;
+    private Dictionary<string, (int downloaded, int failed, int total, long sizeBytes, int attention)> downloadStats => statsRefresher.Stats;
     private bool loading = true;
     private bool busy;
     private bool showAddForm;
@@ -901,7 +902,6 @@ else
     private HashSet<string> savedYouTubeIds = new();
 
     private Timer? refreshTimer;
-    private long observedStatsVersion;
 
     // Quick publish: one sync job per ticked playlist, named after it,
     // with the ticked schedule and targets. Playlists that already have a
@@ -1564,6 +1564,13 @@ else
 
     protected override async Task OnInitializedAsync()
     {
+        // The counters and the store stamp they were read at. The stamp
+        // is read before the counters, so a write that lands during the
+        // read sends the next tick back to the store.
+        statsRefresher = new Application.Services.DownloadStatsRefresher(
+            () => Store.GetDownloadStatsAsync(),
+            () => Store.DataVersion);
+
         await Load();
         await LoadDefaultQualityAsync();
         resolvedDefaultMusicPath = await Settings.GetAsync("music_path", "/music");
@@ -1578,10 +1585,8 @@ else
         {
             var active = Coordinator.Snapshot()
                 .Any(r => r.State is not Application.Services.DownloadRunState.Finished);
-            var version = Store.DataVersion;
-            if (!active && version == observedStatsVersion) return;
-            downloadStats = await Store.GetDownloadStatsAsync();
-            observedStatsVersion = Store.DataVersion;
+            if (!statsRefresher.ShouldReload(active)) return;
+            await statsRefresher.RefreshAsync();
             ReconcileSelectionWithVisible();
             StateHasChanged();
         }), null, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2));
@@ -1601,8 +1606,7 @@ else
     {
         if (showSkeleton) loading = true;
         playlists = await Store.GetAllAsync();
-        downloadStats = await Store.GetDownloadStatsAsync();
-        observedStatsVersion = Store.DataVersion;
+        await statsRefresher.RefreshAsync();
         // A playlist deleted in another tab must not stay selected.
         if (selectedPlaylistIds.Count > 0)
         {
