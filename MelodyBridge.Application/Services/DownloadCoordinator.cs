@@ -616,10 +616,15 @@ public class DownloadCoordinator : IDownloadCoordinator
     /// <summary>
     /// Folds the visible queue length and an ETA into the snapshot. The
     /// title list itself is built lazily, only when a page asks for it.
+    /// The ETA is paced by this run's own progress: the playlist's total
+    /// download count says nothing about how fast this run moves, and
+    /// mixing the two collapses the estimate on a playlist that was
+    /// already downloaded.
     /// </summary>
     private static void RefreshQueue(RunHandle handle)
     {
         var remaining = handle.Work.RemainingCount;
+        var finished = handle.Work.TotalCount - remaining;
         lock (handle.Sync)
         {
             var s = handle.Snapshot;
@@ -628,7 +633,7 @@ public class DownloadCoordinator : IDownloadCoordinator
                 Done = handle.Done,
                 Failed = handle.Failed,
                 QueueLength = remaining,
-                EtaUtc = DownloadRun.ComputeEta(s.StartedAtUtc, s.Done + s.Failed, remaining),
+                EtaUtc = DownloadRun.ComputeEta(s.StartedAtUtc, finished, remaining),
             };
         }
     }

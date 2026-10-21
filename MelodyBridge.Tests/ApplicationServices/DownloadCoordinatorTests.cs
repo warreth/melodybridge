@@ -24,6 +24,9 @@ public class DownloadCoordinatorTests
     /// <summary>Slow downloader so the run takes a while: lets us pause/cancel mid-run.</summary>
     private sealed class SlowDownloader : IDownloader
     {
+        private readonly int _delayMs;
+        public SlowDownloader(int delayMs = 150) => _delayMs = delayMs;
+
         public string Id => "slow";
         public string Name => "Slow (test)";
         public string Description => "";
@@ -41,7 +44,7 @@ public class DownloadCoordinatorTests
             DownloadQuality? quality = null, CancellationToken ct = default)
         {
             Interlocked.Increment(ref Started);
-            try { await Task.Delay(150, ct); } catch (TaskCanceledException) { }
+            try { await Task.Delay(_delayMs, ct); } catch (TaskCanceledException) { }
             Interlocked.Increment(ref Downloads);
             Directory.CreateDirectory(outputDirectory);
             var path = Path.Combine(outputDirectory, $"{melodyId}.mp3");
@@ -383,6 +386,47 @@ public class DownloadCoordinatorTests
             Assert.That(manager.Attempts, Is.EqualTo(2),
                 "the track was attempted twice: the cancel and the retry");
         });
+    }
+
+    [Test]
+    public async Task Run_ReportsAnEtaBasedOnItsOwnProgress()
+    {
+        // A playlist that was mostly downloaded before: the ETA must be
+        // paced by this run, not by the whole playlist. Mixing the two
+        // collapses the estimate to a moment that has already passed.
+        const int total = 24;
+        const int alreadyDownloaded = 20;
+        var id = await SeedPlaylistAsync(total);
+        await using (var db = _factory.CreateDbContext())
+        {
+            var tracks = await db.Tracks.Where(t => t.PlaylistEntityId == id)
+                .OrderBy(t => t.Position).ToListAsync();
+            foreach (var track in tracks.Take(alreadyDownloaded))
+            {
+                track.DownloadStatus = "downloaded";
+                track.CurrentPath = Path.Combine(_dir, $"{track.MelodyId}.mp3");
+            }
+            await db.SaveChangesAsync();
+        }
+
+        var downloader = new SlowDownloader(delayMs: 2000);
+        var coordinator = MakeCoordinator(MakeServices(downloader));
+        coordinator.Start(id);
+
+        // The first tracks of this run are done: there is a pace.
+        await WaitForAsync(() => (coordinator.RunFor(id)?.Done ?? 0) >= alreadyDownloaded + 2,
+            TimeSpan.FromSeconds(60));
+
+        var run = coordinator.RunFor(id)!;
+        Assert.That(run.EtaUtc, Is.Not.Null,
+            "a run that finished a track can say when it will be done");
+        var now = DateTime.UtcNow;
+        var elapsed = now - run.StartedAtUtc;
+        Assert.That(run.EtaUtc!.Value, Is.GreaterThanOrEqualTo(now.Add(elapsed / 2)),
+            "the ETA is paced by the tracks this run still has to do, not by the whole playlist");
+
+        await WaitForAsync(() => coordinator.RunFor(id)?.State == DownloadRunState.Finished,
+            TimeSpan.FromSeconds(60));
     }
 
     /// <summary>
