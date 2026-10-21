@@ -457,6 +457,21 @@ public sealed class TrackLinker
             return ArchiveOutcome.Skipped;
         }
 
+        // The copy lands on a fixed name. Another row can own that name:
+        // replacing it would take that track's file away, so the copy is
+        // refused instead. The link path checks the same thing.
+        var targetPath = ArchiveCopier.TargetPath(track.CurrentPath!, target.Folder, target.Format);
+        if (!await PathIsFreeAsync(db, track.Id, targetPath, ct))
+        {
+            track.Warning = string.IsNullOrEmpty(track.Warning)
+                ? $"another track already owns the archive file {Path.GetFileName(targetPath)}; no archive copy was made"
+                : $"{track.Warning}; another track already owns the archive file {Path.GetFileName(targetPath)}";
+            _logger.LogInformation(
+                "Archive copy for '{Title}' skipped: {Path} belongs to another track",
+                track.Title, targetPath);
+            return ArchiveOutcome.Failed;
+        }
+
         var result = ArchiveCopier.Copy(
             track.CurrentPath!, target.Folder, target.Format,
             melodyId: track.MelodyId,
@@ -523,13 +538,25 @@ public sealed class TrackLinker
 
     /// <summary>
     /// True when no other row points at this path, so replacing the name
-    /// cannot take another track's file away.
+    /// cannot take another track's file away. The comparison follows the
+    /// filesystem: on Windows and macOS two spellings of the same name
+    /// are the same file, so a differently cased path counts as taken.
     /// </summary>
     private static async Task<bool> PathIsFreeAsync(
         MelodyBridgeDbContext db, int trackId, string path, CancellationToken ct)
-        => !await db.Tracks.AsNoTracking()
-            .AnyAsync(t => t.Id != trackId
-                && (t.CurrentPath == path || t.ArchivePath == path), ct);
+    {
+        var wanted = path.Trim().TrimEnd('/', '\\');
+        var caseInsensitive = OperatingSystem.IsWindows() || OperatingSystem.IsMacOS();
+        var owners = await db.Tracks.AsNoTracking()
+            .Where(t => t.Id != trackId)
+            .Where(t => caseInsensitive
+                ? EF.Functions.Collate(t.CurrentPath, "NOCASE") == wanted
+                  || EF.Functions.Collate(t.ArchivePath, "NOCASE") == wanted
+                : t.CurrentPath == wanted || t.ArchivePath == wanted)
+            .Select(t => t.Id)
+            .ToListAsync(ct);
+        return owners.Count == 0;
+    }
 
     /// <summary>One hard link, best effort: false on any link failure.
     /// The failure family is wider than IOException: read-only targets and

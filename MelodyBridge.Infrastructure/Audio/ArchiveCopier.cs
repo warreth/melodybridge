@@ -20,6 +20,15 @@ public record ArchiveResult(bool Ok, string ArchivePath, string? Reason);
 public static class ArchiveCopier
 {
     /// <summary>
+    /// The path a copy lands on: the primary's filename in the archive
+    /// folder, with the archive format's extension. Callers that need to
+    /// know where a copy would go (to check that the name is free)
+    /// use this, so the check and the write always agree.
+    /// </summary>
+    public static string TargetPath(string primaryPath, string archiveDirectory, string? archiveFormat)
+        => Path.Combine(archiveDirectory, BuildTargetName(primaryPath, archiveFormat));
+
+    /// <summary>
     /// Copies or transcodes <paramref name="primaryPath"/> into
     /// <paramref name="archiveDirectory"/> using the container implied by
     /// <paramref name="archiveFormat"/> ("auto" copies the file as-is).
@@ -43,7 +52,7 @@ public static class ArchiveCopier
         TimeSpan? expectedDuration = null)
     {
         var targetName = BuildTargetName(primaryPath, archiveFormat);
-        var targetPath = Path.Combine(archiveDirectory, targetName);
+        var targetPath = TargetPath(primaryPath, archiveDirectory, archiveFormat);
 
         // Copying a file onto itself destroys it: File.Copy fails, the
         // failure cleanup below would delete the target, and the target
