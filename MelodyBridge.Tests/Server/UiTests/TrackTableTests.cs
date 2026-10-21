@@ -1,4 +1,5 @@
 using AngleSharp.Dom;
+using Microsoft.AspNetCore.Components;
 using Bunit;
 using MelodyBridge.Infrastructure.Data;
 using MelodyBridge.Server.Components.Shared;
@@ -113,6 +114,48 @@ public class TrackTableTests
             Assert.That(TitleCells(cut)[0], Is.EqualTo("Track 100"));
             Assert.That(cut.Find(".table-pager-page").TextContent.Trim(), Is.EqualTo("Page 2 of 30"));
             Assert.That(visibleSizes[^1], Is.EqualTo(100));
+        });
+    }
+
+    [Test]
+    public async Task Another_Playlist_Sends_The_Pager_Back_To_The_First_Page()
+    {
+        // The component is reused when the user moves to another playlist.
+        // The page number belongs to the old list, so it goes back to one.
+        var tracks = Enumerable.Range(0, 3000)
+            .Select(i => new TrackEntity
+            {
+                Id = i + 1,
+                Title = $"Track {i}",
+                Artist = "Artist",
+                Position = i,
+                DownloadStatus = "pending",
+            })
+            .ToList();
+        var cut = _ctx.Render<TrackTable>(pb =>
+        {
+            pb.Add(t => t.Tracks, tracks);
+            pb.Add(t => t.ResetKey, "playlist-a");
+        });
+
+        cut.Find("button[aria-label='Next page']").Click();
+        cut.Find("button[aria-label='Next page']").Click();
+        Assert.That(cut.Find(".table-pager-page").TextContent.Trim(), Is.EqualTo("Page 3 of 30"));
+
+        // The route changed: the same component, a different playlist.
+        await cut.InvokeAsync(async () =>
+            await cut.Instance.SetParametersAsync(ParameterView.FromDictionary(
+                new Dictionary<string, object?>
+                {
+                    [nameof(TrackTable.Tracks)] = tracks,
+                    [nameof(TrackTable.ResetKey)] = "playlist-b",
+                })));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(cut.Find(".table-pager-page").TextContent.Trim(), Is.EqualTo("Page 1 of 30"),
+                "the pager starts over for the new playlist");
+            Assert.That(TitleCells(cut)[0], Is.EqualTo("Track 0"));
         });
     }
 

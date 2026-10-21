@@ -334,6 +334,7 @@ else
         else
         {
             <TrackTable Tracks="@TrackRows"
+                        ResetKey="@playlist?.Id"
                         ShowFilenameColumn="@showFilenameColumn"
                         ShowArchiveState="@(editArchiveEnabled && HasArchiveTarget)"
                         ArchiveStates="@archiveStates"

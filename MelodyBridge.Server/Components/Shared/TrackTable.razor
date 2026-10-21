@@ -256,6 +256,12 @@
     /// </summary>
     [Parameter] public int PageSize { get; set; } = 100;
     /// <summary>
+    /// Identifies the list the rows belong to. When it changes, the pager
+    /// goes back to the first page: a page number from another playlist
+    /// would show a slice of the wrong list.
+    /// </summary>
+    [Parameter] public string? ResetKey { get; set; }
+    /// <summary>
     /// Raised when the visible page changes, with only the rows currently
     /// rendered. The page uses it to probe archive files for the visible
     /// rows instead of statting the whole playlist.
@@ -351,9 +357,17 @@
     private int pagedCachePage;
     private int pagedCacheSize;
     private IReadOnlyList<TrackEntity>? lastVisibleTracks;
+    private string? resetKeySeen;
 
     protected override void OnParametersSet()
     {
+        // Another list on screen: the page number belongs to the old one.
+        if (!string.Equals(resetKeySeen, ResetKey, StringComparison.Ordinal))
+        {
+            resetKeySeen = ResetKey;
+            page = 1;
+            pagedCache = null;
+        }
         if (!ReferenceEquals(sortedCacheTracks, Tracks)
             || sortedCacheColumn != sortColumn
             || sortedCacheDescending != sortDescending)
