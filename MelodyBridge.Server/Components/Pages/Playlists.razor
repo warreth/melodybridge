@@ -1610,8 +1610,13 @@ else
     private async Task Load(bool showSkeleton = true)
     {
         if (showSkeleton) loading = true;
-        playlists = await Store.GetAllAsync();
-        downloadStats = await Store.GetDownloadStatsAsync();
+        // Two independent reads, one wait: the playlist rows and the
+        // per-playlist download counts each open their own context.
+        var playlistsTask = Store.GetAllAsync();
+        var statsTask = Store.GetDownloadStatsAsync();
+        await Task.WhenAll(playlistsTask, statsTask);
+        playlists = await playlistsTask;
+        downloadStats = await statsTask;
         // A playlist deleted in another tab must not stay selected.
         if (selectedPlaylistIds.Count > 0)
         {
