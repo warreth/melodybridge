@@ -1314,6 +1314,17 @@ else
                     break;
             }
         }
+        catch (OperationCanceledException)
+        {
+            // A provider that cancelled its own request. The batch retries
+            // such a track once; a single click has no second attempt, so
+            // the user gets a clear message instead of a broken page.
+            Notifications.Warn($"The download of '{track.Title}' was cancelled by the provider. Try again.");
+        }
+        catch (Exception ex)
+        {
+            Notifications.Error($"Download failed for '{track.Title}': {ex.Message}");
+        }
         finally
         {
             retryingTrackIds.Remove(track.Id);

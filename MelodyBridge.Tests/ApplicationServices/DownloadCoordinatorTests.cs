@@ -353,6 +353,77 @@ public class DownloadCoordinatorTests
     }
 
     [Test]
+    public async Task Run_RetriesATrackWhoseProviderCancelledTheRequest()
+    {
+        // A provider that cancels its own request is a track failure, not
+        // a reason to stop the worker, and the track gets a second
+        // attempt. The cancellation has to reach the coordinator for that
+        // to happen: the pipeline must not swallow it.
+        var id = await SeedPlaylistAsync(1);
+        var downloader = new SlowDownloader();
+        var real = new DownloadManager(new ListRegistry(downloader),
+            NullLogger<DownloadManager>.Instance);
+        var manager = new CancellingManager(real);
+        var store = new PlaylistStore(_factory, Array.Empty<ISourceProvider>(), manager,
+            NullLogger<PlaylistStore>.Instance);
+        var services = MakeServices(downloader, store);
+        var coordinator = MakeCoordinator(services);
+
+        coordinator.Start(id);
+
+        await WaitForAsync(() => coordinator.RunFor(id)?.State == DownloadRunState.Finished
+            && coordinator.RunFor(id)?.Done == 1, TimeSpan.FromSeconds(30));
+
+        await using var db = _factory.CreateDbContext();
+        var row = await db.Tracks.AsNoTracking().SingleAsync(t => t.PlaylistEntityId == id);
+        Assert.Multiple(() =>
+        {
+            Assert.That(row.DownloadStatus, Is.EqualTo("downloaded"),
+                "the provider cancellation was retried and the track arrived");
+            Assert.That(manager.Attempts, Is.EqualTo(2),
+                "the track was attempted twice: the cancel and the retry");
+        });
+    }
+
+    /// <summary>
+    /// A manager whose first attempts end the way a provider that cancels
+    /// its own request does: the cancellation travels on, so the caller
+    /// can retry the track.
+    /// </summary>
+    private sealed class CancellingManager(IDownloadManager inner) : IDownloadManager
+    {
+        private int _remaining = 1;
+        public int Attempts;
+
+        public Task<string?> DownloadTrackAsync(TrackQuery query, string outputDirectory, string melodyId,
+            DownloadFallback? fallback = null, string? avoidPluginId = null, CancellationToken ct = default)
+        {
+            Interlocked.Increment(ref Attempts);
+            if (Interlocked.Decrement(ref _remaining) >= 0)
+                throw new OperationCanceledException("the provider cancelled this request");
+            return inner.DownloadTrackAsync(query, outputDirectory, melodyId, fallback, avoidPluginId, ct);
+        }
+
+        public Task<string?> DownloadAsync(string sourceUrl, string outputDirectory, string melodyId,
+            CancellationToken ct = default)
+            => inner.DownloadAsync(sourceUrl, outputDirectory, melodyId, ct);
+
+        public Task<IReadOnlyList<DownloadCandidate>> SearchCandidatesAsync(TrackQuery query, CancellationToken ct = default)
+            => inner.SearchCandidatesAsync(query, ct);
+
+        public Task<IReadOnlyList<DownloadCandidate>> SearchCandidatesAsync(TrackQuery query, Action<DownloadCandidate>? onCandidate, CancellationToken ct = default)
+            => inner.SearchCandidatesAsync(query, onCandidate, ct);
+
+        public Task<string?> DownloadCandidateAsync(DownloadCandidate candidate, TrackQuery query, string outputDirectory, string melodyId, CancellationToken ct = default)
+            => inner.DownloadCandidateAsync(candidate, query, outputDirectory, melodyId, ct);
+
+        public IReadOnlyList<DownloadProgress> SnapshotProgress() => inner.SnapshotProgress();
+        public string? LastPluginId(string melodyId) => inner.LastPluginId(melodyId);
+        public string? LastAttemptedPluginId(string melodyId) => inner.LastAttemptedPluginId(melodyId);
+        public string? LastFailure(string melodyId) => inner.LastFailure(melodyId);
+    }
+
+    [Test]
     public async Task HasPendingWorkAsync_CountsPendingAndFailedTracks()
     {
         var id = await SeedPlaylistAsync(2);

@@ -296,10 +296,13 @@ internal sealed class DownloadPipeline
         {
             // A provider or HTTP client cancelled its own call while the
             // run is still alive. That is a failed track, not a reason to
-            // stop the worker (and the rest of the run with it).
+            // stop the worker (and the rest of the run with it). The
+            // failure is written here and the cancellation is passed on,
+            // so the caller can retry this track once with a fresh
+            // attempt: swallowing it here would cost the retry.
             track.DownloadStatus = "failed";
             track.DownloadError = "the provider cancelled the download";
-            return "failed";
+            throw;
         }
         catch (Exception ex)
         {
