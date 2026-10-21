@@ -1909,6 +1909,19 @@ td.file-path {
     word-break: break-word;
 }
 
+/* Small inline busy indicator, shared by the source picker, plugin checks
+   and the downloads overview. */
+.spinner {
+    flex: 0 0 auto;
+    width: 14px;
+    height: 14px;
+    border: 2px solid var(--border-strong);
+    border-top-color: var(--accent-strong);
+    border-radius: 50%;
+    animation: mb-spin .8s linear infinite;
+}
+@keyframes mb-spin { to { transform: rotate(360deg); } }
+
 .logs-count {
     margin-top: .5rem;
     font-size: .72rem;
