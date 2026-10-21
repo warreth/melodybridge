@@ -126,6 +126,8 @@ public class DownloadTrackAsyncTests
         public Task<string?> DownloadAsync(string sourceUrl, string outputDirectory, string melodyId, CancellationToken ct = default)
             => Task.FromResult<string?>(null);
 
+        public void ReportProgress(DownloadProgress progress) { }
+
         public Task<string?> DownloadTrackAsync(TrackQuery query, string outputDirectory, string melodyId,
             DownloadFallback? fallback = null, string? avoidPluginId = null, CancellationToken ct = default)
         {

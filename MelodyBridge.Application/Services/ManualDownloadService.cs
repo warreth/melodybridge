@@ -92,11 +92,18 @@ public sealed class ManualDownloadService
 
         var finalArtist = FirstNonEmpty(artist, resolved?.Artist);
         var finalTitle = FirstNonEmpty(title, resolved?.Title, DeriveTitle(uri));
+        if (string.IsNullOrWhiteSpace(title))
+        {
+            // YouTube and SoundCloud titles often repeat the artist. The
+            // display title and the file name should not say it twice.
+            finalTitle = StripArtistPrefix(finalTitle, finalArtist);
+        }
         var directory = ResolveDirectory(targetDirectory);
         if (directory.Error is { Length: > 0 } directoryError)
             return ManualDownloadResult.Failed(directoryError);
 
         var melodyId = NewMelodyId();
+        ReportProgress(melodyId, finalTitle, "downloading", null, null);
         string? path;
         try
         {
@@ -105,17 +112,23 @@ public sealed class ManualDownloadService
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogWarning(ex, "Manual link download failed for {Url}", uri);
+            ReportProgress(melodyId, finalTitle, "failed", null, null, warning: ex.Message);
             return ManualDownloadResult.Failed(ex.Message);
         }
 
         if (path is null)
         {
-            return ManualDownloadResult.Failed(
-                _downloads.LastFailure(melodyId)
-                ?? "No enabled plugin could download this link. Try another link or search by name.");
+            var reason = _downloads.LastFailure(melodyId)
+                ?? "No enabled plugin could download this link. Try another link or search by name.";
+            ReportProgress(melodyId, finalTitle, "failed", null, null, warning: reason);
+            return ManualDownloadResult.Failed(reason);
         }
 
-        return Finish(path, finalArtist, finalTitle, melodyId, resolved?.Duration, directory.Path!);
+        var result = Finish(path, finalArtist, finalTitle, melodyId, resolved?.Duration, directory.Path!);
+        ReportProgress(melodyId, finalTitle, result.Success ? "done" : "failed",
+            result.PluginName, result.FilePath,
+            warning: result.Success ? result.Warning : result.Error);
+        return result;
     }
 
     private async Task<ManualDownloadResult> DownloadCandidateCoreAsync(
@@ -138,18 +151,33 @@ public sealed class ManualDownloadService
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogWarning(ex, "Manual candidate download failed for {Title}", title);
+            ReportProgress(melodyId, title, "failed", candidate.PluginName, null,
+                candidate.Confidence, ex.Message);
             return ManualDownloadResult.Failed(ex.Message);
         }
 
         if (path is null)
         {
-            return ManualDownloadResult.Failed(
-                _downloads.LastFailure(melodyId)
-                ?? $"{candidate.PluginName} did not deliver this pick.");
+            var reason = _downloads.LastFailure(melodyId)
+                ?? $"{candidate.PluginName} did not deliver this pick.";
+            ReportProgress(melodyId, title, "failed", candidate.PluginName, null,
+                candidate.Confidence, reason);
+            return ManualDownloadResult.Failed(reason);
         }
 
-        return Finish(path, artist, title, melodyId, expectedDuration, directory.Path!);
+        var result = Finish(path, artist, title, melodyId, expectedDuration, directory.Path!);
+        ReportProgress(melodyId, title, result.Success ? "done" : "failed",
+            result.PluginName, result.FilePath, candidate.Confidence,
+            result.Success ? result.Warning : result.Error);
+        return result;
     }
+
+    /// <summary>Mirrors a manual attempt into the live overview.</summary>
+    private void ReportProgress(string melodyId, string title, string status,
+        string? plugin, string? path, MatchConfidence confidence = MatchConfidence.High,
+        string? warning = null)
+        => _downloads.ReportProgress(new DownloadProgress(
+            melodyId, title, status, plugin, path, confidence, Warning: warning));
 
     /// <summary>
     /// Tags, sanity-checks and names the file. A corrupt file is removed;
@@ -303,6 +331,21 @@ public sealed class ManualDownloadService
 
     private static string? FirstNonEmpty(params string?[] values)
         => values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))?.Trim();
+
+    /// <summary>
+    /// "Daft Punk - Get Lucky" from a source whose artist is also Daft Punk
+    /// becomes "Get Lucky", so the artist is not printed twice.
+    /// </summary>
+    private static string StripArtistPrefix(string title, string? artist)
+    {
+        if (string.IsNullOrWhiteSpace(artist)) return title;
+        var name = artist.Trim();
+        if (!title.StartsWith(name, StringComparison.OrdinalIgnoreCase)) return title;
+        var rest = title[name.Length..].TrimStart();
+        if (rest.Length == 0 || rest[0] != '-') return title;
+        rest = rest[1..].TrimStart();
+        return rest.Length > 0 ? rest : title;
+    }
 
     private static string AppendWarning(string? existing, string next)
         => string.IsNullOrWhiteSpace(existing) ? next : $"{existing} {next}";

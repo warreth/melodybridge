@@ -98,13 +98,17 @@ public class ManualDownloadServiceTests
 
     private static ManualDownloadService Service(
         IDownloader plugin, IUrlMetadataResolver? metadata = null)
+        => Create(plugin, metadata).Service;
+
+    private static (ManualDownloadService Service, DownloadManager Manager) Create(
+        IDownloader plugin, IUrlMetadataResolver? metadata = null)
     {
         var registry = new ListDownloaderRegistry(plugin);
         var manager = new DownloadManager(registry, NullLogger<DownloadManager>.Instance);
-        return new ManualDownloadService(
+        return (new ManualDownloadService(
             manager, registry,
             metadata ?? new StubMetadataResolver(null),
-            NullLogger<ManualDownloadService>.Instance);
+            NullLogger<ManualDownloadService>.Instance), manager);
     }
 
     [TestCase("The Artist - The Song", "The Artist", "The Song")]
@@ -218,7 +222,7 @@ public class ManualDownloadServiceTests
             Succeeds = false,
             Error = "the source is geo-blocked",
         };
-        var service = Service(plugin);
+        var (service, manager) = Create(plugin);
         var candidate = new DownloadCandidate(
             plugin.Id, plugin.Name, "The Song", "The Artist", null,
             null, "https://stub/1", MatchConfidence.High);
@@ -230,6 +234,58 @@ public class ManualDownloadServiceTests
         {
             Assert.That(result.Success, Is.False);
             Assert.That(result.Error, Does.Contain("geo-blocked"));
+
+            var progress = manager.SnapshotProgress().Single();
+            Assert.That(progress.Status, Is.EqualTo("failed"),
+                "a failed pick must not leave the overview on downloading");
+            Assert.That(progress.Plugin, Is.EqualTo(plugin.Name));
+            Assert.That(progress.Warning, Does.Contain("geo-blocked"));
+        });
+    }
+
+    [Test]
+    public async Task DownloadUrl_ReportsTheRenamedFileAsDone()
+    {
+        var plugin = new StubPlugin();
+        var metadata = new StubMetadataResolver(new UrlTrackMetadata(
+            "Resolved Artist", "Resolved Title", TimeSpan.FromSeconds(2)));
+        var (service, manager) = Create(plugin, metadata);
+
+        var result = await service.DownloadUrlAsync(
+            "https://example.com/song", null, null, _dir);
+
+        Assert.That(result.Success, Is.True, result.Error);
+        var progress = manager.SnapshotProgress().Single();
+        Assert.Multiple(() =>
+        {
+            Assert.That(progress.Status, Is.EqualTo("done"));
+            Assert.That(progress.Title, Is.EqualTo("Resolved Title"));
+            Assert.That(progress.Plugin, Is.EqualTo(plugin.Name));
+            Assert.That(progress.FilePath, Is.EqualTo(result.FilePath),
+                "the overview must point at the renamed file, not the temporary one");
+        });
+    }
+
+    [Test]
+    public async Task DownloadUrl_ReportsTheSourcesFailureAsFailed()
+    {
+        var plugin = new StubPlugin
+        {
+            Succeeds = false,
+            Error = "the source is geo-blocked",
+        };
+        var (service, manager) = Create(plugin);
+
+        var result = await service.DownloadUrlAsync(
+            "https://example.com/song", "Given Artist", "Given Title", _dir);
+
+        Assert.That(result.Success, Is.False);
+        Assert.That(result.Error, Does.Contain("geo-blocked"));
+        var progress = manager.SnapshotProgress().Single();
+        Assert.Multiple(() =>
+        {
+            Assert.That(progress.Status, Is.EqualTo("failed"));
+            Assert.That(progress.Warning, Does.Contain("geo-blocked"));
         });
     }
 
@@ -262,6 +318,28 @@ public class ManualDownloadServiceTests
             Assert.That(TaglibHelper.ReadMelodyId(result.FilePath!), Does.StartWith("manual-"),
                 "a direct link download is scannable too");
         });
+    }
+
+    [Test]
+    public async Task DownloadUrl_DoesNotRepeatTheArtistFromTheSourceTitle()
+    {
+        var plugin = new StubPlugin();
+        var metadata = new StubMetadataResolver(new UrlTrackMetadata(
+            "Daft Punk", "Daft Punk - Get Lucky", TimeSpan.FromSeconds(2)));
+        var service = Service(plugin, metadata);
+
+        var result = await service.DownloadUrlAsync(
+            "https://example.com/get-lucky", null, null, _dir);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.True, result.Error);
+            Assert.That(Path.GetFileName(result.FilePath),
+                Is.EqualTo("Daft Punk - Get Lucky.mp3"));
+        });
+
+        using var tags = TagLib.File.Create(result.FilePath!);
+        Assert.That(tags.Tag.Title, Is.EqualTo("Get Lucky"));
     }
 
     [Test]

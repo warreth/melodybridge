@@ -144,6 +144,12 @@ public interface IDownloadManager
 {
     Task<string?> DownloadAsync(string sourceUrl, string outputDirectory, string melodyId, CancellationToken ct = default);
     /// <summary>
+    /// Replaces the live progress entry for a manual download after the file
+    /// is renamed and tagged, so the overview shows the path that exists and
+    /// a failed pick never stays on "downloading".
+    /// </summary>
+    void ReportProgress(DownloadProgress progress);
+    /// <summary>
     /// Search for the track through the plugin waterfall, download it into
     /// outputDirectory, tag the MELODY_ID, return the path. The query
     /// carries the playlist's advertised duration and the ISRC when known;
