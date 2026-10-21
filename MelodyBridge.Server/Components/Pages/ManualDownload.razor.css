@@ -1,0 +1,86 @@
+/* Manual download: two entry cards side by side, the save options above
+   them, and the saved result under the fold. Everything stacks cleanly on
+   a tablet and a phone. */
+.manual-options { margin-bottom: 1rem; }
+
+.manual-options-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.4fr) minmax(260px, 1fr);
+    gap: 1.25rem;
+    align-items: start;
+}
+
+.manual-field {
+    display: grid;
+    gap: .4rem;
+    min-width: 0;
+}
+
+.manual-field .eyebrow { margin: 0; }
+.manual-field small { line-height: 1.45; }
+
+.manual-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+    align-items: start;
+}
+
+.manual-form {
+    display: grid;
+    gap: .6rem;
+    margin-top: .75rem;
+}
+
+.manual-form .btn-modern { justify-content: center; }
+
+.manual-link-fields {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: .6rem;
+}
+
+.manual-hint {
+    margin: .65rem 0 0;
+    font-size: .85rem;
+    line-height: 1.5;
+}
+
+.manual-error {
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    margin-top: .75rem;
+    color: var(--danger);
+}
+
+.manual-saved { margin-top: 1rem; }
+
+.manual-path {
+    margin: .25rem 0 .75rem;
+    overflow-wrap: anywhere;
+}
+
+.manual-path code {
+    padding: .35rem .5rem;
+    border-radius: 6px;
+    background: var(--surface-3);
+    color: var(--text);
+    font-size: .82rem;
+}
+
+.manual-warning {
+    display: flex;
+    align-items: flex-start;
+    gap: .5rem;
+    margin-top: .75rem;
+}
+
+@media (max-width: 900px) {
+    .manual-options-grid,
+    .manual-grid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 640px) {
+    .manual-link-fields { grid-template-columns: 1fr; }
+}

@@ -123,6 +123,10 @@ public class SoundCloudDownloader : IDownloader
             if (file is null)
                 return new DownloaderDownloadResult(false, null, "no output file found");
 
+            // Some SoundCloud uploads arrive as opus inside a .webm, which
+            // TagLib cannot tag. Remux losslessly so the MELODY_ID survives.
+            file = YtDlpDownloader.RemuxWebmToOpus(file) ?? file;
+
             // Quality gate: reject low-bitrate rips so bad files never land
             // in the library. A requested band floor above 128 tightens it.
             // A rejected file is deleted, not left for the scanner to find.

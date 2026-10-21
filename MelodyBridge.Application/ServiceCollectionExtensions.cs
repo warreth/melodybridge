@@ -272,6 +272,10 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IDownloadManager, DownloadManager>();
         services.AddSingleton<DownloadCoordinator>();
         services.AddSingleton<IDownloadCoordinator>(sp => sp.GetRequiredService<DownloadCoordinator>());
+        // Manual downloads: link metadata through yt-dlp, then the same
+        // plugins and manager a playlist track uses.
+        services.AddSingleton<IUrlMetadataResolver, YtDlpUrlMetadataResolver>();
+        services.AddSingleton<ManualDownloadService>();
         // The auto-sync scheduler starts runs through the Core trigger,
         // so Infrastructure never has to reference Application.
         services.AddSingleton<IDownloadTrigger>(sp => sp.GetRequiredService<DownloadCoordinator>());

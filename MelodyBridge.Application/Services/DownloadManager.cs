@@ -341,6 +341,9 @@ public class DownloadManager : IDownloadManager
                         _health.RecordFailure(downloader.Id);
                         continue;
                     }
+                    // A link download is adopted by the same scanner as any
+                    // other file, so it needs the identity tag too.
+                    TaglibHelper.WriteMelodyId(result.FilePath, melodyId);
                     _health.RecordSuccess(downloader.Id);
                     _lastPlugin[melodyId] = downloader.Id;
                     return result.FilePath;

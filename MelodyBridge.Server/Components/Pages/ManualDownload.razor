@@ -1,0 +1,259 @@
+@page "/download"
+@using MelodyBridge.Application.Services
+@inject ManualDownloadService Manual
+@inject SettingsStore Settings
+@inject NotificationService Notifications
+@inject IJSRuntime JS
+
+<PageTitle>Download a song - MelodyBridge</PageTitle>
+
+<section class="page-title">
+    <div>
+        <span class="eyebrow">Your music</span>
+        <h1>Download a song</h1>
+        <p>Search every source by name and inspect the exact recording, or
+            paste a link and let the plugins fetch it. A manual download is
+            tagged and named like any other file in your library.</p>
+    </div>
+    <div class="topbar-actions">
+        <a class="btn-modern secondary" href="/downloads">
+            <Icon Name="download" Size="16" /> Downloads overview
+        </a>
+    </div>
+</section>
+
+<section class="panel-card manual-options">
+    <div class="manual-options-grid">
+        <label class="manual-field">
+            <span class="eyebrow">Save to</span>
+            <input class="search-input" @bind="targetDirectory" placeholder="/music" />
+            <small class="text-muted">
+                An absolute folder. Files are named Artist - Title and keep
+                their source tags.
+            </small>
+        </label>
+        <QualityPicker @bind-Value="quality" />
+    </div>
+</section>
+
+<div class="manual-grid">
+    <section class="panel-card">
+        <div class="panel-header">
+            <div>
+                <span class="eyebrow">By name</span>
+                <h2>Search every source</h2>
+            </div>
+        </div>
+        <form class="manual-form" @onsubmit="SearchSourcesAsync" @onsubmit:preventDefault>
+            <input class="search-input" @bind="query"
+                   placeholder="Artist - Title, or just the title"
+                   aria-label="Search by artist and title" />
+            <button class="btn-modern primary" type="submit"
+                    disabled="@string.IsNullOrWhiteSpace(query)">
+                <Icon Name="search" Size="16" /> Search sources
+            </button>
+        </form>
+        <p class="text-muted manual-hint">
+            Use "Artist - Title" for the best matches. Every enabled plugin is
+            searched at the same time, and the results appear as they answer.
+            Nothing is downloaded until you pick one.
+        </p>
+    </section>
+
+    <section class="panel-card">
+        <div class="panel-header">
+            <div>
+                <span class="eyebrow">By link</span>
+                <h2>Paste a link</h2>
+            </div>
+        </div>
+        <form class="manual-form" @onsubmit="DownloadLinkAsync" @onsubmit:preventDefault>
+            <input class="search-input" @bind="linkUrl"
+                   placeholder="https://www.youtube.com/watch?v=..."
+                   aria-label="Song link" />
+            <div class="manual-link-fields">
+                <input class="search-input" @bind="linkArtist"
+                       placeholder="Artist (optional)" aria-label="Artist" />
+                <input class="search-input" @bind="linkTitle"
+                       placeholder="Title (optional)" aria-label="Title" />
+            </div>
+            <button class="btn-modern primary" type="submit"
+                    disabled="@(!CanDownloadLink || linkBusy)">
+                @if (linkBusy)
+                {
+                    <span class="spinner"></span>
+                    <span>Downloading...</span>
+                }
+                else
+                {
+                    <Icon Name="download" Size="16" />
+                    <span>Download link</span>
+                }
+            </button>
+        </form>
+        <p class="text-muted manual-hint">
+            YouTube, SoundCloud, Bandcamp and other links your enabled plugins
+            handle. Leave the fields empty to read the artist and title from
+            the source itself.
+        </p>
+        @if (linkError is { Length: > 0 })
+        {
+            <div class="hint-box danger manual-error" role="alert">
+                <Icon Name="alert" Size="16" /> @linkError
+            </div>
+        }
+    </section>
+</div>
+
+@if (lastResult is { Success: true } saved)
+{
+    <section class="panel-card manual-saved">
+        <div class="panel-header">
+            <div>
+                <span class="eyebrow">Saved</span>
+                <h2>@Path.GetFileName(saved.FilePath)</h2>
+            </div>
+            <StatusPill Variant="ok">Downloaded</StatusPill>
+        </div>
+        <p class="manual-path"><code>@saved.FilePath</code></p>
+        <div class="flex-actions">
+            <button class="btn-modern secondary" @onclick="CopyPathAsync">
+                <Icon Name="copy" Size="14" /> Copy path
+            </button>
+            <a class="btn-modern ghost" href="/library">Open Library</a>
+        </div>
+        <p class="text-muted manual-hint">
+            @if (saved.PluginName is { Length: > 0 })
+            {
+                <span>Delivered by @saved.PluginName. </span>
+            }
+            The scanner adds the file to your library on its next run.
+        </p>
+        @if (saved.Warning is { Length: > 0 })
+        {
+            <div class="hint-box manual-warning">
+                <Icon Name="info" Size="16" /> @saved.Warning
+            </div>
+        }
+    </section>
+}
+
+<SourcePicker Request="pickerRequest" OnClose="ClosePicker" />
+
+@code {
+    private string targetDirectory = string.Empty;
+    private string quality = "auto";
+    private string query = string.Empty;
+    private string linkUrl = string.Empty;
+    private string linkArtist = string.Empty;
+    private string linkTitle = string.Empty;
+    private string? linkError;
+    private bool linkBusy;
+    private SourcePickerRequest? pickerRequest;
+    private ManualDownloadResult? lastResult;
+
+    private bool CanDownloadLink => !string.IsNullOrWhiteSpace(linkUrl) && !linkBusy;
+
+    protected override async Task OnInitializedAsync()
+    {
+        targetDirectory = await Settings.GetAsync("music_path", "/music");
+        quality = await Settings.GetAsync("default_quality", "auto");
+    }
+
+    /// <summary>
+    /// Opens the shared picker. The search streams into it, and a pick
+    /// names the file from the same "Artist - Title" split the search used.
+    /// </summary>
+    private Task SearchSourcesAsync()
+    {
+        var raw = (query ?? string.Empty).Trim();
+        if (raw.Length == 0) return Task.CompletedTask;
+
+        var (artist, title) = ManualDownloadService.ParseQuery(raw);
+        var wanted = PlaylistStore.ParseQuality(quality);
+        pickerRequest = new SourcePickerRequest(
+            Key: $"manual-{Guid.NewGuid():N}",
+            Title: title,
+            Artist: string.IsNullOrWhiteSpace(artist) ? null : artist,
+            DurationMs: null,
+            TargetQuality: wanted,
+            TargetQualityLabel: QualityPresets.LabelFor(quality),
+            SearchAsync: (onCandidate, ct) => Manual.SearchAsync(raw, wanted, onCandidate, ct),
+            ProbeAsync: (candidate, ct) => Manual.ProbeAsync(candidate, ct),
+            DownloadAsync: candidate => DownloadPickedAsync(raw, wanted, candidate),
+            Intro: "Results appear as each plugin answers. Pick the exact recording; " +
+                "nothing is downloaded until you choose one.");
+        return Task.CompletedTask;
+    }
+
+    private void ClosePicker() => pickerRequest = null;
+
+    private async Task<SourcePickResult> DownloadPickedAsync(
+        string rawQuery, DownloadQuality wanted, DownloadCandidate candidate)
+    {
+        var result = await Manual.DownloadCandidateAsync(
+            rawQuery, candidate, targetDirectory, wanted);
+        if (!result.Success)
+            return SourcePickResult.Failed(result.Error ?? "The download did not complete.");
+
+        Remember(result);
+        return SourcePickResult.Success(
+            $"Saved '{Path.GetFileName(result.FilePath)}' to {Path.GetDirectoryName(result.FilePath)}.");
+    }
+
+    private async Task DownloadLinkAsync()
+    {
+        linkError = null;
+        if (!ManualDownloadService.TryParseLink(linkUrl, out _))
+        {
+            linkError = "Paste a full http or https link.";
+            return;
+        }
+
+        linkBusy = true;
+        try
+        {
+            var result = await Manual.DownloadUrlAsync(
+                linkUrl, linkArtist, linkTitle, targetDirectory);
+            if (!result.Success)
+            {
+                linkError = result.Error ?? "The link could not be downloaded.";
+                return;
+            }
+
+            Remember(result);
+            Notifications.Success($"Saved '{Path.GetFileName(result.FilePath)}'.");
+        }
+        finally
+        {
+            linkBusy = false;
+        }
+    }
+
+    /// <summary>
+    /// Stores the result for the saved card. A warning comes from the
+    /// integrity check, never from a guess, and stays visible on the card
+    /// after the toast is gone.
+    /// </summary>
+    private void Remember(ManualDownloadResult result)
+    {
+        lastResult = result;
+        if (result.Warning is { Length: > 0 } warning)
+            Notifications.Warn(warning);
+    }
+
+    private async Task CopyPathAsync()
+    {
+        if (lastResult?.FilePath is not { Length: > 0 } path) return;
+        try
+        {
+            var copied = await JS.InvokeAsync<bool>("melody.copyText", path);
+            if (copied) Notifications.Success("Path copied.");
+            else Notifications.Warn("The browser would not let the page copy the path.");
+        }
+        catch
+        {
+            Notifications.Warn("The browser would not let the page copy the path.");
+        }
+    }
+}
