@@ -14,7 +14,7 @@
         <span class="eyebrow">System</span>
         <div class="title-with-help">
             <h1>Advanced</h1>
-            <HelpTip Path="reference#the-advanced-page" Text="Download limits, the dedup toggle, display, logging and maintenance options." />
+            <HelpTip Path="reference#the-advanced-page" Text="Developer tools, download limits, the dedup toggle, display, logging and maintenance options." />
         </div>
         <p>Interface and maintenance details most people never need to touch.</p>
     </div>
@@ -41,10 +41,10 @@
             <span>Show developer tools and technical details</span>
         </label>
         <div class="hint-box">
-            Adds the Dev panel to the sidebar: raw request logs, provider
-            tests and download attempts. It also reveals the longer notes
-            about unofficial accounts. Leave it off for the everyday
-            interface.
+            Adds the Dev panel to the sidebar: runtime and database facts,
+            plugin health, provider tests, download attempts and raw request
+            logs. It also reveals the longer notes about unofficial accounts.
+            Leave it off for the everyday interface.
         </div>
         @if (DevPanel.Enabled)
         {

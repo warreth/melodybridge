@@ -49,6 +49,14 @@ MelodyBridge downloads.
 
 <img src="/screens/playlists.webp" alt="Playlists page with saved playlists and their download progress" width="800">
 
+## One song at a time
+
+Need a single track rather than a playlist? Open **Downloads** and press
+**Download a song**. Search by artist and title and pick the exact recording in
+the source picker, or paste a YouTube, SoundCloud or Bandcamp link. The file
+lands in your music folder with the same tags and `MELODY_ID` as a playlist
+download, and the scanner adds it to your library on its next run.
+
 ::: tip Paths inside the container
 MelodyBridge only sees the container side of your volumes, so every path you type
 in the app is a container path: the music folder is `/music`, not `C:\Music` or

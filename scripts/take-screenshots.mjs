@@ -48,6 +48,8 @@ const ROUTES = [
   ['/playlists', 'playlists'],
   [null, 'playlist-details'],
   [null, 'playlist-tracks', { scrollTo: 'table.track-table' }],
+  ['/downloads', 'downloads'],
+  ['/download', 'download'],
   ['/library', 'library'],
   ['/plugins', 'plugins'],
   ['/sync-jobs', 'sync'],

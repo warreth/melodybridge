@@ -237,6 +237,9 @@ archive copies.
 
 - The filter box narrows the list; **Needs attention** shows only failed tracks
   and tracks waiting for a dedup or quality decision.
+- The table shows the first 100 rows. **Show 100 more** adds the next page and
+  **Show all** renders the rest. Sorting and filters still apply to every track,
+  not only the visible page.
 - **Choose source** opens the manual picker: every enabled plugin's search
   results for that track, best guess first, each with the plugin name and a
   likely/unsure pill. The track's own length sits at the top and every hit
@@ -291,6 +294,52 @@ archive copies.
 
 <img src="/screens/source-picker.webp" alt="Choose source dialog with filters, exact quality facts and target match pills" width="800">
 
+## The Downloads page
+
+<img src="/screens/downloads.webp" alt="Downloads page with live playlist runs and recent track activity" width="800">
+
+The Downloads page is the live view of the download engine. It refreshes every
+second while it is open.
+
+- **Playlist runs** lists every run that is running, paused or cancelling. Each
+  card shows tracks done, failed and queued, an expected finish time, the track
+  and plugin it is on, and buttons for **Pause**, **Resume**, **Cancel** and
+  **Open playlist**. Several tracks of a playlist download in parallel; the
+  limit is on the Advanced page. Every track is attempted once per run, so one
+  broken track cannot stall the rest.
+- **Track activity** lists recent track downloads from the last 30 minutes,
+  including the plugin, the status and the saved path. A failed entry keeps the
+  reason, and a pick that fails never stays on "downloading".
+- The cards at the top count the runs in progress, the tracks downloading now,
+  and what finished or failed in the last 30 minutes.
+- **Download a song** opens the manual download page described below.
+
+### Download a song
+
+<img src="/screens/download.webp" alt="Download a song page with source search, link fields and quality controls" width="800">
+
+Open it with **Download a song** on the Downloads page. There are two ways to use
+it:
+
+- **Search every source** takes `Artist - Title` (the title alone also works)
+  and searches every enabled plugin at once through the same source picker as a
+  playlist row. Results stream in with the plugin, match confidence, duration
+  and quality. Nothing downloads until you pick a result. A successful pick
+  closes the picker and saves the file; a failed pick stays open with the
+  reason. The picker keeps its filters while it stays open.
+- **Paste a link** accepts a YouTube, SoundCloud, Bandcamp or other URL that an
+  enabled plugin can handle. Artist and title are optional; when you leave them
+  empty, MelodyBridge reads them from the source. The plugin delivers the file,
+  then MelodyBridge writes the tags and stamps the `MELODY_ID`.
+
+**Save to** defaults to the music path and accepts any absolute folder. The file
+is named `Artist - Title`, keeps its source tags, and joins the library on the
+next scan. The saved card shows the path, the plugin that delivered it and any
+warning, with **Copy path** and **Open Library** actions.
+
+The quality picker applies to search picks. A direct link downloads the source's
+own stream, then tags and verifies the file.
+
 ## The Plugins page
 
 <img src="/screens/plugins.webp" alt="Plugins page with order controls, route preview, per-plugin status and capability badges" width="800">
@@ -337,10 +386,9 @@ track.
   the previous "unavailable" answer. Status probes run in parallel, so one slow
   provider does not hold up the rest; each card shows a checking state while its
   probe runs.
-- **Live downloads** shows each running playlist with its progress and the track
-  it is on, plus **Pause**, **Resume** and **Cancel** buttons. Several tracks of
-  a playlist download in parallel; the limit is set on the Advanced page. Every
-  track is attempted once per run, so one broken track cannot stall the rest.
+- Live playlist runs and recent track activity are on the
+  [Downloads page](/reference#the-downloads-page), so this page stays focused on
+  plugin setup and status.
 
 ## The Library page
 
@@ -353,12 +401,18 @@ automatically.
 - Each location has its own schedule (manual, hourly, daily, weekly, monthly or
   cron) and an optional **Live monitoring** toggle that rescans when files
   change. **Run scan** does all folders immediately.
+- The cards at the top show how many files carry a `MELODY_ID`, the total size
+  of the main files and archive copies, the number and size of the archive
+  copies, and how many scan folders are archive folders.
 - The scanner reads tags, not filenames, and matches files to playlist tracks by
   their `MELODY_ID` tag, so a song you already have is never downloaded again.
-  Location cards show how many files with a `MELODY_ID` they hold, the schedule,
-  the last scan, and a **path missing** pill when the folder went away. A folder
+  Location cards show their own file count and folder size, the schedule, the
+  last scan, and a **path missing** pill when the folder went away. A folder
   that sits in a configured archive path is marked **archive folder**: its files
   are copies and are never adopted as a track's main file.
+- Sizes use the stored file size when a track has one and read the file from
+  disk otherwise. Archive copies are counted where they live, so an archive
+  folder reports the real number and size of its files.
 - The **Track identity** panel on the right repeats the short version of how
   matching works. The long version is in [How it works](/concepts).
 
@@ -366,8 +420,12 @@ automatically.
 
 <img src="/screens/advanced.webp" alt="Advanced page with download, display, logging and maintenance options" width="800">
 
-The knobs most people never need, in four panels:
+The knobs most people never need, in five panels:
 
+- **Advanced mode**: *Show developer tools and technical details* adds the Dev
+  panel to the sidebar and reveals the longer notes about unofficial accounts.
+  The setting is stored and survives a restart. Leave it off for the everyday
+  interface.
 - **Downloads**: *Max simultaneous track downloads* (1 to 8, default 2; the next
   run picks up a change), *Plugin time budget* and *Track time budget* (in
   seconds: how long one plugin and one whole track may take before the waterfall
@@ -389,6 +447,33 @@ The knobs most people never need, in four panels:
   written, so artwork a plugin embedded is left alone. It reports how many files
   changed, how many were already complete and how many could not be read.
 
+## The Dev panel <Badge type="warning" text="Advanced" />
+
+<img src="/screens/dev-panel.webp" alt="Dev panel with runtime facts, database counts and plugin health" width="800">
+
+Turn on **Advanced mode** on the Advanced page to add the Dev panel to the
+sidebar. It is a live toolbox for checking the app and its plugins.
+
+- **Diagnostics** reads the running process and the real SQLite file: version,
+  environment, runtime, OS, architecture, uptime, database path and size, WAL
+  size, and row counts for playlists, tracks, downloads, failures, sync jobs,
+  scan locations and settings. **Refresh** reads them again.
+- **Health** runs each registered plugin's own availability check with
+  **Probe all**. Probes run in parallel, each plugin gets 15 seconds, and the
+  result shows ready or unavailable, the reason the plugin gave, whether it is
+  enabled, and how long the check took.
+- **Copy report** puts the runtime facts, database counts, plugin health and the
+  last warnings and errors on your clipboard for a bug report. Secrets in URLs
+  are masked.
+- The search and direct download tools use the normal plugin pipeline. Search
+  asks each plugin for its best hit; direct download takes a URL and either a
+  chosen plugin or the whole waterfall. Files land in a temporary dev folder,
+  not your library.
+- The queue on this page is a test queue for those tools, separate from real
+  playlist runs. The live queue is on the Downloads page.
+- The **Log viewer** shows every collected log entry with a level filter and a
+  text search. **Copy** copies the visible rows.
+
 ## The Logs page
 
 <img src="/screens/logs.webp" alt="Logs page with the filterable event stream" width="800">
@@ -409,6 +494,9 @@ are errors, a banner at the top lists them; click one to jump to that area.
   you read it; resuming catches up at once. **Group by track** puts one
   download attempt's search, skip reasons, download and verification under the
   same track header.
+- The stream renders the newest 200 matching entries. **Show 200 more entries**
+  appends the next page. The filters, counts and **Copy** and **Export** actions
+  cover the whole buffer, not only the rows in view.
 - Each row has **Copy** and **Pin**. A pinned entry moves to the pinned card
   above the stream and stays there while it updates; **Clear** empties the
   pinned list. **Show only problems** narrows everything down to errors.
@@ -441,4 +529,7 @@ disagree about a track's quality and you get to pick, see
 [How it works](/concepts).
 
 One more place to look: the **Connections** panel on the dashboard shows the
-state of Spotify, YouTube, your media servers and FlareSolverr at a glance.
+state of Spotify, YouTube, your media servers and FlareSolverr at a glance. A
+media server profile that exists but is not usable says **not configured**, not
+ready. A connected server names the account and host it reached, and a server
+that did not answer says **unreachable** with the reason.

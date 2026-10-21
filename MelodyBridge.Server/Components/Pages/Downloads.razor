@@ -9,8 +9,11 @@
 <section class="page-title">
     <div>
         <span class="eyebrow">Your music</span>
-        <h1>Downloads</h1>
-        <p>Playlist runs and single-track downloads, live from the download
+        <div class="title-with-help">
+            <h1>Downloads</h1>
+            <HelpTip Path="reference#the-downloads-page" Text="Live playlist runs and recent track downloads. Pause or cancel a run, or open Download a song." />
+        </div>
+        <p>Playlist runs and recent track downloads, live from the download
             engine. Pause a run, cancel it, or start one song by hand.</p>
     </div>
     <div class="topbar-actions">
@@ -163,7 +166,7 @@ else
         @if (activeTracks.Count == 0 && recentTracks.Count == 0)
         {
             <div class="hint-box">
-                No single-track activity in the last 30 minutes. Playlist runs
+                No track downloads in the last 30 minutes. Playlist runs
                 still show above while they work through their queue.
             </div>
         }

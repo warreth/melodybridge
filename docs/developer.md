@@ -242,6 +242,7 @@ public interface IDownloadManager
         TrackQuery query, CancellationToken ct = default);
     Task<string?> DownloadCandidateAsync(DownloadCandidate candidate, TrackQuery query,
         string outputDirectory, string melodyId, CancellationToken ct = default);
+    void ReportProgress(DownloadProgress progress);
     IReadOnlyList<DownloadProgress> SnapshotProgress();
     string? LastPluginId(string melodyId);
     string? LastFailure(string melodyId);
@@ -260,7 +261,11 @@ claim and the shared post-download steps (`CompleteDownloadAsync`: tags,
 integrity, enrichment, archive), deletes the row's old primary and archive
 name-wise first, and refuses when those cannot go.
 
-`DownloadTrackAsync` routes the enabled plugins through `QualityRouter` first: incompatible plugins are excluded before any network call, survivors are ranked for the request, and the first successful download wins. Without a fallback policy the request is strict: exactly the requested quality or nothing. With a `DownloadFallback` (a non-strict playlist) a miss walks the `QualityLadder`, stepping down through the levels the enabled plugins declare. Every plugin call is individually guarded (a plugin that throws on availability, search or download is skipped, never fatal), each hit is duration-checked before any bytes are spent, and each produced file must sniff as real audio. When every plugin is excluded the track fails fast with "your quality filters excluded every plugin". On success the manager writes the MELODY_ID tag and records `LastPluginId` for the retry path. `DownloadAsync` passes a direct URL to the plugins that can handle it.
+`DownloadTrackAsync` routes the enabled plugins through `QualityRouter` first: incompatible plugins are excluded before any network call, survivors are ranked for the request, and the first successful download wins. Without a fallback policy the request is strict: exactly the requested quality or nothing. With a `DownloadFallback` (a non-strict playlist) a miss walks the `QualityLadder`, stepping down through the levels the enabled plugins declare. Every plugin call is individually guarded (a plugin that throws on availability, search or download is skipped, never fatal), each hit is duration-checked before any bytes are spent, and each produced file must sniff as real audio. When every plugin is excluded the track fails fast with "your quality filters excluded every plugin". On success the manager writes the MELODY_ID tag and records `LastPluginId` for the retry path. `DownloadAsync` passes a direct URL to the plugins that can handle it and keeps
+the last plugin error so the caller can report it. `ReportProgress` replaces a
+manual download's live entry after the file is renamed and tagged, so the
+Downloads overview points at the saved path and a failed pick ends as failed
+instead of staying on "downloading".
 
 `avoidPluginId` drops one plugin from the whole call, ladder steps included. The quality review uses it when the user picks Retry: the flagged file's `Tracks.SourcePluginId` becomes the next attempt's avoid hint, so the provider that delivered the flagged file gets no second chance at the same track. The hint is one-shot (the store clears it when the attempt starts), and when nothing else can serve the request `LastFailure` says exactly that instead of "no source had this track".
 

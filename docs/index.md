@@ -37,4 +37,8 @@ features:
     title: Resilient library
     details: "Every file carries a source-derived MELODY_ID tag. Delete the database, re-add your playlists, and the music you already have links back. Nothing downloads twice."
     link: /concepts#surviving-a-database-wipe
+  - icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L21 21"/><path d="M10.5 7v7M8 9.5l2.5-2.5 2.5 2.5"/></svg>'
+    title: Single songs too
+    details: "Search every plugin for one track and pick the exact recording, or paste a YouTube, SoundCloud or Bandcamp link. It lands in the same library with the same tags."
+    link: /reference#the-downloads-page
 ---
