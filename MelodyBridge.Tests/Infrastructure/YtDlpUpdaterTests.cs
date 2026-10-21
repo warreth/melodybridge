@@ -41,6 +41,18 @@ public class YtDlpUpdaterTests
     }
 
     [Test]
+    public async Task GetVersion_AFailingBinaryIsNotProbedAgain()
+    {
+        var runner = new ScriptedRunner { Respond = (_, _) => (1, "", "boom") };
+        var updater = NewUpdater(runner, "/usr/local/bin/yt-dlp");
+
+        Assert.That(await updater.GetVersionAsync(), Is.Null);
+        Assert.That(await updater.GetVersionAsync(), Is.Null);
+        Assert.That(runner.Commands, Has.Count.EqualTo(1),
+            "a broken binary must not be started on every page visit");
+    }
+
+    [Test]
     public async Task GetVersion_ReadsTheBinary()
     {
         var runner = new ScriptedRunner { Respond = (_, _) => (0, "2026.08.19\n", "") };
@@ -48,6 +60,46 @@ public class YtDlpUpdaterTests
 
         Assert.That(await updater.GetVersionAsync(), Is.EqualTo("2026.08.19"));
         Assert.That(runner.Commands.Single(), Is.EqualTo("/usr/local/bin/yt-dlp --version"));
+    }
+
+    [Test]
+    public async Task GetVersion_SecondRead_ComesFromCache()
+    {
+        var runner = new ScriptedRunner { Respond = (_, _) => (0, "2026.08.19\n", "") };
+        var updater = NewUpdater(runner, "/usr/local/bin/yt-dlp");
+
+        Assert.That(await updater.GetVersionAsync(), Is.EqualTo("2026.08.19"));
+        Assert.That(await updater.GetVersionAsync(), Is.EqualTo("2026.08.19"));
+        Assert.That(runner.Commands, Has.Count.EqualTo(1),
+            "a version read must not start a second yt-dlp process");
+    }
+
+    [Test]
+    public async Task Update_ReplacesTheCachedVersion()
+    {
+        var current = "2026.08.19";
+        var runner = new ScriptedRunner
+        {
+            Respond = (_, args) =>
+            {
+                if (args.Contains("--version")) return (0, current + "\n", "");
+                current = "2026.10.14";
+                return (0, "yt-dlp is up to date", "");
+            },
+        };
+        var updater = NewUpdater(runner, "/usr/local/bin/yt-dlp");
+
+        Assert.That(await updater.GetVersionAsync(), Is.EqualTo("2026.08.19"));
+
+        var result = await updater.UpdateAsync();
+        var version = await updater.GetVersionAsync();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Message, Does.Contain("2026.10.14"));
+            Assert.That(version, Is.EqualTo("2026.10.14"),
+                "the old cached version must not survive an update");
+        });
     }
 
     [Test]

@@ -21,9 +21,14 @@ public class YtDlpUpdater
     internal delegate Task<(int Exit, string Stdout, string Stderr)> Runner(
         string program, IReadOnlyList<string> arguments, CancellationToken ct);
 
+    private static readonly TimeSpan VersionTtl = TimeSpan.FromMinutes(10);
+
     private readonly ILogger<YtDlpUpdater> _logger;
     private readonly Func<string?> _binary;
     private readonly Runner _runner;
+    private readonly SemaphoreSlim _versionGate = new(1, 1);
+    private string? _cachedVersion;
+    private long _versionReadAtTicks;
 
     public YtDlpUpdater(ILogger<YtDlpUpdater> logger)
         : this(logger, () => YtDlpProcess.BinaryPath, RunProcessAsync)
@@ -37,8 +42,50 @@ public class YtDlpUpdater
         _runner = runner;
     }
 
-    /// <summary>Version from "yt-dlp --version", or null when not installed.</summary>
+    /// <summary>
+    /// Version from "yt-dlp --version", or null when not installed. Starting
+    /// the yt-dlp process takes almost a second on some hosts, and the
+    /// Plugins page asks on every visit, so the answer is cached for a short
+    /// while and shared by callers that arrive together.
+    /// </summary>
     public virtual async Task<string?> GetVersionAsync(CancellationToken ct = default)
+    {
+        if (TryGetFresh(out var cached)) return cached;
+
+        await _versionGate.WaitAsync(ct);
+        try
+        {
+            // Another visitor may have filled the cache while this one waited.
+            if (TryGetFresh(out var cachedInside)) return cachedInside;
+            var version = await ReadVersionAsync(ct);
+            CacheVersion(version);
+            return version;
+        }
+        finally
+        {
+            _versionGate.Release();
+        }
+    }
+
+    /// <summary>The cached version while it is still fresh.</summary>
+    private bool TryGetFresh(out string? version)
+    {
+        version = null;
+        var readAt = Volatile.Read(ref _versionReadAtTicks);
+        if (readAt == 0) return false;
+        if (DateTimeOffset.UtcNow.UtcTicks - readAt >= VersionTtl.Ticks) return false;
+        version = Volatile.Read(ref _cachedVersion);
+        return true;
+    }
+
+    private void CacheVersion(string? version)
+    {
+        Volatile.Write(ref _cachedVersion, version);
+        Volatile.Write(ref _versionReadAtTicks, DateTimeOffset.UtcNow.UtcTicks);
+    }
+
+    /// <summary>Runs "yt-dlp --version" without consulting the cache.</summary>
+    private async Task<string?> ReadVersionAsync(CancellationToken ct)
     {
         var binary = _binary();
         if (binary is null) return null;
@@ -124,7 +171,10 @@ public class YtDlpUpdater
 
     private async Task<YtDlpUpdateResult> SuccessAsync(string how, CancellationToken ct)
     {
-        var version = await GetVersionAsync(ct);
+        // The update just replaced the binary, so this read must bypass the
+        // cached version and replace it with the new one.
+        var version = await ReadVersionAsync(ct);
+        CacheVersion(version);
         var message = version is null ? how : $"{how} Now on {version}.";
         _logger.LogInformation("yt-dlp update succeeded: {Message}", message);
         return new YtDlpUpdateResult(true, message);
