@@ -312,6 +312,105 @@
     margin-left: auto;
 }
 
+/* ── Diagnostics ── */
+.dev-diagnostics-section,
+.dev-health-section {
+    grid-column: 1 / -1;
+}
+
+.dev-diagnostics-section {
+    margin-bottom: 1rem;
+}
+
+.panel-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-left: auto;
+}
+
+.diag-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+}
+
+.diag-block {
+    min-width: 0;
+    padding: 0.75rem 1rem;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+}
+
+.fact-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    margin: 0.5rem 0 0;
+}
+
+.fact-list > div {
+    display: grid;
+    grid-template-columns: 110px minmax(0, 1fr);
+    gap: 0.75rem;
+    align-items: baseline;
+}
+
+.fact-list dt {
+    color: var(--muted);
+    font-size: 0.78rem;
+}
+
+.fact-list dd {
+    margin: 0;
+    font-size: 0.85rem;
+    overflow-wrap: anywhere;
+}
+
+.health-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
+}
+
+.health-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem 0.75rem;
+    padding: 0.6rem 0.75rem;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+}
+
+.health-name {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 160px;
+    min-width: 0;
+}
+
+.health-name strong {
+    font-size: 0.88rem;
+}
+
+.health-tags {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-left: auto;
+}
+
+.health-reason {
+    flex-basis: 100%;
+    margin: 0.25rem 0 0;
+    font-size: 0.78rem;
+    color: var(--muted);
+    overflow-wrap: anywhere;
+}
+
 /* ── Log viewer ── */
 .log-section {
     margin-bottom: 0;
@@ -391,11 +490,31 @@
     color: var(--muted);
 }
 
-/* ── Log filter buttons ── */
+/* ── Log tools and filter buttons ── */
+.dev-log-head {
+    flex-wrap: wrap;
+}
+
+.log-tools {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-left: auto;
+}
+
+.log-search {
+    min-width: 180px;
+    max-width: 280px;
+}
+
 .log-filters {
     display: flex;
     gap: 0.25rem;
     margin-left: auto;
+}
+
+.dev-log-head .log-filters {
+    margin-left: 0;
 }
 
 .btn-filter {
@@ -427,4 +546,23 @@
     .dev-layout { grid-template-columns: minmax(0, 1fr); }
     .search-row { flex-direction: column; align-items: stretch; }
     .search-provider-select { flex: 1 1 auto; min-width: 0; }
+    .diag-grid, .health-grid { grid-template-columns: 1fr; }
+    .dev-log-head { align-items: stretch; }
+    .log-tools, .dev-log-head .log-filters { margin-left: 0; }
+    .log-search { flex: 1 1 auto; max-width: none; min-width: 0; }
+}
+
+@media (max-width: 560px) {
+    .dev-diagnostics-section .panel-header,
+    .dev-health-section .panel-header {
+        flex-wrap: wrap;
+    }
+    .panel-actions {
+        width: 100%;
+        margin-left: 0;
+    }
+    .panel-actions .btn-modern {
+        flex: 1 1 auto;
+        justify-content: center;
+    }
 }

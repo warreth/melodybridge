@@ -79,6 +79,7 @@ builder.Services.AddSingleton<MelodyBridge.Core.IBackgroundFailureSink,
 var devPanel = new DevPanelService(logCollector);
 devPanel.Enabled = builder.Configuration.GetValue<bool>("DevPanel:Enabled");
 builder.Services.AddSingleton(devPanel);
+builder.Services.AddSingleton<DevDiagnosticsService>();
 
 // Data Protection: keys live in the default container location, no volume needed.
 // Existing Blazor circuits invalidate on restart, which is fine for a personal app.
