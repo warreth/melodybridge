@@ -85,3 +85,21 @@
 .archive-state-card strong { display: block; margin-bottom: .15rem; }
 .archive-state-card p { margin: 0; color: var(--muted); font-size: .88rem; overflow-wrap: anywhere; }
 .archive-warning { margin: .75rem 0 0; }
+
+/* One page of track rows at a time: the count and the two actions stay
+   together under the table, and stack once phone width is tight. */
+.track-pager {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: .75rem;
+    margin-top: .75rem;
+    padding-top: .75rem;
+    border-top: 1px solid var(--border);
+}
+
+@media (max-width: 640px) {
+    .track-pager { align-items: stretch; flex-direction: column; }
+    .track-pager .flex-actions { justify-content: stretch; }
+    .track-pager .flex-actions .btn-modern { flex: 1 1 auto; }
+}

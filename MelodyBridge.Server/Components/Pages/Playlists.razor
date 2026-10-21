@@ -909,6 +909,8 @@ else
     private HashSet<string> savedYouTubeIds = new();
 
     private Timer? refreshTimer;
+    /// <summary>The store stamp the badge refresh last saw, so an idle tick skips its query.</summary>
+    private long observedVersion;
 
     // Quick publish: one sync job per ticked playlist, named after it,
     // with the ticked schedule and targets. Playlists that already have a
@@ -1559,33 +1561,50 @@ else
 
     protected override async Task OnInitializedAsync()
     {
+        // The page needs six settings before it can render its controls.
+        // Read them in one query while the playlist list loads instead of
+        // opening six contexts and seven sequential connections.
+        var settingsTask = Settings.GetManyAsync(new[]
+        {
+            "default_quality", "music_path", "playlist_folders", "playlists_view", "playlists_sort",
+            MelodyBridge.Server.Services.DevPanelService.AdvancedSettingKey,
+        });
         await Load();
-        await LoadDefaultQualityAsync();
-        resolvedDefaultMusicPath = await Settings.GetAsync("music_path", "/music");
-        playlistFolders = await Settings.GetBoolAsync("playlist_folders", true);
-        playlistsView = await Settings.GetAsync("playlists_view", "cards");
+        var settings = await settingsTask;
+
+        var defaultQuality = settings.GetValueOrDefault("default_quality", "auto");
+        if (PlaylistStore.IsValidFormat(defaultQuality))
+        {
+            newQuality = defaultQuality;
+            savedDefaultQualityLabel = QualityLabel(defaultQuality);
+        }
+        resolvedDefaultMusicPath = settings.GetValueOrDefault("music_path", "/music");
+        playlistFolders = SettingsStore.ParseBool(settings.GetValueOrDefault("playlist_folders"), true);
+        playlistsView = settings.GetValueOrDefault("playlists_view", "cards");
         if (playlistsView is not ("cards" or "rows")) playlistsView = "cards";
-        playlistSort = await Settings.GetAsync("playlists_sort", "recent");
+        playlistSort = settings.GetValueOrDefault("playlists_sort", "recent");
         if (playlistSort is not ("recent" or "name" or "tracks")) playlistSort = "recent";
-        advancedMode = await Settings.GetBoolAsync(
-            MelodyBridge.Server.Services.DevPanelService.AdvancedSettingKey, false);
-        // Live badge refresh while any run is active.
+        advancedMode = SettingsStore.ParseBool(
+            settings.GetValueOrDefault(MelodyBridge.Server.Services.DevPanelService.AdvancedSettingKey), false);
+        observedVersion = Store.DataVersion;
+
+        // Refresh the badges while a run is moving, or once after the
+        // store changed. The old tick ran a GROUP BY over every track every
+        // two seconds even with nothing downloading, which is visible on a
+        // large library.
         refreshTimer = new Timer(_ => InvokeAsync(async () =>
         {
+            var active = Coordinator.Snapshot()
+                .Any(r => r.State != Application.Services.DownloadRunState.Finished);
+            var version = Store.DataVersion;
+            if (!active && version == observedVersion) return;
             downloadStats = await Store.GetDownloadStatsAsync();
+            // Remember the version from before the query, so a change that
+            // lands while the stats are loading triggers the next tick.
+            observedVersion = version;
             ReconcileSelectionWithVisible();
             StateHasChanged();
         }), null, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2));
-    }
-
-    private async Task LoadDefaultQualityAsync()
-    {
-        var raw = await Settings.GetAsync("default_quality", "auto");
-        if (PlaylistStore.IsValidFormat(raw))
-        {
-            newQuality = raw;
-            savedDefaultQualityLabel = QualityLabel(raw);
-        }
     }
 
     private async Task Load(bool showSkeleton = true)

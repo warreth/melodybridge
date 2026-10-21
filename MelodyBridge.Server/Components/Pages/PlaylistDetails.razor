@@ -332,6 +332,7 @@ else
         else
         {
             <TrackTable Tracks="@TrackRows"
+                        MaxRows="@visibleTrackCount"
                         ShowFilenameColumn="@showFilenameColumn"
                         ShowArchiveState="@(editArchiveEnabled && HasArchiveTarget)"
                         ArchiveStates="@archiveStates"
@@ -344,6 +345,18 @@ else
                         OnRemove="RemoveTrack"
                         OnArchiveAction="OpenArchiveDialog"
                         OnWarning="OpenArchiveDialog" />
+            @if (TrackRows.Count > visibleTrackCount)
+            {
+                <div class="track-pager">
+                    <span class="hint">Showing @Math.Min(visibleTrackCount, TrackRows.Count) of @TrackRows.Count tracks</span>
+                    <div class="flex-actions">
+                        <button class="btn-modern secondary" @onclick="ShowMoreTracks">
+                            Show @Math.Min(TrackPageSize, TrackRows.Count - visibleTrackCount) more
+                        </button>
+                        <button class="btn-modern ghost" @onclick="ShowAllTracks">Show all</button>
+                    </div>
+                </div>
+            }
         }
     </section>
 
@@ -602,12 +615,27 @@ else
     private async Task Load()
     {
         loading = true;
-        showFilenameColumn = await Settings.GetBoolAsync("show_filename", fallback: false);
-        resolvedDefaultMusicPath = await Settings.GetAsync("music_path", "/music");
-        playlistFolders = await Settings.GetBoolAsync("playlist_folders", true);
-        resolvedDefaultArchivePath = await Settings.GetAsync("archive_path", "");
-        resolvedDefaultArchiveFormat = await Settings.GetAsync("archive_format", "auto");
-        playlist = await Store.GetByIdAsync(PlaylistId);
+        // One settings read plus the playlist, not six round trips before
+        // the first row can render. Both queries are independent.
+        var settingsTask = Settings.GetManyAsync(new[]
+        {
+            "show_filename", "music_path", "playlist_folders", "archive_path", "archive_format",
+        });
+        var playlistTask = Store.GetByIdAsync(PlaylistId);
+        await Task.WhenAll(settingsTask, playlistTask);
+
+        var settings = await settingsTask;
+        playlist = await playlistTask;
+        showFilenameColumn = SettingsStore.ParseBool(settings.GetValueOrDefault("show_filename"), false);
+        resolvedDefaultMusicPath = settings.GetValueOrDefault("music_path", "/music");
+        playlistFolders = SettingsStore.ParseBool(settings.GetValueOrDefault("playlist_folders"), true);
+        resolvedDefaultArchivePath = settings.GetValueOrDefault("archive_path", "");
+        resolvedDefaultArchiveFormat = settings.GetValueOrDefault("archive_format", "auto");
+        if (loadedPlaylistId != PlaylistId)
+        {
+            loadedPlaylistId = PlaylistId;
+            visibleTrackCount = TrackPageSize;
+        }
         if (playlist is not null)
         {
             editName = playlist.Name;
@@ -1472,6 +1500,7 @@ else
     private void OnFilterChanged(ChangeEventArgs e)
     {
         trackFilter = e.Value?.ToString() ?? string.Empty;
+        visibleTrackCount = TrackPageSize;
         filteredCache = null;
     }
 
@@ -1510,6 +1539,15 @@ else
     /// </summary>
     private IReadOnlyList<TrackEntity>? filteredCache;
 
+    /// <summary>
+    /// Rows shown before the user asks for more. A thousand-track playlist
+    /// otherwise serializes, ships and renders every row before the first
+    /// screen is useful; filters and sorting still work over the full list.
+    /// </summary>
+    private const int TrackPageSize = 100;
+    private int visibleTrackCount = TrackPageSize;
+    private string? loadedPlaylistId;
+
     private IReadOnlyList<TrackEntity> TrackRows => filteredCache ??= FilteredTracks().ToList();
 
     private IEnumerable<TrackEntity> FilteredTracks()
@@ -1542,8 +1580,15 @@ else
     private void ToggleAttentionOnly()
     {
         attentionOnly = !attentionOnly;
+        visibleTrackCount = TrackPageSize;
         filteredCache = null;
     }
+
+    private void ShowMoreTracks()
+        => visibleTrackCount = Math.Min(visibleTrackCount + TrackPageSize, TrackRows.Count);
+
+    private void ShowAllTracks()
+        => visibleTrackCount = TrackRows.Count;
 
     public void Dispose()
     {

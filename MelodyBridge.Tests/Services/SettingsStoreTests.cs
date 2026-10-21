@@ -92,6 +92,45 @@ public class SettingsStoreTests
         finally { TryDelete(dbPath); }
     }
 
+    [Test]
+    public async Task GetManyAsync_ReturnsPresentValuesAndSkipsMissingKeys()
+    {
+        var dbPath = NewDbPath();
+        try
+        {
+            var store = await NewStoreAsync(dbPath);
+            await store.SetAsync("alpha", "one");
+            await store.SetAsync("beta", "true");
+            await store.SetAsync("blank", "");
+
+            var reader = await NewStoreAsync(dbPath);
+            var values = await reader.GetManyAsync(new[] { "alpha", "beta", "blank", "missing", "alpha" });
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(values, Has.Count.EqualTo(2), "blank and missing keys stay absent");
+                Assert.That(values["alpha"], Is.EqualTo("one"));
+                Assert.That(values["beta"], Is.EqualTo("true"));
+                Assert.That(values.ContainsKey("blank"), Is.False);
+                Assert.That(values.ContainsKey("missing"), Is.False);
+            });
+        }
+        finally { TryDelete(dbPath); }
+    }
+
+    [Test]
+    public async Task GetManyAsync_WithNoKeys_ReturnsEmptyWithoutTouchingTheDatabase()
+    {
+        var dbPath = NewDbPath();
+        try
+        {
+            var store = await NewStoreAsync(dbPath);
+            var values = await store.GetManyAsync(Array.Empty<string>());
+            Assert.That(values, Is.Empty);
+        }
+        finally { TryDelete(dbPath); }
+    }
+
     private static void TryDelete(string dbPath)
     {
         foreach (var suffix in new[] { "", "-wal", "-shm" })

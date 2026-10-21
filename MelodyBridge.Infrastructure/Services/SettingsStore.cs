@@ -21,10 +21,39 @@ public class SettingsStore
 
     /// <summary>Current value of a boolean key ("true"/"1" = on).</summary>
     public async Task<bool> GetBoolAsync(string key, bool fallback = false, CancellationToken ct = default)
+        => ParseBool(await ReadRawAsync(key, ct), fallback);
+
+    /// <summary>
+    /// Reads several keys in one query. A page that needs five settings
+    /// should not open five contexts and five connections on every load.
+    /// Missing and empty rows are absent from the result, so callers pass a
+    /// fallback through <see cref="GetValueOrDefault{T}"/> style lookups.
+    /// </summary>
+    public async Task<IReadOnlyDictionary<string, string>> GetManyAsync(
+        IEnumerable<string> keys, CancellationToken ct = default)
     {
-        var raw = await ReadRawAsync(key, ct);
-        return raw is null ? fallback : raw is "true" or "1";
+        var wanted = keys.Distinct(StringComparer.Ordinal).ToArray();
+        if (wanted.Length == 0)
+            return new Dictionary<string, string>(StringComparer.Ordinal);
+
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var rows = await db.DownloaderSettings.AsNoTracking()
+            .Where(s => wanted.Contains(s.Key))
+            .Select(s => new { s.Key, s.Value })
+            .ToListAsync(ct);
+
+        var values = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var row in rows)
+        {
+            if (!string.IsNullOrWhiteSpace(row.Value))
+                values[row.Key] = row.Value;
+        }
+        return values;
     }
+
+    /// <summary>The boolean reading used by both the single and bulk lookups.</summary>
+    public static bool ParseBool(string? raw, bool fallback)
+        => raw is null ? fallback : raw is "true" or "1";
 
     public async Task SetAsync(string key, string? value, CancellationToken ct = default)
     {

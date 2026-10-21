@@ -69,7 +69,7 @@
             {
                 <tr><td class="empty-row" colspan="@(Columns.Length + (ShowFilenameColumn ? 2 : 1))">No tracks match the filter.</td></tr>
             }
-            @foreach (var track in SortedTracks)
+            @foreach (var track in VisibleTracks)
             {
                 <tr @key="RowKey(track)">
                     <td class="text-muted col-position">@(track.Position + 1)</td>
@@ -229,6 +229,12 @@
 @code {
     /// <summary>Tracks to show, already filtered by the page.</summary>
     [Parameter, EditorRequired] public IReadOnlyList<TrackEntity> Tracks { get; set; } = Array.Empty<TrackEntity>();
+    /// <summary>
+    /// Rows rendered after sorting. The page starts at a screenful and asks
+    /// for more as the user scrolls, so a large playlist does not ship its
+    /// whole DOM on first render. Sorting still runs over every track.
+    /// </summary>
+    [Parameter] public int MaxRows { get; set; } = int.MaxValue;
     /// <summary>True when a page-level action is running: row buttons disable.</summary>
     [Parameter] public bool Busy { get; set; }
     /// <summary>The File column appears when the user opted in.</summary>
@@ -344,6 +350,33 @@
     }
 
     private IReadOnlyList<TrackEntity> SortedTracks => sortedCache ??= SortTracks();
+
+    /// <summary>
+    /// The sorted rows cut to <see cref="MaxRows"/>. Cached until the sort
+    /// result or the limit changes, so a progress tick does not copy the
+    /// visible page again. The full sorted list stays available for the
+    /// empty state and for the page's count.
+    /// </summary>
+    private IReadOnlyList<TrackEntity>? visibleCache;
+    private IReadOnlyList<TrackEntity>? visibleCacheSorted;
+    private int visibleCacheMaxRows = -1;
+
+    private IReadOnlyList<TrackEntity> VisibleTracks
+    {
+        get
+        {
+            var sorted = SortedTracks;
+            if (!ReferenceEquals(visibleCacheSorted, sorted) || visibleCacheMaxRows != MaxRows)
+            {
+                visibleCacheSorted = sorted;
+                visibleCacheMaxRows = MaxRows;
+                visibleCache = MaxRows >= sorted.Count
+                    ? sorted
+                    : sorted.Take(MaxRows).ToList();
+            }
+            return visibleCache!;
+        }
+    }
 
     /// <summary>
     /// Stable row identity for the diff: the database id for stored rows,
