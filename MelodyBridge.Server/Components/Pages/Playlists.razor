@@ -499,8 +499,14 @@ else
                                     {
                                         <p class="account-note">
                                             Runs on your Spotify web session, not the official API.
-                                            It can break when Spotify changes things, and the cookie is
-                                            a live credential of your account: a burner account is safest.
+                                            @if (advancedMode)
+                                            {
+                                                <text>
+                                                    It can break when Spotify changes things, and the
+                                                    cookie is a live credential of your account: a
+                                                    burner account is safest.
+                                                </text>
+                                            }
                                         </p>
                                     }
                                 }
@@ -895,6 +901,8 @@ else
         new("files", "Files"),
     ];
     private string importTab = "accounts";
+    /// <summary>Advanced mode reveals the longer unofficial-cookie risk note.</summary>
+    private bool advancedMode;
     private List<(string Name, bool Connected, bool Unofficial)> accountPanels = new();
     private HashSet<string> savedAccountIds = new();
     private HashSet<string> savedSpotifyIds = new();
@@ -1559,6 +1567,8 @@ else
         if (playlistsView is not ("cards" or "rows")) playlistsView = "cards";
         playlistSort = await Settings.GetAsync("playlists_sort", "recent");
         if (playlistSort is not ("recent" or "name" or "tracks")) playlistSort = "recent";
+        advancedMode = await Settings.GetBoolAsync(
+            MelodyBridge.Server.Services.DevPanelService.AdvancedSettingKey, false);
         // Live badge refresh while any run is active.
         refreshTimer = new Timer(_ => InvokeAsync(async () =>
         {

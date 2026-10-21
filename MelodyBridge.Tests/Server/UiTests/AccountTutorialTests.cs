@@ -81,17 +81,49 @@ public class AccountTutorialTests
             "step 3 says to paste the Client ID and connect");
 
         var cookieSteps = ordered[1].QuerySelectorAll("li");
-        Assert.That(cookieSteps.Count, Is.EqualTo(4), "four cookie steps");
+        Assert.That(cookieSteps.Count, Is.EqualTo(3),
+            "three cookie steps; the expiry note waits for advanced mode");
         Assert.That(cookieSteps[0].TextContent, Does.Contain("open.spotify.com"),
             "the cookie route starts at the web player");
         Assert.That(cookieSteps[2].TextContent, Does.Contain("sp_dc"),
             "the step names the cookie to copy");
+        Assert.That(cut.Markup, Does.Not.Contain("The cookie stops working"),
+            "the expiry explanation stays out of the everyday view");
+        Assert.That(cut.Markup, Does.Not.Contain("TOTP secrets URL"));
 
         var youtubeSteps = ordered[2].QuerySelectorAll("li");
         Assert.That(youtubeSteps.Count, Is.EqualTo(3), "three YouTube steps");
         Assert.That(youtubeSteps[0].TextContent, Does.Contain("console.cloud.google.com"));
         Assert.That(youtubeSteps[0].TextContent, Does.Contain("YouTube Data API"),
             "the YouTube step names the API to enable");
+    }
+
+    [Test]
+    public void CookieNotes_ExpiryExplanationAndSecretsUrl_ShowInAdvancedMode()
+    {
+        var factory = _ctx.Services.GetRequiredService<IDbContextFactory<MelodyBridgeDbContext>>();
+        using (var db = factory.CreateDbContext())
+        {
+            db.DownloaderSettings.Add(new DownloaderSettingEntity
+            {
+                Key = MelodyBridge.Server.Services.DevPanelService.AdvancedSettingKey,
+                Value = "true",
+            });
+            db.SaveChanges();
+        }
+
+        var cut = _ctx.Render<Settings>();
+
+        var cookieSteps = cut.FindAll("ol")[1].QuerySelectorAll("li");
+        Assert.Multiple(() =>
+        {
+            Assert.That(cookieSteps.Count, Is.EqualTo(4),
+                "advanced mode adds the expiry note as a fourth step");
+            Assert.That(cut.Markup, Does.Contain("The cookie stops working"));
+            Assert.That(cut.Markup, Does.Contain("TOTP secrets URL"));
+            Assert.That(cut.Markup, Does.Contain("live credential"),
+                "the full risk note is available on request");
+        });
     }
 
     [Test]
