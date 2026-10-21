@@ -43,6 +43,17 @@ public class AutoSyncBackgroundService : BackgroundService
 
                 foreach (var playlist in due)
                 {
+                    // Replacing the track snapshot while a download run is
+                    // walking its fixed work list would invalidate every
+                    // row id the run still holds. Wait until the run ends;
+                    // the playlist stays due and is picked up on a later poll.
+                    if (trigger?.IsActive(playlist.Id) == true)
+                    {
+                        _logger.LogInformation(
+                            "Skipping auto-sync for {Playlist}: a download run is active", playlist.Name);
+                        continue;
+                    }
+
                     try
                     {
                         _logger.LogInformation("Auto-syncing playlist {Playlist} ({Source})",

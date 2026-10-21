@@ -287,6 +287,10 @@ internal sealed class PlaylistQueries
         return await db.Playlists
             .Include(p => p.Tracks.OrderBy(t => t.Position))
             .AsNoTracking()
+            // Track rows are wide (lyrics, cover URL, measured facts) and a
+            // playlist can hold thousands. Split keeps the playlist columns
+            // from repeating on every track row.
+            .AsSplitQuery()
             .FirstOrDefaultAsync(p => p.Id == id, ct);
     }
 

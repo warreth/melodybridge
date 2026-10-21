@@ -14,6 +14,9 @@ public interface IDownloadTrigger
     /// </summary>
     Task<bool> HasPendingWorkAsync(string playlistId, CancellationToken ct = default);
 
+    /// <summary>True while a run for this playlist is running, paused or cancelling.</summary>
+    bool IsActive(string playlistId);
+
     /// <summary>Starts or resumes a run; a no-op while one is already active.</summary>
     void Start(string playlistId);
 }

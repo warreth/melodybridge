@@ -901,6 +901,7 @@ else
     private HashSet<string> savedYouTubeIds = new();
 
     private Timer? refreshTimer;
+    private long observedStatsVersion;
 
     // Quick publish: one sync job per ticked playlist, named after it,
     // with the ticked schedule and targets. Playlists that already have a
@@ -1289,6 +1290,11 @@ else
     private async Task RefreshPlaylist(PlaylistEntity playlist)
     {
         if (busy || playlist.IsManualImport) return;
+        if (Coordinator.IsActive(playlist.Id))
+        {
+            Notifications.Warn($"'{playlist.Name}' is downloading; refresh it after the run finishes.");
+            return;
+        }
         busy = true;
         Notifications.Info($"Refreshing '{playlist.Name}'…");
         StateHasChanged();
@@ -1363,6 +1369,7 @@ else
         StateHasChanged();
         var refreshed = 0;
         var skipped = 0;
+        var downloading = 0;
         var failed = 0;
         var failures = new List<string>();
         Notifications.Info($"Refreshing {selected.Count} playlist{(selected.Count == 1 ? "" : "s")}…");
@@ -1373,6 +1380,11 @@ else
                 if (playlist.IsManualImport)
                 {
                     skipped++;
+                    continue;
+                }
+                if (Coordinator.IsActive(playlist.Id))
+                {
+                    downloading++;
                     continue;
                 }
                 try
@@ -1395,6 +1407,7 @@ else
         }
         var summary = $"Refreshed {refreshed} playlist{(refreshed == 1 ? "" : "s")}";
         if (skipped > 0) summary += $"; {skipped} import{(skipped == 1 ? "" : "s")} skipped";
+        if (downloading > 0) summary += $"; {downloading} downloading skipped";
         if (failed > 0) summary += $"; {failed} failed";
         if (failed > 0)
         {
@@ -1559,10 +1572,16 @@ else
         if (playlistsView is not ("cards" or "rows")) playlistsView = "cards";
         playlistSort = await Settings.GetAsync("playlists_sort", "recent");
         if (playlistSort is not ("recent" or "name" or "tracks")) playlistSort = "recent";
-        // Live badge refresh while any run is active.
+        // Live badge refresh while any run is active. Idle ticks do no
+        // database work unless a write actually moved the store stamp.
         refreshTimer = new Timer(_ => InvokeAsync(async () =>
         {
+            var active = Coordinator.Snapshot()
+                .Any(r => r.State is not Application.Services.DownloadRunState.Finished);
+            var version = Store.DataVersion;
+            if (!active && version == observedStatsVersion) return;
             downloadStats = await Store.GetDownloadStatsAsync();
+            observedStatsVersion = Store.DataVersion;
             ReconcileSelectionWithVisible();
             StateHasChanged();
         }), null, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2));
@@ -1583,6 +1602,7 @@ else
         if (showSkeleton) loading = true;
         playlists = await Store.GetAllAsync();
         downloadStats = await Store.GetDownloadStatsAsync();
+        observedStatsVersion = Store.DataVersion;
         // A playlist deleted in another tab must not stay selected.
         if (selectedPlaylistIds.Count > 0)
         {

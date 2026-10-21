@@ -81,14 +81,19 @@ public class LibraryReconciler
         var relinked = 0;
         var lost = 0;
 
+        // One index per physical directory, built only when a track in
+        // that directory actually needs it. With every remembered file in
+        // place, startup no longer walks the library and reads the tag of
+        // every audio file; with a missing file, several playlists that
+        // share a folder reuse the same scan.
+        var directoryIndexes = new Dictionary<string, Dictionary<string, List<string>>>(
+            FileRelocator.PathComparer);
+
         foreach (var playlist in playlists)
         {
             var dir = FirstNonEmpty(playlist.TargetDirectory, musicPath);
             var ownFolder = PlaylistRules.ResolvePlaylistFolder(
                 playlist.TargetDirectory, musicPath, playlist.Name, playlistFolders);
-            var filesByMelodyId = string.IsNullOrWhiteSpace(dir)
-                ? new Dictionary<string, string>()
-                : IndexDirectory(dir, archiveRoots, ownFolder);
 
             var preferred = playlist.PreferredFormat;
             if (string.IsNullOrWhiteSpace(preferred) && _settings is not null)
@@ -130,11 +135,17 @@ public class LibraryReconciler
                 // The file found under the base folder: it is this
                 // playlist's own when it sits in the playlist's folder,
                 // and a foreign path to adopt only as a last resort.
-                var found = track.MelodyId is not null
-                    && filesByMelodyId.TryGetValue(track.MelodyId, out var candidate)
-                    && !archivePaths.Contains(candidate)
-                        ? candidate
-                        : null;
+                string? found = null;
+                if (track.MelodyId is not null && !string.IsNullOrWhiteSpace(dir))
+                {
+                    if (!directoryIndexes.TryGetValue(dir, out var index))
+                    {
+                        index = IndexDirectory(dir, archiveRoots);
+                        directoryIndexes[dir] = index;
+                    }
+                    if (index.TryGetValue(track.MelodyId, out var candidates))
+                        found = PickCandidate(candidates, ownFolder, archivePaths);
+                }
                 var foundIsOwn = found is not null
                     && ownFolder.Length > 0
                     && FileRelocator.IsUnder(found, ownFolder);
@@ -326,17 +337,17 @@ public class LibraryReconciler
     private readonly record struct PlaylistLayout(
         string Base, string Folder, string ArchiveBase, string ArchiveFolder);
 
-    /// <summary>MELODY_ID tag -> path, one entry per audio file in the tree.
-    /// Files under an archive folder never enter the index, and a file
-    /// inside the playlist's own folder wins over one that merely sits
-    /// under the shared base root (the playlist's own copy is the one its
-    /// row should adopt).</summary>
-    private static Dictionary<string, string> IndexDirectory(
-        string dir, List<string> excludedRoots, string preferUnder)
+    /// <summary>
+    /// MELODY_ID tag -> every audio file carrying it in the tree. Files
+    /// under an archive folder never enter the index. The per-playlist
+    /// choice (its own folder first) happens in <see cref="PickCandidate"/>,
+    /// so playlists that share a base directory share this expensive scan.
+    /// </summary>
+    private static Dictionary<string, List<string>> IndexDirectory(
+        string dir, List<string> excludedRoots)
     {
-        var index = new Dictionary<string, string>(StringComparer.Ordinal);
+        var index = new Dictionary<string, List<string>>(StringComparer.Ordinal);
         var extensions = new[] { ".mp3", ".flac", ".ogg", ".opus", ".m4a", ".aac", ".wav", ".webm" };
-        var hasPreference = !string.IsNullOrWhiteSpace(preferUnder);
         try
         {
             foreach (var file in Directory.EnumerateFiles(dir, "*.*", SearchOption.AllDirectories))
@@ -347,16 +358,9 @@ public class LibraryReconciler
                     continue;
                 var id = TaglibHelper.ReadMelodyId(file);
                 if (string.IsNullOrWhiteSpace(id)) continue;
-                if (!index.TryGetValue(id, out var existing))
-                {
-                    index[id] = file;
-                }
-                else if (hasPreference
-                    && !FileRelocator.IsUnder(existing, preferUnder)
-                    && FileRelocator.IsUnder(file, preferUnder))
-                {
-                    index[id] = file;
-                }
+                if (!index.TryGetValue(id, out var files))
+                    index[id] = files = new List<string>();
+                files.Add(file);
             }
         }
         catch (Exception)
@@ -364,5 +368,24 @@ public class LibraryReconciler
             // Unreadable folder: leave the index partial rather than failing the run.
         }
         return index;
+    }
+
+    /// <summary>
+    /// The best path for one playlist: its own folder wins over a copy
+    /// that merely sits under the shared base root; an archive copy never
+    /// counts as the track.
+    /// </summary>
+    private static string? PickCandidate(
+        List<string> candidates, string preferUnder, HashSet<string> archivePaths)
+    {
+        string? fallback = null;
+        foreach (var candidate in candidates)
+        {
+            if (archivePaths.Contains(candidate)) continue;
+            fallback ??= candidate;
+            if (preferUnder.Length > 0 && FileRelocator.IsUnder(candidate, preferUnder))
+                return candidate;
+        }
+        return fallback;
     }
 }

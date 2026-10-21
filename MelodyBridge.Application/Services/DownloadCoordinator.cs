@@ -66,20 +66,29 @@ public class DownloadCoordinator : IDownloadCoordinator
     /// </summary>
     private sealed class WorkQueue
     {
-        private readonly List<(int Id, string Title)> _items;
+        private readonly List<(int Id, string Title, string? Status)> _items;
         private readonly int[] _completed;
+        private readonly object _cacheLock = new();
         private int _taken;
+        private int _remaining;
+        private int _version;
+        private List<string>? _cachedTitles;
+        private int _cachedVersion = -1;
 
-        public WorkQueue(List<(int Id, string Title)> items)
+        public WorkQueue(List<(int Id, string Title, string? Status)> items)
         {
             _items = items;
             _completed = new int[items.Count];
+            _remaining = items.Count;
         }
 
         public int TotalCount => _items.Count;
 
+        /// <summary>Taken and completed items removed, in-flight ones still counted.</summary>
+        public int RemainingCount => Volatile.Read(ref _remaining);
+
         /// <summary>Atomically takes the next item; false when exhausted.</summary>
-        public bool TryTake(out int index, out (int Id, string Title) item)
+        public bool TryTake(out int index, out (int Id, string Title, string? Status) item)
         {
             var i = Interlocked.Increment(ref _taken) - 1;
             if (i < _items.Count)
@@ -93,21 +102,43 @@ public class DownloadCoordinator : IDownloadCoordinator
             return false;
         }
 
-        /// <summary>Marks a taken item as attempted (downloaded, failed or skipped).</summary>
+        /// <summary>
+        /// Marks a taken item as attempted (downloaded, failed or skipped).
+        /// Idempotent, so a worker that leaves through a cancellation path
+        /// cannot decrement the queue twice.
+        /// </summary>
         public void Complete(int index)
         {
-            if (index >= 0 && index < _completed.Length)
-                Volatile.Write(ref _completed[index], 1);
+            if (index < 0 || index >= _completed.Length) return;
+            if (Interlocked.Exchange(ref _completed[index], 1) == 0)
+            {
+                Interlocked.Decrement(ref _remaining);
+                Interlocked.Increment(ref _version);
+            }
         }
 
-        /// <summary>Titles not yet completed, in Position order: the visible queue.</summary>
-        public List<string> RemainingTitles()
+        /// <summary>
+        /// Titles not yet completed, in Position order: the visible queue.
+        /// The list is cached until another item completes; a run with a
+        /// thousand tracks must not rebuild and allocate it after every
+        /// single finished track.
+        /// </summary>
+        public IReadOnlyList<string> RemainingTitles()
         {
-            var titles = new List<string>();
-            for (var i = 0; i < _items.Count; i++)
-                if (Volatile.Read(ref _completed[i]) == 0)
-                    titles.Add(_items[i].Title);
-            return titles;
+            var version = Volatile.Read(ref _version);
+            lock (_cacheLock)
+            {
+                if (_cachedTitles is { } cached && _cachedVersion == version)
+                    return cached;
+
+                var titles = new List<string>(_remaining);
+                for (var i = 0; i < _items.Count; i++)
+                    if (Volatile.Read(ref _completed[i]) == 0)
+                        titles.Add(_items[i].Title);
+                _cachedTitles = titles;
+                _cachedVersion = version;
+                return titles;
+            }
         }
     }
 
@@ -117,16 +148,20 @@ public class DownloadCoordinator : IDownloadCoordinator
         public CancellationTokenSource Cts = new();
         public ManualResetEventSlim Gate = new(true);
         public DownloadRun Snapshot = null!;
+        /// <summary>Guards the snapshot and the counters that feed it.</summary>
+        public readonly object Sync = new();
         /// <summary>Workers currently mid-track; keeps CurrentTrack in the snapshot honest with parallel workers.</summary>
         public int InFlight;
-        /// <summary>Ordered titles of the run's remaining work (Position
-        /// order), read by the UI.</summary>
-        public List<string> QueueTitles = new();
+        /// <summary>This run's best-known progress. Reconciled with the
+        /// database when the run ends.</summary>
+        public int Done;
+        public int Failed;
         /// <summary>This run's work queue; replaced at every run start.</summary>
-        public WorkQueue Work = new(new List<(int, string)>());
+        public WorkQueue Work = new(new List<(int, string, string?)>());
     }
 
     private readonly ConcurrentDictionary<string, RunHandle> _runs = new();
+    private readonly object _startLock = new();
 
     /// <summary>
     /// The work predicate: never downloaded, pending or failed. Shared by
@@ -169,7 +204,7 @@ public class DownloadCoordinator : IDownloadCoordinator
     /// <summary>Ordered titles of the live run's remaining work (Position
     /// order) for this playlist: the visible download queue.</summary>
     public IReadOnlyList<string> QueueFor(string playlistId)
-        => _runs.TryGetValue(playlistId, out var h) ? h.QueueTitles : Array.Empty<string>();
+        => _runs.TryGetValue(playlistId, out var h) ? h.Work.RemainingTitles() : Array.Empty<string>();
 
     public bool IsActive(string playlistId)
         => _runs.TryGetValue(playlistId, out var h)
@@ -188,54 +223,114 @@ public class DownloadCoordinator : IDownloadCoordinator
     /// <summary>Starts (or resumes) a run. No-ops while one is already active.</summary>
     public void Start(string playlistId)
     {
-        var handle = _runs.GetOrAdd(playlistId, id =>
+        // The dictionary factory must have no side effects: when two
+        // callers raced, GetOrAdd could start a run and then discard it,
+        // leaving an untracked worker behind. One lock around the small
+        // state transition is simpler and exact.
+        lock (_startLock)
         {
-            var h = new RunHandle();
-            h.Snapshot = new DownloadRun(id, string.Empty, 0, 0, 0, null, null,
-                DownloadRunState.Running, DateTime.UtcNow);
-            h.Task = Task.Run(() => RunAsync(id, h));
-            return h;
-        });
+            if (!_runs.TryGetValue(playlistId, out var handle))
+            {
+                handle = new RunHandle();
+                lock (handle.Sync)
+                {
+                    handle.Snapshot = new DownloadRun(playlistId, string.Empty, 0, 0, 0, null, null,
+                        DownloadRunState.Running, DateTime.UtcNow);
+                }
+                _runs[playlistId] = handle;
+                handle.Task = Task.Run(() => RunAsync(playlistId, handle));
+                return;
+            }
 
-        if (handle.Snapshot.State == DownloadRunState.Paused)
-        {
-            handle.Snapshot = handle.Snapshot with { State = DownloadRunState.Running };
-            handle.Gate.Set();
-            _logger.LogInformation("Download run for {Playlist} resumed", playlistId);
-        }
-        else if (handle.Snapshot.State == DownloadRunState.Finished)
-        {
-            handle.Cts.Dispose();
-            handle.Cts = new CancellationTokenSource();
-            handle.Gate.Dispose();
-            handle.Gate = new ManualResetEventSlim(true);
-            handle.Snapshot = new DownloadRun(playlistId, handle.Snapshot.PlaylistName,
-                0, 0, 0, null, null, DownloadRunState.Running, DateTime.UtcNow);
-            handle.Task = Task.Run(() => RunAsync(playlistId, handle));
+            if (handle.Snapshot.State == DownloadRunState.Paused)
+            {
+                lock (handle.Sync)
+                {
+                    handle.Snapshot = handle.Snapshot with { State = DownloadRunState.Running };
+                }
+                handle.Gate.Set();
+                _logger.LogInformation("Download run for {Playlist} resumed", playlistId);
+            }
+            else if (handle.Snapshot.State == DownloadRunState.Finished)
+            {
+                var name = handle.Snapshot.PlaylistName;
+                handle.Cts.Dispose();
+                handle.Cts = new CancellationTokenSource();
+                handle.Gate.Dispose();
+                handle.Gate = new ManualResetEventSlim(true);
+                lock (handle.Sync)
+                {
+                    handle.InFlight = 0;
+                    handle.Done = 0;
+                    handle.Failed = 0;
+                    handle.Work = new WorkQueue(new List<(int, string, string?)>());
+                    handle.Snapshot = new DownloadRun(playlistId, name,
+                        0, 0, 0, null, null, DownloadRunState.Running, DateTime.UtcNow);
+                }
+                handle.Task = Task.Run(() => RunAsync(playlistId, handle));
+            }
         }
     }
 
     public void Pause(string playlistId)
     {
-        if (_runs.TryGetValue(playlistId, out var h)
-            && h.Snapshot.State == DownloadRunState.Running)
+        if (!_runs.TryGetValue(playlistId, out var h)) return;
+        lock (h.Sync)
         {
+            if (h.Snapshot.State != DownloadRunState.Running) return;
             h.Gate.Reset();
             h.Snapshot = h.Snapshot with { State = DownloadRunState.Paused };
-            _logger.LogInformation("Download run for {Playlist} paused", playlistId);
         }
+        _logger.LogInformation("Download run for {Playlist} paused", playlistId);
     }
 
     /// <summary>Cooperative cancel: the in-flight track completes, then the run stops.</summary>
     public void Cancel(string playlistId)
     {
-        if (_runs.TryGetValue(playlistId, out var h)
-            && h.Snapshot.State is DownloadRunState.Running or DownloadRunState.Paused)
+        if (!_runs.TryGetValue(playlistId, out var h)) return;
+        lock (h.Sync)
         {
+            if (h.Snapshot.State is not (DownloadRunState.Running or DownloadRunState.Paused)) return;
             h.Snapshot = h.Snapshot with { State = DownloadRunState.Cancelling };
-            h.Gate.Set(); // unblock the pause gate so cancellation proceeds
-            h.Cts.Cancel();
-            _logger.LogInformation("Download run for {Playlist} cancelled", playlistId);
+        }
+        h.Gate.Set(); // unblock the pause gate so cancellation proceeds
+        h.Cts.Cancel();
+        _logger.LogInformation("Download run for {Playlist} cancelled", playlistId);
+    }
+
+    /// <summary>
+    /// A new run may be started after an earlier run died without clearing
+    /// its claim. Nothing is in flight for this playlist at Start (there is
+    /// no active run), so those rows are stale and go back to pending.
+    /// Without this, a redownload can find no claimable work and appear to
+    /// do nothing until the app restarts.
+    /// </summary>
+    private async Task<int> ResetStaleClaimsAsync(string playlistId)
+    {
+        await using var db = await NewDbAsync(CancellationToken.None);
+        return await SqliteDatabase.RetryBusyAsync(() => db.Tracks
+            .Where(t => t.PlaylistEntityId == playlistId && t.DownloadStatus == "in_progress")
+            .ExecuteUpdateAsync(
+                s => s.SetProperty(t => t.DownloadStatus, "pending"), CancellationToken.None));
+    }
+
+    private async Task MarkTrackFailedAsync(int trackId, string error, CancellationToken ct)
+    {
+        try
+        {
+            await using var db = await NewDbAsync(CancellationToken.None);
+            var reason = error.Length > 1000 ? error[..1000] : error;
+            await SqliteDatabase.RetryBusyAsync(() => db.Tracks
+                .Where(t => t.Id == trackId)
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(t => t.DownloadStatus, "failed")
+                    .SetProperty(t => t.DownloadError, reason), CancellationToken.None));
+        }
+        catch (Exception ex)
+        {
+            // The row is already unusable; never let bookkeeping kill the
+            // worker that is trying to keep the run alive.
+            _logger.LogWarning(ex, "Could not record the failed status for track {TrackId}", trackId);
         }
     }
 
@@ -265,21 +360,39 @@ public class DownloadCoordinator : IDownloadCoordinator
         var store = StoreFrom(runScope);
         try
         {
+            // A previous run may have died between the claim and the status
+            // write. Start is only called when no run is active, so any
+            // in-progress row here is a stale claim, not live work.
+            var recovered = await ResetStaleClaimsAsync(playlistId);
+            if (recovered > 0)
+                _logger.LogInformation(
+                    "Recovered {Count} stale download claim(s) for {Playlist}", recovered, playlistId);
+
             var name = await LoadNameAsync(playlistId) ?? playlistId;
             var counts = await CountAsync(playlistId);
-            handle.Snapshot = handle.Snapshot with
+            var items = await LoadWorkItemsAsync(playlistId, ct);
+            WorkQueue work;
+            lock (handle.Sync)
             {
-                PlaylistName = name,
-                Total = counts.total,
-                Done = counts.done,
-                Failed = counts.failed,
-            };
-            handle.Work = new WorkQueue(await LoadWorkItemsAsync(playlistId, ct));
+                handle.Done = counts.done;
+                handle.Failed = counts.failed;
+                handle.Snapshot = handle.Snapshot with
+                {
+                    PlaylistName = name,
+                    Total = counts.total,
+                    Done = counts.done,
+                    Failed = counts.failed,
+                    CurrentTrack = null,
+                    CurrentPlugin = null,
+                    State = DownloadRunState.Running,
+                };
+                handle.Work = work = new WorkQueue(items);
+            }
             RefreshQueue(handle);
 
             var workers = await MaxConcurrentAsync(ct);
             _logger.LogInformation("Download run for {Playlist} starting with {Workers} workers over {Count} tracks",
-                playlistId, workers, handle.Work.TotalCount);
+                playlistId, workers, work.TotalCount);
 
             // Each worker claims the next work item from the shared cursor
             // (atomic) and downloads exactly that track: the store's claim
@@ -290,7 +403,7 @@ public class DownloadCoordinator : IDownloadCoordinator
                 .ToArray();
             await Task.WhenAll(tasks);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
             // expected on cancel
         }
@@ -305,13 +418,40 @@ public class DownloadCoordinator : IDownloadCoordinator
         }
         finally
         {
-            var finished = handle.Snapshot with
+            // One exact read at the end corrects the incremental counters
+            // (a skipped row, a concurrent single-track click, needs-review).
+            try
             {
-                State = DownloadRunState.Finished,
-                CurrentTrack = null,
-                CurrentPlugin = null,
-            };
-            handle.Snapshot = finished;
+                var counts = await CountAsync(playlistId);
+                lock (handle.Sync)
+                {
+                    handle.Done = counts.done;
+                    handle.Failed = counts.failed;
+                    handle.Snapshot = handle.Snapshot with
+                    {
+                        Done = counts.done,
+                        Failed = counts.failed,
+                        Total = counts.total,
+                    };
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Could not read final counts for {Playlist}", playlistId);
+            }
+
+            DownloadRun finished;
+            lock (handle.Sync)
+            {
+                finished = handle.Snapshot with
+                {
+                    State = DownloadRunState.Finished,
+                    CurrentTrack = null,
+                    CurrentPlugin = null,
+                    QueueLength = handle.Work.RemainingCount,
+                };
+                handle.Snapshot = finished;
+            }
             _logger.LogInformation(
                 "Download run for {Playlist} finished: {Done} of {Total} done, {Failed} failed",
                 playlistId, finished.Done, finished.Total, finished.Failed);
@@ -327,40 +467,49 @@ public class DownloadCoordinator : IDownloadCoordinator
             if (ct.IsCancellationRequested) break;
 
             if (!handle.Work.TryTake(out var workIndex, out var work)) break; // work list exhausted
-            var (trackId, title) = work;
-            Interlocked.Increment(ref handle.InFlight);
-            handle.Snapshot = handle.Snapshot with
+            var (trackId, title, priorStatus) = work;
+            lock (handle.Sync)
             {
-                CurrentTrack = title,
-                State = DownloadRunState.Running,
-            };
+                handle.InFlight++;
+                handle.Snapshot = handle.Snapshot with
+                {
+                    CurrentTrack = title,
+                    State = DownloadRunState.Running,
+                };
+            }
 
+            var result = "skipped";
             try
             {
-                await store.DownloadTrackAsync(trackId, ct);
+                result = await DownloadWithRetryAsync(store, trackId, ct);
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
                 throw; // the run is cancelling: stop this worker
+            }
+            catch (Exception ex)
+            {
+                // DownloadTrackAsync can throw before it ever claims the
+                // row (settings, folder, database). One track must not take
+                // the whole run down; record it and move on.
+                _logger.LogError(ex, "Download worker could not attempt track {TrackId}", trackId);
+                await MarkTrackFailedAsync(trackId, ex.Message, ct);
+                result = "failed";
             }
             finally
             {
                 // The item was attempted (or the run is ending): it leaves
                 // the visible queue either way.
                 handle.Work.Complete(workIndex);
-                Interlocked.Decrement(ref handle.InFlight);
+                lock (handle.Sync)
+                {
+                    handle.InFlight--;
+                    if (handle.InFlight == 0)
+                        handle.Snapshot = handle.Snapshot with { CurrentTrack = null };
+                }
             }
 
-            var counts = await CountAsync(handle.Snapshot.PlaylistId);
-            var snapshot = handle.Snapshot with
-            {
-                Done = counts.done,
-                Failed = counts.failed,
-            };
-            if (Volatile.Read(ref handle.InFlight) == 0)
-                snapshot = snapshot with { CurrentTrack = null };
-            handle.Snapshot = snapshot;
-
+            RecordResult(handle, priorStatus, result);
             // The queue and the ETA move as tracks complete: one refresh per
             // finished track keeps both honest without extra polling.
             RefreshQueue(handle);
@@ -368,20 +517,104 @@ public class DownloadCoordinator : IDownloadCoordinator
     }
 
     /// <summary>
-    /// Recomputes the visible queue (the work items not yet taken, in
-    /// Position order) and folds it into the snapshot: queue length plus
-    /// an ETA derived from the average pace of the tracks completed so far.
+    /// Runs one track with a single retry for a transient failure. A
+    /// cancellation that did not come from the run itself (a plugin
+    /// timeout, a provider closing its request) is a track failure, not a
+    /// reason to stop the worker.
+    /// </summary>
+    private async Task<string> DownloadWithRetryAsync(
+        PlaylistStore store, int trackId, CancellationToken ct)
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                return await store.DownloadTrackAsync(trackId, ct);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw; // cooperative run cancel
+            }
+            catch (OperationCanceledException ex)
+            {
+                if (attempt == 0)
+                {
+                    _logger.LogWarning(
+                        "Track {TrackId} download was cancelled by a provider; retrying once", trackId);
+                    await Task.Delay(250, ct);
+                    continue;
+                }
+                _logger.LogWarning(ex,
+                    "Track {TrackId} download was cancelled by a provider twice; marking it failed", trackId);
+                await MarkTrackFailedAsync(trackId, "the provider cancelled the download", ct);
+                return "failed";
+            }
+            catch (Exception ex) when (attempt == 0)
+            {
+                _logger.LogWarning(ex,
+                    "Track {TrackId} download attempt failed; retrying once", trackId);
+                await Task.Delay(500, ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex,
+                    "Track {TrackId} download failed after a retry; marking it failed", trackId);
+                await MarkTrackFailedAsync(trackId, ex.Message, ct);
+                return "failed";
+            }
+        }
+    }
+
+    /// <summary>
+    /// Folds one finished track into the live counters without re-reading
+    /// the whole playlist. The final count in RunAsync is the exact truth.
+    /// </summary>
+    private static void RecordResult(RunHandle handle, string? priorStatus, string result)
+    {
+        lock (handle.Sync)
+        {
+            var wasFailed = priorStatus == "failed";
+            switch (result)
+            {
+                case "downloaded":
+                    handle.Done++;
+                    if (wasFailed) handle.Failed = Math.Max(0, handle.Failed - 1);
+                    break;
+                case "failed":
+                    if (!wasFailed) handle.Failed++;
+                    break;
+                case "needs-review" or "skipped" or "not-found":
+                    // No longer a failed row: it is a review, or a row a
+                    // refresh removed from under the run.
+                    if (wasFailed) handle.Failed = Math.Max(0, handle.Failed - 1);
+                    break;
+            }
+            handle.Snapshot = handle.Snapshot with
+            {
+                Done = handle.Done,
+                Failed = handle.Failed,
+            };
+        }
+    }
+
+    /// <summary>
+    /// Folds the visible queue length and an ETA into the snapshot. The
+    /// title list itself is built lazily, only when a page asks for it.
     /// </summary>
     private static void RefreshQueue(RunHandle handle)
     {
-        handle.QueueTitles = handle.Work.RemainingTitles();
-
-        var s = handle.Snapshot;
-        handle.Snapshot = s with
+        var remaining = handle.Work.RemainingCount;
+        lock (handle.Sync)
         {
-            QueueLength = handle.QueueTitles.Count,
-            EtaUtc = DownloadRun.ComputeEta(s.StartedAtUtc, s.Done + s.Failed, handle.QueueTitles.Count),
-        };
+            var s = handle.Snapshot;
+            handle.Snapshot = s with
+            {
+                Done = handle.Done,
+                Failed = handle.Failed,
+                QueueLength = remaining,
+                EtaUtc = DownloadRun.ComputeEta(s.StartedAtUtc, s.Done + s.Failed, remaining),
+            };
+        }
     }
 
     private async Task<string?> LoadNameAsync(string playlistId)
@@ -393,32 +626,38 @@ public class DownloadCoordinator : IDownloadCoordinator
             .FirstOrDefaultAsync();
     }
 
-    /// <summary>Live (total, done, failed) counts for the playlist.</summary>
+    /// <summary>
+    /// Live (total, done, failed) counts for the playlist. The grouped
+    /// query returns one row per status, not one row per track: a page
+    /// refresh or a final count on a 3000-track playlist stays cheap.
+    /// </summary>
     private async Task<(int total, int done, int failed)> CountAsync(string playlistId)
     {
         await using var db = await NewDbAsync();
-        var tracks = await db.Tracks.AsNoTracking()
+        var groups = await db.Tracks.AsNoTracking()
             .Where(t => t.PlaylistEntityId == playlistId)
-            .Select(t => t.DownloadStatus)
+            .GroupBy(t => t.DownloadStatus)
+            .Select(g => new { Status = g.Key, Count = g.Count() })
             .ToListAsync();
-        return (tracks.Count,
-            tracks.Count(s => s == "downloaded"),
-            tracks.Count(s => s == "failed"));
+        return (groups.Sum(g => g.Count),
+            groups.Where(g => g.Status == "downloaded").Sum(g => g.Count),
+            groups.Where(g => g.Status == "failed").Sum(g => g.Count));
     }
 
     /// <summary>
     /// This run's work list: every pending/failed track, in playlist
-    /// Position order. Snapshot at run start so each track is attempted
-    /// exactly once per run.
+    /// Position order, with the status it had at the start. Snapshot at run
+    /// start so each track is attempted exactly once per run.
     /// </summary>
-    private async Task<List<(int Id, string Title)>> LoadWorkItemsAsync(string playlistId, CancellationToken ct)
+    private async Task<List<(int Id, string Title, string? Status)>> LoadWorkItemsAsync(
+        string playlistId, CancellationToken ct)
     {
         await using var db = await NewDbAsync(ct);
         return await db.Tracks.AsNoTracking()
             .Where(t => t.PlaylistEntityId == playlistId)
             .Where(PendingWork)
             .OrderBy(t => t.Position)
-            .Select(t => new ValueTuple<int, string>(t.Id, t.Title ?? ""))
+            .Select(t => new ValueTuple<int, string, string?>(t.Id, t.Title ?? "", t.DownloadStatus))
             .ToListAsync(ct);
     }
 }

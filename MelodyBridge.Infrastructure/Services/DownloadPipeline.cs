@@ -167,10 +167,11 @@ internal sealed class DownloadPipeline
         // never download the same track twice.
         await using (var db = await _dbFactory.CreateDbContextAsync(ct))
         {
-            var claimed = await db.Tracks
+            var claimed = await SqliteDatabase.RetryBusyAsync(() => db.Tracks
                 .Where(t => t.Id == id
                     && (t.DownloadStatus == null || t.DownloadStatus == "pending" || t.DownloadStatus == "failed"))
-                .ExecuteUpdateAsync(s => s.SetProperty(t => t.DownloadStatus, "in_progress"), ct);
+                .ExecuteUpdateAsync(
+                    s => s.SetProperty(t => t.DownloadStatus, "in_progress"), ct));
             if (claimed != 1) return "claimed-by-another-run";
         }
 
@@ -179,9 +180,10 @@ internal sealed class DownloadPipeline
         if (!string.IsNullOrWhiteSpace(avoidPluginId))
         {
             await using var db = await _dbFactory.CreateDbContextAsync(ct);
-            await db.Tracks
+            await SqliteDatabase.RetryBusyAsync(() => db.Tracks
                 .Where(t => t.Id == id)
-                .ExecuteUpdateAsync(s => s.SetProperty(t => t.AvoidPluginId, avoidPluginId), ct);
+                .ExecuteUpdateAsync(
+                    s => s.SetProperty(t => t.AvoidPluginId, avoidPluginId), ct));
         }
 
         return await DownloadClaimedTrackAsync(
@@ -266,7 +268,7 @@ internal sealed class DownloadPipeline
 
             return await CompleteDownloadAsync(track, db, path, expectedDuration, verification, ct);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
             // Cooperative cancel: the claim must not stick. Save with a
             // non-cancelled token, otherwise the row stays "in_progress"
@@ -275,6 +277,15 @@ internal sealed class DownloadPipeline
             track.DownloadError = "cancelled";
             await SaveQuietlyAsync(db);
             throw;
+        }
+        catch (OperationCanceledException)
+        {
+            // A provider or HTTP client cancelled its own call while the
+            // run is still alive. That is a failed track, not a reason to
+            // stop the worker (and the rest of the run with it).
+            track.DownloadStatus = "failed";
+            track.DownloadError = "the provider cancelled the download";
+            return "failed";
         }
         catch (Exception ex)
         {
@@ -661,19 +672,26 @@ internal sealed class DownloadPipeline
         }
     }
 
-    /// <summary>SaveChanges that survives a cancelled caller token.</summary>
+    /// <summary>
+    /// SaveChanges that survives a cancelled caller token and a short
+    /// overlap with another writer. A write that still fails leaves the
+    /// row in its claimed state; the next run's stale-claim recovery is
+    /// the safety net, so this never takes the run down.
+    /// </summary>
     private async Task SaveQuietlyAsync(MelodyBridgeDbContext db)
     {
         try
         {
-            await db.SaveChangesAsync(CancellationToken.None);
+            await SqliteDatabase.RetryBusyAsync(async () =>
+            {
+                await db.SaveChangesAsync(CancellationToken.None);
+                return true;
+            });
             _changes.Bump();
         }
         catch (Exception ex)
         {
-            // The in-memory track is lost either way; the next run's
-            // stale-claim recovery is the safety net.
-            _logger.LogWarning(ex, "Could not persist track status after cancellation");
+            _logger.LogError(ex, "Could not persist track status after the download attempt");
         }
     }
 

@@ -12,6 +12,9 @@ public interface IDownloadCoordinator : IDownloadTrigger
     /// <summary>The live or last run for a playlist, or null when it never ran.</summary>
     DownloadRun? RunFor(string playlistId);
 
+    /// <summary>All live and last runs, newest first, for badge refreshes.</summary>
+    IReadOnlyList<DownloadRun> Snapshot();
+
     /// <summary>True while a run for the playlist is running, paused or cancelling.</summary>
     bool IsActive(string playlistId);
 }

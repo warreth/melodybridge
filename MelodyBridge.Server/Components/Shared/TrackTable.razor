@@ -69,7 +69,7 @@
             {
                 <tr><td class="empty-row" colspan="@(Columns.Length + (ShowFilenameColumn ? 2 : 1))">No tracks match the filter.</td></tr>
             }
-            @foreach (var track in SortedTracks)
+            @foreach (var track in PagedTracks)
             {
                 <tr @key="RowKey(track)">
                     <td class="text-muted col-position">@(track.Position + 1)</td>
@@ -225,10 +225,42 @@
         </tbody>
     </table>
 </div>
+@if (SortedTracks.Count > PageSize)
+{
+    <div class="table-pager" role="navigation" aria-label="Track pages">
+        <span class="table-pager-info">
+            Showing @FirstRowOnPage-@LastRowOnPage of @SortedTracks.Count
+        </span>
+        <div class="table-pager-buttons">
+            <button class="btn-modern small ghost" type="button" aria-label="First page"
+                    disabled="@(page <= 1)" @onclick="() => GoToPage(1)">First</button>
+            <button class="btn-modern small ghost" type="button" aria-label="Previous page"
+                    disabled="@(page <= 1)" @onclick="() => GoToPage(page - 1)">Previous</button>
+            <span class="table-pager-page">Page @(page) of @PageCount</span>
+            <button class="btn-modern small ghost" type="button" aria-label="Next page"
+                    disabled="@(page >= PageCount)" @onclick="() => GoToPage(page + 1)">Next</button>
+            <button class="btn-modern small ghost" type="button" aria-label="Last page"
+                    disabled="@(page >= PageCount)" @onclick="() => GoToPage(PageCount)">Last</button>
+        </div>
+    </div>
+}
 
 @code {
     /// <summary>Tracks to show, already filtered by the page.</summary>
     [Parameter, EditorRequired] public IReadOnlyList<TrackEntity> Tracks { get; set; } = Array.Empty<TrackEntity>();
+    /// <summary>
+    /// Rows rendered per page. A playlist can hold thousands of tracks;
+    /// rendering every row made the page take seconds and send megabytes
+    /// of markup. Keep the page small and let the pager move through the
+    /// already sorted list.
+    /// </summary>
+    [Parameter] public int PageSize { get; set; } = 100;
+    /// <summary>
+    /// Raised when the visible page changes, with only the rows currently
+    /// rendered. The page uses it to probe archive files for the visible
+    /// rows instead of statting the whole playlist.
+    /// </summary>
+    [Parameter] public EventCallback<IReadOnlyList<TrackEntity>> OnVisibleTracksChanged { get; set; }
     /// <summary>True when a page-level action is running: row buttons disable.</summary>
     [Parameter] public bool Busy { get; set; }
     /// <summary>The File column appears when the user opted in.</summary>
@@ -313,6 +345,13 @@
     private TrackSortColumn sortedCacheColumn;
     private bool sortedCacheDescending;
 
+    private int page = 1;
+    private IReadOnlyList<TrackEntity>? pagedCache;
+    private IReadOnlyList<TrackEntity>? pagedCacheSource;
+    private int pagedCachePage;
+    private int pagedCacheSize;
+    private IReadOnlyList<TrackEntity>? lastVisibleTracks;
+
     protected override void OnParametersSet()
     {
         if (!ReferenceEquals(sortedCacheTracks, Tracks)
@@ -323,7 +362,65 @@
             sortedCacheColumn = sortColumn;
             sortedCacheDescending = sortDescending;
             sortedCache = SortTracks();
+            pagedCache = null;
         }
+        ClampPage();
+        NotifyVisibleTracks();
+    }
+
+    /// <summary>Rows on the current page, cached until the page or source changes.</summary>
+    private IReadOnlyList<TrackEntity> PagedTracks
+    {
+        get
+        {
+            var source = SortedTracks;
+            var size = Math.Max(1, PageSize);
+            if (pagedCache is { } cached
+                && ReferenceEquals(pagedCacheSource, source)
+                && pagedCachePage == page
+                && pagedCacheSize == size)
+            {
+                return cached;
+            }
+
+            pagedCacheSource = source;
+            pagedCachePage = page;
+            pagedCacheSize = size;
+            pagedCache = source.Skip((page - 1) * size).Take(size).ToList();
+            return pagedCache;
+        }
+    }
+
+    private int PageCount => Math.Max(1, (SortedTracks.Count + Math.Max(1, PageSize) - 1) / Math.Max(1, PageSize));
+    private int FirstRowOnPage => SortedTracks.Count == 0 ? 0 : (page - 1) * Math.Max(1, PageSize) + 1;
+    private int LastRowOnPage => Math.Min(page * Math.Max(1, PageSize), SortedTracks.Count);
+
+    private void ClampPage()
+    {
+        var count = PageCount;
+        if (page > count) page = count;
+        if (page < 1) page = 1;
+    }
+
+    private void GoToPage(int target)
+    {
+        page = Math.Clamp(target, 1, PageCount);
+        pagedCache = null;
+        NotifyVisibleTracks();
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// Hands the page only the rows it needs to check on disk. The table
+    /// itself never stats files; the page does, and only for this slice.
+    /// </summary>
+    private void NotifyVisibleTracks()
+    {
+        if (!OnVisibleTracksChanged.HasDelegate) return;
+        var visible = PagedTracks;
+        if (ReferenceEquals(visible, lastVisibleTracks)) return;
+        lastVisibleTracks = visible;
+        _ = OnVisibleTracksChanged.InvokeAsync(visible);
     }
 
     /// <summary>Current sort key, exposed for tests and the page.</summary>
@@ -340,6 +437,9 @@
             sortDescending = false;
         }
         sortedCache = null; // the next render re-sorts once
+        pagedCache = null;
+        page = 1; // a new order starts at the top, not halfway down
+        NotifyVisibleTracks();
         OnSortChanged.InvokeAsync(StateHasChanged);
     }
 

@@ -147,9 +147,46 @@ public class DownloadCoordinatorTests
         return playlist.Id;
     }
 
-    private ServiceProvider MakeServices(IDownloader downloader)
+    /// <summary>
+    /// Fails the first and third attempt: one provider-style cancellation
+    /// and one transient database error. The coordinator must retry both
+    /// and keep the run alive instead of letting a worker die.
+    /// </summary>
+    private sealed class FlakyPlaylistStore : PlaylistStore
     {
-        var store = new PlaylistStore(_factory,
+        private readonly HashSet<int> _failedTracks = new();
+
+        public FlakyPlaylistStore(
+            IDbContextFactory<MelodyBridgeDbContext> factory, IDownloadManager downloader)
+            : base(factory, Array.Empty<ISourceProvider>(), downloader,
+                NullLogger<PlaylistStore>.Instance)
+        {
+        }
+
+        /// <summary>
+        /// Fails the first attempt of two distinct tracks, once with a
+        /// provider-style cancellation and once with a transient database
+        /// error. Retries of those tracks go through to the real pipeline.
+        /// </summary>
+        public override async Task<string> DownloadTrackAsync(
+            int trackId, CancellationToken ct = default, bool avoidLastProvider = false)
+        {
+            lock (_failedTracks)
+            {
+                if (_failedTracks.Count < 2 && _failedTracks.Add(trackId))
+                {
+                    if (_failedTracks.Count == 1)
+                        throw new OperationCanceledException("the provider cancelled this request");
+                    throw new InvalidOperationException("transient database busy");
+                }
+            }
+            return await base.DownloadTrackAsync(trackId, ct, avoidLastProvider);
+        }
+    }
+
+    private ServiceProvider MakeServices(IDownloader downloader, PlaylistStore? store = null)
+    {
+        store ??= new PlaylistStore(_factory,
             Array.Empty<ISourceProvider>(),
             new DownloadManager(new ListRegistry(downloader),
                 NullLogger<DownloadManager>.Instance),
@@ -183,6 +220,65 @@ public class DownloadCoordinatorTests
         Assert.That(run.Failed, Is.EqualTo(0));
         Assert.That(downloader.Downloads, Is.EqualTo(3));
         Assert.That(Directory.EnumerateFiles(_dir).Count(), Is.EqualTo(3));
+    }
+
+    [Test]
+    public async Task Run_SurvivesProviderCancellationAndTransientStoreFailure()
+    {
+        var id = await SeedPlaylistAsync(6);
+        var downloader = new SlowDownloader();
+        var manager = new DownloadManager(new ListRegistry(downloader),
+            NullLogger<DownloadManager>.Instance);
+        var store = new FlakyPlaylistStore(_factory, manager);
+        var services = MakeServices(downloader, store);
+        var coordinator = MakeCoordinator(services);
+
+        coordinator.Start(id);
+
+        await WaitForAsync(() => coordinator.RunFor(id)?.State == DownloadRunState.Finished
+            && coordinator.RunFor(id)?.Done == 6, TimeSpan.FromSeconds(30));
+
+        await using var db = _factory.CreateDbContext();
+        var rows = await db.Tracks.AsNoTracking()
+            .Where(t => t.PlaylistEntityId == id)
+            .ToListAsync();
+        var statuses = string.Join(", ", rows.Select(r => $"{r.Title}={r.DownloadStatus}/{r.DownloadError}"));
+        var run = coordinator.RunFor(id)!;
+        Assert.Multiple(() =>
+        {
+            Assert.That(run.State, Is.EqualTo(DownloadRunState.Finished));
+            Assert.That(run.Done, Is.EqualTo(6),
+                $"both one-off failures were retried and every track was attempted: {statuses}");
+            Assert.That(run.QueueLength, Is.Zero);
+        });
+        Assert.That(rows, Has.Count.EqualTo(6));
+        Assert.That(rows.Any(r => r.DownloadStatus == "in_progress"), Is.False,
+            "a failed attempt must never leave a claim behind");
+        Assert.That(rows.All(r => r.DownloadStatus == "downloaded"), Is.True);
+    }
+
+    [Test]
+    public async Task Start_RecoversAClaimLeftByAnEarlierDeadRun()
+    {
+        var id = await SeedPlaylistAsync(1);
+        await using (var db = _factory.CreateDbContext())
+        {
+            var track = await db.Tracks.SingleAsync(t => t.PlaylistEntityId == id);
+            track.DownloadStatus = "in_progress";
+            await db.SaveChangesAsync();
+        }
+
+        var downloader = new SlowDownloader();
+        var coordinator = MakeCoordinator(MakeServices(downloader));
+        coordinator.Start(id);
+
+        await WaitForAsync(() => coordinator.RunFor(id)?.State == DownloadRunState.Finished
+            && coordinator.RunFor(id)?.Done == 1, TimeSpan.FromSeconds(20));
+
+        await using var fresh = _factory.CreateDbContext();
+        var saved = await fresh.Tracks.AsNoTracking().SingleAsync(t => t.PlaylistEntityId == id);
+        Assert.That(saved.DownloadStatus, Is.EqualTo("downloaded"),
+            "a redownload must reclaim a row a dead run left in progress");
     }
 
     [Test]

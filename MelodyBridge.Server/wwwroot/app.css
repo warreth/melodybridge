@@ -1461,6 +1461,27 @@ textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent
 
 /* -- Modern table ---------------------------------------- */
 .table-wrap { overflow-x: auto; position: relative; }
+.table-pager {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: .75rem;
+    flex-wrap: wrap;
+    padding: .65rem .25rem 0;
+    color: var(--muted);
+    font-size: .86rem;
+}
+.table-pager-buttons {
+    display: flex;
+    align-items: center;
+    gap: .35rem;
+    flex-wrap: wrap;
+}
+.table-pager-page {
+    padding: 0 .35rem;
+    color: var(--text);
+    white-space: nowrap;
+}
 .modern-table { width: 100%; border-collapse: collapse; font-size: .92rem; }
 .modern-table th {
     text-align: left;

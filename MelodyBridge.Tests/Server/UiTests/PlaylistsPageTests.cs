@@ -1171,6 +1171,8 @@ public class PlaylistsPageTests
 
         public DownloadRun? RunFor(string playlistId) => null;
 
+        public IReadOnlyList<DownloadRun> Snapshot() => Array.Empty<DownloadRun>();
+
         public bool IsActive(string playlistId) => false;
 
         public async Task<bool> HasPendingWorkAsync(

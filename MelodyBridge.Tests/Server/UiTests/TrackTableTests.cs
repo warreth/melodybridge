@@ -71,6 +71,52 @@ public class TrackTableTests
     // ── Sorting ─────────────────────────────────────────────────────
 
     [Test]
+    public void LargePlaylist_RendersOnlyOnePage_AndMovesThroughTheRest()
+    {
+        var tracks = Enumerable.Range(0, 3000)
+            .Select(i => new TrackEntity
+            {
+                Id = i + 1,
+                Title = $"Track {i}",
+                Artist = "Artist",
+                Position = i,
+                DownloadStatus = "pending",
+            })
+            .ToList();
+        var visibleSizes = new List<int>();
+        var cut = _ctx.Render<TrackTable>(pb =>
+        {
+            pb.Add(t => t.Tracks, tracks);
+            pb.Add(t => t.OnVisibleTracksChanged, (IReadOnlyList<TrackEntity> visible) =>
+            {
+                visibleSizes.Add(visible.Count);
+                return Task.CompletedTask;
+            });
+        });
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(cut.FindAll("tbody tr"), Has.Count.EqualTo(100),
+                "only one page of rows is rendered for a 3000-track playlist");
+            Assert.That(cut.Markup.Length, Is.LessThan(500_000),
+                "the old whole-list render produced over 4 MB of markup");
+            Assert.That(cut.Find(".table-pager-page").TextContent.Trim(), Is.EqualTo("Page 1 of 30"));
+            Assert.That(visibleSizes, Is.Not.Empty);
+            Assert.That(visibleSizes[0], Is.EqualTo(100),
+                "the page gets only the visible slice for archive checks");
+        });
+
+        cut.Find("button[aria-label='Next page']").Click();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(TitleCells(cut)[0], Is.EqualTo("Track 100"));
+            Assert.That(cut.Find(".table-pager-page").TextContent.Trim(), Is.EqualTo("Page 2 of 30"));
+            Assert.That(visibleSizes[^1], Is.EqualTo(100));
+        });
+    }
+
+    [Test]
     public void Default_Order_Follows_Position()
     {
         var cut = Render();

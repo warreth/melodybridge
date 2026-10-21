@@ -338,6 +338,7 @@ else
                         ShowArchiveState="@(editArchiveEnabled && HasArchiveTarget)"
                         ArchiveStates="@archiveStates"
                         Busy="@busy"
+                        OnVisibleTracksChanged="OnVisibleTracksChanged"
                         QueueLabel="@TrackQueueLabel"
                         OnRetry="RetryTrack"
                         OnChooseSource="OpenSourcePicker"
@@ -762,6 +763,8 @@ else
     private int bulkRetryTotal;
     private bool handlingRetryTrack;
     private int reviewCount;
+    private int failedCount;
+    private int attentionCountValue;
     private bool confirmDelete;
     private bool deleteFilesWithPlaylist;
     /// <summary>The track waiting in the remove/replace dialog.</summary>
@@ -781,8 +784,11 @@ else
     private Application.Services.DownloadRun? observedRun;
     /// <summary>The store's write stamp the last reload observed.</summary>
     private long observedVersion;
-    /// <summary>Queue title -> first index, rebuilt per tick instead of scanning per row.</summary>
+    /// <summary>Queue title -> first index, rebuilt when the queue changes instead of scanning per row.</summary>
     private Dictionary<string, int> queuePositions = new(StringComparer.Ordinal);
+    private IReadOnlyList<string>? observedQueue;
+    /// <summary>Throttles full row reloads while a run is active.</summary>
+    private DateTime lastActiveReloadUtc = DateTime.MinValue;
 
     /// <summary>The coordinator's run for this playlist, kept current by the poll.</summary>
     private Application.Services.DownloadRun? run => observedRun;
@@ -810,19 +816,29 @@ else
         // second while nothing happens.
         refreshTimer = new Timer(_ => InvokeAsync(async () =>
         {
+            var previous = observedRun;
             var observed = Coordinator.RunFor(PlaylistId);
-            // Reload while a run is active, and once more when it just
-            // finished: the final status write can land between two ticks.
-            var justFinished = observedRun is { State: not Application.Services.DownloadRunState.Finished }
+            var justFinished = previous is { State: not Application.Services.DownloadRunState.Finished }
                 && observed is null or { State: Application.Services.DownloadRunState.Finished };
+            var started = (previous is null or { State: Application.Services.DownloadRunState.Finished })
+                && observed is { State: not Application.Services.DownloadRunState.Finished };
             var active = observed is { State: not Application.Services.DownloadRunState.Finished };
             observedRun = observed;
             UpdateQueuePositions();
+
+            // The progress bar and queue labels update every tick. The rows
+            // themselves are a much heavier read (every track and every
+            // column); while a run is active a five-second refresh is
+            // enough, and the final reload catches the last writes.
+            var activeReloadDue = active
+                && DateTime.UtcNow - lastActiveReloadUtc >= TimeSpan.FromSeconds(5);
             var version = Store.DataVersion;
-            var reload = active || justFinished || version != observedVersion;
+            var reload = started || justFinished || activeReloadDue
+                || (!active && version != observedVersion);
             if (reload)
             {
                 await ReloadTracksAsync();
+                lastActiveReloadUtc = DateTime.UtcNow;
                 observedVersion = Store.DataVersion;
             }
             if (reload || active)
@@ -890,13 +906,14 @@ else
             editStrictQuality = playlist.StrictQuality;
             editAllowContainerChange = playlist.AllowContainerChange;
             ApplyCounts();
-            StartArchiveProbe();
             filteredCache = null;
         }
         persisted = (editName, editTargetDirectory, editQuality, editArchiveDirectory, editArchiveFormat, editSchedule, editSyncMode, editAutoDownload, editStrictQuality, editAllowContainerChange, editArchiveEnabled);
         formReady = true;
         observedRun = Coordinator.RunFor(PlaylistId);
         observedVersion = Store.DataVersion;
+        lastActiveReloadUtc = DateTime.UtcNow;
+        observedQueue = null;
         UpdateQueuePositions();
         loading = false;
     }
@@ -911,7 +928,6 @@ else
         playlist = await Store.GetByIdAsync(PlaylistId);
         if (playlist is null) return;
         ApplyCounts();
-        StartArchiveProbe();
         filteredCache = null;
     }
 
@@ -921,8 +937,12 @@ else
         downloadedCount = 0;
         downloadedSizeBytes = 0;
         reviewCount = 0;
+        failedCount = 0;
+        attentionCountValue = 0;
         foreach (var track in playlist?.Tracks ?? Enumerable.Empty<TrackEntity>())
         {
+            if (NeedsAttention(track)) attentionCountValue++;
+            if (track.DownloadStatus == "failed") failedCount++;
             if (track.DownloadStatus != "downloaded") continue;
             downloadedCount++;
             downloadedSizeBytes += track.FileSizeBytes ?? 0;
@@ -935,34 +955,41 @@ else
     /// <summary>Archive-file existence per path, checked by a background task.</summary>
     private Dictionary<string, bool> archiveStates = new(StringComparer.Ordinal);
     private bool archiveProbeRunning;
+    private IReadOnlyList<TrackEntity>? pendingArchiveTracks;
     private DateTime archiveProbedAtUtc = DateTime.MinValue;
     private bool disposed;
 
+    private void OnVisibleTracksChanged(IReadOnlyList<TrackEntity> visible)
+        => StartArchiveProbe(visible);
+
     /// <summary>
-    /// Checks the distinct archive paths of the downloaded rows on a
-    /// background task and re-renders when the verdicts are in. The table
-    /// must never stat a thousand files while it renders: on a network
-    /// mount that is what made opening the page take seconds.
+    /// Checks the distinct archive paths of the rows the table is showing
+    /// on a background task and re-renders when the verdicts are in. The
+    /// table must never stat files while it renders, and a page only needs
+    /// the verdicts for its visible slice: statting all three thousand
+    /// archive paths on a network mount was what made the page crawl.
     /// </summary>
-    private void StartArchiveProbe()
+    private void StartArchiveProbe(IReadOnlyList<TrackEntity>? rows = null)
     {
-        var paths = (playlist?.Tracks ?? Enumerable.Empty<TrackEntity>())
+        rows ??= (IReadOnlyList<TrackEntity>?)playlist?.Tracks ?? Array.Empty<TrackEntity>();
+        var paths = rows
             .Where(t => t.DownloadStatus == "downloaded" && !string.IsNullOrWhiteSpace(t.ArchivePath))
             .Select(t => t.ArchivePath!)
             .Distinct(StringComparer.Ordinal)
             .ToList();
         if (paths.Count == 0)
+            return;
+
+        // Debounce: a running download reloads the rows, and a stat sweep
+        // on every reload would just busy the mount. A verdict stays valid
+        // for a short window, then the next visible slice re-checks it.
+        if (archiveProbeRunning)
         {
-            archiveStates.Clear();
+            pendingArchiveTracks = rows;
             return;
         }
-
-        // Debounce: a running download reloads the rows per track, and a
-        // stat sweep on every reload would just busy the mount. A verdict
-        // stays valid for a short window, then the next reload re-checks.
-        if (archiveProbeRunning
-            || (DateTime.UtcNow - archiveProbedAtUtc < TimeSpan.FromSeconds(15)
-                && paths.All(archiveStates.ContainsKey)))
+        if (DateTime.UtcNow - archiveProbedAtUtc < TimeSpan.FromSeconds(15)
+            && paths.All(archiveStates.ContainsKey))
         {
             return;
         }
@@ -979,9 +1006,15 @@ else
                 {
                     archiveProbeRunning = false;
                     if (disposed) return;
-                    archiveStates = fresh;
+                    foreach (var (path, exists) in fresh)
+                        archiveStates[path] = exists;
                     archiveProbedAtUtc = DateTime.UtcNow;
                     StateHasChanged();
+                    if (pendingArchiveTracks is { } pending)
+                    {
+                        pendingArchiveTracks = null;
+                        StartArchiveProbe(pending);
+                    }
                 });
             }
             catch
@@ -1009,6 +1042,13 @@ else
 
     private async Task Refresh()
     {
+        // A refresh replaces the track snapshot. Doing that under a live
+        // run would invalidate the row ids the run's fixed work list holds.
+        if (Coordinator.IsActive(PlaylistId))
+        {
+            Notifications.Warn("Wait for the running download to finish before refreshing this playlist.");
+            return;
+        }
         busy = true;
         try
         {
@@ -1194,17 +1234,24 @@ else
         StateHasChanged();
     }
 
-    /// <summary>The queue label lookup: title -> first queue index, once per tick.</summary>
+    /// <summary>
+    /// The queue label lookup: title -> first queue index. The coordinator
+    /// caches the title list between completions, so this rebuild only runs
+    /// when the queue actually moved, not on every one-second tick.
+    /// </summary>
     private void UpdateQueuePositions()
     {
         if (run is null || run.State is not (Application.Services.DownloadRunState.Running
             or Application.Services.DownloadRunState.Paused))
         {
+            observedQueue = null;
             queuePositions = new Dictionary<string, int>(StringComparer.Ordinal);
             return;
         }
-        var positions = new Dictionary<string, int>(StringComparer.Ordinal);
         var queue = Coordinator.QueueFor(PlaylistId);
+        if (ReferenceEquals(queue, observedQueue)) return;
+        observedQueue = queue;
+        var positions = new Dictionary<string, int>(StringComparer.Ordinal);
         for (var i = 0; i < queue.Count; i++)
             positions.TryAdd(queue[i], i);
         queuePositions = positions;
@@ -2210,9 +2257,8 @@ else
     private string reviewSummaryLead
         => reviewCount == 1 ? "1 downloaded track needs" : $"{reviewCount} downloaded tracks need";
 
-    private int attentionCount => (playlist?.Tracks ?? new List<TrackEntity>()).Count(NeedsAttention);
-    private int FailedCount => (playlist?.Tracks ?? new List<TrackEntity>())
-        .Count(track => track.DownloadStatus == "failed");
+    private int attentionCount => attentionCountValue;
+    private int FailedCount => failedCount;
     private int BulkRetryPercent => bulkRetryTotal == 0
         ? 0
         : Math.Min(100, bulkRetryDone * 100 / bulkRetryTotal);

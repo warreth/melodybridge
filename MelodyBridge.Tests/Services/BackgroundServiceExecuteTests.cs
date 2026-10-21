@@ -320,10 +320,13 @@ public class BackgroundServiceExecuteTests
     private sealed class FakeDownloadTrigger : IDownloadTrigger
     {
         public bool Pending { get; set; }
+        public bool Active { get; set; }
         public List<string> Started { get; } = new();
 
         public Task<bool> HasPendingWorkAsync(string playlistId, CancellationToken ct = default)
             => Task.FromResult(Pending);
+
+        public bool IsActive(string playlistId) => Active;
 
         public void Start(string playlistId) => Started.Add(playlistId);
     }
@@ -333,7 +336,7 @@ public class BackgroundServiceExecuteTests
     /// scheduler against the real store and returns the fake trigger.
     /// </summary>
     private async Task<FakeDownloadTrigger> RunAutoSyncAsync(
-        string playlistId, bool autoDownload, bool pending, string sourceUrl)
+        string playlistId, bool autoDownload, bool pending, string sourceUrl, bool active = false)
     {
         await using (var db = _factory.CreateDbContext())
         {
@@ -351,7 +354,7 @@ public class BackgroundServiceExecuteTests
             await db.SaveChangesAsync();
         }
 
-        var trigger = new FakeDownloadTrigger { Pending = pending };
+        var trigger = new FakeDownloadTrigger { Pending = pending, Active = active };
         var services = new ServiceCollection();
         services.AddSingleton<IDbContextFactory<MelodyBridgeDbContext>>(_factory);
         services.AddSingleton<IDownloadTrigger>(trigger);
@@ -364,9 +367,11 @@ public class BackgroundServiceExecuteTests
             NullLogger<PlaylistStore>.Instance));
         var sp = services.BuildServiceProvider();
 
+        var activeSettleAt = active ? DateTime.UtcNow.AddMilliseconds(350) : DateTime.MaxValue;
         await RunUntilAsync(new FastAutoSync(sp, NullLogger<AutoSyncBackgroundService>.Instance), async () =>
         {
             if (trigger.Started.Count > 0) return true;
+            if (DateTime.UtcNow >= activeSettleAt) return true;
             await using var db = _factory.CreateDbContext();
             var stamped = await db.Playlists.AsNoTracking().SingleOrDefaultAsync(p => p.Id == playlistId);
             return stamped?.LastSyncAt is not null;
@@ -487,6 +492,23 @@ public class BackgroundServiceExecuteTests
 
         Assert.That(trigger.Started, Does.Contain("pl-dl"),
             "a due refresh that leaves work starts a download run");
+    }
+
+    [Test]
+    public async Task AutoSync_DoesNotReplaceTheSnapshotUnderAnActiveDownloadRun()
+    {
+        var trigger = await RunAutoSyncAsync(
+            "pl-busy", autoDownload: true, pending: true, sourceUrl: "stub:busy", active: true);
+
+        await using var db = _factory.CreateDbContext();
+        var playlist = await db.Playlists.AsNoTracking().SingleAsync(p => p.Id == "pl-busy");
+        Assert.Multiple(() =>
+        {
+            Assert.That(playlist.LastSyncAt, Is.Null,
+                "a due playlist is not stamped while its download run owns the row ids");
+            Assert.That(trigger.Started, Is.Empty,
+                "the run is already active; the refresh must wait for it");
+        });
     }
 
     [Test]
