@@ -1916,6 +1916,24 @@ td.file-path {
     text-align: right;
 }
 
+/* The stream renders 200 rows at a time; older ones wait behind this. */
+.logs-more {
+    position: sticky;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: .6rem;
+    padding: .6rem;
+    background: var(--surface-1);
+    border-top: 1px solid var(--border);
+}
+
+.logs-more span {
+    font-size: .72rem;
+    color: var(--muted-2);
+}
+
 /* On a phone the four-column log grid squeezed the message to a few
    pixels. Time and level stay on one line, the message gets its own
    full-width line. */

@@ -9,7 +9,8 @@ public record LogEntry(
     string Category,
     string Message,
     string? Detail = null,
-    string? Group = null
+    string? Group = null,
+    string Area = "System"
 );
 
 /// <summary>

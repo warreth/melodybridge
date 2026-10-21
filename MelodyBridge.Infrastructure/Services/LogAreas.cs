@@ -67,6 +67,7 @@ public static class LogAreas
         ("YouTube", "Sources"),
         ("AccountToken", "Sources"),
         ("Account", "Sources"),
+        ("AuthCallback", "Sources"),
         ("IsrcResolver", "Sources"),
         ("ListenBrainz", "Sources"),
 
@@ -89,6 +90,7 @@ public static class LogAreas
         ("Spectrum", "Downloads"),
         ("FlareSolverr", "Downloads"),
         ("PythonRunner", "Downloads"),
+        ("PluginAuth", "Downloads"),
 
         // Library: scanning the disk, watching folders, the metadata
         // passes and the file links a playlist folder holds.
@@ -109,6 +111,7 @@ public static class LogAreas
         ("Jellyfin", "Sync"),
         ("Plex", "Sync"),
         ("Subsonic", "Sync"),
+        ("MediaServerStatus", "Sync"),
         ("M3u", "Sync"),
 
         // Database: EF Core internals, our context and backups.

@@ -3,7 +3,7 @@
 <div class="log-row @LevelClass">
     <span class="log-time">@Entry.Timestamp.ToLocalTime().ToString("HH:mm:ss")</span>
     <span class="log-level">@Entry.Level.ToString().ToUpperInvariant()</span>
-    <span class="log-category" title="@Entry.Category">@LogAreas.FromCategory(Entry.Category)</span>
+    <span class="log-category" title="@Entry.Category">@Entry.Area</span>
     <span class="log-message">@LogRedactor.Redact(Entry.Message)</span>
     <div class="log-actions">
         <button class="icon-button" title="Copy this entry" aria-label="Copy this entry"

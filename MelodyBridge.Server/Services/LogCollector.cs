@@ -1,4 +1,5 @@
 using MelodyBridge.Core.Logging;
+using MelodyBridge.Infrastructure.Services;
 using CoreLogLevel = MelodyBridge.Core.Logging.LogLevel;
 
 namespace MelodyBridge.Server.Services;
@@ -13,6 +14,7 @@ public sealed class LogCollector : ILogCollector
     private readonly List<LogEntry> _entries = new();
     private readonly object _lock = new();
     private int _nextId;
+    private long _version;
 
     /// <summary>
     /// Maximum number of entries retained in memory. Default 1000.
@@ -25,7 +27,7 @@ public sealed class LogCollector : ILogCollector
     }
 
     public void Log(CoreLogLevel level, string category, string message,
-        string? detail = null, string? group = null)
+        string? detail = null, string? group = null, string? area = null)
     {
         var entry = new LogEntry(
             DateTime.UtcNow,
@@ -33,7 +35,8 @@ public sealed class LogCollector : ILogCollector
             category,
             message,
             detail,
-            group
+            group,
+            string.IsNullOrWhiteSpace(area) ? LogAreas.FromCategory(category) : area
         );
 
         lock (_lock)
@@ -42,6 +45,7 @@ public sealed class LogCollector : ILogCollector
             if (_entries.Count > MaxEntries)
                 _entries.RemoveRange(0, _entries.Count - MaxEntries);
             Interlocked.Increment(ref _nextId);
+            Interlocked.Increment(ref _version);
         }
     }
 
@@ -60,8 +64,14 @@ public sealed class LogCollector : ILogCollector
 
     public void Clear()
     {
-        lock (_lock) _entries.Clear();
+        lock (_lock)
+        {
+            _entries.Clear();
+            Interlocked.Increment(ref _version);
+        }
     }
+
+    public long Version => Interlocked.Read(ref _version);
 
     /// <summary>
     /// Total entries collected since startup (including evicted ones).

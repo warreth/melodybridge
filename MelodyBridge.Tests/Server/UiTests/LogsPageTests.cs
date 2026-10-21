@@ -76,6 +76,26 @@ public class LogsPageTests
     }
 
     [Test]
+    public void Logs_OnlyRendersAPageOfEntries()
+    {
+        for (var i = 0; i < 250; i++)
+            _collector.Log(LogLevel.Info, "MelodyBridge.Infrastructure.Services.PlaylistStore",
+                $"entry {i:000}");
+
+        var cut = _ctx.Render<Logs>();
+
+        Assert.That(cut.FindAll(".logs-list .log-row").Count, Is.EqualTo(200),
+            "the first paint stays at one page so a full buffer does not stall the page");
+        Assert.That(cut.Markup, Does.Contain("Show 50 more entries"));
+
+        cut.FindAll(".logs-more button").Single().Click();
+
+        Assert.That(cut.FindAll(".logs-list .log-row").Count, Is.EqualTo(250),
+            "Show more reveals the rest without leaving the page");
+        Assert.That(cut.FindAll(".logs-more"), Is.Empty);
+    }
+
+    [Test]
     public void Logs_AreaChipFiltersStream()
     {
         _collector.Log(LogLevel.Info, "MelodyBridge.Infrastructure.Services.PlaylistStore", "playlist synced");

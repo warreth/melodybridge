@@ -97,6 +97,79 @@ public class LogAreasTests
         Assert.That(LogAreas.All, Is.Unique);
     }
 
+    /// <summary>
+    /// Walks every logger the app actually injects and fails when one of
+    /// them would land in System. A new service with its own ILogger gets
+    /// caught here instead of showing up as an untagged row in the UI.
+    /// </summary>
+    [Test]
+    public void EveryInjectedLogger_HasAnArea()
+    {
+        var assemblies = new[]
+        {
+            typeof(LogAreas).Assembly,
+            typeof(MelodyBridge.Application.Services.DownloadManager).Assembly,
+            typeof(MelodyBridge.Server.Services.LogCollector).Assembly,
+        };
+
+        // These are system services by design: startup, notifications,
+        // background failure reporting and the dev panel itself.
+        var systemTypes = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "ToastObserverService",
+            "NtfyNotifier",
+            "NotificationService",
+            "BackgroundFailureSink",
+            "UpdateCheckService",
+            "DevPanelService",
+        };
+
+        var loggerTypes = assemblies
+            .SelectMany(assembly => assembly.GetTypes())
+            .Where(type => type.IsClass)
+            .SelectMany(LoggedTypes)
+            .Distinct();
+
+        var untagged = loggerTypes
+            .Where(type => !systemTypes.Contains(type.Name))
+            .Where(type => LogAreas.FromCategory(type.FullName ?? type.Name) == "System")
+            .Select(type => type.FullName ?? type.Name)
+            .OrderBy(name => name, StringComparer.Ordinal)
+            .ToList();
+
+        Assert.That(untagged, Is.Empty,
+            "these ILogger<T> categories would show up as System on the Logs page: "
+            + string.Join(", ", untagged));
+    }
+
+    private static IEnumerable<Type> LoggedTypes(Type type)
+    {
+        const System.Reflection.BindingFlags all =
+            System.Reflection.BindingFlags.Public
+            | System.Reflection.BindingFlags.NonPublic
+            | System.Reflection.BindingFlags.Instance
+            | System.Reflection.BindingFlags.Static;
+
+        foreach (var ctor in type.GetConstructors(all))
+            foreach (var parameter in ctor.GetParameters())
+                if (LoggedType(parameter.ParameterType) is { } fromCtor)
+                    yield return fromCtor;
+
+        foreach (var property in type.GetProperties(all))
+            if (LoggedType(property.PropertyType) is { } fromProperty)
+                yield return fromProperty;
+
+        foreach (var field in type.GetFields(all))
+            if (LoggedType(field.FieldType) is { } fromField)
+                yield return fromField;
+    }
+
+    private static Type? LoggedType(Type type)
+        => type.IsGenericType
+           && type.GetGenericTypeDefinition() == typeof(Microsoft.Extensions.Logging.ILogger<>)
+            ? type.GetGenericArguments()[0]
+            : null;
+
     [Test]
     public void EveryKeywordLandsInAKnownArea()
     {

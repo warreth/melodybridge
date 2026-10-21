@@ -1,4 +1,5 @@
 using MelodyBridge.Core.Logging;
+using MelodyBridge.Infrastructure.Services;
 using CoreLogLevel = MelodyBridge.Core.Logging.LogLevel;
 using MelodyBridge.Server.Services;
 
@@ -39,6 +40,7 @@ public sealed class DevPanelLogger : ILogger
 {
     private readonly ILogCollector _collector;
     private readonly string _categoryName;
+    private readonly string _area;
 
     private static readonly Dictionary<Microsoft.Extensions.Logging.LogLevel, CoreLogLevel> LevelMap = new()
     {
@@ -54,6 +56,8 @@ public sealed class DevPanelLogger : ILogger
     {
         _collector = collector;
         _categoryName = categoryName;
+        // Resolve the area once per logger rather than on every entry.
+        _area = LogAreas.FromCategory(categoryName);
     }
 
     public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
@@ -98,7 +102,7 @@ public sealed class DevPanelLogger : ILogger
         var message = formatter(state, exception);
         var detail = exception?.ToString();
 
-        _collector.Log(level, _categoryName, message, detail, LogCorrelation.Current);
+        _collector.Log(level, _categoryName, message, detail, LogCorrelation.Current, _area);
     }
 
     /// <summary>Framework and BCL loggers, not the app's own types.</summary>
