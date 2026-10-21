@@ -8,8 +8,10 @@ namespace MelodyBridge.Tests.Infrastructure;
 
 /// <summary>
 /// Backup/restore against a real SQLite file: export produces a valid zip
-/// with a readable database inside; import swaps the live file and parks
-/// the old one. No mocks anywhere.
+/// with a readable database inside; an import stages that database next
+/// to the live file and leaves the running app alone. The swap itself is
+/// covered by <see cref="DatabaseRestoreTests"/>.
+/// No mocks anywhere.
 /// </summary>
 [TestFixture]
 [Category("Integration")]
@@ -68,44 +70,37 @@ public class DatabaseBackupServiceTests
     }
 
     [Test]
-    public async Task Import_Swaps_Database_And_Parks_The_Old_One()
+    public async Task Import_Stages_The_Database_And_Leaves_The_Live_File_Alone()
     {
-        // Build a "foreign" database with different content, then take a
-        // VACUUM INTO snapshot the way a real export does (a raw copy of a
-        // WAL-mode file has no schema: see the reject test below).
-        var foreignPath = Path.Combine(_dir, "foreign.db");
-        var snapshotPath = Path.Combine(_dir, "foreign-snapshot.db");
-        var foreignFactory = new TestSqliteFactory(foreignPath);
-        using (var db = foreignFactory.CreateDbContext())
-        {
-            db.Database.EnsureCreated();
-            db.Playlists.Add(new PlaylistEntity
-            {
-                Id = "p2", Name = "Foreign", SourceUrl = "https://y", TrackCount = 7,
-            });
-            db.SaveChanges();
-            await db.Database.ExecuteSqlRawAsync($"VACUUM INTO '{snapshotPath.Replace("'", "''")}'");
-        }
-
-        var zipPath = Path.Combine(_dir, "upload.zip");
-        using (var archive = ZipFile.Open(zipPath, ZipArchiveMode.Create))
-        {
-            archive.CreateEntryFromFile(snapshotPath, "melodybridge.db");
-        }
+        // The import must not touch the live database: the swap happens at
+        // the next start, with no connection open. Touching it here would
+        // leave the write-ahead log of the running app beside the
+        // restored file, and the next connection would replay it.
+        var zipPath = BuildForeignZip();
 
         await using var stream = File.OpenRead(zipPath);
         await _service.ImportZipAsync(stream);
 
-        Assert.That(File.Exists(_dbPath), Is.True);
-        Assert.That(Directory.GetFiles(_dir, "*.preimport.bak").Length, Is.EqualTo(1),
-            "the old database is parked, not deleted");
+        var pending = DatabaseRestore.PendingPath(_dbPath);
+        Assert.That(File.Exists(pending), Is.True,
+            "the imported database waits next to the live one");
+        Assert.That(await _service.HasPendingRestoreAsync(), Is.True);
 
-        var restored = new TestSqliteFactory(_dbPath);
-        using (var db = restored.CreateDbContext())
+        // The live database still holds the running app's data.
+        var live = new TestSqliteFactory(_dbPath);
+        using (var db = live.CreateDbContext())
+        {
+            Assert.That(db.Playlists.Count(p => p.Name == "Original"), Is.EqualTo(1),
+                "the live database is untouched while the app runs");
+            Assert.That(db.Playlists.Count(p => p.Name == "Foreign"), Is.Zero);
+        }
+
+        // And the staged file holds the imported one.
+        var staged = new TestSqliteFactory(pending);
+        using (var db = staged.CreateDbContext())
         {
             Assert.That(db.Playlists.Count(p => p.Name == "Foreign"), Is.EqualTo(1),
-                "the restored database replaced the old content");
-            Assert.That(db.Playlists.Count(p => p.Name == "Original"), Is.EqualTo(0));
+                "the staged database holds the imported content");
         }
     }
 
@@ -139,6 +134,8 @@ public class DatabaseBackupServiceTests
         {
             Assert.That(db.Playlists.Count(p => p.Name == "Original"), Is.EqualTo(1));
         }
+        Assert.That(File.Exists(DatabaseRestore.PendingPath(_dbPath)), Is.False,
+            "a rejected import leaves nothing staged");
     }
 
     [Test]
@@ -173,16 +170,6 @@ public class DatabaseBackupServiceTests
         }
     }
 
-    /// <summary>Fails the final replace step, after the live file is parked.</summary>
-    private sealed class FailingRestoreService(
-        IDbContextFactory<MelodyBridgeDbContext> factory,
-        Microsoft.Extensions.Logging.ILogger<DatabaseBackupService> logger)
-        : DatabaseBackupService(factory, logger)
-    {
-        internal override void MoveRestoredIntoPlace(string restoredPath, string dbPath)
-            => throw new IOException("simulated restore failure");
-    }
-
     /// <summary>A zip holding a real, schema-complete foreign database.</summary>
     private string BuildForeignZip()
     {
@@ -206,28 +193,5 @@ public class DatabaseBackupServiceTests
             archive.CreateEntryFromFile(snapshotPath, "melodybridge.db");
         }
         return zipPath;
-    }
-
-    [Test]
-    public async Task Import_Failure_PutsTheOriginalDatabaseBack()
-    {
-        // The live file is parked before the replacement lands; when the
-        // replacement fails, the parked original must come back instead of
-        // leaving the app with no database at all.
-        var zipPath = BuildForeignZip();
-        var failing = new FailingRestoreService(_factory,
-            Microsoft.Extensions.Logging.Abstractions.NullLogger<DatabaseBackupService>.Instance);
-
-        await using (var stream = File.OpenRead(zipPath))
-        {
-            Assert.ThrowsAsync<IOException>(() => failing.ImportZipAsync(stream));
-        }
-
-        Assert.That(File.Exists(_dbPath), Is.True,
-            "a failed restore must never leave the app without a database");
-        var restored = new TestSqliteFactory(_dbPath);
-        using var db = restored.CreateDbContext();
-        Assert.That(db.Playlists.Count(p => p.Name == "Original"), Is.EqualTo(1),
-            "the original content is back");
     }
 }

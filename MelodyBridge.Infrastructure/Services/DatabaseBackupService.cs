@@ -54,9 +54,12 @@ public class DatabaseBackupService(
     }
 
     /// <summary>
-    /// Restores the melodybridge.db inside the uploaded zip, backing up the
-    /// current file first. The caller must warn the user that a restart
-    /// is required for the old connection to let go of the file.
+    /// Validates the database in the uploaded zip and stages it next to
+    /// the live file. The swap happens at the next start, with no
+    /// connection open: replacing a live WAL database while connections
+    /// are open leaves the old write-ahead log behind, and the next
+    /// connection replays it over the restored file.
+    /// The caller must tell the user that a restart applies the import.
     /// </summary>
     public async Task ImportZipAsync(Stream zipStream, CancellationToken ct = default)
     {
@@ -70,6 +73,7 @@ public class DatabaseBackupService(
                 await zipStream.CopyToAsync(file, ct);
             }
 
+            var restored = Path.Combine(tempDir, "restored.db");
             using (var archive = OpenZipArchive(zipPath))
             {
                 // Only unpack a plain .db entry from the top level: no
@@ -82,50 +86,61 @@ public class DatabaseBackupService(
                     ?? throw new InvalidOperationException(
                         "The zip file does not contain a melodybridge.db.");
 
-                entry.ExtractToFile(Path.Combine(tempDir, "restored.db"), overwrite: true);
+                entry.ExtractToFile(restored, overwrite: true);
             }
 
             // Refuse zips whose database carries no schema (copied without
-            // its -wal sidecar) before touching the live file.
-            RequireUsableDatabase(Path.Combine(tempDir, "restored.db"));
+            // its -wal sidecar) before the import is staged.
+            RequireUsableDatabase(restored);
+
+            // One file, no sidecars: the staged database must carry every
+            // committed page on its own.
+            await MakeSelfContainedAsync(restored, ct);
 
             var dbPath = await GetDatabasePathAsync(ct);
+            var pending = DatabaseRestore.PendingPath(dbPath);
+            // The staged file sits next to the live database, so the swap
+            // at startup is a rename on the same filesystem.
+            File.Copy(restored, pending, overwrite: true);
 
-            // Park open pooled connections so the file is replaceable on
-            // all platforms (Windows locks open files).
-            SqliteConnection.ClearAllPools();
-
-            var parked = BackupCurrent(dbPath);
-            try
-            {
-                MoveRestoredIntoPlace(Path.Combine(tempDir, "restored.db"), dbPath);
-            }
-            catch
-            {
-                // The live database is already parked: put it back so a
-                // failed restore never leaves the app without one.
-                if (parked is not null)
-                {
-                    try
-                    {
-                        File.Move(parked, dbPath, overwrite: true);
-                        logger.LogWarning(
-                            "Restore failed; the previous database was put back from {Path}", parked);
-                    }
-                    catch (Exception ex)
-                    {
-                        logger.LogError(ex, "Restore failed and the previous database could not be put back");
-                    }
-                }
-                throw;
-            }
-
-            logger.LogInformation("Database restored from uploaded zip; restart required");
+            logger.LogInformation(
+                "Database import staged at {Path}; it is applied on the next start", pending);
         }
         finally
         {
             TryDelete(tempDir);
         }
+    }
+
+    /// <summary>
+    /// True when an imported database is waiting for the next start.
+    /// </summary>
+    public async Task<bool> HasPendingRestoreAsync(CancellationToken ct = default)
+    {
+        var dbPath = await GetDatabasePathAsync(ct);
+        return DatabaseRestore.HasPendingRestore(dbPath);
+    }
+
+    /// <summary>
+    /// Folds the write-ahead log into the file and removes its sidecars,
+    /// so the file that is staged carries every committed page.
+    /// </summary>
+    private static async Task MakeSelfContainedAsync(string path, CancellationToken ct)
+    {
+        var connectionString = new SqliteConnectionStringBuilder
+        {
+            DataSource = path,
+            Pooling = false,
+            DefaultTimeout = SqliteDatabase.BusyTimeoutSeconds,
+        }.ToString();
+        await using (var connection = new SqliteConnection(connectionString))
+        {
+            await connection.OpenAsync(ct);
+            await using var command = connection.CreateCommand();
+            command.CommandText = "PRAGMA wal_checkpoint(TRUNCATE);";
+            await command.ExecuteNonQueryAsync(ct);
+        }
+        SqliteDatabase.DeleteSidecars(path);
     }
 
     /// <summary>
@@ -154,36 +169,13 @@ public class DatabaseBackupService(
     /// </summary>
     private static void RequireUsableDatabase(string path)
     {
-        using var connection = new SqliteConnection($"Data Source={path}");
-        connection.Open();
-        using var command = connection.CreateCommand();
-        command.CommandText =
-            "SELECT count(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'";
-        var tables = Convert.ToInt64(command.ExecuteScalar());
-        if (tables == 0)
-            throw new InvalidOperationException(
-                "The database in this zip has no tables. It was probably copied without its -wal file. Export again from a running MelodyBridge.");
+        if (DatabaseRestore.HasSchema(path)) return;
+        throw new InvalidOperationException(
+            "The database in this zip has no tables. It was probably copied without its -wal file. Export again from a running MelodyBridge.");
     }
 
     private static string ZipName()
         => $"melodybridge_{DateTime.UtcNow:yyyyMMdd_HHmmss}.zip";
-
-    /// <summary>
-    /// Parks the live database next to itself (a unique name, so two
-    /// restores in one second cannot collide) and returns the parked path.
-    /// </summary>
-    private string? BackupCurrent(string dbPath)
-    {
-        if (!File.Exists(dbPath)) return null;
-        var backupPath = $"{dbPath}.{DateTime.UtcNow:yyyyMMdd_HHmmss}.{Guid.NewGuid():N}.preimport.bak";
-        File.Move(dbPath, backupPath);
-        logger.LogInformation("Pre-import database parked at {Path}", backupPath);
-        return backupPath;
-    }
-
-    /// <summary>Test seam: the final replace step of a restore.</summary>
-    internal virtual void MoveRestoredIntoPlace(string restoredPath, string dbPath)
-        => File.Move(restoredPath, dbPath, overwrite: true);
 
     private async Task<string> GetDatabasePathAsync(CancellationToken ct)
     {

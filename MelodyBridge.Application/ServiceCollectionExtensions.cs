@@ -25,6 +25,9 @@ public static class ServiceCollectionExtensions
         services.AddScoped<M3uGenerator>();
         services.AddScoped<ILibraryScanner, LibraryScanner>();
         services.AddScoped<MelodyBridge.Infrastructure.Services.DatabaseBackupService>();
+        // The database import: staged by the settings page, applied at the
+        // next start with no connection open.
+        services.AddSingleton<MelodyBridge.Infrastructure.Services.DatabaseRestore>();
         services.AddScoped<MelodyBridge.Infrastructure.Services.MediaServerProfileStore>();
         // Moves the library when the Music path or Archive path setting
         // changes; stateless, one for all callers.

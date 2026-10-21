@@ -901,9 +901,9 @@ else if (activeTab == "about")
         <div class="settings-section">
             <div class="hint-box">
                 The zip contains a consistent snapshot (playlists, tracks,
-                settings). Import replaces the current database and parks the
-                old one next to it as .preimport.bak: restart after
-                importing so the app lets go of the old file.
+                settings). An import is staged next to the database and
+                applied on the next start: the current database is parked
+                as .preimport.bak and the imported one takes its place.
             </div>
             <div class="flex-actions">
                 <button class="btn-modern secondary" @onclick="ExportDatabase">Export zip</button>
@@ -1138,6 +1138,19 @@ else if (activeTab == "about")
         Nav.LocationChanged += OnLocationChanged;
 
         profiles = (await ServerProfiles.GetAllAsync()).ToList();
+
+        // An import that was staged but not applied yet: the next start
+        // swaps it in. Say so, so the user knows a restart is pending.
+        try
+        {
+            if (await DbBackup.HasPendingRestoreAsync())
+                dbMessage = "An imported database is waiting for the next start.";
+        }
+        catch
+        {
+            // The check is a convenience; a failure here must not block
+            // the settings page.
+        }
 
         // Migration: the old single-server settings become one profile.
         if (profiles.Count == 0)
@@ -1857,7 +1870,7 @@ else if (activeTab == "about")
         {
             await using var stream = e.File.OpenReadStream(200_000_000);
             await DbBackup.ImportZipAsync(stream);
-            dbMessage = "Database restored. Restart MelodyBridge to use it.";
+            dbMessage = "Database imported. Restart MelodyBridge to apply it.";
             Notifications.Warn("Database imported: restart to apply.");
         }
         catch (Exception ex)

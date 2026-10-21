@@ -40,6 +40,29 @@ public static class SqliteDatabase
     }
 
     /// <summary>
+    /// The files that belong to a WAL database besides the database
+    /// itself: the write-ahead log and the shared-memory index. They hold
+    /// committed pages that the database file does not have yet, so they
+    /// must travel with the database or be removed with it.
+    /// </summary>
+    public static string[] SidecarPaths(string databasePath)
+        => [databasePath + "-wal", databasePath + "-shm"];
+
+    /// <summary>
+    /// Removes the write-ahead log and the shared-memory index next to a
+    /// database. Only safe on a database that was checkpointed, or on one
+    /// that is about to be replaced.
+    /// </summary>
+    public static void DeleteSidecars(string databasePath)
+    {
+        foreach (var path in SidecarPaths(databasePath))
+        {
+            try { File.Delete(path); }
+            catch { /* best effort: a locked sidecar is cleaned up later */ }
+        }
+    }
+
+    /// <summary>
     /// True when the exception is SQLite's busy or locked verdict (error
     /// codes 5 and 6), including when EF wraps it in a DbUpdateException.
     /// </summary>
@@ -56,8 +79,8 @@ public static class SqliteDatabase
     /// <summary>
     /// Runs a write and retries a few times when SQLite reports a busy
     /// database. The command timeout already waits 30 seconds; this covers
-    /// the shorter overlap with another writer without turning it into a
-    /// stuck track row.
+    /// the overlap with another writer without turning it into a stuck
+    /// track row.
     /// </summary>
     public static async Task<T> RetryBusyAsync<T>(
         Func<Task<T>> action, int attempts = 3, CancellationToken ct = default)

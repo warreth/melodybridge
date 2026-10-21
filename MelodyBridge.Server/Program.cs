@@ -87,6 +87,18 @@ builder.Services.AddDataProtection()
 
 var app = builder.Build();
 
+// A database import is applied here, before the first connection opens.
+// Replacing a live database while connections are open leaves the old
+// write-ahead log behind, and the next connection replays it over the
+// restored file: the imported rows disappear and the old ones come back.
+// The swap runs first, on a database nobody has open yet.
+var restore = app.Services.GetRequiredService<DatabaseRestore>().Apply(dbFile, app.Logger);
+if (restore.Applied)
+    app.Logger.LogInformation(
+        "Database import applied; the previous database is parked at {Path}", restore.ParkedPath);
+else if (restore.Error is { Length: > 0 } error)
+    app.Logger.LogError("Database import not applied: {Error}", error);
+
 // WAL is what lets the UI read a large playlist while a download run
 // writes track status. Without it the default rollback journal makes the
 // two wait for each other, and a write can time out with "database is

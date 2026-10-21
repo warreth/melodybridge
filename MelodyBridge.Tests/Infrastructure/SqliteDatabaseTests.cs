@@ -163,4 +163,27 @@ public class SqliteDatabaseTests
             }));
         Assert.That(calls, Is.EqualTo(1));
     }
+
+    [Test]
+    public void DeleteSidecars_RemovesTheWriteAheadLogAndTheSharedMemoryFile()
+    {
+        var path = NewDbPath();
+        try
+        {
+            File.WriteAllText(path, "database");
+            File.WriteAllText(path + "-wal", "log");
+            File.WriteAllText(path + "-shm", "index");
+
+            SqliteDatabase.DeleteSidecars(path);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(File.Exists(path + "-wal"), Is.False);
+                Assert.That(File.Exists(path + "-shm"), Is.False);
+                Assert.That(File.Exists(path), Is.True, "the database itself stays");
+            });
+            Assert.That(SqliteDatabase.SidecarPaths(path), Is.EqualTo(new[] { path + "-wal", path + "-shm" }));
+        }
+        finally { Delete(path); }
+    }
 }
