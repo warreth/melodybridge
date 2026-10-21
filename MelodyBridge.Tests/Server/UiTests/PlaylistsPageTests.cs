@@ -1169,9 +1169,15 @@ public class PlaylistsPageTests
 
         public int PendingChecks;
 
+        public IReadOnlyList<DownloadRun> Snapshot() => Array.Empty<DownloadRun>();
+
         public DownloadRun? RunFor(string playlistId) => null;
 
         public bool IsActive(string playlistId) => false;
+
+        public void Pause(string playlistId) { }
+
+        public void Cancel(string playlistId) { }
 
         public async Task<bool> HasPendingWorkAsync(
             string playlistId, CancellationToken ct = default)

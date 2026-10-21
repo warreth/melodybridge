@@ -6,7 +6,6 @@
 @using MelodyBridge.Infrastructure.Downloaders
 @using MelodyBridge.Infrastructure.Services
 @inject IDownloaderRegistry Registry
-@inject Application.Services.DownloadCoordinator Coordinator
 @inject YtDlpUpdater YtDlp
 @inject MelodyBridge.Server.Services.NotificationService Notifications
 @inject MelodyBridge.Infrastructure.Services.PluginAuthMonitor AuthMonitor
@@ -31,6 +30,9 @@
             equals.</p>
     </div>
     <div class="topbar-actions">
+        <a class="btn-modern small secondary" href="/downloads">
+            <Icon Name="download" Size="14" /> Downloads
+        </a>
         <small class="text-muted updated-note">@(lastAvailabilityCheck == DateTimeOffset.MinValue ? "" : $"checked {lastAvailabilityCheck.ToLocalTime():HH:mm}")</small>
         <button class="btn-modern small ghost" disabled="@refreshingStatus" @onclick="RefreshAvailabilityAsync" title="Probe every plugin again">
             <Icon Name="refresh" Size="14" /> @(refreshingStatus ? "Checking…" : "Refresh status")
@@ -130,52 +132,6 @@
         Based on each plugin's declared capabilities. Availability is still checked per track.
     </p>
 </section>
-
-@if (runs.Count > 0)
-{
-    <section class="panel-card" id="live-downloads">
-        <div class="panel-header">
-            <div>
-                <span class="eyebrow">Active</span>
-                <h2>Live downloads</h2>
-            </div>
-        </div>
-        <div class="qi-result">
-            @foreach (var run in runs)
-            {
-                <div class="qi-item">
-                    <div class="qi-grow">
-                        <strong>@run.PlaylistName</strong>
-                        <div class="qi-meta">
-                            @run.State · @run.Done/@run.Total done · @run.Failed failed
-                            @if (!string.IsNullOrEmpty(run.CurrentTrack))
-                            {
-                                <span> · now: @run.CurrentTrack</span>
-                            }
-                        </div>
-                        <div class="progress-track">
-                            <div class="progress-fill" style="width:@run.Percent%"></div>
-                        </div>
-                    </div>
-                    <div class="flex-actions">
-                        @if (run.State == Application.Services.DownloadRunState.Running)
-                        {
-                            <button class="btn-modern small ghost" @onclick="() => Coordinator.Pause(run.PlaylistId)"><Icon Name="pause" Size="14" /> Pause</button>
-                        }
-                        else if (run.State == Application.Services.DownloadRunState.Paused)
-                        {
-                            <button class="btn-modern small primary" @onclick="() => Coordinator.Start(run.PlaylistId)"><Icon Name="play" Size="14" /> Resume</button>
-                        }
-                        @if (run.State is Application.Services.DownloadRunState.Running or Application.Services.DownloadRunState.Paused)
-                        {
-                            <button class="btn-modern small ghost" @onclick="() => Coordinator.Cancel(run.PlaylistId)"><Icon Name="x" Size="14" /> Cancel</button>
-                        }
-                    </div>
-                </div>
-            }
-        </div>
-    </section>
-}
 
 <section class="panel-card">
     <div class="panel-header">
@@ -401,7 +357,6 @@
     private readonly ConcurrentDictionary<string, long> availabilityVersions = new(StringComparer.OrdinalIgnoreCase);
     private IReadOnlyList<PluginAuthIssue> authIssues = Array.Empty<PluginAuthIssue>();
     private Dictionary<string, string> configValues = new();
-    private List<Application.Services.DownloadRun> runs = new();
     private Timer? _timer;
     private string? firstEnabledId;
     private string? lastEnabledId;
@@ -423,11 +378,6 @@
 
     protected override async Task OnInitializedAsync()
     {
-        // Show an active run on the first render, before the slower plugin
-        // probes: the sidebar chip links straight to this section.
-        runs = Coordinator.Snapshot()
-            .Where(r => r.State != Application.Services.DownloadRunState.Finished)
-            .ToList();
         _ = Registry.GetEnabled(); // force cache load
         await ReorderPluginsAsync();
         // The background login sweep may already know about a stale token:
@@ -440,7 +390,6 @@
         ytDlpChecked = true;
         _timer = new Timer(_ => InvokeAsync(async () =>
         {
-            runs = Coordinator.Snapshot().Where(r => r.State != Application.Services.DownloadRunState.Finished).ToList();
             await ReorderPluginsAsync();
             // Keep the ready pills honest: a cheap re-probe (plugins cache
             // their own verdicts) every half minute.
@@ -500,28 +449,6 @@
         if (fragment.Length == 0)
         {
             handledFragment = fragment;
-            return;
-        }
-
-        if (string.Equals(fragment, "live-downloads", StringComparison.OrdinalIgnoreCase))
-        {
-            handledFragment = fragment;
-            try
-            {
-                await JS.InvokeVoidAsync("melody.revealElement", "live-downloads", false);
-            }
-            catch (JSException)
-            {
-                // The section still renders; only the scroll is lost.
-            }
-            catch (JSDisconnectedException)
-            {
-                // The section still renders; only the scroll is lost.
-            }
-            catch (InvalidOperationException)
-            {
-                // No JS runtime in a static render.
-            }
             return;
         }
 

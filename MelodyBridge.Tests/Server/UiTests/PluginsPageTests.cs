@@ -506,11 +506,17 @@ public class PluginsPageTests
     }
 
     [Test]
-    public void Plugins_LiveRunsHiddenWhenNone()
+    public void Plugins_LinksToTheDownloadsOverview()
     {
         var cut = _ctx.Render<Plugins>();
 
-        Assert.That(cut.Markup, Does.Not.Contain("Live downloads"), "no run, no panel");
+        Assert.Multiple(() =>
+        {
+            Assert.That(cut.FindAll("a[href='/downloads']"), Is.Not.Empty,
+                "live activity moved to its own page");
+            Assert.That(cut.FindAll("#live-downloads"), Is.Empty,
+                "the plugin page no longer owns the run panel");
+        });
     }
 
     [Test]

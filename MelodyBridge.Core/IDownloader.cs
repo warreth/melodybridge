@@ -59,6 +59,7 @@ public record DownloaderDownloadResult(
 
 /// <summary>
 /// Progress of one track's download, as reported to the UI.
+/// <param name="At">When this entry was last written; filled by the state snapshot.</param>
 /// </summary>
 public record DownloadProgress(
     string MelodyId,
@@ -67,7 +68,8 @@ public record DownloadProgress(
     string? Plugin,
     string? FilePath,
     MatchConfidence MatchConfidence = MatchConfidence.High,
-    string? Warning = null);
+    string? Warning = null,
+    DateTimeOffset? At = null);
 
 /// <summary>One choice of a select-style plugin setting.</summary>
 public record PluginConfigChoice(string Value, string Label);
