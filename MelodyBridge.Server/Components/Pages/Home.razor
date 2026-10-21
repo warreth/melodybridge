@@ -563,9 +563,12 @@ else
         // Dashboard-only facts: keep the intro queries light.
         if (!showIntro)
         {
-            spotifyConnected = await SpotifyAccount.IsConnectedAsync();
-            youtubeConnected = await YouTubeAccount.IsConnectedAsync();
-            mediaServers = await MediaProbe.SnapshotAsync();
+            // The account and media-server checks talk to other processes
+            // and hosts. Start them before the database reads so the page
+            // waits for the slower of the two, not their sum.
+            var spotifyTask = SpotifyAccount.IsConnectedAsync();
+            var youtubeTask = YouTubeAccount.IsConnectedAsync();
+            var mediaTask = MediaProbe.SnapshotAsync();
             flareSolverrUrl = FlareSolverrSolver.Url ?? string.Empty;
 
             // One pass over the buffer, not two: it grows while we read.
@@ -601,6 +604,10 @@ else
                 .Select(x => (x.JobName, x.Timestamp, x.Status, x.Message ?? ""))
                 .ToList();
 
+            await Task.WhenAll(spotifyTask, youtubeTask, mediaTask);
+            spotifyConnected = await spotifyTask;
+            youtubeConnected = await youtubeTask;
+            mediaServers = await mediaTask;
         }
 
         // The checklist also shows the last-run date, so this one small
