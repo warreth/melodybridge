@@ -31,6 +31,7 @@ public class PlaylistStore
     private readonly IsrcResolver? _isrcResolver;
     private readonly CoverArtFetcher? _coverArt;
     private readonly LyricsResolver? _lyrics;
+    private readonly ITrackClaimRegistry _claims;
 
     // The split-out services. Queries first: the others grow out of it.
     private readonly PlaylistQueries _queries;
@@ -87,7 +88,8 @@ public class PlaylistStore
         CoverArtFetcher? coverArt = null,
         LyricsResolver? lyrics = null,
         TrackLinker? linker = null,
-        DataChangeTracker? changes = null)
+        DataChangeTracker? changes = null,
+        ITrackClaimRegistry? claims = null)
     {
         _dbFactory = dbFactory;
         _providers = providers.ToArray();
@@ -103,11 +105,14 @@ public class PlaylistStore
         // The write stamp the pages poll: one instance app-wide in
         // production, a private one for tests that never wire it.
         _changes = changes ?? new DataChangeTracker();
+        // The claims that are live in this process, shared by the linker
+        // and the download pipeline.
+        _claims = claims ?? new LiveTrackClaims();
         // The linking half of dedup (hardlink shared tracks and their
         // archive copies) is one module: DI injects the singleton, tests
         // that never wire one still get a working private instance.
         _linker = linker ?? new TrackLinker(
-            dbFactory, _settings, _hardLinks, NullLogger<TrackLinker>.Instance, _changes);
+            dbFactory, _settings, _hardLinks, NullLogger<TrackLinker>.Instance, _changes, _claims);
         // Optional: without a resolver, tracks simply download without an
         // ISRC like before.
         _isrcResolver = isrcResolver;
@@ -122,7 +127,7 @@ public class PlaylistStore
         _transfer = new PlaylistTransfer(dbFactory, _queries, _snapshots);
         _pipeline = new DownloadPipeline(
             dbFactory, downloadManager, _settings, _linker,
-            isrcResolver, coverArt, lyrics, logger, () => Verification(), _changes);
+            isrcResolver, coverArt, lyrics, logger, () => Verification(), _changes, _claims);
     }
 
     public Task<(int downloaded, int failed)> DownloadMissingAsync(

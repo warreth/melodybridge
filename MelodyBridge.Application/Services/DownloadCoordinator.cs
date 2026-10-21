@@ -56,6 +56,7 @@ public class DownloadCoordinator : IDownloadCoordinator
 {
     private readonly IServiceProvider _services;
     private readonly ILogger<DownloadCoordinator> _logger;
+    private readonly ITrackClaimRegistry _claims;
 
     /// <summary>
     /// The run's fixed work list with an atomically shared cursor: every
@@ -173,10 +174,15 @@ public class DownloadCoordinator : IDownloadCoordinator
 
     public DownloadCoordinator(
         IServiceProvider services,
-        ILogger<DownloadCoordinator> logger)
+        ILogger<DownloadCoordinator> logger,
+        ITrackClaimRegistry? claims = null)
     {
         _services = services;
         _logger = logger;
+        // The claims that are live in this process. A run that starts
+        // while a single-track download is running must leave that claim
+        // alone: the download is alive, not a leftover from a crash.
+        _claims = claims ?? new LiveTrackClaims();
     }
 
     /// <summary>
@@ -300,16 +306,26 @@ public class DownloadCoordinator : IDownloadCoordinator
 
     /// <summary>
     /// A new run may be started after an earlier run died without clearing
-    /// its claim. Nothing is in flight for this playlist at Start (there is
-    /// no active run), so those rows are stale and go back to pending.
-    /// Without this, a redownload can find no claimable work and appear to
-    /// do nothing until the app restarts.
+    /// its claim. Those rows are stale and go back to pending. Without
+    /// this, a redownload can find no claimable work and appear to do
+    /// nothing until the app restarts.
+    /// A claim that is live in this process is not stale: a single-track
+    /// download or a worker of an earlier run holds it right now. Only the
+    /// claims nobody holds are recovered, so starting a batch never steals
+    /// a track from a download that is still running.
     /// </summary>
     private async Task<int> ResetStaleClaimsAsync(string playlistId)
     {
         await using var db = await NewDbAsync(CancellationToken.None);
-        return await SqliteDatabase.RetryBusyAsync(() => db.Tracks
+        var claimed = await SqliteDatabase.RetryBusyAsync(() => db.Tracks.AsNoTracking()
             .Where(t => t.PlaylistEntityId == playlistId && t.DownloadStatus == "in_progress")
+            .Select(t => t.Id)
+            .ToListAsync());
+        var stale = claimed.Where(id => !_claims.IsLive(id)).ToList();
+        if (stale.Count == 0) return 0;
+
+        return await SqliteDatabase.RetryBusyAsync(() => db.Tracks
+            .Where(t => stale.Contains(t.Id) && t.DownloadStatus == "in_progress")
             .ExecuteUpdateAsync(
                 s => s.SetProperty(t => t.DownloadStatus, "pending"), CancellationToken.None));
     }

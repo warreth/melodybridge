@@ -33,6 +33,7 @@ public sealed class TrackLinker
     private readonly SettingsStore _settings;
     private readonly HardLinkService _hardLinks;
     private readonly ILogger<TrackLinker> _logger;
+    private readonly ITrackClaimRegistry _claims;
     private readonly DataChangeTracker? _changes;
 
     public TrackLinker(
@@ -40,13 +41,17 @@ public sealed class TrackLinker
         SettingsStore settings,
         HardLinkService hardLinks,
         ILogger<TrackLinker> logger,
-        DataChangeTracker? changes = null)
+        DataChangeTracker? changes = null,
+        ITrackClaimRegistry? claims = null)
     {
         _dbFactory = dbFactory;
         _settings = settings;
         _hardLinks = hardLinks;
         _logger = logger;
         _changes = changes;
+        // The claims that are live in this process: a linking pass holds
+        // its row, so a batch that starts now leaves it alone.
+        _claims = claims ?? new LiveTrackClaims();
     }
 
     /// <summary>
@@ -267,8 +272,10 @@ public sealed class TrackLinker
             // and this pass never link (or download) the same row twice.
             // Whatever happens next, the claim must be released: a row left
             // in_progress would be skipped by every later download until
-            // the next restart.
+            // the next restart. The claim is registered before the row is
+            // claimed, so a batch that starts now sees a live pass.
             var previousStatus = track.DownloadStatus;
+            using var claim = _claims.Claim(track.Id);
             var claimed = await db.Tracks
                 .Where(t => t.Id == track.Id
                     && (t.DownloadStatus == null || t.DownloadStatus == "pending" || t.DownloadStatus == "failed"))

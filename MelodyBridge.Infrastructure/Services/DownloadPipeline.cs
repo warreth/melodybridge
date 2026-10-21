@@ -25,6 +25,7 @@ internal sealed class DownloadPipeline
     private readonly ILogger _logger;
     private readonly Func<VerificationOptions> _verification;
     private readonly DataChangeTracker _changes;
+    private readonly ITrackClaimRegistry _claims;
 
     public DownloadPipeline(
         IDbContextFactory<MelodyBridgeDbContext> dbFactory,
@@ -36,7 +37,8 @@ internal sealed class DownloadPipeline
         LyricsResolver? lyrics,
         ILogger logger,
         Func<VerificationOptions> verification,
-        DataChangeTracker? changes = null)
+        DataChangeTracker? changes = null,
+        ITrackClaimRegistry? claims = null)
     {
         _dbFactory = dbFactory;
         _downloadManager = downloadManager;
@@ -48,6 +50,10 @@ internal sealed class DownloadPipeline
         _logger = logger;
         _verification = verification;
         _changes = changes ?? new DataChangeTracker();
+        // The claims that are live in this process. A batch that starts
+        // while a single-track download is running must not mistake that
+        // download for a crashed one.
+        _claims = claims ?? new LiveTrackClaims();
     }
 
     /// <summary>
@@ -104,11 +110,14 @@ internal sealed class DownloadPipeline
         for (var attempt = 0; attempt < limit; attempt++)
         {
             ct.ThrowIfCancellationRequested();
-            var trackId = await ClaimNextPendingAsync(playlistId, attempted, ct);
-            if (trackId is null) break; // nothing left to claim
+            // The claim scope covers the claim and the download: the row
+            // is in_progress and the registry knows it, so nothing can
+            // read the row as a leftover from a crashed run.
+            using var claim = await ClaimNextPendingAsync(playlistId, attempted, ct);
+            if (claim is null) break; // nothing left to claim
 
             var result = await DownloadClaimedTrackAsync(
-                trackId.Value, dir, preferredFormat, strict, allowContainerChange, verification, ct);
+                claim.Id, dir, preferredFormat, strict, allowContainerChange, verification, ct);
             if (result == "downloaded") downloaded++;
             else if (result == "failed") failed++;
             // "needs-review" tracks are neither downloaded nor failed:
@@ -164,7 +173,10 @@ internal sealed class DownloadPipeline
 
         // Claim exactly this track: same conditional UPDATE as the
         // full-run claim, so a single-track click and a running batch
-        // never download the same track twice.
+        // never download the same track twice. The claim is registered
+        // before the row is claimed, so a batch that starts right now
+        // sees a live download and leaves the row alone.
+        using var claim = _claims.Claim(id);
         await using (var db = await _dbFactory.CreateDbContextAsync(ct))
         {
             var claimed = await SqliteDatabase.RetryBusyAsync(() => db.Tracks
@@ -284,13 +296,10 @@ internal sealed class DownloadPipeline
         {
             // A provider or HTTP client cancelled its own call while the
             // run is still alive. That is a failed track, not a reason to
-            // stop the worker (and the rest of the run with it). The
-            // failure is written here and the cancellation is passed on,
-            // so the caller can retry this track once with a fresh
-            // attempt: swallowing it here would cost the retry.
+            // stop the worker (and the rest of the run with it).
             track.DownloadStatus = "failed";
             track.DownloadError = "the provider cancelled the download";
-            throw;
+            return "failed";
         }
         catch (Exception ex)
         {
@@ -499,6 +508,9 @@ internal sealed class DownloadPipeline
                 "No download folder configured. Set one in the playlist settings.");
         }
 
+        // The pick holds the row while it runs: a batch that starts now
+        // sees a live claim and leaves the track alone.
+        using var claim = _claims.Claim(id);
         await using (var db = await _dbFactory.CreateDbContextAsync(CancellationToken.None))
         {
             var track = await db.Tracks.FindAsync(new object[] { id }, CancellationToken.None);
@@ -794,8 +806,10 @@ internal sealed class DownloadPipeline
     /// concurrent claimers safe: two callers never get the same track.
     /// Tracks in <paramref name="exclude"/> were already attempted by this
     /// caller and are skipped, so failed tracks are not retried in-loop.
+    /// The returned scope holds the in-process claim until the caller
+    /// finishes with the track.
     /// </summary>
-    private async Task<int?> ClaimNextPendingAsync(string playlistId, HashSet<int> exclude, CancellationToken ct)
+    private async Task<TrackClaim?> ClaimNextPendingAsync(string playlistId, HashSet<int> exclude, CancellationToken ct)
     {
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var trackId = await db.Tracks
@@ -807,14 +821,32 @@ internal sealed class DownloadPipeline
             .FirstOrDefaultAsync(ct);
         if (trackId == 0) return null;
 
+        // Register before the row is claimed: a reader must never see an
+        // in_progress row that the registry does not know about yet.
+        var scope = _claims.Claim(trackId);
         var claimed = await db.Tracks
             .Where(t => t.Id == trackId
                 && (t.DownloadStatus == null || t.DownloadStatus == "pending" || t.DownloadStatus == "failed"))
             .ExecuteUpdateAsync(s => s.SetProperty(t => t.DownloadStatus, "in_progress"), ct);
-        if (claimed != 1) return null; // lost the race: another caller won it
+        if (claimed != 1)
+        {
+            scope.Dispose(); // lost the race: another caller won it
+            return null;
+        }
 
         exclude.Add(trackId);
-        return trackId;
+        return new TrackClaim(trackId, scope);
+    }
+
+    /// <summary>
+    /// One claimed track: the row says in_progress and this process holds
+    /// the claim, so a batch that starts knows the download is alive.
+    /// </summary>
+    private sealed class TrackClaim(int id, IDisposable scope) : IDisposable
+    {
+        public int Id { get; } = id;
+
+        public void Dispose() => scope.Dispose();
     }
 
     /// <summary>See <see cref="TrackLinker.ArchiveDownloadedTrackAsync"/>.</summary>

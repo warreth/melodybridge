@@ -42,6 +42,13 @@ public static class ServiceCollectionExtensions
         // One write stamp for the whole app: the playlist page reloads when
         // a download, review, scan or refresh moved it.
         services.AddSingleton<MelodyBridge.Infrastructure.Services.DataChangeTracker>();
+        // The track claims that are live in this process. The download
+        // pipeline holds them while a track is being downloaded, and the
+        // coordinator uses them to tell a running download apart from a
+        // claim left behind by a crashed one.
+        services.AddSingleton<MelodyBridge.Infrastructure.Services.LiveTrackClaims>();
+        services.AddSingleton<ITrackClaimRegistry>(
+            sp => sp.GetRequiredService<MelodyBridge.Infrastructure.Services.LiveTrackClaims>());
 
         // ── Downloader plugins (the waterfall) ──
         // The default order: the fast free sources first (SoundCloud, the

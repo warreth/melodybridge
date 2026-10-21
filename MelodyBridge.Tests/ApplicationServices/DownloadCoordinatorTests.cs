@@ -63,6 +63,9 @@ public class DownloadCoordinatorTests
         public int Started;
         public int Completed;
 
+        /// <summary>The melody ids this downloader was asked for, in order.</summary>
+        public List<string> Requested { get; } = new();
+
         public string Id => "blocking";
         public string Name => "Blocking (test)";
         public string Description => "";
@@ -79,6 +82,7 @@ public class DownloadCoordinatorTests
             DownloadQuality? quality = null, CancellationToken ct = default)
         {
             Interlocked.Increment(ref Started);
+            lock (Requested) Requested.Add(melodyId ?? "");
             await _release.Task.WaitAsync(ct); // throws OperationCanceledException on cancel
             Interlocked.Increment(ref Completed);
             Directory.CreateDirectory(outputDirectory);
@@ -184,22 +188,29 @@ public class DownloadCoordinatorTests
         }
     }
 
-    private ServiceProvider MakeServices(IDownloader downloader, PlaylistStore? store = null)
+    private ServiceProvider MakeServices(
+        IDownloader downloader, PlaylistStore? store = null, LiveTrackClaims? claims = null)
     {
+        claims ??= new LiveTrackClaims();
         store ??= new PlaylistStore(_factory,
             Array.Empty<ISourceProvider>(),
             new DownloadManager(new ListRegistry(downloader),
                 NullLogger<DownloadManager>.Instance),
-            NullLogger<PlaylistStore>.Instance);
+            NullLogger<PlaylistStore>.Instance,
+            claims: claims);
         var services = new ServiceCollection();
         services.AddSingleton<IDbContextFactory<MelodyBridgeDbContext>>(_factory);
         services.AddSingleton(store);
         services.AddSingleton(new SettingsStore(_factory));
+        // One registry for the app: the store and the coordinator must see
+        // the same live claims.
+        services.AddSingleton<ITrackClaimRegistry>(claims);
         return services.BuildServiceProvider();
     }
 
     private static DownloadCoordinator MakeCoordinator(ServiceProvider services)
-        => new(services, NullLogger<DownloadCoordinator>.Instance);
+        => new(services, NullLogger<DownloadCoordinator>.Instance,
+            services.GetRequiredService<ITrackClaimRegistry>());
 
     [Test]
     public async Task Run_DownloadsEverything_AndFinishes()
@@ -279,6 +290,66 @@ public class DownloadCoordinatorTests
         var saved = await fresh.Tracks.AsNoTracking().SingleAsync(t => t.PlaylistEntityId == id);
         Assert.That(saved.DownloadStatus, Is.EqualTo("downloaded"),
             "a redownload must reclaim a row a dead run left in progress");
+    }
+
+    [Test]
+    public async Task Start_DoesNotStealAClaimFromALiveSingleTrackDownload()
+    {
+        // A single-track download is running: it holds the row, and a
+        // batch that starts now must leave that row alone. Clearing it
+        // would put the same track in the batch's work list, and two
+        // downloads would write the same file.
+        var id = await SeedPlaylistAsync(2);
+        var downloader = new BlockingDownloader();
+        var claims = new LiveTrackClaims();
+        var store = new PlaylistStore(_factory,
+            Array.Empty<ISourceProvider>(),
+            new DownloadManager(new ListRegistry(downloader), NullLogger<DownloadManager>.Instance),
+            NullLogger<PlaylistStore>.Instance,
+            claims: claims);
+        var services = MakeServices(downloader, store, claims);
+        var coordinator = MakeCoordinator(services);
+
+        int firstTrackId;
+        string firstMelodyId;
+        await using (var db = _factory.CreateDbContext())
+        {
+            var track = await db.Tracks.AsNoTracking()
+                .Where(t => t.PlaylistEntityId == id)
+                .OrderBy(t => t.Position)
+                .FirstAsync();
+            firstTrackId = track.Id;
+            firstMelodyId = track.MelodyId!;
+        }
+
+        // The single-track download claims the row and starts.
+        var single = Task.Run(() => store.DownloadTrackAsync(firstTrackId));
+        await WaitForAsync(() => downloader.Requested.Count == 1, TimeSpan.FromSeconds(20));
+
+        // A batch starts while that download is still running.
+        coordinator.Start(id);
+        await WaitForAsync(() => downloader.Requested.Count >= 2, TimeSpan.FromSeconds(20));
+        // Let the batch settle: a second attempt on the same track would
+        // show up here.
+        await WaitForStableAsync(() => downloader.Requested.Count,
+            TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(20));
+
+        int requestsForTheClaimedTrack;
+        lock (downloader.Requested)
+            requestsForTheClaimedTrack = downloader.Requested.Count(id => id == firstMelodyId);
+        Assert.That(requestsForTheClaimedTrack, Is.EqualTo(1),
+            "the batch left the track alone: the live download keeps it");
+
+        downloader.Release();
+        await single;
+        await WaitForAsync(() => coordinator.RunFor(id)?.State == DownloadRunState.Finished,
+            TimeSpan.FromSeconds(30));
+
+        await using var fresh = _factory.CreateDbContext();
+        var saved = await fresh.Tracks.AsNoTracking()
+            .SingleAsync(t => t.Id == firstTrackId);
+        Assert.That(saved.DownloadStatus, Is.EqualTo("downloaded"),
+            "the single-track download finished the track");
     }
 
     [Test]
