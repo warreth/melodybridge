@@ -50,6 +50,52 @@ public sealed class TrackLinker
     }
 
     /// <summary>
+    /// Best existing file for every melody id of a set of tracks, found in
+    /// one query. The reconciliation asks this for every pending track of
+    /// every playlist, and a query per track turned a startup pass over a
+    /// big library into minutes.
+    /// </summary>
+    public async Task<Dictionary<string, DedupMatch>> FindCandidatesAsync(
+        IReadOnlyCollection<TrackEntity> tracks, CancellationToken ct = default)
+    {
+        var result = new Dictionary<string, DedupMatch>(StringComparer.Ordinal);
+        var ids = tracks
+            .Where(t => t.MelodyId is { Length: > 0 })
+            .Select(t => t.MelodyId!)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        if (ids.Count == 0) return result;
+
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var rows = await db.Tracks.AsNoTracking()
+            .Where(t => ids.Contains(t.MelodyId!)
+                && t.DownloadStatus == "downloaded"
+                && t.ReviewKind == null
+                && t.CurrentPath != null)
+            .OrderByDescending(t => t.IsHardLink == false)
+            .ThenByDescending(t => t.LastSeenAt ?? DateTime.MinValue)
+            .ToListAsync(ct);
+        if (rows.Count == 0) return result;
+
+        var archiveRoots = await ArchiveRootsAsync(db, ct);
+        var ownIds = tracks.Select(t => t.Id).ToHashSet();
+        foreach (var row in rows)
+        {
+            // The first row per id wins: the order above already put the
+            // original before the hardlink and the newest first.
+            if (row.MelodyId is not { Length: > 0 } || result.ContainsKey(row.MelodyId)) continue;
+            if (ownIds.Contains(row.Id)) continue;
+            if (!File.Exists(row.CurrentPath)) continue;
+            // A row whose "primary" actually sits in an archive folder is
+            // not a primary: linking it would turn an archive copy into
+            // another playlist's download.
+            if (PlaylistRules.PathIsUnder(row.CurrentPath, archiveRoots)) continue;
+            result[row.MelodyId] = ToMatch(row);
+        }
+        return result;
+    }
+
+    /// <summary>
     /// Best existing file for the melody id: a downloaded row in another
     /// playlist (or another row of this one), whose file is still on disk.
     /// Originals win over hardlinks so the link target is the primary copy,
@@ -113,14 +159,21 @@ public sealed class TrackLinker
     /// the different quality is linked anyway.
     /// </param>
     /// <param name="warning">Row warning text for the linked state.</param>
+    /// <param name="resolvedFolder">
+    /// The playlist folder, when the caller already knows it. Reading it
+    /// again costs a query per track.
+    /// </param>
+    /// <param name="dedupEnabled">
+    /// The dedup setting, when the caller already read it.
+    /// </param>
     public async Task<TrackLinkOutcome> TryLinkAsync(
         TrackEntity track, MelodyBridgeDbContext db, DownloadQuality requested,
         bool pauseOnQualityMismatch, CancellationToken ct,
         DedupMatch? candidate = null, bool acceptQualityDifference = false,
-        string? warning = null)
+        string? warning = null, string? resolvedFolder = null, bool? dedupEnabled = null)
     {
         if (track.MelodyId is null) return TrackLinkOutcome.NoCandidate;
-        if (!await _settings.GetBoolAsync(PlaylistStore.DedupSettingKey, true, ct))
+        if (!(dedupEnabled ?? await _settings.GetBoolAsync(PlaylistStore.DedupSettingKey, true, ct)))
             return TrackLinkOutcome.NoCandidate;
 
         candidate ??= await FindCandidateAsync(track.MelodyId, track.Id, ct);
@@ -145,7 +198,7 @@ public sealed class TrackLinker
             return TrackLinkOutcome.QualityMismatch;
         }
 
-        var folder = await ResolvePlaylistFolderAsync(track.PlaylistEntityId, db, ct);
+        var folder = resolvedFolder ?? await ResolvePlaylistFolderAsync(track.PlaylistEntityId, db, ct);
         if (string.IsNullOrWhiteSpace(folder)) return TrackLinkOutcome.LinkFailed;
 
         // Link the existing file under its own name into this playlist's

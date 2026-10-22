@@ -93,6 +93,87 @@ public class LibraryReconcilerTests
     }
 
     [Test]
+    public async Task TwoPlaylistsInOneFolder_BothAdoptTheSameFile()
+    {
+        // The folder is scanned once and shared by both playlists now, so
+        // the file one playlist finds must also be found by the other.
+        var file = WriteTaggedFile("root", "mb-recon-shared");
+        await SeedPlaylistAsync(tracks => tracks.Add(new TrackEntity
+        {
+            MelodyId = "mb-recon-shared",
+            Title = "Shared",
+            Artist = "A",
+            Position = 0,
+            DownloadStatus = "pending",
+        }));
+        await SeedPlaylistAsync(tracks => tracks.Add(new TrackEntity
+        {
+            MelodyId = "mb-recon-shared",
+            Title = "Shared again",
+            Artist = "A",
+            Position = 0,
+            DownloadStatus = "pending",
+        }));
+
+        var reconciler = new LibraryReconciler(
+            _factory, NullLogger<LibraryReconciler>.Instance, OldLayoutSettings());
+        await reconciler.ReconcileAllAsync();
+
+        await using var db = _factory.CreateDbContext();
+        var rows = db.Tracks.Where(t => t.MelodyId == "mb-recon-shared").ToList();
+        var adopted = rows.Select(r => r.CurrentPath).Distinct().ToList();
+        Assert.Multiple(() =>
+        {
+            Assert.That(rows, Has.Count.EqualTo(2));
+            Assert.That(adopted, Has.Count.EqualTo(1),
+                "both playlists point at the same file");
+            Assert.That(adopted[0], Is.Not.Null);
+            Assert.That(File.Exists(adopted[0]!), Is.True, "the file is still on disk");
+            Assert.That(rows.Select(r => r.DownloadStatus), Is.All.EqualTo("downloaded"));
+        });
+    }
+
+    [Test]
+    public async Task TwoPlaylistsInOneFolder_KeepTheirOwnCopyWhenTheyHaveOne()
+    {
+        // The file in the playlist's own folder wins over the copy that
+        // merely sits in the shared base folder.
+        var baseCopy = WriteTaggedFile("root", "mb-recon-own");
+        var ownCopy = WriteTaggedFile("Reconcile", "mb-recon-own");
+        await SeedPlaylistAsync(tracks => tracks.Add(new TrackEntity
+        {
+            MelodyId = "mb-recon-own",
+            Title = "Own",
+            Artist = "A",
+            Position = 0,
+            DownloadStatus = "pending",
+        }));
+        await SeedPlaylistAsync(tracks => tracks.Add(new TrackEntity
+        {
+            MelodyId = "mb-recon-own",
+            Title = "Other",
+            Artist = "A",
+            Position = 0,
+            DownloadStatus = "pending",
+        }));
+
+        var reconciler = new LibraryReconciler(
+            _factory, NullLogger<LibraryReconciler>.Instance, OldLayoutSettings());
+        await reconciler.ReconcileAllAsync();
+
+        await using var db = _factory.CreateDbContext();
+        var rows = db.Tracks.Where(t => t.MelodyId == "mb-recon-own").ToList();
+        Assert.Multiple(() =>
+        {
+            Assert.That(rows, Has.Count.EqualTo(2));
+            Assert.That(rows.Select(r => r.CurrentPath), Is.All.EqualTo(ownCopy),
+                "the copy in the playlist's own folder is the one it adopts");
+            Assert.That(File.Exists(baseCopy), Is.True,
+                "the copy in the base folder is not adopted");
+        });
+    }
+
+    [Test]
     public async Task TrackWithExistingPath_IsRelinkedAsDownloaded()
     {
         var path = WriteTaggedFile("root", "mb-recon-1");

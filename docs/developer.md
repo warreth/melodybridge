@@ -433,6 +433,14 @@ and remembered `ArchivePath` values stay out of it), and a
 download may pause it for the quality decision, an unprompted pass
 leaves a mismatch pending.
 
+The library pass reads a lot of rows, so it reads them the cheap way: a
+projection of the columns the pass actually reads (a track row also
+carries its lyrics and cover url), one scan of a music folder for all
+the playlists that live in it, and one query for the dedup candidates of
+a whole playlist instead of one per track. The rows it changes are
+attached to the change tracker when they change, so the pass writes the
+fields it touched and nothing else.
+
 Deletion is name-wise by hard link semantics: removing one playlist's
 row removes that playlist's file name only, and both `RemoveTrackAsync`
 and `DeleteAsync` keep any path another row still references (primary

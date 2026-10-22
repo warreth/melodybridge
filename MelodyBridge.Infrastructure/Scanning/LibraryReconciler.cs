@@ -1,3 +1,4 @@
+using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.Data;
 using MelodyBridge.Infrastructure.Files;
 using MelodyBridge.Infrastructure.Services;
@@ -43,9 +44,56 @@ public class LibraryReconciler
     public async Task<(int relinked, int lost)> ReconcileAllAsync(CancellationToken ct = default)
     {
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        // Only the columns this pass reads. A track row also carries its
+        // lyrics and cover url, and a library with tens of thousands of
+        // tracks would drag megabytes of text into memory for a pass that
+        // never looks at them.
         var playlists = await db.Playlists
-            .Include(p => p.Tracks)
+            .Select(p => new PlaylistEntity
+            {
+                Id = p.Id,
+                Name = p.Name,
+                TargetDirectory = p.TargetDirectory,
+                ArchiveDirectory = p.ArchiveDirectory,
+                ArchiveEnabled = p.ArchiveEnabled,
+                PreferredFormat = p.PreferredFormat,
+                Tracks = p.Tracks.Select(t => new TrackEntity
+                {
+                    Id = t.Id,
+                    MelodyId = t.MelodyId,
+                    Title = t.Title,
+                    Artist = t.Artist,
+                    Album = t.Album,
+                    MediaType = t.MediaType,
+                    Bitrate = t.Bitrate,
+                    SampleRateHz = t.SampleRateHz,
+                    FileSizeBytes = t.FileSizeBytes,
+                    DurationMs = t.DurationMs,
+                    Position = t.Position,
+                    CurrentPath = t.CurrentPath,
+                    ArchivePath = t.ArchivePath,
+                    DownloadStatus = t.DownloadStatus,
+                    DownloadError = t.DownloadError,
+                    Warning = t.Warning,
+                    SourcePluginId = t.SourcePluginId,
+                    ReviewKind = t.ReviewKind,
+                    ReviewText = t.ReviewText,
+                    IsHardLink = t.IsHardLink,
+                    SpectrumAccepted = t.SpectrumAccepted,
+                    LastSeenAt = t.LastSeenAt,
+                    PlaylistEntityId = t.PlaylistEntityId,
+                }).ToList(),
+            })
             .ToListAsync(ct);
+
+        // A projection is not tracked, so a row this pass changes would
+        // never be written. Attach a row when it really changes: only the
+        // rows that move enter the change tracker, and the columns the
+        // pass does not touch stay as they are in the database.
+        void Touch(TrackEntity track)
+        {
+            if (db.Entry(track).State == EntityState.Detached) db.Attach(track);
+        }
 
         // The relink index needs the same base the folder rules use: a
         // playlist without its own folder lives under the music path, so
@@ -81,14 +129,30 @@ public class LibraryReconciler
         var relinked = 0;
         var lost = 0;
 
+        // One walk per folder, not per playlist. Reading the MELODY_ID tag
+        // of every file in a music folder is the expensive part of this
+        // pass, and twenty playlists that live in the same folder used to
+        // pay for that walk twenty times.
+        var scans = new Dictionary<string, Dictionary<string, List<string>>>(FileRelocator.PathComparer);
+
+        // The dedup switch and the candidates of a playlist are read once
+        // per playlist, not once per track: a query per pending track
+        // turned a startup pass over a big library into minutes.
+        var dedupEnabled = _settings is null
+            || await _settings.GetBoolAsync(PlaylistStore.DedupSettingKey, true, ct);
+
         foreach (var playlist in playlists)
         {
             var dir = FirstNonEmpty(playlist.TargetDirectory, musicPath);
             var ownFolder = PlaylistRules.ResolvePlaylistFolder(
                 playlist.TargetDirectory, musicPath, playlist.Name, playlistFolders);
             var filesByMelodyId = string.IsNullOrWhiteSpace(dir)
-                ? new Dictionary<string, string>()
-                : IndexDirectory(dir, archiveRoots, ownFolder);
+                ? new Dictionary<string, List<string>>()
+                : ScanDirectory(dir, archiveRoots, scans);
+
+            var dedupCandidates = _linker is not null && dedupEnabled
+                ? await _linker.FindCandidatesAsync(playlist.Tracks, ct)
+                : new Dictionary<string, DedupMatch>();
 
             var preferred = playlist.PreferredFormat;
             if (string.IsNullOrWhiteSpace(preferred) && _settings is not null)
@@ -108,6 +172,7 @@ public class LibraryReconciler
                 {
                     if (PlaylistRules.PathIsUnder(track.CurrentPath, archiveRoots))
                     {
+                        Touch(track);
                         if (string.Equals(track.CurrentPath, track.ArchivePath, StringComparison.OrdinalIgnoreCase))
                             track.ArchivePath = null;
                         track.CurrentPath = null;
@@ -120,6 +185,7 @@ public class LibraryReconciler
                     }
                     if (track.DownloadStatus != "downloaded")
                     {
+                        Touch(track);
                         track.DownloadStatus = "downloaded";
                         track.DownloadError = null;
                         relinked++;
@@ -131,9 +197,10 @@ public class LibraryReconciler
                 // playlist's own when it sits in the playlist's folder,
                 // and a foreign path to adopt only as a last resort.
                 var found = track.MelodyId is not null
-                    && filesByMelodyId.TryGetValue(track.MelodyId, out var candidate)
-                    && !archivePaths.Contains(candidate)
-                        ? candidate
+                    && filesByMelodyId.TryGetValue(track.MelodyId, out var files)
+                    && PickFile(files, ownFolder) is { } picked
+                    && !archivePaths.Contains(picked)
+                        ? picked
                         : null;
                 var foundIsOwn = found is not null
                     && ownFolder.Length > 0
@@ -149,10 +216,13 @@ public class LibraryReconciler
                 if (!foundIsOwn
                     && _linker is not null
                     && track.MelodyId is not null
-                    && track.DownloadStatus is null or "pending" or "failed")
+                    && track.DownloadStatus is null or "pending" or "failed"
+                    && dedupCandidates.TryGetValue(track.MelodyId, out var candidate))
                 {
+                    Touch(track);
                     var outcome = await _linker.TryLinkAsync(
-                        track, db, quality, pauseOnQualityMismatch: false, ct);
+                        track, db, quality, pauseOnQualityMismatch: false, ct, candidate,
+                        resolvedFolder: ownFolder, dedupEnabled: dedupEnabled);
                     if (outcome == TrackLinkOutcome.Linked)
                     {
                         relinked++;
@@ -166,6 +236,7 @@ public class LibraryReconciler
                 // is not the track; it stays out.
                 if (found is not null && !foreignQualityDiffers)
                 {
+                    Touch(track);
                     track.CurrentPath = found;
                     track.DownloadStatus = "downloaded";
                     track.DownloadError = null;
@@ -183,6 +254,7 @@ public class LibraryReconciler
                 // review described the vanished file, so it goes with it.
                 if (track.DownloadStatus == "downloaded")
                 {
+                    Touch(track);
                     track.DownloadStatus = "pending";
                     track.CurrentPath = null;
                     track.Warning = "file missing on disk, will re-download";
@@ -195,7 +267,7 @@ public class LibraryReconciler
             }
         }
 
-        var moved = await RelocateLooseFilesAsync(playlists, ct);
+        var moved = await RelocateLooseFilesAsync(playlists, Touch, ct);
 
         if (relinked > 0 || lost > 0 || moved > 0)
         {
@@ -224,7 +296,7 @@ public class LibraryReconciler
     /// rows simply keep the old path.
     /// </summary>
     private async Task<int> RelocateLooseFilesAsync(
-        List<PlaylistEntity> playlists, CancellationToken ct)
+        List<PlaylistEntity> playlists, Action<TrackEntity> touch, CancellationToken ct)
     {
         if (_settings is null) return 0;
 
@@ -261,7 +333,7 @@ public class LibraryReconciler
 
             var destination = Path.Combine(layout[owner.PlaylistId].Folder, Path.GetFileName(path));
             if (!FileRelocator.TryMove(path, destination, _logger)) continue;
-            foreach (var (track, _) in refs) track.CurrentPath = destination;
+            foreach (var (track, _) in refs) { touch(track); track.CurrentPath = destination; }
             moved++;
         }
 
@@ -278,7 +350,7 @@ public class LibraryReconciler
 
             var destination = Path.Combine(layout[owner.PlaylistId].ArchiveFolder, Path.GetFileName(path));
             if (!FileRelocator.TryMove(path, destination, _logger)) continue;
-            foreach (var (track, _) in refs) track.ArchivePath = destination;
+            foreach (var (track, _) in refs) { touch(track); track.ArchivePath = destination; }
             moved++;
         }
 
@@ -326,17 +398,18 @@ public class LibraryReconciler
     private readonly record struct PlaylistLayout(
         string Base, string Folder, string ArchiveBase, string ArchiveFolder);
 
-    /// <summary>MELODY_ID tag -> path, one entry per audio file in the tree.
-    /// Files under an archive folder never enter the index, and a file
-    /// inside the playlist's own folder wins over one that merely sits
-    /// under the shared base root (the playlist's own copy is the one its
-    /// row should adopt).</summary>
-    private static Dictionary<string, string> IndexDirectory(
-        string dir, List<string> excludedRoots, string preferUnder)
+    /// <summary>MELODY_ID tag -> the files that carry it, one entry per
+    /// audio file in the tree. Files under an archive folder never enter
+    /// the index. The scan of a folder is kept, so a second playlist in
+    /// the same folder reuses it instead of reading every tag again.</summary>
+    private static Dictionary<string, List<string>> ScanDirectory(
+        string dir, List<string> excludedRoots,
+        Dictionary<string, Dictionary<string, List<string>>> scans)
     {
-        var index = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (scans.TryGetValue(dir, out var cached)) return cached;
+
+        var index = new Dictionary<string, List<string>>(StringComparer.Ordinal);
         var extensions = new[] { ".mp3", ".flac", ".ogg", ".opus", ".m4a", ".aac", ".wav", ".webm" };
-        var hasPreference = !string.IsNullOrWhiteSpace(preferUnder);
         try
         {
             foreach (var file in Directory.EnumerateFiles(dir, "*.*", SearchOption.AllDirectories))
@@ -347,22 +420,31 @@ public class LibraryReconciler
                     continue;
                 var id = TaglibHelper.ReadMelodyId(file);
                 if (string.IsNullOrWhiteSpace(id)) continue;
-                if (!index.TryGetValue(id, out var existing))
+                if (!index.TryGetValue(id, out var files))
                 {
-                    index[id] = file;
+                    files = new List<string>();
+                    index[id] = files;
                 }
-                else if (hasPreference
-                    && !FileRelocator.IsUnder(existing, preferUnder)
-                    && FileRelocator.IsUnder(file, preferUnder))
-                {
-                    index[id] = file;
-                }
+                files.Add(file);
             }
         }
         catch (Exception)
         {
             // Unreadable folder: leave the index partial rather than failing the run.
         }
+        scans[dir] = index;
         return index;
+    }
+
+    /// <summary>The file a playlist adopts: the first one that sits in the
+    /// playlist's own folder, otherwise the first one the scan found.</summary>
+    private static string? PickFile(List<string> files, string preferUnder)
+    {
+        if (files.Count == 0) return null;
+        if (!string.IsNullOrWhiteSpace(preferUnder))
+            foreach (var file in files)
+                if (FileRelocator.IsUnder(file, preferUnder))
+                    return file;
+        return files[0];
     }
 }
