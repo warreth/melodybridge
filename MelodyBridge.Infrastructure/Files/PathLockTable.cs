@@ -14,18 +14,46 @@ public sealed class PathLockTable
     public static PathLockTable Shared { get; } = new();
 
     /// <summary>
+    /// The key a path is locked under. On a volume that folds case, two
+    /// spellings of one name are one file, so they share one lock. The
+    /// rest of the path is spelled as it is: two different files are two
+    /// different locks.
+    /// </summary>
+    public static string KeyFor(string path, bool foldCase)
+        => foldCase ? path.ToLowerInvariant() : path;
+
+    /// <summary>
+    /// The key a path is locked under, with the rule of the volume that
+    /// holds it.
+    /// </summary>
+    public static string KeyFor(string path)
+        => KeyFor(path, FileSystemCase.FoldsCase(
+            Path.GetDirectoryName(path) ?? path));
+
+    /// <summary>
     /// Takes the lock for the path. The lock is released when the scope
     /// is disposed.
     /// </summary>
-    public async Task<IDisposable> AcquireAsync(string path, CancellationToken ct = default)
+    public Task<IDisposable> AcquireAsync(string path, CancellationToken ct = default)
+        => AcquireAsync(path, KeyFor(path), ct);
+
+    /// <summary>
+    /// Takes the lock for the path, with the case rule of the volume
+    /// given by the caller.
+    /// </summary>
+    public async Task<IDisposable> AcquireAsync(
+        string path, bool foldCase, CancellationToken ct = default)
+        => await AcquireAsync(path, KeyFor(path, foldCase), ct);
+
+    private async Task<IDisposable> AcquireAsync(string path, string key, CancellationToken ct)
     {
         Entry entry;
         lock (_gate)
         {
-            if (!_entries.TryGetValue(path, out entry!))
+            if (!_entries.TryGetValue(key, out entry!))
             {
                 entry = new Entry();
-                _entries[path] = entry;
+                _entries[key] = entry;
             }
             // Counted before the wait, so the entry stays alive for every
             // worker that is in the queue.
@@ -38,27 +66,27 @@ public sealed class PathLockTable
         }
         catch
         {
-            Forget(path, entry);
+            Forget(key, entry);
             throw;
         }
-        return new Scope(this, path, entry);
+        return new Scope(this, key, entry);
     }
 
-    private void Release(string path, Entry entry)
+    private void Release(string key, Entry entry)
     {
         entry.Semaphore.Release();
-        Forget(path, entry);
+        Forget(key, entry);
     }
 
-    private void Forget(string path, Entry entry)
+    private void Forget(string key, Entry entry)
     {
         lock (_gate)
         {
             entry.Holders--;
             if (entry.Holders > 0) return;
-            if (_entries.TryGetValue(path, out var current) && ReferenceEquals(current, entry))
+            if (_entries.TryGetValue(key, out var current) && ReferenceEquals(current, entry))
             {
-                _entries.Remove(path);
+                _entries.Remove(key);
             }
         }
     }
@@ -72,14 +100,14 @@ public sealed class PathLockTable
     private sealed class Scope : IDisposable
     {
         private readonly PathLockTable _table;
-        private readonly string _path;
+        private readonly string _key;
         private readonly Entry _entry;
         private bool _released;
 
-        public Scope(PathLockTable table, string path, Entry entry)
+        public Scope(PathLockTable table, string key, Entry entry)
         {
             _table = table;
-            _path = path;
+            _key = key;
             _entry = entry;
         }
 
@@ -87,7 +115,7 @@ public sealed class PathLockTable
         {
             if (_released) return;
             _released = true;
-            _table.Release(_path, _entry);
+            _table.Release(_key, _entry);
         }
     }
 }

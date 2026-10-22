@@ -5,10 +5,11 @@ namespace MelodyBridge.Infrastructure.Files;
 /// <summary>
 /// What a filesystem does with the case of a name. Two spellings of one
 /// name are the same file on a case-insensitive volume and two separate
-/// files on a case-sensitive one. Windows always folds case. Everywhere
-/// else the volume decides, so the app asks the volume: the probe writes
-/// a file with a known name and looks for it under another spelling. One
-/// file means the volume folds case, two files mean it does not.
+/// files on a case-sensitive one. The volume decides, so the app asks
+/// the volume: the probe writes a file with a known name and looks for
+/// it under another spelling. One file means the volume folds case, two
+/// files mean it does not. Windows folds case by default, but a folder
+/// there can be case-sensitive, so Windows is asked as well.
 /// </summary>
 public static class FileSystemCase
 {
@@ -22,8 +23,6 @@ public static class FileSystemCase
     /// </summary>
     public static bool FoldsCase(string directory)
     {
-        if (OperatingSystem.IsWindows()) return true;
-
         string key;
         try
         {

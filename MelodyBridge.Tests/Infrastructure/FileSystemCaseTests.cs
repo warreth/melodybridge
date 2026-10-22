@@ -102,4 +102,43 @@ public class FileSystemCaseTests
         Assert.That(second, Is.Not.Null,
             "a different name has its own lock");
     }
+
+    [Test]
+    public async Task TwoSpellingsOfOneNameShareTheLockWhenTheVolumeFoldsCase()
+    {
+        // On a volume that folds case, "Song.mp3" and "song.mp3" are one
+        // file. Two workers that want it under two spellings must wait
+        // for each other, or the second one writes over the first one.
+        var table = new PathLockTable();
+        var first = await table.AcquireAsync("/archive/Song.mp3", foldCase: true);
+
+        var released = false;
+        var waiter = Task.Run(async () =>
+        {
+            using (await table.AcquireAsync("/archive/song.mp3", foldCase: true)) released = true;
+        });
+
+        await Task.Delay(100);
+        Assert.That(released, Is.False,
+            "the second spelling of the name waits for the first one");
+
+        first.Dispose();
+        await waiter.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.That(released, Is.True,
+            "the second spelling goes on once the name is free");
+    }
+
+    [Test]
+    public void TheKeyOfANameFollowsTheRuleOfTheVolume()
+    {
+        Assert.That(
+            PathLockTable.KeyFor("/archive/Song.mp3", foldCase: true),
+            Is.EqualTo(PathLockTable.KeyFor("/archive/song.mp3", foldCase: true)),
+            "a volume that folds case reads two spellings as one name");
+        Assert.That(
+            PathLockTable.KeyFor("/archive/Song.mp3", foldCase: false),
+            Is.Not.EqualTo(PathLockTable.KeyFor("/archive/song.mp3", foldCase: false)),
+            "a volume that keeps the spellings apart has two names");
+    }
 }
