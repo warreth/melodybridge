@@ -375,6 +375,9 @@ internal sealed class DownloadPipeline
         track.DownloadStatus = "downloaded";
         track.CurrentPath = path;
         track.LastSeenAt = DateTime.UtcNow;
+        // Fresh bytes on their own name are never a link, whatever the row
+        // said about the file they replace.
+        track.IsHardLink = false;
         track.Bitrate = Audio.BitrateProbe.MeasureKbps(path);
         AudioProbe.Fill(track, path);
         track.SourcePluginId = _downloadManager.LastPluginId(track.MelodyId!);
@@ -489,11 +492,14 @@ internal sealed class DownloadPipeline
     /// <summary>
     /// Downloads one candidate a human picked for a track, replacing any
     /// existing file. The pick overrides the ranking, not the pipeline:
-    /// the old primary and archive are removed (name-wise, so a hardlink
-    /// twin elsewhere survives), the row is claimed like any download, and
-    /// the result goes through the same tagging, integrity, enrichment and
-    /// archive steps. Returns "downloaded", "failed",
-    /// "claimed-by-another-run" or "not-found".
+    /// the old primary and archive are parked next to their spot while the
+    /// download runs (name-wise, so a hardlink twin elsewhere survives),
+    /// the row is claimed like any download, and the result goes through
+    /// the same tagging, integrity, enrichment and archive steps. A pick
+    /// that fails or is cancelled puts the previous copies back and points
+    /// the row at them again; only a real replacement deletes them.
+    /// Returns "downloaded", "failed", "claimed-by-another-run" or
+    /// "not-found".
     /// </summary>
     public async Task<string> DownloadChosenTrackAsync(
         int trackId, DownloadCandidate candidate, CancellationToken ct = default)
@@ -524,41 +530,42 @@ internal sealed class DownloadPipeline
         // The pick holds the row while it runs: a batch that starts now
         // sees a live claim and leaves the track alone.
         using var claim = _claims.Claim(id);
+        // The parked copies of the old files, alive across the pick.
+        var parked = new List<(string Original, string Parked)>();
         await using (var db = await _dbFactory.CreateDbContextAsync(CancellationToken.None))
         {
             var track = await db.Tracks.FindAsync(new object[] { id }, CancellationToken.None);
             if (track is null) return "not-found";
 
-            // Read the old names before the claim clears them.
+            // The old names the pick is about to replace.
             var oldPaths = new[] { track.CurrentPath, track.ArchivePath }
                 .Where(p => !string.IsNullOrWhiteSpace(p))
                 .Select(p => p!)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
-            // Claim and reset in one conditional UPDATE; a running batch
-            // that already holds the row wins, the pick waits for a later
-            // moment instead of racing it.
+            // Claim in one conditional UPDATE; a running batch that
+            // already holds the row wins, the pick waits for a later
+            // moment instead of racing it. Paths and file facts stay:
+            // they describe the copies that are still the user's, and a
+            // failed pick must leave the row pointing at them.
             var claimed = await db.Tracks
                 .Where(t => t.Id == id && t.DownloadStatus != "in_progress")
                 .ExecuteUpdateAsync(s => s
                     .SetProperty(t => t.DownloadStatus, "in_progress")
-                    .SetProperty(t => t.CurrentPath, (string?)null)
-                    .SetProperty(t => t.ArchivePath, (string?)null)
-                    .SetProperty(t => t.IsHardLink, false)
                     .SetProperty(t => t.DownloadError, (string?)null)
                     .SetProperty(t => t.Warning, (string?)null)
                     .SetProperty(t => t.ReviewKind, (string?)null)
                     .SetProperty(t => t.ReviewText, (string?)null)
-                    .SetProperty(t => t.SpectrumAccepted, false)
-                    .SetProperty(t => t.Bitrate, (int?)null)
-                    .SetProperty(t => t.SampleRateHz, (int?)null)
-                    .SetProperty(t => t.FileSizeBytes, (long?)null)
-                    .SetProperty(t => t.MediaType, (string?)null), CancellationToken.None);
+                    .SetProperty(t => t.SpectrumAccepted, false), CancellationToken.None);
             if (claimed != 1) return "claimed-by-another-run";
 
-            // Replace: the old file and archive go, name-wise. A path
-            // another row still references is a shared name and survives.
+            // Replace: the old files move beside their spot while the pick
+            // runs, name-wise. A path another row still references is a
+            // shared name and is left alone. The copies parked above come
+            // back when the pick fails or is cancelled, and go when a real
+            // replacement committed: wiping them up front lost the track's
+            // only copy whenever the pick could not produce a file.
             foreach (var path in oldPaths)
             {
                 if (await db.Tracks.AsNoTracking()
@@ -568,15 +575,19 @@ internal sealed class DownloadPipeline
                     continue;
                 }
                 if (!File.Exists(path)) continue;
+
+                var parkingSpot = ParkingSpot(path);
                 try
                 {
-                    File.Delete(path);
+                    File.Move(path, parkingSpot);
+                    parked.Add((path, parkingSpot));
                 }
                 catch (Exception ex)
                 {
                     _logger.LogWarning(
-                        "Could not delete the old file {Path} for the picked source ({Reason}); the pick is refused",
+                        "Could not park the old file {Path} for the picked source ({Reason}); the pick is refused",
                         path, ex.Message);
+                    foreach (var (original, spot) in parked) TryRestore(original, spot);
                     track.DownloadStatus = "failed";
                     track.DownloadError = $"could not replace the existing file {path}: {ex.Message}";
                     await SaveQuietlyAsync(db);
@@ -585,7 +596,84 @@ internal sealed class DownloadPipeline
             }
         }
 
-        return await DownloadPickedTrackAsync(id, candidate, dir, preferredFormat, ct);
+        string result;
+        try
+        {
+            result = await DownloadPickedTrackAsync(id, candidate, dir, preferredFormat, ct);
+        }
+        catch (Exception)
+        {
+            // Anything that unwinds around the pick (a cancelled pick, an
+            // unexpected failure) puts the parked copies back: the row
+            // kept its paths and facts, so the user keeps what they had.
+            RestoreParked(parked);
+            throw;
+        }
+
+        if (result == "downloaded")
+        {
+            // The replacement committed: the parked copies have no owner
+            // anymore and go.
+            DeleteParked(parked);
+        }
+        else
+        {
+            RestoreParked(parked);
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// The hidden spot a file waits at during a pick: a dot-name with a
+    /// nonce extension, parked inside the same folder (same volume, so the
+    /// move is a rename). The extension is deliberately not an audio one,
+    /// so a scan that runs while the pick is going ignores it.
+    /// </summary>
+    private static string ParkingSpot(string path)
+        => Path.Combine(
+            Path.GetDirectoryName(path) ?? "",
+            "." + Path.GetFileName(path) + ".mb-previous-" + Guid.NewGuid().ToString("N")[..8]);
+
+    /// <summary>The parked copy is preferred over losing a file: restore.</summary>
+    private bool TryRestore(string original, string parked)
+    {
+        try
+        {
+            File.Move(parked, original);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                "Could not restore the previous file {Parked} to {Original}: {Reason}",
+                parked, original, ex.Message);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// The pick did not produce a replacement: the parked copies still on
+    /// their spot go back to their names. The row was never rewritten, so
+    /// its paths and facts already describe what the user keeps.
+    /// </summary>
+    private void RestoreParked(List<(string Original, string Parked)> parked)
+    {
+        foreach (var (original, spot) in parked) TryRestore(original, spot);
+    }
+
+    /// <summary>The parked copies go once a real replacement committed.</summary>
+    private void DeleteParked(List<(string Original, string Parked)> parked)
+    {
+        foreach (var (original, spot) in parked)
+        {
+            try { File.Delete(spot); }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(
+                    "Could not remove the parked copy {Parked} after the pick replaced {Original}: {Reason}",
+                    spot, original, ex.Message);
+            }
+        }
     }
 
     /// <summary>
