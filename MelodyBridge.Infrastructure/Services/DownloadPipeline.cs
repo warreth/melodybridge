@@ -26,6 +26,7 @@ internal sealed class DownloadPipeline
     private readonly Func<VerificationOptions> _verification;
     private readonly DataChangeTracker _changes;
     private readonly ITrackClaimRegistry _claims;
+    private readonly PathLockTable _pathLocks;
 
     public DownloadPipeline(
         IDbContextFactory<MelodyBridgeDbContext> dbFactory,
@@ -38,7 +39,8 @@ internal sealed class DownloadPipeline
         ILogger logger,
         Func<VerificationOptions> verification,
         DataChangeTracker? changes = null,
-        ITrackClaimRegistry? claims = null)
+        ITrackClaimRegistry? claims = null,
+        PathLockTable? pathLocks = null)
     {
         _dbFactory = dbFactory;
         _downloadManager = downloadManager;
@@ -54,6 +56,9 @@ internal sealed class DownloadPipeline
         // while a single-track download is running must not mistake that
         // download for a crashed one.
         _claims = claims ?? new LiveTrackClaims();
+        // One writer per file name, shared with the linker, so a delete
+        // never pulls a file away from a worker that is writing it.
+        _pathLocks = pathLocks ?? PathLockTable.Shared;
     }
 
     /// <summary>
@@ -409,6 +414,11 @@ internal sealed class DownloadPipeline
             {
                 continue;
             }
+            if (!File.Exists(oldPath)) continue;
+            // The same name lock the writers take. A worker that is
+            // writing this name right now keeps its file: the delete
+            // waits until the writer is done.
+            using var scope = await _pathLocks.AcquireAsync(oldPath, ct);
             if (!File.Exists(oldPath)) continue;
             try
             {
