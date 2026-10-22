@@ -13,6 +13,7 @@ namespace MelodyBridge.Infrastructure.Services;
 /// </summary>
 public class DatabaseBackupService(
     IDbContextFactory<MelodyBridgeDbContext> dbFactory,
+    DatabaseRestore restore,
     ILogger<DatabaseBackupService> logger)
 {
     /// <summary>
@@ -182,9 +183,9 @@ public class DatabaseBackupService(
     /// was never zipped). Fail early with a clear message instead of
     /// bricking the app on next boot.
     /// </summary>
-    private static void RequireUsableDatabase(string path)
+    private void RequireUsableDatabase(string path)
     {
-        if (DatabaseRestore.HasSchema(path)) return;
+        if (restore.HasSchema(path)) return;
         throw new InvalidOperationException(
             "The database in this zip has no tables. It was probably copied without its -wal file. Export again from a running MelodyBridge.");
     }

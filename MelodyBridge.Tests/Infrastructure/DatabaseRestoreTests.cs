@@ -182,6 +182,107 @@ public class DatabaseRestoreTests
             => throw new IOException("simulated restore failure");
     }
 
+    // ── the open handle ───────────────────────────────────────────
+
+    /// <summary>
+    /// The schema check must not leave the file open. Microsoft.Data.Sqlite
+    /// pools by default, so a pooled connection goes back to the pool with
+    /// the file handle still open. The swap is a rename of that same file,
+    /// and Windows refuses to rename a file that is still open: the import
+    /// would never apply and every start would try again and fail.
+    /// </summary>
+    [Test]
+    public void The_Schema_Check_Opens_The_File_Without_Pooling()
+    {
+        WriteItems(_dbPath, "old", "Old");
+        var capturing = new CapturingRestore();
+
+        var hasSchema = capturing.HasSchema(_dbPath);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(hasSchema, Is.True);
+            Assert.That(capturing.ConnectionString, Is.Not.Null,
+                "the schema check went through the connection seam");
+            Assert.That(
+                new SqliteConnectionStringBuilder(capturing.ConnectionString!).Pooling,
+                Is.False,
+                "a pooled connection keeps the file open and Windows then refuses the rename");
+        });
+    }
+
+    /// <summary>
+    /// The same thing, seen from the operating system: after the schema
+    /// check nothing holds the file open. Linux keeps the name open even
+    /// for a deleted file, so the count of open descriptors is the proof.
+    /// </summary>
+    [Test]
+    public void The_Schema_Check_Leaves_No_Handle_On_The_File()
+    {
+        if (!Directory.Exists("/proc/self/fd"))
+            Assert.Ignore("this platform does not expose its open files");
+
+        WriteItems(_dbPath, "old", "Old");
+
+        var before = OpenHandles(_dbPath);
+        _restore.HasSchema(_dbPath);
+        var after = OpenHandles(_dbPath);
+
+        Assert.That(after, Is.EqualTo(before),
+            "the schema check left a handle on the file");
+    }
+
+    /// <summary>
+    /// The file the import renames has to be renameable right after the
+    /// schema check. On Windows this is where a leftover handle shows up.
+    /// </summary>
+    [Test]
+    public void The_Staged_File_Can_Be_Renamed_After_The_Schema_Check()
+    {
+        var pending = DatabaseRestore.PendingPath(_dbPath);
+        WriteItems(pending, "new", "New");
+
+        _restore.HasSchema(pending);
+
+        var moved = pending + ".moved";
+        File.Move(pending, moved);
+        File.Move(moved, pending);
+
+        Assert.That(File.Exists(pending), Is.True,
+            "the staged database is still there, under its own name");
+    }
+
+    /// <summary>Captures the connection the schema check opens.</summary>
+    private sealed class CapturingRestore : DatabaseRestore
+    {
+        public string? ConnectionString { get; private set; }
+
+        protected override SqliteConnection OpenForSchemaCheck(string path)
+        {
+            var connection = base.OpenForSchemaCheck(path);
+            ConnectionString = connection.ConnectionString;
+            return connection;
+        }
+    }
+
+    /// <summary>How many open descriptors point at this file.</summary>
+    private static int OpenHandles(string path)
+    {
+        var target = Path.GetFullPath(path);
+        return Directory.GetFiles("/proc/self/fd").Count(fd =>
+        {
+            try
+            {
+                var link = File.ResolveLinkTarget(fd, true)?.FullName;
+                return link != null && string.Equals(link, target, StringComparison.Ordinal);
+            }
+            catch
+            {
+                return false;
+            }
+        });
+    }
+
     // ── helpers ──────────────────────────────────────────────────
 
     /// <summary>A database with one table and one row.</summary>

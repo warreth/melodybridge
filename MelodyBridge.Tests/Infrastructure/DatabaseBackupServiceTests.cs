@@ -39,6 +39,7 @@ public class DatabaseBackupServiceTests
             db.SaveChanges();
         }
         _service = new DatabaseBackupService(_factory,
+            new DatabaseRestore(),
             Microsoft.Extensions.Logging.Abstractions.NullLogger<DatabaseBackupService>.Instance);
     }
 
@@ -137,6 +138,25 @@ public class DatabaseBackupServiceTests
         Assert.That(await _service.DiscardPendingRestoreAsync(), Is.False,
             "there was no staged import to throw away");
     }
+
+    [Test]
+    public async Task An_Import_Leaves_No_Temp_Folder_Behind()
+    {
+        // The extracted database is read through a connection that must not
+        // hold the file open. A locked file cannot be deleted, so on Windows
+        // every import would leave a folder in the temp directory.
+        var before = ImportFolders();
+
+        var zipPath = BuildForeignZip();
+        await using var stream = File.OpenRead(zipPath);
+        await _service.ImportZipAsync(stream);
+
+        Assert.That(ImportFolders().Except(before), Is.Empty,
+            "the import cleans up the folder it worked in");
+    }
+
+    private static HashSet<string> ImportFolders()
+        => Directory.GetDirectories(Path.GetTempPath(), "mb-import-*").ToHashSet();
 
     [Test]
     public async Task Import_Rejects_Schema_Less_Database_With_Clear_Message()

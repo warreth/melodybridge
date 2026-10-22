@@ -43,6 +43,7 @@ public static class TestServices
         services.AddSingleton(new LibraryPathMover(dbFactory,
             NullLogger<LibraryPathMover>.Instance));
         services.AddSingleton(new DatabaseBackupService(dbFactory,
+            new DatabaseRestore(),
             NullLogger<DatabaseBackupService>.Instance));
         services.AddSingleton(new MelodyBridge.Server.Services.NotificationService());
         // Account connections: the pages inject the Spotify providers

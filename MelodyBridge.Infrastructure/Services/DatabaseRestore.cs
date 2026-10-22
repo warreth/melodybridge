@@ -39,15 +39,43 @@ public class DatabaseRestore
     /// WAL database has no tables in the file itself: they live in the
     /// -wal that was never zipped.
     /// </summary>
-    public static bool HasSchema(string path)
+    public virtual bool HasSchema(string path)
     {
-        using var connection = new SqliteConnection($"Data Source={path}");
+        using var connection = OpenForSchemaCheck(path);
         connection.Open();
         using var command = connection.CreateCommand();
         command.CommandText =
             "SELECT count(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'";
         return Convert.ToInt64(command.ExecuteScalar()) > 0;
     }
+
+    /// <summary>
+    /// The connection the schema check opens. Pooling is off: a pooled
+    /// connection goes back to the pool with the file handle still open,
+    /// and Windows then refuses to rename the file that is still open.
+    /// </summary>
+    protected virtual SqliteConnection OpenForSchemaCheck(string path)
+        => new(SchemaConnectionString(path));
+
+    /// <summary>
+    /// The connection string every direct file access uses. Pooling is
+    /// off, so no handle survives the connection that opened the file.
+    /// </summary>
+    public static string SchemaConnectionString(string path)
+        => new SqliteConnectionStringBuilder
+        {
+            DataSource = path,
+            Pooling = false,
+        }.ToString();
+
+    /// <summary>
+    /// Parks the connections that still hold the database file. The app
+    /// pools its own connections, so the live file stays open after the
+    /// last query. Windows refuses to rename or delete a file that is
+    /// open, so the pools are cleared before the files are moved.
+    /// </summary>
+    private static void ReleaseOpenConnections()
+        => SqliteConnection.ClearAllPools();
 
     /// <summary>
     /// Swaps a staged import into place. Called at startup, before any
@@ -105,6 +133,7 @@ public class DatabaseRestore
         {
             // The live database first: folded into one file, so the parked
             // copy holds every committed transaction.
+            ReleaseOpenConnections();
             try
             {
                 Checkpoint(databasePath);
@@ -126,6 +155,7 @@ public class DatabaseRestore
 
         try
         {
+            ReleaseOpenConnections();
             MoveIntoPlace(pending, databasePath);
         }
         catch (Exception ex)
