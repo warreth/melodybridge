@@ -688,7 +688,11 @@ public class PlaylistStoreStatsTests
                 });
                 await db.SaveChangesAsync();
 
-                // Simulate the pre-column schema.
+                // Simulate the pre-column schema. An old release had no
+                // counter index, and SQLite refuses to drop a column an
+                // index depends on.
+                await db.Database.ExecuteSqlRawAsync(
+                    "DROP INDEX IF EXISTS \"IX_Tracks_PlaylistEntityId_DownloadStatus_FileSizeBytes_ReviewKind\"");
                 await db.Database.ExecuteSqlRawAsync("ALTER TABLE Tracks DROP COLUMN SourcePluginId");
                 await db.Database.ExecuteSqlRawAsync("ALTER TABLE Tracks DROP COLUMN ReviewKind");
                 await db.Database.ExecuteSqlRawAsync("ALTER TABLE Tracks DROP COLUMN ReviewText");

@@ -114,9 +114,17 @@ public class AudioProbeTests
             });
             await db.SaveChangesAsync();
 
-            // Simulate the old schema by dropping the new columns.
+            // Simulate the old schema by dropping the new columns. An old
+            // release had no counter index, and SQLite refuses to drop a
+            // column an index depends on.
             var connection = db.Database.GetDbConnection();
             if (connection.State != System.Data.ConnectionState.Open) await connection.OpenAsync();
+            using (var cmd = connection.CreateCommand())
+            {
+                cmd.CommandText =
+                    "DROP INDEX IF EXISTS \"IX_Tracks_PlaylistEntityId_DownloadStatus_FileSizeBytes_ReviewKind\"";
+                await cmd.ExecuteNonQueryAsync();
+            }
             using (var cmd = connection.CreateCommand())
             {
                 cmd.CommandText = "ALTER TABLE Tracks DROP COLUMN SampleRateHz";
