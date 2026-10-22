@@ -147,6 +147,14 @@ change a login call `IPluginAvailabilityRefresh.RefreshAvailability` so the
 save is probed for real, and the Plugins page probes in parallel with a short
 budget per plugin.
 
+The media server status probe answers a different question: is this server
+reachable, and as whom. `IMediaServerStatusProbe.SnapshotAsync` waits for the
+answer, and `CurrentAsync` does not: it returns the last answer, or the known
+servers in a `Checking` state, and the probe runs in the background. The
+dashboard uses the second one and redraws the connection rows when the probe
+raises `Changed`, so a page load never waits for a server that does not
+answer. `MediaServerStatusWatcher` keeps the answer warm in the background.
+
 Qobuz needs two payload quirks in mind: some catalogue answers arrive gzipped
 even when the request did not ask for it, and `maximum_sampling_rate` is in kHz
 as a decimal (`44.1`). `QobuzClient.ReadBodyAsync` decodes the body and the

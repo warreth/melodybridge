@@ -534,4 +534,7 @@ One more place to look: the **Connections** panel on the dashboard shows the
 state of Spotify, YouTube, your media servers and FlareSolverr at a glance. A
 media server profile that exists but is not usable says **not configured**, not
 ready. A connected server names the account and host it reached, and a server
-that did not answer says **unreachable** with the reason.
+that did not answer says **unreachable** with the reason. While a server is
+still being asked it says **checking**, and the panel updates itself when the
+answer lands: the dashboard never waits for a media server that does not
+answer.

@@ -195,6 +195,61 @@ public class MediaServerStatusProbeTests
             new MediaServerDirectoryFactory(new IMediaServerDirectory[] { directory }),
             NullLogger<MediaServerStatusProbe>.Instance);
 
+    [Test]
+    public async Task CurrentAsync_AnswersWhileTheServerIsStillChecking()
+    {
+        await _profiles.SaveAsync(new MediaServerProfile
+        {
+            Id = "jf-2",
+            Name = "Jellyfin Homelab",
+            Kind = "Jellyfin",
+            BaseUrl = "http://jellyfin:8096",
+            ApiKey = "secret-key",
+        });
+        // The server only answers when the gate is released, so a probe
+        // that waited would block here.
+        var directory = new ScriptedDirectory { Gate = new TaskCompletionSource() };
+        var probe = BuildProbe(directory);
+
+        var current = await probe.CurrentAsync();
+
+        Assert.That(current.Single(s => s.ProfileId == "jf-2").State,
+            Is.EqualTo(MediaServerConnectionState.Checking),
+            "a server that has not answered yet is checking, not ready");
+    }
+
+    [Test]
+    public async Task TheAnswerIsAnnounced_WhenTheProbeLands()
+    {
+        await _profiles.SaveAsync(new MediaServerProfile
+        {
+            Id = "jf-3",
+            Name = "Jellyfin Homelab",
+            Kind = "Jellyfin",
+            BaseUrl = "http://jellyfin:8096",
+            ApiKey = "secret-key",
+        });
+        var gate = new TaskCompletionSource();
+        var directory = new ScriptedDirectory { Gate = gate };
+        var probe = BuildProbe(directory);
+
+        var answered = new TaskCompletionSource<bool>();
+        probe.Changed += () => answered.TrySetResult(true);
+        await probe.CurrentAsync();
+
+        gate.SetResult();
+        var announced = await answered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+        var after = await probe.CurrentAsync();
+        Assert.Multiple(() =>
+        {
+            Assert.That(announced, Is.True,
+                "the probe runs in the background and announces its answer");
+            Assert.That(after.Single(s => s.ProfileId == "jf-3").State,
+                Is.EqualTo(MediaServerConnectionState.Connected));
+        });
+    }
+
     private sealed class ScriptedDirectory : IMediaServerDirectory
     {
         public string Kind { get; init; } = "Jellyfin";
@@ -204,15 +259,18 @@ public class MediaServerStatusProbeTests
         public string? SeenBaseUrl { get; private set; }
         public string? SeenKey { get; private set; }
         public string? SeenUser { get; private set; }
+        /// <summary>A server that only answers when this is released.</summary>
+        public TaskCompletionSource? Gate { get; init; }
 
-        public Task<bool> TestConnectionAsync(
+        public async Task<bool> TestConnectionAsync(
             MediaServerConnection connection, CancellationToken ct = default)
         {
             Tests++;
             SeenBaseUrl = connection.BaseUrl;
             SeenKey = connection.ApiKey;
             SeenUser = connection.UserId;
-            return Task.FromResult(Answer);
+            if (Gate is not null) await Gate.Task.WaitAsync(TimeSpan.FromSeconds(10), ct);
+            return Answer;
         }
 
         public Task<MediaServerIdentity?> IdentifyAsync(

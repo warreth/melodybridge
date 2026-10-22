@@ -452,6 +452,7 @@ else
             MediaServerConnectionState.Unreachable =>
                 $"{HostOf(server.BaseUrl) ?? "server"}: "
                 + (string.IsNullOrWhiteSpace(server.Reason) ? "unreachable" : server.Reason),
+            MediaServerConnectionState.Checking => $"checking {where}",
             _ => "not configured",
         };
     }
@@ -469,6 +470,7 @@ else
         {
             MediaServerConnectionState.Connected => "connected",
             MediaServerConnectionState.Unreachable => "unreachable",
+            MediaServerConnectionState.Checking => "checking…",
             _ => "off",
         };
 
@@ -497,11 +499,27 @@ else
         var restarted = await Settings.GetBoolAsync("intro_restarted", fallback: false);
         _introRestarted = restarted;
         showIntro = !dismissed || restarted;
+        // The connection rows show the last answer and redraw themselves
+        // when the probe has a new one: the page never waits for a media
+        // server that does not answer.
+        MediaProbe.Changed += OnMediaStatusChanged;
         await RefreshStats();
         MarkRefreshed();
 
         // Keep the dashboard current without a manual refresh.
         if (!showIntro) StartRefreshTimer();
+    }
+
+    /// <summary>A new media server verdict: the rows show it right away.</summary>
+    private void OnMediaStatusChanged()
+    {
+        if (_disposed) return;
+        _ = InvokeAsync(async () =>
+        {
+            if (_disposed) return;
+            mediaServers = await MediaProbe.CurrentAsync();
+            StateHasChanged();
+        });
     }
 
     private async Task SkipIntro()
@@ -624,7 +642,7 @@ else
             // waits for the slower of the two, not their sum.
             var spotifyTask = SpotifyAccount.IsConnectedAsync();
             var youtubeTask = YouTubeAccount.IsConnectedAsync();
-            var mediaTask = MediaProbe.SnapshotAsync();
+            var mediaTask = MediaProbe.CurrentAsync();
             flareSolverrUrl = FlareSolverrSolver.Url ?? string.Empty;
 
             // One pass over the buffer, not two: it grows while we read.
@@ -676,5 +694,14 @@ else
         _lastUpdated = DateTime.Now;
     }
 
-    public void Dispose() => _timer?.Dispose();
+    /// <summary>True once the page is gone: a late verdict must not touch
+    /// a disposed component.</summary>
+    private bool _disposed;
+
+    public void Dispose()
+    {
+        _disposed = true;
+        MediaProbe.Changed -= OnMediaStatusChanged;
+        _timer?.Dispose();
+    }
 }

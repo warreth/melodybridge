@@ -77,6 +77,8 @@ public record MediaServerIdentity(string? ServerName, string? AccountName);
 /// <summary>Honest state of one configured media server connection.</summary>
 public enum MediaServerConnectionState
 {
+    /// <summary>The probe has not answered yet: nothing is claimed.</summary>
+    Checking,
     /// <summary>No URL or no credentials: there is nothing to connect to yet.</summary>
     NotConfigured,
     /// <summary>Values are stored but the server did not answer or rejected the login.</summary>
@@ -106,8 +108,25 @@ public record MediaServerConnectionStatus(
 /// </summary>
 public interface IMediaServerStatusProbe
 {
+    /// <summary>Raised when a new verdict lands, so a page that showed the
+    /// checking state can redraw itself.</summary>
+    event Action? Changed;
+
+    /// <summary>
+    /// Probes the servers and waits for the answer. Use this when the
+    /// answer is the point of the call.
+    /// </summary>
     Task<IReadOnlyList<MediaServerConnectionStatus>> SnapshotAsync(
         bool refresh = false, CancellationToken ct = default);
+
+    /// <summary>
+    /// The verdict as it stands, without waiting for a server that does
+    /// not answer: the last answer, or the known servers in a checking
+    /// state when there is none yet. The probe runs in the background and
+    /// raises <see cref="Changed"/> when the answers are in.
+    /// </summary>
+    Task<IReadOnlyList<MediaServerConnectionStatus>> CurrentAsync(
+        CancellationToken ct = default);
 }
 
 /// <summary>

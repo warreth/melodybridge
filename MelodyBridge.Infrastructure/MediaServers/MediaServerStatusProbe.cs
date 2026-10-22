@@ -28,6 +28,7 @@ public sealed class MediaServerStatusProbe : IMediaServerStatusProbe
     private readonly SemaphoreSlim _gate = new(1, 1);
     private IReadOnlyList<MediaServerConnectionStatus>? _cached;
     private DateTime _cachedAt;
+    private int _refreshing;
 
     public MediaServerStatusProbe(
         MediaServerProfileStore profiles,
@@ -45,18 +46,95 @@ public sealed class MediaServerStatusProbe : IMediaServerStatusProbe
         _logger = logger;
     }
 
+    /// <summary>Raised when a new verdict lands.</summary>
+    public event Action? Changed;
+
     public async Task<IReadOnlyList<MediaServerConnectionStatus>> SnapshotAsync(
         bool refresh = false, CancellationToken ct = default)
     {
         if (!refresh && Fresh() is { } cachedHit) return cachedHit;
+        return await ProbeAllAsync(ct);
+    }
+
+    /// <summary>
+    /// The verdict as it stands, without waiting for a server that does not
+    /// answer. A page that shows a connection row must not wait for the
+    /// slowest one: it gets the last answer, or the known servers in a
+    /// checking state, and the probe fills in the answers behind it.
+    /// </summary>
+    public async Task<IReadOnlyList<MediaServerConnectionStatus>> CurrentAsync(
+        CancellationToken ct = default)
+    {
+        if (_cached is not null)
+        {
+            if (Fresh() is null) StartBackgroundProbe();
+            return _cached;
+        }
+
+        var pending = await PendingAsync(ct);
+        StartBackgroundProbe();
+        return pending;
+    }
+
+    /// <summary>
+    /// The servers we know about, before the probe answered: a server
+    /// without credentials is already known to be not configured, the rest
+    /// is still checking.
+    /// </summary>
+    private async Task<IReadOnlyList<MediaServerConnectionStatus>> PendingAsync(
+        CancellationToken ct)
+    {
+        var targets = await TargetsAsync(ct);
+        var rows = new List<MediaServerConnectionStatus>(targets.Count);
+        foreach (var target in targets)
+        {
+            var kind = MediaServerKinds.Canonical(target.Kind);
+            if (string.IsNullOrWhiteSpace(kind)) kind = target.Kind;
+            var name = string.IsNullOrWhiteSpace(target.Name) ? kind : target.Name;
+            rows.Add(new MediaServerConnectionStatus(
+                target.Id, name, kind, target.BaseUrl,
+                Configured(kind, target)
+                    ? MediaServerConnectionState.Checking
+                    : MediaServerConnectionState.NotConfigured));
+        }
+        return rows;
+    }
+
+    /// <summary>
+    /// Probes every server in the background. One probe at a time: a page
+    /// load must never stack up network calls.
+    /// </summary>
+    private void StartBackgroundProbe()
+    {
+        if (Interlocked.CompareExchange(ref _refreshing, 1, 0) == 1) return;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await ProbeAllAsync(CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "The media server probe failed");
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _refreshing, 0);
+            }
+        });
+    }
+
+    /// <summary>Probes every server and keeps the answer.</summary>
+    private async Task<IReadOnlyList<MediaServerConnectionStatus>> ProbeAllAsync(CancellationToken ct)
+    {
         await _gate.WaitAsync(ct);
         try
         {
-            if (!refresh && Fresh() is { } cachedInside) return cachedInside;
             var targets = await TargetsAsync(ct);
             var results = await Task.WhenAll(targets.Select(t => ProbeAsync(t, ct)));
             _cached = results;
             _cachedAt = DateTime.UtcNow;
+            Changed?.Invoke();
             return results;
         }
         finally

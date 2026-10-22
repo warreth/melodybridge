@@ -303,21 +303,63 @@ public class HomePageTests
         var cut = _ctx.Render<Home>();
         cut.WaitForState(() => cut.Markup.Contains("Recent sync runs"), TimeSpan.FromSeconds(3));
 
+        // The connection rows show the last answer and redraw themselves
+        // when the probe has one, so the rows are read again here.
+        cut.WaitForAssertion(() =>
+        {
+            var rows = cut.FindAll(".connection-row");
+            var jellyfin = rows.Single(r => r.TextContent.Contains("Jellyfin Homelab"));
+            var plex = rows.Single(r => r.TextContent.Contains("Plex"));
+            var subsonic = rows.Single(r => r.TextContent.Contains("Subsonic"));
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(jellyfin.TextContent, Does.Contain("mila on Basement"),
+                    "a connected server names the account and the server");
+                Assert.That(jellyfin.TextContent, Does.Contain("connected"));
+                Assert.That(plex.TextContent, Does.Contain("unreachable"),
+                    "a stored profile that does not answer is not ready");
+                Assert.That(subsonic.TextContent, Does.Contain("not configured"));
+                Assert.That(subsonic.TextContent, Does.Contain("off"));
+            });
+        }, TimeSpan.FromSeconds(5));
+    }
+
+    [Test]
+    public async Task Dashboard_ShowsTheServerWhileTheProbeIsStillRunning()
+    {
+        var dbFactory = _ctx.Services.GetRequiredService<IDbContextFactory<MelodyBridgeDbContext>>();
+        using (var db = dbFactory.CreateDbContext())
+        {
+            db.DownloaderSettings.Add(new DownloaderSettingEntity { Key = "intro_dismissed", Value = "true" });
+            db.SaveChanges();
+        }
+        var profiles = _ctx.Services.GetRequiredService<MediaServerProfileStore>();
+        await profiles.SaveAsync(new MediaServerProfile
+        {
+            Id = "jf-slow", Name = "Jellyfin Homelab", Kind = "Jellyfin",
+            BaseUrl = "http://jellyfin:8096", ApiKey = "key",
+        });
+        // The server only answers when the gate is released: a dashboard
+        // that waited for it would never render.
+        var gate = new TaskCompletionSource();
+        _jellyfinDirectory.Gate = gate;
+
+        var cut = _ctx.Render<Home>();
+        cut.WaitForState(() => cut.Markup.Contains("Recent sync runs"), TimeSpan.FromSeconds(3));
+
         var rows = cut.FindAll(".connection-row");
         var jellyfin = rows.Single(r => r.TextContent.Contains("Jellyfin Homelab"));
-        var plex = rows.Single(r => r.TextContent.Contains("Plex"));
-        var subsonic = rows.Single(r => r.TextContent.Contains("Subsonic"));
 
         Assert.Multiple(() =>
         {
-            Assert.That(jellyfin.TextContent, Does.Contain("mila on Basement"),
-                "a connected server names the account and the server");
-            Assert.That(jellyfin.TextContent, Does.Contain("connected"));
-            Assert.That(plex.TextContent, Does.Contain("unreachable"),
-                "a stored profile that does not answer is not ready");
-            Assert.That(subsonic.TextContent, Does.Contain("not configured"));
-            Assert.That(subsonic.TextContent, Does.Contain("off"));
+            Assert.That(jellyfin.TextContent, Does.Contain("checking"),
+                "a server that has not answered yet is checking, not ready");
+            Assert.That(jellyfin.TextContent, Does.Not.Contain("connected"),
+                "nothing is claimed before the server answers");
         });
+
+        gate.SetResult();
     }
 
     [Test]
@@ -431,10 +473,15 @@ public class HomePageTests
         public string Kind { get; }
         public bool Answer { get; set; } = true;
         public MediaServerIdentity? Identity { get; set; }
+        /// <summary>A server that only answers when this is released.</summary>
+        public TaskCompletionSource? Gate { get; set; }
 
-        public Task<bool> TestConnectionAsync(
+        public async Task<bool> TestConnectionAsync(
             MediaServerConnection connection, CancellationToken ct = default)
-            => Task.FromResult(Answer);
+        {
+            if (Gate is not null) await Gate.Task.WaitAsync(TimeSpan.FromSeconds(10), ct);
+            return Answer;
+        }
 
         public Task<MediaServerIdentity?> IdentifyAsync(
             MediaServerConnection connection, CancellationToken ct = default)
