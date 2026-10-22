@@ -25,10 +25,15 @@ public static class ServiceCollectionExtensions
         services.AddScoped<M3uGenerator>();
         services.AddScoped<ILibraryScanner, LibraryScanner>();
         services.AddScoped<MelodyBridge.Infrastructure.Services.DatabaseBackupService>();
-        services.AddScoped<MelodyBridge.Infrastructure.Services.MediaServerProfileStore>();
+        // The profile list is a settings row, read fresh every time: one
+        // store for every caller.
+        services.AddSingleton<MelodyBridge.Infrastructure.Services.MediaServerProfileStore>();
         // Dashboard connection state: probes the stored profiles and the
         // legacy single-server rows, cached briefly so refreshes stay cheap.
-        services.AddScoped<IMediaServerStatusProbe, MediaServerStatusProbe>();
+        // The cache only pays off when it survives the request, so the
+        // probe is one for the whole app: a page load must not ask an
+        // unreachable media server again what the last load already asked.
+        services.AddSingleton<IMediaServerStatusProbe, MediaServerStatusProbe>();
         // Moves the library when the Music path or Archive path setting
         // changes; stateless, one for all callers.
         services.AddSingleton<MelodyBridge.Infrastructure.Services.LibraryPathMover>();
