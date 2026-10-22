@@ -167,7 +167,7 @@ public sealed class TrackLinker
         var replaceExisting = !alreadyOwnName
             && File.Exists(linkPath)
             && !_hardLinks.SameFile(linkPath, candidate.ExistingPath)
-            && await PathIsFreeAsync(db, track.Id, linkPath, ct);
+            && await NameIsFreeAsync(db, track, linkPath, ct);
         if (!alreadyOwnName
             && !TryHardLink(linkPath, candidate.ExistingPath, replaceExisting, out var linkFailure))
         {
@@ -431,7 +431,7 @@ public sealed class TrackLinker
                 var replaceExisting = !PlaylistRules.PathEquals(archiveLink, existingArchive)
                     && File.Exists(archiveLink)
                     && !_hardLinks.SameFile(archiveLink, existingArchive)
-                    && await ArchiveNameIsFreeAsync(db, track, archiveLink, ct);
+                    && await NameIsFreeAsync(db, track, archiveLink, ct);
                 if (PlaylistRules.PathEquals(archiveLink, existingArchive)
                     || TryHardLink(archiveLink, existingArchive, replaceExisting, out _))
                 {
@@ -479,7 +479,7 @@ public sealed class TrackLinker
         // instead of writing over it.
         using var scope = await _pathLocks.AcquireAsync(targetPath, ct);
 
-        if (!await ArchiveNameIsFreeAsync(db, track, targetPath, ct))
+        if (!await NameIsFreeAsync(db, track, targetPath, ct))
         {
             track.Warning = string.IsNullOrEmpty(track.Warning)
                 ? $"another track already owns the archive file {Path.GetFileName(targetPath)}; no archive copy was made"
@@ -559,8 +559,8 @@ public sealed class TrackLinker
     /// cannot take another track's file away. The comparison follows the
     /// filesystem: where the volume folds case, two spellings of the same
     /// name are the same file, so a differently cased path counts as
-    /// taken. A volume that keeps the spellings apart (a case-sensitive
-    /// macOS or Linux volume) is asked, not assumed.
+    /// taken. A volume that keeps the spellings apart is asked, not
+    /// assumed, Windows and macOS included.
     /// </summary>
     private static async Task<bool> PathIsFreeAsync(
         MelodyBridgeDbContext db, int trackId, string path, CancellationToken ct)
@@ -580,7 +580,7 @@ public sealed class TrackLinker
     }
 
     /// <summary>
-    /// True when the archive copy may take this name. The database says
+    /// True when a copy or a link may take this name. The database says
     /// which rows claim the name. The file that is on the name right now
     /// says who owns the bytes: it carries the MELODY_ID of the song it
     /// belongs to, and a song that is still in the library keeps its
@@ -588,7 +588,7 @@ public sealed class TrackLinker
     /// we would write. A file of a song that was removed from the library
     /// is a leftover and does not block the copy.
     /// </summary>
-    private async Task<bool> ArchiveNameIsFreeAsync(
+    private async Task<bool> NameIsFreeAsync(
         MelodyBridgeDbContext db, TrackEntity track, string path, CancellationToken ct)
     {
         if (!await PathIsFreeAsync(db, track.Id, path, ct)) return false;
