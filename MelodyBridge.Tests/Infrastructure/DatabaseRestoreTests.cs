@@ -252,6 +252,41 @@ public class DatabaseRestoreTests
             "the staged database is still there, under its own name");
     }
 
+    /// <summary>
+    /// The swap clears the pooled connections that still hold the live
+    /// database. The app pools its own connections, so the file stays
+    /// open after the last query, and the old database would keep a
+    /// handle on the file it was parked as.
+    /// </summary>
+    [Test]
+    public void The_Swap_Releases_The_Pooled_Handle_On_The_Old_Database()
+    {
+        if (!Directory.Exists("/proc/self/fd"))
+            Assert.Ignore("this platform does not expose its open files");
+
+        WriteItems(_dbPath, "old", "Old");
+        var pending = DatabaseRestore.PendingPath(_dbPath);
+        WriteItems(pending, "new", "New");
+
+        // A pooled connection goes back to the pool with the file open.
+        using (var pooled = new SqliteConnection($"Data Source={_dbPath}"))
+        {
+            pooled.Open();
+            using var command = pooled.CreateCommand();
+            command.CommandText = "SELECT COUNT(*) FROM Items;";
+            command.ExecuteScalar();
+        }
+
+        var result = _restore.Apply(_dbPath);
+
+        Assert.That(result.Applied, Is.True,
+            "the staged database took the place of the live one");
+        Assert.That(result.ParkedPath, Is.Not.Null,
+            "the live database was parked");
+        Assert.That(OpenHandles(result.ParkedPath!), Is.Zero,
+            "the old database was left open by the pool");
+    }
+
     /// <summary>Captures the connection the schema check opens.</summary>
     private sealed class CapturingRestore : DatabaseRestore
     {

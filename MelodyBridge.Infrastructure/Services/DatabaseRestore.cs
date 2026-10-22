@@ -73,6 +73,13 @@ public class DatabaseRestore
     /// pools its own connections, so the live file stays open after the
     /// last query. Windows refuses to rename or delete a file that is
     /// open, so the pools are cleared before the files are moved.
+    /// <para>
+    /// The swap runs at startup, before the app opens a connection, so
+    /// there is usually nothing to clear. This is the net for a caller
+    /// that swaps while the app runs. A connection that is checked out
+    /// (an open context) keeps its handle, so a swap with a live
+    /// connection is not supported.
+    /// </para>
     /// </summary>
     private static void ReleaseOpenConnections()
         => SqliteConnection.ClearAllPools();
