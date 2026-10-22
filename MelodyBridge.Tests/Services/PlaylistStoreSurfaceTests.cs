@@ -20,7 +20,7 @@ public class PlaylistStoreSurfaceTests
         "SearchCandidatesAsync", "DownloadCandidateAsync", "DeleteTrackFilesAsync", "LinkSharedTracksAsync",
         // Queries, lifecycle and maintenance
         "GetAllAsync", "GetDownloadStatsAsync", "GetSavedExternalIdsAsync", "RemoveTrackAsync",
-        "GetByIdAsync", "DeleteAsync", "UpdateSettingsAsync", "UpdateScheduleAsync",
+        "GetForDisplayAsync", "DeleteAsync", "UpdateSettingsAsync", "UpdateScheduleAsync",
         "SetPinnedAsync", "GetDueForAutoSyncAsync", "RecomputeMissingFactsAsync", "RetagLibraryAsync",
         // Sources and snapshots
         "AddOrRefreshAsync", "AddOrRefreshDetailedAsync", "AddOrRefreshLikedAsync",

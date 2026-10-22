@@ -169,6 +169,12 @@ archive) and `PlaylistTransfer` (JSON and CSV export/import). `PlaylistRules`
 holds the pure rules they share. New behaviour belongs in the service that owns
 it; the facade keeps its public surface so pages and tests do not move.
 
+Two reads carry the whole app and are shaped for it. `GetForDisplayAsync`
+returns a playlist with its tracks, but only the columns the pages and the
+exports read: a track row also holds the resolved lyrics and the cover url, and
+a playlist of a few thousand tracks would drag megabytes of text into memory
+for a table that never shows them.
+
 A plugin that can list more than its ranked winner overrides
 `SearchAllAsync` (the yt-dlp backed ones do): the manual source picker shows
 those raw candidates, so a hit the ranker refused stays reachable for a human.

@@ -621,7 +621,7 @@ else
         {
             "show_filename", "music_path", "playlist_folders", "archive_path", "archive_format",
         });
-        var playlistTask = Store.GetByIdAsync(PlaylistId);
+        var playlistTask = Store.GetForDisplayAsync(PlaylistId);
         await Task.WhenAll(settingsTask, playlistTask);
 
         var settings = await settingsTask;
@@ -682,7 +682,7 @@ else
     /// </summary>
     private async Task ReloadTracksAsync()
     {
-        playlist = await Store.GetByIdAsync(PlaylistId);
+        playlist = await Store.GetForDisplayAsync(PlaylistId);
         if (playlist is null) return;
         ApplyCounts();
         StartArchiveProbe();
@@ -1331,7 +1331,7 @@ else
                 case "claimed-by-another-run":
                     return SourcePickResult.AlreadyRunning;
                 default:
-                    var row = (await Store.GetByIdAsync(PlaylistId))?.Tracks
+                    var row = (await Store.GetForDisplayAsync(PlaylistId))?.Tracks
                         .FirstOrDefault(t => t.Id == trackId);
                     return SourcePickResult.Failed(row?.DownloadError is { Length: > 0 } error
                         ? error

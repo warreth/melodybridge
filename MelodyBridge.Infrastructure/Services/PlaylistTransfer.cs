@@ -44,7 +44,7 @@ internal sealed class PlaylistTransfer
     /// <summary>one playlist's track snapshot as utf-8 csv bytes, bom prepended so excel behaves.</summary>
     public async Task<byte[]> ExportCsvAsync(string playlistId, CancellationToken ct = default)
     {
-        var entity = await _queries.GetByIdAsync(playlistId, ct)
+        var entity = await _queries.GetForDisplayAsync(playlistId, ct)
             ?? throw new InvalidOperationException($"Playlist '{playlistId}' not found");
 
         var sb = new StringBuilder();
@@ -82,7 +82,7 @@ internal sealed class PlaylistTransfer
             var usedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var playlistId in playlistIds.Distinct(StringComparer.Ordinal))
             {
-                var entity = await _queries.GetByIdAsync(playlistId, ct);
+                var entity = await _queries.GetForDisplayAsync(playlistId, ct);
                 if (entity is null) continue;
 
                 var bytes = await ExportCsvAsync(playlistId, ct);

@@ -280,14 +280,79 @@ internal sealed class PlaylistQueries
         return (files, bytes);
     }
 
-    /// <summary>One persisted playlist including its current track snapshot.</summary>
-    public async Task<PlaylistEntity?> GetByIdAsync(string id, CancellationToken ct = default)
+    /// <summary>
+    /// One persisted playlist including its current track snapshot, with
+    /// only the columns the pages and the exports read. The track rows
+    /// carry the resolved lyrics and the cover url, and a playlist of a
+    /// few thousand tracks would drag megabytes of text into memory for
+    /// a table that never shows them. Add a column here when a page
+    /// starts to show it.
+    /// </summary>
+    public async Task<PlaylistEntity?> GetForDisplayAsync(string id, CancellationToken ct = default)
     {
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         return await db.Playlists
-            .Include(p => p.Tracks.OrderBy(t => t.Position))
             .AsNoTracking()
-            .FirstOrDefaultAsync(p => p.Id == id, ct);
+            .Where(p => p.Id == id)
+            .Select(p => new PlaylistEntity
+            {
+                Id = p.Id,
+                Name = p.Name,
+                Description = p.Description,
+                SourceUrl = p.SourceUrl,
+                SourcePlatform = p.SourcePlatform,
+                ExternalId = p.ExternalId,
+                CoverImageUrl = p.CoverImageUrl,
+                Owner = p.Owner,
+                TrackCount = p.TrackCount,
+                AutoSyncEnabled = p.AutoSyncEnabled,
+                AutoSyncIntervalMinutes = p.AutoSyncIntervalMinutes,
+                ScheduleCron = p.ScheduleCron,
+                AutoDownloadEnabled = p.AutoDownloadEnabled,
+                SyncMode = p.SyncMode,
+                LastSyncAt = p.LastSyncAt,
+                LastSyncStatus = p.LastSyncStatus,
+                SyncWarning = p.SyncWarning,
+                TargetDirectory = p.TargetDirectory,
+                ArchiveDirectory = p.ArchiveDirectory,
+                ArchiveFormat = p.ArchiveFormat,
+                PreferredFormat = p.PreferredFormat,
+                StrictQuality = p.StrictQuality,
+                AllowContainerChange = p.AllowContainerChange,
+                ArchiveEnabled = p.ArchiveEnabled,
+                LastAttemptAt = p.LastAttemptAt,
+                IsPinned = p.IsPinned,
+                Tracks = p.Tracks
+                    .OrderBy(t => t.Position)
+                    .Select(t => new TrackEntity
+                    {
+                        Id = t.Id,
+                        MelodyId = t.MelodyId,
+                        ExternalId = t.ExternalId,
+                        Title = t.Title,
+                        Artist = t.Artist,
+                        Album = t.Album,
+                        MediaType = t.MediaType,
+                        Bitrate = t.Bitrate,
+                        SampleRateHz = t.SampleRateHz,
+                        FileSizeBytes = t.FileSizeBytes,
+                        DurationMs = t.DurationMs,
+                        Position = t.Position,
+                        CurrentPath = t.CurrentPath,
+                        ArchivePath = t.ArchivePath,
+                        DownloadStatus = t.DownloadStatus,
+                        DownloadError = t.DownloadError,
+                        Warning = t.Warning,
+                        SourcePluginId = t.SourcePluginId,
+                        ReviewKind = t.ReviewKind,
+                        ReviewText = t.ReviewText,
+                        IsHardLink = t.IsHardLink,
+                        SkipDedup = t.SkipDedup,
+                        PlaylistEntityId = t.PlaylistEntityId,
+                    })
+                    .ToList(),
+            })
+            .FirstOrDefaultAsync(ct);
     }
 
     /// <summary>
