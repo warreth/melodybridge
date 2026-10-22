@@ -903,7 +903,8 @@ else if (activeTab == "about")
                 The zip contains a consistent snapshot (playlists, tracks,
                 settings). An import is staged next to the database and
                 applied on the next start: the current database is parked
-                as .preimport.bak and the imported one takes its place.
+                next to it under a name that ends in .preimport.bak and
+                the imported one takes its place.
             </div>
             <div class="flex-actions">
                 <button class="btn-modern secondary" @onclick="ExportDatabase">Export zip</button>
