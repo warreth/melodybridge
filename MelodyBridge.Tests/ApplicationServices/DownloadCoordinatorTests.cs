@@ -155,35 +155,37 @@ public class DownloadCoordinatorTests
     }
 
     /// <summary>
-    /// Fails the first and third attempt: one provider-style cancellation
-    /// and one transient database error. The coordinator must retry both
-    /// and keep the run alive instead of letting a worker die.
+    /// Fails one track once with a transient database error. The failure
+    /// comes from above the pipeline: the row is not even claimed. The
+    /// coordinator has to retry it and keep the run alive.
     /// </summary>
     private sealed class FlakyPlaylistStore : PlaylistStore
     {
-        private readonly HashSet<int> _failedTracks = new();
+        private readonly int _failTrackId;
+        private bool _failed;
 
         public FlakyPlaylistStore(
-            IDbContextFactory<MelodyBridgeDbContext> factory, IDownloadManager downloader)
+            IDbContextFactory<MelodyBridgeDbContext> factory, IDownloadManager downloader,
+            int failTrackId)
             : base(factory, Array.Empty<ISourceProvider>(), downloader,
                 NullLogger<PlaylistStore>.Instance)
         {
+            _failTrackId = failTrackId;
         }
 
         /// <summary>
-        /// Fails the first attempt of two distinct tracks, once with a
-        /// provider-style cancellation and once with a transient database
-        /// error. Retries of those tracks go through to the real pipeline.
+        /// Fails the first attempt of one track with a transient database
+        /// error. The retry of that track goes through to the real
+        /// pipeline.
         /// </summary>
         public override async Task<string> DownloadTrackAsync(
             int trackId, CancellationToken ct = default, bool avoidLastProvider = false)
         {
-            lock (_failedTracks)
+            lock (this)
             {
-                if (_failedTracks.Count < 2 && _failedTracks.Add(trackId))
+                if (!_failed && trackId == _failTrackId)
                 {
-                    if (_failedTracks.Count == 1)
-                        throw new OperationCanceledException("the provider cancelled this request");
+                    _failed = true;
                     throw new InvalidOperationException("transient database busy");
                 }
             }
@@ -240,10 +242,30 @@ public class DownloadCoordinatorTests
     public async Task Run_SurvivesProviderCancellationAndTransientStoreFailure()
     {
         var id = await SeedPlaylistAsync(6);
+
+        // Two different tracks, two different failures. The first track
+        // fails once in the store: a transient database error from above
+        // the pipeline. The second track is cancelled by the provider
+        // itself: that cancellation comes from below the pipeline, so the
+        // pipeline has to write the failure and pass it on, and the
+        // coordinator has to retry the track.
+        int storeTrackId;
+        string cancelledMelodyId;
+        await using (var seed = _factory.CreateDbContext())
+        {
+            var seeded = await seed.Tracks.AsNoTracking()
+                .Where(t => t.PlaylistEntityId == id)
+                .OrderBy(t => t.Position)
+                .ToListAsync();
+            storeTrackId = seeded[0].Id;
+            cancelledMelodyId = seeded[1].MelodyId!;
+        }
+
         var downloader = new SlowDownloader();
-        var manager = new DownloadManager(new ListRegistry(downloader),
+        var real = new DownloadManager(new ListRegistry(downloader),
             NullLogger<DownloadManager>.Instance);
-        var store = new FlakyPlaylistStore(_factory, manager);
+        var manager = new CancellingManager(real, cancelledMelodyId);
+        var store = new FlakyPlaylistStore(_factory, manager, storeTrackId);
         var services = MakeServices(downloader, store);
         var coordinator = MakeCoordinator(services);
 
@@ -268,7 +290,10 @@ public class DownloadCoordinatorTests
         Assert.That(rows, Has.Count.EqualTo(6));
         Assert.That(rows.Any(r => r.DownloadStatus == "in_progress"), Is.False,
             "a failed attempt must never leave a claim behind");
-        Assert.That(rows.All(r => r.DownloadStatus == "downloaded"), Is.True);
+        Assert.That(rows.All(r => r.DownloadStatus == "downloaded"), Is.True,
+            $"every track arrived after its retry: {statuses}");
+        Assert.That(manager.Attempts, Is.EqualTo(7),
+            "the cancelled track took two attempts, every other track one");
     }
 
     [Test]
@@ -430,11 +455,12 @@ public class DownloadCoordinatorTests
     }
 
     /// <summary>
-    /// A manager whose first attempts end the way a provider that cancels
-    /// its own request does: the cancellation travels on, so the caller
-    /// can retry the track.
+    /// A manager whose first attempt for one track ends the way a
+    /// provider that cancels its own request does: the cancellation
+    /// travels on from below the pipeline, so the pipeline writes the
+    /// failure and the caller can retry the track.
     /// </summary>
-    private sealed class CancellingManager(IDownloadManager inner) : IDownloadManager
+    private sealed class CancellingManager(IDownloadManager inner, string? cancelMelodyId = null) : IDownloadManager
     {
         private int _remaining = 1;
         public int Attempts;
@@ -443,7 +469,8 @@ public class DownloadCoordinatorTests
             DownloadFallback? fallback = null, string? avoidPluginId = null, CancellationToken ct = default)
         {
             Interlocked.Increment(ref Attempts);
-            if (Interlocked.Decrement(ref _remaining) >= 0)
+            if ((cancelMelodyId is null || cancelMelodyId == melodyId)
+                && Interlocked.Decrement(ref _remaining) >= 0)
                 throw new OperationCanceledException("the provider cancelled this request");
             return inner.DownloadTrackAsync(query, outputDirectory, melodyId, fallback, avoidPluginId, ct);
         }
