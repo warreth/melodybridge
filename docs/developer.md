@@ -312,7 +312,7 @@ second, a real User-Agent, no key).
 
 `DownloadCoordinator` runs each playlist with up to `download_max_concurrent` parallel workers (setting, default 2, clamp 1-8, Advanced page). Each run snapshots its work list (pending/failed tracks, Position order) and every track is attempted exactly once per run: a permanently failing track can no longer spin the run forever, and the visible queue plus ETA count the work still in flight. The store's claim (`DownloadTrackAsync(int)`) is still atomic, so a single-track click and a running batch never download the same track twice. A provider cancellation or a transient exception is retried once, then that track is marked failed without stopping the worker. A claim that a dead run left behind (crash, hard shutdown) is reset to pending at startup, and a new run resets only the claims nobody holds: a single-track download that is running keeps its row.
 
-A playlist refresh updates the rows it already has in place: the row id, download state, file paths and measured facts survive, and a source row that did not change costs no write. Rows the source removed still follow the sync mode. Because a refresh can still add or drop rows, auto-sync and the Refresh actions skip a playlist while its run is active; the playlist stays due and is refreshed after the run. The track table renders one page of 100 rows, keeps the sorted list and queue labels cached between ticks, and asks the page to check archive files only for the visible slice. A 3000-track playlist therefore no longer builds every row and stats every archive path on each poll.
+A playlist refresh updates the rows it already has in place: the row id, download state, file paths and measured facts survive, and a source row that did not change costs no write. Rows the source removed still follow the sync mode. Because a refresh can still add or drop rows, auto-sync and the Refresh actions skip a playlist while its run is active; the playlist stays due and is refreshed after the run. The track table renders one page of rows at a time (`TrackTable.PageSize`), keeps the sorted list and queue labels cached between ticks, and asks the page to check archive files only for the visible slice. A 3000-track playlist therefore no longer builds every row and stats every archive path on each poll.
 
 ### Other key types
 
@@ -406,6 +406,19 @@ file.
   message, the store logs it and the track downloads normally. A
   `File.Copy` fallback is deliberately forbidden.
 
+The archive copy lands on a fixed name, so that name has an owner. The
+database says which rows point at it, and the file that sits on the name
+says who owns the bytes: it carries the `MELODY_ID` of the song it
+belongs to, and a song that is still in the library keeps its file, even
+when the name is spelled with a case the database comparison does not
+fold. A file of a song that was removed from the library is a leftover
+and does not block the copy. Two workers that want the same name take one
+lock per name (`PathLockTable`), so the second one waits and then sees
+what the first one wrote instead of writing over it. Whether two
+spellings of one name are the same file is the volume's business, not
+the operating system's: `FileSystemCase` asks the volume with a probe
+and caches the answer per folder.
+
 The linking also runs without any download, so a playlist whose tracks
 the library already holds owns its own file names from the first
 moment: `TrackLinker.LinkSharedTracksAsync` runs right after every
@@ -448,7 +461,7 @@ A track row in `in_progress` is held by a download that is running. The row surv
 
 A database in WAL mode is three files: the database, its `-wal` and its `-shm`. Replacing only the database and leaving the log behind means the next connection replays the old log over the new file: the restored rows are gone and the old ones are back, with `integrity_check` reporting that everything is fine.
 
-The import therefore never touches the live database. `DatabaseBackupService.ImportZipAsync` validates the uploaded zip and stages it next to the live file as `<database>.pending-restore`. The next start applies it: `DatabaseRestore.Apply` runs before the first connection opens, folds the write-ahead log into the live database, removes the sidecars, parks the live file as `.preimport.bak` and moves the staged file into place. A staged file without a schema is rejected and the live database stays as it is. A staged import can be discarded before the restart (`DiscardPendingRestoreAsync`); the live database was never touched, so that is the way back.
+The import therefore never touches the live database. `DatabaseBackupService.ImportZipAsync` validates the uploaded zip and stages it next to the live file as `<database>.pending-restore`. The next start applies it: `DatabaseRestore.Apply` runs before the first connection opens, folds the write-ahead log into the live database, removes the sidecars, parks the live file as `<database>.<timestamp>.<id>.preimport.bak` and moves the staged file into place. Work done after the export is not in the imported copy; the parked file keeps it. A staged file without a schema is rejected and the live database stays as it is. A staged import can be discarded before the restart (`DiscardPendingRestoreAsync`); the live database was never touched, so that is the way back.
 
 ## Dependency injection
 

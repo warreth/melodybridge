@@ -147,8 +147,10 @@ highlights, the guided tour included. Both are stored in this browser only.
 
 **Export logs** writes the most recent 1000 entries as a text file. The database
 section exports a zip snapshot; importing one stages it, and the next start swaps
-it in and parks the previous database next to it as `.preimport.bak`. A staged
-import that you did not mean to make can be discarded before the restart.
+it in and parks the previous database next to it under a name that ends in
+`.preimport.bak`. Work you did after the export is not in the imported copy, and
+the parked file keeps it. A staged import that you did not mean to make can be
+discarded before the restart.
 
 ## The dashboard
 
