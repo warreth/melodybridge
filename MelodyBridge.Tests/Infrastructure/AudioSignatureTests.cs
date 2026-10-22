@@ -106,6 +106,32 @@ public class AudioSignatureTests
     }
 
     [Test]
+    public void EnsureExtension_DoesNotStealANameAnotherFileHolds()
+    {
+        // A second download of a different song produced the same basename.
+        // The first track's FLAC must survive: the rename takes a unique
+        // name instead of clearing the occupied one.
+        var occupied = Path.Combine(_dir, "track.flac");
+        var occupiedBytes = new byte[] { 0x66, 0x4C, 0x61, 0x43, 0x00, 0x00, 0x00, 0x01 };
+        File.WriteAllBytes(occupied, occupiedBytes);
+
+        var incoming = Path.Combine(_dir, "track.mp3");
+        var incomingBytes = new byte[] { 0x66, 0x4C, 0x61, 0x43, 0x00, 0x00, 0x00, 0x22 };
+        File.WriteAllBytes(incoming, incomingBytes);
+
+        var result = AudioSignature.EnsureExtension(incoming);
+
+        Assert.That(result, Is.Not.EqualTo(occupied), "the occupied name was taken, not cleared");
+        Assert.Multiple(() =>
+        {
+            Assert.That(File.ReadAllBytes(occupied), Is.EqualTo(occupiedBytes),
+                "the file that held the name kept its bytes");
+            Assert.That(File.ReadAllBytes(result!), Is.EqualTo(incomingBytes),
+                "the fresh download lands under its own name");
+        });
+    }
+
+    [Test]
     public void EnsureExtension_NonAudio_ReturnsNull()
     {
         var path = Path.Combine(_dir, "track.mp3");

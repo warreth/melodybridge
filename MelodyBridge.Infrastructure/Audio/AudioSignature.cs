@@ -1,3 +1,5 @@
+using MelodyBridge.Infrastructure.Files;
+
 namespace MelodyBridge.Infrastructure.Audio;
 
 /// <summary>
@@ -82,6 +84,9 @@ public static class AudioSignature
     /// Replaces a file's extension with the sniffed container when they
     /// disagree, so a FLAC served as .mp3 lands as .flac. Returns the
     /// (possibly moved) path, or null when the bytes are not audio.
+    /// A name that another file already holds is never cleared: the
+    /// rename takes a unique spelling instead, because clearing it
+    /// would hand another track's file to this download.
     /// </summary>
     public static string? EnsureExtension(string path)
     {
@@ -93,9 +98,14 @@ public static class AudioSignature
             return path;
 
         var target = Path.ChangeExtension(path, container);
+        if (File.Exists(target))
+        {
+            target = FileMove.UniqueTarget(
+                Path.GetDirectoryName(path) ?? "",
+                Path.GetFileNameWithoutExtension(path) + container);
+        }
         try
         {
-            if (File.Exists(target)) File.Delete(target);
             File.Move(path, target);
             return target;
         }
