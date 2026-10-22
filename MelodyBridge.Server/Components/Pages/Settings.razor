@@ -913,6 +913,14 @@ else if (activeTab == "about")
             {
                 <div class="hint-box">@dbMessage</div>
             }
+            @if (pendingRestore)
+            {
+                <div class="flex-actions">
+                    <button class="btn-modern ghost" @onclick="DiscardPendingImport">
+                        Discard the staged import
+                    </button>
+                </div>
+            }
         </div>
     </section>
 }
@@ -1124,6 +1132,7 @@ else if (activeTab == "about")
     private UpdateCheckResult? updateResult;
     private bool checkingUpdate;
     private string? dbMessage;
+    private bool pendingRestore;
 
     [Inject] private IConfiguration Config { get; set; } = default!;
 
@@ -1143,7 +1152,8 @@ else if (activeTab == "about")
         // swaps it in. Say so, so the user knows a restart is pending.
         try
         {
-            if (await DbBackup.HasPendingRestoreAsync())
+            pendingRestore = await DbBackup.HasPendingRestoreAsync();
+            if (pendingRestore)
                 dbMessage = "An imported database is waiting for the next start.";
         }
         catch
@@ -1870,6 +1880,7 @@ else if (activeTab == "about")
         {
             await using var stream = e.File.OpenReadStream(200_000_000);
             await DbBackup.ImportZipAsync(stream);
+            pendingRestore = true;
             dbMessage = "Database imported. Restart MelodyBridge to apply it.";
             Notifications.Warn("Database imported: restart to apply.");
         }
@@ -1877,6 +1888,28 @@ else if (activeTab == "about")
         {
             dbMessage = $"Import failed: {ex.Message}";
             Notifications.Error($"Import failed: {ex.Message}");
+        }
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// Throws a staged import away. The live database was never touched,
+    /// so the app keeps running on the data it has.
+    /// </summary>
+    private async Task DiscardPendingImport()
+    {
+        try
+        {
+            if (await DbBackup.DiscardPendingRestoreAsync())
+            {
+                pendingRestore = false;
+                dbMessage = "The staged import was discarded.";
+                Notifications.Info("The staged database import was discarded.");
+            }
+        }
+        catch (Exception ex)
+        {
+            Notifications.Error($"Could not discard the staged import: {ex.Message}");
         }
         StateHasChanged();
     }

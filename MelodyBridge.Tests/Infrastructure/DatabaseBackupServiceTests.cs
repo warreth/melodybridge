@@ -105,6 +105,40 @@ public class DatabaseBackupServiceTests
     }
 
     [Test]
+    public async Task Import_Can_Be_Discarded_Before_The_Next_Start()
+    {
+        // The user imported the wrong file. The live database was never
+        // touched, so throwing the staged copy away is the way back.
+        var zipPath = BuildForeignZip();
+        await using var stream = File.OpenRead(zipPath);
+        await _service.ImportZipAsync(stream);
+        Assert.That(await _service.HasPendingRestoreAsync(), Is.True);
+
+        Assert.That(await _service.DiscardPendingRestoreAsync(), Is.True);
+
+        var stillStaged = await _service.HasPendingRestoreAsync();
+        var stagedFile = File.Exists(DatabaseRestore.PendingPath(_dbPath));
+        Assert.Multiple(() =>
+        {
+            Assert.That(stillStaged, Is.False);
+            Assert.That(stagedFile, Is.False);
+        });
+        var live = new TestSqliteFactory(_dbPath);
+        using (var db = live.CreateDbContext())
+        {
+            Assert.That(db.Playlists.Count(p => p.Name == "Original"), Is.EqualTo(1),
+                "the live database never changed");
+        }
+    }
+
+    [Test]
+    public async Task Discarding_Nothing_Is_Not_An_Error()
+    {
+        Assert.That(await _service.DiscardPendingRestoreAsync(), Is.False,
+            "there was no staged import to throw away");
+    }
+
+    [Test]
     public async Task Import_Rejects_Schema_Less_Database_With_Clear_Message()
     {
         // A "database" with no tables at all (the classic broken backup:

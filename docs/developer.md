@@ -448,7 +448,7 @@ A track row in `in_progress` is held by a download that is running. The row surv
 
 A database in WAL mode is three files: the database, its `-wal` and its `-shm`. Replacing only the database and leaving the log behind means the next connection replays the old log over the new file: the restored rows are gone and the old ones are back, with `integrity_check` reporting that everything is fine.
 
-The import therefore never touches the live database. `DatabaseBackupService.ImportZipAsync` validates the uploaded zip and stages it next to the live file as `<database>.pending-restore`. The next start applies it: `DatabaseRestore.Apply` runs before the first connection opens, folds the write-ahead log into the live database, removes the sidecars, parks the live file as `.preimport.bak` and moves the staged file into place. A staged file without a schema is rejected and the live database stays as it is.
+The import therefore never touches the live database. `DatabaseBackupService.ImportZipAsync` validates the uploaded zip and stages it next to the live file as `<database>.pending-restore`. The next start applies it: `DatabaseRestore.Apply` runs before the first connection opens, folds the write-ahead log into the live database, removes the sidecars, parks the live file as `.preimport.bak` and moves the staged file into place. A staged file without a schema is rejected and the live database stays as it is. A staged import can be discarded before the restart (`DiscardPendingRestoreAsync`); the live database was never touched, so that is the way back.
 
 ## Dependency injection
 

@@ -122,6 +122,21 @@ public class DatabaseBackupService(
     }
 
     /// <summary>
+    /// Throws the staged import away. The live database is untouched, so
+    /// this is the way back from an import the user did not mean to make.
+    /// Returns false when there was nothing staged.
+    /// </summary>
+    public async Task<bool> DiscardPendingRestoreAsync(CancellationToken ct = default)
+    {
+        var dbPath = await GetDatabasePathAsync(ct);
+        var pending = DatabaseRestore.PendingPath(dbPath);
+        if (!File.Exists(pending)) return false;
+        File.Delete(pending);
+        logger.LogInformation("Staged database import discarded");
+        return true;
+    }
+
+    /// <summary>
     /// Folds the write-ahead log into the file and removes its sidecars,
     /// so the file that is staged carries every committed page.
     /// </summary>
