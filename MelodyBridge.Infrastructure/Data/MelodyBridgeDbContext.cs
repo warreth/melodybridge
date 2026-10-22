@@ -28,6 +28,11 @@ public class MelodyBridgeDbContext : DbContext
             // the dedup logic joins rows across playlists on this id.
             e.HasIndex(t => t.MelodyId);
             e.HasIndex(t => new { t.ExternalPlatform, t.ExternalId });
+            // The playlist cards and the dashboard count tracks per
+            // playlist. This index holds exactly the columns those
+            // counters read, so the group-by runs over the index instead
+            // of over every row of the table.
+            e.HasIndex(t => new { t.PlaylistEntityId, t.DownloadStatus, t.FileSizeBytes, t.ReviewKind });
             e.Property(t => t.MelodyId).HasMaxLength(64);
             e.Property(t => t.ExternalId).HasMaxLength(128);
             e.Property(t => t.ExternalPlatform).HasMaxLength(64);

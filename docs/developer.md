@@ -175,6 +175,12 @@ exports read: a track row also holds the resolved lyrics and the cover url, and
 a playlist of a few thousand tracks would drag megabytes of text into memory
 for a table that never shows them.
 
+`GetDownloadStatsAsync` counts the tracks per playlist for the playlist cards,
+and the index on (`PlaylistEntityId`, `DownloadStatus`, `FileSizeBytes`,
+`ReviewKind`) holds exactly the columns those counters read, so the group-by
+walks the index instead of the table. A SchemaPatcher step adds the index to
+older databases.
+
 A plugin that can list more than its ranked winner overrides
 `SearchAllAsync` (the yt-dlp backed ones do): the manual source picker shows
 those raw candidates, so a hit the ranker refused stays reachable for a human.
