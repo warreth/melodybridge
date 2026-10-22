@@ -139,6 +139,37 @@ public class SubsonicSyncTests
     }
 
     [Test]
+    public async Task SyncPlaylistAsync_NothingResolved_LeavesTheRemotePlaylistAlone()
+    {
+        // Remap rules pointed at a folder the server does not hold: the
+        // track resolves to nothing. Rewriting the existing playlist with
+        // an empty song list would wipe it on the server, so the update
+        // must not happen and the run has to say so.
+        var handler = new ScriptedHandler();
+        handler.On("/rest/search3", ScriptedHandler.Json(
+            """{"subsonic-response":{"status":"ok","searchResult3":{"song":[]}}}"""));
+        handler.On("/rest/getPlaylists", ScriptedHandler.Json(
+            """{"subsonic-response":{"status":"ok","playlists":{"playlist":[{"id":"pl-2","name":"Evening mix"}]}}}"""));
+        handler.On("/rest/createPlaylist", ScriptedHandler.Json(
+            """{"subsonic-response":{"status":"ok","playlist":{"id":"pl-2","name":"Evening mix"}}}"""));
+        var sync = NewSync(handler);
+
+        await sync.SyncPlaylistAsync(
+            PlaylistOf(Track("untitled", "/other/machine/album/song.flac")),
+            new PlaylistOutputOptions("/tmp/out.m3u", false, null));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(handler.Requests.Any(r => r.Url.Contains("/rest/createPlaylist")), Is.False,
+                "an empty replacement must never reach the server");
+            Assert.That(sync.LastReport!.Succeeded, Is.False,
+                "the run says no track resolved");
+            Assert.That(sync.LastReport.Message, Does.Contain("no track resolved"));
+            Assert.That(sync.LastReport.UnresolvedPaths, Has.Length.EqualTo(1));
+        });
+    }
+
+    [Test]
     public async Task SyncPlaylistAsync_LikedTrack_GetsStarred()
     {
         var handler = StandardRoutes();

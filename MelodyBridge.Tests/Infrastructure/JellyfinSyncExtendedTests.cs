@@ -226,6 +226,45 @@ public class JellyfinSyncExtendedTests
     }
 
     [Test]
+    public async Task SyncPlaylistAsync_NothingResolved_LeavesTheRemotePlaylistAlone()
+    {
+        // Remap rules pointed at a folder the server does not hold: the
+        // track resolves to nothing. Updating the existing playlist with
+        // an empty member list would wipe it on the server, so the update
+        // must not happen and the run has to say so.
+        var handler = new ScriptedHandler()
+            .On("IncludeItemTypes=Playlist", """{"Items":[{"Id":"existing-playlist","Name":"Evening mix"}]}""")
+            .On("/Playlists/existing-playlist", """{"ItemIds":[]}""");
+
+        var sync = NewSync(handler);
+        var playlist = new Playlist
+        {
+            Name = "Evening mix",
+            Tracks = new List<Track>
+            {
+                new()
+                {
+                    Title = "Test Song",
+                    CurrentTrackLocation = new FileLocation("/other/machine/song.flac")
+                }
+            }
+        };
+
+        await sync.SyncPlaylistAsync(playlist,
+            new PlaylistOutputOptions("/tmp/out.m3u", false, null));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(handler.Recorded.Any(r => r.Url.Contains("/Playlists/existing-playlist")), Is.False,
+                "an empty replacement never reaches the server");
+            Assert.That(sync.LastReport!.Succeeded, Is.False,
+                "the run says no track resolved");
+            Assert.That(sync.LastReport.Message, Does.Contain("no track resolved"));
+            Assert.That(sync.LastReport.UnresolvedPaths, Has.Length.EqualTo(1));
+        });
+    }
+
+    [Test]
     public async Task SyncPlaylistAsync_UnreadableLibrary_FallsBackToByPathAndSearch()
     {
         // An older server (or a library the account cannot read): the walk

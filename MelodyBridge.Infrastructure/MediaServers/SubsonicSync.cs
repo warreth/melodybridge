@@ -173,6 +173,23 @@ public class SubsonicSync : IMediaServerSync
                 }
             }
 
+            // Nothing resolved while tracks were offered: a remap rule, a
+            // moved mount or a re-scanned library made the whole playlist
+            // foreign. createPlaylist by playlist id with no songs
+            // replaces the remote list with nothing, so the run fails and
+            // the playlist stays as it is. The lookup above runs first so
+            // a server or auth error still surfaces as the cause.
+            if (songIds.Count == 0 && unresolved.Count > 0)
+            {
+                _logger.LogWarning(
+                    "Subsonic sync for '{Name}': no track resolved out of {Unresolved}; playlist left untouched",
+                    name, unresolved.Count);
+                _lastReport = new MediaServerSyncReport(0, unresolved.ToArray(), null,
+                    $"no track resolved ({unresolved.Count} failed); playlist left untouched",
+                    Succeeded: false);
+                return;
+            }
+
             if (existingId is not null)
             {
                 // createPlaylist with playlistId replaces the whole list (upsert-by-id).
@@ -182,13 +199,6 @@ public class SubsonicSync : IMediaServerSync
                 await GetJsonAsync(updateUrl, ct);
                 _lastReport = new MediaServerSyncReport(songIds.Count, unresolved.ToArray(),
                     existingId, "Updated existing playlist");
-                return;
-            }
-
-            if (songIds.Count == 0)
-            {
-                _lastReport = new MediaServerSyncReport(0, unresolved.ToArray(), null,
-                    "No resolved tracks; playlist not created", Succeeded: false);
                 return;
             }
 

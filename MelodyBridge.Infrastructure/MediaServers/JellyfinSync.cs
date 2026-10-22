@@ -455,6 +455,23 @@ public class JellyfinSync : IMediaServerSync
 
             if (existingId is not null)
             {
+                // Nothing resolved while tracks were offered: a remap
+                // rule, a moved mount or a re-scanned library made the
+                // whole playlist foreign. Writing now would hand Jellyfin
+                // an empty member list, which wipes the remote playlist
+                // the user has, so the run fails and the playlist stays
+                // as it is instead.
+                if (itemIds.Count == 0 && unresolved.Count > 0)
+                {
+                    _logger.LogWarning(
+                        "Jellyfin sync for '{Name}': no track resolved out of {Unresolved}; playlist left untouched",
+                        name, unresolved.Count);
+                    _lastReport = new MediaServerSyncReport(0, unresolved.ToArray(), null,
+                        $"no track resolved ({unresolved.Count} failed); playlist left untouched",
+                        Succeeded: false);
+                    return;
+                }
+
                 // A playlist whose members and order already match stays
                 // untouched: rewriting a 1000-item list on every run is
                 // the expensive part of an otherwise unchanged sync.
@@ -489,6 +506,21 @@ public class JellyfinSync : IMediaServerSync
                     return;
                 }
                 _logger.LogInformation("Playlist {name} vanished before the update; recreating", name);
+            }
+
+            // The create path gets the same guard: a playlist whose
+            // tracks all failed to resolve is not worth an empty entry on
+            // the server, because that entry is the only thing the next
+            // runs would keep finding.
+            if (itemIds.Count == 0 && unresolved.Count > 0)
+            {
+                _logger.LogWarning(
+                    "Jellyfin sync for '{Name}': no track resolved out of {Unresolved}; playlist left untouched",
+                    name, unresolved.Count);
+                _lastReport = new MediaServerSyncReport(0, unresolved.ToArray(), null,
+                    $"no track resolved ({unresolved.Count} failed); playlist left untouched",
+                    Succeeded: false);
+                return;
             }
 
             using var resp = await SendAsync(baseUrl, apiKey, "/Playlists",
