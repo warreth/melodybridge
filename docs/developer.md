@@ -412,12 +412,17 @@ says who owns the bytes: it carries the `MELODY_ID` of the song it
 belongs to, and a song that is still in the library keeps its file, even
 when the name is spelled with a case the database comparison does not
 fold. A file of a song that was removed from the library is a leftover
-and does not block the copy. Two workers that want the same name take one
-lock per name (`PathLockTable`), so the second one waits and then sees
-what the first one wrote instead of writing over it. Whether two
-spellings of one name are the same file is the volume's business, not
-the operating system's: `FileSystemCase` asks the volume with a probe
-and caches the answer per folder.
+and does not block the copy. The same rule guards the hard link into a
+playlist folder, so both paths judge a name the same way. Two workers
+that want the same name take one lock per name (`PathLockTable`), so the
+second one waits and then sees what the first one wrote instead of
+writing over it, and the delete of a file a rerun replaced takes that
+lock as well, so it cannot pull a file away from a worker that is
+writing it. Whether two spellings of one name are the same file is the
+volume's business, not the operating system's: `FileSystemCase` asks the
+volume with a probe and caches the answer per folder, Windows and macOS
+included. A volume that cannot be asked is treated as one that folds
+case, the answer that never takes a name by accident.
 
 The linking also runs without any download, so a playlist whose tracks
 the library already holds owns its own file names from the first
