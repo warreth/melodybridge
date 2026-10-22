@@ -58,6 +58,8 @@ public class LibraryFootprintTests
                     CurrentPath = Path.Combine(_music, "a.flac"),
                     ArchivePath = Path.Combine(_archive, "a.opus"),
                     FileSizeBytes = 1024,
+                    // The app wrote that copy, so it knows the size.
+                    ArchiveSizeBytes = 512,
                 },
                 new TrackEntity
                 {
@@ -138,6 +140,49 @@ public class LibraryFootprintTests
             Assert.That(card.TextContent, Does.Not.Contain("0.5 KB"),
                 "the archive copy is not folded into the main folder");
         });
+    }
+
+    [Test]
+    public async Task AnArchiveCopyWithoutAKnownSize_IsMeasuredOnceAndKept()
+    {
+        // A copy written before the app knew its size: the page measures
+        // it in the background and keeps the answer, so the next visit
+        // does not ask the disk again.
+        Write(_archive, "c.opus", 512);
+        using (var db = _factory.CreateDbContext())
+        {
+            db.Tracks.Add(new TrackEntity
+            {
+                MelodyId = "c",
+                CurrentPath = Path.Combine(_music, "c.flac"),
+                FileSizeBytes = 1024,
+                ArchivePath = Path.Combine(_archive, "c.opus"),
+            });
+            db.SaveChanges();
+        }
+
+        var cut = _ctx.Render<Library>();
+
+        // The page measures the copy in the background and keeps the
+        // answer, so the next visit does not ask the disk again.
+        long? stored = null;
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (DateTime.UtcNow < deadline)
+        {
+            using (var db = _factory.CreateDbContext())
+                stored = db.Tracks.Single(t => t.MelodyId == "c").ArchiveSizeBytes;
+            if (stored is > 0) break;
+            await Task.Delay(50);
+        }
+        Assert.That(stored, Is.EqualTo(512),
+            "the measured size is kept for the next visit");
+
+        cut.Render();
+        Assert.That(cut.FindAll(".stat-card")
+            .Single(c => c.QuerySelector("label")!.TextContent == "Archive copies")
+            .TextContent,
+            Does.Contain("1 KB in extra copies"),
+            "the measured size shows up in the summary");
     }
 
     private static void Write(string dir, string name, int bytes)

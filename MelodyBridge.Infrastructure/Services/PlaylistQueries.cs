@@ -201,6 +201,7 @@ internal sealed class PlaylistQueries
                     // Only the archive pointer is stale: IsHardLink
                     // describes the primary file, which is still on disk.
                     track.ArchivePath = null;
+                    track.ArchiveSizeBytes = null;
                     await db.SaveChangesAsync(ct);
                     _changes.Bump();
                 }
@@ -212,6 +213,7 @@ internal sealed class PlaylistQueries
 
         track.CurrentPath = null;
         track.ArchivePath = null;
+        track.ArchiveSizeBytes = null;
         track.IsHardLink = false;
         track.DownloadStatus = "pending";
         track.DownloadError = null;

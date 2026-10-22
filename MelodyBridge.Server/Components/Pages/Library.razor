@@ -2,6 +2,7 @@
 @inject IDbContextFactory<MelodyBridgeDbContext> DbFactory
 @inject ILibraryScanner Scanner
 @inject NotificationService Notifications
+@implements IDisposable
 
 <PageTitle>Library - MelodyBridge</PageTitle>
 
@@ -31,7 +32,7 @@
     <StatCard IconName="library" Label="Library files" Value="@footprint.Files.ToString()"
               Caption="Files with a MELODY_ID tag" />
     <StatCard IconName="hard-drive" Label="Library size" Value="@SizeText(footprint.Bytes)"
-              Caption="Main files and archive copies" />
+              Caption="@(measuring ? "Measuring the files without a size" : "Main files and archive copies")" />
     <StatCard IconName="archive" Label="Archive copies" Value="@footprint.ArchiveFiles.ToString()"
               Caption="@($"{SizeText(footprint.ArchiveBytes)} in extra copies")" />
     <StatCard IconName="folder" Label="Scan folders" Value="@locations.Count.ToString()"
@@ -174,39 +175,126 @@
         var tracks = await db.Tracks.AsNoTracking()
             .Where(t => t.MelodyId != null
                         && (t.CurrentPath != null || t.ArchivePath != null))
-            .Select(t => new { t.CurrentPath, t.ArchivePath, t.FileSizeBytes })
+            .Select(t => new { t.Id, t.CurrentPath, t.ArchivePath, t.FileSizeBytes, t.ArchiveSizeBytes })
             .ToListAsync();
 
         // One entry per file path: two rows can share a path (dedup
         // hardlinks) and must not count twice. The download row knows its
-        // current file size; an archive copy can differ from the main file,
-        // so it is measured on disk.
+        // current file size, and the archive copy's size is in the row too:
+        // the app wrote that file, so the page never has to stat it. An
+        // archive copy from before that was known is measured in the
+        // background, once, and the answer is stored.
         var byPath = new Dictionary<string, long?>(StringComparer.OrdinalIgnoreCase);
+        var unmeasured = new List<(int TrackId, string Path, bool Archive)>();
         foreach (var track in tracks)
         {
             if (!string.IsNullOrWhiteSpace(track.CurrentPath))
+            {
                 byPath.TryAdd(track.CurrentPath!, track.FileSizeBytes);
+                if (track.FileSizeBytes is not > 0)
+                    unmeasured.Add((track.Id, track.CurrentPath!, Archive: false));
+            }
             if (!string.IsNullOrWhiteSpace(track.ArchivePath))
-                byPath.TryAdd(track.ArchivePath!, null);
+            {
+                if (track.ArchiveSizeBytes is > 0)
+                {
+                    byPath.TryAdd(track.ArchivePath!, track.ArchiveSizeBytes);
+                }
+                else
+                {
+                    byPath.TryAdd(track.ArchivePath!, null);
+                    unmeasured.Add((track.Id, track.ArchivePath!, Archive: true));
+                }
+            }
         }
-        var sized = byPath
-            .Select(file => (file.Key, Bytes: FileBytes(file.Key, file.Value)))
+        files = byPath
+            .Select(file => (file.Key, Bytes: file.Value ?? 0))
             .ToList();
-        var archiveFiles = sized.Where(file => IsArchiveFile(file.Key)).ToList();
+        ApplyFootprint();
+
+        // Files the database has no size for are measured in the
+        // background: the page shows what it knows right away, and the
+        // answer is stored so the next visit does not measure again.
+        if (unmeasured.Count > 0)
+        {
+            measuring = true;
+            _ = Task.Run(() => MeasureMissingSizesAsync(unmeasured));
+        }
+    }
+
+    /// <summary>One file of the library: its path and its size.</summary>
+    private List<(string Key, long Bytes)> files = new();
+
+    /// <summary>True while the page is still measuring files it had no size for.</summary>
+    private bool measuring;
+
+    /// <summary>The summary tiles from the files the page knows.</summary>
+    private void ApplyFootprint()
+    {
+        var archiveFiles = files.Where(file => IsArchiveFile(file.Key)).ToList();
         footprint = new LibraryFootprint(
-            sized.Count,
-            sized.Sum(file => file.Bytes),
+            files.Count,
+            files.Sum(file => file.Bytes),
             archiveFiles.Count,
             archiveFiles.Sum(file => file.Bytes));
         footprints = locations.ToDictionary(
             location => location.Id,
             location =>
             {
-                var matched = sized
+                var matched = files
                     .Where(file => LocationContains(location.Path, file.Key))
                     .ToList();
                 return new LocationFootprint(matched.Count, matched.Sum(file => file.Bytes));
             });
+    }
+
+    /// <summary>
+    /// Measures the files the database has no size for, off the render
+    /// path, and stores the answer: the app knows the size of a file it
+    /// wrote, so the next visit does not have to ask the disk again.
+    /// </summary>
+    private async Task MeasureMissingSizesAsync(List<(int TrackId, string Path, bool Archive)> unmeasured)
+    {
+        try
+        {
+            var measured = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+            foreach (var (_, path, _) in unmeasured)
+            {
+                var bytes = FileBytes(path, null);
+                if (bytes > 0) measured[path] = bytes;
+            }
+            if (measured.Count > 0)
+            {
+                await using var db = await DbFactory.CreateDbContextAsync();
+                foreach (var (trackId, path, archive) in unmeasured)
+                {
+                    if (!measured.TryGetValue(path, out var bytes)) continue;
+                    if (archive)
+                        await db.Tracks.Where(t => t.Id == trackId)
+                            .ExecuteUpdateAsync(s => s.SetProperty(t => t.ArchiveSizeBytes, bytes));
+                    else
+                        await db.Tracks.Where(t => t.Id == trackId)
+                            .ExecuteUpdateAsync(s => s.SetProperty(t => t.FileSizeBytes, bytes));
+                }
+            }
+
+            await InvokeAsync(() =>
+            {
+                if (disposed) return;
+                files = files
+                    .Select(file => measured.TryGetValue(file.Key, out var bytes)
+                        ? (file.Key, Bytes: bytes)
+                        : file)
+                    .ToList();
+                ApplyFootprint();
+                measuring = false;
+                StateHasChanged();
+            });
+        }
+        catch
+        {
+            await InvokeAsync(() => measuring = false);
+        }
     }
 
     private sealed record LocationFootprint(int Files, long Bytes);
@@ -425,4 +513,10 @@
         removeLocationId = null;
         await LoadDataAsync();
     }
+
+    /// <summary>True once the page is gone: the background measurement must
+    /// not touch a disposed component.</summary>
+    private bool disposed;
+
+    public void Dispose() => disposed = true;
 }

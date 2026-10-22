@@ -153,6 +153,11 @@ public class TrackEntity
     /// </summary>
     public string? ArchivePath { get; set; }
     /// <summary>
+    /// Size of the archive copy on disk. The app writes that file itself,
+    /// so it knows the size without asking the disk on every page view.
+    /// </summary>
+    public long? ArchiveSizeBytes { get; set; }
+    /// <summary>
     /// True when CurrentPath is a hard link to a file another playlist
     /// owns (dedup), not an independently downloaded file. Deleting the
     /// row then only removes one link, never the shared bytes.

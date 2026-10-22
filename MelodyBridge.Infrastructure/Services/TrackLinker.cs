@@ -453,6 +453,7 @@ public sealed class TrackLinker
         if (!archiveTarget.Enabled || archiveTarget.Folder is null)
         {
             track.ArchivePath = null;
+            track.ArchiveSizeBytes = null;
             return;
         }
 
@@ -472,6 +473,7 @@ public sealed class TrackLinker
                 || TryHardLink(archiveLink, existingArchive, replaceExisting, out _))
             {
                 track.ArchivePath = archiveLink;
+                track.ArchiveSizeBytes = FileSizeOf(archiveLink);
                 return;
             }
         }
@@ -515,6 +517,9 @@ public sealed class TrackLinker
         if (result.Ok)
         {
             track.ArchivePath = result.ArchivePath;
+            // The app just wrote that file, so it knows its size: the
+            // Library page does not have to stat every archive copy again.
+            track.ArchiveSizeBytes = FileSizeOf(result.ArchivePath);
             return ArchiveOutcome.Written;
         }
 
@@ -624,6 +629,23 @@ public sealed class TrackLinker
     /// <summary>The same attempt without the replacement decision.</summary>
     public bool TryHardLink(string linkPath, string targetPath, out string? failure)
         => TryHardLink(linkPath, targetPath, replaceExisting: false, out failure);
+
+    /// <summary>
+    /// The size of a file the app just wrote. A file that is not there
+    /// (or cannot be read) has no size to remember.
+    /// </summary>
+    private static long? FileSizeOf(string path)
+    {
+        try
+        {
+            var info = new FileInfo(path);
+            return info.Exists ? info.Length : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
 }
 
 /// <summary>What a linking attempt did with the row.</summary>

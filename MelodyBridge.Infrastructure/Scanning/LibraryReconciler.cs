@@ -175,6 +175,7 @@ public class LibraryReconciler
                         Touch(track);
                         if (string.Equals(track.CurrentPath, track.ArchivePath, StringComparison.OrdinalIgnoreCase))
                             track.ArchivePath = null;
+                            track.ArchiveSizeBytes = null;
                         track.CurrentPath = null;
                         track.DownloadStatus = "pending";
                         track.Warning = string.IsNullOrEmpty(track.Warning)

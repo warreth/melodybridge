@@ -28,6 +28,9 @@ public static class SchemaPatcher
         ("Playlists", "ScheduleCron", "TEXT NULL"),
         // Secondary archive target: one download, two library files.
         ("Tracks", "ArchivePath", "TEXT NULL"),
+        // The size of the archive copy, so the Library page does not stat
+        // every archive file on every visit.
+        ("Tracks", "ArchiveSizeBytes", "INTEGER NULL"),
         ("Playlists", "ArchiveDirectory", "TEXT NULL"),
         ("Playlists", "ArchiveFormat", "TEXT NULL"),
         // Partial-sync honesty: the reason a sync was not a clean Completed.

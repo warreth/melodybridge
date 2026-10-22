@@ -380,7 +380,12 @@ subfolder off: the root itself is then the folder, and every caller reads the
 setting through `SettingsStore`.
 `ResolveArchiveFolder` applies the same rule under the archive path, and the
 playlist row carries an `ArchiveEnabled` switch that skips the copy entirely when
-off. `LibraryReconciler` moves downloaded files (archive copies included) that
+off. The app writes the archive copy itself, so the row keeps its size in
+`ArchiveSizeBytes`: the Library page then reports the size of every archive
+copy from the database instead of measuring every file on every visit. A copy
+from before that column existed is measured once, in the background, and the
+answer is stored.
+`LibraryReconciler` moves downloaded files (archive copies included) that
 still sit loose under a playlist's base folder into the playlist folder during
 startup reconciliation, never overwriting what a destination already holds.
 `LibraryPathMover` runs the same guarded move for a whole root when the Music

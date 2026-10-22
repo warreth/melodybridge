@@ -504,6 +504,7 @@ internal sealed class DownloadPipeline
                     .SetProperty(t => t.DownloadStatus, "in_progress")
                     .SetProperty(t => t.CurrentPath, (string?)null)
                     .SetProperty(t => t.ArchivePath, (string?)null)
+                    .SetProperty(t => t.ArchiveSizeBytes, (long?)null)
                     .SetProperty(t => t.IsHardLink, false)
                     .SetProperty(t => t.DownloadError, (string?)null)
                     .SetProperty(t => t.Warning, (string?)null)
@@ -903,6 +904,7 @@ internal sealed class DownloadPipeline
         track.DownloadError = null;
         track.CurrentPath = null;
         track.ArchivePath = null;
+        track.ArchiveSizeBytes = null;
         track.IsHardLink = false;
         track.Warning = null;
         track.ReviewKind = null;

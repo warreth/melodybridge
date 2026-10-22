@@ -410,8 +410,10 @@ automatically.
   last scan, and a **path missing** pill when the folder went away. A folder
   that sits in a configured archive path is marked **archive folder**: its files
   are copies and are never adopted as a track's main file.
-- Sizes use the stored file size when a track has one and read the file from
-  disk otherwise. Archive copies are counted where they live, so an archive
+- Sizes come from the database: the app knows how big a file is when it writes
+  it, so the page does not measure the library again on every visit. A file
+  from before that was known is measured once, in the background, and the
+  answer is kept. Archive copies are counted where they live, so an archive
   folder reports the real number and size of its files.
 - The **Track identity** panel on the right repeats the short version of how
   matching works. The long version is in [How it works](/concepts).
