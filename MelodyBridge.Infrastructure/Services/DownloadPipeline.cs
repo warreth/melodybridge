@@ -27,6 +27,7 @@ internal sealed class DownloadPipeline
     private readonly DataChangeTracker _changes;
     private readonly ITrackClaimRegistry _claims;
     private readonly PathLockTable _pathLocks;
+    private readonly IRowClaimer _rowClaims;
 
     public DownloadPipeline(
         IDbContextFactory<MelodyBridgeDbContext> dbFactory,
@@ -40,7 +41,8 @@ internal sealed class DownloadPipeline
         Func<VerificationOptions> verification,
         DataChangeTracker? changes = null,
         ITrackClaimRegistry? claims = null,
-        PathLockTable? pathLocks = null)
+        PathLockTable? pathLocks = null,
+        IRowClaimer? rowClaims = null)
     {
         _dbFactory = dbFactory;
         _downloadManager = downloadManager;
@@ -59,6 +61,9 @@ internal sealed class DownloadPipeline
         // One writer per file name, shared with the linker, so a delete
         // never pulls a file away from a worker that is writing it.
         _pathLocks = pathLocks ?? PathLockTable.Shared;
+        // One claimer per pipeline: who reads pending rows and flips one
+        // to in-progress atomically. The default reads the real rows.
+        _rowClaims = rowClaims ?? new RowClaimer(_dbFactory, _claims);
     }
 
     /// <summary>
@@ -118,8 +123,18 @@ internal sealed class DownloadPipeline
             // The claim scope covers the claim and the download: the row
             // is in_progress and the registry knows it, so nothing can
             // read the row as a leftover from a crashed run.
-            using var claim = await ClaimNextPendingAsync(playlistId, attempted, ct);
-            if (claim is null) break; // nothing left to claim
+            var (claim, lostRace) = await _rowClaims.ClaimNextPendingAsync(playlistId, attempted, ct);
+            if (claim is null)
+            {
+                // Another caller just won the row that was picked here:
+                // that is not the end of the work, the playlist may hold
+                // more rows. The runner looks again (the attempt counter
+                // eats one slot for the race, which is what keeps this
+                // loop bounded).
+                if (lostRace) continue;
+                break; // nothing left to claim
+            }
+            using var claimScope = claim;
 
             var result = await DownloadClaimedTrackAsync(
                 claim.Id, dir, preferredFormat, strict, allowContainerChange, verification, ct);
@@ -901,53 +916,72 @@ internal sealed class DownloadPipeline
     }
 
     /// <summary>
-    /// Atomically claims the next pending track of a playlist (status
-    /// pending/failed/null -> in_progress) and returns its row id, or
-    /// null when nothing is left. The conditional UPDATE is what makes
-    /// concurrent claimers safe: two callers never get the same track.
-    /// Tracks in <paramref name="exclude"/> were already attempted by this
-    /// caller and are skipped, so failed tracks are not retried in-loop.
-    /// The returned scope holds the in-process claim until the caller
-    /// finishes with the track.
+    /// One claimed row: the row id plus the in-process claim scope the
+    /// caller disposes when the download is done.
     /// </summary>
-    private async Task<TrackClaim?> ClaimNextPendingAsync(string playlistId, HashSet<int> exclude, CancellationToken ct)
-    {
-        await using var db = await _dbFactory.CreateDbContextAsync(ct);
-        var trackId = await db.Tracks
-            .Where(t => t.PlaylistEntityId == playlistId
-                && !exclude.Contains(t.Id)
-                && (t.DownloadStatus == null || t.DownloadStatus == "pending" || t.DownloadStatus == "failed"))
-            .OrderBy(t => t.Position)
-            .Select(t => t.Id)
-            .FirstOrDefaultAsync(ct);
-        if (trackId == 0) return null;
-
-        // Register before the row is claimed: a reader must never see an
-        // in_progress row that the registry does not know about yet.
-        var scope = _claims.Claim(trackId);
-        var claimed = await db.Tracks
-            .Where(t => t.Id == trackId
-                && (t.DownloadStatus == null || t.DownloadStatus == "pending" || t.DownloadStatus == "failed"))
-            .ExecuteUpdateAsync(s => s.SetProperty(t => t.DownloadStatus, "in_progress"), ct);
-        if (claimed != 1)
-        {
-            scope.Dispose(); // lost the race: another caller won it
-            return null;
-        }
-
-        exclude.Add(trackId);
-        return new TrackClaim(trackId, scope);
-    }
-
-    /// <summary>
-    /// One claimed track: the row says in_progress and this process holds
-    /// the claim, so a batch that starts knows the download is alive.
-    /// </summary>
-    private sealed class TrackClaim(int id, IDisposable scope) : IDisposable
+    internal sealed class ClaimedRow(int id, IDisposable scope) : IDisposable
     {
         public int Id { get; } = id;
 
         public void Dispose() => scope.Dispose();
+    }
+
+    /// <summary>
+    /// Who reads the playlist's pending rows and flips one to in-progress
+    /// atomically. Separate from the rest of the pipeline because
+    /// concurrent runners collide exactly here, and a test drives the
+    /// collision with its own claimer.
+    /// </summary>
+    internal interface IRowClaimer
+    {
+        /// <summary>
+        /// Atomically claims the next pending track of a playlist (status
+        /// pending/failed/null -> in_progress): null plus LostRace=false
+        /// when nothing is left, null plus LostRace=true when another
+        /// caller won the row this caller selected mid-flight, so the run
+        /// can look again instead of quitting with work left. The
+        /// conditional UPDATE is what makes concurrent claimers safe.
+        /// The returned scope holds the in-process claim until the caller
+        /// finishes with the track.
+        /// </summary>
+        Task<(ClaimedRow? Claim, bool LostRace)> ClaimNextPendingAsync(
+            string playlistId, HashSet<int> exclude, CancellationToken ct);
+    }
+
+    /// <summary>The production claimer: the real rows, the real claims.</summary>
+    internal sealed class RowClaimer(
+        IDbContextFactory<MelodyBridgeDbContext> dbFactory,
+        ITrackClaimRegistry claims) : IRowClaimer
+    {
+        public async Task<(ClaimedRow? Claim, bool LostRace)> ClaimNextPendingAsync(
+            string playlistId, HashSet<int> exclude, CancellationToken ct)
+        {
+            await using var db = await dbFactory.CreateDbContextAsync(ct);
+            var trackId = await db.Tracks
+                .Where(t => t.PlaylistEntityId == playlistId
+                    && !exclude.Contains(t.Id)
+                    && (t.DownloadStatus == null || t.DownloadStatus == "pending" || t.DownloadStatus == "failed"))
+                .OrderBy(t => t.Position)
+                .Select(t => t.Id)
+                .FirstOrDefaultAsync(ct);
+            if (trackId == 0) return (null, false);
+
+            // Register before the row is claimed: a reader must never see an
+            // in_progress row that the registry does not know about yet.
+            var scope = claims.Claim(trackId);
+            var claimed = await db.Tracks
+                .Where(t => t.Id == trackId
+                    && (t.DownloadStatus == null || t.DownloadStatus == "pending" || t.DownloadStatus == "failed"))
+                .ExecuteUpdateAsync(s => s.SetProperty(t => t.DownloadStatus, "in_progress"), ct);
+            if (claimed != 1)
+            {
+                scope.Dispose(); // lost the race: another caller won it
+                return (null, true);
+            }
+
+            exclude.Add(trackId);
+            return (new ClaimedRow(trackId, scope), false);
+        }
     }
 
     /// <summary>See <see cref="TrackLinker.ArchiveDownloadedTrackAsync"/>.</summary>
