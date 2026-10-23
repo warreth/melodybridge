@@ -494,13 +494,13 @@
     {
         LogCollector.Clear();
         pinnedEntries.Clear();
-        Refresh();
-        StateHasChanged();
-        return;
         showingErrorsOnly = false;
         confirmClear = false;
         dismissedErrorCount = 0;
         Refresh();
+        StateHasChanged();
+        // A cleared buffer must re-render even though nothing was newly
+        // collected: the idle gate compares totals, not emptiness.
         statusMessage = "Log buffer cleared";
     }
 
