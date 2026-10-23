@@ -719,6 +719,9 @@ else
     private PlaylistEntity? playlist;
     private bool loading = true;
     private bool busy;
+    /// <summary>True after one load that saw the playlist: the reload path
+    /// needs it to tell a deletion from a first navigate.</summary>
+    private bool everLoaded;
     private string trackFilter = string.Empty;
     private bool attentionOnly;
     private bool showFilenameColumn;
@@ -928,7 +931,21 @@ else
     private async Task ReloadTracksAsync()
     {
         playlist = await Store.GetByIdAsync(PlaylistId);
-        if (playlist is null) return;
+        if (playlist is null)
+        {
+            // A first load that found nothing renders "not found" already;
+            // a playlist that disappears mid-session (deleted in another
+            // circuit) must not leave this page acting on dead rows
+            // forever: navigate away once, with one notice.
+            if (everLoaded)
+            {
+                everLoaded = false;
+                Notifications.Warn("This playlist was removed in another window.", "Open playlists", "/playlists");
+                NavigationManager.NavigateTo("/playlists");
+            }
+            return;
+        }
+        everLoaded = true;
         ApplyCounts();
         filteredCache = null;
     }
