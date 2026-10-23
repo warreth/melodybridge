@@ -14,10 +14,10 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddRazorPages();
 builder.Services.AddServerSideBlazor();
 builder.Services.AddControllers();
-builder.Services.AddScoped(sp => new HttpClient
-{
-    BaseAddress = new Uri(builder.Configuration.GetValue<string>("AppBaseUrl") ?? "http://localhost:3333/")
-});
+// Nothing resolves a bare HttpClient: every caller uses named clients
+// (AddHttpClient) or builds its own for accounts. If something starts
+// calling the app itself, give it a named client with this BaseAddress
+// instead of a per-scope socket consumer nobody disposes.
 
 // Register DB context (SQLite). Default Timeout is the busy_timeout:
 // boot runs migrations while background services open their own
