@@ -47,6 +47,38 @@ public class PlaylistPathMapperTests
     }
 
     [Test]
+    public void PrefixRule_DoesNotEatASiblingsDirectory()
+    {
+        var options = Options(pathRemap: new Dictionary<string, string>
+        {
+            ["/music"] = "/mnt/music",
+            ["/music2"] = "/mnt/music2",
+        });
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(PlaylistPathMapper.Apply("/music2/album/song.flac", options),
+                Is.EqualTo("/mnt/music2/album/song.flac"),
+                "a rule for /music must not swallow the longer sibling /music2");
+            Assert.That(PlaylistPathMapper.Apply("/music/album/song.flac", options),
+                Is.EqualTo("/mnt/music/album/song.flac"),
+                "and the shorter rule still applies to its own folder");
+        });
+    }
+
+    [Test]
+    public void PrefixRule_ExactMatch_RewritesWithoutTheSeparator()
+    {
+        var options = Options(pathRemap: new Dictionary<string, string>
+        {
+            ["/music/song.flac"] = "/mnt/music/song.flac",
+        });
+
+        Assert.That(PlaylistPathMapper.Apply("/music/song.flac", options),
+            Is.EqualTo("/mnt/music/song.flac"));
+    }
+
+    [Test]
     public void ExtensionRule_ReplacesOnlyTheExtension()
     {
         var options = Options(extensionRemap: new Dictionary<string, string> { [".flac"] = ".opus" });

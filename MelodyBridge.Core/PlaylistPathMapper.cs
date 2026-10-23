@@ -20,16 +20,22 @@ public static class PlaylistPathMapper
         var mapped = path;
 
         // Path remap: first matching prefix wins, case-insensitively.
+        // The prefix ends at a directory boundary ("/music" claims
+        // "/music/a" but never "/music2"), exactly what a mount path can
+        // say about a sibling folder.
         if (options.PathRemap is { Count: > 0 })
         {
             foreach (var rule in options.PathRemap)
             {
                 if (string.IsNullOrEmpty(rule.Key)) continue;
-                if (mapped.StartsWith(rule.Key, StringComparison.OrdinalIgnoreCase))
+                if (!mapped.StartsWith(rule.Key, StringComparison.OrdinalIgnoreCase)) continue;
+                if (mapped.Length > rule.Key.Length)
                 {
-                    mapped = rule.Value + mapped[rule.Key.Length..];
-                    break;
+                    var after = mapped[rule.Key.Length];
+                    if (after is not '/' and not '\\') continue;
                 }
+                mapped = rule.Value + mapped[rule.Key.Length..];
+                break;
             }
         }
 
