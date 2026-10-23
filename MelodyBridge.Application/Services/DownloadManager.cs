@@ -94,6 +94,28 @@ public class DownloadManager : IDownloadManager
     private readonly ConcurrentDictionary<string, string> _lastAttemptedPlugin = new();
 
     /// <summary>
+    /// How many plugin hints the manager keeps. It lives for the whole
+    /// process, and a manual download adds an id that never comes back,
+    /// so the maps need a ceiling like the progress state has one.
+    /// </summary>
+    private const int PluginHintLimit = 2000;
+
+    /// <summary>Stores a hint and trims the map when it outgrows its cap.
+    /// A hint is a display convenience, never a correctness input.</summary>
+    internal static void RememberPlugin(
+        ConcurrentDictionary<string, string> map, string melodyId, string pluginId)
+    {
+        // Make room before the write, so the hint that is being written is
+        // never the one the trim throws away.
+        if (!map.ContainsKey(melodyId) && map.Count >= PluginHintLimit)
+        {
+            foreach (var key in map.Keys.Take(map.Count - PluginHintLimit + 1))
+                map.TryRemove(key, out _);
+        }
+        map[melodyId] = pluginId;
+    }
+
+    /// <summary>
     /// Every candidate the enabled plugins offer for a track, best first,
     /// for the manual source picker. Deliberately no acceptance gate and
     /// no quality routing: the list exists to show a human what the
@@ -235,7 +257,7 @@ public class DownloadManager : IDownloadManager
             return null;
         }
 
-        _lastAttemptedPlugin[melodyId] = downloader.Id;
+        RememberPlugin(_lastAttemptedPlugin, melodyId, downloader.Id);
         _state.SetProgress(new DownloadProgress(
             melodyId, query.Title, "downloading", downloader.Name, null, candidate.Confidence));
         try
@@ -272,7 +294,7 @@ public class DownloadManager : IDownloadManager
 
             TaglibHelper.WriteMelodyId(result.FilePath, melodyId);
             _health.RecordSuccess(downloader.Id);
-            _lastPlugin[melodyId] = downloader.Id;
+            RememberPlugin(_lastPlugin, melodyId, downloader.Id);
             _state.ClearFailure(melodyId);
             _state.SetProgress(new DownloadProgress(
                 melodyId, query.Title, "done", downloader.Name, result.FilePath, candidate.Confidence));
@@ -358,7 +380,7 @@ public class DownloadManager : IDownloadManager
                     // other file, so it needs the identity tag too.
                     TaglibHelper.WriteMelodyId(result.FilePath, melodyId);
                     _health.RecordSuccess(downloader.Id);
-                    _lastPlugin[melodyId] = downloader.Id;
+                    RememberPlugin(_lastPlugin, melodyId, downloader.Id);
                     _state.ClearFailure(melodyId);
                     return result.FilePath;
                 }
@@ -551,7 +573,7 @@ public class DownloadManager : IDownloadManager
                         continue;
                     }
 
-                    _lastAttemptedPlugin[melodyId] = downloader.Id;
+                    RememberPlugin(_lastAttemptedPlugin, melodyId, downloader.Id);
                     var hit = await SearchAsync(downloader, query, pluginCt);
                     _auth?.Observe(downloader);
                     if (hit is null)
@@ -660,7 +682,7 @@ public class DownloadManager : IDownloadManager
                         // gate. Plugins never tag it themselves.
                         TaglibHelper.WriteMelodyId(result.FilePath, melodyId);
 
-                        _lastPlugin[melodyId] = downloader.Id;
+                        RememberPlugin(_lastPlugin, melodyId, downloader.Id);
                         _health.RecordSuccess(downloader.Id);
                         _state.SetProgress(new DownloadProgress(
                             melodyId, query.Title, "done", downloader.Name, result.FilePath, candidate.MatchConfidence,
