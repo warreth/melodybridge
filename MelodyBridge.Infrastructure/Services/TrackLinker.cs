@@ -164,17 +164,26 @@ public sealed class TrackLinker
         // decision, never a silent copy.
         var linkPath = Path.Combine(folder, Path.GetFileName(candidate.ExistingPath));
         var alreadyOwnName = PlaylistRules.PathEquals(linkPath, candidate.ExistingPath);
-        var replaceExisting = !alreadyOwnName
-            && File.Exists(linkPath)
-            && !_hardLinks.SameFile(linkPath, candidate.ExistingPath)
-            && await NameIsFreeAsync(db, track, linkPath, ct);
-        if (!alreadyOwnName
-            && !TryHardLink(linkPath, candidate.ExistingPath, replaceExisting, out var linkFailure))
+        if (!alreadyOwnName)
         {
-            _logger.LogInformation(
-                "Hard link for '{Title}' failed ({Source} -> {Target}): {Reason}; leaving the track for a real download",
-                track.Title, candidate.ExistingPath, linkPath, linkFailure ?? "unknown error");
-            return TrackLinkOutcome.LinkFailed;
+            // One writer per name: the decision (is the name free, may I
+            // replace what is there) and the link itself happen under the
+            // same lock the writers take. Without it, two linking passes
+            // that picked the same free name in the same moment link over
+            // each other and a row ends on the other song's bytes.
+            using (var scope = await _pathLocks.AcquireAsync(linkPath, ct))
+            {
+                var replaceExisting = File.Exists(linkPath)
+                    && !_hardLinks.SameFile(linkPath, candidate.ExistingPath)
+                    && await NameIsFreeAsync(db, track, linkPath, ct);
+                if (!TryHardLink(linkPath, candidate.ExistingPath, replaceExisting, out var linkFailure))
+                {
+                    _logger.LogInformation(
+                        "Hard link for '{Title}' failed ({Source} -> {Target}): {Reason}; leaving the track for a real download",
+                        track.Title, candidate.ExistingPath, linkPath, linkFailure ?? "unknown error");
+                    return TrackLinkOutcome.LinkFailed;
+                }
+            }
         }
 
         track.DownloadStatus = "downloaded";
