@@ -2,6 +2,10 @@ namespace MelodyBridge.Core.Logging;
 
 /// <summary>
 /// A single structured log entry collected by the application-wide <see cref="ILogCollector"/>.
+/// The Sequence is the collector's stamp: two entries with identical
+/// content in the same clock tick still differ, which is what page keys
+/// and pin identity need (the record's value equality alone would
+/// collapse them into one row).
 /// </summary>
 public record LogEntry(
     DateTime Timestamp,
@@ -9,7 +13,8 @@ public record LogEntry(
     string Category,
     string Message,
     string? Detail = null,
-    string? Group = null
+    string? Group = null,
+    long Sequence = 0
 );
 
 /// <summary>

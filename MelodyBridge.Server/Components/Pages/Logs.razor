@@ -159,9 +159,14 @@
                 <button class="btn-modern small ghost" @onclick="ClearPinned">Clear</button>
             </div>
             <div class="logs-list">
-                @foreach (var entry in pinnedEntries)
+                @foreach (var sequence in pinnedEntries)
                 {
-                    <LogEntryRow @key="entry" Entry="entry" Pinned="true"
+                    var entry = PinnedEntry(sequence);
+                    if (entry is null)
+                    {
+                        continue; // the entry was evicted: the pin lapses
+                    }
+                    <LogEntryRow @key="sequence" Entry="entry" Pinned="true"
                                  OnCopy="CopyEntryAsync" OnPin="TogglePin" />
                 }
             </div>
@@ -195,7 +200,7 @@
                     </div>
                     @foreach (var entry in group.Entries)
                     {
-                        <LogEntryRow @key="entry" Entry="entry"
+                        <LogEntryRow @key="entry.Sequence" Entry="entry"
                                      Pinned="@IsPinned(entry)"
                                      OnCopy="CopyEntryAsync" OnPin="TogglePin" />
                     }
@@ -205,7 +210,7 @@
             {
                 @foreach (var entry in newestFirst ? StreamEntries : StreamEntries.Reverse())
                 {
-                    <LogEntryRow @key="entry" Entry="entry"
+                    <LogEntryRow @key="entry.Sequence" Entry="entry"
                                  Pinned="@IsPinned(entry)"
                                  OnCopy="CopyEntryAsync" OnPin="TogglePin" />
                 }
@@ -234,7 +239,14 @@
     private Dictionary<string, int> areaCounts = new();
     private Dictionary<string, int> levelCounts = new();
     private Dictionary<string, int> sourceCounts = new();
-    private List<LogEntry> pinnedEntries = new();
+    /// <summary>The pinned entries' Sequence stamps, in pin order: pin
+    /// identity lives on the collector's stamp, not on value equality
+    /// (two value-equal entries are two rows, not one).</summary>
+    private List<long> pinnedEntries = new();
+
+    private LogEntry? PinnedEntry(long sequence)
+        => totalEntries == 0 ? null : LogCollector.GetEntries()
+            .FirstOrDefault(e => e.Sequence == sequence);
     private int totalEntries;
     private int errorCount;
     private string? selectedArea;
@@ -426,12 +438,12 @@
 
     private sealed record LogGroup(string Name, IReadOnlyList<LogEntry> Entries);
 
-    private bool IsPinned(LogEntry entry) => pinnedEntries.Contains(entry);
+    private bool IsPinned(LogEntry entry) => pinnedEntries.Contains(entry.Sequence);
 
     private void TogglePin(LogEntry entry)
     {
-        if (!pinnedEntries.Remove(entry))
-            pinnedEntries.Insert(0, entry);
+        if (!pinnedEntries.Remove(entry.Sequence))
+            pinnedEntries.Insert(0, entry.Sequence);
         StateHasChanged();
     }
 

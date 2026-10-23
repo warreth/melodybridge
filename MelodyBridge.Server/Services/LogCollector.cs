@@ -27,17 +27,17 @@ public sealed class LogCollector : ILogCollector
     public void Log(CoreLogLevel level, string category, string message,
         string? detail = null, string? group = null)
     {
-        var entry = new LogEntry(
-            DateTime.UtcNow,
-            level,
-            category,
-            message,
-            detail,
-            group
-        );
-
         lock (_lock)
         {
+            var entry = new LogEntry(
+                DateTime.UtcNow,
+                level,
+                category,
+                message,
+                detail,
+                group,
+                Interlocked.Increment(ref _nextId)
+            );
             _entries.Add(entry);
             if (_entries.Count > MaxEntries)
                 _entries.RemoveRange(0, _entries.Count - MaxEntries);
