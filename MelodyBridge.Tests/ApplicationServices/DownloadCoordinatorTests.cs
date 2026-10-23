@@ -466,7 +466,8 @@ public class DownloadCoordinatorTests
         public int Attempts;
 
         public Task<string?> DownloadTrackAsync(TrackQuery query, string outputDirectory, string melodyId,
-            DownloadFallback? fallback = null, string? avoidPluginId = null, CancellationToken ct = default)
+            DownloadFallback? fallback = null, string? avoidPluginId = null, CancellationToken ct = default,
+            DownloadJournal? journal = null)
         {
             Interlocked.Increment(ref Attempts);
             if ((cancelMelodyId is null || cancelMelodyId == melodyId)

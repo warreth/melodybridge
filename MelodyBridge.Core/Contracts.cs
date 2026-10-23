@@ -105,9 +105,14 @@ public interface IDownloadManager
     /// quality; without it the request is strict.
     /// <paramref name="avoidPluginId"/> skips one plugin for this attempt
     /// (a retry after a flagged file, so another provider gets its turn).
+    /// <paramref name="journal"/> carries the producing plugin back to the
+    /// caller instead of manager-internal per-song memory, so two
+    /// concurrent downloads of the same song cannot stamp each other's
+    /// rows with the other run's provider.
     /// </summary>
     Task<string?> DownloadTrackAsync(TrackQuery query, string outputDirectory, string melodyId,
-        DownloadFallback? fallback = null, string? avoidPluginId = null, CancellationToken ct = default);
+        DownloadFallback? fallback = null, string? avoidPluginId = null, CancellationToken ct = default,
+        DownloadJournal? journal = null);
     /// <summary>
     /// Search every enabled plugin for the track and return all candidates
     /// (best first) without the acceptance gate: the manual source picker

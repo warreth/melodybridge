@@ -286,9 +286,11 @@ internal sealed class DownloadPipeline
             // the playlist decides whether a step may change container.
             // A "Retry" review left one provider out: the attempt honors
             // it and the provider may come back on a later plain attempt.
+            var journal = new DownloadJournal();
             var path = await _downloadManager.DownloadTrackAsync(
                 query, dir, track.MelodyId!,
-                strict ? null : new DownloadFallback(allowContainerChange), avoidPluginId, ct);
+                strict ? null : new DownloadFallback(allowContainerChange), avoidPluginId, ct,
+                journal: journal);
 
             if (path is null)
             {
@@ -300,7 +302,8 @@ internal sealed class DownloadPipeline
                 return "failed";
             }
 
-            return await CompleteDownloadAsync(track, db, path, expectedDuration, verification, ct);
+            return await CompleteDownloadAsync(
+                track, db, path, expectedDuration, verification, journal, ct);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -346,7 +349,8 @@ internal sealed class DownloadPipeline
     /// </summary>
     private async Task<string> CompleteDownloadAsync(
         TrackEntity track, MelodyBridgeDbContext db, string path,
-        TimeSpan? expectedDuration, VerificationOptions verification, CancellationToken ct)
+        TimeSpan? expectedDuration, VerificationOptions verification,
+        DownloadJournal journal, CancellationToken ct)
     {
         // Write-through: the file always ends up with full tags,
         // whatever the plugin could or could not read from the source.
@@ -395,7 +399,11 @@ internal sealed class DownloadPipeline
         track.IsHardLink = false;
         track.Bitrate = Audio.BitrateProbe.MeasureKbps(path);
         AudioProbe.Fill(track, path);
-        track.SourcePluginId = _downloadManager.LastPluginId(track.MelodyId!);
+        // The row's provider comes from this run's own journal, not from
+        // the manager's shared memory: two runs of the same song must not
+        // stamp each other's rows.
+        track.SourcePluginId = journal.ProducingPluginId
+            ?? _downloadManager.LastPluginId(track.MelodyId!);
         ApplyQualityReview(track, path, integrity, verification);
         // No ffprobe means the check could not run at all. The file is
         // kept (deleting a good download because a tool is missing is
@@ -731,7 +739,11 @@ internal sealed class DownloadPipeline
                 return "failed";
             }
 
-            return await CompleteDownloadAsync(track, db, path, expectedDuration, _verification(), ct);
+            // A picked download is always produced by the candidate's
+            // plugin: that fact lands on the row through its own journal.
+            var journal = new DownloadJournal { ProducingPluginId = candidate.PluginId };
+            return await CompleteDownloadAsync(
+                track, db, path, expectedDuration, _verification(), journal, ct);
         }
         catch (OperationCanceledException)
         {

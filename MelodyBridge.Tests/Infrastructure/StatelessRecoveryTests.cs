@@ -59,7 +59,8 @@ public class StatelessRecoveryTests
         public Task<string?> DownloadAsync(string sourceUrl, string outputDirectory, string melodyId, CancellationToken ct = default)
         { Calls++; return Task.FromResult<string?>(null); }
         public Task<string?> DownloadTrackAsync(TrackQuery query, string outputDirectory, string melodyId,
-            DownloadFallback? fallback = null, string? avoidPluginId = null, CancellationToken ct = default)
+            DownloadFallback? fallback = null, string? avoidPluginId = null, CancellationToken ct = default,
+            DownloadJournal? journal = null)
         { Calls++; return Task.FromResult<string?>(null); }
         public Task<IReadOnlyList<DownloadCandidate>> SearchCandidatesAsync(
             TrackQuery query, CancellationToken ct = default)

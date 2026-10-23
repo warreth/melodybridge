@@ -127,7 +127,8 @@ public class DownloadTrackAsyncTests
             => Task.FromResult<string?>(null);
 
         public Task<string?> DownloadTrackAsync(TrackQuery query, string outputDirectory, string melodyId,
-            DownloadFallback? fallback = null, string? avoidPluginId = null, CancellationToken ct = default)
+            DownloadFallback? fallback = null, string? avoidPluginId = null, CancellationToken ct = default,
+            DownloadJournal? journal = null)
         {
             SeenAvoid = avoidPluginId;
             return Task.FromResult<string?>(null);

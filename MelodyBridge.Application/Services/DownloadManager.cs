@@ -387,7 +387,8 @@ public class DownloadManager : IDownloadManager
     /// </summary>
     public async Task<string?> DownloadTrackAsync(
         TrackQuery query, string outputDirectory, string melodyId,
-        DownloadFallback? fallback = null, string? avoidPluginId = null, CancellationToken ct = default)
+        DownloadFallback? fallback = null, string? avoidPluginId = null, CancellationToken ct = default,
+        DownloadJournal? journal = null)
     {
         using var correlation = LogCorrelation.Begin($"Track: {query.Artist} - {query.Title}");
         var (pluginBudget, trackBudget) = await BudgetsAsync(ct);
@@ -400,7 +401,8 @@ public class DownloadManager : IDownloadManager
         try
         {
             return await DownloadTrackCoreAsync(
-                query, outputDirectory, melodyId, fallback, avoidPluginId, pluginBudget, trackBudgetCts.Token);
+                query, outputDirectory, melodyId, fallback, avoidPluginId,
+                pluginBudget, trackBudgetCts.Token, journal);
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
@@ -417,7 +419,8 @@ public class DownloadManager : IDownloadManager
     /// <summary>The per-quality waterfall passes, under the track budget.</summary>
     private async Task<string?> DownloadTrackCoreAsync(
         TrackQuery query, string outputDirectory, string melodyId,
-        DownloadFallback? fallback, string? avoidPluginId, TimeSpan pluginBudget, CancellationToken ct)
+        DownloadFallback? fallback, string? avoidPluginId, TimeSpan pluginBudget, CancellationToken ct,
+        DownloadJournal? journal = null)
     {
         // The retry hint filters the plugin list before routing and before
         // the ladder is built: a step that only the avoided plugin could
@@ -447,7 +450,8 @@ public class DownloadManager : IDownloadManager
         for (var i = 0; i < targets.Count; i++)
         {
             var path = await TryDownloadQualityAsync(
-                query with { Quality = targets[i] }, outputDirectory, melodyId, enabled, pluginBudget, ct);
+                query with { Quality = targets[i] }, outputDirectory, melodyId, enabled, pluginBudget, ct,
+                journal);
             if (path is not null) return path;
 
             requestedFailure ??= _state.LastFailure(melodyId);
@@ -479,7 +483,8 @@ public class DownloadManager : IDownloadManager
     /// <summary>One waterfall pass for one concrete quality target.</summary>
     private async Task<string?> TryDownloadQualityAsync(
         TrackQuery query, string outputDirectory, string melodyId,
-        IReadOnlyList<IDownloader> enabled, TimeSpan pluginBudget, CancellationToken ct)
+        IReadOnlyList<IDownloader> enabled, TimeSpan pluginBudget, CancellationToken ct,
+        DownloadJournal? journal = null)
     {
         var quality = query.Quality;
         _state.SetProgress(new DownloadProgress(melodyId, query.Title, "searching", null, null));
@@ -651,6 +656,10 @@ public class DownloadManager : IDownloadManager
                         TaglibHelper.WriteMelodyId(result.FilePath, melodyId);
 
                         _lastPlugin[melodyId] = downloader.Id;
+                        // The caller's own answer for where the file came
+                        // from, so two parallel runs of one song cannot
+                        // overwrite each other's attribution.
+                        if (journal is not null) journal.ProducingPluginId = downloader.Id;
                         _health.RecordSuccess(downloader.Id);
                         _state.SetProgress(new DownloadProgress(
                             melodyId, query.Title, "done", downloader.Name, result.FilePath, candidate.MatchConfidence,
