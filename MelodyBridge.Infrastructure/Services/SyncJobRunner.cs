@@ -67,6 +67,8 @@ public class SyncJobRunner : ISyncJobRunner
                     .FirstOrDefaultAsync(p => p.Id == job.SourceId, ct);
                 if (sourcePlaylist == null)
                 {
+                    await RecordFailedRunAsync(job,
+                        $"Playlist '{job.SourceId}' not found", 0, 0, ct);
                     return new SyncJobRunLog(DateTime.UtcNow, SyncStatus.Failed,
                         $"Playlist '{job.SourceId}' not found", 0, 0);
                 }
@@ -229,7 +231,55 @@ public class SyncJobRunner : ISyncJobRunner
         catch (Exception ex)
         {
             _logger.LogError(ex, "Sync job {id} failed", job.Id);
+            // Record it like every other run: a run row and the job's
+            // LastRun stamps are what keep the scheduler from treating an
+            // unbuilt run as "never ran". The record is best effort: the
+            // database being the failed thing must not mask the original
+            // error.
+            await RecordFailedRunAsync(job, ex.Message, 0, totalTracks, ct);
             return new SyncJobRunLog(DateTime.UtcNow, SyncStatus.Failed, ex.Message, 0, totalTracks);
+        }
+    }
+
+    /// <summary>
+    /// Writes the run row and the job's LastRun stamps for a run that
+    /// failed before its normal recording block ran. Best effort: when
+    /// this write fails too, the original failure is the one to report.
+    /// </summary>
+    private async Task RecordFailedRunAsync(
+        SyncJob job, string message, int resolvedTracks, int totalTracks, CancellationToken ct)
+    {
+        void Stamp(SyncJobEntity? jobEntity, SyncJobRunEntity runEntity)
+        {
+            if (jobEntity is null) return;
+            jobEntity.LastRunStatus = "Failed";
+            jobEntity.LastRunAt = DateTime.UtcNow;
+            jobEntity.LastRunSummary = runEntity.Message;
+            jobEntity.LastRunResolvedTracks = resolvedTracks;
+            jobEntity.LastRunTotalTracks = totalTracks;
+        }
+
+        try
+        {
+            await using var db = await _dbFactory.CreateDbContextAsync(ct);
+            var runEntity = new SyncJobRunEntity
+            {
+                SyncJobId = job.Id,
+                Timestamp = DateTime.UtcNow,
+                Status = "Failed",
+                Message = message.Truncate(1000),
+                ResolvedTracks = resolvedTracks,
+                TotalTracks = totalTracks,
+            };
+            db.SyncJobRuns.Add(runEntity);
+            var jobEntity = await db.SyncJobs.FindAsync(new object[] { job.Id }, ct);
+            Stamp(jobEntity, runEntity);
+            await db.SaveChangesAsync(ct);
+        }
+        catch (Exception recordFailure)
+        {
+            _logger.LogWarning(recordFailure,
+                "Could not record the failed run of sync job {Id}", job.Id);
         }
     }
     /// <summary>
