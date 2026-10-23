@@ -210,9 +210,8 @@ public class PlexSync : IMediaServerSync
 
             if (playlistId is not null && ratingKeys.Count > 0)
             {
-                // Replace the contents: clear, then re-add.
-                using var clear = await SendAsync(baseUrl, apiKey, $"/playlists/{playlistId}/items",
-                    HttpMethod.Delete, ct: ct);
+                // Plex replaces the item list on the PUT: no clear step is
+                // needed, and touch it twice is worse than once.
                 using var add = await SendAsync(baseUrl, apiKey,
                     $"/playlists/{playlistId}/items?uri={Uri.EscapeDataString(ItemsUri(machineId, ratingKeys))}",
                     HttpMethod.Put, ct: ct);
@@ -222,18 +221,42 @@ public class PlexSync : IMediaServerSync
                         playlistId, "Updated existing playlist");
                     return;
                 }
-                _logger.LogWarning("Plex playlist update failed with {status}; recreating", add.StatusCode);
-                using var del = await SendAsync(baseUrl, apiKey, $"/playlists/{playlistId}", HttpMethod.Delete, ct: ct);
+                // A failed update does not get to delete the user's
+                // playlist to try the same brittle requests again as a
+                // create: the stale copy stays usable and the run says so.
+                _logger.LogWarning(
+                    "Plex playlist update failed with {status}; the remote playlist is left as it is",
+                    add.StatusCode);
+                _lastReport = new MediaServerSyncReport(ratingKeys.Count, unresolved.ToArray(),
+                    playlistId,
+                    $"Update failed with {add.StatusCode}; playlist left untouched", Succeeded: false);
+                return;
             }
             else if (playlistId is not null)
             {
+                // Nothing resolved while the playlist offered tracks: a
+                // moved mount or a remap rule made the whole list foreign.
+                // Deleting the remote playlist here would wipe the user's
+                // copy, so the run fails and the playlist stays.
+                if (unresolved.Count > 0)
+                {
+                    _logger.LogWarning(
+                        "Plex sync for '{Name}': no track resolved out of {Unresolved}; playlist left untouched",
+                        name, unresolved.Count);
+                    _lastReport = new MediaServerSyncReport(0, unresolved.ToArray(), playlistId,
+                        $"no track resolved ({unresolved.Count} failed); playlist left untouched",
+                        Succeeded: false);
+                    return;
+                }
+                // A playlist that is empty locally really is empty: the
+                // remote copy goes, and the report explains it.
                 using var del = await SendAsync(baseUrl, apiKey, $"/playlists/{playlistId}", HttpMethod.Delete, ct: ct);
             }
 
             if (ratingKeys.Count == 0)
             {
                 _lastReport = new MediaServerSyncReport(0, unresolved.ToArray(), null,
-                    "No resolved tracks; playlist deleted or not created", Succeeded: false);
+                    "No resolved tracks; playlist not created", Succeeded: false);
                 return;
             }
 

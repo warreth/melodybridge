@@ -128,19 +128,68 @@ public class PlexSyncTests
         var handler = StandardRoutes();
         handler.On("/playlists?playlistType=audio", ScriptedHandler.Json(
             """{"MediaContainer":{"Metadata":[{"ratingKey":"pl-9","title":"Road trip"}]}}"""));
-        // The clear (DELETE) and re-add (PUT) both succeed for the found playlist.
+        // The re-add (PUT) succeeds for the found playlist.
         handler.On("/playlists/pl-9/items", ScriptedHandler.Json("""{"MediaContainer":{}}"""));
         var sync = NewSync(handler);
 
         await sync.SyncPlaylistAsync(PlaylistOf(Track("song", "/media/artist/album/song.mp3")),
             new PlaylistOutputOptions("/tmp/out.m3u", false, null));
 
-        Assert.That(handler.Requests.Any(r => r.Method == "DELETE" && r.Url.Contains("/playlists/pl-9/items")),
-            Is.True, "existing playlist is cleared");
+        Assert.That(handler.Requests.Any(r => r.Method == "DELETE"), Is.False,
+            "Plex replaces the item list on the PUT; nothing is deleted on the way");
         var put = handler.Requests.FirstOrDefault(r =>
             r.Method == "PUT" && r.Url.Contains("/playlists/pl-9/items?"));
         Assert.That(put.Url, Does.Contain("rk-1"), "items re-added with the resolved key");
         Assert.That(sync.LastReport!.Message, Is.EqualTo("Updated existing playlist"));
+    }
+
+    [Test]
+    public async Task SyncPlaylistAsync_UpdateFails_KeepsTheRemotePlaylist()
+    {
+        var handler = StandardRoutes();
+        handler.On("/playlists?playlistType=audio", ScriptedHandler.Json(
+            """{"MediaContainer":{"Metadata":[{"ratingKey":"pl-9","title":"Road trip"}]}}"""));
+        // The PUT answers 500: a transient server hiccup.
+        handler.On("/playlists/pl-9/items", ScriptedHandler.Json("""{"MediaContainer":{}}"""),
+            HttpStatusCode.InternalServerError);
+        var sync = NewSync(handler);
+
+        await sync.SyncPlaylistAsync(PlaylistOf(Track("song", "/media/artist/album/song.mp3")),
+            new PlaylistOutputOptions("/tmp/out.m3u", false, null));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(handler.Requests.Any(r => r.Method == "DELETE"), Is.False,
+                "a failed update never deletes the user's playlist");
+            Assert.That(handler.Requests.Any(r => r.Method == "POST"), Is.False,
+                "and it does not try to recreate it from the same failing server");
+            Assert.That(sync.LastReport!.Succeeded, Is.False);
+            Assert.That(sync.LastReport.Message, Does.Contain("left untouched"));
+            Assert.That(sync.LastReport.PlaylistId, Is.EqualTo("pl-9"), "the stale playlist stays the target");
+        });
+    }
+
+    [Test]
+    public async Task SyncPlaylistAsync_NothingResolved_KeepsTheRemotePlaylist()
+    {
+        // The path in the search locations answers nothing: every track
+        // unresolved against the found playlist. Deleting it would wipe
+        // the user's playlist; it stays and the run says why.
+        var handler = StandardRoutes(file: "/media/other-machine/album/lost.flac");
+        handler.On("/playlists?playlistType=audio", ScriptedHandler.Json(
+            """{"MediaContainer":{"Metadata":[{"ratingKey":"pl-9","title":"Road trip"}]}}"""));
+        var sync = NewSync(handler);
+
+        await sync.SyncPlaylistAsync(PlaylistOf(Track("song", "/media/artist/album/song.mp3")),
+            new PlaylistOutputOptions("/tmp/out.m3u", false, null));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(handler.Requests.Any(r => r.Method == "DELETE"), Is.False,
+                "nothing resolves, nothing is deleted");
+            Assert.That(sync.LastReport!.Succeeded, Is.False);
+            Assert.That(sync.LastReport.Message, Does.Contain("no track resolved"));
+        });
     }
 
     [Test]
