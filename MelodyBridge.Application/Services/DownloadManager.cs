@@ -251,6 +251,10 @@ public class DownloadManager : IDownloadManager
             _auth?.Observe(downloader);
             if (result is null || !result.Success || result.FilePath is null)
             {
+                // Same rule as the waterfall: a failure while the run is
+                // cancelling is the cancellation, not the provider.
+                if (ct.IsCancellationRequested)
+                    throw new OperationCanceledException(ct);
                 _health.RecordFailure(downloader.Id);
                 _state.SetFailure(melodyId,
                     result?.ErrorMessage ?? $"{downloader.Name} produced nothing");
@@ -579,6 +583,13 @@ public class DownloadManager : IDownloadManager
                         _auth?.Observe(downloader);
                         if (result is null || !result.Success || result.FilePath is null)
                         {
+                            // The run is being cancelled: the plugin's failure
+                            // result is the cancellation talking, not a
+                            // provider being down. Surface the token (the
+                            // caller records the cancellation honestly) and
+                            // do not burn the provider's health on it.
+                            if (ct.IsCancellationRequested)
+                                throw new OperationCanceledException(ct);
                             _health.RecordFailure(downloader.Id);
                             authFailure ??= AuthProblem(downloader) is { } reason
                                 ? $"{downloader.Name}: {reason}"

@@ -282,4 +282,83 @@ public class DownloadManagerHealthTests
             Assert.That(track, Is.EqualTo(DownloadManager.DefaultTrackBudget));
         });
     }
+
+    [Test]
+    public async Task CancellingATrack_DoesNotBookThePlugin_WhenItSwallowsTheCancel()
+    {
+        // A well-meaning plugin turns the run's cancellation into a failure
+        // result of its own. The run is over: the provider is healthy and
+        // must not pay for it, and the token has to surface so the caller
+        // records an honest cancellation instead of three plugin failures.
+        var mp3 = MakeRealMp3();
+        var plugin = new CancellingSwallower("swallower", mp3);
+        var manager = Manager(new ProviderHealth(), settings: null, plugin);
+
+        using var cts = new CancellationTokenSource();
+        var track = manager.DownloadTrackAsync(
+            new TrackQuery("Artist", "Song", DownloadQuality.Any), _dir, "m-cancel",
+            ct: cts.Token);
+        await plugin.DownloadStarted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        await cts.CancelAsync();
+
+        Assert.ThrowsAsync<OperationCanceledException>(async () => { _ = await track; });
+    }
+
+    [Test]
+    public async Task A_BurstOfCancels_NeverOpensTheCircuit()
+    {
+        var mp3 = MakeRealMp3();
+        var plugin = new CancellingSwallower("swallower2", mp3);
+        var health = new ProviderHealth();
+        var manager = new DownloadManager(new ListDownloaderRegistry(plugin),
+            NullLogger<DownloadManager>.Instance, health, settings: null);
+
+        for (var attempt = 0; attempt < 5; attempt++)
+        {
+            using var cts = new CancellationTokenSource();
+            var call = manager.DownloadTrackAsync(
+                new TrackQuery("Artist", "Song", DownloadQuality.Any), _dir, $"m-cancel-{attempt}",
+                ct: cts.Token);
+            await plugin.DownloadStarted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            await cts.CancelAsync();
+            Assert.ThrowsAsync<OperationCanceledException>(async () => { _ = await call; });
+        }
+
+        Assert.That(health.ShouldSkip(plugin.Id), Is.False,
+            "cancel-shaped failures do not open the provider's circuit");
+    }
+
+    private sealed class CancellingSwallower(string id, string file) : IDownloader
+    {
+        public string Id => id;
+        public string Name => id;
+        public string Description => "";
+        public PluginCapabilities Capabilities => PluginCapabilities.Lossy(AudioFormat.Mp3);
+        public Task<bool> IsAvailableAsync(CancellationToken ct = default) => Task.FromResult(true);
+        public TaskCompletionSource DownloadStarted { get; } = new();
+
+        public Task<DownloaderSearchHit?> SearchAsync(TrackQuery query, CancellationToken ct = default)
+        {
+            return Task.FromResult<DownloaderSearchHit?>(new DownloaderSearchHit(
+                "Song", "Artist", "https://cancel.example/1", TimeSpan.FromSeconds(200)));
+        }
+
+        public async Task<DownloaderDownloadResult> DownloadAsync(
+            string sourceUrl, string outputDirectory, string? melodyId,
+            DownloadQuality? quality = null, CancellationToken ct = default)
+        {
+            DownloadStarted.TrySetResult();
+            // Waits until the run cancels, then returns the plugin's own
+            // failure result (the shape several plugins really have).
+            try
+            {
+                await Task.Delay(Timeout.Infinite, ct);
+            }
+            catch (OperationCanceledException)
+            {
+                return new DownloaderDownloadResult(false, null, "cancelled");
+            }
+            return new DownloaderDownloadResult(false, null, "unexpected");
+        }
+    }
 }
