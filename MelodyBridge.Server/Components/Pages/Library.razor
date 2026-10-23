@@ -190,7 +190,7 @@
         {
             if (!string.IsNullOrWhiteSpace(track.CurrentPath))
             {
-                byPath.TryAdd(track.CurrentPath!, track.FileSizeBytes);
+                RememberSize(byPath, track.CurrentPath!, track.FileSizeBytes);
                 if (track.FileSizeBytes is not > 0)
                     unmeasured.Add((track.Id, track.CurrentPath!, Archive: false));
             }
@@ -198,11 +198,11 @@
             {
                 if (track.ArchiveSizeBytes is > 0)
                 {
-                    byPath.TryAdd(track.ArchivePath!, track.ArchiveSizeBytes);
+                    RememberSize(byPath, track.ArchivePath!, track.ArchiveSizeBytes);
                 }
                 else
                 {
-                    byPath.TryAdd(track.ArchivePath!, null);
+                    RememberSize(byPath, track.ArchivePath!, null);
                     unmeasured.Add((track.Id, track.ArchivePath!, Archive: true));
                 }
             }
@@ -220,6 +220,20 @@
             measuring = true;
             _ = Task.Run(() => MeasureMissingSizesAsync(unmeasured));
         }
+    }
+
+    /// <summary>
+    /// Remembers the size of one file. Two rows can point at the same
+    /// file, and a row without a size must not hide the size another row
+    /// knows. A stored zero counts as unknown, same as the caller that
+    /// treats it as unmeasured.
+    /// </summary>
+    private static void RememberSize(
+        Dictionary<string, long?> byPath, string path, long? size)
+    {
+        if (byPath.TryGetValue(path, out var known) && known is > 0)
+            return;
+        byPath[path] = size;
     }
 
     /// <summary>One file of the library: its path and its size.</summary>
@@ -266,15 +280,25 @@
             if (measured.Count > 0)
             {
                 await using var db = await DbFactory.CreateDbContextAsync();
-                foreach (var (trackId, path, archive) in unmeasured)
+                // One statement per file, not per row: rows that share a
+                // path share the answer. The path is part of the condition
+                // because a re-download can move the file while the
+                // measurement runs, and the old size must not land on the
+                // new one.
+                foreach (var group in unmeasured.GroupBy(entry => entry.Path))
                 {
-                    if (!measured.TryGetValue(path, out var bytes)) continue;
-                    if (archive)
-                        await db.Tracks.Where(t => t.Id == trackId)
+                    if (!measured.TryGetValue(group.Key, out var bytes)) continue;
+                    var ids = group.Select(entry => entry.TrackId).ToList();
+                    if (group.Any(entry => entry.Archive))
+                    {
+                        await db.Tracks.Where(t => ids.Contains(t.Id) && t.ArchivePath == group.Key)
                             .ExecuteUpdateAsync(s => s.SetProperty(t => t.ArchiveSizeBytes, bytes));
-                    else
-                        await db.Tracks.Where(t => t.Id == trackId)
+                    }
+                    if (group.Any(entry => !entry.Archive))
+                    {
+                        await db.Tracks.Where(t => ids.Contains(t.Id) && t.CurrentPath == group.Key)
                             .ExecuteUpdateAsync(s => s.SetProperty(t => t.FileSizeBytes, bytes));
+                    }
                 }
             }
 

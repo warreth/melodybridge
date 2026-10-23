@@ -177,12 +177,83 @@ public class LibraryFootprintTests
         Assert.That(stored, Is.EqualTo(512),
             "the measured size is kept for the next visit");
 
-        cut.Render();
-        Assert.That(cut.FindAll(".stat-card")
+        cut.WaitForAssertion(() => Assert.That(cut.FindAll(".stat-card")
             .Single(c => c.QuerySelector("label")!.TextContent == "Archive copies")
             .TextContent,
             Does.Contain("1 KB in extra copies"),
-            "the measured size shows up in the summary");
+            "the measured size shows up in the summary"), TimeSpan.FromSeconds(5));
+    }
+
+    [Test]
+    public void SharedPath_CountsOnceWithTheSizeThatIsKnown()
+    {
+        // Two rows point at one file (a dedup hardlink). The row that
+        // comes first predates the size; the second knows it. The file
+        // counts once, with the size that is known, and a row without a
+        // size never hides it. The file is not on disk, so the background
+        // measurement cannot paper over the answer.
+        var shared = Path.Combine(_music, "shared.flac");
+        using (var db = _factory.CreateDbContext())
+        {
+            db.Tracks.Add(new TrackEntity
+            {
+                MelodyId = "s1",
+                CurrentPath = shared,
+            });
+            db.Tracks.Add(new TrackEntity
+            {
+                MelodyId = "s2",
+                CurrentPath = shared,
+                FileSizeBytes = 8192,
+            });
+            db.SaveChanges();
+        }
+
+        var cut = _ctx.Render<Library>();
+        var card = cut.FindAll(".stat-card")
+            .Single(c => c.QuerySelector("label")!.TextContent == "Library size");
+
+        Assert.That(card.TextContent, Does.Contain("11.5 KB"),
+            "1 KB + 2 KB + 0.5 KB + 8 KB, the shared file counted once with its known size");
+    }
+
+    [Test]
+    public async Task AMainFileWithoutAKnownSize_IsMeasuredOnceAndKept()
+    {
+        // A row from before the app stored sizes: the page measures the
+        // file in the background, keeps the answer, and the summary shows
+        // it. This is the main-file branch of the same write.
+        var path = Path.Combine(_music, "legacy.flac");
+        File.WriteAllBytes(path, new byte[3072]);
+        using (var db = _factory.CreateDbContext())
+        {
+            db.Tracks.Add(new TrackEntity
+            {
+                MelodyId = "legacy",
+                CurrentPath = path,
+            });
+            db.SaveChanges();
+        }
+
+        var cut = _ctx.Render<Library>();
+
+        long? stored = null;
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (DateTime.UtcNow < deadline)
+        {
+            using (var db = _factory.CreateDbContext())
+                stored = db.Tracks.Single(t => t.MelodyId == "legacy").FileSizeBytes;
+            if (stored is > 0) break;
+            await Task.Delay(50);
+        }
+        Assert.That(stored, Is.EqualTo(3072),
+            "the measured size is stored against the file it came from");
+
+        cut.WaitForAssertion(() => Assert.That(cut.FindAll(".stat-card")
+            .Single(c => c.QuerySelector("label")!.TextContent == "Library size")
+            .TextContent,
+            Does.Contain("6.5 KB"),
+            "3.5 KB of known files plus the measured 3 KB"), TimeSpan.FromSeconds(5));
     }
 
     private static void Write(string dir, string name, int bytes)
