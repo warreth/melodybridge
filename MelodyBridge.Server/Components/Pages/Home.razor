@@ -2,6 +2,7 @@
 @inject IDbContextFactory<MelodyBridgeDbContext> DbFactory
 @inject IDownloaderRegistry DownloaderRegistry
 @inject MelodyBridge.Infrastructure.Services.PluginAuthMonitor AuthMonitor
+@inject MelodyBridge.Infrastructure.Services.DataChangeTracker ChangeTracker
 @inject SettingsStore Settings
 @inject ILogCollector LogCollector
 @inject SpotifyAccountProvider SpotifyAccount
@@ -48,7 +49,7 @@
                 <span class="eyebrow">Setup</span>
                 <h2>Get everything running (@doneSteps of 3)</h2>
             </div>
-            <button class="btn-modern ghost small" @onclick="RefreshStats">Refresh</button>
+            <button class="btn-modern ghost small" @onclick="@(() => RefreshStats(force: true))">Refresh</button>
         </div>
         <MountWarning />
         <div class="workflow-list">
@@ -165,7 +166,7 @@ else
         </div>
         <div class="topbar-actions">
             <small class="text-muted updated-note">Updated @_lastUpdated.ToString("HH:mm:ss")</small>
-            <button class="btn-modern ghost" @onclick="RefreshStats">Refresh</button>
+            <button class="btn-modern ghost" @onclick="@(() => RefreshStats(force: true))">Refresh</button>
         </div>
     </section>
 
@@ -410,6 +411,15 @@ else
     private IReadOnlyList<PluginAuthIssue> authIssues = Array.Empty<PluginAuthIssue>();
     private DateTime? lastRunAt;
     private DateTime _lastUpdated = DateTime.Now;
+    /// <summary>The observed store stamp; idle ticks skip the db.</summary>
+    private long _observedVersion = -1;
+    /// <summary>Ticks since the last full read: a minute bounds the
+    /// staleness of numbers whose writes do not carry the stamp (the scan's
+    /// own savers).</summary>
+    private int _idleTicks;
+    private const int StatsRefreshIdleTicks = 18;
+    /// <summary>Nothing read yet; the first tick always reads.</summary>
+    private bool _statsPending = true;
     /// <summary>True when Settings explicitly reopened the checklist: it then
     /// stays visible even though every step is already done.</summary>
     private bool _introRestarted;
@@ -490,7 +500,38 @@ else
             "a[href='/sync-jobs']"),
     ];
 
-    private async Task RefreshStats()
+    private async Task RefreshStats(bool force = false)
+    {
+        // The timer ticks every 5 seconds. The free reads (registry
+        // counts, auth snapshot) run on every tick; the database queries
+        // wait for a reason: the store stamp moved, a minute passed
+        // (bounds the staleness of writes the scan's savers do without a
+        // bump), or the page has not read anything yet. A manual Refresh
+        // always reads: a button that cannot change numbers is a lie.
+        var plugins = DownloaderRegistry.GetAll();
+        totalPlugins = plugins.Count;
+        enabledPlugins = plugins.Count(p => DownloaderRegistry.IsEnabled(p.Id));
+        authIssues = AuthMonitor.Snapshot();
+        var stamp = ChangeTracker.Version;
+        var due = force
+            || _statsPending
+            || stamp != _observedVersion
+            || _idleTicks >= StatsRefreshIdleTicks;
+        _statsPending = false;
+        _observedVersion = stamp;
+        if (!due)
+        {
+            _idleTicks++;
+            return;
+        }
+
+        // A working tick also keeps the last-updated marker current.
+        _idleTicks = 0;
+        _lastUpdated = DateTime.Now;
+        await RefreshStatsFromDbAsync();
+    }
+
+    private async Task RefreshStatsFromDbAsync()
     {
         await using var db = await DbFactory.CreateDbContextAsync();
         playlistsCount = await db.Playlists.CountAsync();
@@ -506,11 +547,6 @@ else
             await Settings.SetAsync("intro_dismissed", "true");
             showIntro = false;
         }
-
-        var plugins = DownloaderRegistry.GetAll();
-        totalPlugins = plugins.Count;
-        enabledPlugins = plugins.Count(p => DownloaderRegistry.IsEnabled(p.Id));
-        authIssues = AuthMonitor.Snapshot();
 
         // Dashboard-only facts: keep the intro queries light.
         if (!showIntro)
