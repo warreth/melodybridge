@@ -263,7 +263,7 @@ else
                         {
                             <a class="log-row err clickable" href="/logs">
                                 <span class="log-time">@entry.Timestamp.ToLocalTime().ToString("HH:mm:ss")</span>
-                                <span class="log-category">@LogAreas.FromCategory(entry.Category)</span>
+                                <span class="log-category">@entry.Area</span>
                                 <span class="log-message">@entry.Message</span>
                             </a>
                         }
@@ -503,8 +503,12 @@ else
         // when the probe has a new one: the page never waits for a media
         // server that does not answer.
         MediaProbe.Changed += OnMediaStatusChanged;
+        // The stamps come from before the read: a change that lands while
+        // the page loads must still be seen by the next tick.
+        var version = Changes.Version;
+        var logVersion = LogCollector.Version;
         await RefreshStats();
-        MarkRefreshed();
+        MarkRefreshed(version, logVersion);
 
         // Keep the dashboard current without a manual refresh.
         if (!showIntro) StartRefreshTimer();
@@ -527,8 +531,10 @@ else
         await Settings.SetAsync("intro_dismissed", "true");
         await Settings.SetAsync("intro_restarted", "false");
         showIntro = false;
+        var version = Changes.Version;
+        var logVersion = LogCollector.Version;
         await RefreshStats();
-        MarkRefreshed();
+        MarkRefreshed(version, logVersion);
         StartRefreshTimer();
     }
 
@@ -538,10 +544,10 @@ else
         _timer = new Timer(_ => InvokeAsync(RefreshForTimerAsync), null, 5000, 5000);
     }
 
-    private void MarkRefreshed()
+    private void MarkRefreshed(long version, long logVersion)
     {
-        observedVersion = Changes.Version;
-        observedLogVersion = LogCollector.Version;
+        observedVersion = version;
+        observedLogVersion = logVersion;
         lastStoredRefresh = DateTime.UtcNow;
     }
 
@@ -564,7 +570,7 @@ else
                 return;
 
             await RefreshStats();
-            MarkRefreshed();
+            MarkRefreshed(version, logVersion);
             StateHasChanged();
         }
         finally
@@ -579,8 +585,10 @@ else
         if (Interlocked.CompareExchange(ref refreshGate, 1, 0) == 1) return;
         try
         {
+            var version = Changes.Version;
+            var logVersion = LogCollector.Version;
             await RefreshStats();
-            MarkRefreshed();
+            MarkRefreshed(version, logVersion);
             // The intro can hand over to the dashboard here, so the timer
             // that keeps the dashboard current has to start now.
             if (!showIntro && _timer is null) StartRefreshTimer();

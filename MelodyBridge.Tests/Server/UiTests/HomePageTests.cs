@@ -26,6 +26,7 @@ public class HomePageTests
     private TestContext _ctx = null!;
     private Mock<IDownloaderRegistry> _providerRegistry = null!;
     private LogCollector _collector = null!;
+    private ILogCollector? _collectorForPage;
     private ScriptedDirectory _jellyfinDirectory = null!;
     private ScriptedDirectory _plexDirectory = null!;
     private ScriptedDirectory _subsonicDirectory = null!;
@@ -42,6 +43,7 @@ public class HomePageTests
         _ctx.JSInterop.Mode = JSRuntimeMode.Loose;
         _providerRegistry = new Mock<IDownloaderRegistry>();
         _collector = new LogCollector(maxEntries: 500);
+        _collectorForPage = null;
 
         var options = new DbContextOptionsBuilder<MelodyBridgeDbContext>()
             .UseInMemoryDatabase($"HomeTest_{Guid.NewGuid()}")
@@ -67,7 +69,7 @@ public class HomePageTests
         var settingsStore = new SettingsStore(dbFactory);
         _ctx.Services.AddSingleton(settingsStore);
         _ctx.Services.AddSingleton(new MediaServerProfileStore(settingsStore));
-        _ctx.Services.AddSingleton<ILogCollector>(_collector);
+        _ctx.Services.AddSingleton<ILogCollector>(_ => _collectorForPage ?? _collector);
         var tokenStore = new MelodyBridge.Infrastructure.Accounts.AccountTokenStore(
             dbFactory,
             Microsoft.Extensions.Logging.Abstractions.NullLogger<MelodyBridge.Infrastructure.Accounts.AccountTokenStore>.Instance);
@@ -275,6 +277,35 @@ public class HomePageTests
             "a store change must make the next tick re-read");
         cut.WaitForAssertion(() => Assert.That(cut.Markup, Does.Contain("New arrival")),
             TimeSpan.FromSeconds(3));
+    }
+
+    [Test]
+    public async Task Dashboard_LogLineWrittenDuringTheRead_TriggersAnotherTick()
+    {
+        var dbFactory = _ctx.Services.GetRequiredService<IDbContextFactory<MelodyBridgeDbContext>>();
+        using (var db = dbFactory.CreateDbContext())
+        {
+            db.DownloaderSettings.Add(new DownloaderSettingEntity { Key = "intro_dismissed", Value = "true" });
+            db.SaveChanges();
+        }
+
+        var collector = new SnapshotThenWriteCollector();
+        _collectorForPage = collector;
+        var cut = _ctx.Render<Home>();
+        cut.WaitForState(() => cut.Markup.Contains("Recent sync runs"), TimeSpan.FromSeconds(3));
+
+        // A line arrives after the load, and the next read writes another
+        // one while it is taking its snapshot.
+        collector.Log(LogLevel.Info, "Test", "before the tick");
+        collector.WriteOnNextSnapshot = true;
+
+        await cut.InvokeAsync(() => cut.Instance.RefreshForTimerAsync());
+        var contextsAfterFirstTick = _dbFactory.Contexts;
+
+        await cut.InvokeAsync(() => cut.Instance.RefreshForTimerAsync());
+
+        Assert.That(_dbFactory.Contexts, Is.GreaterThan(contextsAfterFirstTick),
+            "a line that landed during the read must make the next tick re-read");
     }
 
     [Test]
