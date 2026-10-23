@@ -243,6 +243,9 @@
     private bool showingErrorsOnly;
     private bool newestFirst = true;
     private bool paused;
+    /// <summary>The observe marker the idle tick compares: total collected
+    /// keeps counting when entries are evicted, which a count alone would miss.</summary>
+    private long _observedCollected = -1;
     private bool groupByTrack;
     private string searchText = string.Empty;
     private string? statusMessage;
@@ -286,6 +289,11 @@
         _timer = new Timer(_ => InvokeAsync(() =>
         {
             if (paused) return;
+            // Idle ticks do no LINQ passes and no re-render: the collector's
+            // count is the only cheap "anything new" signal it has.
+            var now = LogCollector.TotalCollected;
+            if (now == _observedCollected) return;
+            _observedCollected = now;
             Refresh();
             StateHasChanged();
         }), null, 2000, 2000);
@@ -486,6 +494,9 @@
     {
         LogCollector.Clear();
         pinnedEntries.Clear();
+        Refresh();
+        StateHasChanged();
+        return;
         showingErrorsOnly = false;
         confirmClear = false;
         dismissedErrorCount = 0;

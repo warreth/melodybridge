@@ -16,6 +16,13 @@ public interface ILogCollector
     /// <summary>Get a snapshot of all collected entries (newest first).</summary>
     IReadOnlyList<LogEntry> GetEntries();
 
+    /// <summary>
+    /// A monotonic count of everything ever collected (including evicted
+    /// entries): the cheap idle signal a polling surface compares instead
+    /// of re-reading the whole buffer each tick.
+    /// </summary>
+    long TotalCollected { get; }
+
     /// <summary>Clear all collected entries.</summary>
     void Clear();
 
