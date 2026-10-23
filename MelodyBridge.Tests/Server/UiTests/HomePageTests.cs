@@ -58,6 +58,8 @@ public class HomePageTests
         _ctx.Services.AddSingleton<IDbContextFactory<MelodyBridgeDbContext>>(dbFactory);
         _ctx.Services.AddSingleton(new SettingsStore(dbFactory));
         _ctx.Services.AddSingleton<ILogCollector>(_collector);
+        // The dashboard's refresh gate reads the store stamp.
+        _ctx.Services.AddSingleton<MelodyBridge.Infrastructure.Services.DataChangeTracker>();
         var tokenStore = new MelodyBridge.Infrastructure.Accounts.AccountTokenStore(
             dbFactory,
             Microsoft.Extensions.Logging.Abstractions.NullLogger<MelodyBridge.Infrastructure.Accounts.AccountTokenStore>.Instance);
