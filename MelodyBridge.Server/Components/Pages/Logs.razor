@@ -295,21 +295,29 @@
         };
 
         Refresh();
-        _timer = new Timer(_ => InvokeAsync(() =>
-        {
-            if (paused) return;
-            // Refreshing a thousand rows every two seconds was the page's
-            // main cost. Nothing changed means nothing to redraw.
-            if (LogCollector.Version == Volatile.Read(ref lastVersion)) return;
-            Refresh();
-            StateHasChanged();
-        }), null, 2000, 2000);
+        _timer = new Timer(_ => InvokeAsync(Tick), null, 2000, 2000);
+    }
+
+    /// <summary>
+    /// One timer tick. Refreshing a thousand rows every two seconds was
+    /// the page's main cost, so a tick with nothing new redraws nothing.
+    /// </summary>
+    internal void Tick()
+    {
+        if (paused) return;
+        if (LogCollector.Version == Volatile.Read(ref lastVersion)) return;
+        Refresh();
+        StateHasChanged();
     }
 
     private void Refresh()
     {
+        // The stamp comes from before the snapshot: a line written while
+        // the snapshot is taken must still count as a change, or the tick
+        // sees "nothing new" and the newest line never shows up.
+        var version = LogCollector.Version;
         var entries = LogCollector.GetEntries();
-        lastVersion = LogCollector.Version;
+        lastVersion = version;
         totalEntries = entries.Count;
         errorCount = entries.Count(IsError);
         errorPreview = entries.Where(IsError).Take(ErrorPreviewLimit).ToList();

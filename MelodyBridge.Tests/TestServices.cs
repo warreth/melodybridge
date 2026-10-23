@@ -220,3 +220,40 @@ public static class TestServices
     public Task SetConfigAsync(string id, string key, string? value, CancellationToken ct = default) => Task.CompletedTask;
     }
 }
+
+/// <summary>
+/// A log buffer that writes one line while a snapshot is being taken: the
+/// returned snapshot does not contain that line and the version has already
+/// moved past it. That is the exact "line landed during the read" race the
+/// pages must survive, without a sleep.
+/// </summary>
+public sealed class SnapshotThenWriteCollector : MelodyBridge.Core.Logging.ILogCollector
+{
+    private readonly MelodyBridge.Server.Services.LogCollector _inner = new();
+
+    /// <summary>Write a line at the end of the next snapshot.</summary>
+    public bool WriteOnNextSnapshot { get; set; }
+
+    public string NextMessage { get; set; } = "a line that landed during the read";
+
+    public long Version => _inner.Version;
+
+    public int MaxEntries => _inner.MaxEntries;
+
+    public void Log(MelodyBridge.Core.Logging.LogLevel level, string category, string message,
+        string? detail = null, string? group = null, string? area = null)
+        => _inner.Log(level, category, message, detail, group, area);
+
+    public void Clear() => _inner.Clear();
+
+    public IReadOnlyList<MelodyBridge.Core.Logging.LogEntry> GetEntries()
+    {
+        var snapshot = _inner.GetEntries();
+        if (WriteOnNextSnapshot)
+        {
+            WriteOnNextSnapshot = false;
+            _inner.Log(MelodyBridge.Core.Logging.LogLevel.Info, "Test", NextMessage);
+        }
+        return snapshot;
+    }
+}
