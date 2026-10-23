@@ -72,6 +72,7 @@ public class LibraryReconciler
                     Position = t.Position,
                     CurrentPath = t.CurrentPath,
                     ArchivePath = t.ArchivePath,
+                    ArchiveSizeBytes = t.ArchiveSizeBytes,
                     DownloadStatus = t.DownloadStatus,
                     DownloadError = t.DownloadError,
                     Warning = t.Warning,
@@ -174,8 +175,13 @@ public class LibraryReconciler
                     {
                         Touch(track);
                         if (string.Equals(track.CurrentPath, track.ArchivePath, StringComparison.OrdinalIgnoreCase))
+                        {
+                            // The archive copy is the file that is going
+                            // away, so its size goes with it. An archive
+                            // copy elsewhere keeps the size it has.
                             track.ArchivePath = null;
                             track.ArchiveSizeBytes = null;
+                        }
                         track.CurrentPath = null;
                         track.DownloadStatus = "pending";
                         track.Warning = string.IsNullOrEmpty(track.Warning)

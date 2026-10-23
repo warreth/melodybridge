@@ -583,6 +583,69 @@ public class LibraryReconcilerTests
     }
 
     [Test]
+    public async Task ArchiveCopyAsCurrentPath_KeepsTheCopyElsewhereAndItsSize()
+    {
+        // The current file sits in the archive folder, so the track loses
+        // it and has to download again. A second archive copy elsewhere is
+        // a real file that stays, and so does the size the app stored for
+        // it: clearing one must not clear the other.
+        var archiveDir = Path.Combine(_dir, "archive");
+        Directory.CreateDirectory(archiveDir);
+        var settings = new SettingsStore(_factory);
+        await settings.SetAsync("music_path", _dir);
+        await settings.SetAsync("archive_path", archiveDir);
+
+        var misplaced = WriteTaggedFile("archive", "mb-recon-keep");
+        var secondCopy = WriteTaggedFile("root", "mb-recon-keep");
+
+        await using (var db = _factory.CreateDbContext())
+        {
+            db.Playlists.Add(new PlaylistEntity
+            {
+                Id = "pl-keep",
+                Name = "Keeps its copy",
+                SourceUrl = "https://example.com/keep",
+                SourcePlatform = Platform.Spotify,
+                TargetDirectory = _dir,
+                Tracks = new List<TrackEntity>
+                {
+                    new()
+                    {
+                        MelodyId = "mb-recon-keep",
+                        Title = "Keeps",
+                        Artist = "A",
+                        Position = 0,
+                        DownloadStatus = "downloaded",
+                        CurrentPath = misplaced,
+                        ArchivePath = secondCopy,
+                        ArchiveSizeBytes = 4242,
+                    },
+                },
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var reconciler = new LibraryReconciler(
+            _factory, NullLogger<LibraryReconciler>.Instance, settings, NewLinker());
+        await reconciler.ReconcileAllAsync();
+
+        await using (var db = _factory.CreateDbContext())
+        {
+            var row = db.Tracks.Single(t => t.PlaylistEntityId == "pl-keep");
+            Assert.Multiple(() =>
+            {
+                Assert.That(row.CurrentPath, Is.Null,
+                    "a file in the archive folder is not a primary");
+                Assert.That(row.DownloadStatus, Is.EqualTo("pending"));
+                Assert.That(row.ArchivePath, Is.EqualTo(secondCopy),
+                    "the copy that lives elsewhere is still this track's archive copy");
+                Assert.That(row.ArchiveSizeBytes, Is.EqualTo(4242),
+                    "clearing the mistaken primary must not clear another copy's size");
+            });
+        }
+    }
+
+    [Test]
     public async Task PausedDedupReview_IsNotSettledByReconciliation()
     {
         var path = WriteTaggedFile("root", "mb-recon-paused");
