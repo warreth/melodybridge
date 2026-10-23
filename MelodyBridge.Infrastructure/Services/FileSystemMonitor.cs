@@ -118,7 +118,10 @@ public class FileSystemMonitor : IFileSystemMonitor, IDisposable
         if (!_audioExtensions.Contains(ext, StringComparer.OrdinalIgnoreCase))
             return;
 
-        // Debounce to prevent rapid-fire rescans
+        // Debounce to prevent rapid-fire rescans. An event inside the
+        // window is not dropped: it moves the window forward and marks a
+        // trailing scan, so the last rename of a burst still gets a scan
+        // when the current one ends.
         var now = DateTime.UtcNow;
         var key = entry.Path;
 
@@ -143,9 +146,30 @@ public class FileSystemMonitor : IFileSystemMonitor, IDisposable
         }
     }
 
+
+
+    /// <summary>
+    /// A watcher error (buffer overflow, the handler failing on a large
+    /// import, the watcher honestly dying) is exactly when events are
+    /// lost. The only self-healing signal available is "rescan this
+    /// location whole", so that is what the monitor raises: one debounce
+    /// event for the root, which the service turns into a full scan.
+    /// </summary>
     private void OnWatcherError(string path, ErrorEventArgs e)
     {
-        _logger.LogError(e.GetException(), "FileSystemWatcher error for {Path}", path);
+        _logger.LogError(e.GetException(), "FileSystemWatcher error for {Path}; queueing a full rescan", path);
+        if (_monitors.TryGetValue(path, out var entry))
+        {
+            try
+            {
+                ChangeDetected?.Invoke(this, new FileSystemChangeEventArgs(
+                    path, FileSystemChangeType.Changed, entry.ScanLocationId));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in the rescan signal after a watcher error");
+            }
+        }
     }
 
     public void Dispose()

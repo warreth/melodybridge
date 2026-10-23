@@ -125,6 +125,7 @@ public class FileSystemMonitoringBackgroundService : BackgroundService
         _ = Task.Run(() => RescanLocationAsync(e.ScanLocationId));
     }
 
+
     private async Task RescanLocationAsync(int scanLocationId)
     {
         try
