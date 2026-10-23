@@ -89,7 +89,10 @@ public class SourcePickerUiTests
         {
             if (GatesByTitle.TryGetValue(query.Title ?? "", out var gate))
             {
-                await gate.Task.WaitAsync(TimeSpan.FromSeconds(10));
+                // The gate belongs to the test: it always opens, and the
+                // 10-second default would break the grid timing before the
+                // test sees the panel state it wants.
+                await gate.Task;
                 return;
             }
             if (SearchGate is { } searchGate)
