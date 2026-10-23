@@ -1912,16 +1912,37 @@ else
     // Which upload card is working, so its file input turns into feedback.
     private string? uploadingRoute;
 
-    private Task ImportExportifyFile(InputFileChangeEventArgs e)
+    private async Task ImportExportifyFile(InputFileChangeEventArgs e)
     {
         uploadingRoute = "exportify";
-        return ImportUploadedFile(e).ContinueWith(_ => uploadingRoute = null);
+        // The pill and the disabled input exist only after a render: the
+        // first await would swallow the change otherwise, and with the
+        // input still enabled a second upload could start mid-parse.
+        StateHasChanged();
+        try
+        {
+            await ImportUploadedFile(e);
+        }
+        finally
+        {
+            uploadingRoute = null;
+            StateHasChanged();
+        }
     }
 
-    private Task ImportTakeoutFile(InputFileChangeEventArgs e)
+    private async Task ImportTakeoutFile(InputFileChangeEventArgs e)
     {
         uploadingRoute = "takeout";
-        return ImportUploadedFile(e).ContinueWith(_ => uploadingRoute = null);
+        StateHasChanged();
+        try
+        {
+            await ImportUploadedFile(e);
+        }
+        finally
+        {
+            uploadingRoute = null;
+            StateHasChanged();
+        }
     }
 
     public void Dispose() => refreshTimer?.Dispose();
