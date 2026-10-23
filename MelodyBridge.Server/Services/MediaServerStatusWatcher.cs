@@ -14,9 +14,12 @@ public sealed class MediaServerStatusWatcher(
     IMediaServerStatusProbe probe,
     ILogger<MediaServerStatusWatcher> logger) : BackgroundService
 {
-    /// <summary>How often the servers are asked. A minute is often enough
-    /// for a status light and rare enough not to pester an offline server.</summary>
-    private static readonly TimeSpan Interval = TimeSpan.FromSeconds(30);
+    /// <summary>How often the servers are asked. A status light does not
+    /// need to be fresh to the second, and a server that is offline
+    /// should not be poked every half minute for the life of the
+    /// process. A minute is slow enough to be gentle and fast enough to
+    /// notice a server that came back.</summary>
+    private static readonly TimeSpan Interval = TimeSpan.FromMinutes(1);
 
     /// <summary>The app is still starting up in the first seconds, and a
     /// media server on another machine may not be up yet either.</summary>
