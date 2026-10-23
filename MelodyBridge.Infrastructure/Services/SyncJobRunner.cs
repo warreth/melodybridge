@@ -3,6 +3,7 @@ using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.Data;
 using MelodyBridge.Infrastructure.Playlists;
 using MelodyBridge.Infrastructure.MediaServers;
+using System.Linq.Expressions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -76,13 +77,35 @@ public class SyncJobRunner : ISyncJobRunner
             }
             else if (job.SearchLocationPaths.Count > 0)
             {
-                allTracks = (await db.Tracks
+                // The folder filter belongs in SQL when the job names a
+                // handful of roots: one parameterized prefix per root,
+                // OR-ed, all evaluated inside SQLite. StartsWith (no
+                // comparison argument) translates to LIKE; SQLite's LIKE
+                // folds ASCII case, the C# path folded every letter, so a
+                // root whose casing matters beyond ASCII loses the fold
+                // -- rare and spelled out here. A dozen or more roots
+                // stay on the in-memory path instead of a huge OR chain.
+                var roots = job.SearchLocationPaths;
+                if (roots.Count <= 4)
+                {
+                    var filter = PredicateExpr(roots);
+                    allTracks = await db.Tracks
+                        .Where(filter)
                         .Where(t => t.CurrentPath != null)
-                        .ToListAsync(ct))
-                    .Where(t => job.SearchLocationPaths.Any(p =>
-                        t.CurrentPath!.StartsWith(p, StringComparison.OrdinalIgnoreCase)))
-                    .OrderBy(t => t.Id)
-                    .ToList();
+                        .OrderBy(t => t.Id)
+                        .ToListAsync(ct);
+                }
+                else
+                {
+                    var loaded = await db.Tracks
+                        .Where(t => t.CurrentPath != null)
+                        .ToListAsync(ct);
+                    allTracks = loaded
+                        .Where(t => roots.Any(root =>
+                            t.CurrentPath!.StartsWith(root, StringComparison.OrdinalIgnoreCase)))
+                        .OrderBy(t => t.Id)
+                        .ToList();
+                }
             }
             else
             {
@@ -239,6 +262,44 @@ public class SyncJobRunner : ISyncJobRunner
             await RecordFailedRunAsync(job, ex.Message, 0, totalTracks, ct);
             return new SyncJobRunLog(DateTime.UtcNow, SyncStatus.Failed, ex.Message, 0, totalTracks);
         }
+    }
+
+
+    private static Expression<Func<TrackEntity, bool>> PredicateExpr(IReadOnlyList<string> roots)
+    {
+        if (roots.Count == 1)
+        {
+            var first = roots[0];
+            return t => t.CurrentPath != null
+                && t.CurrentPath.StartsWith(first);
+        }
+        if (roots.Count == 2)
+        {
+            var first = roots[0];
+            var second = roots[1];
+            return t => t.CurrentPath != null
+                && (t.CurrentPath.StartsWith(first)
+                    || t.CurrentPath.StartsWith(second));
+        }
+        if (roots.Count == 3)
+        {
+            var first = roots[0];
+            var second = roots[1];
+            var third = roots[2];
+            return t => t.CurrentPath != null
+                && (t.CurrentPath.StartsWith(first)
+                    || t.CurrentPath.StartsWith(second)
+                    || t.CurrentPath.StartsWith(third));
+        }
+        var a = roots[0];
+        var b = roots[1];
+        var c = roots[2];
+        var d = roots[3];
+        return t => t.CurrentPath != null
+            && (t.CurrentPath.StartsWith(a)
+                || t.CurrentPath.StartsWith(b)
+                || t.CurrentPath.StartsWith(c)
+                || t.CurrentPath.StartsWith(d));
     }
 
     /// <summary>
