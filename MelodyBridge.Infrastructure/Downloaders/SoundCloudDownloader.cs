@@ -126,9 +126,13 @@ public class SoundCloudDownloader : IDownloader
             // Quality gate: reject low-bitrate rips so bad files never land
             // in the library. A requested band floor above 128 tightens it.
             // A rejected file is deleted, not left for the scanner to find.
+            // A stream that reports no bitrate is rejected too: the plugin
+            // promises a floor over the bytes it delivers, and an unknown
+            // bitrate IS an unverified claim, unlike ArchiveOrg's plugin
+            // which deliberately passes unknowns.
             var bitrate = ReadAudioBitrateKbps(stdout);
             var floor = Math.Max(MinimumAudioBitrateKbps, quality?.MinKbps ?? 0);
-            if (bitrate < floor)
+            if (RejectsByteSource(bitrate, floor))
             {
                 try { File.Delete(file); } catch { /* best effort */ }
                 return new DownloaderDownloadResult(false, null,
@@ -165,6 +169,14 @@ public class SoundCloudDownloader : IDownloader
         catch { /* parse failure falls through to null */ }
         return null;
     }
+
+    /// <summary>
+    /// The plugin's floor promise: a source that reports no audio bitrate
+    /// is an unverified claim, so it is rejected like a bitrate under the
+    /// floor rather than handed to the library as known-good.
+    /// </summary>
+    internal static bool RejectsByteSource(int? bitrate, int floor)
+        => bitrate is null || bitrate < floor;
 
     private static string? ReadJsonString(string jsonOutput, string property)
     {

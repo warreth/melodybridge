@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
@@ -16,10 +17,15 @@ public class DownloaderRegistry : IDownloaderRegistry
     private readonly IPluginConfig _config;
     private readonly ILogger<DownloaderRegistry> _logger;
 
-    // plugin id -> enabled (cache, lazily loaded from DB)
-    private Dictionary<string, bool> _enabled = new(StringComparer.OrdinalIgnoreCase);
-    private Dictionary<string, int> _priority = new(StringComparer.OrdinalIgnoreCase);
+    // plugin id -> enabled (cache, lazily loaded from DB). Concurrent
+    // dictionaries: the coordinator's download workers read these while
+    // the Plugins page writes them, on one singleton.
+    private readonly ConcurrentDictionary<string, bool> _enabled =
+        new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, int> _priority =
+        new(StringComparer.OrdinalIgnoreCase);
     private bool _cacheLoaded;
+    private readonly object _cacheGate = new();
 
     public DownloaderRegistry(
         IEnumerable<IDownloader> downloaders,
@@ -218,61 +224,69 @@ public class DownloaderRegistry : IDownloaderRegistry
 
     private void EnsureCacheLoaded()
     {
-        if (_cacheLoaded) return;
-
-        try
+        lock (_cacheGate)
         {
-            // This is a tiny one-time read of a table with one row per
-            // plugin. It runs synchronously on purpose: GetEnabled and
-            // IsEnabled are synchronous by contract (the waterfall calls
-            // them per track), and blocking a thread on the async EF API
-            // here was the old sync-over-async hazard.
-            using var db = _dbFactory.CreateDbContext();
-            var rows = db.ProviderStates.AsNoTracking().ToList();
+            // The double check inside the gate is the point: two callers
+            // racing on the first read (a worker and the Plugins page)
+            // must not both register rows, and the second commit used to
+            // fail on the primary key and flip the fallback to "all
+            // enabled" for the session.
+            if (_cacheLoaded) return;
 
-            var nextPriority = rows.Count;
-            foreach (var downloader in _downloaders)
+            try
             {
-                var row = rows.FirstOrDefault(r => r.ProviderId.Equals(downloader.Id, StringComparison.OrdinalIgnoreCase));
-                // New plugin: register enabled with the next free priority.
-                if (row is null)
+                // This is a tiny one-time read of a table with one row per
+                // plugin. It runs synchronously on purpose: GetEnabled and
+                // IsEnabled are synchronous by contract (the waterfall calls
+                // them per track), and blocking a thread on the async EF API
+                // here was the old sync-over-async hazard.
+                using var db = _dbFactory.CreateDbContext();
+                var rows = db.ProviderStates.AsNoTracking().ToList();
+
+                var nextPriority = rows.Count;
+                foreach (var downloader in _downloaders)
                 {
-                    db.ProviderStates.Add(new ProviderStateRow
+                    var row = rows.FirstOrDefault(r => r.ProviderId.Equals(downloader.Id, StringComparison.OrdinalIgnoreCase));
+                    // New plugin: register enabled with the next free priority.
+                    if (row is null)
                     {
-                        ProviderId = downloader.Id,
-                        IsEnabled = true,
-                        Priority = nextPriority,
-                    });
-                    _enabled[downloader.Id] = true;
-                    _priority[downloader.Id] = nextPriority;
-                    nextPriority++;
+                        db.ProviderStates.Add(new ProviderStateRow
+                        {
+                            ProviderId = downloader.Id,
+                            IsEnabled = true,
+                            Priority = nextPriority,
+                        });
+                        _enabled[downloader.Id] = true;
+                        _priority[downloader.Id] = nextPriority;
+                        nextPriority++;
+                    }
+                    else
+                    {
+                        _enabled[downloader.Id] = row.IsEnabled;
+                        _priority[downloader.Id] = row.Priority;
+                    }
                 }
-                else
-                {
-                    _enabled[downloader.Id] = row.IsEnabled;
-                    _priority[downloader.Id] = row.Priority;
-                }
+
+                db.SaveChanges();
+
+                // An install that never touched the old default order gets the
+                // new one; custom orders stay as they are.
+                MigrateUntouchedDefaultOrder(db);
             }
-
-            db.SaveChanges();
-
-            // An install that never touched the old default order gets the
-            // new one; custom orders stay as they are.
-            MigrateUntouchedDefaultOrder(db);
-        }
-        catch (Exception ex)
-        {
-            // DB unavailable (e.g. tests without schema): enable everything.
-            _logger.LogWarning(ex, "Could not load downloader states; all plugins enabled");
-            foreach (var d in _downloaders)
+            catch (Exception ex)
             {
-                _enabled[d.Id] = true;
-                _priority[d.Id] = 0;
+                // DB unavailable (e.g. tests without schema): enable everything.
+                _logger.LogWarning(ex, "Could not load downloader states; all plugins enabled");
+                foreach (var d in _downloaders)
+                {
+                    _enabled[d.Id] = true;
+                    _priority[d.Id] = 0;
+                }
             }
-        }
-        finally
-        {
-            _cacheLoaded = true;
+            finally
+            {
+                _cacheLoaded = true;
+            }
         }
     }
 }
