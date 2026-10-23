@@ -309,8 +309,21 @@ internal static class YtDlpProcess
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
             // Our timeout, not the caller's cancellation.
-            try { proc.Kill(entireProcessTree: true); } catch { /* already gone */ }
             throw new TimeoutException($"yt-dlp did not finish within {timeout.TotalSeconds}s");
+        }
+        finally
+        {
+            // Either way the child must not outlive the call: a caller
+            // that walks away (a closed picker, a cancelled sync) would
+            // otherwise leave a download writing into the folder.
+            try
+            {
+                if (!proc.HasExited) proc.Kill(entireProcessTree: true);
+            }
+            catch
+            {
+                // Already gone, or the handle is closed: nothing to stop.
+            }
         }
     }
 

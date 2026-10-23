@@ -187,7 +187,9 @@ public class YtDlpUpdater
         return trimmed.Length <= 400 ? trimmed : trimmed[^400..];
     }
 
-    private static async Task<(int Exit, string Stdout, string Stderr)> RunProcessAsync(
+    /// <summary>The real process runner, internal so a test can prove the
+    /// caller-cancellation kill without exposing it as a public API.</summary>
+    internal static async Task<(int Exit, string Stdout, string Stderr)> RunProcessAsync(
         string program, IReadOnlyList<string> arguments, CancellationToken ct)
     {
         var psi = new ProcessStartInfo
@@ -214,8 +216,19 @@ public class YtDlpUpdater
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
-            try { proc.Kill(entireProcessTree: true); } catch { /* already gone */ }
             throw new TimeoutException($"{program} did not finish within 5 minutes");
+        }
+        finally
+        {
+            // A cancelled updater must not leave yt-dlp or pip running.
+            try
+            {
+                if (!proc.HasExited) proc.Kill(entireProcessTree: true);
+            }
+            catch
+            {
+                // Already gone, or the handle is closed: nothing to stop.
+            }
         }
     }
 }

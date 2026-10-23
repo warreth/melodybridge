@@ -93,8 +93,19 @@ public static class CliRunner
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
-            try { proc.Kill(entireProcessTree: true); } catch { /* already gone */ }
             return new Result(-1, "", $"the command did not finish within {timeout.TotalSeconds:0} seconds");
+        }
+        finally
+        {
+            // A caller that cancels must not leave the child running.
+            try
+            {
+                if (!proc.HasExited) proc.Kill(entireProcessTree: true);
+            }
+            catch
+            {
+                // Already gone, or the handle is closed: nothing to stop.
+            }
         }
     }
 

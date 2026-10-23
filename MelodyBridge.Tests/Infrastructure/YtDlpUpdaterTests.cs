@@ -241,6 +241,37 @@ public class YtDlpUpdaterTests
     }
 
     [Test]
+    public async Task RunProcess_CallerCancellation_KillsTheChild()
+    {
+        if (OperatingSystem.IsWindows()) Assert.Ignore("POSIX shell script");
+
+        var dir = Path.Combine(Path.GetTempPath(), $"mb-updater-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var marker = Path.Combine(dir, "still-running");
+            var script = Path.Combine(dir, "slow.sh");
+            // Writes the marker a second in: if the cancellation leaves the
+            // child running, the marker shows up.
+            File.WriteAllText(script, $"#!/bin/sh\nsleep 1; touch \"{marker}\"; sleep 30\n");
+            File.SetUnixFileMode(script,
+                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+
+            using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(200));
+            Assert.CatchAsync<OperationCanceledException>(async () =>
+                await YtDlpUpdater.RunProcessAsync(script, Array.Empty<string>(), cts.Token));
+
+            await Task.Delay(1500);
+            Assert.That(File.Exists(marker), Is.False,
+                "a cancelled update must kill yt-dlp or pip instead of leaving it working");
+        }
+        finally
+        {
+            try { Directory.Delete(dir, recursive: true); } catch { /* best effort */ }
+        }
+    }
+
+    [Test]
     public async Task Update_FailureMessage_IsBounded()
     {
         var longError = new string('x', 1000) + "BOOM";

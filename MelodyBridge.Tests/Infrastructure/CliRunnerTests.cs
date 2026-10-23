@@ -144,6 +144,28 @@ public class CliRunnerTests
     }
 
     [Test]
+    public async Task RunAsync_CallerCancellation_KillsTheChild()
+    {
+        if (OperatingSystem.IsWindows()) Assert.Ignore("POSIX shell stub");
+
+        var dir = NewDir();
+        var marker = Path.Combine(dir, "still-running");
+        // The script writes the marker a second in: if the cancellation
+        // leaves it running, the marker shows up.
+        var script = Script(dir, "cancelled.sh",
+            $"sleep 1; touch \"{marker}\"; sleep 30");
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(200));
+        Assert.CatchAsync<OperationCanceledException>(async () =>
+            await CliRunner.RunAsync(script, Array.Empty<string>(),
+                TimeSpan.FromSeconds(30), cts.Token));
+
+        await Task.Delay(1500);
+        Assert.That(File.Exists(marker), Is.False,
+            "a cancelled run must kill the child instead of leaving it working");
+    }
+
+    [Test]
     public async Task RunAsync_PassesEnvironmentEntriesToTheChild()
     {
         if (OperatingSystem.IsWindows()) Assert.Ignore("POSIX shell stub");
