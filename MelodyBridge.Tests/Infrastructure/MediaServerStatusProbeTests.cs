@@ -250,6 +250,36 @@ public class MediaServerStatusProbeTests
         });
     }
 
+    [Test]
+    public async Task AThrowingSubscriber_DoesNotHideTheVerdictFromTheOthers()
+    {
+        await _profiles.SaveAsync(new MediaServerProfile
+        {
+            Id = "jf-4",
+            Name = "Jellyfin Homelab",
+            Kind = "Jellyfin",
+            BaseUrl = "http://jellyfin:8096",
+            ApiKey = "secret-key",
+        });
+        var probe = BuildProbe(new ScriptedDirectory());
+
+        var reached = new TaskCompletionSource<bool>();
+        probe.Changed += () => throw new InvalidOperationException("subscriber blew up");
+        probe.Changed += () => reached.TrySetResult(true);
+
+        var snapshot = await probe.SnapshotAsync(refresh: true);
+        var announced = await reached.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(announced, Is.True,
+                "one bad subscriber must not silence the rest");
+            Assert.That(snapshot.Single(s => s.ProfileId == "jf-4").State,
+                Is.EqualTo(MediaServerConnectionState.Connected),
+                "a subscriber that throws must not turn a working probe into a failure");
+        });
+    }
+
     private sealed class ScriptedDirectory : IMediaServerDirectory
     {
         public string Kind { get; init; } = "Jellyfin";

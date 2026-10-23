@@ -128,18 +128,41 @@ public sealed class MediaServerStatusProbe : IMediaServerStatusProbe
     private async Task<IReadOnlyList<MediaServerConnectionStatus>> ProbeAllAsync(CancellationToken ct)
     {
         await _gate.WaitAsync(ct);
+        IReadOnlyList<MediaServerConnectionStatus> results;
         try
         {
             var targets = await TargetsAsync(ct);
-            var results = await Task.WhenAll(targets.Select(t => ProbeAsync(t, ct)));
+            results = await Task.WhenAll(targets.Select(t => ProbeAsync(t, ct)));
             _cached = results;
             _cachedAt = DateTime.UtcNow;
-            Changed?.Invoke();
-            return results;
         }
         finally
         {
             _gate.Release();
+        }
+
+        // The verdict is announced outside the gate: a subscriber that
+        // waits for the probe would deadlock, and one that throws must
+        // not take the answer down with it.
+        AnnounceChanged();
+        return results;
+    }
+
+    /// <summary>Tells the subscribers about the new verdict, one by one.</summary>
+    private void AnnounceChanged()
+    {
+        var handlers = Changed?.GetInvocationList();
+        if (handlers is null) return;
+        foreach (var handler in handlers)
+        {
+            try
+            {
+                ((Action)handler).Invoke();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "A media server status subscriber failed");
+            }
         }
     }
 
