@@ -5,7 +5,7 @@
     <Icon Name="folder" Size="20" Class="location-icon" />
     <div class="location-body">
         <code class="path-tag">@Location.Path</code>
-        @if (!Directory.Exists(Location.Path))
+        @if (PathMissing is true)
         {
             <StatusPill Variant="err">path missing</StatusPill>
         }
@@ -35,6 +35,10 @@
 @code {
     [Parameter, EditorRequired] public ScanLocationEntity Location { get; set; } = null!;
     [Parameter] public int FileCount { get; set; }
+    /// <summary>The page's disk verdict for this location, probed in the
+    /// background: null while unknown, true when the path is gone. The
+    /// card never touches the disk itself.</summary>
+    [Parameter] public bool? PathMissing { get; set; }
     /// <summary>True when the location sits inside a configured archive root.</summary>
     [Parameter] public bool IsArchive { get; set; }
     /// <summary>Pass the resolved schedule so the card never parses the row twice.</summary>

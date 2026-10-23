@@ -58,6 +58,7 @@
             {
                 <LibraryLocationCard Location="loc"
                                      FileCount="@FileCount(loc)"
+                                     PathMissing="@(existence.TryGetValue(loc.Id, out var ok) ? !ok : (bool?)null)"
                                      IsArchive="@IsArchivePath(loc)"
                                      Schedule="@LocationSchedule.Of(loc)"
                                      OnEdit="ShowEditLocation"
@@ -163,7 +164,22 @@
         filesPerLocation = locations.ToDictionary(
             l => l.Id,
             l => withIds.Count(t => LocationContains(l.Path, t.CurrentPath!)));
+
+        // One disk probe per location, once per load: the card's
+        // missing-path verdict is a parameter, not a per-render
+        // File.Exists on the dispatcher. Each render only reads the
+        // dictionary, so a save or a toggle costs no probe at all.
+        existence.Clear();
+        foreach (var loc in locations)
+        {
+            var verdict = false;
+            try { verdict = Directory.Exists(loc.Path ?? ""); } catch { /* bad path */ }
+            existence[loc.Id] = verdict;
+        }
     }
+
+    /// <summary>Location id -> the disk verdict, probed in the background.</summary>
+    private readonly Dictionary<int, bool> existence = new();
 
     private static bool LocationContains(string locationPath, string filePath)
         => filePath.StartsWith(locationPath, StringComparison.OrdinalIgnoreCase)
