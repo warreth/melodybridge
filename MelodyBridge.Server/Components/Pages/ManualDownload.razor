@@ -130,7 +130,10 @@
             {
                 <span>Delivered by @saved.PluginName. </span>
             }
-            The scanner adds the file to your library on its next run.
+            @if (!saved.LibraryIdMissing)
+            {
+                <span>The scanner adds the file to your library on its next run.</span>
+            }
         </p>
         @if (saved.Warning is { Length: > 0 })
         {
@@ -194,6 +197,7 @@
     private async Task<SourcePickResult> DownloadPickedAsync(
         string rawQuery, DownloadQuality wanted, DownloadCandidate candidate)
     {
+        lastResult = null;
         var result = await Manual.DownloadCandidateAsync(
             rawQuery, candidate, targetDirectory, wanted);
         if (!result.Success)
@@ -207,6 +211,9 @@
     private async Task DownloadLinkAsync()
     {
         linkError = null;
+        // A new attempt replaces the old card: a failure next to a stale
+        // "Saved" line reads as if both happened.
+        lastResult = null;
         if (!ManualDownloadService.TryParseLink(linkUrl, out _))
         {
             linkError = "Paste a full http or https link.";

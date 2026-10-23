@@ -189,6 +189,7 @@ public sealed class ManualDownloadService
         TimeSpan? expectedDuration, string directory)
     {
         string? warning = null;
+        var libraryIdMissing = false;
         try
         {
             var integrity = FileIntegrity.Check(path, expectedDuration);
@@ -226,10 +227,23 @@ public sealed class ManualDownloadService
             // The identity is what the scanner matches on, so write it
             // after the title/artist rewrite and never skip it silently.
             TaglibHelper.WriteMelodyId(path, melodyId);
+            // Read it back: TagLib cannot write every container, and a file
+            // without the tag is never picked up by the scanner. Say so
+            // instead of promising a library entry that never comes.
+            if (!string.Equals(TaglibHelper.ReadMelodyId(path), melodyId, StringComparison.Ordinal))
+            {
+                libraryIdMissing = true;
+                warning = AppendWarning(warning,
+                    "The file could not carry its library id, so the scanner will not add it to the library yet.");
+                _logger.LogWarning("Could not stamp the library id on {Path}", path);
+            }
         }
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "Could not stamp the manual download {Path}", path);
+            libraryIdMissing = true;
+            warning = AppendWarning(warning,
+                "The file could not carry its library id, so the scanner will not add it to the library yet.");
         }
 
         var extension = Path.GetExtension(path);
@@ -256,7 +270,8 @@ public sealed class ManualDownloadService
         var pluginName = pluginId is { Length: > 0 }
             ? _registry.Get(pluginId)?.Name ?? pluginId
             : null;
-        return new ManualDownloadResult(true, path, pluginName, null, warning);
+        return new ManualDownloadResult(
+            true, path, pluginName, null, warning, LibraryIdMissing: libraryIdMissing);
     }
 
     /// <summary>
@@ -363,7 +378,8 @@ public sealed record ManualDownloadResult(
     string? FilePath = null,
     string? PluginName = null,
     string? Error = null,
-    string? Warning = null)
+    string? Warning = null,
+    bool LibraryIdMissing = false)
 {
     public static ManualDownloadResult Failed(string error)
         => new(false, Error: error);

@@ -41,6 +41,9 @@ public class ManualDownloadServiceTests
         public bool Succeeds { get; init; } = true;
         public string? Error { get; init; }
         public DownloaderSearchHit? Hit { get; init; }
+        /// <summary>Container the stub writes. ".webm" encodes a real one
+        /// that TagLib cannot tag, which is the identity-warning case.</summary>
+        public string OutputExtension { get; init; } = ".mp3";
         public TrackQuery? LastQuery { get; private set; }
         public string? LastSourceUrl { get; private set; }
         public DownloadQuality? LastQuality { get; private set; }
@@ -77,8 +80,9 @@ public class ManualDownloadServiceTests
                     false, null, Error ?? "the source failed"));
 
             Directory.CreateDirectory(outputDirectory);
-            var path = Path.Combine(outputDirectory, $"{melodyId ?? "x"}.mp3");
-            File.WriteAllBytes(path, TestAudio.MinimalMp3());
+            var path = Path.Combine(outputDirectory, $"{melodyId ?? "x"}{OutputExtension}");
+            if (OutputExtension == ".webm") WriteWebm(path);
+            else File.WriteAllBytes(path, TestAudio.MinimalMp3());
             return Task.FromResult(new DownloaderDownloadResult(true, path, null));
         }
     }
@@ -110,6 +114,9 @@ public class ManualDownloadServiceTests
             metadata ?? new StubMetadataResolver(null),
             NullLogger<ManualDownloadService>.Instance), manager);
     }
+
+    /// <summary>A real one second opus-in-webm, a container TagLib cannot tag.</summary>
+    private static void WriteWebm(string path) => TestAudio.WriteWebm(path);
 
     [TestCase("The Artist - The Song", "The Artist", "The Song")]
     [TestCase("  The Artist - The Song  ", "The Artist", "The Song")]
@@ -391,6 +398,31 @@ public class ManualDownloadServiceTests
             Assert.That(result.Success, Is.False);
             Assert.That(result.Error, Does.Contain("http"));
             Assert.That(plugin.LastSourceUrl, Is.Null, "nothing was downloaded");
+        });
+    }
+
+    [Test]
+    public async Task DownloadUrl_ContainerWithoutTagSupport_WarnsThatTheScannerWillSkipIt()
+    {
+        // A real opus-in-webm: the audio is fine, but the container cannot
+        // carry a MELODY_ID, so the scanner would skip it. The result must
+        // say so and flag the id, so the page can drop its promise.
+        var plugin = new StubPlugin { OutputExtension = ".webm" };
+        var service = Service(plugin);
+
+        var result = await service.DownloadUrlAsync(
+            "https://example.com/webm-song", "The Artist", "The Song", _dir);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.True, result.Error);
+            Assert.That(result.FilePath, Is.Not.Null);
+            Assert.That(Path.GetExtension(result.FilePath!), Is.EqualTo(".webm"));
+            Assert.That(result.LibraryIdMissing, Is.True,
+                "the page hides the library promise only for this flag");
+            Assert.That(result.Warning, Does.Contain("library id"));
+            Assert.That(TaglibHelper.ReadMelodyId(result.FilePath!), Is.Null,
+                "the warning tells the truth: the file carries no id");
         });
     }
 

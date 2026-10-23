@@ -31,6 +31,7 @@ public class ManualDownloadUiTests
         public string Name => "Manual source";
         public PluginCapabilities Capabilities => PluginCapabilities.Any;
         public string HitTitle { get; init; } = "The Real Song";
+        public string OutputExtension { get; init; } = ".mp3";
         public int DownloadCalls { get; private set; }
 
         public Task<bool> IsAvailableAsync(CancellationToken ct = default)
@@ -48,8 +49,9 @@ public class ManualDownloadUiTests
         {
             DownloadCalls++;
             Directory.CreateDirectory(outputDirectory);
-            var path = Path.Combine(outputDirectory, $"picked-{melodyId}.mp3");
-            File.WriteAllBytes(path, TestAudio.MinimalMp3());
+            var path = Path.Combine(outputDirectory, $"picked-{melodyId}{OutputExtension}");
+            if (OutputExtension == ".webm") TestAudio.WriteWebm(path);
+            else File.WriteAllBytes(path, TestAudio.MinimalMp3());
             return Task.FromResult(new DownloaderDownloadResult(true, path, null));
         }
     }
@@ -187,6 +189,62 @@ public class ManualDownloadUiTests
             Assert.That(File.Exists(path), Is.True);
             Assert.That(TaglibHelper.ReadMelodyId(path), Does.StartWith("manual-"));
         });
+    }
+
+    [Test]
+    public async Task DownloadLink_UntaggableContainer_WarnsAndDropsTheLibraryPromise()
+    {
+        // The file is real audio, but the container cannot carry the id,
+        // so the scanner will skip it: the card says so instead of
+        // promising an entry.
+        var plugin = new StubPlugin { OutputExtension = ".webm" };
+        var metadata = new StubMetadataResolver(new UrlTrackMetadata(
+            "Link Artist", "Link Title", TimeSpan.FromSeconds(2)));
+        var cut = RenderPage(plugin, metadata);
+
+        cut.Find("input[placeholder='https://www.youtube.com/watch?v=...']")
+            .Change("https://example.com/the-link");
+        await cut.InvokeAsync(() => cut.FindAll("form")[1].Submit());
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Multiple(() =>
+            {
+                Assert.That(cut.Markup, Does.Contain("Saved"));
+                Assert.That(cut.Markup, Does.Contain("Link Artist - Link Title.webm"));
+                Assert.That(cut.Markup, Does.Contain("library id"),
+                    "the warning names the reason the scanner will skip the file");
+                Assert.That(cut.Markup, Does.Not.Contain("The scanner adds the file to your library"),
+                    "a file without its id must not be promised a library entry");
+            });
+        }, TimeSpan.FromSeconds(10));
+    }
+
+    [Test]
+    public async Task DownloadLink_NonIdentityWarning_KeepsTheLibraryPromise()
+    {
+        // A length warning does not stop the scanner: the file still
+        // carries its id, so the card keeps the promise.
+        var plugin = new StubPlugin();
+        var metadata = new StubMetadataResolver(new UrlTrackMetadata(
+            "Link Artist", "Link Title", TimeSpan.FromMinutes(4)));
+        var cut = RenderPage(plugin, metadata);
+
+        cut.Find("input[placeholder='https://www.youtube.com/watch?v=...']")
+            .Change("https://example.com/the-link");
+        await cut.InvokeAsync(() => cut.FindAll("form")[1].Submit());
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Multiple(() =>
+            {
+                Assert.That(cut.Markup, Does.Contain("Saved"));
+                Assert.That(cut.Markup, Does.Contain("differs"),
+                    "the length warning is still shown");
+                Assert.That(cut.Markup, Does.Contain("The scanner adds the file to your library"),
+                    "a warning about the length must not hide the library promise");
+            });
+        }, TimeSpan.FromSeconds(10));
     }
 
     [Test]
