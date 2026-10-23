@@ -4,6 +4,8 @@ using System.Text.Json;
 using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace MelodyBridge.Infrastructure.Services;
 
@@ -18,15 +20,18 @@ internal sealed class PlaylistTransfer
     private readonly IDbContextFactory<MelodyBridgeDbContext> _dbFactory;
     private readonly PlaylistQueries _queries;
     private readonly PlaylistSnapshots _snapshots;
+    private readonly ILogger<PlaylistTransfer> _logger;
 
     public PlaylistTransfer(
         IDbContextFactory<MelodyBridgeDbContext> dbFactory,
         PlaylistQueries queries,
-        PlaylistSnapshots snapshots)
+        PlaylistSnapshots snapshots,
+        ILogger<PlaylistTransfer>? logger = null)
     {
         _dbFactory = dbFactory;
         _queries = queries;
         _snapshots = snapshots;
+        _logger = logger ?? NullLogger<PlaylistTransfer>.Instance;
     }
 
     /// <summary>Export persisted playlists (with tracks) as JSON for backup.</summary>
@@ -110,8 +115,28 @@ internal sealed class PlaylistTransfer
         var imported = 0;
         foreach (var playlist in incoming.Where(p => !string.IsNullOrWhiteSpace(p.SourceUrl)))
         {
-            await _snapshots.AddOrRefreshAsync(playlist.SourceUrl, playlist.TargetDirectory, ct);
-            imported++;
+            try
+            {
+                if (playlist.IsManualImport)
+                {
+                    // Manual imports have no live source: they come back as
+                    // the exported snapshot, not as a Spotify fetch of a
+                    // slug that only looks like a playlist id.
+                    await _snapshots.RestoreManualSnapshotAsync(playlist, ct);
+                    imported++;
+                    continue;
+                }
+                await _snapshots.AddOrRefreshAsync(playlist.SourceUrl, playlist.TargetDirectory, ct);
+                imported++;
+            }
+            catch (Exception ex)
+            {
+                // One row that cannot come back (a provider reject, a bad
+                // source id) leaves the other rows untouched: the import
+                // reports what it got instead of killing the restore.
+                _logger.LogWarning(ex,
+                    "Playlist '{Name}' ({Source}) did not import", playlist.Name, playlist.SourceUrl);
+            }
         }
         return imported;
     }

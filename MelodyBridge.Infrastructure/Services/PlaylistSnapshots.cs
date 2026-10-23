@@ -464,7 +464,44 @@ internal sealed class PlaylistSnapshots
         // matching the file on disk.
     }
 
-    /// <summary>Re-fetch an already persisted playlist from its source.</summary>
+    /// <summary>
+    /// Brings an exported manual-import snapshot back: a row whose source
+    /// is "spotify:import:" has no live provider, so it is restored as the
+    /// snapshot it left as (Platform.Unknown, its own tracks), with the
+    /// same update-instead-of-duplicate behavior the file import has.
+    /// </summary>
+    public async Task RestoreManualSnapshotAsync(
+        PlaylistEntity exported, CancellationToken ct = default)
+    {
+        var slug = exported.ExternalId
+            ?? PlaylistRules.Slugify(exported.Name);
+        await SaveSnapshotAsync(
+            providerPlatform: Platform.Unknown,
+            playlist: new Playlist
+            {
+                Id = slug,
+                Name = exported.Name,
+                Owner = exported.Owner,
+                Tracks = (exported.Tracks is { Count: > 0 } rows ? rows : [])
+                    .Select(t => new Track
+                    {
+                        Title = t.Title,
+                        Artist = t.Artist,
+                        Album = t.Album,
+                        AlbumArtist = t.AlbumArtist,
+                        Duration = t.DurationMs is > 0
+                            ? TimeSpan.FromMilliseconds(t.DurationMs.Value)
+                            : null,
+                    })
+                    .ToList(),
+            },
+            sourceUrl: exported.SourceUrl,
+            targetDirectory: exported.TargetDirectory,
+            ct: ct);
+    }
+
+    /// <summary>
+    /// Re-fetch an already persisted playlist from its source.</summary>
     public Task<PlaylistEntity> RefreshAsync(string playlistId, CancellationToken ct = default)
     {
         return RefreshInternal(playlistId, null, ct);
