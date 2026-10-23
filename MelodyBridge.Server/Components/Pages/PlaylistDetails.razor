@@ -785,9 +785,10 @@ else
     private Application.Services.DownloadRun? observedRun;
     /// <summary>The store's write stamp the last reload observed.</summary>
     private long observedVersion;
-    /// <summary>Queue title -> first index, rebuilt when the queue changes instead of scanning per row.</summary>
-    private Dictionary<string, int> queuePositions = new(StringComparer.Ordinal);
-    private IReadOnlyList<string>? observedQueue;
+    /// <summary>Queue row id -> first index, rebuilt when the queue changes instead of scanning per row. A
+    /// playlist may list the same title twice; the label belongs to the row, not the words.</summary>
+    private Dictionary<int, int> queuePositions = new();
+    private IReadOnlyList<Application.Services.QueuedItem>? observedQueue;
     /// <summary>Throttles full row reloads while a run is active.</summary>
     private DateTime lastActiveReloadUtc = DateTime.MinValue;
 
@@ -1237,15 +1238,15 @@ else
             or Application.Services.DownloadRunState.Paused))
         {
             observedQueue = null;
-            queuePositions = new Dictionary<string, int>(StringComparer.Ordinal);
+            queuePositions = new Dictionary<int, int>();
             return;
         }
         var queue = Coordinator.QueueFor(PlaylistId);
         if (ReferenceEquals(queue, observedQueue)) return;
         observedQueue = queue;
-        var positions = new Dictionary<string, int>(StringComparer.Ordinal);
+        var positions = new Dictionary<int, int>();
         for (var i = 0; i < queue.Count; i++)
-            positions.TryAdd(queue[i], i);
+            positions.TryAdd(queue[i].Id, i);
         queuePositions = positions;
     }
 
@@ -1350,8 +1351,10 @@ else
         {
             foreach (var track in failed)
             {
+                // The highlight says "working on this one"; the counter
+                // says how many finished. Counting before the await read
+                // like "n of n" while the last track was still running.
                 retryingTrackIds.Add(track.Id);
-                bulkRetryDone++;
                 StateHasChanged();
                 try
                 {
@@ -1365,6 +1368,8 @@ else
                     {
                         unresolved[result] = unresolved.GetValueOrDefault(result) + 1;
                     }
+                    bulkRetryDone++;
+                    StateHasChanged();
                 }
                 finally
                 {
@@ -2352,7 +2357,7 @@ else
         if (run is null || run.State is not (Application.Services.DownloadRunState.Running
             or Application.Services.DownloadRunState.Paused)) return null;
         if (track.DownloadStatus is "downloaded" or "removed-from-source") return null;
-        if (!queuePositions.TryGetValue(track.Title ?? "", out var index)) return null;
+        if (!queuePositions.TryGetValue(track.Id, out var index)) return null;
         return index == 0 && run.State == Application.Services.DownloadRunState.Running
             ? "downloading"
             : $"in queue · #{index + 1}";

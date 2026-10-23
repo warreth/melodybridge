@@ -9,6 +9,10 @@ using Microsoft.Extensions.Logging;
 
 namespace MelodyBridge.Application.Services;
 
+/// <summary>One queued item of a running download: the row id (the
+/// queue may hold the same title twice) and the title for display.</summary>
+public sealed record QueuedItem(int Id, string Title);
+
 /// <summary>State of one playlist download run.</summary>
 public enum DownloadRunState
 {
@@ -88,7 +92,7 @@ public class DownloadCoordinator : IDownloadCoordinator
         private int _taken;
         private int _remaining;
         private int _version;
-        private List<string>? _cachedTitles;
+        private List<QueuedItem>? _cachedWork;
         private int _cachedVersion = -1;
 
         public WorkQueue(List<(int Id, string Title, string? Status)> items)
@@ -134,28 +138,34 @@ public class DownloadCoordinator : IDownloadCoordinator
         }
 
         /// <summary>
-        /// Titles not yet completed, in Position order: the visible queue.
-        /// The list is cached until another item completes; a run with a
-        /// thousand tracks must not rebuild and allocate it after every
-        /// single finished track.
+        /// Queued work not yet completed, in Position order: the visible
+        /// queue, keyed by row (a playlist may list the same title twice)
+        /// with the title for immediate display. The list is cached until
+        /// another item completes; a run with a thousand tracks must not
+        /// rebuild and allocate it after every single finished track.
         /// </summary>
-        public IReadOnlyList<string> RemainingTitles()
+        public IReadOnlyList<QueuedItem> RemainingWork()
         {
             var version = Volatile.Read(ref _version);
             lock (_cacheLock)
             {
-                if (_cachedTitles is { } cached && _cachedVersion == version)
+                if (_cachedWork is { } cached && _cachedVersion == version)
                     return cached;
 
-                var titles = new List<string>(_remaining);
+                var work = new List<QueuedItem>(_remaining);
                 for (var i = 0; i < _items.Count; i++)
                     if (Volatile.Read(ref _completed[i]) == 0)
-                        titles.Add(_items[i].Title);
-                _cachedTitles = titles;
+                        work.Add(new QueuedItem(_items[i].Id, _items[i].Title));
+                _cachedWork = work;
                 _cachedVersion = version;
-                return titles;
+                return work;
             }
         }
+
+        /// <summary>Queue titles not yet completed, in Position order: the
+        /// visible queue for callers that show words only.</summary>
+        public IReadOnlyList<string> RemainingTitles()
+            => [.. RemainingWork().Select(item => item.Title)];
     }
 
     private sealed class RunHandle
@@ -222,10 +232,12 @@ public class DownloadCoordinator : IDownloadCoordinator
     public DownloadRun? RunFor(string playlistId)
         => _runs.TryGetValue(playlistId, out var h) ? h.Snapshot : null;
 
-    /// <summary>Ordered titles of the live run's remaining work (Position
-    /// order) for this playlist: the visible download queue.</summary>
-    public IReadOnlyList<string> QueueFor(string playlistId)
-        => _runs.TryGetValue(playlistId, out var h) ? h.Work.RemainingTitles() : Array.Empty<string>();
+    /// <summary>Ordered work of the live run's remaining queue (Position
+    /// order) for this playlist: row id and title, keyed by row, so a
+    /// playlist that lists the same title twice label each of its rows
+    /// instead of both sitting in the first slot.</summary>
+    public IReadOnlyList<QueuedItem> QueueFor(string playlistId)
+        => _runs.TryGetValue(playlistId, out var h) ? h.Work.RemainingWork() : Array.Empty<QueuedItem>();
 
     public bool IsActive(string playlistId)
         => _runs.TryGetValue(playlistId, out var h)

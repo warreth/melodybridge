@@ -149,16 +149,19 @@ public class DownloadQueueTests
             && coordinator.RunFor(id)?.State != DownloadRunState.Finished, TimeSpan.FromSeconds(20));
 
         var queue = coordinator.QueueFor(id);
-        Assert.That(queue, Is.Not.Empty, "mid-run the queue holds the remaining titles");
+        Assert.That(queue, Is.Not.Empty, "mid-run the queue holds the remaining work");
         // Position order: "Track 1" before "Track 2" etc., regardless of
         // which worker claimed which track first.
-        var ordered = queue.Select(t => int.Parse(t.Split(' ')[1])).ToList();
+        var ordered = queue.Select(item => ExtractIndex(item.Title)).ToList();
         Assert.That(ordered, Is.EqualTo(ordered.OrderBy(n => n).ToList()),
             "queue must follow playlist Position order");
 
         await WaitForAsync(() => coordinator.RunFor(id)?.State == DownloadRunState.Finished
             && coordinator.RunFor(id)?.Done == 6, TimeSpan.FromSeconds(30));
     }
+
+    private static int ExtractIndex(string title)
+        => int.Parse(title.Split(' ', StringSplitOptions.RemoveEmptyEntries)[^1]);
 
     [Test]
     public async Task QueueFor_ShrinksAsTracksComplete_AndSnapshotCarriesLength()
