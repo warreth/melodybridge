@@ -370,7 +370,11 @@ Xiph/Vorbis comment field for FLAC, Ogg and Opus, and a
 ID3v2 tag inside a FLAC fabricates a block that hijacks storage. The
 comment marker path replaces any existing marker instead of appending.
 The manager writes the tag, never the plugins, and only after the file
-passes the quality band, so no rejected file is ever tagged.
+passes the quality band, so no rejected file is ever tagged. The one
+exception is a container TagLib cannot write: an opus-in-webm download
+without ffmpeg keeps its `.webm` extension, the tag cannot be written,
+and the scanner skips that file. The manual download page reads the tag
+back and warns on the saved card instead of promising a library entry.
 
 Legacy databases keep their `mb-{guid}` rows: those tags
 still match their files. A SchemaPatcher backfill fills the

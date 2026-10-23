@@ -335,7 +335,9 @@ it:
 **Save to** defaults to the music path and accepts any absolute folder. The file
 is named `Artist - Title`, keeps its source tags, and joins the library on the
 next scan. The saved card shows the path, the plugin that delivered it and any
-warning, with **Copy path** and **Open Library** actions.
+warning, with **Copy path** and **Open Library** actions. A container that
+cannot carry the `MELODY_ID` tag shows a warning on that card, because the
+scanner matches on that tag and would otherwise leave the file out.
 
 The quality picker applies to search picks. A direct link downloads the source's
 own stream, then tags and verifies the file.
@@ -473,8 +475,10 @@ sidebar. It is a live toolbox for checking the app and its plugins.
   not your library.
 - The queue on this page is a test queue for those tools, separate from real
   playlist runs. The live queue is on the Downloads page.
-- The **Log viewer** shows every collected log entry with a level filter and a
-  text search. **Copy** copies the visible rows.
+- The **Log viewer** shows the collected entries newest first, 200 at a time,
+  with a level filter and a text search that also matches the area. **Show 200
+  more** adds the next page and **Copy** copies every entry that matches the
+  current filter, not only the visible page.
 
 ## The Logs page
 
