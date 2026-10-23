@@ -271,7 +271,7 @@ else
                             <a class="log-row err clickable" href="/logs">
                                 <span class="log-time">@entry.Timestamp.ToLocalTime().ToString("HH:mm:ss")</span>
                                 <span class="log-category">@LogAreas.FromCategory(entry.Category)</span>
-                                <span class="log-message">@entry.Message</span>
+                                <span class="log-message">@LogRedactor.Redact(entry.Message)</span>
                             </a>
                         }
                     </div>
