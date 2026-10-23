@@ -1026,20 +1026,11 @@ else
     }
 
     /// <summary>
-    /// The run's progress bar counts playlist tracks that are no longer in
-    /// the queue. The coordinator's own Percent adds failures to the done
-    /// count, which showed a full bar while the last track was still
-    /// downloading.
+    /// The run's own percent. The queue-based formula lives on
+    /// DownloadRun now, so every surface agrees and a finished-looking bar
+    /// cannot hide a track that is still downloading.
     /// </summary>
-    private int LivePercent
-    {
-        get
-        {
-            if (run is null || run.Total <= 0) return 0;
-            var remaining = Math.Min(run.QueueLength, run.Total);
-            return Math.Clamp(100 * (run.Total - remaining) / run.Total, 0, 100);
-        }
-    }
+    private int LivePercent => run?.Percent ?? 0;
 
     private async Task Refresh()
     {

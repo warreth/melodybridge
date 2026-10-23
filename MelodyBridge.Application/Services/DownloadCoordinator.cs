@@ -32,7 +32,22 @@ public record DownloadRun(
     int QueueLength = 0,
     DateTime? EtaUtc = null)
 {
-    public int Percent => Total == 0 ? 0 : Math.Min(100, (Done + Failed) * 100 / Total);
+    /// <summary>
+    /// Progress from the work queue: rows that are no longer in the queue
+    /// are done, whether they became downloaded, failed, needs-review or
+    /// skipped. Adding failures to the done count read like a full bar
+    /// while the last track was still downloading, and it drifted away
+    /// from the page that counts the queue honestly.
+    /// </summary>
+    public int Percent
+    {
+        get
+        {
+            if (Total <= 0) return 0;
+            var remaining = Math.Max(0, Math.Min(QueueLength, Total));
+            return Math.Clamp(100 * (Total - remaining) / Total, 0, 100);
+        }
+    }
 
     /// <summary>Estimated finish from the average pace so far; null before
     /// the first track completes (no measured pace yet).</summary>

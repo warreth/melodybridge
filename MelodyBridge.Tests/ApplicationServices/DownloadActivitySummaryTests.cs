@@ -10,8 +10,15 @@ namespace MelodyBridge.Tests.ApplicationServices;
 public class DownloadActivitySummaryTests
 {
     private static DownloadRun Run(
-        string id, int total, int done, int failed, DownloadRunState state)
-        => new(id, id, total, done, failed, null, null, state, DateTime.UtcNow);
+        string id, int total, int done, int failed, DownloadRunState state,
+        int queue = -1)
+    {
+        // A snapshot the coordinator would stamp carries what remains in
+        // the queue; when the caller does not say, that is whatever has
+        // neither been done nor failed.
+        if (queue < 0) queue = total - done - failed;
+        return new(id, id, total, done, failed, null, null, state, DateTime.UtcNow, queue);
+    }
 
     [Test]
     public void TwoRuns_AddUpAndNameTheFailureCount()

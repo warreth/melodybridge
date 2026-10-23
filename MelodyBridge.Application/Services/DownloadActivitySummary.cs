@@ -10,9 +10,23 @@ public sealed record DownloadActivitySummary(
     int Paused,
     int Total,
     int Done,
-    int Failed)
+    int Failed,
+    int QueueLength = 0)
 {
-    public int Percent => Total == 0 ? 0 : Math.Min(100, (Done + Failed) * 100 / Total);
+    /// <summary>
+    /// The same queue-based definition DownloadRun uses, summed over the
+    /// active runs: the chip and the pages never disagree about how far a
+    /// run is, and a finished bar cannot hide a track still downloading.
+    /// </summary>
+    public int Percent
+    {
+        get
+        {
+            if (Total <= 0) return 0;
+            var remaining = Math.Max(0, Math.Min(QueueLength, Total));
+            return Math.Clamp(100 * (Total - remaining) / Total, 0, 100);
+        }
+    }
 
     public string Headline => Runs == 0
         ? "No active downloads"
@@ -36,6 +50,7 @@ public sealed record DownloadActivitySummary(
             active.Count(run => run.State == DownloadRunState.Paused),
             active.Sum(run => run.Total),
             active.Sum(run => run.Done),
-            active.Sum(run => run.Failed));
+            active.Sum(run => run.Failed),
+            active.Sum(run => run.QueueLength));
     }
 }
