@@ -219,6 +219,7 @@ public readonly record struct ScanSchedule
             if (bits.Length != 2 || !int.TryParse(bits[0], out from) || !int.TryParse(bits[1], out to)) return false;
         }
         else if (!int.TryParse(rangePart, out from)) return false;
+        else if (slash >= 0) to = max; // "0/5": start at 0, then every 5
         else to = from;
 
         if (from < min || to > max || from > to) return false;
