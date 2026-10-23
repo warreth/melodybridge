@@ -12,7 +12,7 @@
 {
     <div class="wizard-overlay" @onclick="CloseAsync">
         <div class="wizard-modal source-picker-modal" @onclick:stopPropagation="true">
-            <div class="wizard-header source-picker-head">
+            <div class="wizard-header">
                 <div class="source-picker-title">
                     <span class="eyebrow">Choose source</span>
                     <h2>@(request.Title.Length > 0 ? request.Title : "Track")</h2>
@@ -179,7 +179,7 @@
                 }
                 @foreach (var candidate in VisibleSourceCandidates)
                 {
-                    var busy = downloadingCandidateUrl == candidate.SourceUrl;
+                    var busy = inFlightPicks.Contains(candidate.SourceUrl);
                     <div class="source-candidate @(busy ? "busy" : null)">
                         <div class="source-candidate-main">
                             <strong title="@candidate.Title">@candidate.Title</strong>
@@ -287,8 +287,16 @@
     private string sourceFilterConfidence = "all";
     private bool sourceFilterCanServeOnly;
     private bool searchingSources;
-    private bool downloadingCandidate;
-    private string? downloadingCandidateUrl;
+    /// <summary>The source urls with a pick in flight. A set, not one
+    /// field, so a pick that lands late can only clear its own row and
+    /// the same source cannot be started twice.</summary>
+    private readonly HashSet<string> inFlightPicks = new(StringComparer.Ordinal);
+    private bool downloadingCandidate => inFlightPicks.Count > 0;
+    /// <summary>Which dialog the user is looking at. A pick remembers the
+    /// generation that started it, so only that dialog can be closed by
+    /// it, even when the page hands over a new request instance for the
+    /// same key.</summary>
+    private int dialogGeneration;
     private int downloadElapsedSeconds;
     private CancellationTokenSource? downloadTicker;
     private string? searchError;
@@ -638,9 +646,17 @@
     /// </summary>
     private async Task PickAsync(DownloadCandidate candidate)
     {
+        // One pick at a time: two rows clicked before the busy render
+        // lands must not start two downloads that then share the ticker
+        // and the close path.
         if (Request is not { } request || downloadingCandidate) return;
-        downloadingCandidate = true;
-        downloadingCandidateUrl = candidate.SourceUrl;
+        // The set still does its job for a pick from a previous dialog:
+        // it refuses the same url and can only clear its own row.
+        if (!inFlightPicks.Add(candidate.SourceUrl)) return;
+        // The dialog that owns this pick. A pick can outlive it, and a page
+        // can hand over a new request instance for the same key, so the
+        // instance is not the identity: the generation is.
+        var generation = dialogGeneration;
         downloadElapsedSeconds = 0;
         var ticker = new CancellationTokenSource();
         downloadTicker = ticker;
@@ -662,11 +678,13 @@
                 case SourcePickStatus.Downloaded:
                     Notifications.Success(result.Message
                         ?? $"Downloaded '{request.Title}' from {candidate.PluginName}.");
-                    await CloseAsync();
+                    // A pick can outlive the dialog that started it: only
+                    // the dialog it belongs to may be closed by it.
+                    if (generation == dialogGeneration) await CloseAsync();
                     break;
                 case SourcePickStatus.AlreadyRunning:
                     Notifications.Info("This is already being downloaded by a running batch.");
-                    await CloseAsync();
+                    if (generation == dialogGeneration) await CloseAsync();
                     break;
                 default:
                     // Keep the dialog open with the real reason on that row:
@@ -680,15 +698,14 @@
         }
         finally
         {
-            // Only this pick's ticker and state: a later pick must keep
+            // Only this pick's ticker and row: a later pick must keep
             // running when an earlier one lands late. The dialog may
             // already be gone, and Cancel after Dispose throws.
             try { ticker.Cancel(); }
             catch (ObjectDisposedException) { /* the component disposed it first */ }
             ticker.Dispose();
             if (ReferenceEquals(downloadTicker, ticker)) downloadTicker = null;
-            downloadingCandidateUrl = null;
-            downloadingCandidate = false;
+            inFlightPicks.Remove(candidate.SourceUrl);
         }
     }
 
@@ -761,6 +778,7 @@
     {
         activeKey = null;
         sourceSearchGeneration++;
+        dialogGeneration++;
         dialogCts?.Cancel();
         dialogCts?.Dispose();
         dialogCts = null;
@@ -768,8 +786,6 @@
         downloadTicker?.Dispose();
         downloadTicker = null;
         searchingSources = false;
-        downloadingCandidate = false;
-        downloadingCandidateUrl = null;
         searchError = null;
         sourceCandidates = Array.Empty<DownloadCandidate>();
         sourceAuthIssues = Array.Empty<PluginAuthIssue>();
