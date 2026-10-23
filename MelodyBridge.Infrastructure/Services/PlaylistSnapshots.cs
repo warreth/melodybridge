@@ -391,6 +391,7 @@ internal sealed class PlaylistSnapshots
                     mapped.SampleRateHz = prior.SampleRateHz;
                     mapped.FileSizeBytes = prior.FileSizeBytes;
                     mapped.ArchivePath = prior.ArchivePath;
+                    mapped.ArchiveSizeBytes = prior.ArchiveSizeBytes;
                     mapped.IsHardLink = prior.IsHardLink;
                     mapped.Warning = prior.Warning;
                     mapped.LastSeenAt = prior.LastSeenAt;
