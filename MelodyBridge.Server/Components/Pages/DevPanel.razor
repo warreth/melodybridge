@@ -393,6 +393,7 @@ else
         </div>
         <div class="log-tools">
             <input type="search" class="search-input log-search" placeholder="Filter text or category..."
+                   aria-label="Filter log entries by text, category or area"
                    value="@_logSearch" @oninput="OnLogSearch" />
             <button class="btn-modern ghost" @onclick="CopyLogsAsync" disabled="@(_filteredLogs.Count == 0)">
                 <Icon Name="copy" Size="14" Class="btn-icon" /> Copy
@@ -402,6 +403,7 @@ else
             @foreach (var lvl in _logLevels)
             {
                 <button class="btn-filter @(_activeLogLevel == lvl ? "active" : "")"
+                        aria-pressed="@(_activeLogLevel == lvl)"
                         @onclick="() => SetLogLevel(lvl)">
                     @lvl
                 </button>
@@ -413,17 +415,27 @@ else
         {
             <div class="log-empty">@(_logs.Count == 0 ? "Nothing captured yet." : "No log entries match the current filter.")</div>
         }
-        @foreach (var entry in _filteredLogs)
+        @foreach (var entry in VisibleLogs)
         {
             <div class="log-line log-@entry.Level.ToLowerInvariant()">
                 <span class="log-time">@entry.Timestamp.ToString("HH:mm:ss.fff")</span>
                 <span class="log-level">@entry.Level</span>
+                <span class="log-area">@entry.Area</span>
                 <span class="log-cat">[@entry.Category]</span>
                 <span class="log-msg">@MelodyBridge.Server.Services.LogRedactor.Redact(entry.Message)</span>
                 @if (!string.IsNullOrEmpty(entry.Detail))
                 {
                     <pre class="log-detail">@MelodyBridge.Server.Services.LogRedactor.Redact(entry.Detail)</pre>
                 }
+            </div>
+        }
+        @if (_filteredLogs.Count > visibleLogCount)
+        {
+            <div class="log-more">
+                <span>Showing @Math.Min(visibleLogCount, _filteredLogs.Count) of @_filteredLogs.Count</span>
+                <button class="btn-modern small ghost" @onclick="ShowMoreLogs">
+                    Show @Math.Min(LogPageSize, _filteredLogs.Count - visibleLogCount) more
+                </button>
             </div>
         }
     </div>
@@ -453,16 +465,24 @@ else
 
     private Timer? _pollTimer;
 
+    /// <summary>Rows the viewer paints at once. The buffer holds a
+    /// thousand entries; rendering all of them twice a second was the
+    /// job the Logs page already stopped doing.</summary>
+    private const int LogPageSize = 200;
+    private int visibleLogCount = LogPageSize;
+
     protected override async Task OnInitializedAsync()
     {
         _providers = Registry.GetAll().ToList();
         RefreshState();
-        await RefreshFactsAsync();
+        // The page renders "not found" without advanced mode: reading the
+        // database for a panel nobody sees is work for nothing.
+        if (Dev.Enabled) await RefreshFactsAsync();
     }
 
     protected override void OnAfterRender(bool firstRender)
     {
-        if (firstRender)
+        if (firstRender && Dev.Enabled)
         {
             _pollTimer = new Timer(async _ =>
             {
@@ -486,6 +506,10 @@ else
         ApplyLogFilter();
     }
 
+    private IEnumerable<DevLogEntry> VisibleLogs => _filteredLogs.Take(visibleLogCount);
+
+    private void ShowMoreLogs() => visibleLogCount += LogPageSize;
+
     private void ApplyLogFilter()
     {
         IEnumerable<DevLogEntry> filtered = _activeLogLevel == "All"
@@ -496,6 +520,7 @@ else
         {
             filtered = filtered.Where(e =>
                 e.Category.Contains(search, StringComparison.OrdinalIgnoreCase)
+                || e.Area.Contains(search, StringComparison.OrdinalIgnoreCase)
                 || e.Message.Contains(search, StringComparison.OrdinalIgnoreCase)
                 || (e.Detail?.Contains(search, StringComparison.OrdinalIgnoreCase) ?? false));
         }
@@ -505,6 +530,7 @@ else
     private void OnLogSearch(ChangeEventArgs e)
     {
         _logSearch = e.Value?.ToString() ?? string.Empty;
+        visibleLogCount = LogPageSize;
         ApplyLogFilter();
     }
 
@@ -574,12 +600,13 @@ else
         if (copied)
             Notifications.Success($"{_filteredLogs.Count} log entries copied.");
         else
-            Notifications.Error("Could not copy the visible log entries.");
+            Notifications.Error("Could not copy the matching log entries.");
     }
 
     private void SetLogLevel(string level)
     {
         _activeLogLevel = level;
+        visibleLogCount = LogPageSize;
         ApplyLogFilter();
     }
 

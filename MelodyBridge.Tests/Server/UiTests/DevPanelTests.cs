@@ -21,6 +21,7 @@ public class DevPanelTests
     private DevPanelService _devPanelService = null!;
     private Mock<IDownloaderRegistry> _registry = null!;
     private IDbContextFactory<MelodyBridgeDbContext> _dbFactory = null!;
+    private CountingDbFactory _counting = null!;
     private string _dbPath = null!;
 
     private static readonly TestDownloader Provider1 = new("monochrome", "Monochrome (TIDAL)");
@@ -46,8 +47,9 @@ public class DevPanelTests
         var factory = new TestSqliteFactory(_dbPath);
         using (var db = factory.CreateDbContext())
             db.Database.EnsureCreated();
-        _dbFactory = factory;
-        var settings = new SettingsStore(factory);
+        _counting = new CountingDbFactory(factory);
+        _dbFactory = _counting;
+        var settings = new SettingsStore(_counting);
         var logs = new LogCollector();
         var host = new Mock<IHostEnvironment>();
         host.SetupGet(h => h.EnvironmentName).Returns("Development");
@@ -55,7 +57,7 @@ public class DevPanelTests
 
         _devPanelService = new DevPanelService(logs);
         _devPanelService.Enabled = true; // the page gates on this; production opts in
-        var diagnostics = new DevDiagnosticsService(factory, settings, _registry.Object, logs, host.Object);
+        var diagnostics = new DevDiagnosticsService(_counting, settings, _registry.Object, logs, host.Object);
 
         _ctx.Services.AddSingleton<DevPanelService>(_devPanelService);
         _ctx.Services.AddSingleton<IDownloaderRegistry>(_registry.Object);
@@ -105,6 +107,65 @@ public class DevPanelTests
             Assert.That(cut.Markup, Does.Not.Contain("Clear queue"),
                 "the interactive tools must not render when the panel is off");
         });
+    }
+
+    [Test]
+    public void Disabled_DoesNotReadTheDatabase()
+    {
+        _devPanelService.Enabled = false;
+        _counting.Reset();
+
+        _ctx.Render<DevPanel>();
+
+        Assert.That(_counting.Created, Is.Zero,
+            "a disabled panel must not run its diagnostics: nobody can see the answer");
+    }
+
+    [Test]
+    public void LogViewer_ShowsTheFirstPage_AndAddsTheRestOnDemand()
+    {
+        // The buffer holds up to a thousand entries, and the viewer used to
+        // paint all of them twice a second. The first page is capped, and
+        // the rest arrives only when asked for.
+        for (var i = 0; i < 450; i++)
+            _devPanelService.LogInfo("Test", $"line {i}");
+
+        var cut = _ctx.Render<DevPanel>();
+        cut.WaitForAssertion(() =>
+        {
+            var lines = cut.FindAll(".log-line");
+            Assert.That(lines, Has.Count.EqualTo(200), "the first page is capped");
+        }, TimeSpan.FromSeconds(5));
+
+        cut.Find(".log-more button").Click();
+        cut.WaitForAssertion(() =>
+        {
+            var lines = cut.FindAll(".log-line");
+            Assert.That(lines, Has.Count.EqualTo(400), "the next page adds another 200");
+        }, TimeSpan.FromSeconds(5));
+
+        cut.Find(".log-more button").Click();
+        cut.WaitForAssertion(() =>
+        {
+            var lines = cut.FindAll(".log-line");
+            Assert.That(lines, Has.Count.EqualTo(450), "the last page stops at the end");
+        }, TimeSpan.FromSeconds(5));
+    }
+
+    [Test]
+    public void LogViewer_ShowsTheAreaThatWasStampedAtCapture()
+    {
+        _devPanelService.LogCollector.Log(
+            MelodyBridge.Core.Logging.LogLevel.Info, "Some.Technical.Category",
+            "with an area", area: "Downloads");
+
+        var cut = _ctx.Render<DevPanel>();
+        cut.WaitForAssertion(() =>
+        {
+            var line = cut.FindAll(".log-line").Single(l => l.TextContent.Contains("with an area"));
+            Assert.That(line.QuerySelector(".log-area")?.TextContent.Trim(), Is.EqualTo("Downloads"),
+                "the viewer reads the area fixed at capture time, not a guess from the category");
+        }, TimeSpan.FromSeconds(5));
     }
 
     [Test]
@@ -818,6 +879,27 @@ public class DevPanelTests
 
         var cut = _ctx.Render<DevPanel>();
         Assert.That(cut.Find(".queue-failed svg").GetAttribute("data-icon"), Is.EqualTo("x"));
+    }
+    private sealed class CountingDbFactory(IDbContextFactory<MelodyBridgeDbContext> inner)
+        : IDbContextFactory<MelodyBridgeDbContext>
+    {
+        private int _created;
+
+        public int Created => Volatile.Read(ref _created);
+
+        public void Reset() => Interlocked.Exchange(ref _created, 0);
+
+        public MelodyBridgeDbContext CreateDbContext()
+        {
+            Interlocked.Increment(ref _created);
+            return inner.CreateDbContext();
+        }
+
+        public Task<MelodyBridgeDbContext> CreateDbContextAsync(CancellationToken ct = default)
+        {
+            Interlocked.Increment(ref _created);
+            return inner.CreateDbContextAsync(ct);
+        }
     }
 }
 

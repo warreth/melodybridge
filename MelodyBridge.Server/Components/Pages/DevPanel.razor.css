@@ -471,6 +471,27 @@
     white-space: nowrap;
 }
 
+.log-area {
+    color: var(--muted-2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0 0.35rem;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    user-select: none;
+}
+
+.log-more {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.5rem 0.35rem 0.15rem;
+    color: var(--muted-2);
+    font-size: 0.72rem;
+}
+
 .log-msg {
     flex: 1;
     color: var(--text);

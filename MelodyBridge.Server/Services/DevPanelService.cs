@@ -12,7 +12,8 @@ public record DevLogEntry(
     string Level,
     string Category,
     string Message,
-    string? Detail = null
+    string? Detail = null,
+    string Area = "System"
 );
 
 /// <summary>
@@ -166,7 +167,8 @@ public class DevPanelService
                 LevelToString.TryGetValue(e.Level, out var s) ? s : e.Level.ToString(),
                 e.Category,
                 e.Message,
-                e.Detail))
+                e.Detail,
+                e.Area))
             .ToList();
     }
 
