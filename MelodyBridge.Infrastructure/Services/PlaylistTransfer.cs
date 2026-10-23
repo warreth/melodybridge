@@ -51,7 +51,13 @@ internal sealed class PlaylistTransfer
     {
         var entity = await _queries.GetByIdAsync(playlistId, ct)
             ?? throw new InvalidOperationException($"Playlist '{playlistId}' not found");
+        return ExportCsvOf(entity);
+    }
 
+    /// <summary>Same rows from an already loaded playlist: callers that
+    /// hold the entity (the bulk zip) do not re-read it per entry.</summary>
+    public byte[] ExportCsvOf(PlaylistEntity entity)
+    {
         var sb = new StringBuilder();
         sb.AppendLine("Position,Title,Artist,Album,DurationMs,Status,BitrateKbps,SampleRateHz,MediaType,FileSizeBytes,Filename");
         foreach (var t in entity.Tracks)
@@ -90,7 +96,7 @@ internal sealed class PlaylistTransfer
                 var entity = await _queries.GetByIdAsync(playlistId, ct);
                 if (entity is null) continue;
 
-                var bytes = await ExportCsvAsync(playlistId, ct);
+                var bytes = ExportCsvOf(entity);
                 var baseName = SafeFileNames.Sanitize(entity.Name);
                 if (string.IsNullOrWhiteSpace(baseName)) baseName = "playlist";
 
