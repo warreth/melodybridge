@@ -1039,8 +1039,24 @@ internal sealed class DownloadPipeline
         // flagged bytes stay on disk, the library passes would re-link
         // them as if a fresh download had landed, so the retry refuses
         // instead and the row keeps its open review.
+        // A path another row still points at is a shared name (dedup
+        // links two rows to one file when the folders line up): the retry
+        // refuses rather than stripping the sibling's copy, and the row
+        // says why.
         if (track.CurrentPath is not null && File.Exists(track.CurrentPath))
         {
+            if (await db.Tracks.AsNoTracking()
+                .AnyAsync(t => t.Id != track.Id
+                    && (t.CurrentPath == track.CurrentPath || t.ArchivePath == track.CurrentPath), ct))
+            {
+                _logger.LogInformation(
+                    "Quality review for '{Title}': the flagged file {Path} is shared with another track; retry refused",
+                    track.Title, track.CurrentPath);
+                track.Warning = "the flagged file is shared with another track; use 'download new' to sidestep it";
+                await db.SaveChangesAsync(ct);
+                return false;
+            }
+
             try
             {
                 File.Delete(track.CurrentPath);
@@ -1053,8 +1069,13 @@ internal sealed class DownloadPipeline
                 return false;
             }
         }
-        if (track.ArchivePath is not null)
+        if (track.ArchivePath is not null
+            && !await db.Tracks.AsNoTracking()
+                .AnyAsync(t => t.Id != track.Id
+                    && (t.CurrentPath == track.ArchivePath || t.ArchivePath == track.ArchivePath), ct))
+        {
             FileCleanup.DeleteQuietly(track.ArchivePath);
+        }
 
         var avoid = track.SourcePluginId;
         track.DownloadStatus = "pending";
