@@ -399,8 +399,10 @@
             parts.Add($"{summary.AlreadyNamed} already {(summary.AlreadyNamed == 1 ? "has" : "have")} the pattern name");
         if (summary.Missing > 0)
             parts.Add($"{summary.Missing} {(summary.Missing == 1 ? "file is" : "files are")} missing");
-        if (summary.SharedOrOutside > 0)
-            parts.Add($"{summary.SharedOrOutside} {(summary.SharedOrOutside == 1 ? "is" : "are")} shared or outside the managed folders");
+        if (summary.Shared > 0)
+            parts.Add($"{summary.Shared} {(summary.Shared == 1 ? "shares" : "share")} a path with another row");
+        if (summary.Outside > 0)
+            parts.Add($"{summary.Outside} {(summary.Outside == 1 ? "is" : "are")} outside the managed folders");
         if (summary.ArchiveSkipped > 0)
             parts.Add($"{summary.ArchiveSkipped} archive {(summary.ArchiveSkipped == 1 ? "copy" : "copies")} will be skipped");
         return string.Join(", ", parts);

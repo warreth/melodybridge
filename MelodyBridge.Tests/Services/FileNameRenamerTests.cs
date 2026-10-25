@@ -53,12 +53,13 @@ public class FileNameRenamerTests
     }
 
     private int Seed(string title, string artist, string currentPath,
-        string? archivePath = null, string status = "downloaded", int position = 0)
+        string? archivePath = null, string status = "downloaded", int position = 0,
+        string? melodyId = null)
     {
         using var db = _factory.CreateDbContext();
         var track = new TrackEntity
         {
-            MelodyId = $"mel-{Guid.NewGuid():N}",
+            MelodyId = melodyId ?? $"mel-{Guid.NewGuid():N}",
             Title = title,
             Artist = artist,
             DownloadStatus = status,
@@ -169,7 +170,7 @@ public class FileNameRenamerTests
             Assert.That(report.Renamed, Is.Zero);
             Assert.That(report.Skipped, Is.EqualTo(2));
             Assert.That(File.Exists(shared), Is.True);
-            Assert.That(summary.SharedOrOutside, Is.EqualTo(2));
+            Assert.That(summary.Shared, Is.EqualTo(2));
         });
     }
 
@@ -188,7 +189,56 @@ public class FileNameRenamerTests
         {
             Assert.That(report.Renamed, Is.Zero);
             Assert.That(File.Exists(outside), Is.True);
-            Assert.That(summary.SharedOrOutside, Is.EqualTo(1));
+            Assert.That(summary.Outside, Is.EqualTo(1));
+        });
+    }
+
+    [Test]
+    public async Task Rename_RenamesAPathSharedByTheSameSongOnce()
+    {
+        var shared = Write("music", "mel-shared.mp3");
+        Seed("Shared Song", "Artist", shared, melodyId: "mel-shared");
+        Seed("Shared Song", "Artist", shared, melodyId: "mel-shared");
+
+        var summary = await Renamer().CountAsync();
+        var report = await Renamer().RenameAsync();
+
+        var renamed = Path.Combine(_root, "music", "Artist - Shared Song.mp3");
+        using var db = _factory.CreateDbContext();
+        var rows = db.Tracks.AsNoTracking().OrderBy(t => t.Id).ToList();
+        Assert.Multiple(() =>
+        {
+            Assert.That(summary.ToRename, Is.EqualTo(2));
+            Assert.That(summary.Shared, Is.Zero);
+            Assert.That(report.Renamed, Is.EqualTo(2));
+            Assert.That(File.Exists(renamed), Is.True);
+            Assert.That(File.Exists(shared), Is.False);
+            Assert.That(rows.Select(t => t.CurrentPath), Is.All.EqualTo(renamed),
+                "every row that shared the path follows the one move");
+        });
+    }
+
+    [Test]
+    public async Task Rename_RenamesASharedArchiveCopyOnce()
+    {
+        var shared = Write("music", "mel-shared.flac");
+        var archive = Write("archive", "mel-shared.flac");
+        Seed("Shared Song", "Artist", shared, archive, melodyId: "mel-shared");
+        Seed("Shared Song", "Artist", shared, archive, melodyId: "mel-shared");
+
+        var report = await Renamer().RenameAsync();
+
+        var renamed = Path.Combine(_root, "music", "Artist - Shared Song.flac");
+        var renamedArchive = Path.Combine(_root, "archive", "Artist - Shared Song.flac");
+        using var db = _factory.CreateDbContext();
+        var rows = db.Tracks.AsNoTracking().OrderBy(t => t.Id).ToList();
+        Assert.Multiple(() =>
+        {
+            Assert.That(report.Renamed, Is.EqualTo(2));
+            Assert.That(File.Exists(renamed), Is.True);
+            Assert.That(File.Exists(renamedArchive), Is.True);
+            Assert.That(rows.Select(t => t.CurrentPath), Is.All.EqualTo(renamed));
+            Assert.That(rows.Select(t => t.ArchivePath), Is.All.EqualTo(renamedArchive));
         });
     }
 
