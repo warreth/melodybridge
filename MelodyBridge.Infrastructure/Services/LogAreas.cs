@@ -74,6 +74,7 @@ public static class LogAreas
         // Downloads: the manager, coordinator, registry, every plugin,
         // the quality probes and the Cloudflare solver they share.
         ("Download", "Downloads"),
+        ("FileNameRenamer", "Downloads"),
         ("Queue", "Downloads"),
         ("Downloader", "Downloads"),
         ("Qobuz", "Downloads"),
