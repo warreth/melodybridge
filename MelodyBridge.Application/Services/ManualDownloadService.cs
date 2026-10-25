@@ -19,17 +19,23 @@ public sealed class ManualDownloadService
     private readonly IDownloaderRegistry _registry;
     private readonly IUrlMetadataResolver _metadata;
     private readonly ILogger<ManualDownloadService> _logger;
+    private readonly DownloadThrottle? _throttle;
+    private readonly SettingsStore? _settings;
 
     public ManualDownloadService(
         IDownloadManager downloads,
         IDownloaderRegistry registry,
         IUrlMetadataResolver metadata,
-        ILogger<ManualDownloadService> logger)
+        ILogger<ManualDownloadService> logger,
+        DownloadThrottle? throttle = null,
+        SettingsStore? settings = null)
     {
         _downloads = downloads;
         _registry = registry;
         _metadata = metadata;
         _logger = logger;
+        _throttle = throttle;
+        _settings = settings;
     }
 
     /// <summary>
@@ -65,6 +71,7 @@ public sealed class ManualDownloadService
         string rawQuery, DownloadCandidate candidate, string? targetDirectory,
         DownloadQuality quality, CancellationToken ct = default)
     {
+        using var slot = _throttle is null ? null : await _throttle.AcquireAsync(ct);
         var (artist, title) = ParseQuery(rawQuery);
         if (title.Length == 0)
             return ManualDownloadResult.Failed("Type a title first.");
@@ -81,6 +88,7 @@ public sealed class ManualDownloadService
         string url, string? artist, string? title, string? targetDirectory,
         CancellationToken ct = default)
     {
+        using var slot = _throttle is null ? null : await _throttle.AcquireAsync(ct);
         if (!TryParseLink(url, out var uri))
             return ManualDownloadResult.Failed("Paste a full http or https link.");
 
@@ -124,7 +132,8 @@ public sealed class ManualDownloadService
             return ManualDownloadResult.Failed(reason);
         }
 
-        var result = Finish(path, finalArtist, finalTitle, melodyId, resolved?.Duration, directory.Path!);
+        var result = await Finish(
+            path, finalArtist, finalTitle, melodyId, resolved?.Duration, directory.Path!, ct);
         ReportProgress(melodyId, finalTitle, result.Success ? "done" : "failed",
             result.PluginName, result.FilePath,
             warning: result.Success ? result.Warning : result.Error);
@@ -165,7 +174,8 @@ public sealed class ManualDownloadService
             return ManualDownloadResult.Failed(reason);
         }
 
-        var result = Finish(path, artist, title, melodyId, expectedDuration, directory.Path!);
+        var result = await Finish(
+            path, artist, title, melodyId, expectedDuration, directory.Path!, ct);
         ReportProgress(melodyId, title, result.Success ? "done" : "failed",
             result.PluginName, result.FilePath, candidate.Confidence,
             result.Success ? result.Warning : result.Error);
@@ -184,9 +194,9 @@ public sealed class ManualDownloadService
     /// a length mismatch or a missing ffprobe keeps the file and says so,
     /// because the bytes are still playable and the user made the pick.
     /// </summary>
-    private ManualDownloadResult Finish(
+    private async Task<ManualDownloadResult> Finish(
         string path, string? artist, string title, string melodyId,
-        TimeSpan? expectedDuration, string directory)
+        TimeSpan? expectedDuration, string directory, CancellationToken ct)
     {
         string? warning = null;
         var libraryIdMissing = false;
@@ -247,7 +257,13 @@ public sealed class ManualDownloadService
         }
 
         var extension = Path.GetExtension(path);
-        var baseName = string.IsNullOrWhiteSpace(artist) ? title : $"{artist} - {title}";
+        // The same pattern the playlist pipeline uses. An empty pattern
+        // keeps the plugin's own name.
+        var pattern = _settings is null
+            ? FileNamePattern.Default
+            : await _settings.GetAsync(FileNamePattern.SettingKey, FileNamePattern.Default, ct);
+        var baseName = FileNamePattern.Expand(pattern, artist, title)
+            ?? (string.IsNullOrWhiteSpace(artist) ? title : $"{artist} - {title}");
         var used = Directory.EnumerateFiles(directory).ToList();
         var destination = SafeFileNames.UniqueFile(directory, baseName, extension, used);
         if (!string.Equals(Path.GetFullPath(path), Path.GetFullPath(destination),

@@ -286,6 +286,11 @@ public static class ServiceCollectionExtensions
         // user problem, not a dead service, and the UI marks it red.
         services.AddSingleton<MelodyBridge.Infrastructure.Services.PluginAuthMonitor>();
         services.AddSingleton<IDownloadManager, DownloadManager>();
+        // One download slot pool for the whole process: the setting bounds
+        // every playlist and manual download together.
+        services.AddSingleton<DownloadThrottle>();
+        // Applies the file name pattern to files already on disk, on request.
+        services.AddSingleton<FileNameRenamer>();
         services.AddSingleton<DownloadCoordinator>();
         services.AddSingleton<IDownloadCoordinator>(sp => sp.GetRequiredService<DownloadCoordinator>());
         // Manual downloads: link metadata through yt-dlp, then the same

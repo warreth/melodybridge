@@ -400,6 +400,9 @@ public class RecomputeFactsTests
                 NullLogger<Application.Services.DownloadManager>.Instance),
             NullLogger<PlaylistStore>.Instance);
         ctx.Services.AddSingleton(store);
+        ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Services.FileNameRenamer(
+            _factory, new SettingsStore(_factory),
+            NullLogger<MelodyBridge.Infrastructure.Services.FileNameRenamer>.Instance));
 
         // Act: the page must render the button and clicking it must invoke
         // the real store (0 stale tracks here -> the "0 track(s)" toast).

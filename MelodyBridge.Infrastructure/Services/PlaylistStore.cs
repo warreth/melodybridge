@@ -89,15 +89,15 @@ public class PlaylistStore
         LyricsResolver? lyrics = null,
         TrackLinker? linker = null,
         DataChangeTracker? changes = null,
-        ITrackClaimRegistry? claims = null)
+        ITrackClaimRegistry? claims = null,
+        DownloadThrottle? throttle = null)
     {
         _dbFactory = dbFactory;
         _providers = providers.ToArray();
         _accountProviders = accountProviders?.ToArray() ?? Array.Empty<IAccountSourceProvider>();
         _downloadManager = downloadManager;
         _logger = logger;
-        // Settings live in the same database: the lazily built store reads
-        // the same rows the injected singleton would.
+        // Settings live in the same database the injected singleton reads.
         _settings = settings ?? new SettingsStore(dbFactory);
         // The OS hard link wrapper has no state; one instance shared by
         // every store, or a private one for tests that never inject it.
@@ -127,7 +127,7 @@ public class PlaylistStore
         _transfer = new PlaylistTransfer(dbFactory, _queries, _snapshots);
         _pipeline = new DownloadPipeline(
             dbFactory, downloadManager, _settings, _linker,
-            isrcResolver, coverArt, lyrics, logger, () => Verification(), _changes, _claims);
+            isrcResolver, coverArt, lyrics, logger, () => Verification(), _changes, _claims, throttle: throttle);
     }
 
     public Task<(int downloaded, int failed)> DownloadMissingAsync(

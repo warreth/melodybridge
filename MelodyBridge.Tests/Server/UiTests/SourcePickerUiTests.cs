@@ -788,7 +788,10 @@ public class SourcePickerUiTests
         {
             using var db = new TestSqliteFactory(_dbPath).CreateDbContext();
             var track = db.Tracks.AsNoTracking().Single();
-            Assert.That(track.CurrentPath, Does.Contain("picked-mel-ui-1"),
+            Assert.That(track.CurrentPath, Is.Not.Null);
+            Assert.That(File.Exists(track.CurrentPath), Is.True,
+                "the replacement file exists on disk");
+            Assert.That(Path.GetFileName(track.CurrentPath), Is.Not.EqualTo("wrong-song.mp3"),
                 "the replacement takes the row over");
         }, TimeSpan.FromSeconds(10));
     }

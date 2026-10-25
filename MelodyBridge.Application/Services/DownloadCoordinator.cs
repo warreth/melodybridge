@@ -434,6 +434,9 @@ public class DownloadCoordinator : IDownloadCoordinator
             RefreshQueue(handle);
 
             var workers = await MaxConcurrentAsync(ct);
+            // The limit is global: every run configures the same slot pool,
+            // so two playlists together stay at this number.
+            _services.GetService<DownloadThrottle>()?.Configure(workers);
             _logger.LogInformation("Download run for {Playlist} starting with {Workers} workers over {Count} tracks",
                 playlistId, workers, work.TotalCount);
 

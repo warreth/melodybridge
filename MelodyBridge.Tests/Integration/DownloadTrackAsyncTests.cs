@@ -186,6 +186,67 @@ public class DownloadTrackAsyncTests
         }
     }
 
+    [Test]
+    public async Task DownloadTrack_NamesTheFileFromThePattern()
+    {
+        await DownloadWithPatternAndAssertAsync(
+            "{track} - {title} - {artist}", "01 - Get Lucky - Daft Punk.mp3");
+    }
+
+    [Test]
+    public async Task DownloadTrack_DefaultPattern_IsArtistThenTitle()
+    {
+        await DownloadWithPatternAndAssertAsync(null, "Daft Punk - Get Lucky.mp3");
+    }
+
+    [Test]
+    public async Task DownloadTrack_SourceToken_KeepsThePluginName()
+    {
+        await DownloadWithPatternAndAssertAsync("{source}", "mel-mel-name.mp3");
+    }
+
+    /// <summary>Seeds the pattern row (null = no row at all), downloads one
+    /// track and reads the produced file back from a fresh DbContext.</summary>
+    private static async Task DownloadWithPatternAndAssertAsync(
+        string? pattern, string expectedFileName)
+    {
+        var dbPath = NewDbPath();
+        var outDir = Path.Combine(Path.GetTempPath(), $"mb-name-{Guid.NewGuid():N}");
+        try
+        {
+            var factory = await NewDbFactory(dbPath);
+            var ids = await SeedPlaylistAsync(factory, outDir, ("mel-name", "Get Lucky", "Daft Punk"));
+            if (pattern is not null)
+            {
+                await using var db = factory.CreateDbContext();
+                db.DownloaderSettings.Add(new DownloaderSettingEntity
+                {
+                    Key = FileNamePattern.SettingKey,
+                    Value = pattern,
+                });
+                await db.SaveChangesAsync();
+            }
+
+            var store = NewStore(factory, new FileWritingDownloader());
+            await store.DownloadTrackAsync(ids[0]);
+
+            await using var fresh = factory.CreateDbContext();
+            var row = await fresh.Tracks.SingleAsync(t => t.Id == ids[0]);
+            Assert.Multiple(() =>
+            {
+                Assert.That(row.DownloadStatus, Is.EqualTo("downloaded"), row.DownloadError);
+                Assert.That(row.CurrentPath, Is.EqualTo(Path.Combine(outDir, expectedFileName)));
+                Assert.That(File.Exists(row.CurrentPath), Is.True);
+            });
+        }
+        finally
+        {
+            foreach (var suffix in new[] { "", "-wal", "-shm" })
+                try { File.Delete(dbPath + suffix); } catch { }
+            try { Directory.Delete(outDir, recursive: true); } catch { /* best effort */ }
+        }
+    }
+
     /// <summary>Seeds one playlist with pending tracks; returns their row ids in order.</summary>
     private static async Task<List<int>> SeedPlaylistAsync(
         IDbContextFactory<MelodyBridgeDbContext> factory, string targetDir,

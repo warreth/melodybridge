@@ -28,6 +28,7 @@ internal sealed class DownloadPipeline
     private readonly ITrackClaimRegistry _claims;
     private readonly PathLockTable _pathLocks;
     private readonly IRowClaimer _rowClaims;
+    private readonly DownloadThrottle? _throttle;
 
     public DownloadPipeline(
         IDbContextFactory<MelodyBridgeDbContext> dbFactory,
@@ -42,7 +43,8 @@ internal sealed class DownloadPipeline
         DataChangeTracker? changes = null,
         ITrackClaimRegistry? claims = null,
         PathLockTable? pathLocks = null,
-        IRowClaimer? rowClaims = null)
+        IRowClaimer? rowClaims = null,
+        DownloadThrottle? throttle = null)
     {
         _dbFactory = dbFactory;
         _downloadManager = downloadManager;
@@ -61,6 +63,7 @@ internal sealed class DownloadPipeline
         // One writer per file name, shared with the linker, so a delete
         // never pulls a file away from a worker that is writing it.
         _pathLocks = pathLocks ?? PathLockTable.Shared;
+        _throttle = throttle;
         // One claimer per pipeline: who reads pending rows and flips one
         // to in-progress atomically. The default reads the real rows.
         _rowClaims = rowClaims ?? new RowClaimer(_dbFactory, _claims);
@@ -159,6 +162,7 @@ internal sealed class DownloadPipeline
     public async Task<string> DownloadTrackAsync(
         int trackId, CancellationToken ct = default, bool avoidLastProvider = false)
     {
+        using var slot = _throttle is null ? null : await _throttle.AcquireAsync(ct);
         int id;
         string? avoidPluginId = null;
         string dir, preferredFormat;
@@ -385,6 +389,11 @@ internal sealed class DownloadPipeline
         // file never costs a network call.
         await EnrichMetadataAsync(track, path, ct);
 
+        // The library's file name pattern: plugins write their own names
+        // (video ids, jumo_..., dd_<guid>), which are correct but ugly in a
+        // music folder. An empty pattern keeps the plugin's name.
+        path = await ApplyFileNameAsync(track, path, ct);
+
         // The fresh file replaces what the row held: delete the previous
         // primary and archive copy by name first (a hardlink twin in
         // another playlist keeps its bytes), so a retry that lands under a
@@ -416,6 +425,56 @@ internal sealed class DownloadPipeline
         }
         await ArchiveDownloadedTrackAsync(track, db, ct);
         return "downloaded";
+    }
+
+    /// <summary>
+    /// Renames a fresh download to the library's file name pattern, inside
+    /// its own folder and under the same name lock the writers take. A
+    /// pattern that expands to nothing, or a file that cannot be renamed,
+    /// keeps the name the plugin chose.
+    /// </summary>
+    private async Task<string> ApplyFileNameAsync(TrackEntity track, string path, CancellationToken ct)
+    {
+        var pattern = await _settings.GetAsync(
+            FileNamePattern.SettingKey, FileNamePattern.Default, ct);
+        var baseName = FileNamePattern.Expand(
+            pattern, track.Artist, track.Title, track.Album, track.Position + 1);
+        if (baseName is null) return path;
+
+        var directory = Path.GetDirectoryName(path);
+        if (string.IsNullOrEmpty(directory)) return path;
+        var extension = Path.GetExtension(path);
+
+        // Try the plain name first, then the numbered suffixes. A stat per
+        // attempt is cheap; enumerating the whole folder for every
+        // download is O(n^2) over a playlist and hurts on network mounts.
+        for (var suffix = 1; suffix < 100; suffix++)
+        {
+            var candidate = suffix == 1
+                ? Path.Combine(directory, baseName + extension)
+                : Path.Combine(directory, $"{baseName} ({suffix}){extension}");
+            if (PlaylistStore.PathsEqual(candidate, path)) return path;
+
+            using var scope = await _pathLocks.AcquireAsync(candidate, ct);
+            if (File.Exists(candidate)) continue;
+            try
+            {
+                File.Move(path, candidate);
+                return candidate;
+            }
+            catch (IOException) when (suffix < 99)
+            {
+                // The name appeared between the check and the move: try
+                // the next suffix.
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                _logger.LogWarning(
+                    "Could not rename {Path} to the file name pattern: {Reason}", path, ex.Message);
+                return path;
+            }
+        }
+        return path;
     }
 
     /// <summary>
@@ -527,6 +586,7 @@ internal sealed class DownloadPipeline
     public async Task<string> DownloadChosenTrackAsync(
         int trackId, DownloadCandidate candidate, CancellationToken ct = default)
     {
+        using var slot = _throttle is null ? null : await _throttle.AcquireAsync(ct);
         int id;
         string dir, preferredFormat;
         await using (var db = await _dbFactory.CreateDbContextAsync(ct))

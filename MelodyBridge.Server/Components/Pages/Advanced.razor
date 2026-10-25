@@ -4,6 +4,7 @@
 @inject IDbContextFactory<MelodyBridgeDbContext> DbFactory
 @inject SettingsStore Settings
 @inject PlaylistStore PlaylistStore
+@inject FileNameRenamer Renamer
 @inject NotificationService Notifications
 @inject DevPanelService DevPanel
 
@@ -85,6 +86,22 @@
                 </label>
                 <HelpTip Path="reference#the-advanced-page" Text="The total time one track may take across every plugin, between 60 and 14400 seconds." />
             </div>
+            <div class="field-with-help">
+                <label>
+                    Downloaded file names
+                    <input @bind="fileNamePattern" @bind:after="MarkDirty" type="text" spellcheck="false" />
+                </label>
+                <HelpTip Path="reference#the-advanced-page" Text="The pattern for new downloads. Tokens: {artist}, {title}, {album}, {track}. Use {source} to keep the plugin's own file name." />
+            </div>
+        </div>
+        <div class="hint-box">
+            New downloads are named with this pattern:
+            <code>{artist} - {title}</code> is the default,
+            <code>{title} - {artist}</code> puts the title first, and
+            <code>{track} - {artist} - {title}</code> adds the playlist position.
+            Use <code>{source}</code> to keep the name the plugin chose. Files
+            already on disk keep their names until you run the rename action
+            under Maintenance.
         </div>
         <div class="toggle-with-help">
             <label class="toggle-switch wide">
@@ -105,7 +122,9 @@
         </div>
         <div class="hint-box">
             More simultaneous downloads finish large playlists faster but hit
-            every source harder; the next run picks up the new value. When
+            every source harder. The number is shared by every playlist and
+            manual download running at the same time; the next run picks up
+            the new value. When
             playlists and library folders refresh is set where they live:
             the playlist's own schedule on its page, the folder's schedule
             on the Library page.
@@ -178,10 +197,31 @@
             <button class="btn-modern" disabled="@retagging" @onclick="RetagLibrary">
                 @(retagging ? "Re-tagging…" : "Re-tag library")
             </button>
+            <button class="btn-modern" disabled="@renaming || @saving" @onclick="AskRenameFiles">
+                @(renaming ? "Renaming…" : "Rename files to the pattern")
+            </button>
         </div>
         @if (retagResult is not null)
         {
             <p class="text-muted">@retagResult</p>
+        }
+        @if (renameConfirm)
+        {
+            <div class="hint-box">
+                @renamePreview
+                <div class="flex-actions">
+                    <button class="btn-modern primary" disabled="@renaming" @onclick="RenameFiles">
+                        @(renaming ? "Renaming…" : "Rename")
+                    </button>
+                    <button class="btn-modern ghost" disabled="@renaming" @onclick="CancelRename">
+                        Cancel
+                    </button>
+                </div>
+            </div>
+        }
+        @if (renameResult is not null)
+        {
+            <p class="text-muted">@renameResult</p>
         }
     </div>
 </section>
@@ -197,6 +237,11 @@
     private bool recomputing;
     private bool retagging;
     private string? retagResult;
+    private string fileNamePattern = FileNamePattern.Default;
+    private bool renaming;
+    private bool renameConfirm;
+    private string? renamePreview;
+    private string? renameResult;
 
     // Unsaved-changes state for the floating save bar.
     private bool dirty;
@@ -214,6 +259,7 @@
         dedupEnabled = await Settings.GetBoolAsync(PlaylistStore.DedupSettingKey, true);
         logDatabaseActivity = await Settings.GetBoolAsync(DatabaseLogSwitch.SettingKey, false);
         advancedMode = await Settings.GetBoolAsync(DevPanelService.AdvancedSettingKey, DevPanel.Enabled);
+        fileNamePattern = await Settings.GetAsync(FileNamePattern.SettingKey, FileNamePattern.Default);
     }
 
     private async Task SaveAll()
@@ -238,6 +284,7 @@
             await Settings.SetAsync(PlaylistStore.DedupSettingKey, dedupEnabled ? "true" : "false");
             await Settings.SetAsync(DatabaseLogSwitch.SettingKey, logDatabaseActivity ? "true" : "false");
             await Settings.SetAsync(DevPanelService.AdvancedSettingKey, advancedMode ? "true" : "false");
+            await Settings.SetAsync(FileNamePattern.SettingKey, fileNamePattern.Trim());
             // Applies immediately, no restart: the log pipeline reads the
             // switch on every entry.
             DatabaseLogSwitch.Set(logDatabaseActivity);
@@ -287,6 +334,58 @@
         finally
         {
             retagging = false;
+        }
+    }
+
+    /// <summary>
+    /// Preview the rename pass with the saved pattern. The field above may
+    /// hold an unsaved edit; the files follow what new downloads follow.
+    /// </summary>
+    private async Task AskRenameFiles()
+    {
+        renameResult = null;
+        var pattern = await Settings.GetAsync(
+            FileNamePattern.SettingKey, FileNamePattern.Default);
+        var (pending, total) = await Renamer.CountAsync();
+        if (pending == 0)
+        {
+            renameResult = total == 0
+                ? "No downloaded files to rename."
+                : "Every downloaded file already follows the saved pattern.";
+            return;
+        }
+        renamePreview =
+            $"{pending} of {total} downloaded files will be renamed to '{pattern}'. "
+            + "Archive copies move with their track, and playlists pick the new paths "
+            + "up on their next sync.";
+        renameConfirm = true;
+    }
+
+    private void CancelRename()
+    {
+        renameConfirm = false;
+        renamePreview = null;
+    }
+
+    private async Task RenameFiles()
+    {
+        renaming = true;
+        try
+        {
+            var report = await Renamer.RenameAsync();
+            renameResult =
+                $"Renamed {report.Renamed} file(s); {report.Skipped} skipped, {report.Failed} failed.";
+            Notifications.Success(renameResult);
+            renameConfirm = false;
+            renamePreview = null;
+        }
+        catch (Exception ex)
+        {
+            Notifications.Error($"Rename failed: {ex.Message}");
+        }
+        finally
+        {
+            renaming = false;
         }
     }
 

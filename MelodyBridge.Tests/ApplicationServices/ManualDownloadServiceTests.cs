@@ -1,6 +1,7 @@
 using MelodyBridge.Application.Services;
 using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.Audio;
+using MelodyBridge.Infrastructure.Services;
 using MelodyBridge.Infrastructure.Tagging;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -44,6 +45,14 @@ public class ManualDownloadServiceTests
         /// <summary>Container the stub writes. ".webm" encodes a real one
         /// that TagLib cannot tag, which is the identity-warning case.</summary>
         public string OutputExtension { get; init; } = ".mp3";
+        /// <summary>Blocks the plugin until released, for concurrency tests.</summary>
+        public TaskCompletionSource? Gate { get; init; }
+        public int Entries => _entries;
+        public int MaxConcurrent => _maxConcurrent;
+        private int _entries;
+        private int _concurrent;
+        private int _maxConcurrent;
+        private readonly object _concurrentLock = new();
         public TrackQuery? LastQuery { get; private set; }
         public string? LastSourceUrl { get; private set; }
         public DownloadQuality? LastQuality { get; private set; }
@@ -69,21 +78,34 @@ public class ManualDownloadServiceTests
             string sourceUrl, CancellationToken ct = default)
             => Task.FromResult<CandidateAudioQuality?>(null);
 
-        public Task<DownloaderDownloadResult> DownloadAsync(
+        public async Task<DownloaderDownloadResult> DownloadAsync(
             string sourceUrl, string outputDirectory, string? melodyId,
             DownloadQuality? quality = null, CancellationToken ct = default)
         {
             LastSourceUrl = sourceUrl;
             LastQuality = quality;
-            if (!Succeeds)
-                return Task.FromResult(new DownloaderDownloadResult(
-                    false, null, Error ?? "the source failed"));
+            Interlocked.Increment(ref _entries);
+            var running = Interlocked.Increment(ref _concurrent);
+            lock (_concurrentLock)
+            {
+                if (running > _maxConcurrent) _maxConcurrent = running;
+            }
+            try
+            {
+                if (!Succeeds)
+                    return new DownloaderDownloadResult(false, null, Error ?? "the source failed");
+                if (Gate is not null) await Gate.Task.WaitAsync(ct);
 
-            Directory.CreateDirectory(outputDirectory);
-            var path = Path.Combine(outputDirectory, $"{melodyId ?? "x"}{OutputExtension}");
-            if (OutputExtension == ".webm") WriteWebm(path);
-            else File.WriteAllBytes(path, TestAudio.MinimalMp3());
-            return Task.FromResult(new DownloaderDownloadResult(true, path, null));
+                Directory.CreateDirectory(outputDirectory);
+                var path = Path.Combine(outputDirectory, $"{melodyId ?? "x"}{OutputExtension}");
+                if (OutputExtension == ".webm") WriteWebm(path);
+                else File.WriteAllBytes(path, TestAudio.MinimalMp3());
+                return new DownloaderDownloadResult(true, path, null);
+            }
+            finally
+            {
+                Interlocked.Decrement(ref _concurrent);
+            }
         }
     }
 
@@ -105,14 +127,15 @@ public class ManualDownloadServiceTests
         => Create(plugin, metadata).Service;
 
     private static (ManualDownloadService Service, DownloadManager Manager) Create(
-        IDownloader plugin, IUrlMetadataResolver? metadata = null)
+        IDownloader plugin, IUrlMetadataResolver? metadata = null,
+        DownloadThrottle? throttle = null)
     {
         var registry = new ListDownloaderRegistry(plugin);
         var manager = new DownloadManager(registry, NullLogger<DownloadManager>.Instance);
         return (new ManualDownloadService(
             manager, registry,
             metadata ?? new StubMetadataResolver(null),
-            NullLogger<ManualDownloadService>.Instance), manager);
+            NullLogger<ManualDownloadService>.Instance, throttle), manager);
     }
 
     /// <summary>A real one second opus-in-webm, a container TagLib cannot tag.</summary>
@@ -423,6 +446,37 @@ public class ManualDownloadServiceTests
             Assert.That(result.Warning, Does.Contain("library id"));
             Assert.That(TaglibHelper.ReadMelodyId(result.FilePath!), Is.Null,
                 "the warning tells the truth: the file carries no id");
+        });
+    }
+
+    [Test]
+    public async Task ConcurrentManualDownloads_ShareOneGlobalSlot()
+    {
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var plugin = new StubPlugin { Gate = gate };
+        var (service, _) = Create(plugin, throttle: new DownloadThrottle(1));
+
+        var first = service.DownloadUrlAsync(
+            "https://example.com/one", "Artist A", "One", _dir);
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (plugin.Entries == 0 && DateTime.UtcNow < deadline) await Task.Delay(20);
+        Assert.That(plugin.Entries, Is.EqualTo(1), "the first download reached the plugin");
+
+        var second = service.DownloadUrlAsync(
+            "https://example.com/two", "Artist B", "Two", _dir);
+        await Task.Delay(300);
+        Assert.That(plugin.Entries, Is.EqualTo(1),
+            "a second manual download waits for the one global slot");
+
+        gate.SetResult();
+        var results = await Task.WhenAll(first, second).WaitAsync(TimeSpan.FromSeconds(20));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(results.All(r => r.Success), Is.True,
+                string.Join("; ", results.Select(r => r.Error)));
+            Assert.That(plugin.MaxConcurrent, Is.EqualTo(1),
+                "the two downloads never overlapped");
         });
     }
 

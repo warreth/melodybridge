@@ -40,6 +40,11 @@ public static class TestServices
         var settingsStore = new SettingsStore(dbFactory);
         services.AddSingleton(settingsStore);
         services.AddSingleton(new MediaServerProfileStore(settingsStore));
+        // The Advanced page injects the rename pass; its own tests drive it
+        // through a real SQLite file like the library maintenance does.
+        services.AddSingleton(new FileNameRenamer(
+            dbFactory, settingsStore,
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<FileNameRenamer>.Instance));
         services.AddSingleton(new LibraryPathMover(dbFactory,
             NullLogger<LibraryPathMover>.Instance));
         services.AddSingleton(new DatabaseBackupService(dbFactory,
