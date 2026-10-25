@@ -249,6 +249,25 @@ public class DownloadManagerRobustnessTests
     }
 
     [Test]
+    public void UpdateProgressPath_ReplacesTheDisplayedPath_Only()
+    {
+        var manager = Manager();
+
+        manager.ReportProgress(new DownloadProgress(
+            "mel-1", "Song", "done", "Qobuz", "/music/05. Song.flac"));
+        manager.UpdateProgressPath("mel-1", "/music/Artist - Song.flac");
+
+        var progress = manager.SnapshotProgress().Single(p => p.MelodyId == "mel-1");
+        Assert.Multiple(() =>
+        {
+            Assert.That(progress.FilePath, Is.EqualTo("/music/Artist - Song.flac"),
+                "the overview must show the file that exists after the rename");
+            Assert.That(progress.Status, Is.EqualTo("done"));
+            Assert.That(progress.Plugin, Is.EqualTo("Qobuz"));
+        });
+    }
+
+    [Test]
     public async Task SearchHitAboveTheBand_IsSkipped_NextPluginWins()
     {
         var fat = new StubPlugin("fat")

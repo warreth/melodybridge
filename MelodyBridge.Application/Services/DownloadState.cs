@@ -49,6 +49,19 @@ internal sealed class DownloadState
         return _failures.TryGetValue(melodyId, out var entry) ? entry.Value : null;
     }
 
+    /// <summary>
+    /// Replaces the path of one entry, keeping its status, plugin and write
+    /// time. Used after the pipeline renames the finished file.
+    /// </summary>
+    public void UpdatePath(string melodyId, string filePath)
+    {
+        if (_progress.TryGetValue(melodyId, out var entry))
+            _progress[melodyId] = entry with
+            {
+                Value = entry.Value with { FilePath = filePath },
+            };
+    }
+
     /// <summary>Every live progress entry, newest writes included. The
     /// overview sorts on the write time, so each entry carries its own.</summary>
     public IReadOnlyList<DownloadProgress> Snapshot()

@@ -393,6 +393,8 @@ internal sealed class DownloadPipeline
         // (video ids, jumo_..., dd_<guid>), which are correct but ugly in a
         // music folder. An empty pattern keeps the plugin's name.
         path = await ApplyFileNameAsync(track, path, ct);
+        if (track.MelodyId is { Length: > 0 } melodyId)
+            _downloadManager.UpdateProgressPath(melodyId, path);
 
         // The fresh file replaces what the row held: delete the previous
         // primary and archive copy by name first (a hardlink twin in

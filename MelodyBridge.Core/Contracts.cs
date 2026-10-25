@@ -168,6 +168,13 @@ public interface IDownloadManager
     /// a failed pick never stays on "downloading".
     /// </summary>
     void ReportProgress(DownloadProgress progress);
+
+    /// <summary>
+    /// Updates the displayed path after the pipeline renamed a finished
+    /// file, so the overview does not show the plugin's temporary name.
+    /// A no-op when the track has no live entry.
+    /// </summary>
+    void UpdateProgressPath(string melodyId, string filePath) { }
     /// <summary>
     /// Search for the track through the plugin waterfall, download it into
     /// outputDirectory, tag the MELODY_ID, return the path. The query

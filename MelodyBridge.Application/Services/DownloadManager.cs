@@ -320,6 +320,9 @@ public class DownloadManager : IDownloadManager
     public void ReportProgress(DownloadProgress progress)
         => _state.SetProgress(progress);
 
+    public void UpdateProgressPath(string melodyId, string filePath)
+        => _state.UpdatePath(melodyId, filePath);
+
     /// <summary>
     /// The exact audio facts of one candidate, read by its plugin without
     /// downloading (a simulate-only yt-dlp extraction, a tier lookup).
