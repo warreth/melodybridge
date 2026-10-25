@@ -31,6 +31,12 @@ public class DefaultDownloadPathTests
         var factory = sp.GetRequiredService<IDbContextFactory<MelodyBridgeDbContext>>();
         await using var db = factory.CreateDbContext();
         await db.Database.EnsureCreatedAsync();
+        db.DownloaderSettings.Add(new DownloaderSettingEntity
+        {
+            Key = FileNamePattern.SettingKey,
+            Value = FileNamePattern.SourceToken,
+        });
+        await db.SaveChangesAsync();
         return factory;
     }
 

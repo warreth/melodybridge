@@ -156,6 +156,12 @@ public class QualityReviewFlowTests
         await using (var db = await factory.CreateDbContextAsync())
         {
             await db.Database.EnsureCreatedAsync();
+            // The retry checks the file name the winning provider wrote.
+            db.DownloaderSettings.Add(new DownloaderSettingEntity
+            {
+                Key = FileNamePattern.SettingKey,
+                Value = FileNamePattern.SourceToken,
+            });
             db.Playlists.Add(new PlaylistEntity
             {
                 Id = "pl-review",

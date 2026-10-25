@@ -31,6 +31,13 @@ public class ManualSourcePickTests
         _factory = new TestSqliteFactory(_dbPath);
         using var db = _factory.CreateDbContext();
         db.Database.EnsureCreated();
+        // The pick tests look for the plugin's file name, so keep it.
+        db.DownloaderSettings.Add(new DownloaderSettingEntity
+        {
+            Key = FileNamePattern.SettingKey,
+            Value = FileNamePattern.SourceToken,
+        });
+        db.SaveChanges();
     }
 
     [TearDown]
