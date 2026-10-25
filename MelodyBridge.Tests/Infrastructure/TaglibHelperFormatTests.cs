@@ -73,6 +73,24 @@ public class TaglibHelperFormatTests
             "explicit format transcodes land in mp3; the id must survive");
     }
 
+    [TestCase("mp3")]
+    [TestCase("opus")]
+    public void MelodyId_SurvivesTheTagRewrite(string kind)
+    {
+        // The download manager stamps the id first; the pipeline then
+        // writes title, artist, album, cover and lyrics over the same file.
+        // The id is the scanner's only handle, so it must survive.
+        var path = kind == "mp3" ? MakeMp3() : MakeOpus();
+        TaglibHelper.WriteMelodyId(path, "mb-keep");
+
+        TaglibHelper.WriteTags(path,
+            title: "Title", artist: "Artist", album: "Album",
+            albumArtist: "Various Artists", track: 3, lyrics: "words");
+
+        Assert.That(TaglibHelper.ReadMelodyId(path), Is.EqualTo("mb-keep"),
+            "a tag rewrite after the id must not drop the scanner's identity");
+    }
+
     [Test]
     public void OpusFile_TitleAndArtistRoundTrip()
     {
