@@ -73,4 +73,21 @@ public class LiveTrackClaimsTests
         third.Dispose();
         Assert.That(claims.IsLive(1), Is.False);
     }
+
+    [Test]
+    public void ActiveCount_CountsTheClaimedTracks()
+    {
+        var claims = new LiveTrackClaims();
+        Assert.That(claims.ActiveCount, Is.Zero);
+
+        using var first = claims.Claim(1);
+        using var second = claims.Claim(2);
+        using var again = claims.Claim(1);
+        Assert.That(claims.ActiveCount, Is.EqualTo(2),
+            "two scopes on one track are still one claimed track");
+
+        first.Dispose();
+        again.Dispose();
+        Assert.That(claims.ActiveCount, Is.EqualTo(1));
+    }
 }

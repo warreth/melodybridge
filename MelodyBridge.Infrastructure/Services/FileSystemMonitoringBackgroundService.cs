@@ -17,6 +17,7 @@ public class FileSystemMonitoringBackgroundService : BackgroundService
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<FileSystemMonitoringBackgroundService> _logger;
     private IFileSystemMonitor? _monitor;
+    private ITrackClaimRegistry? _claims;
 
     /// <summary>Locations with an event waiting for the current scan to end.</summary>
     private readonly ConcurrentDictionary<int, byte> _scanQueued = new();
@@ -38,6 +39,7 @@ public class FileSystemMonitoringBackgroundService : BackgroundService
         {
             // Get the IFileSystemMonitor singleton
             _monitor = _serviceProvider.GetRequiredService<IFileSystemMonitor>();
+            _claims = _serviceProvider.GetService<ITrackClaimRegistry>();
 
             // Subscribe to changes
             _monitor.ChangeDetected += OnFileSystemChange;
@@ -126,6 +128,17 @@ public class FileSystemMonitoringBackgroundService : BackgroundService
     private void OnFileSystemChange(object? sender, FileSystemChangeEventArgs e)
     {
         _logger.LogDebug("File system change detected: {ChangeType} - {Path}", e.ChangeType, e.Path);
+
+        // The download pipeline writes its own rows; a full folder walk in
+        // the middle of a run only re-reads every tag, triggers a library
+        // reconcile and contends with the downloads for SQLite. The next
+        // change after the run catches anything external.
+        if (_claims is { ActiveCount: > 0 })
+        {
+            _logger.LogDebug(
+                "Skipping the live rescan of location {Id}: a download is active", e.ScanLocationId);
+            return;
+        }
 
         // Coalesce: one scan loop per location. An event that arrives
         // while the folder is being walked schedules one follow-up, not a

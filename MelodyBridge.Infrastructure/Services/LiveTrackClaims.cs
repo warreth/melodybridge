@@ -19,6 +19,8 @@ public sealed class LiveTrackClaims : ITrackClaimRegistry
 
     public bool IsLive(int trackId) => _claims.ContainsKey(trackId);
 
+    public int ActiveCount => _claims.Count;
+
     public IDisposable Claim(int trackId)
     {
         _claims.AddOrUpdate(trackId, 1, (_, count) => count + 1);

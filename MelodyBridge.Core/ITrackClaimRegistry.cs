@@ -13,6 +13,9 @@ public interface ITrackClaimRegistry
     /// <summary>True while a download in this process holds the track.</summary>
     bool IsLive(int trackId);
 
+    /// <summary>How many tracks have a live claim right now.</summary>
+    int ActiveCount { get; }
+
     /// <summary>
     /// Marks the track as claimed for the lifetime of the returned scope.
     /// The scope is disposed when the download ends, however it ends.

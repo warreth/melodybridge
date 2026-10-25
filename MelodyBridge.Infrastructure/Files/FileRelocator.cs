@@ -19,7 +19,7 @@ internal static class FileRelocator
         {
             if (File.Exists(destination))
             {
-                logger.LogInformation(
+                logger.LogDebug(
                     "Library move: {Source} not moved, {Destination} already exists", source, destination);
                 return false;
             }
