@@ -1,10 +1,12 @@
 @page "/advanced"
+@using MelodyBridge.Application.Services
 @using MelodyBridge.Infrastructure.Services
 @using MelodyBridge.Server.Services
 @inject IDbContextFactory<MelodyBridgeDbContext> DbFactory
 @inject SettingsStore Settings
 @inject PlaylistStore PlaylistStore
 @inject FileNameRenamer Renamer
+@inject IDownloadCoordinator Coordinator
 @inject NotificationService Notifications
 @inject DevPanelService DevPanel
 
@@ -197,8 +199,8 @@
             <button class="btn-modern" disabled="@retagging" @onclick="RetagLibrary">
                 @(retagging ? "Re-tagging…" : "Re-tag library")
             </button>
-            <button class="btn-modern" disabled="@renaming || @saving" @onclick="AskRenameFiles">
-                @(renaming ? "Renaming…" : "Rename files to the pattern")
+            <button class="btn-modern" disabled="@(renaming || renameCounting || saving)" @onclick="AskRenameFiles">
+                @(renameCounting ? "Checking files…" : renaming ? "Renaming…" : "Rename files to the pattern")
             </button>
         </div>
         @if (retagResult is not null)
@@ -239,6 +241,7 @@
     private string? retagResult;
     private string fileNamePattern = FileNamePattern.Default;
     private bool renaming;
+    private bool renameCounting;
     private bool renameConfirm;
     private string? renamePreview;
     private string? renameResult;
@@ -344,21 +347,42 @@
     private async Task AskRenameFiles()
     {
         renameResult = null;
-        var pattern = await Settings.GetAsync(
-            FileNamePattern.SettingKey, FileNamePattern.Default);
-        var (pending, total) = await Renamer.CountAsync();
-        if (pending == 0)
+        renameConfirm = false;
+        if (Coordinator.Snapshot().Any(run => run.State is
+                DownloadRunState.Running or DownloadRunState.Paused or DownloadRunState.Cancelling))
         {
-            renameResult = total == 0
-                ? "No downloaded files to rename."
-                : "Every downloaded file already follows the saved pattern.";
+            renameResult = "A download run is still active. Pause or wait for it before renaming files.";
             return;
         }
-        renamePreview =
-            $"{pending} of {total} downloaded files will be renamed to '{pattern}'. "
-            + "Archive copies move with their track, and playlists pick the new paths "
-            + "up on their next sync.";
-        renameConfirm = true;
+
+        renameCounting = true;
+        try
+        {
+            var pattern = await Settings.GetAsync(
+                FileNamePattern.SettingKey, FileNamePattern.Default);
+            var (pending, total) = await Renamer.CountAsync();
+            if (pending == 0)
+            {
+                renameResult = total == 0
+                    ? "No downloaded files to rename."
+                    : "Every downloaded file already follows the saved pattern.";
+                return;
+            }
+            renamePreview =
+                $"{pending} of {total} downloaded files will be renamed to '{pattern}'. "
+                + "Archive copies move with their track, and playlists pick the new paths "
+                + "up on their next sync.";
+            renameConfirm = true;
+        }
+        catch (Exception ex)
+        {
+            renameResult = $"Could not check the files: {ex.Message}";
+            Notifications.Error(renameResult);
+        }
+        finally
+        {
+            renameCounting = false;
+        }
     }
 
     private void CancelRename()
@@ -369,6 +393,7 @@
 
     private async Task RenameFiles()
     {
+        renameConfirm = false;
         renaming = true;
         try
         {
@@ -376,12 +401,12 @@
             renameResult =
                 $"Renamed {report.Renamed} file(s); {report.Skipped} skipped, {report.Failed} failed.";
             Notifications.Success(renameResult);
-            renameConfirm = false;
             renamePreview = null;
         }
         catch (Exception ex)
         {
-            Notifications.Error($"Rename failed: {ex.Message}");
+            renameResult = $"Rename failed: {ex.Message}";
+            Notifications.Error(renameResult);
         }
         finally
         {

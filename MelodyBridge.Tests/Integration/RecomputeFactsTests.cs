@@ -403,6 +403,9 @@ public class RecomputeFactsTests
         ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Services.FileNameRenamer(
             _factory, new SettingsStore(_factory),
             NullLogger<MelodyBridge.Infrastructure.Services.FileNameRenamer>.Instance));
+        ctx.Services.AddSingleton<Application.Services.DownloadCoordinator>();
+        ctx.Services.AddSingleton<Application.Services.IDownloadCoordinator>(
+            sp => sp.GetRequiredService<Application.Services.DownloadCoordinator>());
 
         // Act: the page must render the button and clicking it must invoke
         // the real store (0 stale tracks here -> the "0 track(s)" toast).

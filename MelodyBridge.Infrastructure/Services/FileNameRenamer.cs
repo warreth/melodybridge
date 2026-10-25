@@ -41,7 +41,10 @@ public sealed class FileNameRenamer
     /// </summary>
     public async Task<(int Pending, int Total)> CountAsync(CancellationToken ct = default)
     {
-        var plan = await BuildPlanAsync(ct);
+        // A preview must answer, even when a network mount makes a stat
+        // hang. The pass itself may still run to completion in the
+        // background; the caller only gets a clear timeout.
+        var plan = await BuildPlanAsync(ct).WaitAsync(TimeSpan.FromSeconds(30), ct);
         return (plan.Pending, plan.Total);
     }
 
@@ -97,16 +100,30 @@ public sealed class FileNameRenamer
     /// move when the row changed underneath.</summary>
     private async Task<bool> MoveOneAsync(PlannedMove move, CancellationToken ct)
     {
-        using var scope = await _pathLocks.AcquireAsync(move.NewPath, ct);
-        // A second look under the lock: another writer may have taken the
-        // name since the plan was built.
-        if (File.Exists(move.NewPath) || !File.Exists(move.OldPath)) return false;
-        File.Move(move.OldPath, move.NewPath);
-        if (await UpdateRowAsync(move, ct)) return true;
-        // The row moved on between the plan and the update (a re-download):
-        // put the file back where its row says.
-        TryMoveBack(move.NewPath, move.OldPath);
-        return false;
+        // A stuck download may hold the name lock for a long time; the
+        // rename pass must not wait forever on it.
+        using var lockTimeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        lockTimeout.CancelAfter(TimeSpan.FromSeconds(10));
+        try
+        {
+            using var scope = await _pathLocks.AcquireAsync(move.NewPath, lockTimeout.Token);
+            // A second look under the lock: another writer may have taken
+            // the name since the plan was built.
+            if (File.Exists(move.NewPath) || !File.Exists(move.OldPath)) return false;
+            File.Move(move.OldPath, move.NewPath);
+            if (await UpdateRowAsync(move, ct)) return true;
+            // The row moved on between the plan and the update (a re-download):
+            // put the file back where its row says.
+            TryMoveBack(move.NewPath, move.OldPath);
+            return false;
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            _logger.LogWarning(
+                "Timed out waiting for the name lock on {Path}; leaving the file alone",
+                move.OldPath);
+            return false;
+        }
     }
 
     private static void TryMoveBack(string from, string to)
@@ -190,8 +207,17 @@ public sealed class FileNameRenamer
         HashSet<string> FilesIn(string directory)
         {
             if (directoryFiles.TryGetValue(directory, out var known)) return known;
-            known = new HashSet<string>(
-                Directory.EnumerateFiles(directory), StringComparer.OrdinalIgnoreCase);
+            try
+            {
+                known = new HashSet<string>(
+                    Directory.EnumerateFiles(directory), StringComparer.OrdinalIgnoreCase);
+            }
+            catch (Exception ex)
+            {
+                // An unreadable folder must not fail the whole pass.
+                _logger.LogDebug(ex, "Could not list {Directory} for the rename pass", directory);
+                known = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            }
             directoryFiles[directory] = known;
             return known;
         }
