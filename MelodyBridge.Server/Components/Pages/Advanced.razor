@@ -101,9 +101,9 @@
             <code>{artist} - {title}</code> is the default,
             <code>{title} - {artist}</code> puts the title first, and
             <code>{track} - {artist} - {title}</code> adds the playlist position.
-            Use <code>{source}</code> to keep the name the plugin chose. Files
-            already on disk keep their names until you run the rename action
-            under Maintenance.
+            Use <code>{source}</code> to keep the name the plugin chose. Tracks
+            already downloaded keep their file names until you run the rename
+            action under Maintenance.
         </div>
         <div class="toggle-with-help">
             <label class="toggle-switch wide">
@@ -200,7 +200,7 @@
                 @(retagging ? "Re-tagging…" : "Re-tag library")
             </button>
             <button class="btn-modern" disabled="@(renaming || renameCounting || saving)" @onclick="AskRenameFiles">
-                @(renameCounting ? "Checking files…" : renaming ? "Renaming…" : "Rename files to the pattern")
+                @(renameCounting ? "Checking tracks…" : renaming ? "Renaming…" : "Rename downloaded tracks")
             </button>
         </div>
         @if (retagResult is not null)
@@ -360,29 +360,50 @@
         {
             var pattern = await Settings.GetAsync(
                 FileNamePattern.SettingKey, FileNamePattern.Default);
-            var (pending, total) = await Renamer.CountAsync();
-            if (pending == 0)
+            var summary = await Renamer.CountAsync();
+            if (summary.KeepsSourceName)
             {
-                renameResult = total == 0
-                    ? "No downloaded files to rename."
-                    : "Every downloaded file already follows the saved pattern.";
+                renameResult = "The {source} pattern keeps the plugin names, so there is nothing to rename.";
+                return;
+            }
+            if (summary.ToRename == 0)
+            {
+                renameResult = summary.Total == 0
+                    ? "No downloaded tracks to rename."
+                    : $"Nothing to rename: {RenameBreakdown(summary)}.";
                 return;
             }
             renamePreview =
-                $"{pending} of {total} downloaded files will be renamed to '{pattern}'. "
-                + "Archive copies move with their track, and playlists pick the new paths "
-                + "up on their next sync.";
+                $"{RenameBreakdown(summary)}. New names follow '{pattern}'; archive copies "
+                + "move with their track, and playlists pick the new paths up on their next sync.";
             renameConfirm = true;
         }
         catch (Exception ex)
         {
-            renameResult = $"Could not check the files: {ex.Message}";
+            renameResult = $"Could not check the tracks: {ex.Message}";
             Notifications.Error(renameResult);
         }
         finally
         {
             renameCounting = false;
         }
+    }
+
+    /// <summary>The preview breakdown, one clause per outcome that occurred.</summary>
+    private static string RenameBreakdown(RenamePlanSummary summary)
+    {
+        var parts = new List<string>();
+        if (summary.ToRename > 0)
+            parts.Add($"{summary.ToRename} downloaded {(summary.ToRename == 1 ? "track" : "tracks")} will be renamed");
+        if (summary.AlreadyNamed > 0)
+            parts.Add($"{summary.AlreadyNamed} already {(summary.AlreadyNamed == 1 ? "has" : "have")} the pattern name");
+        if (summary.Missing > 0)
+            parts.Add($"{summary.Missing} {(summary.Missing == 1 ? "file is" : "files are")} missing");
+        if (summary.SharedOrOutside > 0)
+            parts.Add($"{summary.SharedOrOutside} {(summary.SharedOrOutside == 1 ? "is" : "are")} shared or outside the managed folders");
+        if (summary.ArchiveSkipped > 0)
+            parts.Add($"{summary.ArchiveSkipped} archive {(summary.ArchiveSkipped == 1 ? "copy" : "copies")} will be skipped");
+        return string.Join(", ", parts);
     }
 
     private void CancelRename()
@@ -398,8 +419,15 @@
         try
         {
             var report = await Renamer.RenameAsync();
-            renameResult =
-                $"Renamed {report.Renamed} file(s); {report.Skipped} skipped, {report.Failed} failed.";
+            var parts = new List<string>
+            {
+                $"Renamed {report.Renamed} {(report.Renamed == 1 ? "track" : "tracks")}",
+            };
+            if (report.Skipped > 0) parts.Add($"{report.Skipped} skipped");
+            if (report.ArchiveSkipped > 0)
+                parts.Add($"{report.ArchiveSkipped} archive {(report.ArchiveSkipped == 1 ? "copy" : "copies")} skipped");
+            if (report.Failed > 0) parts.Add($"{report.Failed} failed");
+            renameResult = string.Join(", ", parts) + ".";
             Notifications.Success(renameResult);
             renamePreview = null;
         }

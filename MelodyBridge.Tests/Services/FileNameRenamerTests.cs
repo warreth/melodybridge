@@ -1,4 +1,5 @@
 using MelodyBridge.Infrastructure.Data;
+using MelodyBridge.Infrastructure.Files;
 using MelodyBridge.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -91,7 +92,10 @@ public class FileNameRenamerTests
         var newArchive = Path.Combine(_root, "archive", "Artist A - Alpha.mp3");
         Assert.Multiple(() =>
         {
-            Assert.That(before.Pending, Is.EqualTo(1));
+            Assert.That(before.ToRename, Is.EqualTo(1));
+            Assert.That(before.AlreadyNamed, Is.EqualTo(1));
+            Assert.That(before.Missing, Is.EqualTo(1));
+            Assert.That(before.ArchiveSkipped, Is.Zero);
             Assert.That(before.Total, Is.EqualTo(3));
             Assert.That(report.Renamed, Is.EqualTo(1));
             Assert.That(report.Skipped, Is.EqualTo(2), "already named and missing files are skipped");
@@ -157,6 +161,7 @@ public class FileNameRenamerTests
         Seed("Shared One", "Artist", shared);
         Seed("Shared Two", "Artist", shared);
 
+        var summary = await Renamer().CountAsync();
         var report = await Renamer().RenameAsync();
 
         Assert.Multiple(() =>
@@ -164,6 +169,7 @@ public class FileNameRenamerTests
             Assert.That(report.Renamed, Is.Zero);
             Assert.That(report.Skipped, Is.EqualTo(2));
             Assert.That(File.Exists(shared), Is.True);
+            Assert.That(summary.SharedOrOutside, Is.EqualTo(2));
         });
     }
 
@@ -175,12 +181,68 @@ public class FileNameRenamerTests
         File.WriteAllText(outside, "x");
         Seed("Alpha", "Artist A", outside);
 
+        var summary = await Renamer().CountAsync();
         var report = await Renamer().RenameAsync();
 
         Assert.Multiple(() =>
         {
             Assert.That(report.Renamed, Is.Zero);
             Assert.That(File.Exists(outside), Is.True);
+            Assert.That(summary.SharedOrOutside, Is.EqualTo(1));
+        });
+    }
+
+    [Test]
+    public async Task Rename_RenamesTheTrack_WhenTheArchiveCopyIsOutsideTheManagedFolders()
+    {
+        var main = Write("music", "mel-a.mp3");
+        var archive = Path.Combine(_root, "elsewhere", "mel-a.mp3");
+        Directory.CreateDirectory(Path.GetDirectoryName(archive)!);
+        File.WriteAllText(archive, "x");
+        Seed("Alpha", "Artist A", main, archive);
+
+        var summary = await Renamer().CountAsync();
+        var report = await Renamer().RenameAsync();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(summary.ToRename, Is.EqualTo(1));
+            Assert.That(summary.ArchiveSkipped, Is.EqualTo(1));
+            Assert.That(report.Renamed, Is.EqualTo(1));
+            Assert.That(report.ArchiveSkipped, Is.EqualTo(1));
+            Assert.That(File.Exists(Path.Combine(_root, "music", "Artist A - Alpha.mp3")), Is.True);
+            Assert.That(File.Exists(archive), Is.True,
+                "the archive copy keeps its old name when its folder is not managed");
+        });
+    }
+
+    [Test]
+    public async Task Rename_KeepsHardlinksIntact()
+    {
+        var links = new HardLinkService();
+        if (!links.IsSupported) Assert.Ignore("hard links are not supported on this filesystem");
+
+        var first = Write("music/List A", "mel-a.flac");
+        var second = Path.Combine(_root, "music", "List B", "mel-a.flac");
+        Directory.CreateDirectory(Path.GetDirectoryName(second)!);
+        links.Create(second, first);
+        Assert.That(links.LinkCount(first), Is.EqualTo(2));
+        Seed("Song", "Artist", first);
+        Seed("Song", "Artist", second);
+
+        var report = await Renamer().RenameAsync();
+
+        var newFirst = Path.Combine(_root, "music", "List A", "Artist - Song.flac");
+        var newSecond = Path.Combine(_root, "music", "List B", "Artist - Song.flac");
+        Assert.Multiple(() =>
+        {
+            Assert.That(report.Renamed, Is.EqualTo(2));
+            Assert.That(File.Exists(newFirst), Is.True);
+            Assert.That(File.Exists(newSecond), Is.True);
+            Assert.That(links.SameFile(newFirst, newSecond), Is.True,
+                "both names still point at the same bytes");
+            Assert.That(links.LinkCount(newFirst), Is.EqualTo(2),
+                "renaming one directory entry does not break the hard link");
         });
     }
 
@@ -204,7 +266,8 @@ public class FileNameRenamerTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(before.Pending, Is.Zero);
+            Assert.That(before.ToRename, Is.Zero);
+            Assert.That(before.KeepsSourceName, Is.True);
             Assert.That(report.Renamed, Is.Zero);
             Assert.That(File.Exists(main), Is.True);
         });

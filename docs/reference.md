@@ -464,13 +464,17 @@ The knobs most people never need, in five panels:
   source, lyrics, the release credit and the album name. Only missing fields are
   written, so artwork a plugin embedded is left alone. It reports how many files
   changed, how many were already complete and how many could not be read.
-  **Rename files to the pattern** applies the saved file name pattern to files
-  already downloaded, archive copies included. It first shows how many of the
-  downloaded files would change; confirm to run it. Files outside the configured
-  music and archive folders, paths another track still points at, and files that
-  cannot be renamed are left alone, and the result says how many moved, were
-  skipped or failed. Playlists and sync jobs pick the new paths up on their next
-  run.
+  **Rename downloaded tracks** applies the saved file name pattern to files
+  already downloaded, archive copies included. The preview breaks the library
+  down: how many tracks would be renamed, how many already follow the pattern,
+  how many files are missing, how many are shared or outside the managed
+  folders, and how many archive copies would be skipped. Every skipped track is
+  logged with its reason at debug level. Files outside the configured music and
+  archive folders, paths another track still points at, and files that cannot be
+  renamed are left alone, and the result says how many moved, were skipped or
+  failed. Hard links keep working: renaming one playlist's name leaves the other
+  name on the same bytes. Playlists and sync jobs pick the new paths up on their
+  next run.
 
 ## The Dev panel <Badge type="warning" text="Advanced" />
 

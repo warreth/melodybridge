@@ -5,8 +5,20 @@ using Microsoft.Extensions.Logging;
 
 namespace MelodyBridge.Infrastructure.Services;
 
-/// <summary>What one rename run did, per track row.</summary>
-public sealed record RenameFilesReport(int Renamed, int Skipped, int Failed);
+/// <summary>What the preview found, by outcome. Counts are track rows,
+/// except <see cref="ArchiveSkipped"/>, which counts archive copies.</summary>
+public sealed record RenamePlanSummary(
+    int ToRename,
+    int AlreadyNamed,
+    int Missing,
+    int SharedOrOutside,
+    int ArchiveSkipped,
+    int Total,
+    bool KeepsSourceName);
+
+/// <summary>What one rename run did.</summary>
+public sealed record RenameFilesReport(
+    int Renamed, int Skipped, int Failed, int ArchiveSkipped);
 
 /// <summary>
 /// Applies the library file name pattern to files that are already on
@@ -14,6 +26,9 @@ public sealed record RenameFilesReport(int Renamed, int Skipped, int Failed);
 /// put in its own folders, never renames a path another row references,
 /// and moves the archive copy together with its track. A failure on one
 /// row never stops the run.
+///
+/// Renaming a hardlink changes one directory entry only: the other
+/// playlist's name still points at the same bytes, so dedup keeps working.
 /// </summary>
 public sealed class FileNameRenamer
 {
@@ -36,24 +51,25 @@ public sealed class FileNameRenamer
     }
 
     /// <summary>
-    /// How many rows would move and how many were considered. Zero pending
-    /// also means "nothing to do", including the {source} pattern.
+    /// The preview: how many rows would move and why the others would not.
     /// </summary>
-    public async Task<(int Pending, int Total)> CountAsync(CancellationToken ct = default)
+    public async Task<RenamePlanSummary> CountAsync(CancellationToken ct = default)
     {
         // A preview must answer, even when a network mount makes a stat
         // hang. The pass itself may still run to completion in the
         // background; the caller only gets a clear timeout.
         var plan = await BuildPlanAsync(ct).WaitAsync(TimeSpan.FromSeconds(30), ct);
-        return (plan.Pending, plan.Total);
+        return plan.Summary;
     }
 
     /// <summary>Renames the planned files and updates their rows.</summary>
     public async Task<RenameFilesReport> RenameAsync(CancellationToken ct = default)
     {
         var plan = await BuildPlanAsync(ct);
-        var skipped = plan.Total - plan.Pending;
-        if (plan.Moves.Count == 0) return new RenameFilesReport(0, skipped, 0);
+        var summary = plan.Summary;
+        var skipped = summary.AlreadyNamed + summary.Missing + summary.SharedOrOutside;
+        if (plan.Moves.Count == 0)
+            return new RenameFilesReport(0, skipped, 0, summary.ArchiveSkipped);
 
         var renamedRows = new HashSet<int>();
         var failedRows = new HashSet<int>();
@@ -91,9 +107,9 @@ public sealed class FileNameRenamer
         var renamed = renamedRows.Except(failedRows).Count();
         var failed = failedRows.Count;
         _logger.LogInformation(
-            "File name pass: {Renamed} renamed, {Skipped} skipped, {Failed} failed",
-            renamed, skipped, failed);
-        return new RenameFilesReport(renamed, skipped, failed);
+            "File name pass: {Renamed} renamed, {Skipped} skipped, {ArchiveSkipped} archive copies skipped, {Failed} failed",
+            renamed, skipped, summary.ArchiveSkipped, failed);
+        return new RenameFilesReport(renamed, skipped, failed, summary.ArchiveSkipped);
     }
 
     /// <summary>One file move plus its conditional row update; undo the
@@ -160,7 +176,7 @@ public sealed class FileNameRenamer
     private sealed record PlannedMove(
         int TrackId, string OldPath, string NewPath, bool Archive);
 
-    private sealed record Plan(List<PlannedMove> Moves, int Total, int Pending);
+    private sealed record Plan(List<PlannedMove> Moves, RenamePlanSummary Summary);
 
     private sealed record Row(
         int Id, string? Artist, string? Title, string? Album, int? Position,
@@ -179,12 +195,13 @@ public sealed class FileNameRenamer
                 t.Id, t.Artist, t.Title, t.Album, t.Position,
                 t.CurrentPath!, t.ArchivePath))
             .ToListAsync(ct);
-        if (rows.Count == 0) return new Plan(new List<PlannedMove>(), 0, 0);
+        if (rows.Count == 0)
+            return EmptyPlan(0, keepsSource: false);
 
         // A pattern that expands to nothing (empty, or {source}) means the
         // user wants plugin names: nothing to plan.
         if (FileNamePattern.Expand(pattern, "Artist", "Title") is null)
-            return new Plan(new List<PlannedMove>(), rows.Count, 0);
+            return EmptyPlan(rows.Count, keepsSource: true);
 
         // Paths another row references must not move under it.
         var references = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
@@ -199,6 +216,10 @@ public sealed class FileNameRenamer
 
         var roots = await ManagedRootsAsync(db, ct);
         var moves = new List<PlannedMove>();
+        var alreadyNamed = 0;
+        var missing = 0;
+        var sharedOrOutside = 0;
+        var archiveSkipped = 0;
 
         // One directory listing per folder for the whole pass: a playlist
         // folder with 3000 tracks must not be enumerated 3000 times.
@@ -233,15 +254,27 @@ public sealed class FileNameRenamer
         foreach (var row in rows)
         {
             ct.ThrowIfCancellationRequested();
-            if (!File.Exists(row.CurrentPath)) continue;
-            if (!IsManaged(row.CurrentPath, roots)) continue;
-            if (references.GetValueOrDefault(row.CurrentPath) > 1) continue;
-            if (row.ArchivePath is { Length: > 0 } archive
-                && File.Exists(archive)
-                && (references.GetValueOrDefault(archive) > 1 || !IsManaged(archive, roots)))
+            void Skip(string reason)
+                => _logger.LogDebug(
+                    "Rename skipped for track {Id} ({Title}): {Reason}",
+                    row.Id, row.Title, reason);
+
+            if (!File.Exists(row.CurrentPath))
             {
-                // Renaming the track but leaving its archive behind would
-                // split the pair; skip the row instead.
+                missing++;
+                Skip("the file is missing");
+                continue;
+            }
+            if (!IsManaged(row.CurrentPath, roots))
+            {
+                sharedOrOutside++;
+                Skip("the file is outside the managed folders");
+                continue;
+            }
+            if (references.GetValueOrDefault(row.CurrentPath) > 1)
+            {
+                sharedOrOutside++;
+                Skip("the path is shared with another row");
                 continue;
             }
 
@@ -251,46 +284,79 @@ public sealed class FileNameRenamer
             if (baseName is null) continue;
 
             var directory = Path.GetDirectoryName(row.CurrentPath);
-            if (string.IsNullOrEmpty(directory)) continue;
+            if (string.IsNullOrEmpty(directory))
+            {
+                sharedOrOutside++;
+                Skip("the file has no folder to rename it in");
+                continue;
+            }
             var extension = Path.GetExtension(row.CurrentPath);
-            if (string.Equals(
+            var rowHasMove = false;
+
+            if (!string.Equals(
                     Path.GetFileNameWithoutExtension(row.CurrentPath), baseName,
                     StringComparison.OrdinalIgnoreCase))
             {
-                continue; // already named the way the pattern asks
+                var candidate = Reserve(FilesIn(directory), directory, baseName, extension);
+                if (!PathsEqual(candidate, row.CurrentPath))
+                {
+                    moves.Add(new PlannedMove(row.Id, row.CurrentPath, candidate, Archive: false));
+                    rowHasMove = true;
+                }
             }
 
-            var candidate = Reserve(FilesIn(directory), directory, baseName, extension);
-            if (PathsEqual(candidate, row.CurrentPath)) continue;
-            moves.Add(new PlannedMove(row.Id, row.CurrentPath, candidate, Archive: false));
-
-            if (row.ArchivePath is { Length: > 0 } archivePath && File.Exists(archivePath))
+            if (row.ArchivePath is { Length: > 0 } archivePath
+                && File.Exists(archivePath)
+                && !string.Equals(
+                    Path.GetFileNameWithoutExtension(archivePath), baseName,
+                    StringComparison.OrdinalIgnoreCase))
             {
-                var archiveDirectory = Path.GetDirectoryName(archivePath);
-                if (!string.IsNullOrEmpty(archiveDirectory))
+                if (references.GetValueOrDefault(archivePath) > 1)
                 {
-                    var archiveExtension = Path.GetExtension(archivePath);
-                    if (!string.Equals(
-                            Path.GetFileNameWithoutExtension(archivePath), baseName,
-                            StringComparison.OrdinalIgnoreCase))
+                    archiveSkipped++;
+                    Skip("its archive copy is shared with another row");
+                }
+                else if (!IsManaged(archivePath, roots))
+                {
+                    archiveSkipped++;
+                    Skip("its archive copy is outside the managed folders");
+                }
+                else
+                {
+                    var archiveDirectory = Path.GetDirectoryName(archivePath);
+                    if (!string.IsNullOrEmpty(archiveDirectory))
                     {
+                        var archiveExtension = Path.GetExtension(archivePath);
                         var archiveCandidate = Reserve(
                             FilesIn(archiveDirectory), archiveDirectory, baseName, archiveExtension);
                         if (!PathsEqual(archiveCandidate, archivePath))
                         {
                             moves.Add(new PlannedMove(
                                 row.Id, archivePath, archiveCandidate, Archive: true));
+                            rowHasMove = true;
                         }
                     }
                 }
+            }
+
+            if (!rowHasMove)
+            {
+                alreadyNamed++;
+                Skip("the file already follows the pattern");
             }
         }
 
         // Count pending rows, not pending files: a track with an archive
         // copy contributes two moves but is one renamed track.
         var pendingRows = moves.Select(m => m.TrackId).Distinct().Count();
-        return new Plan(moves, rows.Count, pendingRows);
+        return new Plan(moves, new RenamePlanSummary(
+            pendingRows, alreadyNamed, missing, sharedOrOutside, archiveSkipped,
+            rows.Count, KeepsSourceName: false));
     }
+
+    private static Plan EmptyPlan(int total, bool keepsSource)
+        => new(new List<PlannedMove>(), new RenamePlanSummary(
+            0, 0, 0, 0, 0, total, keepsSource));
 
     private static void AddReference(Dictionary<string, int> references, string? path)
     {
