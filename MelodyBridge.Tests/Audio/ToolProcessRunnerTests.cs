@@ -38,11 +38,13 @@ public class ToolProcessRunnerTests
         var ffmpeg = Ffmpeg();
         if (ffmpeg is null) Assert.Ignore("ffmpeg is not installed on this machine");
 
-        // An hour-long null encode: only the timeout can end it.
+        // An hour-long null encode, paced at realtime: only the timeout
+        // can end it. Without -re a fast machine encodes the whole hour
+        // before the timeout fires, which made this test machine-bound.
         var args = new[]
         {
             "-hide_banner", "-loglevel", "error",
-            "-f", "lavfi", "-i", "sine=frequency=440:duration=3600",
+            "-re", "-f", "lavfi", "-i", "sine=frequency=440:duration=3600",
             "-f", "null", "-",
         };
         var watch = Stopwatch.StartNew();
@@ -91,7 +93,7 @@ public class ToolProcessRunnerTests
         var args = new[]
         {
             "-hide_banner", "-loglevel", "error",
-            "-f", "lavfi", "-i", "sine=frequency=440:duration=3600",
+            "-re", "-f", "lavfi", "-i", "sine=frequency=440:duration=3600",
             "-f", "s16le", "-",
         };
         var watch = Stopwatch.StartNew();
