@@ -353,7 +353,8 @@ public sealed class TrackLinker
             try
             {
                 var outcome = await TryLinkAsync(track, db, requested,
-                    pauseOnQualityMismatch: false, ct, candidate: candidate.Match);
+                    pauseOnQualityMismatch: false, ct, candidate: candidate.Match,
+                    resolvedFolder: folder, dedupEnabled: true);
                 linkedThisTrack = outcome == TrackLinkOutcome.Linked;
                 if (linkedThisTrack) linked++;
             }

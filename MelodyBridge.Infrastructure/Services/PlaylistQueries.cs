@@ -244,9 +244,11 @@ internal sealed class PlaylistQueries
 
     /// <summary>
     /// What deleting a playlist with its files touches: the distinct
-    /// primary and archive paths of its tracks that exist on disk, and the
-    /// bytes they take. Missing files are not counted: they cannot be
-    /// deleted. Used for the delete dialog's honest count and size.
+    /// primary and archive paths its tracks reference, and the bytes it
+    /// knows for them. The rows already carry both sizes (the download and
+    /// archive paths write them), so the dialog opens without statting
+    /// every file; only a path from before sizes were stored is read from
+    /// disk. The delete itself skips files that are already gone.
     /// </summary>
     public async Task<(int Files, long Bytes)> GetDeleteImpactAsync(
         string playlistId, CancellationToken ct = default)
@@ -254,32 +256,42 @@ internal sealed class PlaylistQueries
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var tracks = await db.Tracks.AsNoTracking()
             .Where(t => t.PlaylistEntityId == playlistId)
-            .Select(t => new { t.CurrentPath, t.ArchivePath })
+            .Select(t => new
+            {
+                t.CurrentPath, t.FileSizeBytes,
+                t.ArchivePath, t.ArchiveSizeBytes,
+            })
             .ToListAsync(ct);
 
-        var paths = tracks
-            .SelectMany(t => new[] { t.CurrentPath, t.ArchivePath })
-            .Where(p => !string.IsNullOrWhiteSpace(p))
-            .Select(p => p!)
-            .Distinct(StringComparer.OrdinalIgnoreCase);
+        var sizes = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+        void Add(string? path, long? size)
+        {
+            if (string.IsNullOrWhiteSpace(path)) return;
+            if (sizes.TryGetValue(path, out var known) && known > 0) return;
+            sizes[path] = size is > 0 ? size.Value : 0;
+        }
+        foreach (var track in tracks)
+        {
+            Add(track.CurrentPath, track.FileSizeBytes);
+            Add(track.ArchivePath, track.ArchiveSizeBytes);
+        }
 
-        var files = 0;
-        var bytes = 0L;
-        foreach (var path in paths)
+        // A row from before sizes were stored: one stat, never the whole
+        // playlist. A missing file keeps its zero and the delete skips it.
+        foreach (var unknown in sizes.Where(entry => entry.Value <= 0).Select(e => e.Key).ToList())
         {
             try
             {
-                var info = new FileInfo(path);
-                if (!info.Exists) continue;
-                files++;
-                bytes += info.Length;
+                var info = new FileInfo(unknown);
+                if (info.Exists) sizes[unknown] = info.Length;
             }
             catch (Exception)
             {
-                // An unreadable path cannot be judged: leave it out.
+                // An unreadable path cannot be judged: leave it at zero.
             }
         }
-        return (files, bytes);
+
+        return (sizes.Count, sizes.Values.Sum());
     }
 
     /// <summary>

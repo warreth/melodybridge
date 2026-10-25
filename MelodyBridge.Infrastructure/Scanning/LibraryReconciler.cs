@@ -149,7 +149,12 @@ public class LibraryReconciler
             var dir = FirstNonEmpty(playlist.TargetDirectory, musicPath);
             var ownFolder = PlaylistRules.ResolvePlaylistFolder(
                 playlist.TargetDirectory, musicPath, playlist.Name, playlistFolders);
-            var dedupCandidates = _linker is not null && dedupEnabled
+            // Only a pending row can be linked: skip the candidate query
+            // entirely when the playlist is already complete.
+            var mayNeedLinking = playlist.Tracks.Any(t =>
+                t.MelodyId is not null
+                && t.DownloadStatus is null or "pending" or "failed");
+            var dedupCandidates = _linker is not null && dedupEnabled && mayNeedLinking
                 ? await _linker.FindCandidatesAsync(playlist.Tracks, ct)
                 : new Dictionary<string, DedupMatch>();
 

@@ -35,8 +35,10 @@ public class IsrcResolver
     private DateTimeOffset _lastMusicBrainzCall = DateTimeOffset.MinValue;
 
     // Memoized verdicts, null included: a track that resolves once keeps
-    // its answer for the process lifetime, and a miss is not retried on
-    // every download attempt.
+    // its answer, and a miss is not retried on every download attempt. The
+    // resolver is a singleton, so the cache needs a ceiling; clearing it
+    // costs a few lookups, never correctness.
+    private const int MaxCacheEntries = 4096;
     private readonly ConcurrentDictionary<string, string?> _cache = new();
 
     public IsrcResolver(HttpClient http, ILogger<IsrcResolver> logger, HttpClient? musicBrainz = null)
@@ -57,6 +59,7 @@ public class IsrcResolver
 
         var key = $"{artist}\u0000{title}\u0000{duration?.TotalSeconds:0}";
         if (_cache.TryGetValue(key, out var cached)) return cached;
+        if (_cache.Count >= MaxCacheEntries) _cache.Clear();
 
         var resolved = await ResolveUncachedAsync(artist, title, duration, ct);
         _cache[key] = resolved;

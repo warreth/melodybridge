@@ -540,6 +540,7 @@ else
     private IReadOnlyList<Application.Services.QueuedItem>? observedQueue;
     /// <summary>Throttles full row reloads while a run is active.</summary>
     private DateTime lastActiveReloadUtc = DateTime.MinValue;
+    private DateTime lastIdleReloadUtc = DateTime.MinValue;
 
     /// <summary>The coordinator's run for this playlist, kept current by the poll.</summary>
     private Application.Services.DownloadRun? run => observedRun;
@@ -584,12 +585,18 @@ else
             var activeReloadDue = active
                 && DateTime.UtcNow - lastActiveReloadUtc >= TimeSpan.FromSeconds(5);
             var version = Store.DataVersion;
-            var reload = started || justFinished || activeReloadDue
-                || (!active && version != observedVersion);
+            // Another playlist's writes bump the same stamp. Reloading the
+            // whole table every second for them is wasteful; five seconds
+            // keeps the page current without re-sorting thousands of rows
+            // on every tick.
+            var idleReloadDue = !active && version != observedVersion
+                && DateTime.UtcNow - lastIdleReloadUtc >= TimeSpan.FromSeconds(5);
+            var reload = started || justFinished || activeReloadDue || idleReloadDue;
             if (reload)
             {
                 await ReloadTracksAsync();
                 lastActiveReloadUtc = DateTime.UtcNow;
+                lastIdleReloadUtc = DateTime.UtcNow;
                 observedVersion = Store.DataVersion;
             }
             if (reload || active)

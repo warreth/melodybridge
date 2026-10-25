@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
@@ -16,6 +17,12 @@ public class FileSystemMonitoringBackgroundService : BackgroundService
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<FileSystemMonitoringBackgroundService> _logger;
     private IFileSystemMonitor? _monitor;
+
+    /// <summary>Locations with an event waiting for the current scan to end.</summary>
+    private readonly ConcurrentDictionary<int, byte> _scanQueued = new();
+
+    /// <summary>Locations with a scan loop running.</summary>
+    private readonly ConcurrentDictionary<int, byte> _scanning = new();
 
     public FileSystemMonitoringBackgroundService(
         IServiceProvider serviceProvider,
@@ -120,9 +127,35 @@ public class FileSystemMonitoringBackgroundService : BackgroundService
     {
         _logger.LogDebug("File system change detected: {ChangeType} - {Path}", e.ChangeType, e.Path);
 
-        // Rescan the location that changed; the monitor already debounced
-        // rapid-fire events per folder, so this fires at most every few seconds.
-        _ = Task.Run(() => RescanLocationAsync(e.ScanLocationId));
+        // Coalesce: one scan loop per location. An event that arrives
+        // while the folder is being walked schedules one follow-up, not a
+        // task and a full walk of its own; the monitor already debounced
+        // the raw watcher burst per folder.
+        _scanQueued[e.ScanLocationId] = 0;
+        if (!_scanning.TryAdd(e.ScanLocationId, 0)) return;
+        _ = Task.Run(() => DrainScansAsync(e.ScanLocationId));
+    }
+
+    private async Task DrainScansAsync(int scanLocationId)
+    {
+        try
+        {
+            while (_scanQueued.TryRemove(scanLocationId, out _))
+            {
+                await RescanLocationAsync(scanLocationId);
+            }
+        }
+        finally
+        {
+            _scanning.TryRemove(scanLocationId, out _);
+            // An event that landed between the last queued check and the
+            // flag coming off must not wait for the next one.
+            if (_scanQueued.ContainsKey(scanLocationId)
+                && _scanning.TryAdd(scanLocationId, 0))
+            {
+                _ = Task.Run(() => DrainScansAsync(scanLocationId));
+            }
+        }
     }
 
 
