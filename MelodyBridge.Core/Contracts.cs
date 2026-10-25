@@ -384,7 +384,9 @@ public record DedupMatch(
     int? ExistingBitrateKbps,
     /// <summary>Playlist row id the existing file belongs to (any one of them).</summary>
     string? SourcePlaylistId,
-    /// <summary>True when container and bitrate satisfy the requested profile exactly.</summary>
+    /// <summary>Whether the candidate satisfies the requested profile.
+    /// FindCandidateAsync cannot know the target; TryLinkAsync replaces the
+    /// placeholder with the real verdict.</summary>
     bool QualityMatches,
     /// <summary>
     /// Archive copy that belongs to the existing row, when one was made.
@@ -395,7 +397,9 @@ public record DedupMatch(
     /// <summary>Human summary of the mismatch, for the UI warning.</summary>
     public string Describe()
     {
-        var what = ExistingBitrateKbps is { } kbps ? $"{ExistingFormat} {kbps} kbps" : ExistingFormat ?? "unknown format";
+        var what = ExistingBitrateKbps is { } kbps
+            ? $"{ExistingFormat} {kbps} kbps"
+            : $"{ExistingFormat ?? "unknown format"} (bitrate unknown)";
         return QualityMatches ? what : $"{what}, different from this playlist's target";
     }
 }
@@ -426,13 +430,26 @@ public static class DedupQuality
     /// <summary>True when the existing file satisfies the quality request.</summary>
     public static bool Matches(string? existingFormat, int? existingBitrateKbps, DownloadQuality quality)
     {
-        // Unknown facts cannot be verified: treat them as a mismatch so a
-        // human decides, never a silent hardlink of a dubious file.
-        if (string.IsNullOrWhiteSpace(existingFormat) || existingBitrateKbps is not > 0)
+        if (string.IsNullOrWhiteSpace(existingFormat))
             return false;
 
         var requested = RequestedContainer(quality);
         if (requested is not null && !FormatEquals(existingFormat, requested))
+            return false;
+
+        // Lossless has no meaningful bitrate target: the container is the
+        // promise. A missing measurement must not pause a FLAC link.
+        if (requested == "flac" && FormatEquals(existingFormat, "flac"))
+            return true;
+
+        // Without a bitrate band there is nothing to check. A known format
+        // is enough, even when the probe could not measure the bitrate.
+        if (quality.MinKbps is null && quality.MaxKbps is null)
+            return true;
+
+        // A band needs a measurement. Unknown facts stay a human decision
+        // rather than a silent hardlink of an unverified lossy file.
+        if (existingBitrateKbps is not > 0)
             return false;
 
         return quality.IsWithinBand(existingBitrateKbps);

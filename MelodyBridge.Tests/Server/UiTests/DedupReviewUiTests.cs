@@ -111,6 +111,31 @@ public class DedupReviewUiTests
     }
 
     [Test]
+    public void DownloadedTrack_WithAcceptedLinkDifference_ShowsInfoNotWarning()
+    {
+        var (cut, _) = Render(new TrackEntity
+        {
+            Title = "River", Artist = "Eminem, Ed Sheeran", Position = 13,
+            DownloadStatus = "downloaded",
+            CurrentPath = "/music/River.flac",
+            Warning = "hardlinked from playlist A: flac (bitrate unknown) "
+                + "(user accepted the quality difference)",
+        });
+
+        var row = cut.Find("tbody tr");
+        Assert.Multiple(() =>
+        {
+            Assert.That(row.InnerHtml, Does.Contain("info"),
+                "an accepted difference is informational, not an issue");
+            Assert.That(row.InnerHtml, Does.Not.Contain("warn"));
+            Assert.That(row.InnerHtml, Does.Contain("hardlinked from"),
+                "the link note stays discoverable");
+            Assert.That(row.QuerySelectorAll("button").Any(b => b.TextContent.Trim() == "!"),
+                Is.False, "the note no longer opens the archive dialog");
+        });
+    }
+
+    [Test]
     public void DownloadedTrack_KeepsItsUsualActions()
     {
         var (cut, _) = Render(new TrackEntity

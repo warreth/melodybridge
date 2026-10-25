@@ -971,13 +971,18 @@ internal sealed class DownloadPipeline
 
         var playlist = await db.Playlists.AsNoTracking()
             .FirstOrDefaultAsync(p => p.Id == track.PlaylistEntityId, ct);
+        var requested = PlaylistRules.ParseQuality(playlist?.PreferredFormat);
+        var candidateVerdict = candidate with
+        {
+            QualityMatches = DedupQuality.Matches(
+                candidate.ExistingFormat, candidate.ExistingBitrateKbps, requested),
+        };
         var outcome = await _linker.TryLinkAsync(track, db,
-            PlaylistRules.ParseQuality(playlist?.PreferredFormat),
-            pauseOnQualityMismatch: false, ct,
-            candidate: candidate,
+            requested, pauseOnQualityMismatch: false, ct,
+            candidate: candidateVerdict,
             acceptQualityDifference: true,
-            warning: $"hardlinked from {candidate.SourcePlaylistId}: "
-                + $"{candidate.Describe()} (user accepted the quality difference)");
+            warning: $"hardlinked from {candidateVerdict.SourcePlaylistId}: "
+                + $"{candidateVerdict.Describe()} (user accepted the quality difference)");
         if (outcome != TrackLinkOutcome.Linked)
         {
             _logger.LogInformation(

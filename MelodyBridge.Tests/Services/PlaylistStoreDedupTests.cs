@@ -421,6 +421,8 @@ public class PlaylistStoreDedupTests
         Assert.That(new HardLinkService().LinkCount(sourceFile), Is.EqualTo(2));
         Assert.That(row.Warning, Does.Contain("user accepted"),
             "the row keeps an honest note about the accepted difference");
+        Assert.That(row.Warning, Does.Contain("different from this playlist's target"),
+            "the note names the real quality mismatch, not just the file facts");
     }
 
     [Test]

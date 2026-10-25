@@ -105,7 +105,13 @@
                         @{ var warnTitle = WarnTitle(track); }
                         @if (!string.IsNullOrWhiteSpace(warnTitle))
                         {
-                            if (OnWarning.HasDelegate)
+                            if (AcceptedLinkDifference(track))
+                            {
+                                // The user chose the other playlist's file. Keep
+                                // the fact visible without an orange issue pill.
+                                <StatusPill Variant="info" Class="pill-tight" Title="@warnTitle">i</StatusPill>
+                            }
+                            else if (OnWarning.HasDelegate)
                             {
                                 <button class="pill-button" type="button" title="@warnTitle"
                                         aria-label="@($"Issue: {warnTitle}")"
@@ -512,6 +518,17 @@
         "downloaded" => 5,
         _ => 6,
     };
+
+    /// <summary>
+    /// A downloaded hardlink whose quality difference the user accepted is
+    /// a fact, not an open issue. Archive failures appended to the same
+    /// warning stay orange.
+    /// </summary>
+    private static bool AcceptedLinkDifference(TrackEntity track)
+        => track.DownloadStatus == "downloaded"
+           && track.Warning?.StartsWith("hardlinked from", StringComparison.Ordinal) == true
+           && !track.Warning.Contains("archive copy failed", StringComparison.Ordinal)
+           && !track.Warning.Contains("another track already owns", StringComparison.Ordinal);
 
     /// <summary>
     /// The tooltip of the "!" pill: the open review reason first, an

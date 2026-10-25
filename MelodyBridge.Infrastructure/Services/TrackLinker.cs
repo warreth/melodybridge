@@ -189,8 +189,15 @@ public sealed class TrackLinker
         candidate ??= await FindCandidateAsync(track.MelodyId, track.Id, ct);
         if (candidate is null) return TrackLinkOutcome.NoCandidate;
 
-        if (!acceptQualityDifference
-            && !DedupQuality.Matches(candidate.ExistingFormat, candidate.ExistingBitrateKbps, requested))
+        // The candidate is fetched without a target profile (the UI can
+        // ask for one before it knows which playlist is linking). Give the
+        // verdict the real requested quality here, so Describe() only says
+        // "different" when it actually is.
+        var qualityMatches = DedupQuality.Matches(
+            candidate.ExistingFormat, candidate.ExistingBitrateKbps, requested);
+        candidate = candidate with { QualityMatches = qualityMatches };
+
+        if (!acceptQualityDifference && !qualityMatches)
         {
             if (pauseOnQualityMismatch)
             {
@@ -243,7 +250,9 @@ public sealed class TrackLinker
         track.IsHardLink = !alreadyOwnName;
         track.CurrentPath = linkPath;
         track.LastSeenAt = DateTime.UtcNow;
-        track.Bitrate = candidate.ExistingBitrateKbps;
+        track.Bitrate = candidate.ExistingBitrateKbps is > 0
+            ? candidate.ExistingBitrateKbps
+            : Audio.BitrateProbe.MeasureKbps(linkPath);
         track.MediaType = candidate.ExistingFormat;
         AudioProbe.Fill(track, linkPath);
         // The linked file was verified where it came from; no review
@@ -439,8 +448,8 @@ public sealed class TrackLinker
         Path.GetExtension(row.CurrentPath).TrimStart('.').ToLowerInvariant(),
         row.Bitrate,
         row.PlaylistEntityId,
-        // Quality facts live on the row; a missing bitrate is treated as
-        // unverifiable (mismatch) by the verdict.
+        // Placeholder: TryLinkAsync knows the target and replaces this with
+        // the real verdict.
         row.Bitrate is > 0,
         row.ArchivePath);
 
