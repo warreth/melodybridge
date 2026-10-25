@@ -61,19 +61,25 @@ public class SyncJobRunner : ISyncJobRunner
             // A null SourceId with search locations means "local folder":
             // every track whose CurrentPath lives under one of them.
             List<TrackEntity> allTracks;
-            if (!string.IsNullOrEmpty(job.SourceId))
+            if (job.SourceId is { Length: > 0 } sourceId)
             {
-                var sourcePlaylist = await db.Playlists
-                    .Include(p => p.Tracks)
-                    .FirstOrDefaultAsync(p => p.Id == job.SourceId, ct);
-                if (sourcePlaylist == null)
+                var exists = await db.Playlists.AsNoTracking()
+                    .AnyAsync(p => p.Id == sourceId, ct);
+                if (!exists)
                 {
                     await RecordFailedRunAsync(job,
-                        $"Playlist '{job.SourceId}' not found", 0, 0, ct);
+                        $"Playlist '{sourceId}' not found", 0, 0, ct);
                     return new SyncJobRunLog(DateTime.UtcNow, SyncStatus.Failed,
-                        $"Playlist '{job.SourceId}' not found", 0, 0);
+                        $"Playlist '{sourceId}' not found", 0, 0);
                 }
-                allTracks = sourcePlaylist.Tracks.OrderBy(t => t.Position).ToList();
+                // Only the columns the publication reads: the row's lyrics
+                // and cover text can be several KB per track, and a sync
+                // job never looks at them.
+                allTracks = await db.Tracks.AsNoTracking()
+                    .Where(t => t.PlaylistEntityId == sourceId)
+                    .OrderBy(t => t.Position).ThenBy(t => t.Id)
+                    .Select(SyncTrackColumns)
+                    .ToListAsync(ct);
             }
             else if (job.SearchLocationPaths.Count > 0)
             {
@@ -89,29 +95,32 @@ public class SyncJobRunner : ISyncJobRunner
                 if (roots.Count <= 4)
                 {
                     var filter = PredicateExpr(roots);
-                    allTracks = await db.Tracks
+                    allTracks = await db.Tracks.AsNoTracking()
                         .Where(filter)
                         .Where(t => t.CurrentPath != null)
                         .OrderBy(t => t.Id)
+                        .Select(SyncTrackColumns)
                         .ToListAsync(ct);
                 }
                 else
                 {
-                    var loaded = await db.Tracks
+                    var loaded = await db.Tracks.AsNoTracking()
                         .Where(t => t.CurrentPath != null)
+                        .OrderBy(t => t.Id)
+                        .Select(SyncTrackColumns)
                         .ToListAsync(ct);
                     allTracks = loaded
-                        .Where(t => roots.Any(root =>
-                            t.CurrentPath!.StartsWith(root, StringComparison.OrdinalIgnoreCase)))
+                        .Where(t => roots.Any(root => IsUnderRoot(t.CurrentPath!, root)))
                         .OrderBy(t => t.Id)
                         .ToList();
                 }
             }
             else
             {
-                allTracks = await db.Tracks
+                allTracks = await db.Tracks.AsNoTracking()
                     .Where(t => t.PlaylistSnapshotId == null)
                     .OrderBy(t => t.Position).ThenBy(t => t.Id)
+                    .Select(SyncTrackColumns)
                     .ToListAsync(ct);
             }
 
@@ -265,41 +274,88 @@ public class SyncJobRunner : ISyncJobRunner
     }
 
 
+    /// <summary>One root and the prefix that marks its directory boundary.</summary>
+    private static (string Root, string Prefix) RootMatch(string root)
+    {
+        var normalized = root.TrimEnd(
+            Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        // The filesystem root ("/" or "C:\") trims to nothing or a drive
+        // letter: every path below it is inside by definition.
+        var prefix = normalized.Length == 0
+            ? root[..Math.Min(1, root.Length)]
+            : normalized + Path.DirectorySeparatorChar;
+        return (normalized, prefix);
+    }
+
+    /// <summary>
+    /// True when the path sits inside the root at a directory boundary:
+    /// "/music/List A" is inside "/music/List A", "/music/List AB" is not.
+    /// </summary>
+    private static bool IsUnderRoot(string path, string root)
+    {
+        var (normalized, prefix) = RootMatch(root);
+        if (normalized.Length == 0) return path.StartsWith(prefix, StringComparison.Ordinal);
+        return path.Equals(normalized, StringComparison.OrdinalIgnoreCase)
+            || path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// The folder source filter, translated into one expression so SQLite
+    /// does the work. Each root is compared at a directory boundary, the
+    /// same rule <see cref="IsUnderRoot"/> uses for the in-memory path.
+    /// </summary>
+    /// <summary>The columns a sync run reads, so a run never loads lyrics or
+    /// cover text it does not use.</summary>
+    private static readonly Expression<Func<TrackEntity, TrackEntity>> SyncTrackColumns = t => new TrackEntity
+    {
+        Id = t.Id,
+        Title = t.Title,
+        Artist = t.Artist,
+        DurationMs = t.DurationMs,
+        MelodyId = t.MelodyId,
+        MediaType = t.MediaType,
+        CurrentPath = t.CurrentPath,
+        IsLiked = t.IsLiked,
+        DownloadStatus = t.DownloadStatus,
+    };
+
     private static Expression<Func<TrackEntity, bool>> PredicateExpr(IReadOnlyList<string> roots)
     {
         if (roots.Count == 1)
         {
-            var first = roots[0];
+            var (r1, p1) = RootMatch(roots[0]);
             return t => t.CurrentPath != null
-                && t.CurrentPath.StartsWith(first);
+                && (t.CurrentPath == r1 || t.CurrentPath.StartsWith(p1));
         }
         if (roots.Count == 2)
         {
-            var first = roots[0];
-            var second = roots[1];
+            var (r1, p1) = RootMatch(roots[0]);
+            var (r2, p2) = RootMatch(roots[1]);
             return t => t.CurrentPath != null
-                && (t.CurrentPath.StartsWith(first)
-                    || t.CurrentPath.StartsWith(second));
+                && (t.CurrentPath == r1 || t.CurrentPath.StartsWith(p1)
+                    || t.CurrentPath == r2 || t.CurrentPath.StartsWith(p2));
         }
         if (roots.Count == 3)
         {
-            var first = roots[0];
-            var second = roots[1];
-            var third = roots[2];
+            var (r1, p1) = RootMatch(roots[0]);
+            var (r2, p2) = RootMatch(roots[1]);
+            var (r3, p3) = RootMatch(roots[2]);
             return t => t.CurrentPath != null
-                && (t.CurrentPath.StartsWith(first)
-                    || t.CurrentPath.StartsWith(second)
-                    || t.CurrentPath.StartsWith(third));
+                && (t.CurrentPath == r1 || t.CurrentPath.StartsWith(p1)
+                    || t.CurrentPath == r2 || t.CurrentPath.StartsWith(p2)
+                    || t.CurrentPath == r3 || t.CurrentPath.StartsWith(p3));
         }
-        var a = roots[0];
-        var b = roots[1];
-        var c = roots[2];
-        var d = roots[3];
-        return t => t.CurrentPath != null
-            && (t.CurrentPath.StartsWith(a)
-                || t.CurrentPath.StartsWith(b)
-                || t.CurrentPath.StartsWith(c)
-                || t.CurrentPath.StartsWith(d));
+        {
+            var (r1, p1) = RootMatch(roots[0]);
+            var (r2, p2) = RootMatch(roots[1]);
+            var (r3, p3) = RootMatch(roots[2]);
+            var (r4, p4) = RootMatch(roots[3]);
+            return t => t.CurrentPath != null
+                && (t.CurrentPath == r1 || t.CurrentPath.StartsWith(p1)
+                    || t.CurrentPath == r2 || t.CurrentPath.StartsWith(p2)
+                    || t.CurrentPath == r3 || t.CurrentPath.StartsWith(p3)
+                    || t.CurrentPath == r4 || t.CurrentPath.StartsWith(p4));
+        }
     }
 
     /// <summary>
@@ -359,7 +415,7 @@ public class SyncJobRunner : ISyncJobRunner
         {
             if (string.IsNullOrWhiteSpace(target.M3uPath))
                 return new TargetRunResult(null, Array.Empty<string>(), "M3U file: no output path configured");
-            var options = new PlaylistOutputOptions(target.M3uPath, false,
+            var options = new PlaylistOutputOptions(target.M3uPath, job.M3uRelativePaths,
                 remap, ExtensionRemap: extensionRemap);
             await _m3uGenerator.GenerateM3uAsync(playlist, searchPaths, options, ct);
             return new TargetRunResult("M3U file", Array.Empty<string>(), null);

@@ -222,6 +222,116 @@ public class SyncJobRunnerTests
     }
 
     [Test]
+    public async Task RunJob_FolderSource_OnlyTakesTracksUnderThatFolder()
+    {
+        // /List A and /List AB share a prefix. Selecting /List A must not
+        // pick up the sibling folder's track.
+        var dbPath = NewDbPath();
+        var root = Path.Combine(Path.GetTempPath(), $"mb-job-{Guid.NewGuid():N}");
+        var listA = Path.Combine(root, "List A");
+        var listAB = Path.Combine(root, "List AB");
+        Directory.CreateDirectory(listA);
+        Directory.CreateDirectory(listAB);
+        var fileA = Path.Combine(listA, "a.mp3");
+        var fileB = Path.Combine(listAB, "b.mp3");
+        await File.WriteAllTextAsync(fileA, "x");
+        await File.WriteAllTextAsync(fileB, "x");
+        var m3uPath = Path.Combine(root, "out.m3u");
+        try
+        {
+            var factory = await NewDbFactory(dbPath);
+            await using (var db = await factory.CreateDbContextAsync())
+            {
+                db.Tracks.AddRange(
+                    new TrackEntity
+                    {
+                        MelodyId = "mel-a", Title = "Alpha", Artist = "A",
+                        DownloadStatus = "downloaded", CurrentPath = fileA, Position = 0,
+                    },
+                    new TrackEntity
+                    {
+                        MelodyId = "mel-b", Title = "Beta", Artist = "B",
+                        DownloadStatus = "downloaded", CurrentPath = fileB, Position = 0,
+                    });
+                await db.SaveChangesAsync();
+            }
+
+            var runner = NewRunner(factory);
+            var job = new SyncJob
+            {
+                Id = "job-folder",
+                Name = "Folder job",
+                SourceId = null,
+                SearchLocationPaths = new List<string> { listA },
+                Targets = new List<SyncTarget>
+                {
+                    new(OutputTargetType.M3uFile, M3uPath: m3uPath),
+                },
+            };
+
+            var log = await runner.RunJobAsync(job);
+            var lines = await File.ReadAllLinesAsync(m3uPath);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(log.Status, Is.EqualTo(SyncStatus.Completed));
+                Assert.That(lines, Does.Contain(fileA), "the selected folder's track is published");
+                Assert.That(lines, Does.Not.Contain(fileB),
+                    "a sibling folder whose name only shares a prefix is a different folder");
+                Assert.That(log.ResolvedTracks, Is.EqualTo(1));
+            });
+        }
+        finally
+        {
+            TryDelete(dbPath);
+            try { Directory.Delete(root, recursive: true); } catch { /* best effort */ }
+        }
+    }
+
+    [Test]
+    public async Task RunJob_M3uRelativePaths_AreRelativeToTheOutputFile()
+    {
+        var dbPath = NewDbPath();
+        var dir = Path.Combine(Path.GetTempPath(), $"mb-job-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        var m3uPath = Path.Combine(dir, "playlists", "out.m3u");
+        try
+        {
+            var factory = await NewDbFactory(dbPath);
+            await SeedPlaylistAsync(factory, dir);
+
+            var runner = NewRunner(factory);
+            var job = new SyncJob
+            {
+                Id = "job-rel",
+                Name = "Job Playlist",
+                SourceId = "pl-job",
+                M3uRelativePaths = true,
+                Targets = new List<SyncTarget>
+                {
+                    new(OutputTargetType.M3uFile, M3uPath: m3uPath),
+                },
+            };
+
+            await runner.RunJobAsync(job);
+            var lines = await File.ReadAllLinesAsync(m3uPath);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(lines, Does.Contain("../a.mp3"));
+                Assert.That(lines, Does.Contain("../b.mp3"));
+                Assert.That(lines.Any(l => l.StartsWith('/')), Is.False,
+                    "a relative M3U has no absolute entries");
+            });
+        }
+        finally
+        {
+            TryDelete(dbPath);
+            try { Directory.Delete(dir, recursive: true); } catch { /* best effort */ }
+        }
+    }
+
+    [Test]
     public async Task RunJob_AThrowingTarget_DoesNotStopTheOthers()
     {
         var dbPath = NewDbPath();

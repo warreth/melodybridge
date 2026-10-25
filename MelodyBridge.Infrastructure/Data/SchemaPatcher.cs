@@ -76,6 +76,8 @@ public static class SchemaPatcher
         // Multi-target jobs: the list of M3U paths and media server
         // profiles as JSON. Null rows keep the legacy single target.
         ("SyncJobs", "TargetsJson", "TEXT NULL"),
+        // M3U entries relative to the output file instead of absolute paths.
+        ("SyncJobs", "M3uRelativePaths", "INTEGER NOT NULL DEFAULT 0"),
         // Auto-sync attempt stamp: a failed refresh waits for the next
         // interval instead of retrying on every scheduler poll.
         ("Playlists", "LastAttemptAt", "TEXT NULL"),
@@ -156,6 +158,26 @@ public static class SchemaPatcher
             "CREATE INDEX IX_Tracks_PlaylistEntityId_DownloadStatus_FileSizeBytes_ReviewKind "
                 + "ON Tracks (PlaylistEntityId, DownloadStatus, FileSizeBytes, ReviewKind)",
             ct);
+
+        // Ownership checks (dedup link, replaced file, delete) ask by path
+        // on every download, so a full track-table scan per check is the
+        // cost this removes.
+        await CreateIndexIfMissingAsync(
+            db, "IX_Tracks_CurrentPath",
+            "CREATE INDEX IX_Tracks_CurrentPath ON Tracks (CurrentPath)", ct);
+        await CreateIndexIfMissingAsync(
+            db, "IX_Tracks_ArchivePath",
+            "CREATE INDEX IX_Tracks_ArchivePath ON Tracks (ArchivePath)", ct);
+
+        // The dashboard reads the newest runs every refresh and a job's log
+        // filters by job; the table only grows over an install's life.
+        await CreateIndexIfMissingAsync(
+            db, "IX_SyncJobRuns_Timestamp",
+            "CREATE INDEX IX_SyncJobRuns_Timestamp ON SyncJobRuns (Timestamp)", ct);
+        await CreateIndexIfMissingAsync(
+            db, "IX_SyncJobRuns_SyncJobId_Timestamp",
+            "CREATE INDEX IX_SyncJobRuns_SyncJobId_Timestamp "
+                + "ON SyncJobRuns (SyncJobId, Timestamp)", ct);
     }
 
     /// <summary>

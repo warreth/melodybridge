@@ -230,6 +230,17 @@
                                     M3U output path
                                     <input @bind="draft.M3uOutputPath" placeholder="/app/playlists/playlist.m3u" />
                                 </label>
+                                <label class="toggle-switch wide">
+                                    <input type="checkbox" @bind="draft.M3uRelativePaths" />
+                                    <span class="toggle-slider"></span>
+                                    <span>Relative paths in the M3U</span>
+                                </label>
+                                <div class="hint-box">
+                                    Entries point from the M3U file to the music
+                                    (<code>../music/song.flac</code>) instead of absolute paths,
+                                    so the playlist still works when the folder moves. Leave it
+                                    off when your player needs absolute paths.
+                                </div>
                             }
                             <div class="target-actions">
                                 <a class="btn-modern ghost small" href="/settings#media-servers" target="_blank" rel="noopener">
@@ -1302,6 +1313,7 @@ else
             entity.SourceId = sourceType == "playlist" && !string.IsNullOrWhiteSpace(selectedSourceId)
                 ? selectedSourceId : null;
             entity.SearchLocationPaths = JsonSerializer.Serialize(pathsList);
+            entity.M3uRelativePaths = draft.M3uRelativePaths;
             entity.PathRemapRules = JsonSerializer.Serialize(remapRules);
             entity.ExtensionRemapRules = JsonSerializer.Serialize(extRulesDict);
             entity.Schedule = draft.Schedule.ToString();

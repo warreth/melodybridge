@@ -58,6 +58,10 @@ public class M3uGenerator
                 {
                     path = Path.GetRelativePath(
                         Path.GetDirectoryName(options.OutputPath) ?? ".", path);
+                    // A relative M3U is often read on another OS; forward
+                    // slashes are the portable spelling and every common
+                    // player accepts them.
+                    path = path.Replace('\\', '/');
                 }
                 catch { /* keep absolute */ }
             }

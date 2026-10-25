@@ -142,7 +142,8 @@ public class M3uGeneratorTests
                 playlist, Array.Empty<ScanLocation>(), new PlaylistOutputOptions(outputPath, true, null));
 
             var content = await File.ReadAllLinesAsync(outputPath);
-            Assert.That(content[2], Is.EqualTo(Path.Combine("sub", "song.flac")));
+            Assert.That(content[2], Is.EqualTo("sub/song.flac"),
+                "a relative M3U uses forward slashes so it travels across OSes");
         }
         finally { Directory.Delete(dir, recursive: true); }
     }

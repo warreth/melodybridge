@@ -33,6 +33,10 @@ public class MelodyBridgeDbContext : DbContext
             // counters read, so the group-by runs over the index instead
             // of over every row of the table.
             e.HasIndex(t => new { t.PlaylistEntityId, t.DownloadStatus, t.FileSizeBytes, t.ReviewKind });
+            // Ownership checks on the hot download, dedup and delete paths
+            // ask "does another row still point at this file?" by path.
+            e.HasIndex(t => t.CurrentPath);
+            e.HasIndex(t => t.ArchivePath);
             e.Property(t => t.MelodyId).HasMaxLength(64);
             e.Property(t => t.ExternalId).HasMaxLength(128);
             e.Property(t => t.ExternalPlatform).HasMaxLength(64);
@@ -92,6 +96,10 @@ public class MelodyBridgeDbContext : DbContext
         modelBuilder.Entity<SyncJobRunEntity>(e =>
         {
             e.HasKey(r => r.Id);
+            // The dashboard sorts runs by time on every refresh and a job's
+            // log filters by job; both tables only grow.
+            e.HasIndex(r => r.Timestamp);
+            e.HasIndex(r => new { r.SyncJobId, r.Timestamp });
             e.Property(r => r.SyncJobId).HasMaxLength(64);
             e.Property(r => r.Message).HasMaxLength(2048);
         });
@@ -364,6 +372,9 @@ public class SyncJobEntity
     /// </summary>
     public string? MediaServerProfileId { get; set; }
     public string? M3uOutputPath { get; set; }
+    /// <summary>Write M3U entries relative to the output file instead of
+    /// absolute paths. False on rows from before the option existed.</summary>
+    public bool M3uRelativePaths { get; set; }
     /// <summary>
     /// Every publication target as JSON ([{kind, profileId, m3uPath}]).
     /// Null on jobs from before multi-target support: those keep the

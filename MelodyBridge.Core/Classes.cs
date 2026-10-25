@@ -86,6 +86,9 @@ public class SyncJob
     /// for legacy jobs with inline connection values.</summary>
     public string? MediaServerProfileId { get; set; }
     public string? M3uOutputPath { get; set; }
+    /// <summary>Write M3U entries relative to the output file instead of
+    /// absolute paths, so the playlist travels with the library.</summary>
+    public bool M3uRelativePaths { get; set; }
     public Dictionary<string, string> PathRemapRules { get; set; } = new();
     public Dictionary<string, string> ExtensionRemapRules { get; set; } = new();
     public SyncJobSchedule Schedule { get; set; } = SyncJobSchedule.Manual;

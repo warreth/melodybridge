@@ -30,6 +30,7 @@ public static class SyncJobMapping
             Targets = TargetsOf(entity),
             OutputTarget = Enum.TryParse<OutputTargetType>(entity.OutputTarget, true, out var ot) ? ot : OutputTargetType.M3uFile,
             M3uOutputPath = entity.M3uOutputPath,
+            M3uRelativePaths = entity.M3uRelativePaths,
             JellyfinServerUrl = entity.JellyfinServerUrl,
             JellyfinApiKey = entity.JellyfinApiKey,
             JellyfinUserId = entity.JellyfinUserId,
