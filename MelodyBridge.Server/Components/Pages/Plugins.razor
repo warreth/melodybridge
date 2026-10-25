@@ -6,7 +6,6 @@
 @using MelodyBridge.Infrastructure.Downloaders
 @using MelodyBridge.Infrastructure.Services
 @inject IDownloaderRegistry Registry
-@inject Application.Services.DownloadCoordinator Coordinator
 @inject YtDlpUpdater YtDlp
 @inject MelodyBridge.Server.Services.NotificationService Notifications
 @inject MelodyBridge.Infrastructure.Services.PluginAuthMonitor AuthMonitor
@@ -31,6 +30,9 @@
             equals.</p>
     </div>
     <div class="topbar-actions">
+        <a class="btn-modern small secondary" href="/downloads">
+            <Icon Name="download" Size="14" /> Downloads
+        </a>
         <small class="text-muted updated-note">@(lastAvailabilityCheck == DateTimeOffset.MinValue ? "" : $"checked {lastAvailabilityCheck.ToLocalTime():HH:mm}")</small>
         <button class="btn-modern small ghost" disabled="@refreshingStatus" @onclick="RefreshAvailabilityAsync" title="Probe every plugin again">
             <Icon Name="refresh" Size="14" /> @(refreshingStatus ? "Checking…" : "Refresh status")
@@ -130,52 +132,6 @@
         Based on each plugin's declared capabilities. Availability is still checked per track.
     </p>
 </section>
-
-@if (runs.Count > 0)
-{
-    <section class="panel-card" id="live-downloads">
-        <div class="panel-header">
-            <div>
-                <span class="eyebrow">Active</span>
-                <h2>Live downloads</h2>
-            </div>
-        </div>
-        <div class="qi-result">
-            @foreach (var run in runs)
-            {
-                <div class="qi-item">
-                    <div class="qi-grow">
-                        <strong>@run.PlaylistName</strong>
-                        <div class="qi-meta">
-                            @run.State · @run.Done/@run.Total done · @run.Failed failed
-                            @if (!string.IsNullOrEmpty(run.CurrentTrack))
-                            {
-                                <span> · now: @run.CurrentTrack</span>
-                            }
-                        </div>
-                        <div class="progress-track">
-                            <div class="progress-fill" style="width:@run.Percent%"></div>
-                        </div>
-                    </div>
-                    <div class="flex-actions">
-                        @if (run.State == Application.Services.DownloadRunState.Running)
-                        {
-                            <button class="btn-modern small ghost" @onclick="() => Coordinator.Pause(run.PlaylistId)"><Icon Name="pause" Size="14" /> Pause</button>
-                        }
-                        else if (run.State == Application.Services.DownloadRunState.Paused)
-                        {
-                            <button class="btn-modern small primary" @onclick="() => Coordinator.Start(run.PlaylistId)"><Icon Name="play" Size="14" /> Resume</button>
-                        }
-                        @if (run.State is Application.Services.DownloadRunState.Running or Application.Services.DownloadRunState.Paused)
-                        {
-                            <button class="btn-modern small ghost" @onclick="() => Coordinator.Cancel(run.PlaylistId)"><Icon Name="x" Size="14" /> Cancel</button>
-                        }
-                    </div>
-                </div>
-            }
-        </div>
-    </section>
-}
 
 <section class="panel-card">
     <div class="panel-header">
@@ -401,7 +357,6 @@
     private readonly ConcurrentDictionary<string, long> availabilityVersions = new(StringComparer.OrdinalIgnoreCase);
     private IReadOnlyList<PluginAuthIssue> authIssues = Array.Empty<PluginAuthIssue>();
     private Dictionary<string, string> configValues = new();
-    private List<Application.Services.DownloadRun> runs = new();
     private Timer? _timer;
     private string? firstEnabledId;
     private string? lastEnabledId;
@@ -416,6 +371,8 @@
     private bool hashRead;
     private string browserHash = string.Empty;
     private bool pluginsLoaded;
+    private bool disposed;
+    private Task? _liveStatusTask;
     private QualityPresets.Id routePreset = QualityPresets.Id.Lossless;
     private string? ytDlpVersion;
     private string? ytDlpMessage;
@@ -423,41 +380,34 @@
 
     protected override async Task OnInitializedAsync()
     {
-        // Show an active run on the first render, before the slower plugin
-        // probes: the sidebar chip links straight to this section.
-        runs = Coordinator.Snapshot()
-            .Where(r => r.State != Application.Services.DownloadRunState.Finished)
-            .ToList();
         _ = Registry.GetEnabled(); // force cache load
         await ReorderPluginsAsync();
         // The background login sweep may already know about a stale token:
         // show that mark before the first slow network probe finishes.
         authIssues = AuthMonitor.Snapshot();
-        await RefreshAvailability();
-        authIssues = AuthMonitor.Snapshot();
+        AuthMonitor.Changed += OnAuthMonitorChanged;
         await LoadConfigValuesAsync();
-        ytDlpVersion = await YtDlp.GetVersionAsync();
-        ytDlpChecked = true;
+
         _timer = new Timer(_ => InvokeAsync(async () =>
         {
-            runs = Coordinator.Snapshot().Where(r => r.State != Application.Services.DownloadRunState.Finished).ToList();
+            if (DateTimeOffset.UtcNow - lastAvailabilityCheck <= TimeSpan.FromSeconds(30))
+                return;
             await ReorderPluginsAsync();
-            // Keep the ready pills honest: a cheap re-probe (plugins cache
-            // their own verdicts) every half minute.
-            if (DateTimeOffset.UtcNow - lastAvailabilityCheck > TimeSpan.FromSeconds(30))
-            {
-                MarkChecking();
-                StateHasChanged();
-                await RefreshAvailability();
-            }
-            authIssues = AuthMonitor.Snapshot();
+            MarkChecking();
             StateHasChanged();
-        }), null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
-        StateHasChanged();
+            await RefreshAvailability();
+            StateHasChanged();
+        }), null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        // Availability and the yt-dlp version both wait on the outside
+        // world: a network probe and a process start. Render the cards with
+        // their checking pills first, then let those checks land, instead
+        // of holding the whole page for the slowest one.
+        if (firstRender) _liveStatusTask = LoadLiveStatusAsync();
+
         var fragment = Nav.ToAbsoluteUri(Nav.Uri).Fragment.TrimStart('#');
 
         // An initial request never sends the fragment to the server, so
@@ -503,28 +453,6 @@
             return;
         }
 
-        if (string.Equals(fragment, "live-downloads", StringComparison.OrdinalIgnoreCase))
-        {
-            handledFragment = fragment;
-            try
-            {
-                await JS.InvokeVoidAsync("melody.revealElement", "live-downloads", false);
-            }
-            catch (JSException)
-            {
-                // The section still renders; only the scroll is lost.
-            }
-            catch (JSDisconnectedException)
-            {
-                // The section still renders; only the scroll is lost.
-            }
-            catch (InvalidOperationException)
-            {
-                // No JS runtime in a static render.
-            }
-            return;
-        }
-
         if (!fragment.StartsWith("plugin-", StringComparison.OrdinalIgnoreCase))
         {
             handledFragment = fragment;
@@ -544,6 +472,51 @@
 
         handledFragment = fragment;
         await OpenAuthSettings(id);
+    }
+
+    /// <summary>
+    /// Runs the two slow external checks together after the first render.
+    /// The page stays usable while they run; the pills show "checking…".
+    /// </summary>
+    private async Task LoadLiveStatusAsync()    {
+        refreshingStatus = true;
+        MarkChecking();
+        await InvokeAsync(StateHasChanged);
+        try
+        {
+            var versionTask = LoadYtDlpVersionAsync();
+            await RefreshAvailability();
+            await versionTask;
+        }
+        finally
+        {
+            if (!disposed)
+            {
+                refreshingStatus = false;
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+    }
+
+    private async Task LoadYtDlpVersionAsync()
+    {
+        ytDlpVersion = await YtDlp.GetVersionAsync();
+        ytDlpChecked = true;
+    }
+
+    /// <summary>
+    /// The monitor already knows when a login issue appears or clears, so
+    /// the page reacts to that instead of re-rendering every second.
+    /// </summary>
+    private void OnAuthMonitorChanged()
+    {
+        if (disposed) return;
+        _ = InvokeAsync(() =>
+        {
+            if (disposed) return;
+            authIssues = AuthMonitor.Snapshot();
+            StateHasChanged();
+        });
     }
 
     /// <summary>Loads every plugin's config fields from the registry store.</summary>
@@ -665,11 +638,17 @@
     private long AvailabilityVersion(string pluginId)
         => availabilityVersions.TryGetValue(pluginId, out var version) ? version : 0;
 
+    /// <summary>
+    /// The first live check of the page. A test waits on this instead of
+    /// guessing how long a provider needs.
+    /// </summary>
+    internal Task LiveStatusLoaded => _liveStatusTask ?? Task.CompletedTask;
+
     internal async Task RefreshAvailability()
     {
-        // The 1s page timer and the Refresh status button can overlap. A
-        // slow sweep must never run twice concurrently: it would pile up
-        // network probes and race on the results dictionary.
+        // The page timer and the Refresh status button can overlap. A slow
+        // sweep must never run twice concurrently: it would pile up network
+        // probes and race on the results dictionary.
         if (Interlocked.CompareExchange(ref availabilitySweep, 1, 0) == 1)
         {
             authIssues = AuthMonitor.Snapshot();
@@ -1111,5 +1090,10 @@
         _ => Array.Empty<string>(),
     };
 
-    public void Dispose() => _timer?.Dispose();
+    public void Dispose()
+    {
+        disposed = true;
+        AuthMonitor.Changed -= OnAuthMonitorChanged;
+        _timer?.Dispose();
+    }
 }

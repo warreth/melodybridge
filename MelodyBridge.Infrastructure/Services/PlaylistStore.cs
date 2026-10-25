@@ -219,8 +219,9 @@ public class PlaylistStore
         string playlistId, int trackId, CancellationToken ct = default)
         => _queries.DeleteTrackFilesAsync(playlistId, trackId, ct);
 
-    public Task<PlaylistEntity?> GetByIdAsync(string id, CancellationToken ct = default)
-        => _queries.GetByIdAsync(id, ct);
+    /// <summary>One playlist with the columns the pages read.</summary>
+    public Task<PlaylistEntity?> GetForDisplayAsync(string id, CancellationToken ct = default)
+        => _queries.GetForDisplayAsync(id, ct);
 
     /// <summary>The files and bytes a playlist deletion with files touches.</summary>
     public Task<(int Files, long Bytes)> GetDeleteImpactAsync(

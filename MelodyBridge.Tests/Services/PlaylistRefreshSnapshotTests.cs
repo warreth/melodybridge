@@ -106,6 +106,7 @@ public class PlaylistRefreshSnapshotTests
                 track.MediaType = "OPUS";
                 track.IsHardLink = true;
                 track.ArchivePath = "/archive/song1.mp3";
+                track.ArchiveSizeBytes = 654_321;
                 track.Warning = "low match confidence";
                 track.LastSeenAt = seenAt;
                 track.SkipDedup = true;
@@ -138,6 +139,8 @@ public class PlaylistRefreshSnapshotTests
                         "the real container survives; it is not reset to the source default");
                     Assert.That(track.IsHardLink, Is.True);
                     Assert.That(track.ArchivePath, Is.EqualTo("/archive/song1.mp3"));
+                    Assert.That(track.ArchiveSizeBytes, Is.EqualTo(654_321),
+                        "the known archive size survives a refresh instead of being measured again");
                     Assert.That(track.Warning, Is.EqualTo("low match confidence"));
                     Assert.That(track.LastSeenAt, Is.EqualTo(seenAt));
                     Assert.That(track.SkipDedup, Is.True,

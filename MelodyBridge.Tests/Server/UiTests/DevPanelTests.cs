@@ -2,9 +2,13 @@ using TestContext = Bunit.TestContext;
 using AngleSharp.Dom;
 using Bunit;
 using MelodyBridge.Core;
+using MelodyBridge.Infrastructure.Data;
+using MelodyBridge.Infrastructure.Services;
 using MelodyBridge.Server.Components.Pages;
 using MelodyBridge.Server.Services;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Moq;
 
 namespace MelodyBridge.Tests.Server.UiTests;
@@ -16,6 +20,9 @@ public class DevPanelTests
     private TestContext _ctx = null!;
     private DevPanelService _devPanelService = null!;
     private Mock<IDownloaderRegistry> _registry = null!;
+    private IDbContextFactory<MelodyBridgeDbContext> _dbFactory = null!;
+    private CountingDbFactory _counting = null!;
+    private string _dbPath = null!;
 
     private static readonly TestDownloader Provider1 = new("monochrome", "Monochrome (TIDAL)");
     private static readonly TestDownloader Provider2 = new("squidwtf", "Squid.wtf");
@@ -24,8 +31,6 @@ public class DevPanelTests
     public void Setup()
     {
         _ctx = new TestContext();
-        _devPanelService = new DevPanelService();
-        _devPanelService.Enabled = true; // the page gates on this; production opts in
         _registry = new Mock<IDownloaderRegistry>();
 
         // A real registry over real plugin doubles: the page exercises the
@@ -36,8 +41,29 @@ public class DevPanelTests
         _registry.Setup(r => r.IsEnabled(It.IsAny<string>())).Returns(true);
         _registry.Setup(r => r.Get(It.IsAny<string>())).Returns((string id) => providers.FirstOrDefault(p => p.Id == id));
 
+        // Diagnostics read a real SQLite file, the same provider the app
+        // uses, so the counts and file sizes in the UI are not mocked.
+        _dbPath = Path.Combine(Path.GetTempPath(), $"mb-devpanel-{Guid.NewGuid():N}.db");
+        var factory = new TestSqliteFactory(_dbPath);
+        using (var db = factory.CreateDbContext())
+            db.Database.EnsureCreated();
+        _counting = new CountingDbFactory(factory);
+        _dbFactory = _counting;
+        var settings = new SettingsStore(_counting);
+        var logs = new LogCollector();
+        var host = new Mock<IHostEnvironment>();
+        host.SetupGet(h => h.EnvironmentName).Returns("Development");
+        host.SetupGet(h => h.ApplicationName).Returns("MelodyBridge");
+
+        _devPanelService = new DevPanelService(logs);
+        _devPanelService.Enabled = true; // the page gates on this; production opts in
+        var diagnostics = new DevDiagnosticsService(_counting, settings, _registry.Object, logs, host.Object);
+
         _ctx.Services.AddSingleton<DevPanelService>(_devPanelService);
         _ctx.Services.AddSingleton<IDownloaderRegistry>(_registry.Object);
+        _ctx.Services.AddSingleton(_dbFactory);
+        _ctx.Services.AddSingleton(settings);
+        _ctx.Services.AddSingleton(diagnostics);
         _ctx.Services.AddSingleton(new MelodyBridge.Server.Services.NotificationService());
         // The production download manager over the real plugin doubles:
         // queued downloads write real files, exactly like in the app.
@@ -47,7 +73,14 @@ public class DevPanelTests
     }
 
     [TearDown]
-    public void TearDown() => _ctx.Dispose();
+    public void TearDown()
+    {
+        _ctx.Dispose();
+        foreach (var suffix in new[] { "", "-wal", "-shm" })
+        {
+            try { File.Delete(_dbPath + suffix); } catch { /* best effort */ }
+        }
+    }
 
     // ───────────────────────────────────────────────────────
     //  RENDERING
@@ -74,6 +107,65 @@ public class DevPanelTests
             Assert.That(cut.Markup, Does.Not.Contain("Clear queue"),
                 "the interactive tools must not render when the panel is off");
         });
+    }
+
+    [Test]
+    public void Disabled_DoesNotReadTheDatabase()
+    {
+        _devPanelService.Enabled = false;
+        _counting.Reset();
+
+        _ctx.Render<DevPanel>();
+
+        Assert.That(_counting.Created, Is.Zero,
+            "a disabled panel must not run its diagnostics: nobody can see the answer");
+    }
+
+    [Test]
+    public void LogViewer_ShowsTheFirstPage_AndAddsTheRestOnDemand()
+    {
+        // The buffer holds up to a thousand entries, and the viewer used to
+        // paint all of them twice a second. The first page is capped, and
+        // the rest arrives only when asked for.
+        for (var i = 0; i < 450; i++)
+            _devPanelService.LogInfo("Test", $"line {i}");
+
+        var cut = _ctx.Render<DevPanel>();
+        cut.WaitForAssertion(() =>
+        {
+            var lines = cut.FindAll(".log-line");
+            Assert.That(lines, Has.Count.EqualTo(200), "the first page is capped");
+        }, TimeSpan.FromSeconds(5));
+
+        cut.Find(".log-more button").Click();
+        cut.WaitForAssertion(() =>
+        {
+            var lines = cut.FindAll(".log-line");
+            Assert.That(lines, Has.Count.EqualTo(400), "the next page adds another 200");
+        }, TimeSpan.FromSeconds(5));
+
+        cut.Find(".log-more button").Click();
+        cut.WaitForAssertion(() =>
+        {
+            var lines = cut.FindAll(".log-line");
+            Assert.That(lines, Has.Count.EqualTo(450), "the last page stops at the end");
+        }, TimeSpan.FromSeconds(5));
+    }
+
+    [Test]
+    public void LogViewer_ShowsTheAreaThatWasStampedAtCapture()
+    {
+        _devPanelService.LogCollector.Log(
+            MelodyBridge.Core.Logging.LogLevel.Info, "Some.Technical.Category",
+            "with an area", area: "Downloads");
+
+        var cut = _ctx.Render<DevPanel>();
+        cut.WaitForAssertion(() =>
+        {
+            var line = cut.FindAll(".log-line").Single(l => l.TextContent.Contains("with an area"));
+            Assert.That(line.QuerySelector(".log-area")?.TextContent.Trim(), Is.EqualTo("Downloads"),
+                "the viewer reads the area fixed at capture time, not a guess from the category");
+        }, TimeSpan.FromSeconds(5));
     }
 
     [Test]
@@ -113,6 +205,89 @@ public class DevPanelTests
         Assert.That(cut.Markup, Does.Contain("Log viewer"));
         Assert.That(cut.Markup, Does.Contain("Output"));
     }
+
+    [Test]
+    public async Task DevPanel_Reads_DiagnosticsFromTheRealDatabase()
+    {
+        await using (var db = _dbFactory.CreateDbContext())
+        {
+            db.Playlists.Add(new PlaylistEntity
+            {
+                Id = "diag-pl",
+                Name = "Diagnostics playlist",
+                SourceUrl = "https://example.com/diag",
+                TargetDirectory = "/tmp",
+            });
+            db.Tracks.AddRange(
+                new TrackEntity
+                {
+                    MelodyId = "diag-1", Title = "First", Artist = "Artist",
+                    Position = 0, DownloadStatus = "downloaded", PlaylistEntityId = "diag-pl",
+                },
+                new TrackEntity
+                {
+                    MelodyId = "diag-2", Title = "Second", Artist = "Artist",
+                    Position = 1, DownloadStatus = "failed", PlaylistEntityId = "diag-pl",
+                });
+            await db.SaveChangesAsync();
+        }
+
+        var cut = _ctx.Render<DevPanel>();
+
+        cut.WaitForAssertion(() =>
+        {
+            var playlists = FactValue(cut, "Playlists");
+            var tracks = FactValue(cut, "Tracks");
+            Assert.Multiple(() =>
+            {
+                Assert.That(playlists, Is.EqualTo("1"));
+                Assert.That(tracks.Trim(), Does.StartWith("2"), "the count comes from the SQLite file");
+                Assert.That(tracks, Does.Contain("1 downloaded"));
+                Assert.That(tracks, Does.Contain("1 failed"));
+            });
+        }, TimeSpan.FromSeconds(5));
+    }
+
+    [Test]
+    public void DevPanel_ProbeAll_ShowsEveryPluginAndItsAvailability()
+    {
+        var cut = _ctx.Render<DevPanel>();
+
+        cut.FindAll("button").Single(b => b.TextContent.Contains("Probe all")).Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.FindAll(".health-row"), Has.Count.EqualTo(2));
+            Assert.That(cut.Markup, Does.Contain("Monochrome (TIDAL)"));
+            Assert.That(cut.Markup, Does.Contain("Squid.wtf"));
+            Assert.That(cut.Markup, Does.Contain("ready"));
+            Assert.That(cut.Markup, Does.Not.Contain("Probing..."));
+        }, TimeSpan.FromSeconds(5));
+    }
+
+    [Test]
+    public void DevPanel_LogSearch_FiltersVisibleEntries()
+    {
+        _devPanelService.LogInfo("Search", "unique-alpha-message");
+        _devPanelService.LogInfo("Queue", "unique-beta-message");
+
+        var cut = _ctx.Render<DevPanel>();
+        Assert.That(cut.Markup, Does.Contain("unique-alpha-message"));
+
+        cut.Find("input.log-search").Input("unique-beta");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(cut.Markup, Does.Not.Contain("unique-alpha-message"));
+            Assert.That(cut.Markup, Does.Contain("unique-beta-message"));
+            Assert.That(cut.Markup, Does.Contain("1 of 2"));
+        });
+    }
+
+    private static string FactValue(IRenderedComponent<DevPanel> cut, string label)
+        => cut.FindAll(".fact-list > div")
+            .Single(row => row.QuerySelector("dt")?.TextContent == label)
+            .QuerySelector("dd")!.TextContent.Trim();
 
     [Test]
     public void DevPanel_Renders_AllProviderOptionsInSearchDropdown()
@@ -330,7 +505,7 @@ public class DevPanelTests
         _devPanelService.LogWarn("Cat", "msg2");
 
         var cut = _ctx.Render<DevPanel>();
-        Assert.That(cut.Markup, Does.Contain("2 entries"));
+        Assert.That(cut.Markup, Does.Contain("2 of 2"));
     }
 
     [Test]
@@ -704,6 +879,27 @@ public class DevPanelTests
 
         var cut = _ctx.Render<DevPanel>();
         Assert.That(cut.Find(".queue-failed svg").GetAttribute("data-icon"), Is.EqualTo("x"));
+    }
+    private sealed class CountingDbFactory(IDbContextFactory<MelodyBridgeDbContext> inner)
+        : IDbContextFactory<MelodyBridgeDbContext>
+    {
+        private int _created;
+
+        public int Created => Volatile.Read(ref _created);
+
+        public void Reset() => Interlocked.Exchange(ref _created, 0);
+
+        public MelodyBridgeDbContext CreateDbContext()
+        {
+            Interlocked.Increment(ref _created);
+            return inner.CreateDbContext();
+        }
+
+        public Task<MelodyBridgeDbContext> CreateDbContextAsync(CancellationToken ct = default)
+        {
+            Interlocked.Increment(ref _created);
+            return inner.CreateDbContextAsync(ct);
+        }
     }
 }
 

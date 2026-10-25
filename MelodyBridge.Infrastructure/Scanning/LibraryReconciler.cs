@@ -1,3 +1,4 @@
+using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.Data;
 using MelodyBridge.Infrastructure.Files;
 using MelodyBridge.Infrastructure.Services;
@@ -43,9 +44,57 @@ public class LibraryReconciler
     public async Task<(int relinked, int lost)> ReconcileAllAsync(CancellationToken ct = default)
     {
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        // Only the columns this pass reads. A track row also carries its
+        // lyrics and cover url, and a library with tens of thousands of
+        // tracks would drag megabytes of text into memory for a pass that
+        // never looks at them.
         var playlists = await db.Playlists
-            .Include(p => p.Tracks)
+            .Select(p => new PlaylistEntity
+            {
+                Id = p.Id,
+                Name = p.Name,
+                TargetDirectory = p.TargetDirectory,
+                ArchiveDirectory = p.ArchiveDirectory,
+                ArchiveEnabled = p.ArchiveEnabled,
+                PreferredFormat = p.PreferredFormat,
+                Tracks = p.Tracks.Select(t => new TrackEntity
+                {
+                    Id = t.Id,
+                    MelodyId = t.MelodyId,
+                    Title = t.Title,
+                    Artist = t.Artist,
+                    Album = t.Album,
+                    MediaType = t.MediaType,
+                    Bitrate = t.Bitrate,
+                    SampleRateHz = t.SampleRateHz,
+                    FileSizeBytes = t.FileSizeBytes,
+                    DurationMs = t.DurationMs,
+                    Position = t.Position,
+                    CurrentPath = t.CurrentPath,
+                    ArchivePath = t.ArchivePath,
+                    ArchiveSizeBytes = t.ArchiveSizeBytes,
+                    DownloadStatus = t.DownloadStatus,
+                    DownloadError = t.DownloadError,
+                    Warning = t.Warning,
+                    SourcePluginId = t.SourcePluginId,
+                    ReviewKind = t.ReviewKind,
+                    ReviewText = t.ReviewText,
+                    IsHardLink = t.IsHardLink,
+                    SpectrumAccepted = t.SpectrumAccepted,
+                    LastSeenAt = t.LastSeenAt,
+                    PlaylistEntityId = t.PlaylistEntityId,
+                }).ToList(),
+            })
             .ToListAsync(ct);
+
+        // A projection is not tracked, so a row this pass changes would
+        // never be written. Attach a row when it really changes: only the
+        // rows that move enter the change tracker, and the columns the
+        // pass does not touch stay as they are in the database.
+        void Touch(TrackEntity track)
+        {
+            if (db.Entry(track).State == EntityState.Detached) db.Attach(track);
+        }
 
         // The relink index needs the same base the folder rules use: a
         // playlist without its own folder lives under the music path, so
@@ -89,11 +138,20 @@ public class LibraryReconciler
         var directoryIndexes = new Dictionary<string, Dictionary<string, List<string>>>(
             FileRelocator.PathComparer);
 
+        // The dedup switch and the candidates of a playlist are read once
+        // per playlist, not once per track: a query per pending track
+        // turned a startup pass over a big library into minutes.
+        var dedupEnabled = _settings is null
+            || await _settings.GetBoolAsync(PlaylistStore.DedupSettingKey, true, ct);
+
         foreach (var playlist in playlists)
         {
             var dir = FirstNonEmpty(playlist.TargetDirectory, musicPath);
             var ownFolder = PlaylistRules.ResolvePlaylistFolder(
                 playlist.TargetDirectory, musicPath, playlist.Name, playlistFolders);
+            var dedupCandidates = _linker is not null && dedupEnabled
+                ? await _linker.FindCandidatesAsync(playlist.Tracks, ct)
+                : new Dictionary<string, DedupMatch>();
 
             var preferred = playlist.PreferredFormat;
             if (string.IsNullOrWhiteSpace(preferred) && _settings is not null)
@@ -113,8 +171,15 @@ public class LibraryReconciler
                 {
                     if (PlaylistRules.PathIsUnder(track.CurrentPath, archiveRoots))
                     {
+                        Touch(track);
                         if (string.Equals(track.CurrentPath, track.ArchivePath, StringComparison.OrdinalIgnoreCase))
+                        {
+                            // The archive copy is the file that is going
+                            // away, so its size goes with it. An archive
+                            // copy elsewhere keeps the size it has.
                             track.ArchivePath = null;
+                            track.ArchiveSizeBytes = null;
+                        }
                         track.CurrentPath = null;
                         track.DownloadStatus = "pending";
                         track.Warning = string.IsNullOrEmpty(track.Warning)
@@ -125,6 +190,7 @@ public class LibraryReconciler
                     }
                     if (track.DownloadStatus != "downloaded")
                     {
+                        Touch(track);
                         track.DownloadStatus = "downloaded";
                         track.DownloadError = null;
                         relinked++;
@@ -160,10 +226,13 @@ public class LibraryReconciler
                 if (!foundIsOwn
                     && _linker is not null
                     && track.MelodyId is not null
-                    && track.DownloadStatus is null or "pending" or "failed")
+                    && track.DownloadStatus is null or "pending" or "failed"
+                    && dedupCandidates.TryGetValue(track.MelodyId, out var candidate))
                 {
+                    Touch(track);
                     var outcome = await _linker.TryLinkAsync(
-                        track, db, quality, pauseOnQualityMismatch: false, ct);
+                        track, db, quality, pauseOnQualityMismatch: false, ct, candidate,
+                        resolvedFolder: ownFolder, dedupEnabled: dedupEnabled);
                     if (outcome == TrackLinkOutcome.Linked)
                     {
                         relinked++;
@@ -177,6 +246,7 @@ public class LibraryReconciler
                 // is not the track; it stays out.
                 if (found is not null && !foreignQualityDiffers)
                 {
+                    Touch(track);
                     track.CurrentPath = found;
                     track.DownloadStatus = "downloaded";
                     track.DownloadError = null;
@@ -194,6 +264,7 @@ public class LibraryReconciler
                 // review described the vanished file, so it goes with it.
                 if (track.DownloadStatus == "downloaded")
                 {
+                    Touch(track);
                     track.DownloadStatus = "pending";
                     track.CurrentPath = null;
                     track.Warning = "file missing on disk, will re-download";
@@ -206,7 +277,7 @@ public class LibraryReconciler
             }
         }
 
-        var moved = await RelocateLooseFilesAsync(playlists, ct);
+        var moved = await RelocateLooseFilesAsync(playlists, Touch, ct);
 
         if (relinked > 0 || lost > 0 || moved > 0)
         {
@@ -235,7 +306,7 @@ public class LibraryReconciler
     /// rows simply keep the old path.
     /// </summary>
     private async Task<int> RelocateLooseFilesAsync(
-        List<PlaylistEntity> playlists, CancellationToken ct)
+        List<PlaylistEntity> playlists, Action<TrackEntity> touch, CancellationToken ct)
     {
         if (_settings is null) return 0;
 
@@ -272,7 +343,7 @@ public class LibraryReconciler
 
             var destination = Path.Combine(layout[owner.PlaylistId].Folder, Path.GetFileName(path));
             if (!FileRelocator.TryMove(path, destination, _logger)) continue;
-            foreach (var (track, _) in refs) track.CurrentPath = destination;
+            foreach (var (track, _) in refs) { touch(track); track.CurrentPath = destination; }
             moved++;
         }
 
@@ -289,7 +360,7 @@ public class LibraryReconciler
 
             var destination = Path.Combine(layout[owner.PlaylistId].ArchiveFolder, Path.GetFileName(path));
             if (!FileRelocator.TryMove(path, destination, _logger)) continue;
-            foreach (var (track, _) in refs) track.ArchivePath = destination;
+            foreach (var (track, _) in refs) { touch(track); track.ArchivePath = destination; }
             moved++;
         }
 

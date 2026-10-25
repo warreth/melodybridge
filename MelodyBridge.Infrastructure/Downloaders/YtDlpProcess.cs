@@ -94,6 +94,103 @@ internal static class YtDlpProcess
     }
 
     /// <summary>
+    /// Reads the artist, title and length of one link without downloading
+    /// it: one simulate-only extraction. The manual download page uses
+    /// this to name and tag a pasted link; null means the link could not
+    /// be inspected, not that it cannot be downloaded.
+    /// </summary>
+    public static async Task<UrlTrackMetadata?> ResolveTrackMetadataAsync(
+        string url, CancellationToken ct = default)
+    {
+        if (BinaryPath is null || string.IsNullOrWhiteSpace(url)) return null;
+        try
+        {
+            var (exit, stdout, _) = await RunAsync(new[]
+            {
+                "--simulate",
+                "--no-download",
+                "--dump-single-json",
+                "--no-warnings",
+                "--no-playlist",
+                "--socket-timeout", "20",
+                url,
+            }, TimeSpan.FromSeconds(30), ct);
+            if (exit != 0) return null;
+            return ParseTrackMetadataJson(stdout);
+        }
+        catch
+        {
+            // Naming metadata is a convenience; the download can still run.
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Reads the first entry of a yt-dlp JSON document. A title that still
+    /// carries the usual "Artist - Title" video shape gives up its artist
+    /// when no artist field exists.
+    /// </summary>
+    internal static UrlTrackMetadata? ParseTrackMetadataJson(string json)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object) return null;
+            if (root.TryGetProperty("entries", out var entries)
+                && entries.ValueKind == JsonValueKind.Array
+                && entries.GetArrayLength() > 0)
+            {
+                root = entries[0];
+            }
+
+            var title = JsonString(root, "track") ?? JsonString(root, "title");
+            var artist = JsonString(root, "artist")
+                ?? JsonString(root, "creator")
+                ?? JsonString(root, "uploader")
+                ?? JsonString(root, "channel");
+
+            if (string.IsNullOrWhiteSpace(title) && string.IsNullOrWhiteSpace(artist))
+                return null;
+
+            if (string.IsNullOrWhiteSpace(artist) && title is { Length: > 0 })
+            {
+                var separator = title.IndexOf(" - ", StringComparison.Ordinal);
+                if (separator > 0 && separator < title.Length - 3)
+                {
+                    artist = title[..separator].Trim();
+                    title = title[(separator + 3)..].Trim();
+                }
+            }
+
+            var duration = JsonInt(root, "duration");
+            return new UrlTrackMetadata(
+                string.IsNullOrWhiteSpace(artist) ? null : CleanChannelName(artist),
+                string.IsNullOrWhiteSpace(title) ? null : title.Trim(),
+                duration is > 0 ? TimeSpan.FromSeconds(duration.Value) : null);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Drops the channel decorations YouTube puts around an artist.</summary>
+    private static string CleanChannelName(string artist)
+    {
+        var trimmed = artist.Trim();
+        foreach (var suffix in new[] { " - Topic", "VEVO", " Official", "Official" })
+        {
+            if (trimmed.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+            {
+                var stripped = trimmed[..^suffix.Length].Trim();
+                if (stripped.Length > 0) trimmed = stripped;
+            }
+        }
+        return trimmed;
+    }
+
+    /// <summary>
     /// Parses yt-dlp's simulate JSON into the selected format's facts. When
     /// the root is a playlist (a search URL), the first entry is read. A
     /// null result means the JSON carried no usable audio fields.
@@ -212,8 +309,21 @@ internal static class YtDlpProcess
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
             // Our timeout, not the caller's cancellation.
-            try { proc.Kill(entireProcessTree: true); } catch { /* already gone */ }
             throw new TimeoutException($"yt-dlp did not finish within {timeout.TotalSeconds}s");
+        }
+        finally
+        {
+            // Either way the child must not outlive the call: a caller
+            // that walks away (a closed picker, a cancelled sync) would
+            // otherwise leave a download writing into the folder.
+            try
+            {
+                if (!proc.HasExited) proc.Kill(entireProcessTree: true);
+            }
+            catch
+            {
+                // Already gone, or the handle is closed: nothing to stop.
+            }
         }
     }
 

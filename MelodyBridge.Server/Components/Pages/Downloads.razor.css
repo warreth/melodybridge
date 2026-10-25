@@ -1,0 +1,165 @@
+/* Downloads overview: playlist runs as wide cards, then the per-track
+   stream. The list is the page's main content, so it stays readable at
+   phone width without horizontal scrolling. */
+.downloads-empty { text-align: center; }
+
+.downloads-section { margin-top: 1.25rem; }
+
+.downloads-window { font-size: .78rem; }
+
+.downloads-run-list {
+    display: grid;
+    gap: .8rem;
+}
+
+.download-run {
+    display: grid;
+    gap: .65rem;
+}
+
+.download-run-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.download-run-title {
+    display: grid;
+    gap: .2rem;
+    min-width: 0;
+}
+
+.download-run-title strong {
+    font-size: 1rem;
+    overflow-wrap: anywhere;
+}
+
+.download-run-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .2rem .75rem;
+    color: var(--muted);
+    font-size: .8rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.download-run-failed { color: var(--danger); }
+
+.download-run-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.download-run-current {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: .25rem .5rem;
+    min-width: 0;
+    font-size: .86rem;
+}
+
+.download-run-current .eyebrow { margin: 0; }
+
+.download-run-plugin {
+    color: var(--muted);
+    font-size: .78rem;
+}
+
+.downloads-track-list {
+    display: grid;
+    margin-top: .35rem;
+}
+
+.downloads-track {
+    display: flex;
+    align-items: flex-start;
+    gap: .75rem;
+    padding: .7rem 0;
+    border-bottom: 1px solid var(--border);
+}
+
+.downloads-track:last-child { border-bottom: none; }
+
+.downloads-track-icon {
+    display: grid;
+    flex: 0 0 auto;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    background: var(--surface-3);
+    color: var(--muted);
+}
+
+.downloads-track.is-active .downloads-track-icon {
+    background: var(--accent-soft);
+    color: var(--accent-text);
+}
+
+.downloads-track.is-done .downloads-track-icon {
+    background: var(--success-soft);
+    color: var(--success);
+}
+
+.downloads-track.is-failed .downloads-track-icon {
+    background: var(--danger-soft);
+    color: var(--danger);
+}
+
+.downloads-track-main {
+    display: grid;
+    flex: 1;
+    gap: .12rem;
+    min-width: 0;
+}
+
+.downloads-track-main strong {
+    font-size: .92rem;
+    overflow-wrap: anywhere;
+}
+
+.downloads-track-main small {
+    color: var(--muted);
+    font-size: .78rem;
+}
+
+.downloads-path {
+    display: block;
+    margin-top: .2rem;
+    padding: .25rem .4rem;
+    overflow-wrap: anywhere;
+    border-radius: 6px;
+    background: var(--surface-3);
+    color: var(--text);
+    font-size: .75rem;
+}
+
+.downloads-warning { color: var(--warning) !important; }
+
+.downloads-track > .pill { flex: 0 0 auto; }
+
+@media (max-width: 720px) {
+    .download-run-foot { align-items: stretch; flex-direction: column; }
+    .download-run-foot .flex-actions { flex-wrap: wrap; }
+    .downloads-track { flex-wrap: wrap; }
+    .downloads-track-main { flex: 1 1 calc(100% - 42px); }
+    .downloads-track > .pill { margin-left: 42px; }
+}
+
+/* Two short buttons side by side wrap mid-label on a phone; stack them
+   once the available width gets tight. */
+@media (max-width: 480px) {
+    .downloads-empty ::deep .empty-actions {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .downloads-empty ::deep .empty-actions .btn-modern {
+        width: 100%;
+        justify-content: center;
+    }
+}

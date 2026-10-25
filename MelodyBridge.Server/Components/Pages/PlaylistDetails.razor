@@ -8,8 +8,6 @@
 @inject Application.Services.DownloadCoordinator Coordinator
 @inject SettingsStore Settings
 @inject MelodyBridge.Server.Services.NotificationService Notifications
-@inject MelodyBridge.Infrastructure.Services.PluginAuthMonitor AuthMonitor
-@inject MelodyBridge.Core.IDownloaderRegistry Registry
 @inject IJSRuntime JS
 @implements IDisposable
 
@@ -351,259 +349,7 @@ else
         }
     </section>
 
-    @if (chooseSourceTrack is { } chooser)
-    {
-        <div class="wizard-overlay" @onclick="CloseSourcePicker">
-            <div class="wizard-modal source-picker-modal" @onclick:stopPropagation="true">
-                <div class="wizard-header source-picker-head">
-                    <div class="source-picker-title">
-                        <span class="eyebrow">Choose source</span>
-                        <h2>@(chooser.Title ?? "Track")</h2>
-                        <p class="source-original">
-                            <span>@(string.IsNullOrWhiteSpace(chooser.Artist) ? "Unknown artist" : chooser.Artist)</span>
-                            @if (chooser.DurationMs is > 0)
-                            {
-                                <span class="source-length">Original @TrackDisplay.Duration(chooser.DurationMs.Value)</span>
-                            }
-                        </p>
-                        <p class="text-muted">
-                            Compare the length, then pick the right recording. Best guess first;
-                            the automatic match refused all of these.
-                        </p>
-                        <p class="source-target">
-                            <span class="eyebrow">Target quality</span>
-                            @if (pickerTargetQuality.HasConstraints)
-                            {
-                                <strong>@QualityLabel(editQuality)</strong>
-                                <span class="text-muted">
-                                    Results below it keep their source quality unless the
-                                    plugin can convert them to your target.
-                                </span>
-                            }
-                            else
-                            {
-                                <span class="text-muted">No filter: any source quality is accepted.</span>
-                            }
-                        </p>
-                    </div>
-                    <button class="icon-button" title="Close" @onclick="CloseSourcePicker">
-                        <Icon Name="x" Size="18" />
-                    </button>
-                </div>
-                <div class="wizard-body source-results">
-                @if (sourceAuthIssues.Count > 0)
-                {
-                    <div class="source-auth-note" role="status">
-                        <Icon Name="alert" Size="17" />
-                        <div class="source-auth-copy">
-                            <strong>Some plugins are not searched because their login needs attention</strong>
-                            @foreach (var issue in sourceAuthIssues)
-                            {
-                                <div class="source-note-row">
-                                    <span><b>@issue.PluginName</b> @issue.Message</span>
-                                    <button class="btn-modern small ghost"
-                                            @onclick="() => OpenPluginSettings(issue.PluginId)">
-                                        Fix
-                                    </button>
-                                </div>
-                            }
-                        </div>
-                    </div>
-                }
-                @if (sourcePluginNotes.Count > 0)
-                {
-                    <div class="source-auth-note warning" role="status">
-                        <Icon Name="info" Size="17" />
-                        <div class="source-auth-copy">
-                            <strong>Not searched right now</strong>
-                            @foreach (var note in sourcePluginNotes)
-                            {
-                                <div class="source-note-row">
-                                    <span><b>@note.Name</b> @note.Reason</span>
-                                    <button class="btn-modern small ghost source-why"
-                                            title="Why is this missing? Open the plugin card"
-                                            aria-label="Why is this missing? Open the plugin card"
-                                            @onclick="() => OpenPluginSettings(note.PluginId)">
-                                        Why?
-                                    </button>
-                                </div>
-                            }
-                        </div>
-                    </div>
-                }
-                @if (downloadingCandidate)
-                {
-                    <div class="source-progress" aria-hidden="true"><span></span></div>
-                }
-                @if (!searchingSources && sourceCandidates.Count > 0)
-                {
-                    <div class="source-filters">
-                        <label>
-                            <span>Plugin</span>
-                            <select @bind="sourceFilterPlugin" aria-label="Filter by plugin">
-                                <option value="all">All plugins</option>
-                                @foreach (var option in SourcePluginOptions)
-                                {
-                                    <option value="@option.Id">@option.Name</option>
-                                }
-                            </select>
-                        </label>
-                        <label>
-                            <span>Match</span>
-                            <select @bind="sourceFilterConfidence" aria-label="Filter by match confidence">
-                                <option value="all">All matches</option>
-                                <option value="high">Likely</option>
-                                <option value="low">Unsure</option>
-                            </select>
-                        </label>
-                        <label class="source-filter-check">
-                            <input type="checkbox" @bind="sourceFilterCanServeOnly" />
-                            <span>Can serve target</span>
-                        </label>
-                        <span class="source-filter-count">
-                            @VisibleSourceCandidates.Count of @sourceCandidates.Count
-                        </span>
-                    </div>
-                }
-                    @if (searchingSources)
-                    {
-                        <div class="source-searching">
-                            <span class="spinner"></span>
-                            <span>
-                                Searching every enabled plugin…
-                                @if (sourceCandidates.Count > 0)
-                                {
-                                    <span>@sourceCandidates.Count result@(sourceCandidates.Count == 1 ? "" : "s") so far</span>
-                                }
-                            </span>
-                        </div>
-                    }
-                    else if (sourceCandidates.Count == 0)
-                    {
-                        <div class="hint-box">
-                            No plugin returned a result for this track. Check the plugin settings
-                            (tokens, tools) or try again later.
-                        </div>
-                        @if (sourceAuthIssues.Count > 0 || sourcePluginNotes.Count > 0)
-                        {
-                            <div class="source-empty-actions">
-                                @foreach (var issue in sourceAuthIssues.Take(3))
-                                {
-                                    <button class="btn-modern small ghost"
-                                            @onclick="() => OpenPluginSettings(issue.PluginId)">
-                                        Fix @issue.PluginName
-                                    </button>
-                                }
-                                @foreach (var note in sourcePluginNotes.Take(3))
-                                {
-                                    <button class="btn-modern small ghost"
-                                            @onclick="() => OpenPluginSettings(note.PluginId)">
-                                        Open @note.Name
-                                    </button>
-                                }
-                            </div>
-                        }
-                    }
-                    @if (!searchingSources && sourceCandidates.Count > 0 && VisibleSourceCandidates.Count == 0)
-                    {
-                        <div class="hint-box">
-                            No candidate matches these filters.
-                            <button class="btn-modern small ghost" @onclick="ClearSourceFilters">Clear filters</button>
-                        </div>
-                    }
-                    @foreach (var candidate in VisibleSourceCandidates)
-                    {
-                        var busy = downloadingCandidateUrl == candidate.SourceUrl;
-                        <div class="source-candidate @(busy ? "busy" : null)">
-                            <div class="source-candidate-main">
-                                <strong title="@candidate.Title">@candidate.Title</strong>
-                                <small>
-                                    @(candidate.Artist ?? "Unknown artist")
-                                    @if (candidate.Duration is { } length)
-                                    {
-                                        <span> · <span class="source-length">@TrackDisplay.Duration((long)length.TotalMilliseconds)</span></span>
-                                        var delta = LengthDelta(chooser, length);
-                                        @if (delta.Length > 0)
-                                        {
-                                            <span class="source-delta" title="Compared to the original length">@delta</span>
-                                        }
-                                    }
-                                    @if (candidate.BitrateKbps is { } kbps)
-                                    {
-                                        <span> · @kbps kbps</span>
-                                    }
-                                </small>
-                                <div class="source-quality">
-                                    @if (!probedCandidateUrls.Contains(candidate.SourceUrl))
-                                    {
-                                        <span class="source-quality-checking">
-                                            <span class="spinner"></span> checking exact quality…
-                                        </span>
-                                    }
-                                    else
-                                    {
-                                        <span class="source-quality-facts">@CandidateQualityText(candidate)</span>
-                                        @if (CandidateVerdict(candidate) is { } verdict)
-                                        {
-                                            <StatusPill Variant="@verdict.Variant" Class="pill-tight"
-                                                        Title="@verdict.Title">@verdict.Label</StatusPill>
-                                        }
-                                    }
-                                </div>
-                                @if (sourceFailures.TryGetValue(candidate.SourceUrl, out var failure))
-                                {
-                                    <small class="source-failure">This source failed: @failure</small>
-                                }
-                            </div>
-                            <StatusPill Variant="@(candidate.Confidence == MatchConfidence.High ? "ok" : "warn")"
-                                        Class="pill-tight"
-                                        Title="@(candidate.Confidence == MatchConfidence.High
-                                            ? "The plugin is confident this is the requested track"
-                                            : "The plugin is not sure; listen before you keep it")">
-                                @(candidate.Confidence == MatchConfidence.High ? "likely" : "unsure")
-                            </StatusPill>
-                            <StatusPill Variant="neutral">@candidate.PluginName</StatusPill>
-                            <div class="source-candidate-tools">
-                                <button class="icon-button" title="Copy source URL"
-                                        aria-label="Copy source URL from @candidate.PluginName"
-                                        @onclick="() => CopySourceUrlAsync(candidate)">
-                                    <Icon Name="copy" Size="14" />
-                                </button>
-                                <button class="icon-button" title="Open @candidate.PluginName settings"
-                                        aria-label="Open @candidate.PluginName settings"
-                                        @onclick="() => OpenPluginSettings(candidate.PluginId)">
-                                    <Icon Name="sliders" Size="14" />
-                                </button>
-                            </div>
-                            @if (busy)
-                            {
-                                <span class="source-downloading"><span class="spinner"></span> Downloading… @downloadElapsedSeconds s</span>
-                            }
-                            else
-                            {
-                                <button class="btn-modern small primary"
-                                        disabled="@downloadingCandidate"
-                                        @onclick="() => DownloadPickedCandidate(candidate)">
-                                    <Icon Name="download" Size="14" /> Download
-                                </button>
-                            }
-                        </div>
-                    }
-                </div>
-                <div class="wizard-footer">
-                    <div class="flex-actions">
-                        <button class="btn-modern ghost" @onclick="CloseSourcePicker">Close</button>
-                    </div>
-                    <div class="wizard-actions">
-                        <button class="btn-modern secondary" @onclick="() => SearchSourcesAgain()"
-                                disabled="@searchingSources">
-                            <Icon Name="refresh" Size="14" /> Search again
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </div>
-    }
+    <SourcePicker Request="pickerRequest" OnClose="CloseSourcePicker" />
 
     @if (archiveTrack is { } archive)
     {
@@ -877,12 +623,26 @@ else
     private async Task Load()
     {
         loading = true;
-        showFilenameColumn = await Settings.GetBoolAsync("show_filename", fallback: false);
-        resolvedDefaultMusicPath = await Settings.GetAsync("music_path", "/music");
-        playlistFolders = await Settings.GetBoolAsync("playlist_folders", true);
-        resolvedDefaultArchivePath = await Settings.GetAsync("archive_path", "");
-        resolvedDefaultArchiveFormat = await Settings.GetAsync("archive_format", "auto");
-        playlist = await Store.GetByIdAsync(PlaylistId);
+        // One settings read plus the playlist, not six round trips before
+        // the first row can render. Both queries are independent.
+        var settingsTask = Settings.GetManyAsync(new[]
+        {
+            "show_filename", "music_path", "playlist_folders", "archive_path", "archive_format",
+        });
+        var playlistTask = Store.GetForDisplayAsync(PlaylistId);
+        await Task.WhenAll(settingsTask, playlistTask);
+
+        var settings = await settingsTask;
+        playlist = await playlistTask;
+        showFilenameColumn = SettingsStore.ParseBool(settings.GetValueOrDefault("show_filename"), false);
+        resolvedDefaultMusicPath = settings.GetValueOrDefault("music_path", "/music");
+        playlistFolders = SettingsStore.ParseBool(settings.GetValueOrDefault("playlist_folders"), true);
+        resolvedDefaultArchivePath = settings.GetValueOrDefault("archive_path", "");
+        resolvedDefaultArchiveFormat = settings.GetValueOrDefault("archive_format", "auto");
+        if (loadedPlaylistId != PlaylistId)
+        {
+            loadedPlaylistId = PlaylistId;
+        }
         if (playlist is not null)
         {
             editName = playlist.Name;
@@ -930,7 +690,7 @@ else
     /// </summary>
     private async Task ReloadTracksAsync()
     {
-        playlist = await Store.GetByIdAsync(PlaylistId);
+        playlist = await Store.GetForDisplayAsync(PlaylistId);
         if (playlist is null)
         {
             // A first load that found nothing renders "not found" already;
@@ -1583,508 +1343,84 @@ else
         finally { busy = false; }
     }
 
+    /// <summary>The open source picker, or null. A different key starts a
+    /// fresh search; the shared component owns the dialog and its results.</summary>
+    private SourcePickerRequest? pickerRequest;
+
+    private void OpenSourcePicker(TrackEntity track)
+    {
+        pickerRequest = new SourcePickerRequest(
+            Key: $"track-{track.Id}",
+            Title: track.Title ?? "Track",
+            Artist: track.Artist,
+            DurationMs: track.DurationMs,
+            TargetQuality: PlaylistStore.ParseQuality(editQuality),
+            TargetQualityLabel: QualityLabel(editQuality),
+            SearchAsync: (onCandidate, ct) => Store.SearchCandidatesDetailedAsync(track.Id, onCandidate, ct),
+            ProbeAsync: (candidate, ct) => Store.ProbeCandidateQualityAsync(candidate.PluginId, candidate.SourceUrl, ct),
+            DownloadAsync: candidate => DownloadPickerCandidateAsync(track, candidate));
+    }
+
+    private void CloseSourcePicker() => pickerRequest = null;
+
     /// <summary>
-    /// The track the source picker is open for, the candidates every
-    /// plugin offered and whether a pick is downloading.
+    /// Runs one hand-picked download without blocking the dialog on a page
+    /// reload: the poll sees the store's write stamp and refreshes the rows
+    /// behind it. A success or an already-running batch closes the picker;
+    /// a failure keeps it open with the real reason on that row.
     /// </summary>
-    private TrackEntity? chooseSourceTrack;
-    private IReadOnlyList<DownloadCandidate> sourceCandidates = Array.Empty<DownloadCandidate>();
-    private IReadOnlyList<PluginAuthIssue> sourceAuthIssues = Array.Empty<PluginAuthIssue>();
-    private IReadOnlyList<SourceSearchProblem> sourceSearchProblems = Array.Empty<SourceSearchProblem>();
-    private IReadOnlyList<SourcePluginNote> sourcePluginNotes = Array.Empty<SourcePluginNote>();
-    private string sourceFilterPlugin = "all";
-    private string sourceFilterConfidence = "all";
-    private bool sourceFilterCanServeOnly;
-
-    /// <summary>A plugin the picker did not search, with the reason it gave.</summary>
-    private sealed record SourcePluginNote(string PluginId, string Name, string Reason);
-
-    /// <summary>Distinct plugins in the current result list, for the filter.</summary>
-    private IReadOnlyList<(string Id, string Name)> SourcePluginOptions => sourceCandidates
-        .Select(candidate => (candidate.PluginId, candidate.PluginName))
-        .Distinct()
-        .OrderBy(option => option.PluginName, StringComparer.OrdinalIgnoreCase)
-        .ToList();
-
-    /// <summary>The candidates left after the plugin, confidence and target filters.</summary>
-    private IReadOnlyList<DownloadCandidate> VisibleSourceCandidates => sourceCandidates
-        .Where(candidate => sourceFilterPlugin == "all"
-            || string.Equals(candidate.PluginId, sourceFilterPlugin, StringComparison.OrdinalIgnoreCase))
-        .Where(candidate => sourceFilterConfidence switch
-        {
-            "high" => candidate.Confidence == MatchConfidence.High,
-            "low" => candidate.Confidence == MatchConfidence.Low,
-            _ => true,
-        })
-        .Where(candidate => !sourceFilterCanServeOnly || candidate.CanServeRequested)
-        .ToList();
-    private bool searchingSources;
-    private bool downloadingCandidate;
-    /// <summary>The candidate URL currently downloading, so only its row
-    /// shows the progress state.</summary>
-    private string? downloadingCandidateUrl;
-    /// <summary>Seconds the current pick has been running, ticked while
-    /// the dialog waits so the UI never looks frozen.</summary>
-    private int downloadElapsedSeconds;
-    private CancellationTokenSource? downloadTicker;
-    /// <summary>Per-candidate failure text after a pick did not deliver.</summary>
-    private readonly Dictionary<string, string> sourceFailures = new(StringComparer.Ordinal);
-    /// <summary>
-    /// Exact source facts per candidate URL, filled in as each plugin's
-    /// probe answers. <see cref="probedCandidateUrls"/> marks a URL whose
-    /// probe finished, so "still checking" is distinguishable from "the
-    /// plugin cannot tell".
-    /// </summary>
-    private readonly Dictionary<string, CandidateAudioQuality> candidateQualities = new(StringComparer.Ordinal);
-    private readonly HashSet<string> probedCandidateUrls = new(StringComparer.Ordinal);
-    private readonly HashSet<string> probingCandidateUrls = new(StringComparer.Ordinal);
-    /// <summary>The quality this playlist asks for, shown in the picker
-    /// header and compared against every candidate.</summary>
-    private DownloadQuality pickerTargetQuality = DownloadQuality.Any;
-    /// <summary>
-    /// A search can run for minutes (every plugin has its own budget) and
-    /// the dialog can be closed or reopened for another track meanwhile:
-    /// only the newest generation may write its result.
-    /// </summary>
-    private int sourceSearchGeneration;
-
-    private async Task OpenSourcePicker(TrackEntity track)
+    private async Task<SourcePickResult> DownloadPickerCandidateAsync(
+        TrackEntity track, DownloadCandidate candidate)
     {
-        chooseSourceTrack = track;
-        sourceCandidates = Array.Empty<DownloadCandidate>();
-        sourceAuthIssues = AuthMonitor.Snapshot();
-        sourceSearchProblems = Array.Empty<SourceSearchProblem>();
-        sourcePluginNotes = Array.Empty<SourcePluginNote>();
-        StateHasChanged();
-        await SearchSourcesAsync();
-    }
-
-    private void CloseSourcePicker()
-    {
-        // Keep the reader's place for the next open.
-        if (chooseSourceTrack is { } closingTrack)
-            _ = SaveSourceScrollAsync(closingTrack.Id);
-
-        // A search still in flight must not write into a later dialog.
-        sourceSearchGeneration++;
-        downloadTicker?.Cancel();
-        searchingSources = false;
-        downloadingCandidate = false;
-        downloadingCandidateUrl = null;
-        sourceCandidates = Array.Empty<DownloadCandidate>();
-        sourceFailures.Clear();
-        candidateQualities.Clear();
-        probedCandidateUrls.Clear();
-        probingCandidateUrls.Clear();
-        sourceSearchProblems = Array.Empty<SourceSearchProblem>();
-        sourcePluginNotes = Array.Empty<SourcePluginNote>();
-        chooseSourceTrack = null;
-    }
-
-    /// <summary>Deep-links to the plugin card and opens its settings there.</summary>
-    private void OpenPluginSettings(string pluginId)
-        => Navigation.NavigateTo($"plugins#plugin-{pluginId}");
-
-    private async Task CopySourceUrlAsync(DownloadCandidate candidate)
-    {
-        bool copied;
-        try
-        {
-            copied = await JS.InvokeAsync<bool>("melody.copyText", candidate.SourceUrl);
-        }
-        catch
-        {
-            copied = false;
-        }
-
-        if (copied) Notifications.Success($"Source URL from {candidate.PluginName} copied.");
-        else Notifications.Warn("The browser would not let the page copy the source URL.");
-    }
-
-    private void ClearSourceFilters()
-    {
-        sourceFilterPlugin = "all";
-        sourceFilterConfidence = "all";
-        sourceFilterCanServeOnly = false;
-    }
-
-    private async Task SaveSourceScrollAsync(int trackId)
-    {
-        try
-        {
-            await JS.InvokeVoidAsync("melody.saveScroll", $"source-{trackId}", ".source-results");
-        }
-        catch
-        {
-            // Scroll memory is a convenience.
-        }
-    }
-
-    private async Task RestoreSourceScrollAsync(int trackId)
-    {
-        try
-        {
-            await JS.InvokeVoidAsync("melody.restoreScroll", $"source-{trackId}", ".source-results");
-        }
-        catch
-        {
-            // Scroll memory is a convenience.
-        }
-    }
-
-    private async Task SearchSourcesAgain() => await SearchSourcesAsync();
-
-    private async Task SearchSourcesAsync()
-    {
-        if (chooseSourceTrack is not { } track) return;
-        var generation = ++sourceSearchGeneration;
         var trackId = track.Id;
-        searchingSources = true;
-        sourceCandidates = Array.Empty<DownloadCandidate>();
-        sourceSearchProblems = Array.Empty<SourceSearchProblem>();
-        sourcePluginNotes = Array.Empty<SourcePluginNote>();
-        sourceFailures.Clear();
-        candidateQualities.Clear();
-        probedCandidateUrls.Clear();
-        probingCandidateUrls.Clear();
-        pickerTargetQuality = PlaylistStore.ParseQuality(editQuality);
-        StateHasChanged();
-        SourceSearchOutcome? outcome = null;
-        try
-        {
-            // Providers run at the same time and each hit lands here the
-            // moment its provider answers, so the list fills in instead of
-            // staring at a spinner until the slowest plugin is done.
-            outcome = await Store.SearchCandidatesDetailedAsync(trackId, candidate =>
-            {
-                if (generation != sourceSearchGeneration || chooseSourceTrack?.Id != trackId) return;
-                _ = InvokeAsync(() =>
-                {
-                    if (generation != sourceSearchGeneration || chooseSourceTrack?.Id != trackId) return;
-                    if (sourceCandidates.Any(c => c.SourceUrl == candidate.SourceUrl)) return;
-                    sourceCandidates = sourceCandidates.Append(candidate).ToList();
-                    StartCandidateProbe(candidate, generation, trackId);
-                    StateHasChanged();
-                });
-            });
-        }
-        finally
-        {
-            // A stale search (dialog closed, another track opened, Search
-            // again pressed) changes nothing: not the list, not the flag.
-            if (generation == sourceSearchGeneration && chooseSourceTrack?.Id == trackId)
-            {
-                if (outcome is not null)
-                {
-                    sourceCandidates = outcome.Candidates;
-                    sourceSearchProblems = outcome.Problems;
-                    RefreshSourceAuthIssues();
-                    sourcePluginNotes = UnavailableSourceNotes();
-                    if (sourceFilterPlugin != "all"
-                        && outcome.Candidates.All(candidate => !string.Equals(
-                            candidate.PluginId, sourceFilterPlugin, StringComparison.OrdinalIgnoreCase)))
-                        sourceFilterPlugin = "all";
-                    foreach (var candidate in outcome.Candidates)
-                        StartCandidateProbe(candidate, generation, trackId);
-                }
-                searchingSources = false;
-                StateHasChanged();
-                _ = RestoreSourceScrollAsync(trackId);
-            }
-        }
-    }
-
-    /// <summary>
-    /// Reads every enabled plugin's current login verdict after a search:
-    /// a plugin can discover an expired token while its search runs, and
-    /// the snapshot taken when the dialog opened would miss it.
-    /// </summary>
-    private void RefreshSourceAuthIssues()
-    {
-        foreach (var plugin in Registry.GetEnabled())
-            AuthMonitor.Observe(plugin);
-        sourceAuthIssues = AuthMonitor.Snapshot();
-    }
-
-    /// <summary>
-    /// Why an enabled plugin is missing from the result list. A login
-    /// problem already has its own red note; this covers a timeout, a
-    /// thrown search and the tool or service being down, so a short list
-    /// never looks like a silent bug.
-    /// </summary>
-    private IReadOnlyList<SourcePluginNote> UnavailableSourceNotes()
-    {
-        var authIds = sourceAuthIssues
-            .Select(issue => issue.PluginId)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var candidateIds = sourceCandidates
-            .Select(candidate => candidate.PluginId)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var notes = new Dictionary<string, SourcePluginNote>(StringComparer.OrdinalIgnoreCase);
-
-        foreach (var problem in sourceSearchProblems)
-            if (!authIds.Contains(problem.PluginId))
-                notes[problem.PluginId] = new SourcePluginNote(
-                    problem.PluginId, problem.PluginName, problem.Reason);
-
-        foreach (var plugin in Registry.GetEnabled())
-        {
-            if (authIds.Contains(plugin.Id)
-                || candidateIds.Contains(plugin.Id)
-                || notes.ContainsKey(plugin.Id)
-                || string.IsNullOrWhiteSpace(plugin.LastUnavailableReason))
-                continue;
-            notes[plugin.Id] = new SourcePluginNote(
-                plugin.Id, plugin.Name, plugin.LastUnavailableReason);
-        }
-
-        return notes.Values
-            .OrderBy(note => note.Name, StringComparer.OrdinalIgnoreCase)
-            .ToList();
-    }
-
-    /// <summary>
-    /// Asks the candidate's plugin for the exact source facts and fills the
-    /// row in when the answer lands. The probe starts on the caller's
-    /// context and yields at its first await, so a fast plugin updates the
-    /// row without a thread hop and a slow one never blocks the dialog.
-    /// The Download button is usable the whole time.
-    /// </summary>
-    private void StartCandidateProbe(DownloadCandidate candidate, int generation, int trackId)
-    {
-        var url = candidate.SourceUrl;
-        if (probingCandidateUrls.Contains(url) || probedCandidateUrls.Contains(url)) return;
-        probingCandidateUrls.Add(url);
-        _ = ProbeCandidateAsync(candidate, url, generation, trackId);
-    }
-
-    private async Task ProbeCandidateAsync(
-        DownloadCandidate candidate, string url, int generation, int trackId)
-    {
-        CandidateAudioQuality? quality = null;
-        try
-        {
-            quality = await Store.ProbeCandidateQualityAsync(candidate.PluginId, url);
-        }
-        catch
-        {
-            // A probe is best effort; the row falls back to the manifest.
-        }
-        await InvokeAsync(() =>
-        {
-            probingCandidateUrls.Remove(url);
-            if (generation != sourceSearchGeneration || chooseSourceTrack?.Id != trackId) return;
-            probedCandidateUrls.Add(url);
-            if (quality is not null) candidateQualities[url] = quality;
-            StateHasChanged();
-        });
-    }
-
-    /// <summary>
-    /// What one candidate really is: the exact probe facts when they
-    /// arrived, otherwise what the plugin declares it can deliver.
-    /// </summary>
-    private string CandidateQualityText(DownloadCandidate candidate)
-    {
-        if (candidateQualities.TryGetValue(candidate.SourceUrl, out var quality))
-        {
-            // The delivered file is the lower of the track's own ceiling
-            // (a catalog fact, Qobuz) and the configured tier (the probe).
-            // Showing the track maximum alone overstated the pick when the
-            // tier is lower.
-            var depth = Lower(candidate.BitDepth, quality.BitDepth);
-            var rate = Lower(candidate.SampleRateHz, quality.SampleRateHz);
-            var parts = new List<string>();
-            var codec = CodecLabel(quality.Codec);
-            if (codec.Length > 0) parts.Add(codec);
-            if (depth is { } bitDepth) parts.Add($"{bitDepth}-bit");
-            if (rate is { } sampleRate) parts.Add($"{sampleRate / 1000.0:0.#} kHz");
-            if (quality.BitrateKbps is { } kbps && !quality.Lossless) parts.Add($"{kbps} kbps");
-            if (parts.Count == 0) parts.Add(quality.Lossless ? "lossless" : "unknown");
-            var text = string.Join(" · ", parts);
-            // The tier note only adds information when the track's own
-            // rate is not known.
-            var exactPerTrack = candidate.BitDepth is not null && candidate.SampleRateHz is not null;
-            var note = exactPerTrack ? null : quality.Note;
-            return note is { Length: > 0 } ? $"{text} ({note})" : text;
-        }
-
-        var declared = candidate.DeclaredQuality;
-        return declared is { Length: > 0 }
-            ? $"{candidate.PluginName} delivers {declared}"
-            : $"{candidate.PluginName} did not report its quality";
-    }
-
-    /// <summary>The lower of two optional facts; null means unknown.</summary>
-    private static int? Lower(int? first, int? second)
-        => first is null ? second : second is null ? first : Math.Min(first.Value, second.Value);
-
-    /// <summary>
-    /// The target match pill for one candidate, or null while its probe
-    /// still runs. With exact facts the verdict is a comparison; without
-    /// them it reads the plugin's own declaration, never a guess.
-    /// </summary>
-    private (string Variant, string Label, string Title)? CandidateVerdict(DownloadCandidate candidate)
-    {
-        if (!pickerTargetQuality.HasConstraints) return null;
-        var targetLabel = QualityLabel(editQuality);
-
-        if (candidateQualities.TryGetValue(candidate.SourceUrl, out var quality))
-        {
-            if (QualityMatchesTarget(quality, pickerTargetQuality))
-            {
-                return ("ok", "matches target",
-                    $"This source delivers {targetLabel}, the playlist's quality.");
-            }
-            if (!candidate.CanServeRequested)
-            {
-                return ("warn", "saved as-is",
-                    $"{candidate.PluginName} cannot deliver {targetLabel}; the pick keeps its source quality instead of being re-encoded.");
-            }
-            // The plugin can serve the target, so the pick is not saved
-            // as-is: with an explicit container it is converted, and with
-            // a container-less cap it keeps its own source.
-            return pickerTargetQuality.Format == AudioFormat.Auto
-                ? ("warn", "outside target",
-                    $"This source sits outside {targetLabel}; the pick keeps its source quality.")
-                : ("warn", "off target",
-                    $"This source does not deliver {targetLabel}; the pick will be converted to it.");
-        }
-
-        if (!probedCandidateUrls.Contains(candidate.SourceUrl)) return null;
-        return candidate.CanServeRequested
-            ? ("ok", "target OK", $"{candidate.PluginName} declares it can deliver {targetLabel}.")
-            : ("warn", "saved as-is",
-                $"{candidate.PluginName} cannot deliver {targetLabel}; the pick keeps its source quality instead of being re-encoded.");
-    }
-
-    /// <summary>True when the probed facts satisfy the requested quality.</summary>
-    private static bool QualityMatchesTarget(CandidateAudioQuality quality, DownloadQuality target)
-    {
-        if (target.Format == AudioFormat.Flac) return quality.Lossless;
-        if (target.Format != AudioFormat.Auto && AudioFormatOf(quality.Codec) != target.Format)
-            return false;
-        // A band can only be called a match when the probe measured it: the
-        // pick path does not re-check the band after download, so an
-        // unknown bitrate must not be presented as matching the target.
-        if (target.MinKbps is null && target.MaxKbps is null) return true;
-        return quality.BitrateKbps is > 0 && target.IsWithinBand(quality.BitrateKbps);
-    }
-
-    /// <summary>The container a raw codec name stands for.</summary>
-    private static AudioFormat AudioFormatOf(string? codec) => codec?.ToLowerInvariant() switch
-    {
-        "flac" => AudioFormat.Flac,
-        "mp3" => AudioFormat.Mp3,
-        "opus" => AudioFormat.Opus,
-        var c when c is not null && (c.StartsWith("mp4a", StringComparison.Ordinal)
-            || c.StartsWith("aac", StringComparison.Ordinal)) => AudioFormat.Aac,
-        _ => AudioFormat.Auto,
-    };
-
-    /// <summary>Readable codec names; ffprobe/yt-dlp names are not.</summary>
-    private static string CodecLabel(string? codec) => codec?.ToLowerInvariant() switch
-    {
-        null or "" or "none" => "",
-        "flac" => "FLAC",
-        "alac" => "ALAC",
-        "mp3" => "MP3",
-        "opus" => "Opus",
-        "vorbis" => "Vorbis",
-        var c when c.StartsWith("mp4a", StringComparison.Ordinal)
-            || c.StartsWith("aac", StringComparison.Ordinal) => "AAC",
-        var c when c.StartsWith("pcm", StringComparison.Ordinal) => "PCM",
-        _ => codec?.ToUpperInvariant() ?? "",
-    };
-
-    /// <summary>
-    /// Downloads the candidate the user picked; the row and the table
-    /// refresh when it lands, and a failure says why instead of guessing.
-    /// </summary>
-    private async Task DownloadPickedCandidate(DownloadCandidate candidate)
-    {
-        if (chooseSourceTrack is not { } track) return;
-        var trackId = track.Id;
-        downloadingCandidate = true;
-        downloadingCandidateUrl = candidate.SourceUrl;
-        downloadElapsedSeconds = 0;
         retryingTrackIds.Add(trackId);
-        var ticker = new CancellationTokenSource();
-        downloadTicker = ticker;
-        _ = TickDownloadProgressAsync(ticker.Token);
         try
         {
             var result = await Store.DownloadCandidateAsync(trackId, candidate);
             switch (result)
             {
                 case "downloaded":
-                    Notifications.Success($"Downloaded '{track.Title}' from {candidate.PluginName}.");
-                    // Only close the dialog this pick came from: another
-                    // track's picker may be open by now.
-                    if (chooseSourceTrack?.Id == trackId) chooseSourceTrack = null;
-                    break;
+                    // The dialog must close as soon as the file lands, so
+                    // the row refresh runs behind it. The page poll would
+                    // catch the write stamp anyway; this makes it immediate.
+                    _ = ReloadAfterPickAsync();
+                    return SourcePickResult.Success(
+                        $"Downloaded '{track.Title}' from {candidate.PluginName}.");
                 case "claimed-by-another-run":
-                    Notifications.Info("This track is already being downloaded by a running batch.");
-                    break;
+                    return SourcePickResult.AlreadyRunning;
                 default:
-                    // Keep the dialog open with the real reason on that row:
-                    // the next pick must be an informed one.
-                    await Load();
-                    var row = playlist?.Tracks?.FirstOrDefault(t => t.Id == trackId);
-                    sourceFailures[candidate.SourceUrl] = row?.DownloadError is { Length: > 0 } error
+                    var row = (await Store.GetForDisplayAsync(PlaylistId))?.Tracks
+                        .FirstOrDefault(t => t.Id == trackId);
+                    return SourcePickResult.Failed(row?.DownloadError is { Length: > 0 } error
                         ? error
-                        : $"{candidate.PluginName} did not deliver this pick";
-                    Notifications.Warn($"'{candidate.PluginName}' could not deliver '{track.Title}'. Try another result.");
-                    break;
+                        : $"{candidate.PluginName} did not deliver this pick");
             }
-            if (result == "downloaded") await Load();
         }
         finally
         {
-            // Only this pick's ticker, and only this pick's state: a later
-            // pick must keep running when an earlier one lands late. The
-            // page may already have been disposed by navigating away, and
-            // Cancel after Dispose throws.
-            try { ticker.Cancel(); }
-            catch (ObjectDisposedException) { /* the page disposed it first */ }
-            ticker.Dispose();
-            if (ReferenceEquals(downloadTicker, ticker)) downloadTicker = null;
-            downloadingCandidateUrl = null;
-            downloadingCandidate = false;
             retryingTrackIds.Remove(trackId);
         }
     }
 
-    private async Task TickDownloadProgressAsync(CancellationToken ct)
+    /// <summary>
+    /// Refreshes the rows after a pick without holding the dialog open.
+    /// A page that navigated away ignores the late result; the poll is the
+    /// backstop if this one query fails.
+    /// </summary>
+    private async Task ReloadAfterPickAsync()
     {
         try
         {
-            while (!ct.IsCancellationRequested)
+            await InvokeAsync(async () =>
             {
-                await Task.Delay(1000, ct);
-                downloadElapsedSeconds++;
-                await InvokeAsync(StateHasChanged);
-            }
+                await ReloadTracksAsync();
+                StateHasChanged();
+            });
         }
-        catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException)
+        catch
         {
-            // The pick landed or the page went away: nothing left to tick.
+            // The store poll retries on its next tick.
         }
-    }
-
-    /// <summary>
-    /// The candidate length next to the original's: "same length" or the
-    /// signed difference, so a preview or a longer edit stands out before
-    /// the click. Empty when either side has no length.
-    /// </summary>
-    private static string LengthDelta(TrackEntity track, TimeSpan candidate)
-    {
-        if (track.DurationMs is not > 0) return "";
-        var delta = (int)Math.Round(
-            (candidate - TimeSpan.FromMilliseconds(track.DurationMs.Value)).TotalSeconds);
-        if (Math.Abs(delta) < 5) return "same length";
-        var abs = Math.Abs(delta);
-        return $"{(delta > 0 ? "+" : "-")}{abs / 60}:{abs % 60:00}";
     }
 
     private async Task RemoveTrack(TrackEntity track)
@@ -2260,6 +1596,8 @@ else
     /// </summary>
     private IReadOnlyList<TrackEntity>? filteredCache;
 
+    private string? loadedPlaylistId;
+
     private IReadOnlyList<TrackEntity> TrackRows => filteredCache ??= FilteredTracks().ToList();
 
     private IEnumerable<TrackEntity> FilteredTracks()
@@ -2302,10 +1640,6 @@ else
         debounceCts?.Dispose();
         savedPillCts?.Cancel();
         savedPillCts?.Dispose();
-        // Cancel only: the pick's own finally disposes its source, so its
-        // Cancel can never hit a disposed CancellationTokenSource.
-        downloadTicker?.Cancel();
-        downloadTicker = null;
     }
 
     /// <summary>True for a public source URL. Liked songs are stored under a

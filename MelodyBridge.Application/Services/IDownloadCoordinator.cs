@@ -9,12 +9,19 @@ namespace MelodyBridge.Application.Services;
 /// </summary>
 public interface IDownloadCoordinator : IDownloadTrigger
 {
+    /// <summary>All live and last runs, newest first, finished ones included:
+    /// the dashboard and the badge refresh both read it.</summary>
+    IReadOnlyList<DownloadRun> Snapshot();
+
     /// <summary>The live or last run for a playlist, or null when it never ran.</summary>
     DownloadRun? RunFor(string playlistId);
 
-    /// <summary>All live and last runs, newest first, for badge refreshes.</summary>
-    IReadOnlyList<DownloadRun> Snapshot();
-
     /// <summary>True while a run for the playlist is running, paused or cancelling.</summary>
     bool IsActive(string playlistId);
+
+    /// <summary>Pauses a live run between tracks; a no-op for another state.</summary>
+    void Pause(string playlistId);
+
+    /// <summary>Cancels a live run between tracks; a no-op for another state.</summary>
+    void Cancel(string playlistId);
 }

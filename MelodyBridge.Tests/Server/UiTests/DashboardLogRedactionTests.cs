@@ -65,6 +65,7 @@ public class DashboardLogRedactionTests
             new TestServices.FixedPlexSettings());
         _ctx.Services.AddSingleton<MelodyBridge.Infrastructure.MediaServers.INavidromeSettings>(
             new TestServices.FixedNavidromeSettings());
+        _ctx.Services.AddMediaServerProbe(dbFactory);
     }
 
     [TearDown]

@@ -499,8 +499,14 @@ else
                                     {
                                         <p class="account-note">
                                             Runs on your Spotify web session, not the official API.
-                                            It can break when Spotify changes things, and the cookie is
-                                            a live credential of your account: a burner account is safest.
+                                            @if (advancedMode)
+                                            {
+                                                <text>
+                                                    It can break when Spotify changes things, and the
+                                                    cookie is a live credential of your account: a
+                                                    burner account is safest.
+                                                </text>
+                                            }
                                         </p>
                                     }
                                 }
@@ -896,12 +902,15 @@ else
         new("files", "Files"),
     ];
     private string importTab = "accounts";
+    /// <summary>Advanced mode reveals the longer unofficial-cookie risk note.</summary>
+    private bool advancedMode;
     private List<(string Name, bool Connected, bool Unofficial)> accountPanels = new();
     private HashSet<string> savedAccountIds = new();
     private HashSet<string> savedSpotifyIds = new();
     private HashSet<string> savedYouTubeIds = new();
 
     private Timer? refreshTimer;
+    /// <summary>The store stamp the badge refresh last saw, so an idle tick skips its query.</summary>
 
     // Quick publish: one sync job per ticked playlist, named after it,
     // with the ticked schedule and targets. Playlists that already have a
@@ -1571,14 +1580,32 @@ else
             () => Store.GetDownloadStatsAsync(),
             () => Store.DataVersion);
 
+        // The page needs six settings before it can render its controls.
+        // Read them in one query while the playlist list loads instead of
+        // opening six contexts and seven sequential connections.
+        var settingsTask = Settings.GetManyAsync(new[]
+        {
+            "default_quality", "music_path", "playlist_folders", "playlists_view", "playlists_sort",
+            MelodyBridge.Server.Services.DevPanelService.AdvancedSettingKey,
+        });
         await Load();
-        await LoadDefaultQualityAsync();
-        resolvedDefaultMusicPath = await Settings.GetAsync("music_path", "/music");
-        playlistFolders = await Settings.GetBoolAsync("playlist_folders", true);
-        playlistsView = await Settings.GetAsync("playlists_view", "cards");
+        var settings = await settingsTask;
+
+        var defaultQuality = settings.GetValueOrDefault("default_quality", "auto");
+        if (PlaylistStore.IsValidFormat(defaultQuality))
+        {
+            newQuality = defaultQuality;
+            savedDefaultQualityLabel = QualityLabel(defaultQuality);
+        }
+        resolvedDefaultMusicPath = settings.GetValueOrDefault("music_path", "/music");
+        playlistFolders = SettingsStore.ParseBool(settings.GetValueOrDefault("playlist_folders"), true);
+        playlistsView = settings.GetValueOrDefault("playlists_view", "cards");
         if (playlistsView is not ("cards" or "rows")) playlistsView = "cards";
-        playlistSort = await Settings.GetAsync("playlists_sort", "recent");
+        playlistSort = settings.GetValueOrDefault("playlists_sort", "recent");
         if (playlistSort is not ("recent" or "name" or "tracks")) playlistSort = "recent";
+        advancedMode = SettingsStore.ParseBool(
+            settings.GetValueOrDefault(MelodyBridge.Server.Services.DevPanelService.AdvancedSettingKey), false);
+
         // Live badge refresh while any run is active. Idle ticks do no
         // database work unless a write actually moved the store stamp.
         refreshTimer = new Timer(_ => InvokeAsync(async () =>
@@ -1590,16 +1617,6 @@ else
             ReconcileSelectionWithVisible();
             StateHasChanged();
         }), null, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2));
-    }
-
-    private async Task LoadDefaultQualityAsync()
-    {
-        var raw = await Settings.GetAsync("default_quality", "auto");
-        if (PlaylistStore.IsValidFormat(raw))
-        {
-            newQuality = raw;
-            savedDefaultQualityLabel = QualityLabel(raw);
-        }
     }
 
     private async Task Load(bool showSkeleton = true)

@@ -47,6 +47,32 @@ public class PlexDirectory : IMediaServerDirectory
         // Plex's token-holder is the only user; there is no user list API.
         return Task.FromResult(new List<MediaServerUserOption>());
     }
+
+    public async Task<MediaServerIdentity?> IdentifyAsync(
+        MediaServerConnection connection, CancellationToken ct = default)
+    {
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get,
+                PlexSync.NormalizeBaseUrl(connection.BaseUrl).TrimEnd('/') + "/");
+            request.Headers.Add("X-Plex-Token", connection.ApiKey);
+            request.Headers.Add("X-Plex-Client-Identifier", "melodybridge");
+            request.Headers.Add("Accept", "application/json");
+            using var response = await _http.SendAsync(request, ct);
+            response.EnsureSuccessStatusCode();
+            using var doc = await JsonDocument.ParseAsync(
+                await response.Content.ReadAsStreamAsync(ct), cancellationToken: ct);
+            if (!doc.RootElement.TryGetProperty("MediaContainer", out var container))
+                return null;
+            var server = container.TryGetProperty("friendlyName", out var f) ? f.GetString() : null;
+            var account = container.TryGetProperty("myPlexUsername", out var a) ? a.GetString() : null;
+            return new MediaServerIdentity(server, account);
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
 }
 
 /// <summary>
@@ -99,5 +125,15 @@ public class SubsonicDirectory : IMediaServerDirectory
     {
         // Subsonic users are their own credentials; no directory to list.
         return Task.FromResult(new List<MediaServerUserOption>());
+    }
+
+    public Task<MediaServerIdentity?> IdentifyAsync(
+        MediaServerConnection connection, CancellationToken ct = default)
+    {
+        // TestConnectionAsync verified the salted-token login, so the
+        // configured username is the account that just answered.
+        var username = string.IsNullOrWhiteSpace(connection.UserId) ? null : connection.UserId;
+        return Task.FromResult<MediaServerIdentity?>(
+            new MediaServerIdentity(ServerName: null, AccountName: username));
     }
 }

@@ -46,6 +46,9 @@ public static class TestServices
             new DatabaseRestore(),
             NullLogger<DatabaseBackupService>.Instance));
         services.AddSingleton(new MelodyBridge.Server.Services.NotificationService());
+        // Advanced mode flips this singleton and the sidebar reads it. Tests
+        // that need their own instance register it after this call.
+        services.AddSingleton(new MelodyBridge.Server.Services.DevPanelService());
         // Account connections: the pages inject the Spotify providers
         // directly, so the real (network-free until used) ones are
         // registered over the test database. Tests that need their own
@@ -87,6 +90,16 @@ public static class TestServices
         services.AddSingleton<IMediaServerDirectoryFactory>(sp =>
             new MelodyBridge.Infrastructure.MediaServers.MediaServerDirectoryFactory(
                 sp.GetServices<IMediaServerDirectory>()));
+        // Real probe over the fixed settings; with no secrets it reports
+        // everything as not configured and never touches the network.
+        services.AddSingleton<IMediaServerStatusProbe>(sp =>
+            new MelodyBridge.Infrastructure.MediaServers.MediaServerStatusProbe(
+                sp.GetRequiredService<MediaServerProfileStore>(),
+                sp.GetRequiredService<MelodyBridge.Infrastructure.MediaServers.IJellyfinSettings>(),
+                sp.GetRequiredService<MelodyBridge.Infrastructure.MediaServers.IPlexSettings>(),
+                sp.GetRequiredService<MelodyBridge.Infrastructure.MediaServers.INavidromeSettings>(),
+                sp.GetRequiredService<IMediaServerDirectoryFactory>(),
+                NullLogger<MelodyBridge.Infrastructure.MediaServers.MediaServerStatusProbe>.Instance));
     }
 
     /// <summary>Plugins page stub: a fixed version and recorded updates.</summary>
@@ -194,6 +207,28 @@ public static class TestServices
         public Task<string> GetPasswordAsync(CancellationToken ct = default) => Task.FromResult(Password);
     }
 
+    /// <summary>
+    /// Registers the dashboard's media server probe with no directory behind
+    /// it. The tests that use it never configure a server, so the probe only
+    /// reports the three known kinds as not configured.
+    /// </summary>
+    public static void AddMediaServerProbe(this IServiceCollection services,
+        IDbContextFactory<MelodyBridgeDbContext> dbFactory)
+    {
+        services.AddSingleton(new MelodyBridge.Infrastructure.Services.MediaServerProfileStore(
+            new SettingsStore(dbFactory)));
+        services.AddSingleton<MelodyBridge.Core.IMediaServerStatusProbe>(sp =>
+            new MelodyBridge.Infrastructure.MediaServers.MediaServerStatusProbe(
+                sp.GetRequiredService<MelodyBridge.Infrastructure.Services.MediaServerProfileStore>(),
+                sp.GetRequiredService<MelodyBridge.Infrastructure.MediaServers.IJellyfinSettings>(),
+                sp.GetRequiredService<MelodyBridge.Infrastructure.MediaServers.IPlexSettings>(),
+                sp.GetRequiredService<MelodyBridge.Infrastructure.MediaServers.INavidromeSettings>(),
+                new MelodyBridge.Infrastructure.MediaServers.MediaServerDirectoryFactory(
+                    Array.Empty<MelodyBridge.Core.IMediaServerDirectory>()),
+                Microsoft.Extensions.Logging.Abstractions
+                    .NullLogger<MelodyBridge.Infrastructure.MediaServers.MediaServerStatusProbe>.Instance));
+    }
+
     private sealed class ListRegistry(IDownloader[] downloaders) : IDownloaderRegistry
     {
         public IReadOnlyList<IDownloader> GetAll() => downloaders;
@@ -206,5 +241,44 @@ public static class TestServices
         public Task SetOrderAsync(IReadOnlyList<string> orderedIds, CancellationToken ct = default) => Task.CompletedTask;
     public Task<string> GetConfigAsync(string id, string key, CancellationToken ct = default) => Task.FromResult("");
     public Task SetConfigAsync(string id, string key, string? value, CancellationToken ct = default) => Task.CompletedTask;
+    }
+}
+
+/// <summary>
+/// A log buffer that writes one line while a snapshot is being taken: the
+/// returned snapshot does not contain that line and the version has already
+/// moved past it. That is the exact "line landed during the read" race the
+/// pages must survive, without a sleep.
+/// </summary>
+public sealed class SnapshotThenWriteCollector : MelodyBridge.Core.Logging.ILogCollector
+{
+    private readonly MelodyBridge.Server.Services.LogCollector _inner = new();
+
+    /// <summary>Write a line at the end of the next snapshot.</summary>
+    public bool WriteOnNextSnapshot { get; set; }
+
+    public string NextMessage { get; set; } = "a line that landed during the read";
+
+    public long Version => _inner.Version;
+
+    public long TotalCollected => _inner.TotalCollected;
+
+    public int MaxEntries => _inner.MaxEntries;
+
+    public void Log(MelodyBridge.Core.Logging.LogLevel level, string category, string message,
+        string? detail = null, string? group = null, string? area = null)
+        => _inner.Log(level, category, message, detail, group, area);
+
+    public void Clear() => _inner.Clear();
+
+    public IReadOnlyList<MelodyBridge.Core.Logging.LogEntry> GetEntries()
+    {
+        var snapshot = _inner.GetEntries();
+        if (WriteOnNextSnapshot)
+        {
+            WriteOnNextSnapshot = false;
+            _inner.Log(MelodyBridge.Core.Logging.LogLevel.Info, "Test", NextMessage);
+        }
+        return snapshot;
     }
 }

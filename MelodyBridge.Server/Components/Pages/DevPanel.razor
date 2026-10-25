@@ -1,10 +1,13 @@
 @page "/dev"
 @rendermode InteractiveServer
 @using MelodyBridge.Core
+@using MelodyBridge.Server.Services
 @inject DevPanelService Dev
+@inject DevDiagnosticsService Diagnostics
 @inject IDownloaderRegistry Registry
 @inject IDownloadManager DownloadMgr
 @inject MelodyBridge.Server.Services.NotificationService Notifications
+@inject IJSRuntime JS
 @attribute [Microsoft.AspNetCore.Authorization.AllowAnonymous]
 @implements IDisposable
 
@@ -25,7 +28,7 @@ else
     <div>
         <span class="eyebrow">Developer</span>
         <h1>Dev panel</h1>
-        <p>Interactive tools: search, download, queue, and inspect live logs.</p>
+        <p>Probe plugins, read runtime and database facts, search, download, and inspect live logs.</p>
     </div>
     <div class="flex-actions">
         <button class="btn-modern ghost" @onclick="ClearQueue" title="Clear completed downloads">
@@ -244,15 +247,163 @@ else
     </section>
 </div>
 
+@* ── DIAGNOSTICS ── *@
+<section class="panel-card dev-diagnostics-section">
+    <div class="panel-header">
+        <div>
+            <span class="eyebrow">System</span>
+            <h2>Diagnostics</h2>
+        </div>
+        <div class="panel-actions">
+            <button class="btn-modern ghost" @onclick="RefreshFactsAsync" disabled="@_factsLoading">
+                @if (_factsLoading)
+                {
+                    <span class="spinner"></span>
+                }
+                Refresh
+            </button>
+            <button class="btn-modern secondary" @onclick="CopyReportAsync"
+                    disabled="@(_facts is null || _counts is null)">
+                <Icon Name="copy" Size="14" Class="btn-icon" /> Copy report
+            </button>
+        </div>
+    </div>
+    @if (_factsError is not null)
+    {
+        <div class="hint-box">
+            <Icon Name="alert" Size="14" Class="inline-icon" />
+            @_factsError
+        </div>
+    }
+    else if (_facts is null || _counts is null)
+    {
+        <p class="hint">Reading the runtime and database facts...</p>
+    }
+    else
+    {
+        <div class="diag-grid">
+            <div class="diag-block">
+                <span class="eyebrow">Runtime</span>
+                <dl class="fact-list">
+                    <div><dt>Version</dt><dd>@_facts.AppVersion</dd></div>
+                    <div><dt>Environment</dt><dd>@_facts.EnvironmentName</dd></div>
+                    <div><dt>Runtime</dt><dd>@_facts.Runtime</dd></div>
+                    <div><dt>OS</dt><dd>@_facts.OperatingSystem</dd></div>
+                    <div><dt>Architecture</dt><dd>@_facts.Architecture</dd></div>
+                    <div><dt>Uptime</dt><dd>@FormatUptime(_facts.Uptime)</dd></div>
+                </dl>
+            </div>
+            <div class="diag-block">
+                <span class="eyebrow">Database</span>
+                <dl class="fact-list">
+                    <div><dt>File</dt><dd class="mono" title="@_facts.DatabasePath">@(_facts.DatabasePath ?? "unknown")</dd></div>
+                    <div>
+                        <dt>Size</dt>
+                        <dd>
+                            @FormatBytes(_facts.DatabaseBytes)
+                            <span class="text-muted">(WAL @FormatBytes(_facts.WalBytes))</span>
+                        </dd>
+                    </div>
+                    <div><dt>Playlists</dt><dd>@_counts.Playlists</dd></div>
+                    <div>
+                        <dt>Tracks</dt>
+                        <dd>
+                            @_counts.Tracks
+                            <span class="text-muted">@_counts.Downloaded downloaded, @_counts.Failed failed</span>
+                        </dd>
+                    </div>
+                    <div><dt>Sync jobs</dt><dd>@_counts.SyncJobs</dd></div>
+                    <div><dt>Scan locations</dt><dd>@_counts.ScanLocations</dd></div>
+                    <div><dt>Settings</dt><dd>@_counts.Settings</dd></div>
+                </dl>
+            </div>
+        </div>
+    }
+</section>
+
+@* ── PLUGIN HEALTH ── *@
+<section class="panel-card dev-health-section">
+    <div class="panel-header">
+        <div>
+            <span class="eyebrow">Plugins</span>
+            <h2>
+                Health
+                <span class="pill neutral">@(_probingPlugins ? "probing" : $"{_pluginHealth.Count} probed")</span>
+            </h2>
+        </div>
+        <div class="panel-actions">
+            <button class="btn-modern secondary" @onclick="ProbePluginsAsync" disabled="@_probingPlugins">
+                @if (_probingPlugins)
+                {
+                    <span class="spinner"></span>
+                }
+                @(_probingPlugins ? "Probing..." : "Probe all")
+            </button>
+        </div>
+    </div>
+    @if (_probingPlugins && _pluginHealth.Count == 0)
+    {
+        <p class="hint">
+            Probing every plugin in parallel. Slow providers are cut off after 15 seconds.
+        </p>
+    }
+    else if (_pluginHealth.Count == 0)
+    {
+        <p class="hint">
+            Run one availability check per registered plugin. Nothing is downloaded;
+            this only asks each plugin whether it is ready.
+        </p>
+    }
+    else
+    {
+        <div class="health-grid">
+            @foreach (var plugin in _pluginHealth)
+            {
+                <div class="health-row">
+                    <div class="health-name">
+                        <strong>@plugin.Name</strong>
+                        <span class="hint">@plugin.Id</span>
+                    </div>
+                    <div class="health-tags">
+                        @if (!plugin.Enabled)
+                        {
+                            <StatusPill Variant="neutral">disabled</StatusPill>
+                        }
+                        <StatusPill Variant="@(plugin.Available ? "ok" : "err")">
+                            @(plugin.Available ? "ready" : "unavailable")
+                        </StatusPill>
+                        <span class="hint">@plugin.ElapsedMs ms</span>
+                    </div>
+                    @if (!plugin.Available && !string.IsNullOrWhiteSpace(plugin.Reason))
+                    {
+                        <p class="health-reason">@plugin.Reason</p>
+                    }
+                </div>
+            }
+        </div>
+    }
+</section>
+
 @* ── LOG VIEWER ── *@
 <section class="panel-card log-section">
-    <div class="panel-header">
-        <span class="eyebrow">Output</span>
-        <h2>Log viewer <span class="pill neutral">@_logs.Count entries</span></h2>
+    <div class="panel-header dev-log-head">
+        <div>
+            <span class="eyebrow">Output</span>
+            <h2>Log viewer <span class="pill neutral">@_filteredLogs.Count of @_logs.Count</span></h2>
+        </div>
+        <div class="log-tools">
+            <input type="search" class="search-input log-search" placeholder="Filter text or category..."
+                   aria-label="Filter log entries by text, category or area"
+                   value="@_logSearch" @oninput="OnLogSearch" />
+            <button class="btn-modern ghost" @onclick="CopyLogsAsync" disabled="@(_filteredLogs.Count == 0)">
+                <Icon Name="copy" Size="14" Class="btn-icon" /> Copy
+            </button>
+        </div>
         <div class="log-filters">
             @foreach (var lvl in _logLevels)
             {
                 <button class="btn-filter @(_activeLogLevel == lvl ? "active" : "")"
+                        aria-pressed="@(_activeLogLevel == lvl)"
                         @onclick="() => SetLogLevel(lvl)">
                     @lvl
                 </button>
@@ -264,17 +415,27 @@ else
         {
             <div class="log-empty">@(_logs.Count == 0 ? "Nothing captured yet." : "No log entries match the current filter.")</div>
         }
-        @foreach (var entry in _filteredLogs)
+        @foreach (var entry in VisibleLogs)
         {
             <div class="log-line log-@entry.Level.ToLowerInvariant()">
                 <span class="log-time">@entry.Timestamp.ToString("HH:mm:ss.fff")</span>
                 <span class="log-level">@entry.Level</span>
+                <span class="log-area">@entry.Area</span>
                 <span class="log-cat">[@entry.Category]</span>
                 <span class="log-msg">@MelodyBridge.Server.Services.LogRedactor.Redact(entry.Message)</span>
                 @if (!string.IsNullOrEmpty(entry.Detail))
                 {
                     <pre class="log-detail">@MelodyBridge.Server.Services.LogRedactor.Redact(entry.Detail)</pre>
                 }
+            </div>
+        }
+        @if (_filteredLogs.Count > visibleLogCount)
+        {
+            <div class="log-more">
+                <span>Showing @Math.Min(visibleLogCount, _filteredLogs.Count) of @_filteredLogs.Count</span>
+                <button class="btn-modern small ghost" @onclick="ShowMoreLogs">
+                    Show @Math.Min(LogPageSize, _filteredLogs.Count - visibleLogCount) more
+                </button>
             </div>
         }
     </div>
@@ -292,19 +453,36 @@ else
     private bool _directDownloadSucceeded;
     private string? _downloadUrlError;
     private string _activeLogLevel = "All";
+    private string _logSearch = string.Empty;
     private static readonly string[] _logLevels = ["All", "Info", "Warn", "Error", "Debug"];
+
+    private DevSystemFacts? _facts;
+    private DevDatabaseCounts? _counts;
+    private List<DevPluginHealth> _pluginHealth = new();
+    private bool _factsLoading;
+    private bool _probingPlugins;
+    private string? _factsError;
 
     private Timer? _pollTimer;
 
-    protected override void OnInitialized()
+    /// <summary>Rows the viewer paints at once. The buffer holds a
+    /// thousand entries; rendering all of them twice a second was the
+    /// job the Logs page already stopped doing.</summary>
+    private const int LogPageSize = 200;
+    private int visibleLogCount = LogPageSize;
+
+    protected override async Task OnInitializedAsync()
     {
         _providers = Registry.GetAll().ToList();
         RefreshState();
+        // The page renders "not found" without advanced mode: reading the
+        // database for a panel nobody sees is work for nothing.
+        if (Dev.Enabled) await RefreshFactsAsync();
     }
 
     protected override void OnAfterRender(bool firstRender)
     {
-        if (firstRender)
+        if (firstRender && Dev.Enabled)
         {
             _pollTimer = new Timer(async _ =>
             {
@@ -328,16 +506,107 @@ else
         ApplyLogFilter();
     }
 
+    private IEnumerable<DevLogEntry> VisibleLogs => _filteredLogs.Take(visibleLogCount);
+
+    private void ShowMoreLogs() => visibleLogCount += LogPageSize;
+
     private void ApplyLogFilter()
     {
-        _filteredLogs = _activeLogLevel == "All"
+        IEnumerable<DevLogEntry> filtered = _activeLogLevel == "All"
             ? _logs
-            : _logs.Where(e => e.Level.Equals(_activeLogLevel, StringComparison.OrdinalIgnoreCase)).ToList();
+            : _logs.Where(e => e.Level.Equals(_activeLogLevel, StringComparison.OrdinalIgnoreCase));
+        var search = _logSearch.Trim();
+        if (search.Length > 0)
+        {
+            filtered = filtered.Where(e =>
+                e.Category.Contains(search, StringComparison.OrdinalIgnoreCase)
+                || e.Area.Contains(search, StringComparison.OrdinalIgnoreCase)
+                || e.Message.Contains(search, StringComparison.OrdinalIgnoreCase)
+                || (e.Detail?.Contains(search, StringComparison.OrdinalIgnoreCase) ?? false));
+        }
+        _filteredLogs = filtered.ToList();
+    }
+
+    private void OnLogSearch(ChangeEventArgs e)
+    {
+        _logSearch = e.Value?.ToString() ?? string.Empty;
+        visibleLogCount = LogPageSize;
+        ApplyLogFilter();
+    }
+
+    private async Task RefreshFactsAsync()
+    {
+        _factsLoading = true;
+        _factsError = null;
+        try
+        {
+            var factsTask = Diagnostics.GetSystemFactsAsync();
+            var countsTask = Diagnostics.GetDatabaseCountsAsync();
+            await Task.WhenAll(factsTask, countsTask);
+            _facts = await factsTask;
+            _counts = await countsTask;
+        }
+        catch (Exception ex)
+        {
+            _factsError = $"Could not read system facts: {ex.Message}";
+            Dev.LogWarn("Diagnostics", _factsError);
+        }
+        finally
+        {
+            _factsLoading = false;
+            RefreshState();
+        }
+    }
+
+    private async Task ProbePluginsAsync()
+    {
+        _probingPlugins = true;
+        try
+        {
+            _pluginHealth = (await Diagnostics.ProbePluginsAsync()).ToList();
+            Dev.LogInfo("Plugins",
+                $"Probed {_pluginHealth.Count} plugins: {_pluginHealth.Count(p => p.Available)} ready");
+        }
+        catch (Exception ex)
+        {
+            Dev.LogError("Plugins", $"Probe failed: {ex.Message}");
+            Notifications.Error($"Plugin probe failed: {ex.Message}");
+        }
+        finally
+        {
+            _probingPlugins = false;
+            RefreshState();
+        }
+    }
+
+    private async Task CopyReportAsync()
+    {
+        if (_facts is null || _counts is null) return;
+        var report = Diagnostics.BuildReport(_facts, _counts, _pluginHealth);
+        var copied = await JS.InvokeAsync<bool>("melody.copyText", report);
+        if (copied)
+            Notifications.Success("Diagnostics report copied.");
+        else
+            Notifications.Error("Could not copy the report. Select the text and copy it manually.");
+    }
+
+    private async Task CopyLogsAsync()
+    {
+        if (_filteredLogs.Count == 0) return;
+        var text = string.Join(Environment.NewLine, _filteredLogs.Select(entry =>
+            $"{entry.Timestamp:HH:mm:ss.fff} [{entry.Level}] {entry.Category}: " +
+            MelodyBridge.Server.Services.LogRedactor.Redact(entry.Message)));
+        var copied = await JS.InvokeAsync<bool>("melody.copyText", text);
+        if (copied)
+            Notifications.Success($"{_filteredLogs.Count} log entries copied.");
+        else
+            Notifications.Error("Could not copy the matching log entries.");
     }
 
     private void SetLogLevel(string level)
     {
         _activeLogLevel = level;
+        visibleLogCount = LogPageSize;
         ApplyLogFilter();
     }
 
@@ -591,6 +860,21 @@ else
         Notifications.Info("Log buffer cleared.");
         RefreshState();
     }
+
+    private static string FormatUptime(TimeSpan uptime)
+        => uptime.TotalDays >= 1
+            ? $"{(int)uptime.TotalDays}d {uptime.Hours}h {uptime.Minutes}m"
+            : uptime.TotalHours >= 1
+                ? $"{(int)uptime.TotalHours}h {uptime.Minutes}m"
+                : $"{uptime.Minutes}m {uptime.Seconds}s";
+
+    private static string FormatBytes(long bytes) => bytes switch
+    {
+        >= 1L << 30 => $"{bytes / (double)(1L << 30):0.0} GB",
+        >= 1L << 20 => $"{bytes / (double)(1L << 20):0.0} MB",
+        >= 1L << 10 => $"{bytes / (double)(1L << 10):0.0} KB",
+        _ => $"{bytes} B",
+    };
 
     private static string FormatPlatform(Platform p) => p switch
     {

@@ -94,6 +94,28 @@ public class DownloadManager : IDownloadManager
     private readonly ConcurrentDictionary<string, string> _lastAttemptedPlugin = new();
 
     /// <summary>
+    /// How many plugin hints the manager keeps. It lives for the whole
+    /// process, and a manual download adds an id that never comes back,
+    /// so the maps need a ceiling like the progress state has one.
+    /// </summary>
+    private const int PluginHintLimit = 2000;
+
+    /// <summary>Stores a hint and trims the map when it outgrows its cap.
+    /// A hint is a display convenience, never a correctness input.</summary>
+    internal static void RememberPlugin(
+        ConcurrentDictionary<string, string> map, string melodyId, string pluginId)
+    {
+        // Make room before the write, so the hint that is being written is
+        // never the one the trim throws away.
+        if (!map.ContainsKey(melodyId) && map.Count >= PluginHintLimit)
+        {
+            foreach (var key in map.Keys.Take(map.Count - PluginHintLimit + 1))
+                map.TryRemove(key, out _);
+        }
+        map[melodyId] = pluginId;
+    }
+
+    /// <summary>
     /// Every candidate the enabled plugins offer for a track, best first,
     /// for the manual source picker. Deliberately no acceptance gate and
     /// no quality routing: the list exists to show a human what the
@@ -220,21 +242,29 @@ public class DownloadManager : IDownloadManager
         string melodyId, CancellationToken ct = default)
     {
         using var correlation = LogCorrelation.Begin($"Track: {query.Artist} - {query.Title}");
+        void Fail(string reason, string? plugin = null)
+        {
+            _state.SetFailure(melodyId, reason);
+            _state.SetProgress(new DownloadProgress(
+                melodyId, query.Title, "failed", plugin, null,
+                candidate.Confidence, Warning: reason));
+        }
+
         var downloader = _registry.GetEnabled().FirstOrDefault(d => d.Id == candidate.PluginId);
         if (downloader is null)
         {
-            _state.SetFailure(melodyId, $"plugin '{candidate.PluginId}' is not enabled");
+            Fail($"plugin '{candidate.PluginId}' is not enabled");
             return null;
         }
 
-        _lastAttemptedPlugin[melodyId] = downloader.Id;
+        RememberPlugin(_lastAttemptedPlugin, melodyId, downloader.Id);
         _state.SetProgress(new DownloadProgress(
             melodyId, query.Title, "downloading", downloader.Name, null, candidate.Confidence));
         try
         {
             if (!await AvailableAsync(downloader, ct))
             {
-                _state.SetFailure(melodyId, $"{downloader.Name} is not available");
+                Fail($"{downloader.Name} is not available", downloader.Name);
                 return null;
             }
 
@@ -256,20 +286,19 @@ public class DownloadManager : IDownloadManager
                 if (ct.IsCancellationRequested)
                     throw new OperationCanceledException(ct);
                 _health.RecordFailure(downloader.Id);
-                _state.SetFailure(melodyId,
-                    result?.ErrorMessage ?? $"{downloader.Name} produced nothing");
+                Fail(result?.ErrorMessage ?? $"{downloader.Name} produced nothing", downloader.Name);
                 return null;
             }
             if (RejectNonAudio(result.FilePath, downloader.Name))
             {
                 _health.RecordFailure(downloader.Id);
-                _state.SetFailure(melodyId, $"{downloader.Name} returned bytes that are not audio");
+                Fail($"{downloader.Name} returned bytes that are not audio", downloader.Name);
                 return null;
             }
 
             TaglibHelper.WriteMelodyId(result.FilePath, melodyId);
             _health.RecordSuccess(downloader.Id);
-            _lastPlugin[melodyId] = downloader.Id;
+            RememberPlugin(_lastPlugin, melodyId, downloader.Id);
             _state.ClearFailure(melodyId);
             _state.SetProgress(new DownloadProgress(
                 melodyId, query.Title, "done", downloader.Name, result.FilePath, candidate.Confidence));
@@ -278,7 +307,7 @@ public class DownloadManager : IDownloadManager
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _health.RecordFailure(downloader.Id);
-            _state.SetFailure(melodyId, ex.Message.Length > 1000 ? ex.Message[..1000] : ex.Message);
+            Fail(ex.Message.Length > 1000 ? ex.Message[..1000] : ex.Message, downloader.Name);
             throw;
         }
     }
@@ -286,6 +315,10 @@ public class DownloadManager : IDownloadManager
     /// <summary>Current in-flight download states (for UI polling).</summary>
     public IReadOnlyList<DownloadProgress> SnapshotProgress()
         => _state.Snapshot();
+
+    /// <summary>Let a manual download update its final name and outcome.</summary>
+    public void ReportProgress(DownloadProgress progress)
+        => _state.SetProgress(progress);
 
     /// <summary>
     /// The exact audio facts of one candidate, read by its plugin without
@@ -327,6 +360,7 @@ public class DownloadManager : IDownloadManager
     public async Task<string?> DownloadAsync(string sourceUrl, string outputDirectory, string melodyId, CancellationToken ct = default)
     {
         // Direct URL case: let plugins download the URL as-is.
+        string? lastError = null;
         foreach (var downloader in _registry.GetEnabled())
         {
             if (_health.ShouldSkip(downloader.Id))
@@ -343,21 +377,30 @@ public class DownloadManager : IDownloadManager
                     if (RejectNonAudio(result.FilePath, downloader.Name))
                     {
                         _health.RecordFailure(downloader.Id);
+                        lastError ??= $"{downloader.Name} returned bytes that are not audio";
                         continue;
                     }
+                    // A link download is adopted by the same scanner as any
+                    // other file, so it needs the identity tag too.
+                    TaglibHelper.WriteMelodyId(result.FilePath, melodyId);
                     _health.RecordSuccess(downloader.Id);
-                    _lastPlugin[melodyId] = downloader.Id;
+                    RememberPlugin(_lastPlugin, melodyId, downloader.Id);
+                    _state.ClearFailure(melodyId);
                     return result.FilePath;
                 }
                 _health.RecordFailure(downloader.Id);
+                lastError ??= result.ErrorMessage;
                 _logger.LogWarning("{Name} failed for {Url}: {Error}", downloader.Name, sourceUrl, result.ErrorMessage);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 _health.RecordFailure(downloader.Id);
+                lastError ??= ex.Message;
                 _logger.LogWarning(ex, "{Name} threw for {Url}", downloader.Name, sourceUrl);
             }
         }
+        _state.SetFailure(melodyId,
+            lastError ?? "No enabled plugin could download this link");
         return null;
     }
 
@@ -539,7 +582,7 @@ public class DownloadManager : IDownloadManager
                         continue;
                     }
 
-                    _lastAttemptedPlugin[melodyId] = downloader.Id;
+                    RememberPlugin(_lastAttemptedPlugin, melodyId, downloader.Id);
                     var hit = await SearchAsync(downloader, query, pluginCt);
                     _auth?.Observe(downloader);
                     if (hit is null)
@@ -655,11 +698,11 @@ public class DownloadManager : IDownloadManager
                         // gate. Plugins never tag it themselves.
                         TaglibHelper.WriteMelodyId(result.FilePath, melodyId);
 
-                        _lastPlugin[melodyId] = downloader.Id;
                         // The caller's own answer for where the file came
                         // from, so two parallel runs of one song cannot
                         // overwrite each other's attribution.
                         if (journal is not null) journal.ProducingPluginId = downloader.Id;
+                        RememberPlugin(_lastPlugin, melodyId, downloader.Id);
                         _health.RecordSuccess(downloader.Id);
                         _state.SetProgress(new DownloadProgress(
                             melodyId, query.Title, "done", downloader.Name, result.FilePath, candidate.MatchConfidence,

@@ -60,6 +60,9 @@ builder.Services.AddScoped(sp =>
 // Toasts: singleton so events raised anywhere reach the one layout.
 builder.Services.AddSingleton(new MelodyBridge.Server.Services.NotificationService());
 builder.Services.AddHostedService<MelodyBridge.Server.Services.ToastObserverService>();
+// Asks the media servers how they are in the background, so the dashboard
+// never has to wait for a server that does not answer.
+builder.Services.AddHostedService<MelodyBridge.Server.Services.MediaServerStatusWatcher>();
 // Watch the subscription plugins' logins even when nobody has the
 // Plugins page open, so an expired token reaches the user as a toast and
 // a persistent mark instead of a silent "no source" miss.
@@ -75,10 +78,12 @@ builder.Services.AddSingleton<MelodyBridge.Server.Services.NtfyNotifier>();
 builder.Services.AddSingleton<MelodyBridge.Core.IBackgroundFailureSink,
     MelodyBridge.Server.Services.BackgroundFailureSink>();
 
-// Dev panel (singleton, off by default: enable via DevPanel__Enabled=true env var)
+// Dev panel (singleton). Off by default; advanced mode in the UI turns it
+// on, and DevPanel__Enabled=true still forces it on for containers.
 var devPanel = new DevPanelService(logCollector);
 devPanel.Enabled = builder.Configuration.GetValue<bool>("DevPanel:Enabled");
 builder.Services.AddSingleton(devPanel);
+builder.Services.AddSingleton<DevDiagnosticsService>();
 
 // Data Protection: keys live in the default container location, no volume needed.
 // Existing Blazor circuits invalidate on restart, which is fine for a personal app.
@@ -120,6 +125,13 @@ using (var scope = app.Services.CreateScope())
     using var db = dbFactory.CreateDbContext();
     db.Database.EnsureCreated();
     await SchemaPatcher.PatchAsync(db);
+
+    // Advanced mode is a stored preference, so the sidebar and pages agree
+    // right after a restart. The environment variable above is the fallback
+    // for an install with no row yet.
+    devPanel.Enabled = await scope.ServiceProvider
+        .GetRequiredService<SettingsStore>()
+        .GetBoolAsync(DevPanelService.AdvancedSettingKey, devPanel.Enabled);
 
     // Stale-claim recovery: a track claimed "in_progress" by a run that
     // died (crash, hard shutdown) can never be claimed again. Nothing can

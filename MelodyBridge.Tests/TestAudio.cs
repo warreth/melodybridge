@@ -24,4 +24,52 @@ public static class TestAudio
             frame.CopyTo(fileBytes, id3Header.Length + frame.Length * i);
         return fileBytes;
     }
+
+    /// <summary>
+    /// A real one second opus-in-webm on disk. WebM tags are not writable,
+    /// which makes it the fixture for "the file cannot carry its id".
+    /// </summary>
+    public static void WriteWebm(string path)
+    {
+        var ffmpeg = MelodyBridge.Infrastructure.Audio.SpectrumAnalyzer.FindBinary("ffmpeg");
+        if (ffmpeg is null) throw new InvalidOperationException("ffmpeg is required for a webm fixture");
+        if (!HasEncoder(ffmpeg, "libopus"))
+            Assert.Ignore("this ffmpeg has no libopus encoder, so it cannot make the webm fixture");
+        var info = new System.Diagnostics.ProcessStartInfo(ffmpeg)
+        {
+            RedirectStandardError = true,
+            RedirectStandardOutput = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+        foreach (var argument in new[]
+                 {
+                     "-y", "-v", "error", "-f", "lavfi", "-i",
+                     "anullsrc=r=48000:cl=mono", "-t", "1", "-c:a", "libopus", path,
+                 })
+        {
+            info.ArgumentList.Add(argument);
+        }
+        using var proc = System.Diagnostics.Process.Start(info)!;
+        proc.WaitForExit(30000);
+        if (proc.ExitCode != 0)
+            throw new InvalidOperationException("the webm fixture did not encode");
+    }
+
+    /// <summary>True when this ffmpeg build lists the encoder.</summary>
+    private static bool HasEncoder(string ffmpeg, string name)
+    {
+        var info = new System.Diagnostics.ProcessStartInfo(ffmpeg)
+        {
+            RedirectStandardOutput = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+        info.ArgumentList.Add("-hide_banner");
+        info.ArgumentList.Add("-encoders");
+        using var proc = System.Diagnostics.Process.Start(info)!;
+        var output = proc.StandardOutput.ReadToEnd();
+        proc.WaitForExit(10000);
+        return output.Contains(name, StringComparison.Ordinal);
+    }
 }

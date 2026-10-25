@@ -300,6 +300,7 @@ public class PageRefactorUiTests
             new TestServices.FixedPlexSettings());
         _ctx.Services.AddSingleton<MelodyBridge.Infrastructure.MediaServers.INavidromeSettings>(
             new TestServices.FixedNavidromeSettings());
+        _ctx.Services.AddMediaServerProbe(_factory);
 
         var cut = _ctx.Render<Home>();
         // Fresh install: dismiss the intro so the dashboard renders.
@@ -308,8 +309,11 @@ public class PageRefactorUiTests
         cut.FindAll("button").Single(b => b.TextContent.Contains("Skip intro")).Click();
         cut.WaitForState(() => cut.Markup.Contains("Connections"), TimeSpan.FromSeconds(3));
 
+        // The media server rows arrive with the probe's first answer, one
+        // render after the account rows.
+        cut.WaitForAssertion(() => Assert.That(cut.FindAll(".connection-row").Count(),
+            Is.EqualTo(6), "all six connections render"), TimeSpan.FromSeconds(5));
         var rows = cut.FindAll(".connection-row");
-        Assert.That(rows.Count(), Is.EqualTo(6), "all six connections render");
         Assert.That(rows.First().QuerySelector("svg.brand-icon"), Is.Not.Null,
             "the Spotify row leads with its brand mark");
         Assert.That(rows.First().QuerySelector("span.pill"), Is.Not.Null,

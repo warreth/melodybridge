@@ -147,6 +147,14 @@ change a login call `IPluginAvailabilityRefresh.RefreshAvailability` so the
 save is probed for real, and the Plugins page probes in parallel with a short
 budget per plugin.
 
+The media server status probe answers a different question: is this server
+reachable, and as whom. `IMediaServerStatusProbe.SnapshotAsync` waits for the
+answer, and `CurrentAsync` does not: it returns the last answer, or the known
+servers in a `Checking` state, and the probe runs in the background. The
+dashboard uses the second one and redraws the connection rows when the probe
+raises `Changed`, so a page load never waits for a server that does not
+answer. `MediaServerStatusWatcher` keeps the answer warm in the background.
+
 Qobuz needs two payload quirks in mind: some catalogue answers arrive gzipped
 even when the request did not ask for it, and `maximum_sampling_rate` is in kHz
 as a decimal (`44.1`). `QobuzClient.ReadBodyAsync` decodes the body and the
@@ -168,6 +176,18 @@ imports), `DownloadPipeline` (claim, dedup, waterfall, tagging, integrity,
 archive) and `PlaylistTransfer` (JSON and CSV export/import). `PlaylistRules`
 holds the pure rules they share. New behaviour belongs in the service that owns
 it; the facade keeps its public surface so pages and tests do not move.
+
+Two reads carry the whole app and are shaped for it. `GetForDisplayAsync`
+returns a playlist with its tracks, but only the columns the pages and the
+exports read: a track row also holds the resolved lyrics and the cover url, and
+a playlist of a few thousand tracks would drag megabytes of text into memory
+for a table that never shows them.
+
+`GetDownloadStatsAsync` counts the tracks per playlist for the playlist cards,
+and the index on (`PlaylistEntityId`, `DownloadStatus`, `FileSizeBytes`,
+`ReviewKind`) holds exactly the columns those counters read, so the group-by
+walks the index instead of the table. A SchemaPatcher step adds the index to
+older databases.
 
 A plugin that can list more than its ranked winner overrides
 `SearchAllAsync` (the yt-dlp backed ones do): the manual source picker shows
@@ -198,7 +218,7 @@ Every plugin-produced file is sniffed with `AudioSignature` (magic bytes, never 
 
 `DownloadQuality` carries a bitrate band: `MinKbps` and `MaxKbps`, both optional, both hard. Search hits whose measured bitrate falls outside the band are skipped, and downloaded files are probed with `BitrateProbe.MeasureKbps` and rejected+deleted when outside it. Unknown bitrates pass the search gate and leave the verdict to the post-download measurement.
 
-`IDownloaderRegistry` manages the plugin waterfall: enable/disable and priority are persisted per plugin in the `ProviderStates` table. Plugin config values, declared via `IDownloader.ConfigFields` (key, label, placeholder and description, plus an `Advanced` flag, a `Secret` flag and select `Options`), persist in the `DownloaderSettings` table under `plugin:{id}:{key}` keys and are edited on the Plugins page behind the card's Settings row, with the advanced fields one click deeper. Plugins read their own values through `IPluginConfig` (the same DB-backed store), so a changed base URL or API key takes effect without a restart. A plugin that can explain its own unavailability sets `LastUnavailableReason` during the check, and the card shows that line instead of the page's generic hint.
+`IDownloaderRegistry` manages the plugin waterfall: enable/disable and priority are persisted per plugin in the `ProviderStates` table. Plugin config values, declared via `IDownloader.ConfigFields` (key, label, placeholder and description, plus an `Advanced` flag, a `Secret` flag and select `Options`), persist in the `DownloaderSettings` table under `plugin:{id}:{key}` keys and are edited on the Plugins page behind the card's Settings row, with the advanced fields one click deeper. Plugins read their own values through `IPluginConfig` (the same DB-backed store), so a changed base URL or API key takes effect without a restart. That store keeps one in-memory snapshot of all `plugin:` rows, filled with a single query and updated on every save, so a plugin can read its own settings on a hot path without opening a database connection each time. A database that is replaced from the outside needs the restart the Settings page already asks for. A plugin that can explain its own unavailability sets `LastUnavailableReason` during the check, and the card shows that line instead of the page's generic hint.
 
 `DownloadCoordinator` runs each playlist's downloads in parallel workers and is observable through `Snapshot()`; see `IDownloadManager` below for the per-run work-list semantics.
 
@@ -242,6 +262,7 @@ public interface IDownloadManager
         TrackQuery query, CancellationToken ct = default);
     Task<string?> DownloadCandidateAsync(DownloadCandidate candidate, TrackQuery query,
         string outputDirectory, string melodyId, CancellationToken ct = default);
+    void ReportProgress(DownloadProgress progress);
     IReadOnlyList<DownloadProgress> SnapshotProgress();
     string? LastPluginId(string melodyId);
     string? LastFailure(string melodyId);
@@ -260,7 +281,11 @@ claim and the shared post-download steps (`CompleteDownloadAsync`: tags,
 integrity, enrichment, archive), deletes the row's old primary and archive
 name-wise first, and refuses when those cannot go.
 
-`DownloadTrackAsync` routes the enabled plugins through `QualityRouter` first: incompatible plugins are excluded before any network call, survivors are ranked for the request, and the first successful download wins. Without a fallback policy the request is strict: exactly the requested quality or nothing. With a `DownloadFallback` (a non-strict playlist) a miss walks the `QualityLadder`, stepping down through the levels the enabled plugins declare. Every plugin call is individually guarded (a plugin that throws on availability, search or download is skipped, never fatal), each hit is duration-checked before any bytes are spent, and each produced file must sniff as real audio. When every plugin is excluded the track fails fast with "your quality filters excluded every plugin". On success the manager writes the MELODY_ID tag and records `LastPluginId` for the retry path. `DownloadAsync` passes a direct URL to the plugins that can handle it.
+`DownloadTrackAsync` routes the enabled plugins through `QualityRouter` first: incompatible plugins are excluded before any network call, survivors are ranked for the request, and the first successful download wins. Without a fallback policy the request is strict: exactly the requested quality or nothing. With a `DownloadFallback` (a non-strict playlist) a miss walks the `QualityLadder`, stepping down through the levels the enabled plugins declare. Every plugin call is individually guarded (a plugin that throws on availability, search or download is skipped, never fatal), each hit is duration-checked before any bytes are spent, and each produced file must sniff as real audio. When every plugin is excluded the track fails fast with "your quality filters excluded every plugin". On success the manager writes the MELODY_ID tag and records `LastPluginId` for the retry path. `DownloadAsync` passes a direct URL to the plugins that can handle it and keeps
+the last plugin error so the caller can report it. `ReportProgress` replaces a
+manual download's live entry after the file is renamed and tagged, so the
+Downloads overview points at the saved path and a failed pick ends as failed
+instead of staying on "downloading".
 
 `avoidPluginId` drops one plugin from the whole call, ladder steps included. The quality review uses it when the user picks Retry: the flagged file's `Tracks.SourcePluginId` becomes the next attempt's avoid hint, so the provider that delivered the flagged file gets no second chance at the same track. The hint is one-shot (the store clears it when the attempt starts), and when nothing else can serve the request `LastFailure` says exactly that instead of "no source had this track".
 
@@ -347,7 +372,11 @@ Xiph/Vorbis comment field for FLAC, Ogg and Opus, and a
 ID3v2 tag inside a FLAC fabricates a block that hijacks storage. The
 comment marker path replaces any existing marker instead of appending.
 The manager writes the tag, never the plugins, and only after the file
-passes the quality band, so no rejected file is ever tagged.
+passes the quality band, so no rejected file is ever tagged. The one
+exception is a container TagLib cannot write: an opus-in-webm download
+without ffmpeg keeps its `.webm` extension, the tag cannot be written,
+and the scanner skips that file. The manual download page reads the tag
+back and warns on the saved card instead of promising a library entry.
 
 Legacy databases keep their `mb-{guid}` rows: those tags
 still match their files. A SchemaPatcher backfill fills the
@@ -365,7 +394,12 @@ subfolder off: the root itself is then the folder, and every caller reads the
 setting through `SettingsStore`.
 `ResolveArchiveFolder` applies the same rule under the archive path, and the
 playlist row carries an `ArchiveEnabled` switch that skips the copy entirely when
-off. `LibraryReconciler` moves downloaded files (archive copies included) that
+off. The app writes the archive copy itself, so the row keeps its size in
+`ArchiveSizeBytes`: the Library page then reports the size of every archive
+copy from the database instead of measuring every file on every visit. A copy
+from before that column existed is measured once, in the background, and the
+answer is stored.
+`LibraryReconciler` moves downloaded files (archive copies included) that
 still sit loose under a playlist's base folder into the playlist folder during
 startup reconciliation, never overwriting what a destination already holds.
 `LibraryPathMover` runs the same guarded move for a whole root when the Music
@@ -434,6 +468,14 @@ and remembered `ArchivePath` values stay out of it), and a
 `needs-review` row is left alone by every library pass: only a real
 download may pause it for the quality decision, an unprompted pass
 leaves a mismatch pending.
+
+The library pass reads a lot of rows, so it reads them the cheap way: a
+projection of the columns the pass actually reads (a track row also
+carries its lyrics and cover url), one scan of a music folder for all
+the playlists that live in it, and one query for the dedup candidates of
+a whole playlist instead of one per track. The rows it changes are
+attached to the change tracker when they change, so the pass writes the
+fields it touched and nothing else.
 
 Deletion is name-wise by hard link semantics: removing one playlist's
 row removes that playlist's file name only, and both `RemoveTrackAsync`

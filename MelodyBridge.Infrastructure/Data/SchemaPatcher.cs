@@ -28,6 +28,9 @@ public static class SchemaPatcher
         ("Playlists", "ScheduleCron", "TEXT NULL"),
         // Secondary archive target: one download, two library files.
         ("Tracks", "ArchivePath", "TEXT NULL"),
+        // The size of the archive copy, so the Library page does not stat
+        // every archive file on every visit.
+        ("Tracks", "ArchiveSizeBytes", "INTEGER NULL"),
         ("Playlists", "ArchiveDirectory", "TEXT NULL"),
         ("Playlists", "ArchiveFormat", "TEXT NULL"),
         // Partial-sync honesty: the reason a sync was not a clean Completed.
@@ -142,6 +145,38 @@ public static class SchemaPatcher
         // the uniqueness of an existing index, so the old index goes and
         // a plain one takes its place.
         await DropIndexIfUniqueAsync(db, "IX_Tracks_MelodyId", ct);
+
+        // The per-playlist counters read four columns of every track row.
+        // An index that holds exactly those turns the group-by into a
+        // walk over the index, which is a lot cheaper than over the
+        // table once a library holds tens of thousands of tracks.
+        await CreateIndexIfMissingAsync(
+            db,
+            "IX_Tracks_PlaylistEntityId_DownloadStatus_FileSizeBytes_ReviewKind",
+            "CREATE INDEX IX_Tracks_PlaylistEntityId_DownloadStatus_FileSizeBytes_ReviewKind "
+                + "ON Tracks (PlaylistEntityId, DownloadStatus, FileSizeBytes, ReviewKind)",
+            ct);
+    }
+
+    /// <summary>
+    /// Creates an index when the database does not have it yet. Idempotent:
+    /// a fresh install gets the index from the model, an older one gets it
+    /// here the first time it starts.
+    /// </summary>
+    private static async Task CreateIndexIfMissingAsync(
+        MelodyBridgeDbContext db, string indexName, string createSql, CancellationToken ct)
+    {
+        var connection = db.Database.GetDbConnection();
+        if (connection.State != System.Data.ConnectionState.Open)
+            await connection.OpenAsync(ct);
+
+        await using (var check = connection.CreateCommand())
+        {
+            check.CommandText = $"SELECT sql FROM sqlite_master WHERE type='index' AND name='{indexName}'";
+            if (await check.ExecuteScalarAsync(ct) is not null) return;
+        }
+
+        await db.Database.ExecuteSqlRawAsync(createSql, ct);
     }
 
     /// <summary>

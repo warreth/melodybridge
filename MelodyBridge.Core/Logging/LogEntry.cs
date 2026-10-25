@@ -14,6 +14,7 @@ public record LogEntry(
     string Message,
     string? Detail = null,
     string? Group = null,
+    string Area = "System",
     long Sequence = 0
 );
 

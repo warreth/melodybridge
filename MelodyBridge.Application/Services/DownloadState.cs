@@ -49,11 +49,14 @@ internal sealed class DownloadState
         return _failures.TryGetValue(melodyId, out var entry) ? entry.Value : null;
     }
 
-    /// <summary>Every live progress entry, newest writes included.</summary>
+    /// <summary>Every live progress entry, newest writes included. The
+    /// overview sorts on the write time, so each entry carries its own.</summary>
     public IReadOnlyList<DownloadProgress> Snapshot()
     {
         Prune(DateTimeOffset.UtcNow);
-        return _progress.Values.Select(entry => entry.Value).ToList();
+        return _progress.Values
+            .Select(entry => entry.Value with { At = entry.At })
+            .ToList();
     }
 
     /// <summary>

@@ -20,14 +20,16 @@ public class LogsPageTests
     private TestContext _ctx = null!;
     private LogCollector _collector = null!;
     private LogExporter _exporter = null!;
+    private ILogCollector? _collectorForPage;
 
     [SetUp]
     public void Setup()
     {
         _ctx = new TestContext();
         _collector = new LogCollector(maxEntries: 500);
+        _collectorForPage = null;
         _exporter = new LogExporter(_collector);
-        _ctx.Services.AddSingleton<ILogCollector>(_collector);
+        _ctx.Services.AddSingleton<ILogCollector>(_ => _collectorForPage ?? _collector);
         _ctx.Services.AddSingleton(_exporter);
         _ctx.Services.AddSingleton(new LogsViewState());
     }
@@ -73,6 +75,46 @@ public class LogsPageTests
 
         Assert.That(cut.Markup, Does.Not.Contain("problem"));
         Assert.That(cut.Markup, Does.Contain("all good"));
+    }
+
+    [Test]
+    public void Logs_OnlyRendersAPageOfEntries()
+    {
+        for (var i = 0; i < 250; i++)
+            _collector.Log(LogLevel.Info, "MelodyBridge.Infrastructure.Services.PlaylistStore",
+                $"entry {i:000}");
+
+        var cut = _ctx.Render<Logs>();
+
+        Assert.That(cut.FindAll(".logs-list .log-row").Count, Is.EqualTo(200),
+            "the first paint stays at one page so a full buffer does not stall the page");
+        Assert.That(cut.Markup, Does.Contain("Show 50 more entries"));
+
+        cut.FindAll(".logs-more button").Single().Click();
+
+        Assert.That(cut.FindAll(".logs-list .log-row").Count, Is.EqualTo(250),
+            "Show more reveals the rest without leaving the page");
+        Assert.That(cut.FindAll(".logs-more"), Is.Empty);
+    }
+
+    [Test]
+    public async Task Logs_LineWrittenDuringTheRead_StillCountsAsAChange()
+    {
+        // The collector hands back a snapshot that does not contain the
+        // line it writes while the snapshot is taken. That line must make
+        // the next tick redraw, or it stays invisible until another line
+        // arrives.
+        var collector = new SnapshotThenWriteCollector();
+        collector.Log(LogLevel.Info, "Test", "first line");
+        collector.WriteOnNextSnapshot = true;
+        _collectorForPage = collector;
+
+        var cut = _ctx.Render<Logs>();
+        await cut.InvokeAsync(() => cut.Instance.Tick());
+
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("a line that landed during the read"),
+                "the line that landed during the read reaches the page on the next tick"));
     }
 
     [Test]

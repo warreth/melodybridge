@@ -73,7 +73,7 @@ public class LibraryLocationsTests
 
         Assert.That(cut.Markup, Does.Contain("2 files with MELODY_ID"),
             "the rock folder holds exactly two tagged files (nested ones included)");
-        Assert.That(cut.Markup, Does.Contain("1 files with MELODY_ID"),
+        Assert.That(cut.Markup, Does.Contain("1 file with MELODY_ID"),
             "the jazz folder holds exactly one tagged file");
         Assert.That(cut.Markup, Does.Contain("last scan 2026-07-06"),
             "the stored last-scan time renders on the card in a stable format");

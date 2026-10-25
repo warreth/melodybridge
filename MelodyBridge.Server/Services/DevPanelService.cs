@@ -12,7 +12,8 @@ public record DevLogEntry(
     string Level,
     string Category,
     string Message,
-    string? Detail = null
+    string? Detail = null,
+    string Area = "System"
 );
 
 /// <summary>
@@ -96,7 +97,26 @@ public class DevPanelService
     }
 
     /// <summary>Whether the dev panel sidebar link is visible.</summary>
-    public bool Enabled { get; set; }
+    public bool Enabled
+    {
+        get => _enabled;
+        set
+        {
+            if (_enabled == value) return;
+            _enabled = value;
+            Changed?.Invoke();
+        }
+    }
+    private bool _enabled;
+
+    /// <summary>Raised after Enabled changes, so the sidebar updates at once.</summary>
+    public event Action? Changed;
+
+    /// <summary>
+    /// Settings key for advanced mode. On reveals the dev panel and the
+    /// longer technical notes elsewhere; stored as a normal boolean row.
+    /// </summary>
+    public const string AdvancedSettingKey = "advanced_ui";
 
     // ── Search state ──
     public string? SearchQuery { get; set; }
@@ -147,7 +167,8 @@ public class DevPanelService
                 LevelToString.TryGetValue(e.Level, out var s) ? s : e.Level.ToString(),
                 e.Category,
                 e.Message,
-                e.Detail))
+                e.Detail,
+                e.Area))
             .ToList();
     }
 

@@ -76,6 +76,80 @@ public class MediaServerDirectoryTests
     }
 
     [Test]
+    public async Task Jellyfin_Identify_NamesTheServerAndTheChosenUser()
+    {
+        var handler = new ScriptedHandler();
+        handler.On("System/Info", """{"ServerName":"Basement"}""");
+        handler.On("Users", """[{"Id":"u1","Name":"mila"},{"Id":"u2","Name":"system"}]""");
+        var dir = new JellyfinUserDirectory(new HttpClient(handler));
+
+        var identity = await dir.IdentifyAsync(
+            new MediaServerConnection("http://jf:8096", "key", "u1"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(identity, Is.Not.Null);
+            Assert.That(identity!.ServerName, Is.EqualTo("Basement"));
+            Assert.That(identity.AccountName, Is.EqualTo("mila"));
+        });
+    }
+
+    [Test]
+    public async Task Jellyfin_Identify_WithoutAUser_FallsBackToTheFirstRealUser()
+    {
+        var handler = new ScriptedHandler();
+        handler.On("System/Info", """{"ServerName":"Basement"}""");
+        handler.On("Users", """[{"Id":"u2","Name":"system"},{"Id":"u1","Name":"mila"}]""");
+        var dir = new JellyfinUserDirectory(new HttpClient(handler));
+
+        var identity = await dir.IdentifyAsync(new MediaServerConnection("http://jf:8096", "key"));
+
+        Assert.That(identity!.AccountName, Is.EqualTo("mila"));
+    }
+
+    [Test]
+    public async Task Plex_Identify_ReadsTheServerAndAccountFromTheRoot()
+    {
+        var handler = new ScriptedHandler();
+        handler.On("/", """{"MediaContainer":{"friendlyName":"Living Room","myPlexUsername":"mila"}}""");
+        var dir = new PlexDirectory(new HttpClient(handler));
+
+        var identity = await dir.IdentifyAsync(new MediaServerConnection("http://plex:32400", "tok"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(identity!.ServerName, Is.EqualTo("Living Room"));
+            Assert.That(identity.AccountName, Is.EqualTo("mila"));
+        });
+    }
+
+    [Test]
+    public async Task Subsonic_Identify_ReturnsTheVerifiedUsername()
+    {
+        var handler = new ScriptedHandler();
+        var dir = new SubsonicDirectory(new HttpClient(handler));
+
+        var identity = await dir.IdentifyAsync(
+            new MediaServerConnection("http://nav:4533", "pw", "mila"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(identity!.AccountName, Is.EqualTo("mila"));
+            Assert.That(handler.Requests, Is.Empty,
+                "the ping already verified the login; identity adds no second call");
+        });
+    }
+
+    [Test]
+    public async Task Identify_WhenTheServerCannotNameItself_ReturnsNull()
+    {
+        var dir = new JellyfinUserDirectory(new HttpClient(new ScriptedHandler()));
+
+        Assert.That(await dir.IdentifyAsync(new MediaServerConnection("http://jf:8096", "key")), Is.Null,
+            "identity is best effort on top of the reachability check");
+    }
+
+    [Test]
     public async Task UserLists_AreEmptyByDesign()
     {
         var plex = new PlexDirectory(new HttpClient(new ScriptedHandler()));
@@ -125,8 +199,7 @@ public class MediaServerDirectoryTests
     }
 
     [Test]
-    public void Factory_UnknownKindOrNoKind_IsNull()
-    {
+    public void Factory_UnknownKindOrNoKind_IsNull()    {
         var factory = Factory();
 
         Assert.Multiple(() =>

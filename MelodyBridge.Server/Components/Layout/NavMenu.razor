@@ -13,6 +13,7 @@
     <div class="nav-section">
         <div class="nav-section-header">Your music</div>
         <NavLink class="nav-link" href="/playlists"><Icon Name="list-music" Class="nav-icon" /> Playlists</NavLink>
+        <NavLink class="nav-link" href="/downloads"><Icon Name="download" Class="nav-icon" /> Downloads</NavLink>
         <NavLink class="nav-link" href="/plugins">
             <Icon Name="package" Class="nav-icon" /> Plugins
             @if (authIssueCount > 0)
@@ -48,8 +49,11 @@
     protected override void OnInitialized()
     {
         AuthMonitor.Changed += OnAuthChanged;
+        DevPanel.Changed += OnDevPanelChanged;
         RefreshAuthCount();
     }
+
+    private void OnDevPanelChanged() => _ = InvokeAsync(StateHasChanged);
 
     private void OnAuthChanged() => _ = InvokeAsync(() =>
     {
@@ -59,5 +63,9 @@
 
     private void RefreshAuthCount() => authIssueCount = AuthMonitor.Snapshot().Count;
 
-    public void Dispose() => AuthMonitor.Changed -= OnAuthChanged;
+    public void Dispose()
+    {
+        AuthMonitor.Changed -= OnAuthChanged;
+        DevPanel.Changed -= OnDevPanelChanged;
+    }
 }

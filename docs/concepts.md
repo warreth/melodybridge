@@ -146,7 +146,8 @@ running timer while it downloads. Picking one downloads it through the normal
 pipeline, files and archive copy included, and replaces whatever the row held
 before; a source that fails stays in the list with the reason. Automatic
 matching cannot be perfect on sources that carry no ISRC and no trustworthy
-artist name; the picker is the honest way out of that.
+artist name; the picker is the honest way out of that. The same picker opens
+from **Download a song**, where there is no existing row to replace.
 
 <img src="/screens/plugins.webp" alt="Plugins page with the route preview, waterfall order and capability badges" width="800">
 

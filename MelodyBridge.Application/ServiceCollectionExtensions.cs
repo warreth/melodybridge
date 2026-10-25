@@ -28,7 +28,16 @@ public static class ServiceCollectionExtensions
         // The database import: staged by the settings page, applied at the
         // next start with no connection open.
         services.AddSingleton<MelodyBridge.Infrastructure.Services.DatabaseRestore>();
-        services.AddScoped<MelodyBridge.Infrastructure.Services.MediaServerProfileStore>();
+        // The profile list is a settings row, read fresh every time: one
+        // store for every caller. The probe below is a singleton, so this
+        // store must be one too.
+        services.AddSingleton<MelodyBridge.Infrastructure.Services.MediaServerProfileStore>();
+        // Dashboard connection state: probes the stored profiles and the
+        // legacy single-server rows, cached briefly so refreshes stay cheap.
+        // The cache only pays off when it survives the request, so the
+        // probe is one for the whole app: a page load must not ask an
+        // unreachable media server again what the last load already asked.
+        services.AddSingleton<IMediaServerStatusProbe, MediaServerStatusProbe>();
         // Moves the library when the Music path or Archive path setting
         // changes; stateless, one for all callers.
         services.AddSingleton<MelodyBridge.Infrastructure.Services.LibraryPathMover>();
@@ -279,6 +288,10 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IDownloadManager, DownloadManager>();
         services.AddSingleton<DownloadCoordinator>();
         services.AddSingleton<IDownloadCoordinator>(sp => sp.GetRequiredService<DownloadCoordinator>());
+        // Manual downloads: link metadata through yt-dlp, then the same
+        // plugins and manager a playlist track uses.
+        services.AddSingleton<IUrlMetadataResolver, YtDlpUrlMetadataResolver>();
+        services.AddSingleton<ManualDownloadService>();
         // The auto-sync scheduler starts runs through the Core trigger,
         // so Infrastructure never has to reference Application.
         services.AddSingleton<IDownloadTrigger>(sp => sp.GetRequiredService<DownloadCoordinator>());

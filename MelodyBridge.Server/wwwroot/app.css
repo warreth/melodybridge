@@ -197,6 +197,18 @@ h1:focus { outline: none; }
     display: block;
 }
 
+/* The mark is inline SVG now: the tile takes the accent, the note the
+   readable contrast color, so a theme or accent swap repaints it. */
+.brand-logo-bg { fill: var(--accent); }
+.brand-logo-ink { fill: var(--accent-contrast); }
+.brand-logo-line {
+    fill: none;
+    stroke: var(--accent-contrast);
+    stroke-width: 2.2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
 .brand-block strong { display: block; font-size: .95rem; }
 .brand-block span { display: block; color: var(--muted); font-size: .8rem; }
 .brand-block:hover .brand-text strong { color: var(--accent-text); }
@@ -721,8 +733,8 @@ select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-s
     position: absolute;
     cursor: pointer;
     inset: 0;
-    background: var(--surface-2);
-    border: 1px solid var(--border);
+    background: var(--surface-3);
+    border: 1px solid var(--border-strong);
     border-radius: 22px;
     transition: .2s;
 }
@@ -1918,11 +1930,42 @@ td.file-path {
     word-break: break-word;
 }
 
+/* Small inline busy indicator, shared by the source picker, plugin checks
+   and the downloads overview. */
+.spinner {
+    flex: 0 0 auto;
+    width: 14px;
+    height: 14px;
+    border: 2px solid var(--border-strong);
+    border-top-color: var(--accent-strong);
+    border-radius: 50%;
+    animation: mb-spin .8s linear infinite;
+}
+@keyframes mb-spin { to { transform: rotate(360deg); } }
+
 .logs-count {
     margin-top: .5rem;
     font-size: .72rem;
     color: var(--muted-2);
     text-align: right;
+}
+
+/* The stream renders 200 rows at a time; older ones wait behind this. */
+.logs-more {
+    position: sticky;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: .6rem;
+    padding: .6rem;
+    background: var(--surface-1);
+    border-top: 1px solid var(--border);
+}
+
+.logs-more span {
+    font-size: .72rem;
+    color: var(--muted-2);
 }
 
 /* On a phone the four-column log grid squeezed the message to a few

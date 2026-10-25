@@ -53,260 +53,12 @@
     .track-filters .search-input { max-width: none; }
 }
 
-/* Source picker: one row per candidate the plugins offered, plugin name
-   and confidence next to the pick button. */
-.source-picker-modal {
-    max-width: 720px;
-    width: 100%;
-}
-
-::deep .source-candidate {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 10px 4px;
-    border-bottom: 1px solid var(--border);
-}
-
-::deep .source-candidate:last-child {
-    border-bottom: none;
-}
-
-::deep .source-candidate-main {
-    flex: 1;
-    min-width: 0;
-}
-
-::deep .source-candidate-main strong {
-    display: block;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-::deep .source-candidate-main small {
-    color: var(--muted);
-}
-
-/* Source picker: original length, live results and per-pick progress. */
-.source-picker-title { min-width: 0; }
-.source-original {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: .35rem .6rem;
-    margin: .15rem 0 0;
-    color: var(--muted);
-    font-size: .85rem;
-}
-.source-length { font-variant-numeric: tabular-nums; }
-.source-original .source-length {
-    padding: .1rem .5rem;
-    border-radius: 999px;
-    background: var(--surface-3);
-    color: inherit;
-}
-.source-searching {
-    display: flex;
-    align-items: center;
-    gap: .55rem;
-    color: var(--muted);
-    font-size: .9rem;
-}
-.spinner {
-    flex: 0 0 auto;
-    width: 14px;
-    height: 14px;
-    border: 2px solid var(--border-strong);
-    border-top-color: var(--accent-strong);
-    border-radius: 50%;
-    animation: mb-spin .8s linear infinite;
-}
-@keyframes mb-spin { to { transform: rotate(360deg); } }
-
 .bulk-retry-live {
     display: grid;
     gap: .45rem;
     margin-bottom: 1rem;
 }
 
-/* Picker header: the playlist's target quality, spelled out. */
-.source-target {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    gap: .35rem .5rem;
-    margin: .5rem 0 0;
-    font-size: .85rem;
-}
-.source-target .eyebrow { margin: 0; }
-
-/* Why a plugin is missing from the result list: the picker explains it
-   instead of leaving the user with a shorter list and no reason. */
-.source-auth-note {
-    display: flex;
-    align-items: flex-start;
-    gap: .55rem;
-    margin: 0;
-    padding: .65rem .75rem;
-    border: 1px solid color-mix(in srgb, var(--danger) 32%, transparent);
-    border-radius: 8px;
-    background: var(--danger-soft);
-}
-.source-auth-note .icon { flex-shrink: 0; margin-top: .1rem; color: var(--danger); }
-.source-auth-note.warning {
-    border-color: color-mix(in srgb, var(--warning) 32%, transparent);
-    background: var(--warning-soft);
-}
-.source-auth-note.warning .icon { color: var(--warning); }
-
-.source-note-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: .5rem;
-}
-
-.source-note-row span { min-width: 0; }
-.source-note-row .btn-modern { flex-shrink: 0; }
-
-.source-filters {
-    display: flex;
-    align-items: end;
-    flex-wrap: wrap;
-    gap: .5rem .75rem;
-    margin: 0;
-    padding: .55rem .7rem;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    background: var(--surface-2);
-}
-
-.source-filters label {
-    display: grid;
-    gap: .15rem;
-    color: var(--muted);
-    font-size: .72rem;
-    font-weight: 600;
-}
-
-.source-filters select {
-    min-width: 120px;
-    padding: .32rem .45rem;
-    border: 1px solid var(--border);
-    border-radius: 7px;
-    background: var(--surface);
-    color: var(--text);
-    font: inherit;
-    font-size: .8rem;
-}
-
-.source-filter-check {
-    display: inline-flex !important;
-    align-items: center;
-    gap: .35rem !important;
-    align-self: center;
-    color: var(--muted);
-    font-size: .8rem;
-    font-weight: 500;
-}
-
-.source-filter-check input[type=checkbox] {
-    width: 16px;
-    height: 16px;
-    min-height: 0;
-    padding: 0;
-    flex: 0 0 auto;
-    accent-color: var(--accent-strong);
-}
-
-.source-filter-count {
-    margin-left: auto;
-    color: var(--muted-2);
-    font-size: .75rem;
-    font-variant-numeric: tabular-nums;
-}
-
-.source-empty-actions { display: flex; flex-wrap: wrap; gap: .4rem; }
-.source-candidate-tools { display: inline-flex; gap: .1rem; }
-.source-candidate-tools .icon-button { width: 30px; min-height: 30px; }
-.source-auth-copy { display: grid; gap: .15rem; min-width: 0; font-size: .85rem; }
-.source-auth-copy strong { font-size: .87rem; }
-.source-auth-copy span { color: var(--muted); line-height: 1.4; overflow-wrap: anywhere; }
-@media (max-width: 640px) {
-    /* On a phone the skipped-plugin notes can be taller than the whole
-       dialog body. Keep the results and their filters first and move the
-       notes below them, where they still explain the empty plugins. */
-    .source-results { display: flex; flex-direction: column; }
-    .source-results > .source-auth-note { order: 10; }
-    .source-auth-note { margin: 0; }
-    .source-note-row { align-items: stretch; flex-direction: column; }
-    .source-note-row .btn-modern { width: 100%; }
-    /* The explanatory action is a link-sized control, not a second
-       full-width button per note. */
-    .source-note-row .source-why { width: auto; align-self: flex-start; }
-    .source-filters { margin: 0; }
-    .source-filters label,
-    .source-filters select { width: 100%; }
-    .source-filter-count { margin-left: 0; }
-}
-
-/* Per-candidate quality line: the exact source facts plus the target
-   verdict pill, filled in as each plugin's probe answers. */
-.source-quality {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: .4rem;
-    margin-top: .25rem;
-    font-size: .82rem;
-}
-.source-quality-facts { color: var(--accent-text); font-weight: 600; }
-.source-quality-checking {
-    display: inline-flex;
-    align-items: center;
-    gap: .4rem;
-    color: var(--muted);
-}
-.source-quality-checking .spinner { width: 11px; height: 11px; }
-.source-progress {
-    height: 3px;
-    margin: 0 1.25rem;
-    overflow: hidden;
-    border-radius: 999px;
-    background: var(--surface-3);
-}
-.source-progress span {
-    display: block;
-    width: 35%;
-    height: 100%;
-    border-radius: 999px;
-    background: var(--accent-strong);
-    animation: mb-slide 1.2s ease-in-out infinite;
-}
-@keyframes mb-slide {
-    0% { transform: translateX(-120%); }
-    100% { transform: translateX(320%); }
-}
-::deep .source-candidate.busy { border-color: var(--accent-strong); background: var(--accent-soft); }
-.source-delta {
-    margin-left: .35rem;
-    padding: .05rem .4rem;
-    border-radius: 999px;
-    background: var(--surface-3);
-    color: var(--muted);
-    font-variant-numeric: tabular-nums;
-}
-.source-downloading {
-    display: flex;
-    align-items: center;
-    gap: .4rem;
-    white-space: nowrap;
-    color: var(--accent-text);
-    font-size: .85rem;
-}
-::deep .source-failure { display: block; margin-top: .15rem; color: var(--danger); }
-
 /* Folder fields with the grey {playlist name} suffix the rule appends. */
 .path-field { display: flex; align-items: center; gap: .5rem; min-width: 0; }
 .path-field input { flex: 1; min-width: 0; }
@@ -316,34 +68,6 @@
     font-size: .85rem;
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
-}
-
-/* Folder fields with the grey {playlist name} suffix the rule appends. */
-.path-field { display: flex; align-items: center; gap: .5rem; min-width: 0; }
-.path-field input { flex: 1; min-width: 0; }
-.path-suffix {
-    flex: 0 0 auto;
-    color: var(--muted);
-    font-size: .85rem;
-    font-variant-numeric: tabular-nums;
-    white-space: nowrap;
-}
-
-/* The picker must never touch the viewport edges, and on a phone each
-   candidate wraps its pills and button under the title instead of
-   pushing them off the screen. */
-.source-picker-modal {
-    width: min(720px, calc(100vw - 2rem));
-}
-@media (max-width: 640px) {
-    ::deep .source-candidate {
-        flex-wrap: wrap;
-        align-items: flex-start;
-    }
-    ::deep .source-candidate-main { flex: 1 1 100%; }
-    ::deep .source-candidate .btn-modern { margin-left: auto; }
-    .source-downloading { margin-left: auto; }
-    .source-picker-title p { overflow-wrap: anywhere; }
 }
 
 /* Archive dialog: one state card above the optional failure note, so the
@@ -361,3 +85,21 @@
 .archive-state-card strong { display: block; margin-bottom: .15rem; }
 .archive-state-card p { margin: 0; color: var(--muted); font-size: .88rem; overflow-wrap: anywhere; }
 .archive-warning { margin: .75rem 0 0; }
+
+/* One page of track rows at a time: the count and the two actions stay
+   together under the table, and stack once phone width is tight. */
+.track-pager {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: .75rem;
+    margin-top: .75rem;
+    padding-top: .75rem;
+    border-top: 1px solid var(--border);
+}
+
+@media (max-width: 640px) {
+    .track-pager { align-items: stretch; flex-direction: column; }
+    .track-pager .flex-actions { justify-content: stretch; }
+    .track-pager .flex-actions .btn-modern { flex: 1 1 auto; }
+}

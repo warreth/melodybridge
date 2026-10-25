@@ -54,6 +54,36 @@ public class JellyfinUserDirectory : IMediaServerDirectory
         }
     }
 
+    public async Task<MediaServerIdentity?> IdentifyAsync(
+        MediaServerConnection connection, CancellationToken ct = default)
+    {
+        try
+        {
+            using var request = NewRequest(connection.BaseUrl, connection.ApiKey, "System/Info");
+            using var response = await _http.SendAsync(request, ct);
+            response.EnsureSuccessStatusCode();
+            using var doc = await System.Text.Json.JsonDocument.ParseAsync(
+                await response.Content.ReadAsStreamAsync(ct), cancellationToken: ct);
+            var serverName = doc.RootElement.TryGetProperty("ServerName", out var name)
+                ? name.GetString()
+                : null;
+
+            var users = await GetUsersAsync(connection, ct);
+            var wanted = connection.UserId;
+            var account = users.FirstOrDefault(u =>
+                              string.Equals(u.Id, wanted, StringComparison.OrdinalIgnoreCase)
+                              || string.Equals(u.Name, wanted, StringComparison.OrdinalIgnoreCase))
+                          ?? users.FirstOrDefault(u =>
+                              !string.Equals(u.Name, "system", StringComparison.OrdinalIgnoreCase));
+            return new MediaServerIdentity(serverName, account?.Name ?? wanted);
+        }
+        catch (Exception)
+        {
+            // Identity is a bonus on top of the reachability check.
+            return null;
+        }
+    }
+
     private static HttpRequestMessage NewRequest(
         string baseUrl, string apiKey, string relative)
     {

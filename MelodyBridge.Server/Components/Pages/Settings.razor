@@ -183,15 +183,26 @@
                     }
                     else
                     {
-                        <p class="account-note">
-                            Imports liked songs and playlists on a free account, fully automatic,
-                            by reusing your own Spotify web session. The <code>sp_dc</code> cookie
-                            you paste is a live credential of your account: it is stored in this
-                            server's database in plain text, anyone who reads it can act as you, and
-                            Spotify can break this route without notice. A burner account removes
-                            most of that risk. Prefer no risk? The <em>Files</em> tab imports an
-                            Exportify CSV instead.
-                        </p>
+                        @if (advancedMode)
+                        {
+                            <p class="account-note">
+                                Imports liked songs and playlists on a free account, fully automatic,
+                                by reusing your own Spotify web session. The <code>sp_dc</code> cookie
+                                you paste is a live credential of your account: it is stored in this
+                                server's database in plain text, anyone who reads it can act as you, and
+                                Spotify can break this route without notice. A burner account removes
+                                most of that risk. Prefer no risk? The <em>Files</em> tab imports an
+                                Exportify CSV instead.
+                            </p>
+                        }
+                        else
+                        {
+                            <p class="account-note">
+                                Imports liked songs and playlists on a free account through your own
+                                Spotify web session. A burner account is safest; the <em>Files</em>
+                                tab imports an Exportify CSV with no cookie at all.
+                            </p>
+                        }
                         <div class="account-connect">
                             <label>
                                 Spotify session cookie (sp_dc value)
@@ -203,7 +214,9 @@
                                 <span>I understand this is unofficial, unsafe for a real account and may break</span>
                             </label>
                             <details class="oauth-steps">
-                                <summary>Where to find the cookie, and when to change the secrets URL</summary>
+                                <summary>@(advancedMode
+                                    ? "Where to find the cookie, and when to change the secrets URL"
+                                    : "Where to find the cookie")</summary>
                                 <ol>
                                     <li>
                                         Log in at
@@ -215,16 +228,22 @@
                                         Cookies for <code>open.spotify.com</code>.
                                     </li>
                                     <li>Copy the value of the cookie named <code>sp_dc</code> and paste it above.</li>
-                                    <li>
-                                        The cookie stops working when the browser session ends, or
-                                        when Spotify rotates its TOTP secrets. Paste a fresh value,
-                                        or point the secrets URL at a newer list, if imports stop.
-                                    </li>
+                                    @if (advancedMode)
+                                    {
+                                        <li>
+                                            The cookie stops working when the browser session ends, or
+                                            when Spotify rotates its TOTP secrets. Paste a fresh value,
+                                            or point the secrets URL at a newer list, if imports stop.
+                                        </li>
+                                    }
                                 </ol>
-                                <label>
-                                    TOTP secrets URL
-                                    <input @bind="spotifyWebSecretsUrl" placeholder="@SpotifyWebSession.DefaultSecretsUrl" />
-                                </label>
+                                @if (advancedMode)
+                                {
+                                    <label>
+                                        TOTP secrets URL
+                                        <input @bind="spotifyWebSecretsUrl" placeholder="@SpotifyWebSession.DefaultSecretsUrl" />
+                                    </label>
+                                }
                             </details>
                             <button class="btn-modern primary" @onclick="EnableSpotifyWeb"
                                     disabled="@(!spotifyWebAcknowledged || enablingSpotifyWeb)">
@@ -1218,6 +1237,7 @@ else if (activeTab == "about")
         _spotifyConnected = await SpotifyAccount.IsConnectedAsync();
         _youtubeConnected = await YouTubeAccount.IsConnectedAsync();
         _spotifyWebConnected = await SpotifyWeb.IsConnectedAsync();
+        advancedMode = await TourReset.GetBoolAsync(DevPanelService.AdvancedSettingKey, false);
         spotifyWebSecretsUrl = await SpotifyWeb.GetSettingAsync("secrets_url") ?? string.Empty;
         spotifyClientId = await SpotifyAccount.GetSettingAsync("client_id") ?? string.Empty;
         youtubeClientId = await YouTubeAccount.GetSettingAsync("client_id") ?? string.Empty;
@@ -1226,6 +1246,8 @@ else if (activeTab == "about")
 
     private bool _spotifyConnected;
     private bool _youtubeConnected;
+    /// <summary>Advanced mode reveals the longer cookie notes and the secrets URL.</summary>
+    private bool advancedMode;
     private string spotifyClientId = string.Empty;
     private string spotifyCookie = string.Empty;
     /// <summary>One folder per playlist under the music path (default on).</summary>

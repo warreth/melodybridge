@@ -490,6 +490,7 @@ public class DownloadCoordinatorTests
             => inner.DownloadCandidateAsync(candidate, query, outputDirectory, melodyId, ct);
 
         public IReadOnlyList<DownloadProgress> SnapshotProgress() => inner.SnapshotProgress();
+        public void ReportProgress(DownloadProgress progress) => inner.ReportProgress(progress);
         public string? LastPluginId(string melodyId) => inner.LastPluginId(melodyId);
         public string? LastAttemptedPluginId(string melodyId) => inner.LastAttemptedPluginId(melodyId);
         public string? LastFailure(string melodyId) => inner.LastFailure(melodyId);

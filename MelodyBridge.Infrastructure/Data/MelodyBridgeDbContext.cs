@@ -28,6 +28,11 @@ public class MelodyBridgeDbContext : DbContext
             // the dedup logic joins rows across playlists on this id.
             e.HasIndex(t => t.MelodyId);
             e.HasIndex(t => new { t.ExternalPlatform, t.ExternalId });
+            // The playlist cards and the dashboard count tracks per
+            // playlist. This index holds exactly the columns those
+            // counters read, so the group-by runs over the index instead
+            // of over every row of the table.
+            e.HasIndex(t => new { t.PlaylistEntityId, t.DownloadStatus, t.FileSizeBytes, t.ReviewKind });
             e.Property(t => t.MelodyId).HasMaxLength(64);
             e.Property(t => t.ExternalId).HasMaxLength(128);
             e.Property(t => t.ExternalPlatform).HasMaxLength(64);
@@ -147,6 +152,11 @@ public class TrackEntity
     /// null when the playlist has no archive target or the copy failed.
     /// </summary>
     public string? ArchivePath { get; set; }
+    /// <summary>
+    /// Size of the archive copy on disk. The app writes that file itself,
+    /// so it knows the size without asking the disk on every page view.
+    /// </summary>
+    public long? ArchiveSizeBytes { get; set; }
     /// <summary>
     /// True when CurrentPath is a hard link to a file another playlist
     /// owns (dedup), not an independently downloaded file. Deleting the

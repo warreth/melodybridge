@@ -54,8 +54,8 @@ public class AdvancedToggleTests
             Assert.That(cut.Markup, Does.Contain("Show the file column")), TimeSpan.FromSeconds(3));
 
         var labels = cut.FindAll("label.toggle-switch.wide");
-        Assert.That(labels.Count, Is.EqualTo(3),
-            "Dedup + display + database logs use the wide switch; the toast and ntfy switches moved to Settings - Notifications");
+        Assert.That(labels.Count, Is.EqualTo(4),
+            "Advanced mode + dedup + display + database logs use the wide switch; the toast and ntfy switches moved to Settings - Notifications");
 
         foreach (var label in labels)
         {
@@ -124,6 +124,65 @@ public class AdvancedToggleTests
             "the database logs toggle survives Save");
 
         MelodyBridge.Server.Services.DatabaseLogSwitch.Set(false);
+    }
+
+    [Test]
+    public async Task Advanced_AdvancedMode_PersistsAndOpensTheDevPanel()
+    {
+        var factory = _ctx.Services.GetRequiredService<IDbContextFactory<MelodyBridgeDbContext>>();
+        await using (var db = await factory.CreateDbContextAsync())
+        {
+            db.DownloaderSettings.Add(new DownloaderSettingEntity
+            {
+                Key = MelodyBridge.Server.Services.DevPanelService.AdvancedSettingKey,
+                Value = "true",
+            });
+            await db.SaveChangesAsync();
+        }
+        var panel = _ctx.Services.GetRequiredService<MelodyBridge.Server.Services.DevPanelService>();
+        panel.Enabled = true;
+
+        var cut = _ctx.Render<Advanced>();
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("Show developer tools")), TimeSpan.FromSeconds(3));
+
+        var toggle = cut.FindAll("label.toggle-switch.wide")
+            .Single(l => l.TextContent.Contains("Show developer tools"))
+            .QuerySelector("input")!;
+        Assert.Multiple(() =>
+        {
+            Assert.That(toggle.HasAttribute("checked"), Is.True,
+                "the stored preference loads as checked");
+            Assert.That(cut.Markup, Does.Contain("Open the Dev panel"),
+                "with advanced mode on, the panel is one click away");
+        });
+
+        // Off: the link goes away at once and the row follows.
+        toggle.Change(false);
+        await cut.InvokeAsync(() => cut.Find("section.page-title button.btn-modern").Click());
+        Assert.That(panel.Enabled, Is.False, "turning advanced mode off closes the panel without a restart");
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Not.Contain("Open the Dev panel")), TimeSpan.FromSeconds(3));
+        await using (var db = await factory.CreateDbContextAsync())
+        {
+            Assert.That(await db.DownloaderSettings.AsNoTracking().AnyAsync(s =>
+                s.Key == MelodyBridge.Server.Services.DevPanelService.AdvancedSettingKey && s.Value == "false"),
+                Is.True, "the off choice survives a restart");
+        }
+
+        // On again: the same switch, both ways.
+        cut.FindAll("label.toggle-switch.wide")
+            .Single(l => l.TextContent.Contains("Show developer tools"))
+            .QuerySelector("input")!
+            .Change(true);
+        await cut.InvokeAsync(() => cut.Find("section.page-title button.btn-modern").Click());
+        Assert.That(panel.Enabled, Is.True);
+        await using (var db = await factory.CreateDbContextAsync())
+        {
+            Assert.That(await db.DownloaderSettings.AsNoTracking().AnyAsync(s =>
+                s.Key == MelodyBridge.Server.Services.DevPanelService.AdvancedSettingKey && s.Value == "true"),
+                Is.True);
+        }
     }
 
     [Test]

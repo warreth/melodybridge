@@ -56,7 +56,7 @@
         {
             <div class="log-row err clickable" @onclick="() => SelectEntry(entry)">
                 <span class="log-time">@entry.Timestamp.ToLocalTime().ToString("HH:mm:ss")</span>
-                <span class="log-category" title="@entry.Category">@LogAreas.FromCategory(entry.Category)</span>
+                <span class="log-category" title="@entry.Category">@entry.Area</span>
                 <span class="log-message">@LogRedactor.Redact(entry.Message)</span>
             </div>
         }
@@ -208,12 +208,21 @@
             }
             else
             {
-                @foreach (var entry in newestFirst ? StreamEntries : StreamEntries.Reverse())
+                @foreach (var entry in VisibleEntries())
                 {
                     <LogEntryRow @key="entry.Sequence" Entry="entry"
                                  Pinned="@IsPinned(entry)"
                                  OnCopy="CopyEntryAsync" OnPin="TogglePin" />
                 }
+            }
+            @if (HiddenEntries > 0)
+            {
+                <div class="logs-more">
+                    <button class="btn-modern ghost small" @onclick="ShowMore">
+                        Show @NextBatch more @(NextBatch == 1 ? "entry" : "entries")
+                    </button>
+                    <span>@HiddenEntries hidden</span>
+                </div>
             }
         </div>
         <div class="logs-count">
@@ -233,6 +242,7 @@
 
 @code {
     private const int ErrorPreviewLimit = 3;
+    private const int PageSize = 200;
 
     private List<LogEntry> filtered = new();
     private List<LogEntry> errorPreview = new();
@@ -249,6 +259,8 @@
             .FirstOrDefault(e => e.Sequence == sequence);
     private int totalEntries;
     private int errorCount;
+    private int visibleCount = PageSize;
+    private long lastVersion = -1;
     private string? selectedArea;
     private LevelFilter? selectedLevel;
     private string selectedSource = "all";
@@ -257,7 +269,6 @@
     private bool paused;
     /// <summary>The observe marker the idle tick compares: total collected
     /// keeps counting when entries are evicted, which a count alone would miss.</summary>
-    private long _observedCollected = -1;
     private bool groupByTrack;
     private string searchText = string.Empty;
     private string? statusMessage;
@@ -298,27 +309,35 @@
         };
 
         Refresh();
-        _timer = new Timer(_ => InvokeAsync(() =>
-        {
-            if (paused) return;
-            // Idle ticks do no LINQ passes and no re-render: the collector's
-            // count is the only cheap "anything new" signal it has.
-            var now = LogCollector.TotalCollected;
-            if (now == _observedCollected) return;
-            _observedCollected = now;
-            Refresh();
-            StateHasChanged();
-        }), null, 2000, 2000);
+        _timer = new Timer(_ => InvokeAsync(Tick), null, 2000, 2000);
+    }
+
+    /// <summary>
+    /// One timer tick. Refreshing a thousand rows every two seconds was
+    /// the page's main cost, so a tick with nothing new redraws nothing.
+    /// The version moves on a new entry and on a clear.
+    /// </summary>
+    internal void Tick()
+    {
+        if (paused) return;
+        if (LogCollector.Version == Volatile.Read(ref lastVersion)) return;
+        Refresh();
+        StateHasChanged();
     }
 
     private void Refresh()
     {
+        // The stamp comes from before the snapshot: a line written while
+        // the snapshot is taken must still count as a change, or the tick
+        // sees "nothing new" and the newest line never shows up.
+        var version = LogCollector.Version;
         var entries = LogCollector.GetEntries();
+        lastVersion = version;
         totalEntries = entries.Count;
         errorCount = entries.Count(IsError);
         errorPreview = entries.Where(IsError).Take(ErrorPreviewLimit).ToList();
         areaCounts = entries
-            .GroupBy(entry => LogAreas.FromCategory(entry.Category))
+            .GroupBy(entry => entry.Area)
             .ToDictionary(group => group.Key, group => group.Count());
         levelCounts = LevelFilters.ToDictionary(
             filter => filter.Label,
@@ -336,7 +355,7 @@
     {
         if (showingErrorsOnly && !IsError(e))
             return false;
-        if (selectedArea is not null && LogAreas.FromCategory(e.Category) != selectedArea)
+        if (selectedArea is not null && e.Area != selectedArea)
             return false;
         if (selectedSource != "all" && LogSources.FromCategory(e.Category) != selectedSource)
             return false;
@@ -346,7 +365,7 @@
             return true;
         return e.Message?.Contains(searchText, StringComparison.OrdinalIgnoreCase) == true
             || e.Category?.Contains(searchText, StringComparison.OrdinalIgnoreCase) == true
-            || LogAreas.FromCategory(e.Category ?? "").Contains(searchText, StringComparison.OrdinalIgnoreCase);
+            || e.Area.Contains(searchText, StringComparison.OrdinalIgnoreCase);
 }
 
     private static string LevelClass(LogLevel level) => level switch
@@ -361,6 +380,7 @@
     {
         selectedArea = area;
         View.SelectedArea = area;
+        ResetPaging();
         Refresh();
     }
 
@@ -368,12 +388,14 @@
     {
         selectedLevel = level;
         View.SelectedLevel = level?.Label ?? "all";
+        ResetPaging();
         Refresh();
     }
 
     private void OnSourceChanged()
     {
         View.SelectedSource = selectedSource;
+        ResetPaging();
         Refresh();
     }
 
@@ -381,6 +403,7 @@
     {
         View.NewestFirst = newestFirst;
         View.GroupByTrack = groupByTrack;
+        ResetPaging();
         StateHasChanged();
     }
 
@@ -395,6 +418,7 @@
     private void ShowOnlyErrors()
     {
         showingErrorsOnly = !showingErrorsOnly;
+        ResetPaging();
         Refresh();
     }
 
@@ -405,10 +429,11 @@
     {
         // Jump into the stream: that area, only errors until cleared.
         showingErrorsOnly = true;
-        selectedArea = LogAreas.FromCategory(entry.Category);
+        selectedArea = entry.Area;
         selectedSource = "all";
         View.SelectedArea = selectedArea;
         View.SelectedSource = "all";
+        ResetPaging();
         Refresh();
         statusMessage = $"Showing errors from {selectedArea}";
     }
@@ -417,17 +442,38 @@
     {
         searchText = e.Value?.ToString() ?? string.Empty;
         View.SearchText = searchText;
+        ResetPaging();
         Refresh();
     }
 
     /// <summary>Filtered entries that are not already shown in the pinned card.</summary>
     private IEnumerable<LogEntry> StreamEntries => filtered.Where(entry => !IsPinned(entry));
 
+    /// <summary>Newest first unless the reader flipped the order.</summary>
+    private IEnumerable<LogEntry> OrderedEntries()
+        => newestFirst ? StreamEntries : StreamEntries.Reverse();
+
+    /// <summary>Rows actually rendered; the rest wait behind "Show more".</summary>
+    private IEnumerable<LogEntry> VisibleEntries()
+        => OrderedEntries().Take(visibleCount);
+
+    private int HiddenEntries => Math.Max(0, StreamEntries.Count() - visibleCount);
+
+    private int NextBatch => Math.Min(PageSize, HiddenEntries);
+
+    private void ResetPaging() => visibleCount = PageSize;
+
+    private void ShowMore()
+    {
+        visibleCount += PageSize;
+        StateHasChanged();
+    }
+
     /// <summary>One entry per track, newest group first, each group in the chosen order.</summary>
     private IReadOnlyList<LogGroup> GroupedEntries()
     {
-        var ordered = newestFirst ? StreamEntries : StreamEntries.Reverse();
-        return ordered
+        return OrderedEntries()
+            .Take(visibleCount)
             .GroupBy(entry => string.IsNullOrWhiteSpace(entry.Group)
                 ? "Other events"
                 : entry.Group!)
@@ -456,7 +502,7 @@
     private async Task CopyEntryAsync(LogEntry entry)
     {
         var text = $"[{entry.Timestamp.ToLocalTime():yyyy-MM-dd HH:mm:ss}] "
-            + $"{entry.Level.ToString().ToUpperInvariant()} [{LogAreas.FromCategory(entry.Category)}] "
+            + $"{entry.Level.ToString().ToUpperInvariant()} [{entry.Area}] "
             + LogRedactor.Redact(entry.Message);
         if (!string.IsNullOrWhiteSpace(entry.Detail))
             text += Environment.NewLine + LogRedactor.Redact(entry.Detail);
@@ -509,10 +555,11 @@
         showingErrorsOnly = false;
         confirmClear = false;
         dismissedErrorCount = 0;
+        ResetPaging();
         Refresh();
         StateHasChanged();
-        // A cleared buffer must re-render even though nothing was newly
-        // collected: the idle gate compares totals, not emptiness.
+        // A cleared buffer must re-render now, not on the next tick: a
+        // paused page would otherwise keep showing the old rows.
         statusMessage = "Log buffer cleared";
     }
 
@@ -525,7 +572,7 @@
         {
             sb.Append('[').Append(e.Timestamp.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"))
               .Append("] ").Append(e.Level.ToString().ToUpperInvariant())
-              .Append(" [").Append(LogAreas.FromCategory(e.Category)).Append("] ");
+              .Append(" [").Append(e.Area).Append("] ");
             if (!string.IsNullOrWhiteSpace(e.Group))
                 sb.Append('[').Append(e.Group).Append("] ");
             sb.AppendLine(LogRedactor.Redact(e.Message));

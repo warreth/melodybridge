@@ -1128,6 +1128,7 @@ internal sealed class DownloadPipeline
         track.DownloadError = null;
         track.CurrentPath = null;
         track.ArchivePath = null;
+        track.ArchiveSizeBytes = null;
         track.IsHardLink = false;
         track.Warning = null;
         track.ReviewKind = null;

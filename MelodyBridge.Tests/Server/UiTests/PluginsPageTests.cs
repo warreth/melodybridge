@@ -106,6 +106,38 @@ public class PluginsPageTests
             => Task.FromResult(new DownloaderDownloadResult(false, null, "test"));
     }
 
+    private sealed class SlowProbeDownloader : IDownloader
+    {
+        public string Id => "slow";
+        public string Name => "Slow Plugin";
+        public string Description => "slow probe downloader";
+        public PluginCapabilities Capabilities => PluginCapabilities.Any;
+        public IReadOnlyList<PluginConfigField> ConfigFields { get; } =
+            Array.Empty<PluginConfigField>();
+        public bool Available { get; set; } = true;
+        public TaskCompletionSource Entered { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _release =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public async Task<bool> IsAvailableAsync(CancellationToken ct = default)
+        {
+            Entered.TrySetResult();
+            await _release.Task.WaitAsync(TimeSpan.FromSeconds(10), ct);
+            return Available;
+        }
+
+        public void Release() => _release.TrySetResult();
+
+        public Task<DownloaderSearchHit?> SearchAsync(TrackQuery query, CancellationToken ct = default)
+            => Task.FromResult<DownloaderSearchHit?>(null);
+
+        public Task<DownloaderDownloadResult> DownloadAsync(
+            string sourceUrl, string outputDirectory, string? melodyId,
+            DownloadQuality? quality = null, CancellationToken ct = default)
+            => Task.FromResult(new DownloaderDownloadResult(false, null, "test"));
+    }
+
     private sealed class GatedAvailabilityDownloader : IDownloader, IPluginAvailabilityRefresh
     {
         public string Id => "qobuz";
@@ -258,6 +290,32 @@ public class PluginsPageTests
                 "saving a token drops the old negative availability cache");
             Assert.That(plugin.Probes, Is.GreaterThanOrEqualTo(2),
                 "the page probes once on load and again after the save");
+        });
+    }
+
+    [Test]
+    public async Task Plugins_ShowsThePageWhileASlowProbeIsStillRunning()
+    {
+        var plugin = new SlowProbeDownloader();
+        _registry.Setup(r => r.GetAll()).Returns(new List<IDownloader> { plugin });
+        _registry.Setup(r => r.GetEnabled()).Returns(new List<IDownloader> { plugin });
+
+        var cut = _ctx.Render<Plugins>();
+        await plugin.Entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.That(cut.Find(".plugin-card .pill").TextContent.Trim(), Is.EqualTo("checking…"),
+            "a slow provider must not hold the page hostage");
+
+        plugin.Release();
+        await cut.Instance.LiveStatusLoaded.WaitAsync(TimeSpan.FromSeconds(30));
+        cut.Render();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(cut.Find(".plugin-card .pill").TextContent.Trim(), Is.EqualTo("ready"),
+                "the verdict of the probe must land on the card");
+            Assert.That(cut.Markup, Does.Contain("2026.08.19"),
+                "the yt-dlp version must land as well");
         });
     }
 
@@ -506,11 +564,17 @@ public class PluginsPageTests
     }
 
     [Test]
-    public void Plugins_LiveRunsHiddenWhenNone()
+    public void Plugins_LinksToTheDownloadsOverview()
     {
         var cut = _ctx.Render<Plugins>();
 
-        Assert.That(cut.Markup, Does.Not.Contain("Live downloads"), "no run, no panel");
+        Assert.Multiple(() =>
+        {
+            Assert.That(cut.FindAll("a[href='/downloads']"), Is.Not.Empty,
+                "live activity moved to its own page");
+            Assert.That(cut.FindAll("#live-downloads"), Is.Empty,
+                "the plugin page no longer owns the run panel");
+        });
     }
 
     [Test]

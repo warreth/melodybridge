@@ -2,6 +2,7 @@
 @inject IDbContextFactory<MelodyBridgeDbContext> DbFactory
 @inject ILibraryScanner Scanner
 @inject NotificationService Notifications
+@implements IDisposable
 
 <PageTitle>Library - MelodyBridge</PageTitle>
 
@@ -25,6 +26,17 @@
         </button>
         <button class="btn-modern secondary" @onclick="ShowAddLocation"><Icon Name="plus" Size="16" /> Add location</button>
     </div>
+</section>
+
+<section class="stat-grid">
+    <StatCard IconName="library" Label="Library files" Value="@footprint.Files.ToString()"
+              Caption="Files with a MELODY_ID tag" />
+    <StatCard IconName="hard-drive" Label="Library size" Value="@SizeText(footprint.Bytes)"
+              Caption="@(measuring ? "Measuring the files without a size" : "Main files and archive copies")" />
+    <StatCard IconName="archive" Label="Archive copies" Value="@footprint.ArchiveFiles.ToString()"
+              Caption="@($"{SizeText(footprint.ArchiveBytes)} in extra copies")" />
+    <StatCard IconName="folder" Label="Scan folders" Value="@locations.Count.ToString()"
+              Caption="@ArchiveLocationsCaption" />
 </section>
 
 @if (scanResult != null)
@@ -59,6 +71,8 @@
                 <LibraryLocationCard Location="loc"
                                      FileCount="@FileCount(loc)"
                                      PathMissing="@(existence.TryGetValue(loc.Id, out var ok) ? !ok : (bool?)null)"
+                                     FolderSize="@FolderSizeText(loc)"
+
                                      IsArchive="@IsArchivePath(loc)"
                                      Schedule="@LocationSchedule.Of(loc)"
                                      OnEdit="ShowEditLocation"
@@ -124,7 +138,9 @@
     private List<ScanLocationEntity> locations = new();
     /// <summary>Archive roots (global plus per playlist) for the folder badge.</summary>
     private List<string> archiveRoots = new();
-    private Dictionary<int, int> filesPerLocation = new();
+    /// <summary>Files and bytes per scan location, current files plus archive copies.</summary>
+    private Dictionary<int, LocationFootprint> footprints = new();
+    private LibraryFootprint footprint = new(0, 0, 0, 0);
     private bool scanning;
     private string? scanResult;
     private bool scanResultOk;
@@ -155,15 +171,49 @@
         if (!string.IsNullOrWhiteSpace(globalArchive)) archiveRoots.Add(globalArchive);
 
         // Files with a MELODY_ID per location: a track belongs to the folder
-        // its current path lives under. Counted in memory: location paths are
-        // prefixes and SQL LIKE with a leading wildcard would not use an index.
-        var withIds = await db.Tracks
-            .Where(t => t.MelodyId != null && t.CurrentPath != null)
-            .Select(t => new { t.MelodyId, t.CurrentPath })
+        // its current path lives under, and its archive copy belongs to the
+        // archive folder. ArchivePath is a second real file on disk, so it is
+        // counted where it lives instead of being folded into the main row.
+        var tracks = await db.Tracks.AsNoTracking()
+            .Where(t => t.MelodyId != null
+                        && (t.CurrentPath != null || t.ArchivePath != null))
+            .Select(t => new { t.Id, t.CurrentPath, t.ArchivePath, t.FileSizeBytes, t.ArchiveSizeBytes })
             .ToListAsync();
-        filesPerLocation = locations.ToDictionary(
-            l => l.Id,
-            l => withIds.Count(t => LocationContains(l.Path, t.CurrentPath!)));
+
+
+        // One entry per file path: two rows can share a path (dedup
+        // hardlinks) and must not count twice. The download row knows its
+        // current file size, and the archive copy's size is in the row too:
+        // the app wrote that file, so the page never has to stat it. An
+        // archive copy from before that was known is measured in the
+        // background, once, and the answer is stored.
+        var byPath = new Dictionary<string, long?>(StringComparer.OrdinalIgnoreCase);
+        var unmeasured = new List<(int TrackId, string Path, bool Archive)>();
+        foreach (var track in tracks)
+        {
+            if (!string.IsNullOrWhiteSpace(track.CurrentPath))
+            {
+                RememberSize(byPath, track.CurrentPath!, track.FileSizeBytes);
+                if (track.FileSizeBytes is not > 0)
+                    unmeasured.Add((track.Id, track.CurrentPath!, Archive: false));
+            }
+            if (!string.IsNullOrWhiteSpace(track.ArchivePath))
+            {
+                if (track.ArchiveSizeBytes is > 0)
+                {
+                    RememberSize(byPath, track.ArchivePath!, track.ArchiveSizeBytes);
+                }
+                else
+                {
+                    RememberSize(byPath, track.ArchivePath!, null);
+                    unmeasured.Add((track.Id, track.ArchivePath!, Archive: true));
+                }
+            }
+        }
+        files = byPath
+            .Select(file => (file.Key, Bytes: file.Value ?? 0))
+            .ToList();
+        ApplyFootprint();
 
         // One disk probe per location, once per load: the card's
         // missing-path verdict is a parameter, not a per-render
@@ -176,10 +226,143 @@
             try { verdict = Directory.Exists(loc.Path ?? ""); } catch { /* bad path */ }
             existence[loc.Id] = verdict;
         }
+
+        // Files the database has no size for are measured in the
+        // background: the page shows what it knows right away, and the
+        // answer is stored so the next visit does not measure again.
+        if (unmeasured.Count > 0)
+        {
+            measuring = true;
+            _ = Task.Run(() => MeasureMissingSizesAsync(unmeasured));
+        }
     }
 
-    /// <summary>Location id -> the disk verdict, probed in the background.</summary>
+    /// <summary>
+    /// Remembers the size of one file. Two rows can point at the same
+    /// file, and a row without a size must not hide the size another row
+    /// knows. A stored zero counts as unknown, same as the caller that
+    /// treats it as unmeasured.
+    /// </summary>
+    private static void RememberSize(
+        Dictionary<string, long?> byPath, string path, long? size)
+    {
+        if (byPath.TryGetValue(path, out var known) && known is > 0)
+            return;
+        byPath[path] = size;
+    }
+
+    /// <summary>One file of the library: its path and its size.</summary>
+    private List<(string Key, long Bytes)> files = new();
+
+    /// <summary>True while the page is still measuring files it had no size for.</summary>
+    private bool measuring;
+
+    /// <summary>The summary tiles from the files the page knows.</summary>
+    private void ApplyFootprint()
+    {
+        var archiveFiles = files.Where(file => IsArchiveFile(file.Key)).ToList();
+        footprint = new LibraryFootprint(
+            files.Count,
+            files.Sum(file => file.Bytes),
+            archiveFiles.Count,
+            archiveFiles.Sum(file => file.Bytes));
+        footprints = locations.ToDictionary(
+            location => location.Id,
+            location =>
+            {
+                var matched = files
+                    .Where(file => LocationContains(location.Path, file.Key))
+                    .ToList();
+                return new LocationFootprint(matched.Count, matched.Sum(file => file.Bytes));
+            });
+    }
+
+    /// <summary>
+    /// Measures the files the database has no size for, off the render
+    /// path, and stores the answer: the app knows the size of a file it
+    /// wrote, so the next visit does not have to ask the disk again.
+    /// </summary>
+    private async Task MeasureMissingSizesAsync(List<(int TrackId, string Path, bool Archive)> unmeasured)
+    {
+        try
+        {
+            var measured = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+            foreach (var (_, path, _) in unmeasured)
+            {
+                var bytes = FileBytes(path, null);
+                if (bytes > 0) measured[path] = bytes;
+            }
+            if (measured.Count > 0)
+            {
+                await using var db = await DbFactory.CreateDbContextAsync();
+                // One statement per file, not per row: rows that share a
+                // path share the answer. The path is part of the condition
+                // because a re-download can move the file while the
+                // measurement runs, and the old size must not land on the
+                // new one.
+                foreach (var group in unmeasured.GroupBy(entry => entry.Path))
+                {
+                    if (!measured.TryGetValue(group.Key, out var bytes)) continue;
+                    var ids = group.Select(entry => entry.TrackId).ToList();
+                    if (group.Any(entry => entry.Archive))
+                    {
+                        await db.Tracks.Where(t => ids.Contains(t.Id) && t.ArchivePath == group.Key)
+                            .ExecuteUpdateAsync(s => s.SetProperty(t => t.ArchiveSizeBytes, bytes));
+                    }
+                    if (group.Any(entry => !entry.Archive))
+                    {
+                        await db.Tracks.Where(t => ids.Contains(t.Id) && t.CurrentPath == group.Key)
+                            .ExecuteUpdateAsync(s => s.SetProperty(t => t.FileSizeBytes, bytes));
+                    }
+                }
+            }
+
+            await InvokeAsync(() =>
+            {
+                if (disposed) return;
+                files = files
+                    .Select(file => measured.TryGetValue(file.Key, out var bytes)
+                        ? (file.Key, Bytes: bytes)
+                        : file)
+                    .ToList();
+                ApplyFootprint();
+                measuring = false;
+                StateHasChanged();
+            });
+        }
+        catch
+        {
+            await InvokeAsync(() => measuring = false);
+        }
+    }
+
+    private sealed record LocationFootprint(int Files, long Bytes);
+
+    private sealed record LibraryFootprint(int Files, long Bytes, int ArchiveFiles, long ArchiveBytes);
+
+    /// <summary>Known row size first (downloads and scans store it), otherwise
+    /// one stat for files the database has no size for, archive copies above
+    /// all. A missing file reads as zero, never as an error on the page.</summary>
+    private static long FileBytes(string path, long? known)
+    {
+        if (known is > 0) return known.Value;
+        try
+        {
+            var info = new FileInfo(path);
+            return info.Exists ? info.Length : 0;
+        }
+        catch
+        {
+            return 0;
+        }
+    }
+
+    private static string SizeText(long bytes)
+        => TrackDisplay.Size(bytes) is { Length: > 0 } text ? text : "0 B";
+
+    /// <summary>Location id -> the disk verdict, probed once per load.</summary>
     private readonly Dictionary<int, bool> existence = new();
+
 
     private static bool LocationContains(string locationPath, string filePath)
         => filePath.StartsWith(locationPath, StringComparison.OrdinalIgnoreCase)
@@ -188,7 +371,23 @@
                || filePath[locationPath.Length] == Path.AltDirectorySeparatorChar);
 
     private int FileCount(ScanLocationEntity loc)
-        => filesPerLocation.TryGetValue(loc.Id, out var n) ? n : 0;
+        => footprints.TryGetValue(loc.Id, out var fp) ? fp.Files : 0;
+
+    private string FolderSizeText(ScanLocationEntity loc)
+        => footprints.TryGetValue(loc.Id, out var fp) ? SizeText(fp.Bytes) : "0 B";
+
+    private string ArchiveLocationsCaption
+    {
+        get
+        {
+            var count = locations.Count(IsArchivePath);
+            return count == 1 ? "1 archive folder" : $"{count} archive folders";
+        }
+    }
+
+    /// <summary>True when a file lives under one of the archive roots.</summary>
+    private bool IsArchiveFile(string filePath)
+        => archiveRoots.Any(root => LocationContains(root, filePath));
 
     /// <summary>A scan location inside an archive root: its files are copies,
     /// never adopted as a track's main file.</summary>
@@ -357,4 +556,10 @@
         removeLocationId = null;
         await LoadDataAsync();
     }
+
+    /// <summary>True once the page is gone: the background measurement must
+    /// not touch a disposed component.</summary>
+    private bool disposed;
+
+    public void Dispose() => disposed = true;
 }

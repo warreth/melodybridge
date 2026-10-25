@@ -131,7 +131,7 @@ public class PlaylistStoreLiveTests
                 "refresh must bump LastSyncAt");
 
             // The refreshed entity read back from DB must still resolve by ID.
-            var reloaded = await store.GetByIdAsync(added.Id);
+            var reloaded = await store.GetForDisplayAsync(added.Id);
             Assert.That(reloaded, Is.Not.Null);
             Assert.That(reloaded!.Tracks.Count, Is.EqualTo(reloaded.TrackCount));
         }

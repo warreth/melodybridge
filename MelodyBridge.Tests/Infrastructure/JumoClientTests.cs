@@ -230,7 +230,11 @@ public class JumoClientTests
 
         Assert.That(response.Status, Is.EqualTo(200));
         Assert.That(attempts, Is.EqualTo(2));
-        Assert.That(DateTimeOffset.UtcNow - started, Is.GreaterThanOrEqualTo(TimeSpan.FromSeconds(1)),
+        // The wait is a full second, but the timer and the wall clock
+        // both have millisecond granularity, so a one second backoff can
+        // measure as 999 ms. Anything below that would be an immediate
+        // retry, which is what this test is about.
+        Assert.That(DateTimeOffset.UtcNow - started, Is.GreaterThanOrEqualTo(TimeSpan.FromMilliseconds(900)),
             "a bare 503 must still wait before the retry");
     }
 

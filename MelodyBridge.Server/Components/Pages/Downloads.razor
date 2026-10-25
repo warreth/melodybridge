@@ -1,0 +1,349 @@
+@page "/downloads"
+@using MelodyBridge.Application.Services
+@inject IDownloadCoordinator Coordinator
+@inject IDownloadManager TrackDownloads
+@implements IDisposable
+
+<PageTitle>Downloads - MelodyBridge</PageTitle>
+
+<section class="page-title">
+    <div>
+        <span class="eyebrow">Your music</span>
+        <div class="title-with-help">
+            <h1>Downloads</h1>
+            <HelpTip Path="reference#the-downloads-page" Text="Live playlist runs and recent track downloads. Pause or cancel a run, or open Download a song." />
+        </div>
+        <p>Playlist runs and recent track downloads, live from the download
+            engine. Pause a run, cancel it, or start one song by hand.</p>
+    </div>
+    <div class="topbar-actions">
+        <a class="btn-modern primary" href="/download">
+            <Icon Name="plus" Size="16" /> Download a song
+        </a>
+        <a class="btn-modern secondary" href="/playlists">
+            <Icon Name="list-music" Size="16" /> Playlists
+        </a>
+    </div>
+</section>
+
+@if (runs.Count == 0 && activeTracks.Count == 0 && recentTracks.Count == 0)
+{
+    <section class="panel-card downloads-empty">
+        <EmptyState IconName="download" Title="No downloads yet">
+            <ChildContent>
+                <p>
+                    Start a playlist download, or search for one song and pick
+                    the source yourself. Everything that runs shows up here.
+                </p>
+            </ChildContent>
+            <Actions>
+                <a class="btn-modern primary" href="/download">
+                    <Icon Name="search" Size="15" /> Download a song
+                </a>
+                <a class="btn-modern ghost" href="/playlists">Open playlists</a>
+            </Actions>
+        </EmptyState>
+    </section>
+}
+else
+{
+    <section class="stat-grid">
+        <StatCard IconName="list-music" Label="Playlist runs" Value="@runs.Count.ToString()"
+                  Caption="@(runs.Count == 1 ? "run in progress" : "runs in progress")" />
+        <StatCard IconName="download" Label="Downloading now" Value="@activeTracks.Count.ToString()"
+                  Caption="@(activeTracks.Count == 1 ? "track being fetched" : "tracks being fetched")" />
+        <StatCard IconName="check-circle" Label="Finished" Value="@recentDoneCount.ToString()"
+                  Caption="In the last 30 minutes" />
+        <StatCard IconName="alert" Label="Failed" Value="@recentFailedCount.ToString()"
+                  Caption="In the last 30 minutes" />
+    </section>
+
+    @if (runs.Count > 0)
+    {
+        <section class="downloads-section">
+            <div class="panel-header">
+                <div>
+                    <span class="eyebrow">Playlists</span>
+                    <h2>Playlist runs</h2>
+                </div>
+                <StatusPill Variant="info" Pulse>Live</StatusPill>
+            </div>
+            <div class="downloads-run-list">
+                @foreach (var run in runs)
+                {
+                    <article class="panel-card download-run">
+                        <div class="download-run-head">
+                            <div class="download-run-title">
+                                <strong>@run.PlaylistName</strong>
+                                <span class="download-run-meta">
+                                    <span>@run.Done of @run.Total done</span>
+                                    @if (run.Failed > 0)
+                                    {
+                                        <span class="download-run-failed">@run.Failed failed</span>
+                                    }
+                                    @if (run.QueueLength > 0)
+                                    {
+                                        <span>@run.QueueLength queued</span>
+                                    }
+                                    @if (EtaText(run) is { Length: > 0 } eta)
+                                    {
+                                        <span>@eta</span>
+                                    }
+                                </span>
+                            </div>
+                            <StatusPill Variant="@RunVariant(run.State)" Pulse="@(run.State == DownloadRunState.Running)">
+                                @RunLabel(run.State)
+                            </StatusPill>
+                        </div>
+                        <div class="progress-track">
+                            <div class="progress-fill" style="width:@run.Percent%"></div>
+                        </div>
+                        <div class="download-run-foot">
+                            <div class="download-run-current">
+                                @if (!string.IsNullOrWhiteSpace(run.CurrentTrack))
+                                {
+                                    <span class="eyebrow">Now</span>
+                                    <span>@run.CurrentTrack</span>
+                                    @if (!string.IsNullOrWhiteSpace(run.CurrentPlugin))
+                                    {
+                                        <span class="download-run-plugin">via @run.CurrentPlugin</span>
+                                    }
+                                }
+                                else
+                                {
+                                    <span class="text-muted">
+                                        @(run.State == DownloadRunState.Paused
+                                            ? "Paused between tracks. Resume when ready."
+                                            : "Waiting for the next track.")
+                                    </span>
+                                }
+                            </div>
+                            <div class="flex-actions">
+                                @if (run.State == DownloadRunState.Running)
+                                {
+                                    <button class="btn-modern small ghost" @onclick="() => Pause(run.PlaylistId)">
+                                        <Icon Name="pause" Size="14" /> Pause
+                                    </button>
+                                }
+                                else if (run.State == DownloadRunState.Paused)
+                                {
+                                    <button class="btn-modern small primary" @onclick="() => Resume(run.PlaylistId)">
+                                        <Icon Name="play" Size="14" /> Resume
+                                    </button>
+                                }
+                                @if (run.State is DownloadRunState.Running or DownloadRunState.Paused)
+                                {
+                                    <button class="btn-modern small ghost" @onclick="() => Cancel(run.PlaylistId)">
+                                        <Icon Name="x" Size="14" /> Cancel
+                                    </button>
+                                }
+                                <a class="btn-modern small ghost" href="/playlists/@run.PlaylistId">
+                                    Open playlist
+                                </a>
+                            </div>
+                        </div>
+                    </article>
+                }
+            </div>
+        </section>
+    }
+
+    <section class="panel-card downloads-section">
+        <div class="panel-header">
+            <div>
+                <span class="eyebrow">Tracks</span>
+                <h2>Track activity</h2>
+            </div>
+            @if (activeTracks.Count > 0)
+            {
+                <StatusPill Variant="info" Pulse>Live</StatusPill>
+            }
+            else
+            {
+                <span class="text-muted downloads-window">Last 30 minutes</span>
+            }
+        </div>
+        @if (activeTracks.Count == 0 && recentTracks.Count == 0)
+        {
+            <div class="hint-box">
+                No track downloads in the last 30 minutes. Playlist runs
+                still show above while they work through their queue.
+            </div>
+        }
+        else
+        {
+            <div class="downloads-track-list">
+                @foreach (var track in activeTracks.Concat(recentTracks))
+                {
+                    <div class="downloads-track @TrackClass(track)">
+                        <div class="downloads-track-icon">
+                            @if (IsActive(track))
+                            {
+                                <span class="spinner"></span>
+                            }
+                            else if (track.Status == "done")
+                            {
+                                <Icon Name="check-circle" Size="16" />
+                            }
+                            else
+                            {
+                                <Icon Name="alert" Size="16" />
+                            }
+                        </div>
+                        <div class="downloads-track-main">
+                            <strong>@track.Title</strong>
+                            <small>
+                                @if (!string.IsNullOrWhiteSpace(track.Plugin))
+                                {
+                                    <span>@track.Plugin · </span>
+                                }
+                                <span>@StatusLabel(track)</span>
+                                @if (track.At is { } at)
+                                {
+                                    <span> · @RelativeTime(at)</span>
+                                }
+                            </small>
+                            @if (track.Status == "done" && track.FilePath is { Length: > 0 } path)
+                            {
+                                <code class="downloads-path">@path</code>
+                            }
+                            @if (track.Warning is { Length: > 0 } warning)
+                            {
+                                <small class="downloads-warning">@warning</small>
+                            }
+                        </div>
+                        <StatusPill Variant="@TrackVariant(track)"
+                                    Pulse="@IsActive(track)">@StatusShort(track)</StatusPill>
+                    </div>
+                }
+            </div>
+        }
+    </section>
+}
+
+@code {
+    private List<DownloadRun> runs = new();
+    private List<DownloadProgress> activeTracks = new();
+    private List<DownloadProgress> recentTracks = new();
+    private int recentDoneCount;
+    private int recentFailedCount;
+    private Timer? _timer;
+
+    protected override void OnInitialized()
+    {
+        Refresh();
+        _timer = new Timer(_ => InvokeAsync(() =>
+        {
+            Refresh();
+            StateHasChanged();
+        }), null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
+    }
+
+    private void Refresh()
+    {
+        runs = Coordinator.Snapshot()
+            .Where(run => run.State != DownloadRunState.Finished)
+            .OrderByDescending(run => run.StartedAtUtc)
+            .ToList();
+
+        var progress = TrackDownloads.SnapshotProgress()
+            .OrderByDescending(entry => entry.At ?? DateTimeOffset.MinValue)
+            .ToList();
+        activeTracks = progress
+            .Where(entry => entry.Status is "searching" or "downloading")
+            .ToList();
+        recentTracks = progress
+            .Where(entry => entry.Status is "done" or "failed")
+            .Take(20)
+            .ToList();
+        recentDoneCount = progress.Count(entry => entry.Status == "done");
+        recentFailedCount = progress.Count(entry => entry.Status == "failed");
+    }
+
+    private void Pause(string playlistId)
+    {
+        Coordinator.Pause(playlistId);
+        Refresh();
+    }
+
+    private void Resume(string playlistId)
+    {
+        Coordinator.Start(playlistId);
+        Refresh();
+    }
+
+    private void Cancel(string playlistId)
+    {
+        Coordinator.Cancel(playlistId);
+        Refresh();
+    }
+
+    private static bool IsActive(DownloadProgress track)
+        => track.Status is "searching" or "downloading";
+
+    private static string RunLabel(DownloadRunState state) => state switch
+    {
+        DownloadRunState.Running => "Running",
+        DownloadRunState.Paused => "Paused",
+        DownloadRunState.Cancelling => "Cancelling",
+        _ => "Finished",
+    };
+
+    private static string RunVariant(DownloadRunState state) => state switch
+    {
+        DownloadRunState.Running => "info",
+        DownloadRunState.Paused => "warn",
+        DownloadRunState.Cancelling => "warn",
+        _ => "neutral",
+    };
+
+    private static string EtaText(DownloadRun run)
+    {
+        if (run.State != DownloadRunState.Running || run.EtaUtc is not { } eta)
+            return string.Empty;
+        return $"ETA {eta.ToLocalTime():HH:mm}";
+    }
+
+    private static string StatusLabel(DownloadProgress track) => track.Status switch
+    {
+        "searching" => "Searching every plugin",
+        "downloading" => "Downloading",
+        "done" => "Saved",
+        "failed" => "Failed",
+        _ => track.Status,
+    };
+
+    private static string StatusShort(DownloadProgress track) => track.Status switch
+    {
+        "searching" => "searching",
+        "downloading" => "downloading",
+        "done" => "done",
+        "failed" => "failed",
+        _ => track.Status,
+    };
+
+    private static string TrackClass(DownloadProgress track) => track.Status switch
+    {
+        "done" => "is-done",
+        "failed" => "is-failed",
+        _ => "is-active",
+    };
+
+    private static string TrackVariant(DownloadProgress track) => track.Status switch
+    {
+        "done" => "ok",
+        "failed" => "err",
+        _ => "info",
+    };
+
+    private static string RelativeTime(DateTimeOffset at)
+    {
+        var elapsed = DateTimeOffset.UtcNow - at;
+        if (elapsed < TimeSpan.FromSeconds(45)) return "just now";
+        if (elapsed < TimeSpan.FromMinutes(90))
+            return $"{(int)Math.Round(elapsed.TotalMinutes)} min ago";
+        return at.ToLocalTime().ToString("HH:mm");
+    }
+
+    public void Dispose() => _timer?.Dispose();
+}
