@@ -375,6 +375,12 @@ public class SyncJobEntity
     /// <summary>Write M3U entries relative to the output file instead of
     /// absolute paths. False on rows from before the option existed.</summary>
     public bool M3uRelativePaths { get; set; }
+    /// <summary>Windows line endings in the M3U.</summary>
+    public bool M3uCrlf { get; set; }
+    /// <summary>Backslashes in the relative M3U entries.</summary>
+    public bool M3uBackslashes { get; set; }
+    /// <summary>Start the M3U with a UTF-8 BOM.</summary>
+    public bool M3uBom { get; set; }
     /// <summary>
     /// Every publication target as JSON ([{kind, profileId, m3uPath}]).
     /// Null on jobs from before multi-target support: those keep the

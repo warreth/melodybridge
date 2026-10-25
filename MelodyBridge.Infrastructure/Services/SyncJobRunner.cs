@@ -416,7 +416,8 @@ public class SyncJobRunner : ISyncJobRunner
             if (string.IsNullOrWhiteSpace(target.M3uPath))
                 return new TargetRunResult(null, Array.Empty<string>(), "M3U file: no output path configured");
             var options = new PlaylistOutputOptions(target.M3uPath, job.M3uRelativePaths,
-                remap, ExtensionRemap: extensionRemap);
+                remap, ExtensionRemap: extensionRemap,
+                M3uText: new M3uTextOptions(job.M3uCrlf, job.M3uBackslashes, job.M3uBom));
             await _m3uGenerator.GenerateM3uAsync(playlist, searchPaths, options, ct);
             return new TargetRunResult("M3U file", Array.Empty<string>(), null);
         }

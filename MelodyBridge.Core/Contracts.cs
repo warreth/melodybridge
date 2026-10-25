@@ -321,12 +321,22 @@ public record SourceSearchOutcome(
 /// null for servers that need none (Plex) or the server default.</summary>
 public record MediaServerConnection(string BaseUrl, string ApiKey, string? UserId = null);
 
+/// <summary>
+/// Text-level M3U compatibility. Some players want a Windows-style file:
+/// CRLF, backslashes in the relative entries and a UTF-8 BOM.
+/// </summary>
+public record M3uTextOptions(
+    bool Crlf = false,
+    bool Backslashes = false,
+    bool Bom = false);
+
 public record PlaylistOutputOptions(
     string OutputPath,
     bool UseRelativePaths,
     Dictionary<string, string>? PathRemap,
     MediaServerConnection? MediaServerConnection = null,
-    Dictionary<string, string>? ExtensionRemap = null
+    Dictionary<string, string>? ExtensionRemap = null,
+    M3uTextOptions? M3uText = null
 );
 
 /// <summary>

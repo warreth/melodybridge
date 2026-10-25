@@ -113,7 +113,7 @@ public class SyncJobsLayoutUiTests
         Assert.That(cut.Find(".wizard-header .eyebrow").TextContent, Does.Contain("Step 3"));
         // the field arrives prefilled from the Playlist output folder; clear
         // it: Next must stay on step 3 and show the error
-        cut.Find("input[placeholder='/app/playlists/playlist.m3u']").Change("");
+        cut.Find("input[placeholder='/app/playlists/playlist.m3u8']").Change("");
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Next").Click();
         Assert.That(cut.Find(".wizard-header .eyebrow").TextContent, Does.Contain("Step 3"));
         Assert.That(cut.Find(".wizard-error").TextContent, Does.Contain("M3U output path"));

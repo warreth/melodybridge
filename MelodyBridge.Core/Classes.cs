@@ -89,6 +89,12 @@ public class SyncJob
     /// <summary>Write M3U entries relative to the output file instead of
     /// absolute paths, so the playlist travels with the library.</summary>
     public bool M3uRelativePaths { get; set; }
+    /// <summary>Windows line endings in the M3U.</summary>
+    public bool M3uCrlf { get; set; }
+    /// <summary>Backslashes in the relative M3U entries.</summary>
+    public bool M3uBackslashes { get; set; }
+    /// <summary>Start the M3U with a UTF-8 BOM.</summary>
+    public bool M3uBom { get; set; }
     public Dictionary<string, string> PathRemapRules { get; set; } = new();
     public Dictionary<string, string> ExtensionRemapRules { get; set; } = new();
     public SyncJobSchedule Schedule { get; set; } = SyncJobSchedule.Manual;

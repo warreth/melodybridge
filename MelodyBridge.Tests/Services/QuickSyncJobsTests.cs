@@ -209,7 +209,10 @@ public class QuickSyncJobsTests
         {
             Assert.That(targets.Select(t => t.Kind),
                 Is.EqualTo(new[] { OutputTargetType.M3uFile, OutputTargetType.JellyfinApi }));
-            Assert.That(targets[0].M3uPath, Is.EqualTo(Path.Combine("/playlists", "Jazz Classics.m3u")));
+            Assert.That(targets[0].M3uPath, Is.EqualTo(Path.Combine("/playlists", "Jazz Classics.m3u8")));
+            Assert.That(job.M3uCrlf, Is.True,
+                "quick publish uses the widest text format it cannot configure");
+            Assert.That(job.M3uBom, Is.True);
         });
     }
 
@@ -232,8 +235,8 @@ public class QuickSyncJobsTests
             .ToList();
         Assert.That(paths, Is.EquivalentTo(new[]
         {
-            Path.Combine("/playlists", "AC_DC.m3u"),
-            Path.Combine("/playlists", "AC_DC (2).m3u"),
+            Path.Combine("/playlists", "AC_DC.m3u8"),
+            Path.Combine("/playlists", "AC_DC (2).m3u8"),
         }), "names that sanitize to the same file get distinct paths");
         Assert.That(paths.Distinct(StringComparer.OrdinalIgnoreCase).Count(), Is.EqualTo(2));
     }
@@ -247,7 +250,7 @@ public class QuickSyncJobsTests
         {
             var existing = new SyncJobEntity { Name = "Old Jazz", SourceId = "other" };
             SyncJobMapping.ApplyTargets(existing,
-                new[] { new SyncTarget(OutputTargetType.M3uFile, M3uPath: "/playlists/Jazz.m3u") });
+                new[] { new SyncTarget(OutputTargetType.M3uFile, M3uPath: "/playlists/Jazz.m3u8") });
             db.SyncJobs.Add(existing);
             await db.SaveChangesAsync();
         }
@@ -260,7 +263,7 @@ public class QuickSyncJobsTests
         var created = result.Created[0];
         Assert.That(SyncJobMapping.TargetsOf(created)
                 .Single(t => t.Kind == OutputTargetType.M3uFile).M3uPath,
-            Is.EqualTo(Path.Combine("/playlists", "Jazz (2).m3u")),
+            Is.EqualTo(Path.Combine("/playlists", "Jazz (2).m3u8")),
             "the new job never overwrites a file another job already owns");
     }
 

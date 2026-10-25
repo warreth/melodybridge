@@ -332,6 +332,52 @@ public class SyncJobRunnerTests
     }
 
     [Test]
+    public async Task RunJob_M3uWindowsText_WritesBomCrlfAndBackslashes()
+    {
+        var dbPath = NewDbPath();
+        var dir = Path.Combine(Path.GetTempPath(), $"mb-job-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        var m3uPath = Path.Combine(dir, "playlists", "out.m3u8");
+        try
+        {
+            var factory = await NewDbFactory(dbPath);
+            await SeedPlaylistAsync(factory, dir);
+
+            var runner = NewRunner(factory);
+            var job = new SyncJob
+            {
+                Id = "job-win",
+                Name = "Job Playlist",
+                SourceId = "pl-job",
+                M3uRelativePaths = true,
+                M3uCrlf = true,
+                M3uBackslashes = true,
+                M3uBom = true,
+                Targets = new List<SyncTarget>
+                {
+                    new(OutputTargetType.M3uFile, M3uPath: m3uPath),
+                },
+            };
+
+            await runner.RunJobAsync(job);
+
+            var bytes = await File.ReadAllBytesAsync(m3uPath);
+            Assert.That(bytes.Take(3), Is.EqualTo(new byte[] { 0xEF, 0xBB, 0xBF }));
+            var text = System.Text.Encoding.UTF8.GetString(bytes[3..]);
+            Assert.Multiple(() =>
+            {
+                Assert.That(text, Does.Contain("..\\a.mp3"));
+                Assert.That(text, Does.Contain("\r\n"));
+            });
+        }
+        finally
+        {
+            TryDelete(dbPath);
+            try { Directory.Delete(dir, recursive: true); } catch { /* best effort */ }
+        }
+    }
+
+    [Test]
     public async Task RunJob_AThrowingTarget_DoesNotStopTheOthers()
     {
         var dbPath = NewDbPath();

@@ -1,3 +1,4 @@
+using System.Text;
 using MelodyBridge.Core;
 using Microsoft.Extensions.Logging;
 
@@ -60,8 +61,11 @@ public class M3uGenerator
                         Path.GetDirectoryName(options.OutputPath) ?? ".", path);
                     // A relative M3U is often read on another OS; forward
                     // slashes are the portable spelling and every common
-                    // player accepts them.
-                    path = path.Replace('\\', '/');
+                    // player accepts them. A player that insists on the
+                    // Windows spelling gets backslashes on request.
+                    path = options.M3uText?.Backslashes == true
+                        ? path.Replace('/', '\\')
+                        : path.Replace('\\', '/');
                 }
                 catch { /* keep absolute */ }
             }
@@ -80,7 +84,14 @@ public class M3uGenerator
                 options.OutputPath, skipped, skipped == 1 ? "track" : "tracks");
 
         Directory.CreateDirectory(Path.GetDirectoryName(options.OutputPath) ?? ".");
-        File.WriteAllLines(options.OutputPath, lines);
+
+        // Some players want a Windows-style file: CRLF, and optionally a
+        // UTF-8 BOM. The default follows the host's newline like before.
+        var newline = options.M3uText?.Crlf == true ? "\r\n" : Environment.NewLine;
+        var text = string.Join(newline, lines) + newline;
+        var encoding = new UTF8Encoding(options.M3uText?.Bom == true);
+        var bytes = encoding.GetPreamble().Concat(encoding.GetBytes(text)).ToArray();
+        File.WriteAllBytes(options.OutputPath, bytes);
 
         if (skipped > 0 || lines.Count <= 1)
             _logger.LogInformation("M3U {Output}: {Tracks} {TrackWord}, {Skipped} skipped",

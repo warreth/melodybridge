@@ -108,12 +108,12 @@ public class SyncJobsWizardUiTests
         // step over name/source and locations until the M3U path input shows
         for (var guard = 0; guard < 4; guard++)
         {
-            if (cut.FindAll("input[placeholder='/app/playlists/playlist.m3u']").Count > 0)
+            if (cut.FindAll("input[placeholder='/app/playlists/playlist.m3u8']").Count > 0)
                 break;
             Next(cut);
         }
-        cut.Find("input[placeholder='/app/playlists/playlist.m3u']")
-            .Change("/app/playlists/out.m3u");
+        cut.Find("input[placeholder='/app/playlists/playlist.m3u8']")
+            .Change("/app/playlists/out.m3u8");
         Next(cut, 2); // -> remaps -> review
     }
 
@@ -622,8 +622,8 @@ public class SyncJobsWizardUiTests
         cut.FindAll("select")[1].Change("p1"); // the source playlist select
         Next(cut, 2);
 
-        var value = cut.Find("input[placeholder='/app/playlists/playlist.m3u']").GetAttribute("value");
-        Assert.That(value, Is.EqualTo("/srv/playlists/My List.m3u"),
+        var value = cut.Find("input[placeholder='/app/playlists/playlist.m3u8']").GetAttribute("value");
+        Assert.That(value, Is.EqualTo("/srv/playlists/My List.m3u8"),
             "the Playlist output folder setting names the folder, the job name the file");
     }
 
@@ -643,7 +643,7 @@ public class SyncJobsWizardUiTests
                 SourceId = "p1",
                 SearchLocationPaths = "[]",
                 OutputTarget = "M3uFile",
-                M3uOutputPath = "/srv/playlists/My List.m3u",
+                M3uOutputPath = "/srv/playlists/My List.m3u8",
                 Schedule = "Manual",
             });
             db.SaveChanges();
@@ -656,8 +656,8 @@ public class SyncJobsWizardUiTests
             .Change("p1");
         Next(cut, 2);
 
-        var value = cut.Find("input[placeholder='/app/playlists/playlist.m3u']").GetAttribute("value");
-        Assert.That(value, Is.EqualTo("/srv/playlists/My List (2).m3u"),
+        var value = cut.Find("input[placeholder='/app/playlists/playlist.m3u8']").GetAttribute("value");
+        Assert.That(value, Is.EqualTo("/srv/playlists/My List (2).m3u8"),
             "the prefill does not reuse a path another job already writes");
     }
 
@@ -765,8 +765,8 @@ public class SyncJobsWizardUiTests
         var cut = OpenWizardWithPlaylistSource();
         Next(cut, 2);
         // satisfy the M3U path first so only the cron rule can block
-        cut.Find("input[placeholder='/app/playlists/playlist.m3u']")
-            .Change("/app/playlists/out.m3u");
+        cut.Find("input[placeholder='/app/playlists/playlist.m3u8']")
+            .Change("/app/playlists/out.m3u8");
         cut.FindAll("select").First(s => s.TextContent.Contains("Manual")).Change("Cron");
 
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Next").Click();

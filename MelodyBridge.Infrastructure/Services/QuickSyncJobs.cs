@@ -175,8 +175,12 @@ public static class QuickSyncJobs
                 if (options.M3uEnabled)
                 {
                     var m3uPath = SafeFileNames.UniqueFile(
-                        options.M3uDirectory!, name, ".m3u", usedM3uPaths);
+                        options.M3uDirectory!, name, ".m3u8", usedM3uPaths);
                     usedM3uPaths.Add(SafeFileNames.PathKey(m3uPath));
+                    // Quick publish has no format step: use the widest text
+                    // defaults, and let the job's editor switch to Plain.
+                    entity.M3uCrlf = true;
+                    entity.M3uBom = true;
                     targets.Add(new SyncTarget(OutputTargetType.M3uFile, M3uPath: m3uPath));
                 }
                 targets.AddRange(existingProfiles.Select(p =>

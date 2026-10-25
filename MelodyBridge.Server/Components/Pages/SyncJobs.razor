@@ -182,7 +182,7 @@
                                     <input type="checkbox" checked="@draftM3uEnabled" @onchange="OnM3uEnabledChanged" />
                                     <span class="target-option-body">
                                         <span class="target-option-title"><Icon Name="list-music" Size="16" /> M3U file</span>
-                                        <span class="target-option-note">Write the playlist as an .m3u file on disk.</span>
+                                        <span class="target-option-note">Write the playlist as an .m3u or .m3u8 file on disk.</span>
                                     </span>
                                 </label>
                                 @foreach (var profile in mediaServerProfiles)
@@ -228,8 +228,18 @@
                             {
                                 <label class="target-path">
                                     M3U output path
-                                    <input @bind="draft.M3uOutputPath" placeholder="/app/playlists/playlist.m3u" />
+                                    <input @bind="draft.M3uOutputPath" placeholder="/app/playlists/playlist.m3u8" />
                                 </label>
+                                <label class="target-path">
+                                    Playlist compatibility
+                                    <select value="@m3uPreset" @onchange="OnM3uPresetChanged">
+                                        <option value="@M3uPresetWidest">Widest compatibility (recommended)</option>
+                                        <option value="@M3uPresetCar">Windows car and MP4 players</option>
+                                        <option value="@M3uPresetPlain">Plain (old default)</option>
+                                        <option value="@M3uPresetCustom">Custom</option>
+                                    </select>
+                                </label>
+                                <div class="hint-box">@M3uPresetHint</div>
                                 <label class="toggle-switch wide">
                                     <input type="checkbox" @bind="draft.M3uRelativePaths" />
                                     <span class="toggle-slider"></span>
@@ -238,9 +248,31 @@
                                 <div class="hint-box">
                                     Entries point from the M3U file to the music
                                     (<code>../music/song.flac</code>) instead of absolute paths,
-                                    so the playlist still works when the folder moves. Leave it
-                                    off when your player needs absolute paths.
+                                    so the playlist still works when the folder moves. Put the
+                                    playlist in the same folder as the music to get bare file
+                                    names. Leave it off when your player needs absolute paths.
                                 </div>
+                                @if (m3uPreset == M3uPresetCustom)
+                                {
+                                    <label class="toggle-switch wide">
+                                        <input type="checkbox" @bind="draft.M3uCrlf"
+                                               @bind:after="OnM3uTextOptionChanged" />
+                                        <span class="toggle-slider"></span>
+                                        <span>Windows line endings (CRLF)</span>
+                                    </label>
+                                    <label class="toggle-switch wide">
+                                        <input type="checkbox" @bind="draft.M3uBackslashes"
+                                               @bind:after="OnM3uTextOptionChanged" />
+                                        <span class="toggle-slider"></span>
+                                        <span>Backslashes in relative paths</span>
+                                    </label>
+                                    <label class="toggle-switch wide">
+                                        <input type="checkbox" @bind="draft.M3uBom"
+                                               @bind:after="OnM3uTextOptionChanged" />
+                                        <span class="toggle-slider"></span>
+                                        <span>UTF-8 BOM</span>
+                                    </label>
+                                }
                             }
                             <div class="target-actions">
                                 <a class="btn-modern ghost small" href="/settings#media-servers" target="_blank" rel="noopener">
@@ -338,9 +370,10 @@
                                           ToPlaceholder=".opus"
                                           Rules="@extRules" />
                         <div class="hint-box">
-                            Rules are only needed when your music player sees files under a different path or
-                            extension than MelodyBridge does: for example inside a Docker container.
-                            Leave empty to keep paths and extensions as they are.
+                            Rules apply to the M3U entries and to the path lookup for Jellyfin,
+                            Plex and Subsonic. Use them when the server sees your files under a
+                            different path or extension than MelodyBridge does, for example inside
+                            Docker. Leave empty when the paths match.
                         </div>
                     </div>
                 }
@@ -355,6 +388,7 @@
                             @if (draftM3uEnabled)
                             {
                                 <div><strong>M3U path:</strong> @draft.M3uOutputPath</div>
+                                <div><strong>M3U format:</strong> @M3uPresetName</div>
                             }
                             @foreach (var reviewProfile in SelectedProfiles)
                             {
@@ -687,6 +721,13 @@ else
     /// <summary>Wizard target state: the M3U switch, the ticked profiles and
     /// a legacy job's saved connection.</summary>
     private bool draftM3uEnabled;
+    private const string M3uPresetWidest = "widest";
+    private const string M3uPresetCar = "car";
+    private const string M3uPresetPlain = "plain";
+    private const string M3uPresetCustom = "custom";
+    /// <summary>The M3U text preset the wizard shows; Custom reveals the
+    /// three switches.</summary>
+    private string m3uPreset = M3uPresetWidest;
     private List<string> selectedProfileIds = new();
     /// <summary>True when opening or reloading a job dropped a target whose
     /// profile no longer exists; the output step offers a replacement.</summary>
@@ -973,6 +1014,76 @@ else
         if (draftM3uEnabled) PrefillM3uPath();
     }
 
+    /// <summary>
+    /// Applies a named compatibility profile to the draft. Custom keeps
+    /// whatever the switches currently say.
+    /// </summary>
+    private void ApplyM3uPreset(string preset)
+    {
+        m3uPreset = preset;
+        switch (preset)
+        {
+            case M3uPresetWidest:
+                draft.M3uCrlf = true;
+                draft.M3uBackslashes = false;
+                draft.M3uBom = true;
+                break;
+            case M3uPresetCar:
+                draft.M3uCrlf = true;
+                draft.M3uBackslashes = true;
+                draft.M3uBom = true;
+                break;
+            case M3uPresetPlain:
+                draft.M3uCrlf = false;
+                draft.M3uBackslashes = false;
+                draft.M3uBom = false;
+                break;
+        }
+    }
+
+    private void OnM3uPresetChanged(ChangeEventArgs e)
+    {
+        var preset = e.Value as string;
+        ApplyM3uPreset(preset is M3uPresetWidest or M3uPresetCar
+            or M3uPresetPlain or M3uPresetCustom ? preset : M3uPresetCustom);
+    }
+
+    /// <summary>A manual switch makes the profile Custom, so the editor
+    /// never claims a preset the flags no longer match.</summary>
+    private void OnM3uTextOptionChanged() => m3uPreset = M3uPresetCustom;
+
+    private static string DetectM3uPreset(SyncJob job)
+    {
+        if (job.M3uCrlf && job.M3uBom && !job.M3uBackslashes) return M3uPresetWidest;
+        if (job.M3uCrlf && job.M3uBom && job.M3uBackslashes) return M3uPresetCar;
+        if (!job.M3uCrlf && !job.M3uBom && !job.M3uBackslashes) return M3uPresetPlain;
+        return M3uPresetCustom;
+    }
+
+    private string M3uPresetName => m3uPreset switch
+    {
+        M3uPresetWidest => "Widest compatibility",
+        M3uPresetCar => "Windows car and MP4",
+        M3uPresetPlain => "Plain",
+        _ => "Custom",
+    };
+
+    private string M3uPresetHint => m3uPreset switch
+    {
+        M3uPresetWidest =>
+            "UTF-8 with BOM, Windows line endings and forward slashes. Use a .m3u8 "
+            + "path and tick Relative paths when the playlist travels with the music.",
+        M3uPresetCar =>
+            "UTF-8 with BOM, Windows line endings and backslashes. Use a .m3u8 "
+            + "path and tick Relative paths. This is the car and MP4 player layout.",
+        M3uPresetPlain =>
+            "No BOM, this host's line endings and forward slashes, like jobs from "
+            + "before the options existed. Choose Custom for CRLF without a BOM.",
+        _ =>
+            "Pick the text options your player needs. A .m3u8 path means UTF-8; "
+            + "a BOM and CRLF help hardware players.",
+    };
+
     /// <summary>Human summary of the wizard's chosen targets.</summary>
     private string TargetsSummary
     {
@@ -1013,7 +1124,7 @@ else
             .Select(t => t.M3uPath!)
             .ToList();
         draft.M3uOutputPath = SafeFileNames.UniqueFile(
-            defaultM3uFolder, name, ".m3u", used);
+            defaultM3uFolder, name, ".m3u8", used);
     }
 
     private async Task ReloadProfiles()
@@ -1070,6 +1181,7 @@ else
         // The old wizard defaulted to an M3U file; keep that as the first
         // target, and let the user tick media servers next to it.
         draftM3uEnabled = true;
+        ApplyM3uPreset(M3uPresetWidest);
         selectedProfileIds = new List<string>();
         droppedMissingTargets = false;
         keepLegacyConnection = false;
@@ -1094,6 +1206,10 @@ else
         // hydrate the wizard from the stored entity so saving updates it in place
         draft = SyncJobMapping.MapToDomain(job);
         draftM3uEnabled = draft.Targets.Any(t => t.Kind == OutputTargetType.M3uFile);
+        if (draftM3uEnabled)
+            m3uPreset = DetectM3uPreset(draft);
+        else
+            ApplyM3uPreset(M3uPresetWidest);
         draft.M3uOutputPath ??= draft.Targets
             .FirstOrDefault(t => t.Kind == OutputTargetType.M3uFile)?.M3uPath;
         selectedProfileIds = draft.Targets
@@ -1314,6 +1430,9 @@ else
                 ? selectedSourceId : null;
             entity.SearchLocationPaths = JsonSerializer.Serialize(pathsList);
             entity.M3uRelativePaths = draft.M3uRelativePaths;
+            entity.M3uCrlf = draft.M3uCrlf;
+            entity.M3uBackslashes = draft.M3uBackslashes;
+            entity.M3uBom = draft.M3uBom;
             entity.PathRemapRules = JsonSerializer.Serialize(remapRules);
             entity.ExtensionRemapRules = JsonSerializer.Serialize(extRulesDict);
             entity.Schedule = draft.Schedule.ToString();

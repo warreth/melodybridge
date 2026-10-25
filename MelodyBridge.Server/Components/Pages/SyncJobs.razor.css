@@ -151,6 +151,18 @@
 /* Target picker: one tappable row card per place a job publishes to. */
 .target-picker { gap: .6rem; }
 .target-lead { margin: 0; color: var(--muted); font-size: .85rem; }
+/* The M3U path and compatibility fields use the same label rhythm as
+   the wizard's form grid, without wrapping them in a second grid. */
+.target-path {
+    display: grid;
+    gap: .35rem;
+    color: var(--muted);
+    font-size: .82rem;
+    font-weight: 700;
+}
+/* Only the label is bold; the input and select keep normal text. */
+.target-path input,
+.target-path select { font-weight: 400; }
 .target-list { display: grid; gap: .5rem; }
 .target-option {
     display: flex;

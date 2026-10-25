@@ -78,6 +78,10 @@ public static class SchemaPatcher
         ("SyncJobs", "TargetsJson", "TEXT NULL"),
         // M3U entries relative to the output file instead of absolute paths.
         ("SyncJobs", "M3uRelativePaths", "INTEGER NOT NULL DEFAULT 0"),
+        // Windows-style M3U text for players that need it.
+        ("SyncJobs", "M3uCrlf", "INTEGER NOT NULL DEFAULT 0"),
+        ("SyncJobs", "M3uBackslashes", "INTEGER NOT NULL DEFAULT 0"),
+        ("SyncJobs", "M3uBom", "INTEGER NOT NULL DEFAULT 0"),
         // Auto-sync attempt stamp: a failed refresh waits for the next
         // interval instead of retrying on every scheduler poll.
         ("Playlists", "LastAttemptAt", "TEXT NULL"),

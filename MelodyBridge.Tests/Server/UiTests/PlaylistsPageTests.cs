@@ -1153,7 +1153,7 @@ public class PlaylistsPageTests
             var targets = MelodyBridge.Infrastructure.Services.SyncJobMapping.TargetsOf(job);
             Assert.That(targets.Select(t => t.Kind), Is.EqualTo(new[] { OutputTargetType.M3uFile }),
                 "M3U was the only ticked target");
-            Assert.That(targets[0].M3uPath, Does.EndWith("Jazz Classics.m3u"));
+            Assert.That(targets[0].M3uPath, Does.EndWith("Jazz Classics.m3u8"));
         }, TimeSpan.FromSeconds(5));
     }
 

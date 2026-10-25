@@ -149,6 +149,42 @@ public class M3uGeneratorTests
     }
 
     [Test]
+    public async Task WindowsText_WritesBomCrlfAndBackslashes()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), $"mb-m3u-win-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(Path.Combine(dir, "Music"));
+        var outputPath = Path.Combine(dir, "playlist.m3u8");
+        try
+        {
+            var playlist = Tracks(new Track
+            {
+                Title = "Midnight Drive",
+                Artist = "The Wavelengths",
+                Duration = TimeSpan.FromSeconds(222),
+                CurrentTrackLocation = new FileLocation(
+                    Path.Combine(dir, "Music", "Midnight Drive.mp3")),
+            });
+
+            await NewGenerator().GenerateM3uAsync(
+                playlist, Array.Empty<ScanLocation>(),
+                new PlaylistOutputOptions(outputPath, UseRelativePaths: true, PathRemap: null,
+                    M3uText: new M3uTextOptions(Crlf: true, Backslashes: true, Bom: true)));
+
+            var bytes = await File.ReadAllBytesAsync(outputPath);
+            Assert.That(bytes.Take(3), Is.EqualTo(new byte[] { 0xEF, 0xBB, 0xBF }),
+                "a UTF-8 BOM starts the file");
+            var text = System.Text.Encoding.UTF8.GetString(bytes[3..]);
+            Assert.Multiple(() =>
+            {
+                Assert.That(text, Does.Contain("Music\\Midnight Drive.mp3"),
+                    "relative entries use backslashes on request");
+                Assert.That(text, Does.Contain("\r\n"), "Windows line endings on request");
+            });
+        }
+        finally { Directory.Delete(dir, recursive: true); }
+    }
+
+    [Test]
     public void NullTracks_Throws()
     {
         var ex = Assert.ThrowsAsync<ArgumentException>(async () =>
