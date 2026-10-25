@@ -44,7 +44,9 @@ Give the job a name and choose the source:
 ### Step 2: Where your music lives
 
 A checkbox list of your scan folders, all checked by default. Leave them all
-checked to search every folder for matching files.
+checked to search every folder for matching files. Only tracks whose file lives
+in a ticked folder are published; folders that merely share a prefix (`List A`
+and `List AB`) stay apart.
 
 ### Step 3: Choose the targets
 
@@ -52,7 +54,7 @@ Tick everything the job should publish to; at least one target is required.
 
 | Target | What it needs |
 |---|---|
-| M3U file | An output path inside the container. It starts from the **Playlist output folder** setting plus the job name; type a different path when this job should land elsewhere |
+| M3U file | An output path inside the container. It starts from the **Playlist output folder** setting plus the job name; type a different path when this job should land elsewhere. Tick **Relative paths in the M3U** to write entries relative to the M3U file (`../music/song.flac`) instead of absolute paths, so the playlist keeps working when the folder moves. Leave it off when the player or media server sees the two folders at unrelated paths, as the default Docker layout does |
 | Jellyfin | A Jellyfin profile from **Settings, Media servers**. **Test connection** checks it and lets you pick the user; that user applies to every Jellyfin target of the job |
 | Plex | A Plex profile. The token holder is the only account there is, so there is no user picker |
 | Subsonic | A Subsonic or Navidrome profile. Navidrome, gonic, Airsonic, Ampache, Funkwhale and Nextcloud Music all speak this API; there are no API keys |

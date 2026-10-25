@@ -340,8 +340,9 @@ it:
   then MelodyBridge writes the tags and stamps the `MELODY_ID`.
 
 **Save to** defaults to the music path and accepts any absolute folder. The file
-is named `Artist - Title`, keeps its source tags, and joins the library on the
-next scan. The saved card shows the path, the plugin that delivered it and any
+is named by the **Downloaded file names** pattern on the Advanced page (default
+`Artist - Title`), keeps its source tags, and joins the library on the next
+scan. The saved card shows the path, the plugin that delivered it and any
 warning, with **Copy path** and **Open Library** actions. A container that
 cannot carry the `MELODY_ID` tag shows a warning on that card, because the
 scanner matches on that tag and would otherwise leave the file out.
@@ -437,11 +438,17 @@ The knobs most people never need, in five panels:
   panel to the sidebar and reveals the longer notes about unofficial accounts.
   The setting is stored and survives a restart. Leave it off for the everyday
   interface.
-- **Downloads**: *Max simultaneous track downloads* (1 to 8, default 2; the next
-  run picks up a change), *Plugin time budget* and *Track time budget* (in
-  seconds: how long one plugin and one whole track may take before the waterfall
-  moves on or gives up) and *Hardlink duplicate tracks across playlists*, the
-  dedup toggle described in [How it works](/concepts).
+- **Downloads**: *Max simultaneous track downloads* (1 to 8, default 2; the
+  number counts every playlist and manual download together, and the next run
+  picks up a change), *Plugin time budget* and *Track time budget* (in seconds:
+  how long one plugin and one whole track may take before the waterfall moves on
+  or gives up), *Downloaded file names* (below) and *Hardlink duplicate tracks
+  across playlists*, the dedup toggle described in [How it works](/concepts).
+  **Downloaded file names** is the pattern for new downloads: `{artist}`,
+  `{title}`, `{album}` and `{track}` are filled per track, and the default
+  `{artist} - {title}` puts the artist first. Use `{source}` to keep the name the
+  plugin chose. The pattern does not rename files that are already on disk; the
+  maintenance action below does that.
 - **Display**: *Show the file column on playlist tracks*, which reveals the
   exact filename behind every track. Handy when hunting inflated downloads.
 - **Logging**: *Show database activity in the logs*. Off by default, because
@@ -457,6 +464,13 @@ The knobs most people never need, in five panels:
   source, lyrics, the release credit and the album name. Only missing fields are
   written, so artwork a plugin embedded is left alone. It reports how many files
   changed, how many were already complete and how many could not be read.
+  **Rename files to the pattern** applies the saved file name pattern to files
+  already downloaded, archive copies included. It first shows how many of the
+  downloaded files would change; confirm to run it. Files outside the configured
+  music and archive folders, paths another track still points at, and files that
+  cannot be renamed are left alone, and the result says how many moved, were
+  skipped or failed. Playlists and sync jobs pick the new paths up on their next
+  run.
 
 ## The Dev panel <Badge type="warning" text="Advanced" />
 
