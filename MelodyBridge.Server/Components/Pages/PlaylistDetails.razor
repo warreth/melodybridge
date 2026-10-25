@@ -1,5 +1,6 @@
 @page "/playlists/{PlaylistId}"
 @using MelodyBridge.Core
+@using MelodyBridge.Infrastructure.Audio
 @using MelodyBridge.Infrastructure.Data
 @using MelodyBridge.Infrastructure.Services
 @using MelodyBridge.Server.Components.Shared
@@ -230,16 +231,31 @@ else
                         {
                             <label>
                                 Archive format
-                                <select value="@editArchiveFormat" @onchange="OnArchiveFormatChanged">
+                                <select value="@editArchiveFormatChoice" @onchange="OnArchiveFormatChanged">
                                     <option value="default">App default (@ArchiveFormatLabel(resolvedDefaultArchiveFormat))</option>
                                     <option value="auto">Copy the downloaded file as-is</option>
                                     <option value="opus">Opus: small and efficient (128k)</option>
                                     <option value="flac">FLAC: lossless (level 5)</option>
                                     <option value="mp3">MP3: widely compatible (256k)</option>
                                     <option value="aac">AAC: small and modern (192k)</option>
+                                    <option value="custom">Custom container...</option>
                                 </select>
                                 <small class="text-muted">Fetched once from the source, converted locally with ffmpeg.</small>
                             </label>
+                            @if (editArchiveFormatChoice == "custom")
+                            {
+                                <label>
+                                    Custom archive container
+                                    <input value="@editArchiveCustomFormat" @oninput="OnArchiveCustomFormatInput"
+                                           placeholder="ogg" />
+                                    <small class="text-muted">
+                                        Any container ffmpeg can write, for example ogg, wav or m4a.
+                                        Add a codec with a colon, for example <code>m4a:alac</code>;
+                                        without one ffmpeg picks the container default. A format it
+                                        cannot write leaves a warning on the track.
+                                    </small>
+                                </label>
+                            }
                         }
                     </div>
                 }
@@ -477,6 +493,10 @@ else
     private string editQuality = "auto";
     private string editArchiveDirectory = string.Empty;
     private string editArchiveFormat = "default";
+    /// <summary>The select value: default, a named preset or custom.</summary>
+    private string editArchiveFormatChoice = "default";
+    /// <summary>The container typed for a custom archive format.</summary>
+    private string editArchiveCustomFormat = "";
     private bool editArchiveEnabled = true;
     private ScanSchedule editSchedule = ScanSchedule.Manual;
     private PlaylistSyncMode editSyncMode = PlaylistSyncMode.Additive;
@@ -665,7 +685,7 @@ else
                 && !PlaylistStore.PathsEqual(storedArchive, resolvedDefaultArchivePath)
                     ? storedArchive
                     : string.Empty;
-            editArchiveFormat = string.IsNullOrWhiteSpace(playlist.ArchiveFormat) ? "default" : playlist.ArchiveFormat;
+            SetArchiveFormatState(playlist.ArchiveFormat);
             editArchiveEnabled = playlist.ArchiveEnabled;
             editSchedule = playlist.ScheduleCron is { Length: > 0 }
                 ? ScanSchedule.Parse(playlist.ScheduleCron)
@@ -857,8 +877,43 @@ else
     /// <summary>Archive format select: saves right away like the quality picker.</summary>
     private Task OnArchiveFormatChanged(ChangeEventArgs e)
     {
-        editArchiveFormat = e.Value?.ToString() ?? "default";
+        editArchiveFormatChoice = e.Value?.ToString() ?? "default";
+        if (editArchiveFormatChoice == "custom")
+        {
+            editArchiveFormat = editArchiveCustomFormat.Length == 0
+                ? "" : ArchiveCopier.NormalizeFormat(editArchiveCustomFormat);
+        }
+        else
+        {
+            editArchiveFormat = editArchiveFormatChoice;
+            editArchiveCustomFormat = "";
+        }
         return SaveNow();
+    }
+
+    private void OnArchiveCustomFormatInput(ChangeEventArgs e)
+    {
+        editArchiveCustomFormat = (e.Value?.ToString() ?? "")
+            .Trim().TrimStart('.').ToLowerInvariant();
+        editArchiveFormat = editArchiveCustomFormat.Length == 0
+            ? "" : ArchiveCopier.NormalizeFormat(editArchiveCustomFormat);
+        MarkDirty();
+    }
+
+    /// <summary>Maps a stored format to the select and its optional text field.</summary>
+    private void SetArchiveFormatState(string? stored)
+    {
+        editArchiveFormat = string.IsNullOrWhiteSpace(stored) ? "default" : stored.Trim();
+        if (editArchiveFormat == "default" || ArchiveCopier.IsPresetFormat(editArchiveFormat))
+        {
+            editArchiveFormatChoice = editArchiveFormat;
+            editArchiveCustomFormat = "";
+        }
+        else
+        {
+            editArchiveFormatChoice = "custom";
+            editArchiveCustomFormat = ArchiveCopier.NormalizeFormat(editArchiveFormat);
+        }
     }
 
     private void OnSyncModeChanged(ChangeEventArgs e)
@@ -931,7 +986,7 @@ else
             editTargetDirectory = persisted.dir;
             editQuality = persisted.quality;
             editArchiveDirectory = persisted.archiveDir;
-            editArchiveFormat = persisted.archiveFormat;
+            SetArchiveFormatState(persisted.archiveFormat);
             editSchedule = persisted.schedule;
             editSyncMode = persisted.mode;
             editAutoDownload = persisted.autoDownload;
@@ -1699,6 +1754,7 @@ else
         "flac" => "FLAC",
         "mp3" => "MP3",
         "aac" => "AAC",
+        var custom when !string.IsNullOrWhiteSpace(custom) => custom.ToUpperInvariant(),
         _ => "copy the file as-is",
     };
 

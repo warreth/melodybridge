@@ -277,6 +277,47 @@ public class ArchiveCopyUiTests
     }
 
     [Test]
+    public async Task ArchiveFormat_CustomContainer_SavesAndReloads()
+    {
+        using (var db = _factory.CreateDbContext())
+        {
+            db.Playlists.Find("pl-1")!.ArchiveDirectory = "/playlist-archive";
+            db.SaveChanges();
+        }
+        var cut = RenderPage();
+
+        cut.FindAll(".archive-section select").Single().Change("custom");
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("Custom archive container")),
+            TimeSpan.FromSeconds(3));
+
+        cut.Find(".archive-section input[placeholder='ogg']").Input("ogg");
+        Assert.That(cut.Find(".archive-section input[placeholder='ogg']").GetAttribute("value"),
+            Is.EqualTo("ogg"), "the typed container is in the field");
+
+        // The debounce continuation runs on the renderer's sync context,
+        // which WaitForAssertion does not pump.
+        string? Stored()
+        {
+            using var db = _factory.CreateDbContext();
+            return db.Playlists.Find("pl-1")?.ArchiveFormat;
+        }
+        for (var i = 0; i < 40 && Stored() != "ogg"; i++)
+            await Task.Delay(100);
+        Assert.That(Stored(), Is.EqualTo("ogg"),
+            "the typed container persists as the playlist override");
+
+        var reloaded = RenderPage();
+        var select = reloaded.FindAll(".archive-section select").Single();
+        Assert.Multiple(() =>
+        {
+            Assert.That(select.GetAttribute("value"), Is.EqualTo("custom"));
+            Assert.That(reloaded.Find(".archive-section input[placeholder='ogg']")
+                .GetAttribute("value"), Is.EqualTo("ogg"));
+        });
+    }
+
+    [Test]
     public void ArchiveFolderInput_Prefilled_FromPlaylistOverride()
     {
         using (var db = _factory.CreateDbContext())

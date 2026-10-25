@@ -93,6 +93,41 @@ public class ArchiveCopierTests
     }
 
     [Test]
+    public void CustomFormat_TargetExtensionUsesTheContainerNotTheCodec()
+    {
+        Assert.Multiple(() =>
+        {
+            Assert.That(ArchiveCopier.TargetExtension("/x/song.wav", "m4a:alac"),
+                Is.EqualTo(".m4a"));
+            Assert.That(ArchiveCopier.TargetExtension("/x/song.wav", ".ogg"),
+                Is.EqualTo(".ogg"));
+            Assert.That(ArchiveCopier.TargetExtension("/x/song.wav", "auto"),
+                Is.EqualTo(".wav"));
+        });
+    }
+
+    [Test]
+    public void CustomContainer_UsesFfmpegDefaultEncoder()
+    {
+        if (!MediaToolsAvailable()) Assert.Ignore("ffmpeg or ffprobe not installed on this host");
+
+        var primary = MakeSilentWav();
+        var archiveDir = FreshArchiveDir();
+
+        var result = ArchiveCopier.Copy(primary, archiveDir, ".ogg",
+            melodyId: null, title: null, artist: null, album: null, trackNumber: null,
+            expectedDuration: TimeSpan.FromSeconds(2));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Ok, Is.True, $"custom ogg transcode must succeed; reason: {result.Reason}");
+            Assert.That(Path.GetExtension(result.ArchivePath), Is.EqualTo(".ogg"),
+                "the custom container decides the extension");
+            Assert.That(File.Exists(result.ArchivePath), Is.True);
+        });
+    }
+
+    [Test]
     public void OpusCopy_TranscodesTagsAndPassesIntegrity()
     {
         if (!MediaToolsAvailable()) Assert.Ignore("ffmpeg or ffprobe not installed on this host");

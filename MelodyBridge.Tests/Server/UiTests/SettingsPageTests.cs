@@ -57,6 +57,34 @@ public class SettingsPageTests
     }
 
     [Test]
+    public async Task PathsTab_CustomArchiveContainer_Saves()
+    {
+        var cut = _ctx.Render<Settings>();
+        await cut.InvokeAsync(() => cut.Find("button[data-tab='paths']").Click());
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("Archive format")));
+
+        cut.FindAll("select")
+            .Single(select => select.TextContent.Contains("Custom container"))
+            .Change("custom");
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("Custom archive container")));
+        cut.Find("input[placeholder='ogg']").Change("ogg");
+        await cut.InvokeAsync(() =>
+            cut.FindAll("button").Single(b => b.TextContent.Trim() == "Save settings").Click());
+
+        cut.WaitForAssertion(() =>
+        {
+            using var db = _ctx.Services
+                .GetRequiredService<IDbContextFactory<MelodyBridgeDbContext>>()
+                .CreateDbContext();
+            Assert.That(db.DownloaderSettings
+                    .Single(s => s.Key == "archive_format").Value,
+                Is.EqualTo("ogg"));
+        }, TimeSpan.FromSeconds(3));
+    }
+
+    [Test]
     public async Task SettingsSearch_FindsThemeAndOpensAbout()
     {
         var cut = _ctx.Render<Settings>();

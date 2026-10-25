@@ -548,15 +548,33 @@ else if (activeTab == "paths")
                 </label>
                 <label>
                     Archive format
-                    <select @bind="archiveFormat" @bind:after="MarkDirty">
+                    <select value="@archiveFormatChoice" @onchange="OnArchiveFormatChoiceChanged">
                         <option value="auto">Auto: copy the downloaded file as-is</option>
                         <option value="opus">Opus: small and efficient (128k)</option>
                         <option value="flac">FLAC: lossless (level 5)</option>
                         <option value="mp3">MP3: widely compatible (256k)</option>
                         <option value="aac">AAC: small and modern (192k)</option>
+                        <option value="custom">Custom container...</option>
                     </select>
                 </label>
+                @if (archiveFormatChoice == "custom")
+                {
+                    <label>
+                        Custom archive container
+                        <input @bind="archiveFormatCustom" @bind:after="OnArchiveCustomFormatChanged"
+                               placeholder="ogg" />
+                    </label>
+                }
             </div>
+            @if (archiveFormatChoice == "custom")
+            {
+                <div class="hint-box">
+                    Any container ffmpeg can write, for example ogg, wav, m4a or aiff.
+                    Add a codec with a colon for a specific encoder, for example
+                    <code>m4a:alac</code>. Without one, ffmpeg picks the container's
+                    default. A format ffmpeg cannot write leaves a warning on the track.
+                </div>
+            }
             <MountWarning />
             <div class="hint-box">
                 New downloads land under the music path, M3U files go to the
@@ -1108,6 +1126,10 @@ else if (activeTab == "about")
     private string savedMusicPath = "/music";
     private string savedArchivePath = "";
     private string archiveFormat = "auto";
+    /// <summary>The select value: a named preset or "custom".</summary>
+    private string archiveFormatChoice = "auto";
+    /// <summary>The container typed for a custom archive format.</summary>
+    private string archiveFormatCustom = "";
     private string defaultQuality = "auto";
     private string spectrumMode = "Fast";
     private string spectrumClassGap = "2";
@@ -1214,7 +1236,7 @@ else if (activeTab == "about")
         archivePath = FindSetting(settings, "archive_path", "");
         savedMusicPath = musicPath.Trim();
         savedArchivePath = archivePath.Trim();
-        archiveFormat = FindSetting(settings, "archive_format", "auto");
+        SetArchiveFormatState(FindSetting(settings, "archive_format", "auto"));
         defaultQuality = FindSetting(settings, "default_quality", "auto");
         if (!PlaylistStore.IsValidFormat(defaultQuality)) defaultQuality = "auto";
         spectrumMode = FindSetting(settings, "spectrum_mode", Config?["SpectrumAnalysis:Mode"] ?? "Fast");
@@ -1533,7 +1555,11 @@ else if (activeTab == "about")
             await Upsert(db, "playlist_path", playlistPath);
             await Upsert(db, "archive_path", archivePath);
             await Upsert(db, "playlist_folders", playlistFolders ? "true" : "false");
-            await Upsert(db, "archive_format", archiveFormat);
+            var storedArchiveFormat = archiveFormatChoice == "custom"
+                ? ArchiveCopier.NormalizeFormat(archiveFormatCustom)
+                : ArchiveCopier.NormalizeFormat(archiveFormatChoice);
+            SetArchiveFormatState(storedArchiveFormat);
+            await Upsert(db, "archive_format", storedArchiveFormat);
             await Upsert(db, "default_quality", defaultQuality);
             await Upsert(db, "spectrum_mode", spectrumMode);
             await Upsert(db, "spectrum_class_gap", spectrumClassGap);
@@ -1602,6 +1628,43 @@ else if (activeTab == "about")
     }
 
     /// <summary>An edit landed: the floating save bar appears.</summary>
+    /// <summary>Maps a stored format to the select and its optional text field.</summary>
+    private void SetArchiveFormatState(string? stored)
+    {
+        archiveFormat = ArchiveCopier.NormalizeFormat(stored);
+        if (ArchiveCopier.IsPresetFormat(archiveFormat))
+        {
+            archiveFormatChoice = archiveFormat;
+            archiveFormatCustom = "";
+        }
+        else
+        {
+            archiveFormatChoice = "custom";
+            archiveFormatCustom = archiveFormat;
+        }
+    }
+
+    private void OnArchiveFormatChoiceChanged(ChangeEventArgs e)
+    {
+        archiveFormatChoice = e.Value?.ToString() ?? "auto";
+        if (archiveFormatChoice == "custom")
+        {
+            archiveFormat = ArchiveCopier.NormalizeFormat(archiveFormatCustom);
+        }
+        else
+        {
+            archiveFormat = ArchiveCopier.NormalizeFormat(archiveFormatChoice);
+            archiveFormatCustom = "";
+        }
+        MarkDirty();
+    }
+
+    private void OnArchiveCustomFormatChanged()
+    {
+        archiveFormat = ArchiveCopier.NormalizeFormat(archiveFormatCustom);
+        MarkDirty();
+    }
+
     private void MarkDirty() => dirty = true;
 
     /// <summary>Persists the ntfy block; a test send uses the typed values

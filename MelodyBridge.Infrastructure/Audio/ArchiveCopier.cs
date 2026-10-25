@@ -19,6 +19,39 @@ public record ArchiveResult(bool Ok, string ArchivePath, string? Reason);
 /// </summary>
 public static class ArchiveCopier
 {
+    /// <summary>The formats the UI offers as presets. Any other value is a
+    /// custom container extension ffmpeg has to understand.</summary>
+    private static readonly HashSet<string> PresetFormats =
+        new(StringComparer.OrdinalIgnoreCase) { "auto", "opus", "flac", "mp3", "aac" };
+
+    /// <summary>True for the named presets, including auto. Custom container
+    /// names return false so the UI can show its text field.</summary>
+    public static bool IsPresetFormat(string? format)
+    {
+        var normalized = NormalizeFormat(format);
+        return PresetFormats.Contains(normalized);
+    }
+
+    /// <summary>Trimmed lower-case format, with a leading dot removed. Empty
+    /// becomes auto, the byte-for-byte copy. A custom format may name a
+    /// codec after a colon ("m4a:alac").</summary>
+    public static string NormalizeFormat(string? format)
+    {
+        var normalized = format?.Trim().TrimStart('.').ToLowerInvariant() ?? "";
+        return normalized.Length == 0 ? "auto" : normalized;
+    }
+
+    /// <summary>The container (extension/muxer) and optional codec of a
+    /// format string. "ogg" is container only; "m4a:alac" names both.</summary>
+    private static (string Container, string? Codec) SplitFormat(string? format)
+    {
+        var normalized = NormalizeFormat(format);
+        var colon = normalized.IndexOf(':');
+        if (colon < 0) return (normalized, null);
+        var codec = normalized[(colon + 1)..].Trim();
+        return (normalized[..colon].Trim(), codec.Length == 0 ? null : codec);
+    }
+
     /// <summary>
     /// The path a copy lands on: the primary's filename in the archive
     /// folder, with the archive format's extension. Callers that need to
@@ -167,13 +200,23 @@ public static class ArchiveCopier
         {
             "-nostdin", "-y", "-i", primaryPath, "-map_metadata", "0", "-vn",
         };
-        switch (archiveFormat.Trim().ToLowerInvariant())
+        var (container, codec) = SplitFormat(archiveFormat);
+        switch (container)
         {
-            case "opus": args.AddRange(new[] { "-c:a", "libopus", "-b:a", "128k" }); break;
-            case "flac": args.AddRange(new[] { "-c:a", "flac", "-compression_level", "5" }); break;
-            case "mp3": args.AddRange(new[] { "-c:a", "libmp3lame", "-b:a", "256k" }); break;
-            case "aac": args.AddRange(new[] { "-c:a", "aac", "-b:a", "192k" }); break;
-            default: args.AddRange(new[] { "-c:a", "copy" }); break;
+            case "opus" when codec is null:
+                args.AddRange(new[] { "-c:a", "libopus", "-b:a", "128k" }); break;
+            case "flac" when codec is null:
+                args.AddRange(new[] { "-c:a", "flac", "-compression_level", "5" }); break;
+            case "mp3" when codec is null:
+                args.AddRange(new[] { "-c:a", "libmp3lame", "-b:a", "256k" }); break;
+            case "aac" when codec is null:
+                args.AddRange(new[] { "-c:a", "aac", "-b:a", "192k" }); break;
+            // Custom container: an explicit codec wins; without one ffmpeg
+            // picks the container's default. A format ffmpeg cannot mux
+            // fails with a warning on the track.
+            default:
+                if (codec is not null) args.AddRange(new[] { "-c:a", codec });
+                break;
         }
         args.Add(targetPath);
         return args;
@@ -194,10 +237,10 @@ public static class ArchiveCopier
     /// </summary>
     public static string TargetExtension(string primaryPath, string? archiveFormat)
     {
-        var format = archiveFormat?.Trim().ToLowerInvariant();
-        return format is null || format == "auto"
+        var (container, _) = SplitFormat(archiveFormat);
+        return container == "auto"
             ? Path.GetExtension(primaryPath)
-            : format == "aac" ? ".m4a" : "." + format;
+            : container == "aac" ? ".m4a" : "." + container;
     }
 
     /// <summary>ffmpeg path on this host, mirroring FindFfprobe's discovery.</summary>
