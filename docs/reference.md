@@ -47,13 +47,17 @@ picked.
   directly in the music path. Saving a new path moves your existing library
   along with it.
 - **Playlist output folder** (`/app/playlists`): where M3U files are written.
-  A new sync job starts with `<folder>/<job name>.m3u`; type a different path
+  A new sync job starts with `<folder>/<job name>.m3u8`; type a different path
   in the wizard when a job should land elsewhere.
 - **Archive path** and **Archive format**: the defaults for archive copies.
   Leave the path empty for no archive. Per-playlist values override these, and
-  the playlist page shows what the app default currently is. Each playlist gets
-  its own folder under the archive path while the sort toggle is on. Saving a
-  new archive path moves the existing archive copies along with it.
+  the playlist page shows what the app default currently is. The format picker
+  offers Auto, Opus, FLAC, MP3 and AAC, plus Custom for another container
+  ffmpeg can write (for example ogg, wav or m4a). Add a codec after a colon
+  when the container default is not what you want, for example `m4a:alac`.
+  A format ffmpeg cannot write leaves a warning on the track. Each playlist gets its own folder under the archive path while the
+  sort toggle is on. Saving a new archive path moves the existing archive
+  copies along with it.
 
 The path fields show a grey `{playlist}` suffix when the folder rule appends a
 playlist name, so what a field resolves to is visible before you save.
@@ -467,14 +471,15 @@ The knobs most people never need, in five panels:
   **Rename downloaded tracks** applies the saved file name pattern to files
   already downloaded, archive copies included. The preview breaks the library
   down: how many tracks would be renamed, how many already follow the pattern,
-  how many files are missing, how many are shared or outside the managed
-  folders, and how many archive copies would be skipped. Every skipped track is
-  logged with its reason at debug level. Files outside the configured music and
-  archive folders, paths another track still points at, and files that cannot be
-  renamed are left alone, and the result says how many moved, were skipped or
-  failed. Hard links keep working: renaming one playlist's name leaves the other
-  name on the same bytes. Playlists and sync jobs pick the new paths up on their
-  next run.
+  how many files are missing, how many paths are shared by another row, how
+  many are outside the managed folders, and how many archive copies would be
+  skipped. Every skipped track is logged with its path and reason at debug
+  level. A path shared by several rows for the same song moves once and every
+  row follows; a path shared by different songs stays put. Files outside the
+  configured music and archive folders and files that cannot be renamed are
+  left alone, and the result says how many moved, were skipped or failed. Hard
+  links keep working: renaming one playlist's name leaves the other name on the
+  same bytes. Playlists and sync jobs pick the new paths up on their next run.
 
 ## The Dev panel <Badge type="warning" text="Advanced" />
 

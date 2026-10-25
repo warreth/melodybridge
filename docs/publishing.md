@@ -16,9 +16,11 @@ playlists, choose where they go, and pick one schedule. Every ticked playlist
 becomes its own job, named after the playlist, with the targets and schedule you
 chose. **Send to** can be an M3U file, any number of media server profiles, or
 both. The M3U files land in the **Playlist output folder** setting, one per
-playlist. Names that sanitize to the same file get a numbered suffix, so one
-job never overwrites another's file. **Add profile** opens Settings, Media
-servers, when you need another target first.
+playlist, as `.m3u8` files with a UTF-8 BOM and Windows line endings. Edit the
+job afterwards to switch it to `.m3u` or another format. Names that sanitize to
+the same file get a numbered suffix, so one job never overwrites another's file.
+**Add profile** opens Settings, Media servers, when you need another target
+first.
 
 Playlists that already have a job are left out of the list, so the same playlist
 is not offered twice; creating the jobs re-reads the list, and anything deleted
@@ -54,7 +56,7 @@ Tick everything the job should publish to; at least one target is required.
 
 | Target | What it needs |
 |---|---|
-| M3U file | An output path inside the container. It starts from the **Playlist output folder** setting plus the job name; type a different path when this job should land elsewhere. Tick **Relative paths in the M3U** to write entries relative to the M3U file (`../music/song.flac`) instead of absolute paths, so the playlist keeps working when the folder moves. Leave it off when the player or media server sees the two folders at unrelated paths, as the default Docker layout does |
+| M3U file | An output path inside the container. It starts from the **Playlist output folder** setting plus the job name; type a different path when this job should land elsewhere. **Playlist compatibility** picks the text format: **Widest compatibility** writes UTF-8 with BOM, Windows line endings and forward slashes for a `.m3u8` file; **Windows car and MP4 players** uses backslashes instead; **Plain** keeps the old host line endings and no BOM for a `.m3u` file; **Custom** exposes the three switches. Tick **Relative paths in the M3U** to write entries relative to the M3U file (`../music/song.flac`) instead of absolute paths, so the playlist keeps working when the folder moves. Leave it off when the player or media server sees the two folders at unrelated paths, as the default Docker layout does. Putting the playlist in the same folder as the music gives bare file names and works on the most devices |
 | Jellyfin | A Jellyfin profile from **Settings, Media servers**. **Test connection** checks it and lets you pick the user; that user applies to every Jellyfin target of the job |
 | Plex | A Plex profile. The token holder is the only account there is, so there is no user picker |
 | Subsonic | A Subsonic or Navidrome profile. Navidrome, gonic, Airsonic, Ampache, Funkwhale and Nextcloud Music all speak this API; there are no API keys |
@@ -73,11 +75,12 @@ message while the others still publish.
 
 ### Step 4: Optional: fix file paths
 
-Add path or extension remap rules when your player sees files under a different
-path than MelodyBridge. This is common in Docker, where the same folder is
-mounted at different paths in different containers. A path rule maps a prefix
-(`/mnt/BackupHDD/Music` to `/media/music`), and an extension rule rewrites file
-extensions (`.flac` to `.opus`). Leave both empty when the paths already line up.
+Add path or extension remap rules when the M3U consumer or a Jellyfin, Plex or
+Subsonic server sees files under a different path than MelodyBridge. This is
+common in Docker, where the same folder is mounted at different paths in
+different containers. A path rule maps a prefix (`/mnt/BackupHDD/Music` to
+`/media/music`), and an extension rule rewrites file extensions (`.flac` to
+`.opus`). Leave both empty when the paths already line up.
 
 ### Step 5: Check and create
 

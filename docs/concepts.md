@@ -346,7 +346,9 @@ the same `MELODY_ID` is already sitting in another playlist folder:
 
 - **Same quality.** The existing file gets a hard link into this playlist's
   folder: a second name for the same bytes, costing zero extra space. Both
-  folders stay normal folders with normal files in them.
+  folders stay normal folders with normal files in them. A lossless container
+  matches on the container alone, so a FLAC without a measured bitrate still
+  links.
 - **Different quality.** Nothing is guessed. The track pauses as **needs
   review** with two buttons: **Download new** fetches a fresh file in this
   playlist's quality, **Hardlink existing** asks for confirmation first and
@@ -383,8 +385,10 @@ under the archive path (`/archive/My Summer Hits/...`), and the playlist's forma
 select says what the app default currently does. Archive folders are never
 mistaken for a track's main file: a library scan skips them and a scan that finds
 one already pointed at by a row clears that pointer. Downloading a track again
-replaces its old file and its old archive copy, so a retry cannot leave orphaned
-bytes behind. The switch on the playlist page
+replaces the files the row points at. A format change can leave the previous
+archive copy under its old name, and removing a playlist or track with the
+keep-files option leaves both copies on disk; neither is deleted automatically.
+The switch on the playlist page
 turns the copy off for that playlist: the folder and format fields disappear, and
 no copy is made, even when an app-wide archive path is set.
 
@@ -396,6 +400,7 @@ no copy is made, even when an app-wide archive path is set.
 | FLAC | Lossless, level 5 compression |
 | MP3 | 256 kbps, widely compatible |
 | AAC | 192 kbps, lands as `.m4a` |
+| Custom | Any container ffmpeg can write, with an optional `container:codec` pair such as `m4a:alac`; without a codec ffmpeg uses the container default |
 
 The track is fetched from the source once. The archive copy is produced locally
 from that file with ffmpeg, so a second library never costs a second internet
