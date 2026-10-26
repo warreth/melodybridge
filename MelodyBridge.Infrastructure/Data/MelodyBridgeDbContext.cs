@@ -14,6 +14,7 @@ public class MelodyBridgeDbContext : DbContext
     public DbSet<ProviderStateRow> ProviderStates { get; set; }
     public DbSet<SourceEntity> Sources { get; set; }
     public DbSet<SyncJobEntity> SyncJobs { get; set; }
+    public DbSet<SyncRuleProfileEntity> SyncRuleProfiles { get; set; }
     public DbSet<SyncJobRunEntity> SyncJobRuns { get; set; }
     public DbSet<ScanLocationEntity> ScanLocations { get; set; }
     public DbSet<DownloaderSettingEntity> DownloaderSettings { get; set; }
@@ -90,7 +91,19 @@ public class MelodyBridgeDbContext : DbContext
             e.Property(s => s.JellyfinApiKey).HasMaxLength(512);
             e.Property(s => s.JellyfinUserId).HasMaxLength(128);
             e.Property(s => s.MediaServerProfileId).HasMaxLength(64);
+            e.Property(s => s.RuleProfileId).HasMaxLength(64);
             e.Property(s => s.CronExpression).HasMaxLength(256);
+        });
+
+        modelBuilder.Entity<SyncRuleProfileEntity>(e =>
+        {
+            e.HasKey(p => p.Id);
+            e.Property(p => p.Id).HasMaxLength(64);
+            e.Property(p => p.Name).HasMaxLength(256);
+            e.Property(p => p.M3uOutputFolder).HasMaxLength(1024);
+            e.Property(p => p.M3uFileNamePattern).HasMaxLength(256);
+            e.Property(p => p.PathRemapRules).HasMaxLength(8192);
+            e.Property(p => p.ExtensionRemapRules).HasMaxLength(2048);
         });
 
         modelBuilder.Entity<SyncJobRunEntity>(e =>
@@ -371,6 +384,9 @@ public class SyncJobEntity
     /// still carry inline JellyfinServerUrl/ApiKey values.
     /// </summary>
     public string? MediaServerProfileId { get; set; }
+    /// <summary>Named output/rule profile this job follows; null uses the
+    /// values stored on the row.</summary>
+    public string? RuleProfileId { get; set; }
     public string? M3uOutputPath { get; set; }
     /// <summary>Write M3U entries relative to the output file instead of
     /// absolute paths. False on rows from before the option existed.</summary>
@@ -406,6 +422,22 @@ public class SyncJobEntity
     /// nothing reads amber, not green, on the card.</summary>
     public int LastRunResolvedTracks { get; set; }
     public int LastRunTotalTracks { get; set; }
+}
+
+public class SyncRuleProfileEntity
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString();
+    public string Name { get; set; } = string.Empty;
+    public string M3uOutputFolder { get; set; } = "/app/playlists";
+    /// <summary>File name pattern; {job} and {playlist} expand to the job name.</summary>
+    public string M3uFileNamePattern { get; set; } = "{job}.m3u8";
+    public bool M3uRelativePaths { get; set; }
+    public bool M3uCrlf { get; set; } = true;
+    public bool M3uBackslashes { get; set; }
+    public bool M3uBom { get; set; } = true;
+    public string PathRemapRules { get; set; } = "{}";
+    public string ExtensionRemapRules { get; set; } = "{}";
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
 
 public class SyncJobRunEntity

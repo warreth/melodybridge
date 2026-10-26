@@ -302,6 +302,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IDownloadTrigger>(sp => sp.GetRequiredService<DownloadCoordinator>());
         services.AddScoped<SyncEngine>();
         services.AddScoped<ISyncJobRunner, SyncJobRunner>();
+        services.AddSingleton<SyncRuleProfileStore>();
         // Account connections (Spotify/YouTube private + liked imports).
         services.AddSingleton<AccountTokenStore>();
         // Concrete type for the pages, interface for PlaylistStore.

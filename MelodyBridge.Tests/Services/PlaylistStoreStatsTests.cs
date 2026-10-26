@@ -490,6 +490,46 @@ public class PlaylistStoreStatsTests
     }
 
     [Test]
+    public async Task SchemaPatcher_CreatesTheRuleProfileTableAndColumn()
+    {
+        var dbPath = NewDbPath();
+        try
+        {
+            var factory = await NewDbFactory(dbPath);
+            await using (var db = factory.CreateDbContext())
+            {
+                db.SyncJobs.Add(new SyncJobEntity
+                {
+                    Id = "old-profile-job", Name = "Old profile job", Schedule = "Manual",
+                });
+                await db.SaveChangesAsync();
+                await db.Database.ExecuteSqlRawAsync("ALTER TABLE SyncJobs DROP COLUMN RuleProfileId");
+                await db.Database.ExecuteSqlRawAsync("DROP TABLE SyncRuleProfiles");
+            }
+
+            await using (var db = factory.CreateDbContext())
+                await SchemaPatcher.PatchAsync(db);
+
+            await using (var check = factory.CreateDbContext())
+            {
+                var job = await check.SyncJobs.AsNoTracking()
+                    .SingleAsync(j => j.Id == "old-profile-job");
+                Assert.Multiple(() =>
+                {
+                    Assert.That(job.Name, Is.EqualTo("Old profile job"), "data survives the patch");
+                    Assert.That(job.RuleProfileId, Is.Null, "old jobs have no profile link");
+                    Assert.That(check.SyncRuleProfiles.Count(), Is.Zero,
+                        "the table exists and starts empty");
+                });
+            }
+        }
+        finally
+        {
+            File.Delete(dbPath);
+        }
+    }
+
+    [Test]
     public async Task SchemaPatcher_OldSyncJobs_GainTheCreatedAtColumn()
     {
         var dbPath = NewDbPath();

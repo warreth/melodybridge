@@ -76,6 +76,8 @@ public static class SchemaPatcher
         // Multi-target jobs: the list of M3U paths and media server
         // profiles as JSON. Null rows keep the legacy single target.
         ("SyncJobs", "TargetsJson", "TEXT NULL"),
+        // Optional reusable M3U/rule profile per job.
+        ("SyncJobs", "RuleProfileId", "TEXT NULL"),
         // M3U entries relative to the output file instead of absolute paths.
         ("SyncJobs", "M3uRelativePaths", "INTEGER NOT NULL DEFAULT 0"),
         // Windows-style M3U text for players that need it.
@@ -94,6 +96,24 @@ public static class SchemaPatcher
 
     public static async Task PatchAsync(MelodyBridgeDbContext db, CancellationToken ct = default)
     {
+        // Profiles arrived after the first release; EnsureCreated does not
+        // add a table to an existing database.
+        await db.Database.ExecuteSqlRawAsync("""
+            CREATE TABLE IF NOT EXISTS SyncRuleProfiles (
+                Id TEXT NOT NULL PRIMARY KEY,
+                Name TEXT NOT NULL DEFAULT '',
+                M3uOutputFolder TEXT NOT NULL DEFAULT '/app/playlists',
+                M3uFileNamePattern TEXT NOT NULL DEFAULT '{{job}}.m3u8',
+                M3uRelativePaths INTEGER NOT NULL DEFAULT 0,
+                M3uCrlf INTEGER NOT NULL DEFAULT 1,
+                M3uBackslashes INTEGER NOT NULL DEFAULT 0,
+                M3uBom INTEGER NOT NULL DEFAULT 1,
+                PathRemapRules TEXT NOT NULL DEFAULT '{{}}',
+                ExtensionRemapRules TEXT NOT NULL DEFAULT '{{}}',
+                CreatedAt TEXT NOT NULL DEFAULT '0001-01-01 00:00:00'
+            );
+            """, ct);
+
         foreach (var (table, column, definition) in Columns)
         {
             var existing = await GetColumnsAsync(db, table, ct);

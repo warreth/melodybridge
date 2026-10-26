@@ -47,6 +47,8 @@ public class SyncJobSchedulingBackgroundService : BackgroundService
 
                 await using var db = await dbFactory.CreateDbContextAsync(stoppingToken);
                 var jobs = await db.SyncJobs.AsNoTracking().ToListAsync(stoppingToken);
+                var profiles = await db.SyncRuleProfiles.AsNoTracking()
+                    .ToDictionaryAsync(p => p.Id, stoppingToken);
 
                 foreach (var job in jobs)
                 {
@@ -71,7 +73,21 @@ public class SyncJobSchedulingBackgroundService : BackgroundService
                     try
                     {
                         _logger.LogInformation("Scheduled sync job '{Job}' starting", job.Name);
-                        await runner.RunJobAsync(SyncJobMapping.MapToDomain(job), stoppingToken);
+                        profiles.TryGetValue(job.RuleProfileId ?? "", out var profileRow);
+                        var profile = profileRow is null ? null : new SyncRuleProfile
+                        {
+                            Id = profileRow.Id,
+                            Name = profileRow.Name,
+                            M3uOutputFolder = profileRow.M3uOutputFolder,
+                            M3uFileNamePattern = profileRow.M3uFileNamePattern,
+                            M3uRelativePaths = profileRow.M3uRelativePaths,
+                            M3uCrlf = profileRow.M3uCrlf,
+                            M3uBackslashes = profileRow.M3uBackslashes,
+                            M3uBom = profileRow.M3uBom,
+                            PathRemapRules = ReadRules(profileRow.PathRemapRules),
+                            ExtensionRemapRules = ReadRules(profileRow.ExtensionRemapRules),
+                        };
+                        await runner.RunJobAsync(SyncJobMapping.MapToDomain(job, profile), stoppingToken);
                         _logger.LogInformation("Scheduled sync job '{Job}' finished", job.Name);
                     }
                     catch (Exception ex)
@@ -92,5 +108,18 @@ public class SyncJobSchedulingBackgroundService : BackgroundService
         }
 
         _logger.LogInformation("Sync job scheduling service stopped");
+    }
+
+    private static Dictionary<string, string> ReadRules(string? json)
+    {
+        try
+        {
+            return System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(json ?? "{}")
+                ?? new();
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return new();
+        }
     }
 }

@@ -74,6 +74,12 @@ public class SyncJob
     public string Id { get; set; } = Guid.NewGuid().ToString();
     public string Name { get; set; } = string.Empty;
     public string? SourceId { get; set; }
+    /// <summary>Named output/rule profile this job follows. When set, the
+    /// profile supplies the M3U folder, format and path rules; null uses
+    /// the values stored on the job.</summary>
+    public string? RuleProfileId { get; set; }
+    /// <summary>Profile name for the UI; filled when the job is mapped.</summary>
+    public string? RuleProfileName { get; set; }
     public List<string> SearchLocationPaths { get; set; } = new();
     /// <summary>Every place this job publishes to. Empty means the legacy
     /// single target described by OutputTarget/M3uOutputPath.</summary>
@@ -102,6 +108,25 @@ public class SyncJob
     public SyncStatus LastRunStatus { get; set; }
     public DateTime? LastRunAt { get; set; }
     public string? LastRunSummary { get; set; }
+}
+
+/// <summary>
+/// A reusable bundle of sync output rules: where M3U files land, their
+/// format, and the path/extension remaps every linked job uses.
+/// </summary>
+public class SyncRuleProfile
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString();
+    public string Name { get; set; } = string.Empty;
+    public string M3uOutputFolder { get; set; } = "/app/playlists";
+    /// <summary>File name pattern; {job} and {playlist} expand to the job name.</summary>
+    public string M3uFileNamePattern { get; set; } = "{job}.m3u8";
+    public bool M3uRelativePaths { get; set; }
+    public bool M3uCrlf { get; set; } = true;
+    public bool M3uBackslashes { get; set; }
+    public bool M3uBom { get; set; } = true;
+    public Dictionary<string, string> PathRemapRules { get; set; } = new();
+    public Dictionary<string, string> ExtensionRemapRules { get; set; } = new();
 }
 
 public class DownloaderConfig

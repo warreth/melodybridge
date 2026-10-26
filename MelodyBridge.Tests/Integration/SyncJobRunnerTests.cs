@@ -378,6 +378,58 @@ public class SyncJobRunnerTests
     }
 
     [Test]
+    public async Task RunJob_LinkedRuleProfile_WritesToTheProfilePath()
+    {
+        var dbPath = NewDbPath();
+        var dir = Path.Combine(Path.GetTempPath(), $"mb-job-{Guid.NewGuid():N}");
+        var outputDir = Path.Combine(dir, "playlists");
+        try
+        {
+            var factory = await NewDbFactory(dbPath);
+            await SeedPlaylistAsync(factory, dir);
+            var profile = new SyncRuleProfile
+            {
+                Id = "profile-1",
+                Name = "Living room",
+                M3uOutputFolder = outputDir,
+                M3uFileNamePattern = "{job}.m3u8",
+                M3uRelativePaths = true,
+                M3uCrlf = true,
+                M3uBom = true,
+                M3uBackslashes = true,
+            };
+            var entity = new SyncJobEntity
+            {
+                Id = "job-profile",
+                Name = "Job Playlist",
+                SourceId = "pl-job",
+                RuleProfileId = profile.Id,
+                M3uOutputPath = "/stale/path.m3u8",
+                TargetsJson = "[]",
+                OutputTarget = "M3uFile",
+                Schedule = "Manual",
+            };
+
+            var runner = NewRunner(factory);
+            var job = SyncJobMapping.MapToDomain(entity, profile);
+            await runner.RunJobAsync(job);
+
+            var path = Path.Combine(outputDir, "Job Playlist.m3u8");
+            Assert.That(File.Exists(path), Is.True,
+                "the linked profile owns the output path");
+            Assert.That(File.Exists(entity.M3uOutputPath), Is.False,
+                "the stale stored path is not used");
+            var text = await File.ReadAllTextAsync(path);
+            Assert.That(text, Does.Contain("..\\a.mp3"));
+        }
+        finally
+        {
+            TryDelete(dbPath);
+            try { Directory.Delete(dir, recursive: true); } catch { /* best effort */ }
+        }
+    }
+
+    [Test]
     public async Task RunJob_AThrowingTarget_DoesNotStopTheOthers()
     {
         var dbPath = NewDbPath();

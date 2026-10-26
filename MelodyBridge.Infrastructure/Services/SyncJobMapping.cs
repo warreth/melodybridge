@@ -11,8 +11,9 @@ namespace MelodyBridge.Infrastructure.Services;
 /// </summary>
 public static class SyncJobMapping
 {
-    /// <summary>The domain job for one stored row.</summary>
-    public static SyncJob MapToDomain(SyncJobEntity entity)
+    /// <summary>The domain job for one stored row. A linked rule profile
+    /// overrides the M3U path, text format and remap rules.</summary>
+    public static SyncJob MapToDomain(SyncJobEntity entity, SyncRuleProfile? ruleProfile = null)
     {
         List<string>? searchPaths = null;
         try { searchPaths = JsonSerializer.Deserialize<List<string>>(entity.SearchLocationPaths ?? "[]"); } catch { }
@@ -21,19 +22,41 @@ public static class SyncJobMapping
         var extRules = new Dictionary<string, string>();
         try { extRules = JsonSerializer.Deserialize<Dictionary<string, string>>(entity.ExtensionRemapRules ?? "{}") ?? new(); } catch { }
 
+        var targets = TargetsOf(entity);
+        var m3uPath = entity.M3uOutputPath;
+        var relative = entity.M3uRelativePaths;
+        var crlf = entity.M3uCrlf;
+        var backslashes = entity.M3uBackslashes;
+        var bom = entity.M3uBom;
+        if (ruleProfile is not null)
+        {
+            m3uPath = SyncRuleProfileStore.ResolveOutputPath(ruleProfile, entity.Name);
+            targets = targets
+                .Select(t => t.Kind == OutputTargetType.M3uFile ? t with { M3uPath = m3uPath } : t)
+                .ToList();
+            relative = ruleProfile.M3uRelativePaths;
+            crlf = ruleProfile.M3uCrlf;
+            backslashes = ruleProfile.M3uBackslashes;
+            bom = ruleProfile.M3uBom;
+            remapRules = ruleProfile.PathRemapRules;
+            extRules = ruleProfile.ExtensionRemapRules;
+        }
+
         return new SyncJob
         {
             Id = entity.Id,
             Name = entity.Name ?? "",
             SourceId = entity.SourceId,
+            RuleProfileId = ruleProfile?.Id ?? entity.RuleProfileId,
+            RuleProfileName = ruleProfile?.Name,
             SearchLocationPaths = searchPaths ?? new(),
-            Targets = TargetsOf(entity),
+            Targets = targets,
             OutputTarget = Enum.TryParse<OutputTargetType>(entity.OutputTarget, true, out var ot) ? ot : OutputTargetType.M3uFile,
-            M3uOutputPath = entity.M3uOutputPath,
-            M3uRelativePaths = entity.M3uRelativePaths,
-            M3uCrlf = entity.M3uCrlf,
-            M3uBackslashes = entity.M3uBackslashes,
-            M3uBom = entity.M3uBom,
+            M3uOutputPath = m3uPath,
+            M3uRelativePaths = relative,
+            M3uCrlf = crlf,
+            M3uBackslashes = backslashes,
+            M3uBom = bom,
             JellyfinServerUrl = entity.JellyfinServerUrl,
             JellyfinApiKey = entity.JellyfinApiKey,
             JellyfinUserId = entity.JellyfinUserId,
