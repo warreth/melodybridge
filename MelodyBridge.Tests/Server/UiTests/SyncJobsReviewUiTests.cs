@@ -38,6 +38,7 @@ public class SyncJobsReviewUiTests
                 sp.GetServices<IMediaServerDirectory>()));
         _ctx.Services.AddSingleton<IDbContextFactory<MelodyBridgeDbContext>>(_dbFactory);
         _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Services.SettingsStore(_dbFactory));
+        _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Services.SyncRuleProfileStore(_dbFactory));
         _ctx.Services.AddSingleton(new MelodyBridge.Server.Services.NotificationService());
         _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Services.MediaServerProfileStore(
             new MelodyBridge.Infrastructure.Services.SettingsStore(_dbFactory)));
@@ -74,7 +75,7 @@ public class SyncJobsReviewUiTests
         SeedPlaylist("p1", "My Summer Hits", Platform.Spotify);
         SeedScanLocations("/music/a");
         var cut = _ctx.Render<SyncJobs>();
-        cut.FindAll("button").First(b => b.TextContent.Trim().Contains("New sync job")).Click();
+        cut.FindAll("button").First(b => b.TextContent.Trim().Contains("Advanced wizard")).Click();
         // selects: [0] = source type, [1] = source playlist
         cut.FindAll("select")[1].Change("p1");
         for (var guard = 0; guard < 4; guard++)
@@ -115,7 +116,7 @@ public class SyncJobsReviewUiTests
     {
         SeedScanLocations("/music/folder");
         var cut = _ctx.Render<SyncJobs>();
-        cut.FindAll("button").First(b => b.TextContent.Trim().Contains("New sync job")).Click();
+        cut.FindAll("button").First(b => b.TextContent.Trim().Contains("Advanced wizard")).Click();
         cut.Find("select").Change("folder");
         cut.FindAll("select").Last().Change("/music/folder");
         for (var guard = 0; guard < 4; guard++)
@@ -139,7 +140,7 @@ public class SyncJobsReviewUiTests
         SeedPlaylist("p1", "My Summer Hits", Platform.Spotify);
         SeedScanLocations("/music/a");
         var cut = _ctx.Render<SyncJobs>();
-        cut.FindAll("button").First(b => b.TextContent.Trim().Contains("New sync job")).Click();
+        cut.FindAll("button").First(b => b.TextContent.Trim().Contains("Advanced wizard")).Click();
         cut.FindAll("select")[1].Change("p1");
         for (var guard = 0; guard < 4; guard++)
         {
@@ -241,7 +242,7 @@ public class SyncJobsReviewUiTests
 
         var cut = _ctx.Render<SyncJobs>();
         cut.Find("button.card-menu-trigger").Click();
-        cut.FindAll("button").First(b => b.TextContent.Trim() == "Edit").Click();
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Advanced edit").Click();
         for (var guard = 0; guard < 4; guard++)
         {
             if (cut.FindAll("input[placeholder='/app/playlists/playlist.m3u8']").Count > 0)
@@ -275,7 +276,7 @@ public class SyncJobsReviewUiTests
 
         var cut = _ctx.Render<SyncJobs>();
         cut.Find("button.card-menu-trigger").Click();
-        cut.FindAll("button").First(b => b.TextContent.Trim() == "Edit").Click();
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Advanced edit").Click();
 
         Assert.That(cut.Markup, Does.Contain("Pick your playlist"),
             "the h2 is the step title, also while editing");

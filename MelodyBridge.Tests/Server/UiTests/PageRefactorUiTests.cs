@@ -245,7 +245,7 @@ public class PageRefactorUiTests
         footer.QuerySelector("button.card-menu-trigger")!.Click();
         var opened = cut.Find(".job-footer");
         var labels = opened.QuerySelectorAll(".card-menu-items button").Select(b => b.TextContent.Trim()).ToList();
-        Assert.That(labels, Is.EqualTo(new[] { "Log", "Edit", "Delete" }),
+        Assert.That(labels, Is.EqualTo(new[] { "Quick edit", "Log", "Advanced edit", "Delete" }),
             "the menu holds the secondary and destructive actions");
         Assert.That(opened.QuerySelector("span.pill"), Is.Null,
             "the status pill stays in the header, not the footer");

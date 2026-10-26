@@ -5,6 +5,7 @@
 @inject ISyncJobRunner JobRunner
 @inject IDbContextFactory<MelodyBridgeDbContext> DbFactory
 @inject MediaServerProfileStore ServerProfiles
+@inject SyncRuleProfileStore RuleProfiles
 @inject SettingsStore Settings
 @inject MelodyBridge.Server.Services.NotificationService Notifications
 @implements IDisposable
@@ -21,18 +22,42 @@
         <p>A sync job turns a saved playlist into an M3U file for your music player, or pushes it to Jellyfin, Plex or a Subsonic server.</p>
     </div>
     <div class="topbar-actions">
-        @if (jobs.Count > 0)
+        @if (syncTab == "jobs")
         {
-            <button class="btn-modern secondary" @onclick="RunAllNow"
-                    disabled="@(runningAll || runningJobs.Count > 0)"
-                    title="Run every sync job once, one after the other">
-                <Icon Name="play" Size="16" />
-                @(runningAll ? $"Running {runAllDone}/{runAllTotal}…" : "Run all now")
+            @if (jobs.Count > 0)
+            {
+                <button class="btn-modern secondary" @onclick="RunAllNow"
+                        disabled="@(runningAll || runningJobs.Count > 0)"
+                        title="Run every sync job once, one after the other">
+                    <Icon Name="play" Size="16" />
+                    @(runningAll ? $"Running {runAllDone}/{runAllTotal}…" : "Run all now")
+                </button>
+            }
+            <button class="btn-modern ghost" @onclick="StartNewJob" title="Open the step-by-step editor">
+                <Icon Name="sliders" Size="16" /> Advanced wizard
             </button>
+            <button class="btn-modern primary" @onclick="StartNewJobQuick"><Icon Name="plus" Size="16" /> New sync job</button>
         }
-        <button class="btn-modern primary" @onclick="StartNewJob"><Icon Name="plus" Size="16" /> New sync job</button>
+        else
+        {
+            <button class="btn-modern primary" @onclick="StartNewProfile"><Icon Name="plus" Size="16" /> New rule profile</button>
+        }
     </div>
 </section>
+
+<nav class="sync-tabs" aria-label="Sync jobs sections">
+    <button class="sync-tab @(syncTab == "jobs" ? "on" : null)" @onclick='() => syncTab = "jobs"'
+            aria-pressed="@(syncTab == "jobs" ? "true" : "false")">
+        Jobs <span>@jobs.Count</span>
+    </button>
+    <button class="sync-tab @(syncTab == "profiles" ? "on" : null)" @onclick='() => syncTab = "profiles"'
+            aria-pressed="@(syncTab == "profiles" ? "true" : "false")">
+        Rule profiles <span>@ruleProfiles.Count</span>
+    </button>
+</nav>
+
+@if (syncTab == "jobs")
+{
 
 @if (jobs.Count > 0)
 {
@@ -49,6 +74,10 @@
             </label>
         </div>
         <div class="list-toolbar-actions">
+            <button class="btn-modern ghost small" @onclick="ToggleBulkMode"
+                    aria-pressed="@(bulkMode ? "true" : "false")">
+                <Icon Name="check" Size="14" /> @(bulkMode ? "Done selecting" : "Select jobs")
+            </button>
             <div class="view-switch" role="group" aria-label="Sync job layout">
                 <button class="view-chip @(syncJobsView == "cards" ? "on" : null)" title="Card view"
                         aria-pressed="@(syncJobsView == "cards" ? "true" : "false")"
@@ -226,6 +255,14 @@
                             }
                             @if (draftM3uEnabled)
                             {
+                                @if (draft.RuleProfileName is { Length: > 0 } linkedProfileName)
+                                {
+                                    <div class="hint-box">
+                                        This job follows rule profile <strong>@linkedProfileName</strong>.
+                                        The profile supplies its M3U path, format and remaps. Changes below
+                                        are only used after you unlink the profile in Quick edit.
+                                    </div>
+                                }
                                 <label class="target-path">
                                     M3U output path
                                     <input @bind="draft.M3uOutputPath" placeholder="/app/playlists/playlist.m3u8" />
@@ -239,7 +276,7 @@
                                         <option value="@M3uPresetCustom">Custom</option>
                                     </select>
                                 </label>
-                                <div class="hint-box">@M3uPresetHint</div>
+                                <small class="text-muted">@M3uPresetShortHint</small>
                                 <label class="toggle-switch wide">
                                     <input type="checkbox" @bind="draft.M3uRelativePaths" />
                                     <span class="toggle-slider"></span>
@@ -357,6 +394,14 @@
                 else if (currentStep == 3)
                 {
                     <div class="wizard-step">
+                        @if (draft.RuleProfileName is { Length: > 0 } linkedProfileName)
+                        {
+                            <div class="hint-box">
+                                These rules come from rule profile <strong>@linkedProfileName</strong>.
+                                Edit the profile under Rule profiles so every linked job follows.
+                                Per-job changes here are the fallback if the profile is removed.
+                            </div>
+                        }
                         <RemapRulesEditor Title="Path"
                                           EmptyText="No rules yet."
                                           AddLabel="Add path rule"
@@ -460,6 +505,57 @@
     </div>
 }
 
+@if (bulkMode && jobs.Count > 0)
+{
+    <section class="selection-bar sync-bulk-bar" aria-label="Bulk edit selected jobs">
+        <label class="selection-all">
+            <input type="checkbox" checked="@AllJobsSelected" @onchange="ToggleAllJobs" />
+            Select all
+        </label>
+        <span class="text-muted">@selectedJobIds.Count selected</span>
+        <div class="selection-actions">
+            <select @bind="bulkRuleProfileId" aria-label="Rule profile for selected jobs">
+                <option value="">Rule profile...</option>
+                @foreach (var profile in ruleProfiles)
+                {
+                    <option value="@profile.Id">@profile.Name</option>
+                }
+            </select>
+            <button class="btn-modern small" @onclick="ApplyBulkProfile"
+                    disabled="@(selectedJobIds.Count == 0 || string.IsNullOrEmpty(bulkRuleProfileId))">
+                Apply profile
+            </button>
+            <select @bind="bulkSchedule" aria-label="Schedule for selected jobs">
+                <option value="@SyncJobSchedule.Manual">Manual</option>
+                <option value="@SyncJobSchedule.Hourly">Hourly</option>
+                <option value="@SyncJobSchedule.Daily">Daily</option>
+                <option value="@SyncJobSchedule.Weekly">Weekly</option>
+                <option value="@SyncJobSchedule.Monthly">Monthly</option>
+            </select>
+            <button class="btn-modern small" @onclick="ApplyBulkSchedule"
+                    disabled="@(selectedJobIds.Count == 0)">
+                Set schedule
+            </button>
+            <input @bind="bulkM3uFolder" placeholder="/app/playlists" aria-label="M3U folder for selected jobs" />
+            <button class="btn-modern small" @onclick="ApplyBulkM3uFolder"
+                    disabled="@(selectedJobIds.Count == 0 || string.IsNullOrWhiteSpace(bulkM3uFolder))">
+                Set M3U folder
+            </button>
+            <select @bind="bulkServerProfileId" aria-label="Server profile to add">
+                <option value="">Server profile...</option>
+                @foreach (var profile in mediaServerProfiles)
+                {
+                    <option value="@profile.Id">@profile.Name</option>
+                }
+            </select>
+            <button class="btn-modern small" @onclick="AddBulkServer"
+                    disabled="@(selectedJobIds.Count == 0 || string.IsNullOrEmpty(bulkServerProfileId))">
+                Add server
+            </button>
+        </div>
+    </section>
+}
+
 @if (jobs.Count > 0 && syncJobsView == "rows")
 {
     <section class="entity-rows">
@@ -467,6 +563,14 @@
         {
             var source = SourcePlaylist(job);
             <div class="entity-row sync-job-row" @key="job.Id">
+                @if (bulkMode)
+                {
+                    <input class="row-select" type="checkbox"
+                           checked="@selectedJobIds.Contains(job.Id)"
+                           @onchange="e => ToggleJobSelected(job.Id, e)"
+                           @onclick:stopPropagation="true"
+                           aria-label="Select @job.Name" />
+                }
                 @if (source is not null)
                 {
                     <a class="entity-row-cover sync-job-row-cover"
@@ -534,6 +638,13 @@ else
             <div class="panel-card job-card" @key="job.Id">
                 <div class="panel-header">
                     <div class="sync-job-identity">
+                        @if (bulkMode)
+                        {
+                            <input class="row-select" type="checkbox"
+                                   checked="@selectedJobIds.Contains(job.Id)"
+                                   @onchange="e => ToggleJobSelected(job.Id, e)"
+                                   aria-label="Select @job.Name" />
+                        }
                         @if (source is not null)
                         {
                             <a class="sync-job-cover"
@@ -574,9 +685,15 @@ else
                 <div class="target-chips">
                     @foreach (var chip in TargetChipsOf(job))
                     {
-                        <span class="target-chip"><Icon Name="@chip.Icon" Size="13" /> <span class="target-chip-text">@chip.Label</span></span>
+                        <span class="target-chip" title="@chip.Label"><Icon Name="@chip.Icon" Size="13" /> <span class="target-chip-text">@chip.Label</span></span>
                     }
                 </div>
+                @if (EffectiveM3uPath(job) is { Length: > 0 } m3uPath)
+                {
+                    <div class="job-output" title="M3U output path">
+                        <Icon Name="list-music" Size="12" /> <code>@m3uPath</code>
+                    </div>
+                }
                 <p class="job-summary">@JobSummary(job)</p>
                 @if (job.LastRunTotalTracks > 0)
                 {
@@ -608,6 +725,433 @@ else
     </section>
 }
 
+}
+
+@if (syncTab == "profiles")
+{
+    <section class="settings-card sync-profiles">
+        <div class="settings-head">
+            <div>
+                <span class="eyebrow">Reusable output rules</span>
+                <h2>Rule profiles</h2>
+                <p class="panel-description">
+                    One profile sets the M3U folder, file name, text format and path remaps
+                    for every linked job. Edit it once and all linked jobs follow on their
+                    next run.
+                </p>
+            </div>
+        </div>
+        @if (ruleProfiles.Count == 0)
+        {
+            <EmptyState IconName="sliders" Title="No rule profiles yet">
+                Create one to share an M3U folder and path rules across jobs.
+            </EmptyState>
+        }
+        else
+        {
+            <div class="rule-profile-list">
+                @foreach (var profile in ruleProfiles)
+                {
+                    <div class="rule-profile-card" @key="profile.Id">
+                        <div class="rule-profile-main">
+                            <strong>@profile.Name</strong>
+                            <code>@SyncRuleProfileStore.ResolveOutputPath(profile, "Example")</code>
+                            <small>
+                                @RuleProfileJobCount(profile) job@(RuleProfileJobCount(profile) == 1 ? "" : "s")
+                                · @profile.PathRemapRules.Count path rule@(profile.PathRemapRules.Count == 1 ? "" : "s")
+                                · @profile.ExtensionRemapRules.Count extension rule@(profile.ExtensionRemapRules.Count == 1 ? "" : "s")
+                                · @ProfileFormatLabel(profile)
+                            </small>
+                        </div>
+                        <div class="flex-actions">
+                            <button class="btn-modern small" @onclick="() => EditProfile(profile)">Edit</button>
+                            <button class="btn-modern ghost small" @onclick="() => AskDeleteProfile(profile)">Delete</button>
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+    </section>
+}
+
+@if (showProfileEditor)
+{
+    <div class="wizard-overlay profile-editor-overlay">
+        <div class="wizard-modal wide profile-editor-modal" @onclick:stopPropagation="true">
+            <div class="wizard-header">
+                <div>
+                    <span class="eyebrow">@(isEditingProfile ? "Edit rule profile" : "New rule profile")</span>
+                    <h2>@(isEditingProfile ? profileDraft.Name : "Rule profile")</h2>
+                </div>
+                <button class="icon-button" title="Close" @onclick="CancelProfileEditor"><Icon Name="x" Size="18" /></button>
+            </div>
+            <div class="wizard-body">
+                <div class="profile-editor-grid">
+                <div class="profile-editor-form">
+                <div class="form-grid">
+                    <label>
+                        Profile name
+                        <input @bind="profileDraft.Name" placeholder="Living room player" />
+                    </label>
+                    <label class="wide">
+                        M3U output folder
+                        <input @bind="profileDraft.M3uOutputFolder" @bind:event="oninput"
+                               placeholder="/app/playlists" />
+                    </label>
+                    <label>
+                        File name pattern
+                        <input @bind="profileDraft.M3uFileNamePattern" @bind:event="oninput"
+                               placeholder="{job}.m3u8" />
+                        <small class="text-muted">Use <code>{job}</code> or <code>{playlist}</code> for the job name.</small>
+                    </label>
+                    <label class="wide">
+                        Text format
+                        <select value="@profilePreset" @onchange="OnProfilePresetChanged">
+                            <option value="@M3uPresetWidest">Widest compatibility</option>
+                            <option value="@M3uPresetCar">Windows car and MP4</option>
+                            <option value="@M3uPresetPlain">Plain (old default)</option>
+                            <option value="@M3uPresetCustom">Custom</option>
+                        </select>
+                    </label>
+                </div>
+                <label class="toggle-switch wide">
+                    <input type="checkbox" @bind="profileDraft.M3uRelativePaths" />
+                    <span class="toggle-slider"></span>
+                    <span>Relative paths in the M3U</span>
+                </label>
+                @if (profilePreset == M3uPresetCustom)
+                {
+                    <div class="form-grid">
+                        <label class="toggle-switch wide">
+                            <input type="checkbox" @bind="profileDraft.M3uCrlf" />
+                            <span class="toggle-slider"></span>
+                            <span>Windows line endings (CRLF)</span>
+                        </label>
+                        <label class="toggle-switch wide">
+                            <input type="checkbox" @bind="profileDraft.M3uBackslashes" />
+                            <span class="toggle-slider"></span>
+                            <span>Backslashes in relative paths</span>
+                        </label>
+                        <label class="toggle-switch wide">
+                            <input type="checkbox" @bind="profileDraft.M3uBom" />
+                            <span class="toggle-slider"></span>
+                            <span>UTF-8 BOM</span>
+                        </label>
+                    </div>
+                }
+                <div class="hint-box">
+                    Path rules change what the player sees. The left side is the path
+                    MelodyBridge stores; the right side is the path your player or media
+                    server uses. Both apply to M3U entries and media server lookups.
+                </div>
+                <RemapRulesEditor Title="Path remap"
+                                  EmptyText="No path rules. Paths stay as they are."
+                                  AddLabel="Add path rule"
+                                  FromPlaceholder="/music"
+                                  ToPlaceholder="/media/music"
+                                  Rules="@profilePathRules" />
+                <RemapRulesEditor Title="Extension remap"
+                                  EmptyText="No extension rules."
+                                  AddLabel="Add extension rule"
+                                  FromPlaceholder=".flac"
+                                  ToPlaceholder=".mp3"
+                                  Rules="@profileExtRules" />
+                </div>
+                <div class="profile-editor-preview">
+                <div class="rule-preview">
+                    <span class="eyebrow">Preview</span>
+                    <div class="form-grid single">
+                        <label>
+                            Example job name
+                            <input @bind="profilePreviewJobName" @bind:event="oninput" />
+                        </label>
+                        <label>
+                            Example source path
+                            <input @bind="profilePreviewSource" @bind:event="oninput" />
+                        </label>
+                    </div>
+                    <dl class="rule-preview-list">
+                        <div><dt>M3U file</dt><dd><code>@ProfilePreviewOutputPath</code></dd></div>
+                        <div><dt>Player path</dt><dd><code>@ProfilePreviewMappedPath</code></dd></div>
+                        <div><dt>M3U entry</dt><dd><code>@ProfilePreviewEntry</code></dd></div>
+                    </dl>
+                </div>
+                </div>
+                </div>
+                @if (!string.IsNullOrEmpty(profileError))
+                {
+                    <div class="hint-box danger">@profileError</div>
+                }
+            </div>
+            <div class="wizard-footer">
+                <div class="flex-actions">
+                    <button class="btn-modern ghost" @onclick="CancelProfileEditor">Cancel</button>
+                </div>
+                <div class="wizard-actions">
+                    <button class="btn-modern primary" @onclick="SaveProfile" disabled="@savingProfile">
+                        @(savingProfile ? "Saving..." : "Save profile")
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (showQuickEditor)
+{
+    <div class="wizard-overlay">
+        <div class="wizard-modal wide job-quick-modal" @onclick:stopPropagation="true">
+            <div class="wizard-header">
+                <div>
+                    <span class="eyebrow">@(isEditing ? "Quick edit" : "New sync job")</span>
+                    <h2>@(isEditing ? draft.Name : "Create a sync job")</h2>
+                </div>
+                <button class="icon-button" title="Close" @onclick="CancelQuickEditor"><Icon Name="x" Size="18" /></button>
+            </div>
+            <div class="wizard-body">
+                <div class="job-quick-grid">
+                    <section class="quick-section">
+                        <span class="eyebrow">Basics</span>
+                        <label>
+                            Job name
+                            <input @bind="draft.Name" @bind:event="oninput"
+                                   @bind:after="OnQuickNameChanged" placeholder="e.g. My Summer Hits" />
+                        </label>
+                        <label>
+                            Source type
+                            <select @bind="sourceType">
+                                <option value="playlist">Saved playlist</option>
+                                <option value="folder">Local folder</option>
+                            </select>
+                        </label>
+                        @if (sourceType == "playlist")
+                        {
+                            <label>
+                                Source playlist
+                                <select @bind="selectedSourceId">
+                                    <option value="">Select a source...</option>
+                                    @foreach (var src in sources)
+                                    {
+                                        <option value="@src.Id">@src.Name (@(src.IsManualImport ? "Imported" : PlatformName(src.SourcePlatform)))</option>
+                                    }
+                                </select>
+                            </label>
+                        }
+                        else
+                        {
+                            <label>
+                                Source folder
+                                <select @bind="selectedFolder">
+                                    <option value="">Choose a folder...</option>
+                                    @foreach (var f in scanFolders)
+                                    {
+                                        <option value="@f">@f</option>
+                                    }
+                                </select>
+                            </label>
+                        }
+                        @if (scanFolders.Count > 0)
+                        {
+                            <details class="quick-folders">
+                                <summary>Search folders (@(selectedFolders.Count == 0 ? "all" : selectedFolders.Count.ToString()))</summary>
+                                @foreach (var folder in scanFolders)
+                                {
+                                    <label class="toggle-switch wide">
+                                        <input type="checkbox"
+                                               checked="@selectedFolders.Contains(folder)"
+                                               @onchange="e => ToggleFolder(folder, e)" />
+                                        <span class="toggle-slider"></span>
+                                        <span>@folder</span>
+                                    </label>
+                                }
+                                <small class="text-muted">Leave all unticked to search every folder.</small>
+                            </details>
+                        }
+                        <div class="quick-divider"></div>
+                        <span class="eyebrow">Schedule</span>
+                        <label>
+                            Run
+                            <select @bind="draft.Schedule">
+                                <option value="@SyncJobSchedule.Manual">Manual</option>
+                                <option value="@SyncJobSchedule.Hourly">Hourly</option>
+                                <option value="@SyncJobSchedule.Daily">Daily</option>
+                                <option value="@SyncJobSchedule.Weekly">Weekly</option>
+                                <option value="@SyncJobSchedule.Monthly">Monthly</option>
+                                <option value="@SyncJobSchedule.Cron">Cron</option>
+                            </select>
+                        </label>
+                        @if (draft.Schedule == SyncJobSchedule.Cron)
+                        {
+                            <label>
+                                Cron expression
+                                <input @bind="draft.CronExpression" placeholder="0 3 * * *" />
+                            </label>
+                        }
+                    </section>
+
+                    <section class="quick-section">
+                        <span class="eyebrow">Publish to</span>
+                        <label class="toggle-switch wide">
+                            <input type="checkbox" checked="@draftM3uEnabled" @onchange="OnM3uEnabledChanged" />
+                            <span class="toggle-slider"></span>
+                            <span>M3U file</span>
+                        </label>
+                        @if (draftM3uEnabled)
+                        {
+                            <label>
+                                Rule profile
+                                <select @bind="draft.RuleProfileId" @bind:after="OnQuickRuleProfileChanged"
+                                        aria-label="Rule profile">
+                                    <option value="">Custom path and rules</option>
+                                    @foreach (var profile in ruleProfiles)
+                                    {
+                                        <option value="@profile.Id">@profile.Name</option>
+                                    }
+                                </select>
+                            </label>
+                            @if (QuickProfile is { } linkedProfile)
+                            {
+                                <div class="hint-box">
+                                    Output path and format come from <strong>@linkedProfile.Name</strong>.
+                                    <button class="link-button" type="button" @onclick="() => EditProfile(linkedProfile)">Edit profile</button>
+                                </div>
+                                <label class="target-path">
+                                    M3U output path
+                                    <input value="@QuickOutputPath" readonly />
+                                </label>
+                            }
+                            else
+                            {
+                                <label class="target-path">
+                                    M3U output path
+                                    <input @bind="draft.M3uOutputPath" @bind:event="oninput"
+                                           @bind:after="OnQuickM3uPathChanged"
+                                           placeholder="/app/playlists/playlist.m3u8" />
+                                </label>
+                                <label class="target-path">
+                                    Player compatibility
+                                    <select value="@m3uPreset" @onchange="OnM3uPresetChanged">
+                                        <option value="@M3uPresetWidest">Widest compatibility (recommended)</option>
+                                        <option value="@M3uPresetCar">Windows car and MP4 players</option>
+                                        <option value="@M3uPresetPlain">Plain (old default)</option>
+                                        <option value="@M3uPresetCustom">Custom</option>
+                                    </select>
+                                </label>
+                                <small class="text-muted">@M3uPresetShortHint</small>
+                                <label class="toggle-switch wide">
+                                    <input type="checkbox" @bind="draft.M3uRelativePaths" />
+                                    <span class="toggle-slider"></span>
+                                    <span>Relative paths in the M3U</span>
+                                </label>
+                                @if (m3uPreset == M3uPresetCustom)
+                                {
+                                    <details class="quick-folders">
+                                        <summary>Custom text options</summary>
+                                        <label class="toggle-switch wide">
+                                            <input type="checkbox" @bind="draft.M3uCrlf" @bind:after="OnM3uTextOptionChanged" />
+                                            <span class="toggle-slider"></span>
+                                            <span>Windows line endings (CRLF)</span>
+                                        </label>
+                                        <label class="toggle-switch wide">
+                                            <input type="checkbox" @bind="draft.M3uBackslashes" @bind:after="OnM3uTextOptionChanged" />
+                                            <span class="toggle-slider"></span>
+                                            <span>Backslashes in relative paths</span>
+                                        </label>
+                                        <label class="toggle-switch wide">
+                                            <input type="checkbox" @bind="draft.M3uBom" @bind:after="OnM3uTextOptionChanged" />
+                                            <span class="toggle-slider"></span>
+                                            <span>UTF-8 BOM</span>
+                                        </label>
+                                    </details>
+                                }
+                            }
+                        }
+                        @foreach (var profile in mediaServerProfiles)
+                        {
+                            <label class="toggle-switch wide">
+                                <input type="checkbox"
+                                       checked="@selectedProfileIds.Contains(profile.Id)"
+                                       @onchange="e => ToggleProfile(profile.Id, e)" />
+                                <span class="toggle-slider"></span>
+                                <span>@profile.Name <small class="text-muted">@TargetLabel(profile.Kind)</small></span>
+                            </label>
+                        }
+                        @if (mediaServerProfiles.Count == 0)
+                        {
+                            <small class="text-muted">
+                                No media server profiles. Add one in Settings, Media servers.
+                            </small>
+                        }
+                    </section>
+
+                    <section class="quick-section">
+                        <span class="eyebrow">Rules</span>
+                        @if (QuickProfile is { } rulesProfile)
+                        {
+                            <p>
+                                <strong>@rulesProfile.Name</strong><br />
+                                @rulesProfile.PathRemapRules.Count path rules,
+                                @rulesProfile.ExtensionRemapRules.Count extension rules,
+                                @ProfileFormatLabel(rulesProfile).
+                            </p>
+                            <button class="btn-modern small" type="button" @onclick="() => EditProfile(rulesProfile)">
+                                Edit shared rules
+                            </button>
+                        }
+                        else
+                        {
+                            <p>
+                                @pathRules.Count path rules and @extRules.Count extension rules.
+                                Custom per-job rules stay available in the advanced editor.
+                            </p>
+                        }
+                        <div class="quick-divider"></div>
+                        <span class="eyebrow">Rule preview</span>
+                        <label>
+                            Example source path
+                            <input @bind="previewSourcePath" />
+                        </label>
+                        <label>
+                            M3U output path
+                            <input value="@QuickOutputPath" readonly />
+                        </label>
+                        <dl class="rule-preview-list">
+                            <div><dt>Player sees</dt><dd><code>@QuickMappedPath</code></dd></div>
+                            <div><dt>M3U entry</dt><dd><code>@QuickM3uEntry</code></dd></div>
+                        </dl>
+                    </section>
+                </div>
+                @if (!string.IsNullOrEmpty(quickError))
+                {
+                    <div class="hint-box danger">@quickError</div>
+                }
+            </div>
+            <div class="wizard-footer">
+                <div class="flex-actions">
+                    <button class="btn-modern ghost" @onclick="CancelQuickEditor">Cancel</button>
+                    <button class="btn-modern secondary" @onclick="OpenWizardFromQuick">Advanced</button>
+                </div>
+                <div class="wizard-actions">
+                    <button class="btn-modern primary" @onclick="SaveQuickJob" disabled="@saving">
+                        @(saving ? "Saving..." : (isEditing ? "Save changes" : "Create sync job"))
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (deleteProfileId is { } doomedProfileId)
+{
+    <ConfirmDialog Show="true"
+                   Eyebrow="Delete rule profile"
+                   Title=@($"Delete '{deleteProfileName}'?")
+                   Message="Jobs using this profile keep their stored custom path and rules. The profile itself is removed."
+                   ConfirmLabel="Delete profile"
+                   OnConfirm=@(() => DeleteProfile(doomedProfileId))
+                   OnCancel="CancelDeleteProfile" />
+}
+
 @if (deleteJobId is { } doomedJobId)
 {
     <ConfirmDialog Show="true"
@@ -619,7 +1163,7 @@ else
                    OnCancel="CancelDeleteJob" />
 }
 
-@if (jobs.Count == 0 && !showWizard)
+@if (jobs.Count == 0 && !showWizard && !showQuickEditor && syncTab == "jobs")
 {
     <EmptyState IconName="clock" Title="No sync jobs yet">Click New sync job to create one.</EmptyState>
 }
@@ -681,10 +1225,36 @@ else
     private List<string>? jobOrder;
     private List<PlaylistEntity> sources = new();
     private Dictionary<string, PlaylistEntity> sourceById = new();
+    private List<SyncRuleProfile> ruleProfiles = new();
     private List<string> scanFolders = new();
     private bool showWizard;
+    private bool showQuickEditor;
     private bool saving;
     private int currentStep;
+    private string syncTab = "jobs";
+    private bool bulkMode;
+    private HashSet<string> selectedJobIds = new();
+    private string bulkRuleProfileId = "";
+    private SyncJobSchedule bulkSchedule = SyncJobSchedule.Manual;
+    private string bulkM3uFolder = "";
+    private string bulkServerProfileId = "";
+    private string previewSourcePath = "/music/Artist/Album/Song.flac";
+    /// <summary>True while the M3U path follows the job name; editing the
+    /// path by hand turns the auto-fill off.</summary>
+    private bool m3uPathAuto;
+    private string? quickError;
+    private bool showProfileEditor;
+    private bool isEditingProfile;
+    private bool savingProfile;
+    private string profilePreset = M3uPresetWidest;
+    private string? profileError;
+    private SyncRuleProfile profileDraft = new();
+    private List<RemapRule> profilePathRules = new();
+    private List<RemapRule> profileExtRules = new();
+    private string profilePreviewJobName = "My playlist";
+    private string profilePreviewSource = "/music/Artist/Album/Song.flac";
+    private string? deleteProfileId;
+    private string deleteProfileName = "";
     private bool showLog;
     private string logJobName = "";
     private List<SyncJobRunEntity> logEntries = new();
@@ -854,11 +1424,14 @@ else
 
     /// <summary>The card and row menu: run history, editing and removal.</summary>
     private RenderFragment JobMenu(SyncJobEntity job) => @<text>
+        <button title="Quick edit this job" @onclick="() => StartEditJobQuick(job)">
+            <Icon Name="pencil" Size="14" /> Quick edit
+        </button>
         <button title="Run history" @onclick="() => ViewJobLog(job)">
             <Icon Name="terminal" Size="14" /> Log
         </button>
-        <button title="Edit this job" @onclick="() => StartEditJob(job)">
-            <Icon Name="pencil" Size="14" /> Edit
+        <button title="Open the advanced editor" @onclick="() => StartEditJob(job)">
+            <Icon Name="sliders" Size="14" /> Advanced edit
         </button>
         <div class="card-menu-sep"></div>
         <button class="danger" title="Delete this job"
@@ -911,7 +1484,10 @@ else
         => SyncJobMapping.TargetsOf(job).Select(target =>
         {
             if (target.Kind == OutputTargetType.M3uFile)
-                return ("list-music", "M3U file");
+            {
+                var ruleProfile = RuleProfileOf(job);
+                return ("list-music", ruleProfile is null ? "M3U file" : $"M3U · {ruleProfile.Name}");
+            }
             var profile = mediaServerProfiles.FirstOrDefault(p => p.Id == target.ProfileId);
             return (TargetIcon(profile?.Kind ?? target.Kind.ToString()),
                 profile?.Name ?? TargetLabel(target.Kind));
@@ -958,7 +1534,8 @@ else
                     await using var db = await DbFactory.CreateDbContextAsync();
                     var entity = await db.SyncJobs.FindAsync(job.Id);
                     if (entity is null) continue;
-                    var log = await JobRunner.RunJobAsync(SyncJobMapping.MapToDomain(entity));
+                    var log = await JobRunner.RunJobAsync(
+                        SyncJobMapping.MapToDomain(entity, RuleProfileOf(entity)));
                     if (log is { Status: MelodyBridge.Core.SyncStatus.Failed }) failed++;
                 }
                 catch (Exception)
@@ -1068,6 +1645,14 @@ else
         _ => "Custom",
     };
 
+    private string M3uPresetShortHint => m3uPreset switch
+    {
+        M3uPresetWidest => "UTF-8 BOM, Windows line endings, forward slashes.",
+        M3uPresetCar => "UTF-8 BOM, Windows line endings, backslashes.",
+        M3uPresetPlain => "No BOM, this host's line endings, forward slashes.",
+        _ => "Pick the text options this player needs.",
+    };
+
     private string M3uPresetHint => m3uPreset switch
     {
         M3uPresetWidest =>
@@ -1173,9 +1758,406 @@ else
         sources = await db.Playlists.ToListAsync();
         sourceById = sources.ToDictionary(s => s.Id);
         scanFolders = await db.ScanLocations.Select(l => l.Path).ToListAsync();
+        ruleProfiles = await RuleProfiles.GetAllAsync();
     }
 
-    private void StartNewJob()
+    private SyncRuleProfile? RuleProfileOf(SyncJobEntity job)
+        => !string.IsNullOrWhiteSpace(job.RuleProfileId)
+            ? ruleProfiles.FirstOrDefault(p => p.Id == job.RuleProfileId)
+            : null;
+
+    private string? EffectiveM3uPath(SyncJobEntity job)
+    {
+        var profile = RuleProfileOf(job);
+        return profile is not null
+            ? SyncRuleProfileStore.ResolveOutputPath(profile, job.Name)
+            : SyncJobMapping.TargetsOf(job)
+                .FirstOrDefault(t => t.Kind == OutputTargetType.M3uFile)?.M3uPath;
+    }
+
+    private SyncRuleProfile? QuickProfile
+        => ruleProfiles.FirstOrDefault(p => p.Id == draft.RuleProfileId);
+
+    private string QuickOutputPath
+        => QuickProfile is { } profile
+            ? SyncRuleProfileStore.ResolveOutputPath(profile, draft.Name)
+            : draft.M3uOutputPath ?? "";
+
+    private string QuickMappedPath
+    {
+        get
+        {
+            var profile = QuickProfile;
+            return PreviewMappedPath(
+                previewSourcePath,
+                profile?.PathRemapRules ?? RulesToDictionary(pathRules),
+                profile?.ExtensionRemapRules ?? RulesToDictionary(extRules));
+        }
+    }
+
+    private string QuickM3uEntry
+        => PreviewM3uEntry(
+            QuickMappedPath, QuickOutputPath,
+            QuickProfile?.M3uRelativePaths ?? draft.M3uRelativePaths,
+            QuickProfile?.M3uBackslashes ?? draft.M3uBackslashes);
+
+    private string ProfilePreviewOutputPath
+        => SyncRuleProfileStore.ResolveOutputPath(profileDraft, profilePreviewJobName);
+
+    private string ProfilePreviewMappedPath
+        => PreviewMappedPath(profilePreviewSource,
+            RulesToDictionary(profilePathRules), RulesToDictionary(profileExtRules));
+
+    private string ProfilePreviewEntry
+        => PreviewM3uEntry(ProfilePreviewMappedPath, ProfilePreviewOutputPath,
+            profileDraft.M3uRelativePaths, profileDraft.M3uBackslashes);
+
+    private static string PreviewMappedPath(
+        string source, Dictionary<string, string> pathRules, Dictionary<string, string> extRules)
+    {
+        var options = new PlaylistOutputOptions(
+            "", false, pathRules, ExtensionRemap: extRules);
+        return PlaylistPathMapper.Apply(source, options) ?? source;
+    }
+
+    private static string PreviewM3uEntry(
+        string mappedPath, string outputPath, bool relative, bool backslashes)
+    {
+        if (!relative || string.IsNullOrWhiteSpace(outputPath)) return mappedPath;
+        try
+        {
+            var folder = Path.GetDirectoryName(outputPath) ?? ".";
+            var relativePath = Path.GetRelativePath(folder, mappedPath);
+            return backslashes
+                ? relativePath.Replace('/', '\\')
+                : relativePath.Replace('\\', '/');
+        }
+        catch
+        {
+            return mappedPath;
+        }
+    }
+
+    private void CancelQuickEditor()
+    {
+        showQuickEditor = false;
+        quickError = null;
+    }
+
+    private void OnQuickNameChanged()
+    {
+        if (!draftM3uEnabled || QuickProfile is not null) return;
+        if (m3uPathAuto)
+        {
+            draft.M3uOutputPath = null;
+            PrefillM3uPath();
+        }
+    }
+
+    private void OnQuickM3uPathChanged() => m3uPathAuto = false;
+
+    private void OnQuickRuleProfileChanged()
+    {
+        if (QuickProfile is not null)
+        {
+            m3uPathAuto = false;
+            return;
+        }
+        if (draftM3uEnabled && string.IsNullOrWhiteSpace(draft.M3uOutputPath))
+        {
+            m3uPathAuto = true;
+            PrefillM3uPath();
+        }
+    }
+
+    private async Task SaveQuickJob()
+    {
+        quickError = null;
+        if (string.IsNullOrWhiteSpace(draft.Name))
+            draft.Name = SuggestedJobName();
+        if (sourceType == "playlist" && string.IsNullOrWhiteSpace(selectedSourceId))
+            quickError = "Choose a playlist first.";
+        else if (sourceType == "folder" && string.IsNullOrWhiteSpace(selectedFolder))
+            quickError = "Choose a folder first.";
+        else if (!HasAnyTarget)
+            quickError = "Pick at least one target: an M3U file or a media server.";
+        else if (draftM3uEnabled && QuickProfile is null
+                 && string.IsNullOrWhiteSpace(draft.M3uOutputPath))
+        {
+            PrefillM3uPath();
+            if (string.IsNullOrWhiteSpace(draft.M3uOutputPath))
+                quickError = "Enter the M3U output path, or choose a rule profile.";
+        }
+        else if (draftM3uEnabled && !string.IsNullOrWhiteSpace(draft.RuleProfileId)
+                 && QuickProfile is null)
+            quickError = "That rule profile no longer exists. Pick another one.";
+        else if (draft.Schedule == SyncJobSchedule.Cron
+                 && !ScanSchedule.TryParse(draft.CronExpression, out _))
+            quickError = "Enter a valid five-field cron expression.";
+        if (quickError is not null) return;
+        await SaveJob();
+    }
+
+    private void OpenWizardFromQuick()
+    {
+        showQuickEditor = false;
+        showWizard = true;
+        currentStep = 0;
+        stepError = null;
+        _focusWizard = true;
+    }
+
+    private int RuleProfileJobCount(SyncRuleProfile profile)
+        => jobs.Count(j => j.RuleProfileId == profile.Id);
+
+    private static string ProfileFormatLabel(SyncRuleProfile profile)
+    {
+        if (profile.M3uCrlf && profile.M3uBom && !profile.M3uBackslashes)
+            return "UTF-8 BOM and CRLF";
+        if (profile.M3uCrlf && !profile.M3uBom && !profile.M3uBackslashes)
+            return "CRLF without BOM";
+        return "custom text format";
+    }
+
+    private void StartNewProfile()
+    {
+        profileDraft = new SyncRuleProfile
+        {
+            Id = Guid.NewGuid().ToString(),
+            Name = "",
+            M3uOutputFolder = defaultM3uFolder,
+            M3uFileNamePattern = "{job}.m3u8",
+            M3uCrlf = true,
+            M3uBom = true,
+        };
+        profilePathRules = new List<RemapRule>();
+        profileExtRules = new List<RemapRule>();
+        profilePreset = M3uPresetWidest;
+        profileError = null;
+        isEditingProfile = false;
+        showProfileEditor = true;
+    }
+
+    private void EditProfile(SyncRuleProfile profile)
+    {
+        profileDraft = new SyncRuleProfile
+        {
+            Id = profile.Id,
+            Name = profile.Name,
+            M3uOutputFolder = profile.M3uOutputFolder,
+            M3uFileNamePattern = profile.M3uFileNamePattern,
+            M3uRelativePaths = profile.M3uRelativePaths,
+            M3uCrlf = profile.M3uCrlf,
+            M3uBackslashes = profile.M3uBackslashes,
+            M3uBom = profile.M3uBom,
+            PathRemapRules = new Dictionary<string, string>(profile.PathRemapRules),
+            ExtensionRemapRules = new Dictionary<string, string>(profile.ExtensionRemapRules),
+        };
+        profilePathRules = profile.PathRemapRules.Select(kv => new RemapRule(kv.Key, kv.Value)).ToList();
+        profileExtRules = profile.ExtensionRemapRules.Select(kv => new RemapRule(kv.Key, kv.Value)).ToList();
+        profilePreset = DetectProfilePreset(profile);
+        profileError = null;
+        isEditingProfile = true;
+        showProfileEditor = true;
+    }
+
+    private static string DetectProfilePreset(SyncRuleProfile profile)
+    {
+        if (profile.M3uCrlf && profile.M3uBom && !profile.M3uBackslashes) return M3uPresetWidest;
+        if (profile.M3uCrlf && profile.M3uBom && profile.M3uBackslashes) return M3uPresetCar;
+        if (!profile.M3uCrlf && !profile.M3uBom && !profile.M3uBackslashes) return M3uPresetPlain;
+        return M3uPresetCustom;
+    }
+
+    private void OnProfilePresetChanged(ChangeEventArgs e)
+    {
+        profilePreset = e.Value?.ToString() ?? M3uPresetCustom;
+        switch (profilePreset)
+        {
+            case M3uPresetWidest:
+                profileDraft.M3uCrlf = true; profileDraft.M3uBom = true;
+                profileDraft.M3uBackslashes = false; break;
+            case M3uPresetCar:
+                profileDraft.M3uCrlf = true; profileDraft.M3uBom = true;
+                profileDraft.M3uBackslashes = true; break;
+            case M3uPresetPlain:
+                profileDraft.M3uCrlf = false; profileDraft.M3uBom = false;
+                profileDraft.M3uBackslashes = false; break;
+        }
+    }
+
+    private async Task SaveProfile()
+    {
+        profileError = null;
+        if (string.IsNullOrWhiteSpace(profileDraft.Name))
+        {
+            profileError = "Give the profile a name.";
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(profileDraft.M3uOutputFolder))
+        {
+            profileError = "Enter the M3U output folder.";
+            return;
+        }
+        savingProfile = true;
+        try
+        {
+            profileDraft.Name = profileDraft.Name.Trim();
+            profileDraft.M3uOutputFolder = profileDraft.M3uOutputFolder.Trim();
+            profileDraft.M3uFileNamePattern = string.IsNullOrWhiteSpace(profileDraft.M3uFileNamePattern)
+                ? "{job}.m3u8" : profileDraft.M3uFileNamePattern.Trim();
+            profileDraft.PathRemapRules = RulesToDictionary(profilePathRules);
+            profileDraft.ExtensionRemapRules = RulesToDictionary(profileExtRules);
+            await RuleProfiles.SaveAsync(profileDraft);
+            showProfileEditor = false;
+            await LoadDataAsync();
+            Notifications.Success($"Saved rule profile '{profileDraft.Name}'.");
+        }
+        finally
+        {
+            savingProfile = false;
+        }
+    }
+
+    private void CancelProfileEditor()
+    {
+        showProfileEditor = false;
+        profileError = null;
+    }
+
+    private void AskDeleteProfile(SyncRuleProfile profile)
+    {
+        deleteProfileId = profile.Id;
+        deleteProfileName = profile.Name;
+    }
+
+    private void CancelDeleteProfile()
+    {
+        deleteProfileId = null;
+        deleteProfileName = "";
+    }
+
+    private async Task DeleteProfile(string id)
+    {
+        await RuleProfiles.DeleteAsync(id);
+        deleteProfileId = null;
+        deleteProfileName = "";
+        await LoadDataAsync();
+        Notifications.Success("Rule profile deleted. Its jobs keep their stored custom settings.");
+    }
+
+    private void ToggleBulkMode()
+    {
+        bulkMode = !bulkMode;
+        selectedJobIds.Clear();
+        if (bulkMode) syncJobsView = "rows";
+    }
+
+    private bool AllJobsSelected
+        => jobs.Count > 0 && jobs.All(j => selectedJobIds.Contains(j.Id));
+
+    private void ToggleAllJobs(ChangeEventArgs e)
+    {
+        if (e.Value is true) selectedJobIds = jobs.Select(j => j.Id).ToHashSet();
+        else selectedJobIds.Clear();
+    }
+
+    private void ToggleJobSelected(string id, ChangeEventArgs e)
+    {
+        if (e.Value is true) selectedJobIds.Add(id);
+        else selectedJobIds.Remove(id);
+    }
+
+    private async Task ApplyBulkProfile()
+    {
+        if (string.IsNullOrWhiteSpace(bulkRuleProfileId)) return;
+        var profile = ruleProfiles.FirstOrDefault(p => p.Id == bulkRuleProfileId);
+        if (profile is null) return;
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var selected = selectedJobIds.ToList();
+        var rows = await db.SyncJobs.Where(j => selected.Contains(j.Id)).ToListAsync();
+        foreach (var entity in rows)
+        {
+            entity.RuleProfileId = profile.Id;
+            var path = SyncRuleProfileStore.ResolveOutputPath(profile, entity.Name);
+            var targets = SyncJobMapping.TargetsOf(entity)
+                .Select(t => t.Kind == OutputTargetType.M3uFile ? t with { M3uPath = path } : t)
+                .ToList();
+            if (targets.Any(t => t.Kind == OutputTargetType.M3uFile))
+                SyncJobMapping.ApplyTargets(entity, targets);
+        }
+        await db.SaveChangesAsync();
+        await LoadDataAsync(preserveOrder: true);
+        Notifications.Success($"Applied '{profile.Name}' to {rows.Count} sync job{(rows.Count == 1 ? "" : "s")}.");
+    }
+
+    private async Task ApplyBulkSchedule()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var selected = selectedJobIds.ToList();
+        await db.SyncJobs.Where(j => selected.Contains(j.Id))
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(j => j.Schedule, bulkSchedule.ToString())
+                .SetProperty(j => j.CronExpression, (string?)null));
+        await LoadDataAsync(preserveOrder: true);
+        Notifications.Success($"Set the schedule to {bulkSchedule} for {selected.Count} job{(selected.Count == 1 ? "" : "s")}.");
+    }
+
+    private async Task ApplyBulkM3uFolder()
+    {
+        if (string.IsNullOrWhiteSpace(bulkM3uFolder)) return;
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var selected = selectedJobIds.ToList();
+        var used = (await db.SyncJobs.AsNoTracking().ToListAsync())
+            .SelectMany(SyncJobMapping.TargetsOf)
+            .Where(t => t.Kind == OutputTargetType.M3uFile && !string.IsNullOrWhiteSpace(t.M3uPath))
+            .Select(t => SafeFileNames.PathKey(t.M3uPath!))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var changed = 0;
+        foreach (var entity in await db.SyncJobs.Where(j => selected.Contains(j.Id)).ToListAsync())
+        {
+            var path = SafeFileNames.UniqueFile(
+                bulkM3uFolder, entity.Name, ".m3u8", used);
+            used.Add(SafeFileNames.PathKey(path));
+            entity.RuleProfileId = null;
+            var targets = SyncJobMapping.TargetsOf(entity)
+                .Where(t => t.Kind != OutputTargetType.M3uFile).ToList();
+            targets.Insert(0, new SyncTarget(OutputTargetType.M3uFile, M3uPath: path));
+            SyncJobMapping.ApplyTargets(entity, targets);
+            changed++;
+        }
+        await db.SaveChangesAsync();
+        await LoadDataAsync(preserveOrder: true);
+        Notifications.Success($"Set a custom M3U path in '{bulkM3uFolder}' for {changed} job{(changed == 1 ? "" : "s")}.");
+    }
+
+    private async Task AddBulkServer()
+    {
+        if (string.IsNullOrWhiteSpace(bulkServerProfileId)) return;
+        var profile = mediaServerProfiles.FirstOrDefault(p => p.Id == bulkServerProfileId);
+        if (profile is null) return;
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var selected = selectedJobIds.ToList();
+        var changed = 0;
+        foreach (var entity in await db.SyncJobs.Where(j => selected.Contains(j.Id)).ToListAsync())
+        {
+            var targets = SyncJobMapping.TargetsOf(entity).ToList();
+            if (targets.Any(t => t.Kind != OutputTargetType.M3uFile
+                    && t.ProfileId == profile.Id)) continue;
+            targets.Add(new SyncTarget(KindOf(profile.Kind), ProfileId: profile.Id));
+            SyncJobMapping.ApplyTargets(entity, targets);
+            changed++;
+        }
+        await db.SaveChangesAsync();
+        await LoadDataAsync(preserveOrder: true);
+        Notifications.Success($"Added {profile.Name} to {changed} job{(changed == 1 ? "" : "s")}.");
+    }
+
+    private void StartNewJob() => PrepareNewJob(openWizard: true);
+
+    private void StartNewJobQuick() => PrepareNewJob(openWizard: false);
+
+    private void PrepareNewJob(bool openWizard)
     {
         draft = new SyncJob();
         // The old wizard defaulted to an M3U file; keep that as the first
@@ -1195,16 +2177,23 @@ else
         extRules = new List<RemapRule>();
         currentStep = 0;
         stepError = null;
-        showWizard = true;
-        _focusWizard = true;
+        quickError = null;
+        m3uPathAuto = true;
+        showWizard = openWizard;
+        showQuickEditor = !openWizard;
+        _focusWizard = openWizard;
     }
 
-    private void StartEditJob(SyncJobEntity job)
+    private void StartEditJob(SyncJobEntity job) => PrepareEditJob(job, openWizard: true);
+
+    private void StartEditJobQuick(SyncJobEntity job) => PrepareEditJob(job, openWizard: false);
+
+    private void PrepareEditJob(SyncJobEntity job, bool openWizard)
     {
         // The wizard owns focus; hand the menu trigger to the modal close path.
         suppressMenuFocus = true;
         // hydrate the wizard from the stored entity so saving updates it in place
-        draft = SyncJobMapping.MapToDomain(job);
+        draft = SyncJobMapping.MapToDomain(job, RuleProfileOf(job));
         draftM3uEnabled = draft.Targets.Any(t => t.Kind == OutputTargetType.M3uFile);
         if (draftM3uEnabled)
             m3uPreset = DetectM3uPreset(draft);
@@ -1238,8 +2227,11 @@ else
             .Select(kv => new RemapRule(kv.Key, kv.Value)).ToList();
         currentStep = 0;
         stepError = null;
-        showWizard = true;
-        _focusWizard = true;
+        quickError = null;
+        m3uPathAuto = false;
+        showWizard = openWizard;
+        showQuickEditor = !openWizard;
+        _focusWizard = openWizard;
     }
 
     private void CancelWizard()
@@ -1408,6 +2400,10 @@ else
             // target: refresh and prune first, so the job never keeps a
             // dead id.
             await ReloadProfiles();
+            ruleProfiles = await RuleProfiles.GetAllAsync();
+            if (!string.IsNullOrWhiteSpace(draft.RuleProfileId)
+                && ruleProfiles.All(p => p.Id != draft.RuleProfileId))
+                draft.RuleProfileId = null;
             await using var db = await DbFactory.CreateDbContextAsync();
             // folder source: the folder itself is the source; playlist source
             // keeps the checkbox selection from step 2
@@ -1429,6 +2425,8 @@ else
             entity.SourceId = sourceType == "playlist" && !string.IsNullOrWhiteSpace(selectedSourceId)
                 ? selectedSourceId : null;
             entity.SearchLocationPaths = JsonSerializer.Serialize(pathsList);
+            entity.RuleProfileId = string.IsNullOrWhiteSpace(draft.RuleProfileId)
+                ? null : draft.RuleProfileId;
             entity.M3uRelativePaths = draft.M3uRelativePaths;
             entity.M3uCrlf = draft.M3uCrlf;
             entity.M3uBackslashes = draft.M3uBackslashes;
@@ -1444,7 +2442,13 @@ else
             // for older readers.
             var targets = new List<SyncTarget>();
             if (draftM3uEnabled)
-                targets.Add(new SyncTarget(OutputTargetType.M3uFile, M3uPath: draft.M3uOutputPath?.Trim()));
+            {
+                var linkedProfile = ruleProfiles.FirstOrDefault(p => p.Id == draft.RuleProfileId);
+                var m3uPath = linkedProfile is not null
+                    ? SyncRuleProfileStore.ResolveOutputPath(linkedProfile, draft.Name)
+                    : draft.M3uOutputPath?.Trim();
+                targets.Add(new SyncTarget(OutputTargetType.M3uFile, M3uPath: m3uPath));
+            }
             foreach (var profile in SelectedProfiles)
                 targets.Add(new SyncTarget(KindOf(profile.Kind), ProfileId: profile.Id));
             if (keepLegacyConnection)
@@ -1471,6 +2475,7 @@ else
             entity.LastRunStatus = string.IsNullOrWhiteSpace(entity.LastRunStatus) ? "Pending" : entity.LastRunStatus;
             await db.SaveChangesAsync();
             showWizard = false;
+            showQuickEditor = false;
             await LoadDataAsync();
         }
         finally { saving = false; }
@@ -1548,7 +2553,8 @@ else
             await using var db = await DbFactory.CreateDbContextAsync();
             var entity = await db.SyncJobs.FindAsync(jobId);
             if (entity == null) return;
-            await JobRunner.RunJobAsync(SyncJobMapping.MapToDomain(entity));
+            await JobRunner.RunJobAsync(
+                SyncJobMapping.MapToDomain(entity, RuleProfileOf(entity)));
             await LoadDataAsync(preserveOrder: true);
         }
         finally { runningJobs.Remove(jobId); }

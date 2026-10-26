@@ -65,6 +65,7 @@ public class SyncJobsPageTests
         _ctx.Services.AddSingleton<ISyncJobRunner>(_jobRunner.Object);
         _ctx.Services.AddSingleton<IDbContextFactory<MelodyBridgeDbContext>>(dbFactory);
         _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Services.SettingsStore(dbFactory));
+        _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Services.SyncRuleProfileStore(dbFactory));
         _ctx.Services.AddSingleton(new MelodyBridge.Server.Services.NotificationService());
         _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Services.MediaServerProfileStore(
             new MelodyBridge.Infrastructure.Services.SettingsStore(dbFactory)));
@@ -317,12 +318,12 @@ public class SyncJobsPageTests
     }
 
     [Test]
-    public void SyncJobs_OpensWizard_OnNewJob()
+    public void SyncJobs_OpensWizard_FromAdvancedButton()
     {
         var cut = _ctx.Render<SyncJobs>();
-        var btn = cut.FindAll("button").First(b => b.TextContent.Trim().Contains("New sync job"));
+        var btn = cut.FindAll("button").First(b => b.TextContent.Trim().Contains("Advanced wizard"));
         btn.Click();
-        Assert.That(cut.Markup, Does.Contain("New sync job"));
+        Assert.That(cut.Markup, Does.Contain("Pick your playlist"));
     }
 
     [Test]
@@ -412,7 +413,7 @@ public class SyncJobsPageTests
     {
         var cut = _ctx.Render<SyncJobs>();
         cut.FindAll("button.card-menu-trigger").First().Click();
-        var editBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Edit");
+        var editBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Advanced edit");
         editBtn.Click();
 
         Assert.That(cut.Markup, Does.Contain("Pick your playlist"));
@@ -426,7 +427,7 @@ public class SyncJobsPageTests
     {
         var cut = _ctx.Render<SyncJobs>();
         cut.FindAll("button.card-menu-trigger").First().Click();
-        cut.FindAll("button").First(b => b.TextContent.Trim() == "Edit").Click();
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Advanced edit").Click();
 
         // walk to the review step and save (step 1 needs a source, and
         // the M3U path must stay filled to pass the new validation)

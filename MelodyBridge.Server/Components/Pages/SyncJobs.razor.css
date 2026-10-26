@@ -200,3 +200,178 @@
     font-size: .85rem;
 }
 .target-summary ::deep .icon { flex: 0 0 auto; margin-top: .15rem; color: var(--accent-strong); }
+
+/* ── Jobs and rule profiles tabs ─────────────────────────────── */
+.sync-tabs {
+    display: flex;
+    gap: .35rem;
+    margin-bottom: 1rem;
+    border-bottom: 1px solid var(--border);
+}
+.sync-tab {
+    border: 0;
+    border-bottom: 2px solid transparent;
+    background: transparent;
+    color: var(--muted);
+    padding: .55rem .7rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+.sync-tab span {
+    margin-left: .3rem;
+    padding: .05rem .35rem;
+    border-radius: 999px;
+    background: var(--surface-3);
+    font-size: .72rem;
+    font-variant-numeric: tabular-nums;
+}
+.sync-tab.on { color: var(--text); border-bottom-color: var(--accent-strong); }
+
+/* ── Bulk edit bar ───────────────────────────────────────────── */
+.sync-bulk-bar {
+    display: flex;
+    align-items: center;
+    gap: .6rem;
+    flex-wrap: wrap;
+    margin-bottom: .75rem;
+}
+.sync-bulk-bar .selection-actions {
+    display: flex;
+    align-items: center;
+    gap: .4rem;
+    flex-wrap: wrap;
+}
+.sync-bulk-bar select,
+.sync-bulk-bar .selection-actions input {
+    width: auto;
+    min-width: 9rem;
+    min-height: 34px;
+    padding: .35rem .5rem;
+}
+.sync-bulk-bar .selection-all input { min-width: 0; }
+.sync-bulk-bar .btn-modern { flex: 0 0 auto; }
+
+/* ── Quick job editor ────────────────────────────────────────── */
+.job-quick-modal { width: min(1040px, calc(100vw - 2rem)); }
+.job-quick-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: .9rem;
+}
+.quick-section {
+    display: grid;
+    align-content: start;
+    gap: .55rem;
+    padding: .8rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface-2);
+}
+.quick-section.wide { grid-column: 1 / -1; }
+.quick-divider {
+    height: 1px;
+    margin: .2rem 0;
+    background: var(--border);
+}
+.quick-section > .eyebrow { margin-bottom: .1rem; }
+.quick-section label { color: var(--muted); font-size: .8rem; font-weight: 700; }
+.quick-section p { margin: 0; color: var(--muted); font-size: .82rem; line-height: 1.5; }
+.quick-folders summary {
+    cursor: pointer;
+    color: var(--muted);
+    font-size: .8rem;
+    font-weight: 600;
+}
+.quick-folders {
+    display: grid;
+    gap: .35rem;
+    padding-top: .25rem;
+}
+.quick-folders .toggle-switch.wide { margin: 0; }
+
+/* ── Rule profiles ───────────────────────────────────────────── */
+.sync-profiles { margin-top: 0; }
+.rule-profile-list { display: grid; gap: .6rem; }
+.rule-profile-card {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    padding: .8rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface-2);
+}
+.rule-profile-main { display: grid; gap: .3rem; min-width: 0; }
+.rule-profile-main code {
+    display: block;
+    width: fit-content;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    font-size: .78rem;
+}
+.rule-profile-main small { color: var(--muted); font-size: .78rem; }
+.profile-editor-overlay { z-index: 120; }
+.profile-editor-modal { width: min(900px, calc(100vw - 2rem)); }
+.rule-preview {
+    display: grid;
+    gap: .6rem;
+    padding: .8rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface-2);
+}
+.rule-preview-list {
+    display: grid;
+    gap: .4rem;
+    margin: 0;
+}
+.rule-preview-list > div {
+    display: grid;
+    grid-template-columns: 8.5rem minmax(0, 1fr);
+    gap: .6rem;
+    align-items: start;
+}
+.rule-preview-list dt { color: var(--muted); font-size: .8rem; font-weight: 600; }
+.rule-preview-list dd { margin: 0; min-width: 0; }
+.rule-preview-list code { overflow-wrap: anywhere; }
+
+@media (max-width: 1100px) {
+    .job-quick-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 760px) {
+    .job-quick-grid { grid-template-columns: 1fr; }
+    .quick-section.wide { grid-column: auto; }
+    .rule-profile-card { align-items: start; flex-direction: column; }
+    .rule-preview-list > div { grid-template-columns: 1fr; gap: .15rem; }
+}
+
+.job-output {
+    display: flex;
+    align-items: center;
+    gap: .35rem;
+    margin: -.35rem 0 .55rem;
+    color: var(--muted);
+    font-size: .76rem;
+    min-width: 0;
+}
+.job-output code {
+    background: transparent;
+    padding: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.profile-editor-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.25fr) minmax(280px, .75fr);
+    gap: 1rem;
+    align-items: start;
+}
+.profile-editor-form { display: grid; gap: .8rem; }
+.profile-editor-preview { position: sticky; top: 0; }
+@media (max-width: 760px) {
+    .profile-editor-grid { grid-template-columns: 1fr; }
+    .profile-editor-preview { position: static; }
+}

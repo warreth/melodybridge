@@ -94,7 +94,7 @@ public class MountWarningTests
         cut.WaitForAssertion(() =>
             Assert.That(cut.Markup, Does.Contain("New sync job")), TimeSpan.FromSeconds(3));
         // Open the wizard: first step is the source picker.
-        cut.FindAll("button").First(b => b.TextContent.Contains("New sync job")).Click();
+        cut.FindAll("button").First(b => b.TextContent.Contains("Advanced wizard")).Click();
         cut.Render();
 
         // Folder source: the seeded /music scan location is the source,

@@ -54,6 +54,7 @@ public class SyncJobsWizardUiTests
                 sp.GetServices<IMediaServerDirectory>()));
         _ctx.Services.AddSingleton<IDbContextFactory<MelodyBridgeDbContext>>(_dbFactory);
         _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Services.SettingsStore(_dbFactory));
+        _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Services.SyncRuleProfileStore(_dbFactory));
         _ctx.Services.AddSingleton(new MelodyBridge.Server.Services.NotificationService());
         _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Services.MediaServerProfileStore(
             new MelodyBridge.Infrastructure.Services.SettingsStore(_dbFactory)));
@@ -91,7 +92,7 @@ public class SyncJobsWizardUiTests
     private IRenderedComponent<SyncJobs> OpenWizard()
     {
         var cut = _ctx.Render<SyncJobs>();
-        cut.FindAll("button").First(b => b.TextContent.Trim().Contains("New sync job")).Click();
+        cut.FindAll("button").First(b => b.TextContent.Trim().Contains("Advanced wizard")).Click();
         return cut;
     }
 
@@ -213,7 +214,7 @@ public class SyncJobsWizardUiTests
 
         var cut = _ctx.Render<SyncJobs>();
         cut.Find("button.card-menu-trigger").Click();
-        cut.FindAll("button").First(b => b.TextContent.Trim() == "Edit").Click();
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Advanced edit").Click();
         Next(cut); // step 2
 
         var labels = cut.FindAll("label.toggle-switch.wide");
@@ -398,7 +399,7 @@ public class SyncJobsWizardUiTests
             db2.SaveChanges();
         }
         var cut2 = _ctx.Render<SyncJobs>();
-        cut2.FindAll("button").First(b => b.TextContent.Trim() == "New sync job").Click();
+        cut2.FindAll("button").First(b => b.TextContent.Trim() == "Advanced wizard").Click();
         cut2.FindAll("select")[1].Change("p1");
         Next(cut2, 2);
         TickProfile(cut2, "Navvy");
@@ -437,7 +438,7 @@ public class SyncJobsWizardUiTests
 
         var cut = _ctx.Render<SyncJobs>();
         cut.Find("button.card-menu-trigger").Click();
-        cut.FindAll("button").First(b => b.TextContent.Trim() == "Edit").Click();
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Advanced edit").Click();
         Next(cut, 2);
 
         // The job's own connection stays a ticked target, testable, and the
@@ -486,7 +487,7 @@ public class SyncJobsWizardUiTests
 
         var cut = _ctx.Render<SyncJobs>();
         cut.Find("button.card-menu-trigger").Click();
-        cut.FindAll("button").First(b => b.TextContent.Trim() == "Edit").Click();
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Advanced edit").Click();
         Next(cut, 2);
 
         Assert.Multiple(() =>
@@ -540,7 +541,7 @@ public class SyncJobsWizardUiTests
 
         var cut = _ctx.Render<SyncJobs>();
         cut.Find("button.card-menu-trigger").Click();
-        cut.FindAll("button").First(b => b.TextContent.Trim() == "Edit").Click();
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Advanced edit").Click();
         Next(cut, 2);
         Assert.That(cut.Markup, Does.Contain("saved in this job"));
         Next(cut); // remaps
@@ -585,7 +586,7 @@ public class SyncJobsWizardUiTests
 
         var cut = _ctx.Render<SyncJobs>();
         cut.Find("button.card-menu-trigger").Click();
-        cut.FindAll("button").First(b => b.TextContent.Trim() == "Edit").Click();
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Advanced edit").Click();
         Next(cut, 2);
 
         // Untick the saved connection, tick the profile, save.
@@ -734,7 +735,7 @@ public class SyncJobsWizardUiTests
 
         var cut = _ctx.Render<SyncJobs>();
         cut.Find("button.card-menu-trigger").Click();
-        cut.FindAll("button").First(b => b.TextContent.Trim() == "Edit").Click();
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Advanced edit").Click();
         Next(cut); // -> output step
         WalkToReview(cut);
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Back").Click(); // remaps
