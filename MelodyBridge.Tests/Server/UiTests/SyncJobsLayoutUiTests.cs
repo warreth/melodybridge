@@ -11,11 +11,11 @@ using Moq;
 namespace MelodyBridge.Tests.Server.UiTests;
 
 /// <summary>
-/// Layout regression tests for the wizard refactor: the unified error
-/// region, the footer action group, the step container and the card
-/// footer toolbar. These assert real rendered markup after the same
-/// UI events the visual review exercised; they fail if the structure
-/// the CSS depends on goes missing.
+/// Layout regression tests for the sync job editor: the three-column
+/// quick grid, the unified error region, the footer action group and
+/// the card footer toolbar. These assert real rendered markup after the
+/// same UI events the visual review exercised; they fail if the
+/// structure the CSS depends on goes missing.
 /// </summary>
 [TestFixture]
 [Category("UI")]
@@ -74,61 +74,44 @@ public class SyncJobsLayoutUiTests
     [TearDown]
     public void TearDown() => _ctx.Dispose();
 
-    private IRenderedComponent<SyncJobs> OpenWizard()
+    private IRenderedComponent<SyncJobs> OpenEditor()
     {
         var cut = _ctx.Render<SyncJobs>();
-        cut.FindAll("button").First(b => b.TextContent.Trim().Contains("Advanced wizard")).Click();
+        cut.FindAll("button").First(b => b.TextContent.Trim().Contains("New sync job")).Click();
         return cut;
     }
 
     [Test]
-    public void Wizard_StepBody_HasStepContainer()
+    public void Editor_Body_HasThreeSectionGrid()
     {
-        // every step body sits in one .wizard-step so the grid gap
-        // governs spacing; the CSS rhythm depends on this container
-        var cut = OpenWizard();
-        Assert.That(cut.FindAll(".wizard-step").Count, Is.EqualTo(1));
+        // Basics, publish targets and rules sit in one scannable grid;
+        // the CSS rhythm depends on this container.
+        var cut = OpenEditor();
+        Assert.That(cut.FindAll(".job-quick-modal .job-quick-grid .quick-section").Count,
+            Is.EqualTo(3));
+        Assert.That(cut.FindAll(".job-quick-modal details.quick-advanced").Count, Is.EqualTo(1),
+            "advanced fields live in one collapsed block");
     }
 
     [Test]
-    public void Wizard_Validation_FailsWithoutSource_ErrorInUnifiedRegion()
+    public void Editor_Validation_FailsWithoutSource_ErrorInUnifiedRegion()
     {
-        var cut = OpenWizard();
-        cut.FindAll("button").First(b => b.TextContent.Trim() == "Next").Click();
-        var err = cut.FindAll(".wizard-error");
-        Assert.That(err.Count, Is.EqualTo(1), "exactly one unified error region");
-        Assert.That(err[0].TextContent, Does.Contain("Choose a folder or a playlist"));
-        Assert.That(cut.FindAll(".hint-box.wizard-error").Count, Is.EqualTo(1),
-            "error region must reuse the hint-box styling with the wizard-error modifier");
+        var cut = OpenEditor();
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Create sync job").Click();
+        var err = cut.FindAll(".job-quick-modal .hint-box.danger");
+        Assert.That(err, Has.Count.EqualTo(1), "exactly one unified error region");
+        Assert.That(err[0].TextContent, Does.Contain("Choose a playlist first"));
     }
 
     [Test]
-    public void Wizard_Validation_M3uStep_RequiresPathBeforeAdvance()
+    public void Editor_Footer_ActionsGroupedRightOfBack()
     {
-        var cut = OpenWizard();
-        // pick the saved playlist source, then advance to step 3
-        var sourceSelect = cut.FindAll("select")[1];
-        cut.InvokeAsync(() => sourceSelect.Change("src-1"));
-        cut.FindAll("button").First(b => b.TextContent.Trim() == "Next").Click();
-        cut.FindAll("button").First(b => b.TextContent.Trim() == "Next").Click();
-        Assert.That(cut.Find(".wizard-header .eyebrow").TextContent, Does.Contain("Step 3"));
-        // the field arrives prefilled from the Playlist output folder; clear
-        // it: Next must stay on step 3 and show the error
-        cut.Find("input[placeholder='/app/playlists/playlist.m3u8']").Change("");
-        cut.FindAll("button").First(b => b.TextContent.Trim() == "Next").Click();
-        Assert.That(cut.Find(".wizard-header .eyebrow").TextContent, Does.Contain("Step 3"));
-        Assert.That(cut.Find(".wizard-error").TextContent, Does.Contain("M3U output path"));
-    }
-
-    [Test]
-    public void Wizard_Footer_ActionsGroupedRightOfBack()
-    {
-        var cut = OpenWizard();
+        var cut = OpenEditor();
         var footer = cut.Find(".wizard-footer");
-        // step 0 has no Back; the only action is Next inside .wizard-actions
         var actions = footer.QuerySelector(".wizard-actions");
         Assert.That(actions, Is.Not.Null, "primary action must sit in the .wizard-actions group");
-        Assert.That(actions.TextContent, Does.Contain("Next"));
+        Assert.That(actions.TextContent, Does.Contain("Create sync job"));
+        Assert.That(footer.TextContent, Does.Contain("Cancel"));
         Assert.That(footer.QuerySelector("span:empty"), Is.Null,
             "the old empty-span spacer must be gone");
     }
@@ -147,7 +130,7 @@ public class SyncJobsLayoutUiTests
         var opened = cut.Find(".job-footer");
         var menuLabels = opened.QuerySelectorAll(".card-menu-items button")
             .Select(b => b.TextContent.Trim()).ToList();
-        Assert.That(menuLabels, Is.EqualTo(new[] { "Quick edit", "Log", "Advanced edit", "Delete" }),
+        Assert.That(menuLabels, Is.EqualTo(new[] { "Edit", "Log", "Delete" }),
             "the secondary actions live behind the shared menu");
     }
 

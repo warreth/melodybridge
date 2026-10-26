@@ -10,9 +10,9 @@ using Moq;
 namespace MelodyBridge.Tests.Server.UiTests;
 
 /// <summary>
-/// The quick editor, rule profiles and bulk actions: a new job does not
-/// need the five-step wizard, a profile resolves the M3U path live, and a
-/// profile or schedule can be applied to several jobs at once.
+/// The sync job editor, rule profiles and bulk actions: one editor covers
+/// a new job, a profile resolves the M3U path live, and a profile or
+/// schedule can be applied to several jobs at once.
 /// </summary>
 [TestFixture]
 [Category("UI")]
@@ -74,7 +74,7 @@ public class SyncJobsProfilesUiTests
     }
 
     [Test]
-    public void NewJob_OpensQuickEditor_NotTheWizard()
+    public void NewJob_OpensTheOneEditor()
     {
         SeedPlaylist();
         var cut = RenderPage();
@@ -86,13 +86,15 @@ public class SyncJobsProfilesUiTests
             Assert.That(cut.FindAll(".job-quick-modal").Count, Is.EqualTo(1));
             Assert.That(cut.Markup, Does.Contain("Create a sync job"));
             Assert.That(cut.Markup, Does.Not.Contain("Step 1 of 5"));
-            Assert.That(cut.Markup, Does.Contain("Advanced"),
-                "the wizard stays reachable");
+            Assert.That(cut.Find("details.quick-advanced").HasAttribute("open"), Is.False,
+                "advanced options start collapsed");
+            Assert.That(cut.Markup, Does.Not.Contain("Advanced wizard"),
+                "there is no second wizard entry point");
         });
     }
 
     [Test]
-    public async Task NewJob_QuickEditor_SavesWithoutTheWizard()
+    public async Task NewJob_Editor_SavesWithoutSteps()
     {
         SeedPlaylist();
         var cut = RenderPage();
@@ -110,7 +112,7 @@ public class SyncJobsProfilesUiTests
     }
 
     [Test]
-    public async Task QuickEdit_OpensAndSavesWithoutTheWizard()
+    public async Task Edit_OpensAndSavesInOneView()
     {
         using (var db = _factory.CreateDbContext())
         {
@@ -128,7 +130,7 @@ public class SyncJobsProfilesUiTests
 
         var cut = RenderPage();
         cut.Find("button.card-menu-trigger").Click();
-        cut.FindAll("button").First(b => b.TextContent.Trim() == "Quick edit").Click();
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Edit").Click();
         cut.WaitForAssertion(() => Assert.That(cut.FindAll(".job-quick-modal").Count, Is.EqualTo(1)),
             TimeSpan.FromSeconds(3));
         cut.Find("input[placeholder='e.g. My Summer Hits']").Input("New name");

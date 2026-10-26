@@ -33,10 +33,7 @@
                     @(runningAll ? $"Running {runAllDone}/{runAllTotal}…" : "Run all now")
                 </button>
             }
-            <button class="btn-modern ghost" @onclick="StartNewJob" title="Open the step-by-step editor">
-                <Icon Name="sliders" Size="16" /> Advanced wizard
-            </button>
-            <button class="btn-modern primary" @onclick="StartNewJobQuick"><Icon Name="plus" Size="16" /> New sync job</button>
+            <button class="btn-modern primary" @onclick="StartNewJob"><Icon Name="plus" Size="16" /> New sync job</button>
         }
         else
         {
@@ -92,417 +89,6 @@
             </div>
         </div>
     </section>
-}
-
-@if (showWizard)
-{
-    @* No backdrop click-to-close on a five-step form: it discarded
-       everything typed with one stray click. Cancel and the X remain. *@
-    <div class="wizard-overlay">
-        <div class="wizard-modal" @onclick:stopPropagation="true">
-            <div class="wizard-header">
-                <div>
-                    <span class="eyebrow">Step @(currentStep + 1) of 5</span>
-                    <h2>@GetStepTitle()</h2>
-                    @if (isEditing)
-                    {
-                        <span class="text-muted">Editing "@draft.Name"</span>
-                    }
-                </div>
-                <button class="icon-button" title="Close" @onclick="CancelWizard" @ref="_wizardCloseButton"><Icon Name="x" Size="18" /></button>
-            </div>
-            <div class="wizard-body">
-                @if (currentStep == 0)
-                {
-                    <div class="wizard-step">
-                        <div class="form-grid single">
-                            <label>
-                                Job name
-                                <input @bind="draft.Name" placeholder="e.g. My Summer Hits" />
-                            </label>
-                            <label>
-                                Source type
-                                <select @bind="sourceType">
-                                    <option value="playlist">Saved playlist</option>
-                                    <option value="folder">Local folder</option>
-                                </select>
-                            </label>
-                            @if (sourceType == "playlist")
-                            {
-                                <label>
-                                    Source playlist
-                                    <select @bind="selectedSourceId">
-                                        <option value="">Select a source...</option>
-                                        @foreach (var src in sources)
-                                        {
-                                            <option value="@src.Id">@src.Name (@(src.IsManualImport ? "Imported" : PlatformName(src.SourcePlatform)))</option>
-                                        }
-                                    </select>
-                                </label>
-                            }
-                            else
-                            {
-                                <label>
-                                    Source folder
-                                    <select @bind="selectedFolder">
-                                        <option value="">Choose a folder...</option>
-                                        @foreach (var f in scanFolders)
-                                        {
-                                            <option value="@f">@f</option>
-                                        }
-                                    </select>
-                                </label>
-                            }
-                        </div>
-                        @if (sourceType == "playlist" && sources.Count == 0)
-                        {
-                            <div class="hint-box">
-                                No playlists saved yet. Go to <a href="/playlists">Playlists</a> to add one first.
-                            </div>
-                        }
-                        @if (sourceType == "folder" && scanFolders.Count == 0)
-                        {
-                            <div class="hint-box">
-                                No scan locations yet. Add folders on the <a href="/library">Library</a> page first.
-                            </div>
-                        }
-                    </div>
-                }
-                else if (currentStep == 1)
-                {
-                    <div class="wizard-step">
-                        @if (scanFolders.Count == 0)
-                        {
-                            <div class="hint-box">
-                                No scan locations yet. Add folders on the <a href="/library">Library</a> page first.
-                            </div>
-                        }
-                        else
-                        {
-                            <div class="form-grid single">
-                                @foreach (var folder in scanFolders)
-                                {
-                                    <label class="toggle-switch wide">
-                                        <input type="checkbox"
-                                               checked="@selectedFolders.Contains(folder)"
-                                               @onchange="e => ToggleFolder(folder, e)" />
-                                        <span class="toggle-slider"></span>
-                                        <span>@folder</span>
-                                    </label>
-                                }
-                            </div>
-                            <div class="hint-box">
-                                Pick the folders to search. Leave empty to search every folder.
-                            </div>
-                            <MountWarning />
-                        }
-                    </div>
-                }
-                else if (currentStep == 2)
-                {
-                    <div class="wizard-step">
-                        <div class="settings-section target-picker">
-                            <span class="eyebrow">Targets</span>
-                            <p class="target-lead">
-                                One job can publish to several places at once. Tick every target it should reach.
-                            </p>
-                            <div class="target-list">
-                                <label class="target-option @(draftM3uEnabled ? "on" : null)">
-                                    <input type="checkbox" checked="@draftM3uEnabled" @onchange="OnM3uEnabledChanged" />
-                                    <span class="target-option-body">
-                                        <span class="target-option-title"><Icon Name="list-music" Size="16" /> M3U file</span>
-                                        <span class="target-option-note">Write the playlist as an .m3u or .m3u8 file on disk.</span>
-                                    </span>
-                                </label>
-                                @foreach (var profile in mediaServerProfiles)
-                                {
-                                    <label class="target-option @(selectedProfileIds.Contains(profile.Id) ? "on" : null)">
-                                        <input type="checkbox"
-                                               checked="@selectedProfileIds.Contains(profile.Id)"
-                                               @onchange="e => ToggleProfile(profile.Id, e)" />
-                                        <span class="target-option-body">
-                                            <span class="target-option-title"><Icon Name="@TargetIcon(profile.Kind)" Size="16" /> @profile.Name</span>
-                                            <span class="target-option-note">@TargetLabel(profile.Kind) <span class="target-url">@profile.BaseUrl</span></span>
-                                        </span>
-                                    </label>
-                                }
-                                @if (keepLegacyConnection)
-                                {
-                                    <label class="target-option on">
-                                        <input type="checkbox" checked="@keepLegacyConnection"
-                                               @onchange="e => keepLegacyConnection = e.Value is true" />
-                                        <span class="target-option-body">
-                                            <span class="target-option-title"><Icon Name="@TargetIcon(legacyConnectionKind.ToString())" Size="16" /> @TargetLabel(legacyConnectionKind.ToString())</span>
-                                            <span class="target-option-note">Connection saved in this job. Leave it ticked or replace it with a profile.</span>
-                                        </span>
-                                    </label>
-                                }
-                            </div>
-                            @if (mediaServerProfiles.Count == 0 && !keepLegacyConnection)
-                            {
-                                <div class="hint-box">
-                                    No media server profiles yet. Create one under
-                                    <a href="/settings#media-servers" target="_blank" rel="noopener">Settings, Media servers</a>,
-                                    then reload the list here.
-                                </div>
-                            }
-                            @if (droppedMissingTargets)
-                            {
-                                <div class="hint-box">
-                                    A media server target was removed because its profile no longer exists.
-                                    Tick a replacement above, then save the job.
-                                </div>
-                            }
-                            @if (draftM3uEnabled)
-                            {
-                                @if (draft.RuleProfileName is { Length: > 0 } linkedProfileName)
-                                {
-                                    <div class="hint-box">
-                                        This job follows rule profile <strong>@linkedProfileName</strong>.
-                                        The profile supplies its M3U path, format and remaps. Changes below
-                                        are only used after you unlink the profile in Quick edit.
-                                    </div>
-                                }
-                                <label class="target-path">
-                                    M3U output path
-                                    <input @bind="draft.M3uOutputPath" placeholder="/app/playlists/playlist.m3u8" />
-                                </label>
-                                <label class="target-path">
-                                    Playlist compatibility
-                                    <select value="@m3uPreset" @onchange="OnM3uPresetChanged">
-                                        <option value="@M3uPresetWidest">Widest compatibility (recommended)</option>
-                                        <option value="@M3uPresetCar">Windows car and MP4 players</option>
-                                        <option value="@M3uPresetPlain">Plain (old default)</option>
-                                        <option value="@M3uPresetCustom">Custom</option>
-                                    </select>
-                                </label>
-                                <small class="text-muted">@M3uPresetShortHint</small>
-                                <label class="toggle-switch wide">
-                                    <input type="checkbox" @bind="draft.M3uRelativePaths" />
-                                    <span class="toggle-slider"></span>
-                                    <span>Relative paths in the M3U</span>
-                                </label>
-                                <div class="hint-box">
-                                    Entries point from the M3U file to the music
-                                    (<code>../music/song.flac</code>) instead of absolute paths,
-                                    so the playlist still works when the folder moves. Put the
-                                    playlist in the same folder as the music to get bare file
-                                    names. Leave it off when your player needs absolute paths.
-                                </div>
-                                @if (m3uPreset == M3uPresetCustom)
-                                {
-                                    <label class="toggle-switch wide">
-                                        <input type="checkbox" @bind="draft.M3uCrlf"
-                                               @bind:after="OnM3uTextOptionChanged" />
-                                        <span class="toggle-slider"></span>
-                                        <span>Windows line endings (CRLF)</span>
-                                    </label>
-                                    <label class="toggle-switch wide">
-                                        <input type="checkbox" @bind="draft.M3uBackslashes"
-                                               @bind:after="OnM3uTextOptionChanged" />
-                                        <span class="toggle-slider"></span>
-                                        <span>Backslashes in relative paths</span>
-                                    </label>
-                                    <label class="toggle-switch wide">
-                                        <input type="checkbox" @bind="draft.M3uBom"
-                                               @bind:after="OnM3uTextOptionChanged" />
-                                        <span class="toggle-slider"></span>
-                                        <span>UTF-8 BOM</span>
-                                    </label>
-                                }
-                            }
-                            <div class="target-actions">
-                                <a class="btn-modern ghost small" href="/settings#media-servers" target="_blank" rel="noopener">
-                                    <Icon Name="plus" Size="14" /> Add a profile
-                                </a>
-                                <button class="btn-modern ghost small" type="button" @onclick="ReloadProfiles">
-                                    <Icon Name="refresh" Size="14" /> Reload profiles
-                                </button>
-                            </div>
-                            <div class="target-summary"><Icon Name="check" Size="14" /> <span>@TargetsSummary</span></div>
-                        </div>
-                        @{
-                            var jellyfinProfile = SelectedProfiles.FirstOrDefault(
-                                p => MediaServerKinds.MatchesOutputTarget(p.Kind, OutputTargetType.JellyfinApi));
-                        }
-                        @if (jellyfinProfile is not null)
-                        {
-                            <MediaServerUserPicker ServerUrl="@jellyfinProfile.BaseUrl"
-                                                   ApiKey="@jellyfinProfile.ApiKey"
-                                                   Username="@draft.JellyfinUserId"
-                                                   Kind="@jellyfinProfile.Kind"
-                                                   ShowUserList="true"
-                                                   UserLabel="Jellyfin user"
-                                                   @bind-UserId="draft.JellyfinUserId" />
-                            <div class="hint-box">
-                                The picked Jellyfin user applies to every Jellyfin target of this job: it
-                                decides whose favorites get marked.
-                            </div>
-                        }
-                        else if (keepLegacyConnection && legacyConnectionKind == OutputTargetType.JellyfinApi)
-                        {
-                            <MediaServerUserPicker ServerUrl="@draft.JellyfinServerUrl"
-                                                   ApiKey="@draft.JellyfinApiKey"
-                                                   Username="@draft.JellyfinUserId"
-                                                   Kind="Jellyfin"
-                                                   ShowUserList="true"
-                                                   UserLabel="Jellyfin user"
-                                                   @bind-UserId="draft.JellyfinUserId" />
-                        }
-                        else if (keepLegacyConnection && legacyConnectionKind == OutputTargetType.SubsonicApi)
-                        {
-                            <MediaServerUserPicker ServerUrl="@draft.JellyfinServerUrl"
-                                                   ApiKey="@draft.JellyfinApiKey"
-                                                   Username="@draft.JellyfinUserId"
-                                                   Kind="Subsonic"
-                                                   ShowUserList="false"
-                                                   UserLabel="Navidrome username"
-                                                   @bind-UserId="draft.JellyfinUserId" />
-                        }
-                        <div class="form-grid">
-                            <label>
-                                Schedule
-                                <select @bind="draft.Schedule">
-                                    <option value="@SyncJobSchedule.Manual">Manual</option>
-                                    <option value="@SyncJobSchedule.Hourly">Hourly</option>
-                                    <option value="@SyncJobSchedule.Daily">Daily</option>
-                                    <option value="@SyncJobSchedule.Weekly">Weekly</option>
-                                    <option value="@SyncJobSchedule.Monthly">Monthly</option>
-                                    <option value="@SyncJobSchedule.Cron">Cron</option>
-                                </select>
-                                <small class="text-muted">
-                                    A scheduled job first runs at its next scheduled time, not when you save it.
-                                    Use Run now on the card to trigger it immediately.
-                                </small>
-                            </label>
-                            @if (draft.Schedule == SyncJobSchedule.Cron)
-                            {
-                                <label>
-                                    Cron expression
-                                    <input @bind="draft.CronExpression" placeholder="0 3 * * *" />
-                                </label>
-                            }
-                        </div>
-                        @if (draft.Schedule == SyncJobSchedule.Cron)
-                        {
-                            <div class="hint-box">
-                                Five-field cron with minute precision (minute hour day month weekday), for example <code>0 3 * * *</code> runs at 03:00 every night.
-                            </div>
-                        }
-                    </div>
-                }
-                else if (currentStep == 3)
-                {
-                    <div class="wizard-step">
-                        @if (draft.RuleProfileName is { Length: > 0 } linkedProfileName)
-                        {
-                            <div class="hint-box">
-                                These rules come from rule profile <strong>@linkedProfileName</strong>.
-                                Edit the profile under Rule profiles so every linked job follows.
-                                Per-job changes here are the fallback if the profile is removed.
-                            </div>
-                        }
-                        <RemapRulesEditor Title="Path"
-                                          EmptyText="No rules yet."
-                                          AddLabel="Add path rule"
-                                          FromPlaceholder="/mnt/BackupHDD/Music"
-                                          ToPlaceholder="/media/music"
-                                          Rules="@pathRules" />
-                        <RemapRulesEditor Title="Extension"
-                                          EmptyText="No rules yet."
-                                          AddLabel="Add extension rule"
-                                          FromPlaceholder=".flac"
-                                          ToPlaceholder=".opus"
-                                          Rules="@extRules" />
-                        <div class="hint-box">
-                            Rules apply to the M3U entries and to the path lookup for Jellyfin,
-                            Plex and Subsonic. Use them when the server sees your files under a
-                            different path or extension than MelodyBridge does, for example inside
-                            Docker. Leave empty when the paths match.
-                        </div>
-                    </div>
-                }
-                else if (currentStep == 4)
-                {
-                    <div class="wizard-step">
-                        <div class="review-list">
-                            <div><strong>Name:</strong> @draft.Name</div>
-                            <div><strong>Source:</strong> @(sourceType == "folder" ? selectedFolder : SourceDisplay)</div>
-                            <div><strong>Search locations:</strong> @(SearchLocationSummary)</div>
-                            <div><strong>Targets:</strong> @TargetsSummary</div>
-                            @if (draftM3uEnabled)
-                            {
-                                <div><strong>M3U path:</strong> @draft.M3uOutputPath</div>
-                                <div><strong>M3U format:</strong> @M3uPresetName</div>
-                            }
-                            @foreach (var reviewProfile in SelectedProfiles)
-                            {
-                                <div><strong>@TargetLabel(reviewProfile.Kind):</strong> @reviewProfile.Name (@reviewProfile.BaseUrl)</div>
-                            }
-                            @if (keepLegacyConnection)
-                            {
-                                <div><strong>@TargetLabel(legacyConnectionKind.ToString()):</strong> @draft.JellyfinServerUrl (connection saved in this job)</div>
-                            }
-                            @if (SelectedProfiles.Any(pr => MediaServerKinds.MatchesOutputTarget(pr.Kind, OutputTargetType.JellyfinApi)))
-                            {
-                                <div><strong>Jellyfin user:</strong> @(string.IsNullOrWhiteSpace(draft.JellyfinUserId) ? "(server default)" : draft.JellyfinUserId)</div>
-                            }
-                            <div><strong>Schedule:</strong> @draft.Schedule</div>
-                            @if (draft.Schedule == SyncJobSchedule.Cron && !string.IsNullOrWhiteSpace(draft.CronExpression))
-                            {
-                                <div><strong>Cron:</strong> @draft.CronExpression</div>
-                            }
-                            @if (pathRules.Count > 0)
-                            {
-                                <div>
-                                    <strong>Path remap:</strong>
-                                    @foreach (var r in pathRules)
-                                    {
-                                        <span>@r.From &rarr; @r.To;</span>
-                                    }
-                                </div>
-                            }
-                            @if (extRules.Count > 0)
-                            {
-                                <div>
-                                    <strong>Extension remap:</strong>
-                                    @foreach (var r in extRules)
-                                    {
-                                        <span>@r.From &rarr; @r.To;</span>
-                                    }
-                                </div>
-                            }
-                        </div>
-                    </div>
-                }
-                @if (!string.IsNullOrEmpty(stepError))
-                {
-                    <div class="hint-box wizard-error">@stepError</div>
-                }
-            </div>
-            <div class="wizard-footer">
-                <div class="flex-actions">
-                    <button class="btn-modern ghost" @onclick="CancelWizard">Cancel</button>
-                    @if (currentStep > 0)
-                    {
-                        <button class="btn-modern secondary" @onclick="PrevStep">Back</button>
-                    }
-                </div>
-                <div class="wizard-actions">
-                    @if (currentStep < 4)
-                    {
-                        <button class="btn-modern primary" @onclick="NextStep">Next</button>
-                    }
-                    else
-                    {
-                        <button class="btn-modern primary" @onclick="SaveJob" disabled="@saving">
-                            @(saving ? "Saving..." : (isEditing ? "Save changes" : "Create sync job"))
-                        </button>
-                    }
-                </div>
-            </div>
-        </div>
-    </div>
 }
 
 @if (bulkMode && jobs.Count > 0)
@@ -903,7 +489,7 @@ else
         <div class="wizard-modal wide job-quick-modal" @onclick:stopPropagation="true">
             <div class="wizard-header">
                 <div>
-                    <span class="eyebrow">@(isEditing ? "Quick edit" : "New sync job")</span>
+                    <span class="eyebrow">@(isEditing ? "Edit sync job" : "New sync job")</span>
                     <h2>@(isEditing ? draft.Name : "Create a sync job")</h2>
                 </div>
                 <button class="icon-button" title="Close" @onclick="CancelQuickEditor"><Icon Name="x" Size="18" /></button>
@@ -936,6 +522,13 @@ else
                                     }
                                 </select>
                             </label>
+                            @if (sources.Count == 0)
+                            {
+                                <div class="hint-box">
+                                    No playlists saved yet. Add one on the
+                                    <a href="/playlists">Playlists</a> page first.
+                                </div>
+                            }
                         }
                         else
                         {
@@ -949,6 +542,17 @@ else
                                     }
                                 </select>
                             </label>
+                            @if (scanFolders.Count == 0)
+                            {
+                                <div class="hint-box">
+                                    No scan locations yet. Add folders on the
+                                    <a href="/library">Library</a> page first.
+                                </div>
+                            }
+                            else
+                            {
+                                <MountWarning />
+                            }
                         }
                         @if (scanFolders.Count > 0)
                         {
@@ -1076,10 +680,18 @@ else
                                 <span>@profile.Name <small class="text-muted">@TargetLabel(profile.Kind)</small></span>
                             </label>
                         }
+                        @if (droppedMissingTargets)
+                        {
+                            <div class="hint-box">
+                                A media server target was removed because its profile no longer
+                                exists. Tick a replacement, then save the job.
+                            </div>
+                        }
                         @if (mediaServerProfiles.Count == 0)
                         {
                             <small class="text-muted">
-                                No media server profiles. Add one in Settings, Media servers.
+                                No media server profiles. Add one in
+                                <a href="/settings#media-servers">Settings, Media servers</a>.
                             </small>
                         }
                     </section>
@@ -1102,7 +714,7 @@ else
                         {
                             <p>
                                 @pathRules.Count path rules and @extRules.Count extension rules.
-                                Custom per-job rules stay available in the advanced editor.
+                                Add custom per-job rules under Advanced options below.
                             </p>
                         }
                         <div class="quick-divider"></div>
@@ -1121,6 +733,79 @@ else
                         </dl>
                     </section>
                 </div>
+                <details class="quick-advanced">
+                    <summary><Icon Name="sliders" Size="14" /> Advanced options</summary>
+                    <div class="quick-advanced-body">
+                        @if (QuickProfile is { } advancedProfile)
+                        {
+                            <div class="hint-box">
+                                Path and extension rules come from <strong>@advancedProfile.Name</strong>.
+                                Select <strong>Custom path and rules</strong> above to give this job
+                                its own rules.
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="hint-box">
+                                Only add rules when this player or server sees files under a
+                                different path or extension. Leave them empty when the paths match.
+                            </div>
+                            <RemapRulesEditor Title="Path remap"
+                                              EmptyText="No path rules."
+                                              AddLabel="Add path rule"
+                                              FromPlaceholder="/music"
+                                              ToPlaceholder="/media/music"
+                                              Rules="@pathRules" />
+                            <RemapRulesEditor Title="Extension remap"
+                                              EmptyText="No extension rules."
+                                              AddLabel="Add extension rule"
+                                              FromPlaceholder=".flac"
+                                              ToPlaceholder=".mp3"
+                                              Rules="@extRules" />
+                        }
+                        @if (keepLegacyConnection)
+                        {
+                            <label class="toggle-switch wide">
+                                <input type="checkbox" @bind="keepLegacyConnection" />
+                                <span class="toggle-slider"></span>
+                                <span>Keep the legacy connection saved in this job</span>
+                            </label>
+                        }
+                        @if (QuickJellyfinProfile is { } quickJellyfin)
+                        {
+                            <MediaServerUserPicker ServerUrl="@quickJellyfin.BaseUrl"
+                                                   ApiKey="@quickJellyfin.ApiKey"
+                                                   Username="@draft.JellyfinUserId"
+                                                   Kind="@quickJellyfin.Kind"
+                                                   ShowUserList="true"
+                                                   UserLabel="Jellyfin user"
+                                                   @bind-UserId="draft.JellyfinUserId" />
+                            <small class="text-muted">
+                                This user decides whose favorites get marked on every Jellyfin target.
+                            </small>
+                        }
+                        else if (keepLegacyConnection && legacyConnectionKind == OutputTargetType.JellyfinApi)
+                        {
+                            <MediaServerUserPicker ServerUrl="@draft.JellyfinServerUrl"
+                                                   ApiKey="@draft.JellyfinApiKey"
+                                                   Username="@draft.JellyfinUserId"
+                                                   Kind="Jellyfin"
+                                                   ShowUserList="true"
+                                                   UserLabel="Jellyfin user"
+                                                   @bind-UserId="draft.JellyfinUserId" />
+                        }
+                        else if (keepLegacyConnection && legacyConnectionKind == OutputTargetType.SubsonicApi)
+                        {
+                            <MediaServerUserPicker ServerUrl="@draft.JellyfinServerUrl"
+                                                   ApiKey="@draft.JellyfinApiKey"
+                                                   Username="@draft.JellyfinUserId"
+                                                   Kind="Subsonic"
+                                                   ShowUserList="false"
+                                                   UserLabel="Navidrome username"
+                                                   @bind-UserId="draft.JellyfinUserId" />
+                        }
+                    </div>
+                </details>
                 @if (!string.IsNullOrEmpty(quickError))
                 {
                     <div class="hint-box danger">@quickError</div>
@@ -1129,7 +814,6 @@ else
             <div class="wizard-footer">
                 <div class="flex-actions">
                     <button class="btn-modern ghost" @onclick="CancelQuickEditor">Cancel</button>
-                    <button class="btn-modern secondary" @onclick="OpenWizardFromQuick">Advanced</button>
                 </div>
                 <div class="wizard-actions">
                     <button class="btn-modern primary" @onclick="SaveQuickJob" disabled="@saving">
@@ -1163,7 +847,7 @@ else
                    OnCancel="CancelDeleteJob" />
 }
 
-@if (jobs.Count == 0 && !showWizard && !showQuickEditor && syncTab == "jobs")
+@if (jobs.Count == 0 && !showQuickEditor && syncTab == "jobs")
 {
     <EmptyState IconName="clock" Title="No sync jobs yet">Click New sync job to create one.</EmptyState>
 }
@@ -1227,10 +911,8 @@ else
     private Dictionary<string, PlaylistEntity> sourceById = new();
     private List<SyncRuleProfile> ruleProfiles = new();
     private List<string> scanFolders = new();
-    private bool showWizard;
     private bool showQuickEditor;
     private bool saving;
-    private int currentStep;
     private string syncTab = "jobs";
     private bool bulkMode;
     private HashSet<string> selectedJobIds = new();
@@ -1258,9 +940,7 @@ else
     private bool showLog;
     private string logJobName = "";
     private List<SyncJobRunEntity> logEntries = new();
-    private ElementReference _wizardCloseButton;
     private ElementReference _logCloseButton;
-    private bool _focusWizard;
     private bool _focusLog;
     private bool suppressMenuFocus;
     private HashSet<string> runningJobs = new();
@@ -1277,7 +957,6 @@ else
     /// walk is not free and the card re-renders often).</summary>
     private Dictionary<string, string> nextRunLabels = new();
     private bool isEditing;
-    private string? stepError;
 
     private SyncJob draft = new();
     private string sourceType = "playlist";
@@ -1320,19 +999,7 @@ else
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (_focusWizard && showWizard)
-        {
-            _focusWizard = false;
-            try
-            {
-                await _wizardCloseButton.FocusAsync();
-            }
-            catch
-            {
-                // Interop is unavailable during prerender and in some tests.
-            }
-        }
-        else if (_focusLog && showLog)
+        if (_focusLog && showLog)
         {
             _focusLog = false;
             try
@@ -1424,14 +1091,11 @@ else
 
     /// <summary>The card and row menu: run history, editing and removal.</summary>
     private RenderFragment JobMenu(SyncJobEntity job) => @<text>
-        <button title="Quick edit this job" @onclick="() => StartEditJobQuick(job)">
-            <Icon Name="pencil" Size="14" /> Quick edit
+        <button title="Edit this job" @onclick="() => StartEditJob(job)">
+            <Icon Name="pencil" Size="14" /> Edit
         </button>
         <button title="Run history" @onclick="() => ViewJobLog(job)">
             <Icon Name="terminal" Size="14" /> Log
-        </button>
-        <button title="Open the advanced editor" @onclick="() => StartEditJob(job)">
-            <Icon Name="sliders" Size="14" /> Advanced edit
         </button>
         <div class="card-menu-sep"></div>
         <button class="danger" title="Delete this job"
@@ -1637,14 +1301,6 @@ else
         return M3uPresetCustom;
     }
 
-    private string M3uPresetName => m3uPreset switch
-    {
-        M3uPresetWidest => "Widest compatibility",
-        M3uPresetCar => "Windows car and MP4",
-        M3uPresetPlain => "Plain",
-        _ => "Custom",
-    };
-
     private string M3uPresetShortHint => m3uPreset switch
     {
         M3uPresetWidest => "UTF-8 BOM, Windows line endings, forward slashes.",
@@ -1778,6 +1434,10 @@ else
     private SyncRuleProfile? QuickProfile
         => ruleProfiles.FirstOrDefault(p => p.Id == draft.RuleProfileId);
 
+    private MediaServerProfile? QuickJellyfinProfile
+        => SelectedProfiles.FirstOrDefault(p => MediaServerKinds.MatchesOutputTarget(
+            p.Kind, OutputTargetType.JellyfinApi));
+
     private string QuickOutputPath
         => QuickProfile is { } profile
             ? SyncRuleProfileStore.ResolveOutputPath(profile, draft.Name)
@@ -1875,36 +1535,32 @@ else
         quickError = null;
         if (string.IsNullOrWhiteSpace(draft.Name))
             draft.Name = SuggestedJobName();
+
+        // Validate every rule before saving. The checks stay separate
+        // because the M3U check has a side effect (it prefills the path),
+        // and an else-if chain would skip the cron check behind it.
         if (sourceType == "playlist" && string.IsNullOrWhiteSpace(selectedSourceId))
             quickError = "Choose a playlist first.";
         else if (sourceType == "folder" && string.IsNullOrWhiteSpace(selectedFolder))
             quickError = "Choose a folder first.";
         else if (!HasAnyTarget)
             quickError = "Pick at least one target: an M3U file or a media server.";
-        else if (draftM3uEnabled && QuickProfile is null
-                 && string.IsNullOrWhiteSpace(draft.M3uOutputPath))
+
+        if (quickError is null && draftM3uEnabled && QuickProfile is null
+            && string.IsNullOrWhiteSpace(draft.M3uOutputPath))
         {
             PrefillM3uPath();
             if (string.IsNullOrWhiteSpace(draft.M3uOutputPath))
                 quickError = "Enter the M3U output path, or choose a rule profile.";
         }
-        else if (draftM3uEnabled && !string.IsNullOrWhiteSpace(draft.RuleProfileId)
-                 && QuickProfile is null)
+        if (quickError is null && draftM3uEnabled
+            && !string.IsNullOrWhiteSpace(draft.RuleProfileId) && QuickProfile is null)
             quickError = "That rule profile no longer exists. Pick another one.";
-        else if (draft.Schedule == SyncJobSchedule.Cron
-                 && !ScanSchedule.TryParse(draft.CronExpression, out _))
+        if (quickError is null && draft.Schedule == SyncJobSchedule.Cron
+            && !ScanSchedule.TryParse(draft.CronExpression ?? "", out _))
             quickError = "Enter a valid five-field cron expression.";
         if (quickError is not null) return;
         await SaveJob();
-    }
-
-    private void OpenWizardFromQuick()
-    {
-        showQuickEditor = false;
-        showWizard = true;
-        currentStep = 0;
-        stepError = null;
-        _focusWizard = true;
     }
 
     private int RuleProfileJobCount(SyncRuleProfile profile)
@@ -2153,11 +1809,9 @@ else
         Notifications.Success($"Added {profile.Name} to {changed} job{(changed == 1 ? "" : "s")}.");
     }
 
-    private void StartNewJob() => PrepareNewJob(openWizard: true);
+    private void StartNewJob() => PrepareNewJob();
 
-    private void StartNewJobQuick() => PrepareNewJob(openWizard: false);
-
-    private void PrepareNewJob(bool openWizard)
+    private void PrepareNewJob()
     {
         draft = new SyncJob();
         // The old wizard defaulted to an M3U file; keep that as the first
@@ -2175,20 +1829,14 @@ else
         selectedFolders = new HashSet<string>();
         pathRules = new List<RemapRule>();
         extRules = new List<RemapRule>();
-        currentStep = 0;
-        stepError = null;
         quickError = null;
         m3uPathAuto = true;
-        showWizard = openWizard;
-        showQuickEditor = !openWizard;
-        _focusWizard = openWizard;
+        showQuickEditor = true;
     }
 
-    private void StartEditJob(SyncJobEntity job) => PrepareEditJob(job, openWizard: true);
+    private void StartEditJob(SyncJobEntity job) => PrepareEditJob(job);
 
-    private void StartEditJobQuick(SyncJobEntity job) => PrepareEditJob(job, openWizard: false);
-
-    private void PrepareEditJob(SyncJobEntity job, bool openWizard)
+    private void PrepareEditJob(SyncJobEntity job)
     {
         // The wizard owns focus; hand the menu trigger to the modal close path.
         suppressMenuFocus = true;
@@ -2225,19 +1873,9 @@ else
             .Select(kv => new RemapRule(kv.Key, kv.Value)).ToList();
         extRules = draft.ExtensionRemapRules
             .Select(kv => new RemapRule(kv.Key, kv.Value)).ToList();
-        currentStep = 0;
-        stepError = null;
         quickError = null;
         m3uPathAuto = false;
-        showWizard = openWizard;
-        showQuickEditor = !openWizard;
-        _focusWizard = openWizard;
-    }
-
-    private void CancelWizard()
-    {
-        showWizard = false;
-        _focusWizard = false;
+        showQuickEditor = true;
     }
 
     private void CloseLog()
@@ -2247,7 +1885,7 @@ else
     }
 
     /// <summary>True returns focus to the menu trigger. A job action that
-    /// opens the wizard, log or confirm dialog answers false once, so the
+    /// opens the editor, log or confirm dialog answers false once, so the
     /// trigger is remembered for when that surface closes.</summary>
     private bool ShouldReturnMenuFocus()
     {
@@ -2255,16 +1893,6 @@ else
         suppressMenuFocus = false;
         return false;
     }
-
-    private string GetStepTitle() => currentStep switch
-    {
-        0 => "Pick your playlist",
-        1 => "Where your music lives",
-        2 => "Choose the targets",
-        3 => "Optional: fix file paths",
-        4 => isEditing ? "Check and save" : "Check and create",
-        _ => ""
-    };
 
     /// <summary>The stored target name everywhere users look at it: friendly words.</summary>
     private static string TargetLabel(string target) => target switch
@@ -2294,13 +1922,6 @@ else
         _ => OutputTargetType.JellyfinApi,
     };
 
-    /// <summary>Review summary of step 2. Empty selection means "no folder
-    /// filter": the runner then searches every folder.</summary>
-    private string SearchLocationSummary =>
-        selectedFolders.SetEquals(scanFolders) && scanFolders.Count > 0 ? "All known"
-        : selectedFolders.Count == 0 ? "Every folder"
-        : string.Join(", ", selectedFolders);
-
     private void ToggleFolder(string folder, ChangeEventArgs e)
     {
         if (e.Value is true && !selectedFolders.Contains(folder))
@@ -2308,71 +1929,6 @@ else
         else if (e.Value is false)
             selectedFolders.Remove(folder);
     }
-
-    private void NextStep()
-    {
-        stepError = null;
-        if (currentStep == 0)
-        {
-            // No blank-named jobs: prefill the source name so the card,
-            // the delete dialog and the failure toasts always have a title.
-            if (string.IsNullOrWhiteSpace(draft.Name))
-                draft.Name = SuggestedJobName();
-            // Now the name is known: an empty M3U path gets its default
-            // from the Playlist output folder setting.
-            PrefillM3uPath();
-            if (sourceType == "playlist" && string.IsNullOrWhiteSpace(selectedSourceId))
-            {
-                stepError = "Choose a folder or a playlist first.";
-                return;
-            }
-            if (sourceType == "folder" && string.IsNullOrWhiteSpace(selectedFolder))
-            {
-                stepError = "Choose a folder or a playlist first.";
-                return;
-            }
-            if (sourceType == "folder")
-            {
-                // the step-1 folder IS the job's source: pre-check it, nothing else
-                selectedFolders = new HashSet<string> { selectedFolder };
-            }
-        }
-        if (currentStep == 2)
-        {
-            // Credentials live in the media server profiles; the wizard
-            // only ticks them so jobs and profiles cannot drift apart. A
-            // deleted profile was already pruned when the job was opened
-            // or the list reloaded, so editing stays possible.
-            if (!HasAnyTarget)
-            {
-                stepError = mediaServerProfiles.Count == 0 && !keepLegacyConnection
-                    ? "Pick at least one target: an M3U file, or create a media server profile under Settings first."
-                    : "Pick at least one target: an M3U file or a media server profile.";
-                return;
-            }
-            if (draftM3uEnabled && string.IsNullOrWhiteSpace(draft.M3uOutputPath))
-            {
-                stepError = "Enter the M3U output path first.";
-                return;
-            }
-            if (draft.Schedule == SyncJobSchedule.Cron && string.IsNullOrWhiteSpace(draft.CronExpression))
-            {
-                stepError = "Enter a cron expression (5 fields, e.g. 0 3 * * *) first.";
-                return;
-            }
-            if (draft.Schedule == SyncJobSchedule.Cron
-                && !MelodyBridge.Core.ScanSchedule.TryParse(draft.CronExpression, out _))
-            {
-                // A lenient parse would silently degrade this to Manual and
-                // the job would never run on its "schedule".
-                stepError = $"'{draft.CronExpression}' is not a valid five-field cron expression (minute hour day month weekday, e.g. 0 3 * * *).";
-                return;
-            }
-        }
-        if (currentStep < 4) currentStep++;
-    }
-
-    private void PrevStep() { if (currentStep > 0) currentStep--; stepError = null; }
 
     /// <summary>A sensible default title from the picked source.</summary>
     private string SuggestedJobName()
@@ -2455,8 +2011,7 @@ else
                 targets.Add(new SyncTarget(legacyConnectionKind));
             if (targets.Count == 0)
             {
-                stepError = "Pick at least one target first.";
-                currentStep = 2;
+                quickError = "Pick at least one target first.";
                 return;
             }
             SyncJobMapping.ApplyTargets(entity, targets);
@@ -2474,18 +2029,11 @@ else
 
             entity.LastRunStatus = string.IsNullOrWhiteSpace(entity.LastRunStatus) ? "Pending" : entity.LastRunStatus;
             await db.SaveChangesAsync();
-            showWizard = false;
             showQuickEditor = false;
             await LoadDataAsync();
         }
         finally { saving = false; }
     }
-
-    /// <summary>Review label for a playlist source: "Name (Imported)" or "Name (Platform)".</summary>
-    private string SourceDisplay =>
-        sources.FirstOrDefault(s => s.Id == selectedSourceId) is { } p
-            ? $"{p.Name} ({(p.IsManualImport ? "Imported" : PlatformName(p.SourcePlatform))})"
-            : selectedSourceId;
 
     private static string PlatformName(Platform platform) => platform switch
     {

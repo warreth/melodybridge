@@ -318,12 +318,15 @@ public class SyncJobsPageTests
     }
 
     [Test]
-    public void SyncJobs_OpensWizard_FromAdvancedButton()
+    public void SyncJobs_HasOneCreateEntryPoint()
     {
         var cut = _ctx.Render<SyncJobs>();
-        var btn = cut.FindAll("button").First(b => b.TextContent.Trim().Contains("Advanced wizard"));
-        btn.Click();
-        Assert.That(cut.Markup, Does.Contain("Pick your playlist"));
+        Assert.That(cut.FindAll("button").Any(b => b.TextContent.Contains("Advanced wizard")),
+            Is.False, "the second wizard entry point is gone");
+        cut.FindAll("button").First(b => b.TextContent.Trim().Contains("New sync job")).Click();
+        Assert.That(cut.FindAll(".job-quick-modal"), Has.Count.EqualTo(1));
+        Assert.That(cut.Find("details.quick-advanced").HasAttribute("open"), Is.False,
+            "advanced options stay collapsed on a new job");
     }
 
     [Test]
@@ -409,15 +412,15 @@ public class SyncJobsPageTests
     }
 
     [Test]
-    public void EditButton_OpensWizard_HydratedWithJobValues()
+    public void EditButton_OpensTheEditor_HydratedWithJobValues()
     {
         var cut = _ctx.Render<SyncJobs>();
         cut.FindAll("button.card-menu-trigger").First().Click();
-        var editBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Advanced edit");
+        var editBtn = cut.FindAll("button").First(b => b.TextContent.Trim() == "Edit");
         editBtn.Click();
 
-        Assert.That(cut.Markup, Does.Contain("Pick your playlist"));
-        Assert.That(cut.Markup, Does.Contain("Editing \"Weekly Sync\""));
+        Assert.That(cut.FindAll(".job-quick-modal"), Has.Count.EqualTo(1));
+        Assert.That(cut.Find(".wizard-header .eyebrow").TextContent, Does.Contain("Edit sync job"));
         var nameInput = cut.Find("input[placeholder='e.g. My Summer Hits']");
         Assert.That(nameInput.GetAttribute("value"), Is.EqualTo("Weekly Sync"));
     }
@@ -427,17 +430,7 @@ public class SyncJobsPageTests
     {
         var cut = _ctx.Render<SyncJobs>();
         cut.FindAll("button.card-menu-trigger").First().Click();
-        cut.FindAll("button").First(b => b.TextContent.Trim() == "Advanced edit").Click();
-
-        // walk to the review step and save (step 1 needs a source, and
-        // the M3U path must stay filled to pass the new validation)
-        for (int i = 0; i < 4; i++)
-        {
-            var next = cut.FindAll("button")
-                .FirstOrDefault(b => b.TextContent.Trim() == "Next");
-            if (next != null) next.Click();
-        }
-
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Edit").Click();
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Save changes").Click();
 
         using var db = _dbFactory.CreateDbContext();

@@ -88,23 +88,15 @@ public class MountWarningTests
     }
 
     [Test]
-    public void SyncJobs_FolderStep_ShowsTheSharedWarning()
+    public void SyncJobs_FolderSource_ShowsTheSharedWarning()
     {
         var cut = _ctx.Render<SyncJobs>();
         cut.WaitForAssertion(() =>
             Assert.That(cut.Markup, Does.Contain("New sync job")), TimeSpan.FromSeconds(3));
-        // Open the wizard: first step is the source picker.
-        cut.FindAll("button").First(b => b.TextContent.Contains("Advanced wizard")).Click();
+        cut.FindAll("button").First(b => b.TextContent.Contains("New sync job")).Click();
         cut.Render();
 
-        // Folder source: the seeded /music scan location is the source,
-        // which satisfies the step-0 validation. Re-find elements after
-        // every render: bUnit invalidates nodes on re-render.
         cut.FindAll("select")[0].Change("folder");       // source type
-        cut.Render();
-        cut.FindAll("select")[1].Change("/music");       // the seeded folder
-        cut.Render();
-        cut.FindAll("button").First(b => b.TextContent.Trim() == "Next").Click();
         cut.Render();
 
         AssertSharedWarning(cut.Markup);

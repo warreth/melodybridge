@@ -245,7 +245,7 @@ public class PageRefactorUiTests
         footer.QuerySelector("button.card-menu-trigger")!.Click();
         var opened = cut.Find(".job-footer");
         var labels = opened.QuerySelectorAll(".card-menu-items button").Select(b => b.TextContent.Trim()).ToList();
-        Assert.That(labels, Is.EqualTo(new[] { "Quick edit", "Log", "Advanced edit", "Delete" }),
+        Assert.That(labels, Is.EqualTo(new[] { "Edit", "Log", "Delete" }),
             "the menu holds the secondary and destructive actions");
         Assert.That(opened.QuerySelector("span.pill"), Is.Null,
             "the status pill stays in the header, not the footer");
@@ -283,7 +283,7 @@ public class PageRefactorUiTests
                 Is.True, "the unlinked account card shows its neutral state"));
 
         Assert.That(cut.FindAll("button.btn-modern:not(.secondary):not(.primary):not(.danger):not(.ghost)").Count(),
-            Is.EqualTo(0), "every wizard button carries an explicit variant");
+            Is.EqualTo(0), "every modal button carries an explicit variant");
     }
 
     [Test]

@@ -375,3 +375,27 @@
     .profile-editor-grid { grid-template-columns: 1fr; }
     .profile-editor-preview { position: static; }
 }
+
+/* Advanced fields stay collapsed for a first setup. */
+.quick-advanced {
+    margin-top: .9rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface-2);
+}
+.quick-advanced > summary {
+    display: flex;
+    align-items: center;
+    gap: .4rem;
+    padding: .65rem .8rem;
+    cursor: pointer;
+    color: var(--muted);
+    font-size: .84rem;
+    font-weight: 600;
+}
+.quick-advanced[open] > summary { border-bottom: 1px solid var(--border); }
+.quick-advanced-body {
+    display: grid;
+    gap: .7rem;
+    padding: .8rem;
+}

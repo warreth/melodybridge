@@ -11,9 +11,10 @@ using Moq;
 namespace MelodyBridge.Tests.Server.UiTests;
 
 /// <summary>
-/// Step 5 review: a playlist source must show the playlist name and its
-/// platform ("My Summer Hits (Spotify)"), never the raw GUID. Also covers
-/// the editing header (step title + "Editing" subtitle).
+/// Source naming, the easy M3U compatibility presets and the editing
+/// header in the single sync job editor. A playlist source must show its
+/// name and platform ("My Summer Hits (Spotify)"), never the raw GUID,
+/// and a job from before the presets keeps its plain text format.
 /// </summary>
 [TestFixture]
 [Category("UI")]
@@ -70,91 +71,63 @@ public class SyncJobsReviewUiTests
         db.SaveChanges();
     }
 
-    private IRenderedComponent<SyncJobs> WalkToReviewWithPlaylistSource()
+    private IRenderedComponent<SyncJobs> OpenEditorWithPlaylistSource()
     {
         SeedPlaylist("p1", "My Summer Hits", Platform.Spotify);
         SeedScanLocations("/music/a");
         var cut = _ctx.Render<SyncJobs>();
-        cut.FindAll("button").First(b => b.TextContent.Trim().Contains("Advanced wizard")).Click();
-        // selects: [0] = source type, [1] = source playlist
-        cut.FindAll("select")[1].Change("p1");
-        for (var guard = 0; guard < 4; guard++)
-        {
-            if (cut.FindAll("input[placeholder='/app/playlists/playlist.m3u8']").Count > 0)
-                break;
-            cut.FindAll("button").First(b => b.TextContent.Trim() == "Next").Click();
-        }
-        cut.Find("input[placeholder='/app/playlists/playlist.m3u8']")
-            .Change("/app/playlists/out.m3u8");
-        cut.FindAll("button").First(b => b.TextContent.Trim() == "Next").Click(); // remaps
-        cut.FindAll("button").First(b => b.TextContent.Trim() == "Next").Click(); // review
+        cut.FindAll("button").First(b => b.TextContent.Trim().Contains("New sync job")).Click();
+        cut.FindAll("select")
+            .Single(s => s.QuerySelectorAll("option")
+                .Any(o => o.GetAttribute("value") == "p1"))
+            .Change("p1");
         return cut;
     }
 
     [Test]
-    public void Review_PlaylistSource_ShowsNameAndPlatform_NotRawGuid()
+    public void Editor_PlaylistSource_ShowsNameAndPlatform_NotRawGuid()
     {
-        var cut = WalkToReviewWithPlaylistSource();
-        Assert.That(cut.Markup, Does.Contain("My Summer Hits (Spotify)"),
-            "the review Source line must show name + platform");
-        Assert.That(cut.Markup, Does.Not.Contain(">p1<"),
-            "the raw source id must not be rendered");
-        Assert.That(cut.Markup, Does.Not.Contain("1aa7c983"),
-            "a raw GUID must never appear");
+        var cut = OpenEditorWithPlaylistSource();
+        var option = cut.FindAll("option").Single(o => o.GetAttribute("value") == "p1");
+        Assert.That(option.TextContent, Does.Contain("My Summer Hits (Spotify)"),
+            "the source select shows name + platform");
+        Assert.That(option.TextContent.Trim(), Is.Not.EqualTo("p1"),
+            "the raw source id is not shown to the user");
     }
 
     [Test]
-    public void Review_EveryFolderSummary_WhenNothingSelected()
+    public void Editor_PlaylistSource_EmptySearchMeansEveryFolder()
     {
-        var cut = WalkToReviewWithPlaylistSource();
-        Assert.That(cut.Markup, Does.Contain("Every folder"),
-            "empty selection reviews as \"Every folder\"");
+        var cut = OpenEditorWithPlaylistSource();
+        Assert.That(cut.Find("details.quick-folders").TextContent,
+            Does.Contain("Search folders (all)"));
+        Assert.That(cut.Markup, Does.Contain("Leave all unticked to search every folder"));
     }
 
     [Test]
-    public void Review_FolderSource_ShowsFolderPath()
+    public void Editor_FolderSource_ShowsAndSavesTheFolderPath()
     {
         SeedScanLocations("/music/folder");
         var cut = _ctx.Render<SyncJobs>();
-        cut.FindAll("button").First(b => b.TextContent.Trim().Contains("Advanced wizard")).Click();
-        cut.Find("select").Change("folder");
-        cut.FindAll("select").Last().Change("/music/folder");
-        for (var guard = 0; guard < 4; guard++)
-        {
-            if (cut.FindAll("input[placeholder='/app/playlists/playlist.m3u8']").Count > 0)
-                break;
-            cut.FindAll("button").First(b => b.TextContent.Trim() == "Next").Click();
-        }
-        cut.Find("input[placeholder='/app/playlists/playlist.m3u8']")
-            .Change("/app/playlists/out.m3u8");
-        cut.FindAll("button").First(b => b.TextContent.Trim() == "Next").Click();
-        cut.FindAll("button").First(b => b.TextContent.Trim() == "Next").Click();
+        cut.FindAll("button").First(b => b.TextContent.Trim().Contains("New sync job")).Click();
+        cut.FindAll("select").First(s => s.TextContent.Contains("Local folder")).Change("folder");
+        cut.FindAll("select").First(s => s.TextContent.Contains("/music/folder"))
+            .Change("/music/folder");
 
         Assert.That(cut.Markup, Does.Contain("/music/folder"));
-        Assert.That(cut.Markup, Does.Contain("All known"),
-            "folder jobs pre-check the source folder, so the summary is All known");
-    }
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Create sync job").Click();
 
-    private IRenderedComponent<SyncJobs> WalkToM3uTargets()
-    {
-        SeedPlaylist("p1", "My Summer Hits", Platform.Spotify);
-        SeedScanLocations("/music/a");
-        var cut = _ctx.Render<SyncJobs>();
-        cut.FindAll("button").First(b => b.TextContent.Trim().Contains("Advanced wizard")).Click();
-        cut.FindAll("select")[1].Change("p1");
-        for (var guard = 0; guard < 4; guard++)
-        {
-            if (cut.FindAll("input[placeholder='/app/playlists/playlist.m3u8']").Count > 0)
-                break;
-            cut.FindAll("button").First(b => b.TextContent.Trim() == "Next").Click();
-        }
-        return cut;
+        using var db = _dbFactory.CreateDbContext();
+        var job = db.SyncJobs.AsNoTracking().Single();
+        var paths = System.Text.Json.JsonSerializer.Deserialize<List<string>>(job.SearchLocationPaths);
+        Assert.That(paths, Is.EqualTo(new[] { "/music/folder" }));
     }
 
     [Test]
     public void NewJob_DefaultsToWidestCompatibility_AndAPrefilledM3u8Path()
     {
-        var cut = WalkToM3uTargets();
+        var cut = OpenEditorWithPlaylistSource();
+        cut.Find("input[placeholder='e.g. My Summer Hits']").Input("My Summer Hits");
 
         var preset = cut.FindAll("select")
             .Single(s => s.TextContent.Contains("Widest compatibility"));
@@ -167,10 +140,6 @@ public class SyncJobsReviewUiTests
                 "a preset hides the individual switches");
         });
 
-        cut.FindAll("button").First(b => b.TextContent.Trim() == "Next").Click();
-        cut.FindAll("button").First(b => b.TextContent.Trim() == "Next").Click();
-        Assert.That(cut.Markup, Does.Contain("Widest compatibility"),
-            "the review names the format");
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Create sync job").Click();
 
         cut.WaitForAssertion(() =>
@@ -191,15 +160,12 @@ public class SyncJobsReviewUiTests
     [Test]
     public void CarPreset_SavesBackslashes()
     {
-        var cut = WalkToM3uTargets();
-
+        var cut = OpenEditorWithPlaylistSource();
         cut.FindAll("select")
             .Single(s => s.TextContent.Contains("Widest compatibility"))
             .Change("car");
         Assert.That(cut.Markup, Does.Contain("backslashes"));
 
-        cut.FindAll("button").First(b => b.TextContent.Trim() == "Next").Click();
-        cut.FindAll("button").First(b => b.TextContent.Trim() == "Next").Click();
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Create sync job").Click();
 
         cut.WaitForAssertion(() =>
@@ -242,13 +208,7 @@ public class SyncJobsReviewUiTests
 
         var cut = _ctx.Render<SyncJobs>();
         cut.Find("button.card-menu-trigger").Click();
-        cut.FindAll("button").First(b => b.TextContent.Trim() == "Advanced edit").Click();
-        for (var guard = 0; guard < 4; guard++)
-        {
-            if (cut.FindAll("input[placeholder='/app/playlists/playlist.m3u8']").Count > 0)
-                break;
-            cut.FindAll("button").First(b => b.TextContent.Trim() == "Next").Click();
-        }
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Edit").Click();
 
         var preset = cut.FindAll("select")
             .Single(s => s.TextContent.Contains("Widest compatibility"));
@@ -257,7 +217,7 @@ public class SyncJobsReviewUiTests
     }
 
     [Test]
-    public void EditingHeader_ShowsStepTitle_AndEditingSubtitle()
+    public void EditingHeader_ShowsJobName_AndEditEyebrow()
     {
         using (var db = _dbFactory.CreateDbContext())
         {
@@ -276,14 +236,10 @@ public class SyncJobsReviewUiTests
 
         var cut = _ctx.Render<SyncJobs>();
         cut.Find("button.card-menu-trigger").Click();
-        cut.FindAll("button").First(b => b.TextContent.Trim() == "Advanced edit").Click();
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Edit").Click();
 
-        Assert.That(cut.Markup, Does.Contain("Pick your playlist"),
-            "the h2 is the step title, also while editing");
-        Assert.That(cut.Markup, Does.Contain("Editing \"Weekly Sync\""),
-            "a muted subtitle names the edited job");
-        Assert.That(cut.Markup, Does.Not.Contain(">Edit sync job<"),
-            "the old constant edit title is gone");
+        Assert.That(cut.Find(".wizard-header h2").TextContent.Trim(), Is.EqualTo("Weekly Sync"));
+        Assert.That(cut.Find(".wizard-header .eyebrow").TextContent, Does.Contain("Edit sync job"));
     }
 
     private class InMemFactory : IDbContextFactory<MelodyBridgeDbContext>
