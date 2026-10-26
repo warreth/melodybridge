@@ -105,6 +105,75 @@ public class AdvancedRetagUiTests
     }
 
     [Test]
+    public void RenamePreview_ShowsTheSeparateOutcomes()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"mb-rename-ui-{Guid.NewGuid():N}");
+        var music = Path.Combine(root, "music");
+        var outside = Path.Combine(root, "outside");
+        Directory.CreateDirectory(music);
+        Directory.CreateDirectory(outside);
+        try
+        {
+            string File(string folder, string name)
+            {
+                var path = Path.Combine(folder, name);
+                System.IO.File.WriteAllText(path, "x");
+                return path;
+            }
+
+            var rename = File(music, "mel-a.mp3");
+            var named = File(music, "Artist B - Already.mp3");
+            var shared = File(music, "shared.mp3");
+            var elsewhere = File(outside, "mel-c.mp3");
+
+            using (var db = new TestSqliteFactory(_dbPath).CreateDbContext())
+            {
+                db.DownloaderSettings.Add(new DownloaderSettingEntity
+                {
+                    Key = "music_path",
+                    Value = music,
+                });
+                db.Tracks.AddRange(
+                    new TrackEntity { MelodyId = "a", Title = "Alpha", Artist = "Artist A",
+                        DownloadStatus = "downloaded", CurrentPath = rename },
+                    new TrackEntity { MelodyId = "b", Title = "Already", Artist = "Artist B",
+                        DownloadStatus = "downloaded", CurrentPath = named },
+                    new TrackEntity { MelodyId = "c", Title = "Elsewhere", Artist = "Artist C",
+                        DownloadStatus = "downloaded", CurrentPath = elsewhere },
+                    new TrackEntity { MelodyId = "d", Title = "Shared", Artist = "Artist D",
+                        DownloadStatus = "downloaded", CurrentPath = shared },
+                    new TrackEntity { MelodyId = "e", Title = "Shared", Artist = "Artist D",
+                        DownloadStatus = "downloaded", CurrentPath = shared });
+                db.SaveChanges();
+            }
+
+            var cut = RenderAdvanced();
+            cut.FindAll("button").First(b => b.TextContent.Contains("Check file names")).Click();
+            cut.WaitForAssertion(() =>
+            {
+                Assert.That(cut.Markup, Does.Contain("Rename preview"));
+                string Count(string label) => cut.FindAll(".rename-counts > div")
+                    .Single(d => d.QuerySelector("dt")!.TextContent.Trim() == label)
+                    .QuerySelector("dd")!.TextContent.Trim();
+                Assert.Multiple(() =>
+                {
+                    Assert.That(Count("Will be renamed"), Is.EqualTo("1"));
+                    Assert.That(Count("Already named"), Is.EqualTo("1"));
+                    Assert.That(Count("Shared paths"), Is.EqualTo("2"));
+                    Assert.That(Count("Outside library folders"), Is.EqualTo("1"));
+                    Assert.That(cut.Find(".rename-counts .primary dd").TextContent.Trim(),
+                        Is.EqualTo("1"));
+                    Assert.That(cut.Markup, Does.Contain("Rename 1 track"));
+                });
+            }, TimeSpan.FromSeconds(5));
+        }
+        finally
+        {
+            try { Directory.Delete(root, recursive: true); } catch { /* best effort */ }
+        }
+    }
+
+    [Test]
     public void Retag_Run_ShowsTheCountsAndASuccessToast()
     {
         _store.Result = (4, 2, 1);

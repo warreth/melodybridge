@@ -19,7 +19,7 @@
             <h1>Advanced</h1>
             <HelpTip Path="reference#the-advanced-page" Text="Developer tools, download limits, the dedup toggle, display, logging and maintenance options." />
         </div>
-        <p>Interface and maintenance details most people never need to touch.</p>
+        <p>Download behaviour, diagnostics and library maintenance.</p>
     </div>
     <div class="topbar-actions">
         @if (dirty)
@@ -30,36 +30,8 @@
     </div>
 </section>
 
-<section class="content-grid two advanced-grid">
-    <div class="settings-card">
-        <div class="settings-head">
-            <div>
-                <span class="eyebrow">Developer</span>
-                <h2>Advanced mode</h2>
-            </div>
-        </div>
-        <label class="toggle-switch wide">
-            <input type="checkbox" @bind="advancedMode" @bind:after="MarkDirty" />
-            <span class="toggle-slider"></span>
-            <span>Show developer tools and technical details</span>
-        </label>
-        <div class="hint-box">
-            Adds the Dev panel to the sidebar: runtime and database facts,
-            plugin health, provider tests, download attempts and raw request
-            logs. It also reveals the longer notes about unofficial accounts.
-            Leave it off for the everyday interface.
-        </div>
-        @if (DevPanel.Enabled)
-        {
-            <p>
-                <a class="btn-modern secondary" href="/dev">
-                    <Icon Name="terminal" Size="16" /> Open the Dev panel
-                </a>
-            </p>
-        }
-    </div>
-
-    <div class="settings-card">
+<section class="advanced-layout">
+    <div class="settings-card" id="downloads">
         <div class="settings-head">
             <div>
                 <span class="eyebrow">Behaviour</span>
@@ -79,14 +51,14 @@
                     Plugin time budget (seconds)
                     <input @bind="pluginBudgetSeconds" @bind:after="MarkDirty" type="number" min="30" max="3600" step="10" />
                 </label>
-                <HelpTip Path="reference#the-advanced-page" Text="How long one plugin may spend on a track before the waterfall moves on, between 30 and 3600 seconds." />
+                <HelpTip Path="reference#the-advanced-page" Text="Time one plugin may spend on a track before the next one is tried." />
             </div>
             <div class="field-with-help">
                 <label>
                     Track time budget (seconds)
                     <input @bind="trackBudgetSeconds" @bind:after="MarkDirty" type="number" min="60" max="14400" step="60" />
                 </label>
-                <HelpTip Path="reference#the-advanced-page" Text="The total time one track may take across every plugin, between 60 and 14400 seconds." />
+                <HelpTip Path="reference#the-advanced-page" Text="Total time one track may take across all plugins." />
             </div>
             <div class="field-with-help">
                 <label>
@@ -97,13 +69,10 @@
             </div>
         </div>
         <div class="hint-box">
-            New downloads are named with this pattern:
-            <code>{artist} - {title}</code> is the default,
-            <code>{title} - {artist}</code> puts the title first, and
-            <code>{track} - {artist} - {title}</code> adds the playlist position.
-            Use <code>{source}</code> to keep the name the plugin chose. Tracks
-            already downloaded keep their file names until you run the rename
-            action under Maintenance.
+            New downloads use this pattern. Available tokens:
+            <code>{artist}</code>, <code>{title}</code>, <code>{album}</code>,
+            <code>{track}</code> and <code>{source}</code>. Existing tracks keep
+            their names until you run the rename action under Maintenance.
         </div>
         <div class="toggle-with-help">
             <label class="toggle-switch wide">
@@ -114,109 +83,199 @@
             <HelpTip Path="concepts#duplicate-tracks" Text="When a track already exists in another playlist folder in the right quality, link it instead of downloading it again." />
         </div>
         <div class="hint-box">
-            When a track already exists in another playlist folder in the
-            exact quality this playlist asks for, MelodyBridge links the
-            existing file instead of downloading it again: same bytes,
-            zero extra disk space. A quality difference pauses that track
-            for your call (link it or download a fresh copy); a cross-drive
-            link falls back to a normal download. Folders stay as they are;
-            no pool, no moving files.
+            Identical tracks are hardlinked across playlists: same bytes, no
+            second download. A quality difference pauses the track so you can
+            link it or fetch a fresh copy. Cross-drive links fall back to a
+            normal download.
         </div>
         <div class="hint-box">
-            More simultaneous downloads finish large playlists faster but hit
-            every source harder. The number is shared by every playlist and
-            manual download running at the same time; the next run picks up
-            the new value. When
-            playlists and library folders refresh is set where they live:
-            the playlist's own schedule on its page, the folder's schedule
-            on the Library page.
+            Higher values finish large playlists faster but hit every source
+            harder. The limit covers playlist and manual downloads together;
+            the next run uses the new value.
         </div>
     </div>
-
-    <div class="settings-card">
-        <div class="settings-head">
-            <div>
-                <span class="eyebrow">Interface</span>
-                <h2>Display</h2>
+    <div class="advanced-side">
+        <div class="settings-card">
+            <div class="settings-head">
+                <div>
+                    <span class="eyebrow">Developer</span>
+                    <h2>Advanced mode</h2>
+                </div>
             </div>
-        </div>
-        <div class="toggle-with-help">
             <label class="toggle-switch wide">
-                <input type="checkbox" @bind="showFilename" @bind:after="MarkDirty" />
+                <input type="checkbox" @bind="advancedMode" @bind:after="MarkDirty" />
                 <span class="toggle-slider"></span>
-                <span>Show the file column on playlist tracks</span>
+                <span>Show developer tools and technical details</span>
             </label>
-            <HelpTip Path="concepts#archive-copies" Text="Reveals the exact file behind every track, archive copies included." />
+            <div class="hint-box">
+                Adds the Dev panel and the longer notes for unofficial accounts.
+                Leave it off for everyday use.
+            </div>
+            @if (DevPanel.Enabled)
+            {
+                <p>
+                    <a class="btn-modern secondary" href="/dev">
+                        <Icon Name="terminal" Size="16" /> Open the Dev panel
+                    </a>
+                </p>
+            }
         </div>
-        <div class="hint-box">
-            The filename column shows the exact file behind each track in a
-            playlist: useful when hunting inflated downloads.
-        </div>
-    </div>
-
-    <div class="settings-card">
-        <div class="settings-head">
-            <div>
-                <span class="eyebrow">Logging</span>
-                <h2>Database activity</h2>
+        <div class="settings-card">
+            <div class="settings-head">
+                <div>
+                    <span class="eyebrow">Interface</span>
+                    <h2>Display</h2>
+                </div>
+            </div>
+            <div class="toggle-with-help">
+                <label class="toggle-switch wide">
+                    <input type="checkbox" @bind="showFilename" @bind:after="MarkDirty" />
+                    <span class="toggle-slider"></span>
+                    <span>Show the file column on playlist tracks</span>
+                </label>
+                <HelpTip Path="concepts#archive-copies" Text="Reveals the exact file behind every track, archive copies included." />
+            </div>
+            <div class="hint-box">
+                Shows the file behind each track, archive copies included.
             </div>
         </div>
-        <label class="toggle-switch wide">
-            <input type="checkbox" @bind="logDatabaseActivity" @bind:after="MarkDirty" />
-            <span class="toggle-slider"></span>
-            <span>Show database activity in the logs</span>
-        </label>
-        <div class="hint-box">
-            Every SQL command the app runs lands in the log as an
-            Executed DbCommand line. Turn this on only while debugging a
-            database problem; off it hides that noise and keeps warnings.
+
+        <div class="settings-card">
+            <div class="settings-head">
+                <div>
+                    <span class="eyebrow">Logging</span>
+                    <h2>Database activity</h2>
+                </div>
+            </div>
+            <label class="toggle-switch wide">
+                <input type="checkbox" @bind="logDatabaseActivity" @bind:after="MarkDirty" />
+                <span class="toggle-slider"></span>
+                <span>Show database activity in the logs</span>
+            </label>
+            <div class="hint-box">
+                Logs every SQL command. Turn it on only while debugging a database
+                problem.
+            </div>
         </div>
     </div>
-
-    <div class="settings-card">
+    <div class="settings-card advanced-maintenance">
         <div class="settings-head">
             <div>
                 <span class="eyebrow">Maintenance</span>
                 <h2>Library maintenance</h2>
+                <p class="panel-description">
+                    Repair the facts, tags and file names of tracks that are already on disk.
+                    These actions never change the audio itself.
+                </p>
             </div>
         </div>
-        <p>
-            Older downloads can miss the bitrate, sample-rate and size
-            columns. Recompute reads those facts straight from the files on
-            disk and re-runs the quality check on what it reads, so an
-            inflated file or a lossy source boxed as FLAC is flagged; tracks
-            whose file has vanished are queued for a re-download.
-        </p>
-        <p>
-            Re-tag fills what a downloaded file is missing: cover art from the
-            source, lyrics, the release credit and the album name. Tags that are
-            already there, including artwork a plugin embedded, are left alone.
-        </p>
-        <div class="flex-actions">
-            <button class="btn-modern primary" disabled="@recomputing" @onclick="RecomputeFacts">
-                @(recomputing ? "Recomputing…" : "Recompute audio facts")
-            </button>
-            <button class="btn-modern" disabled="@retagging" @onclick="RetagLibrary">
-                @(retagging ? "Re-tagging…" : "Re-tag library")
-            </button>
-            <button class="btn-modern" disabled="@(renaming || renameCounting || saving)" @onclick="AskRenameFiles">
-                @(renameCounting ? "Checking tracks…" : renaming ? "Renaming…" : "Rename downloaded tracks")
-            </button>
+        <div class="maintenance-grid">
+            <div class="maintenance-action">
+                <strong>Audio facts</strong>
+                <p>
+                    Re-measure bitrate, sample rate and size, then run the quality check again.
+                    Missing files are queued for a new download.
+                </p>
+                <button class="btn-modern primary" disabled="@recomputing" @onclick="RecomputeFacts">
+                    @(recomputing ? "Recomputing…" : "Recompute audio facts")
+                </button>
+            </div>
+            <div class="maintenance-action">
+                <strong>Tags</strong>
+                <p>
+                    Fill missing cover art, lyrics, release credit and album name.
+                    Existing tags and embedded artwork are left alone.
+                </p>
+                <button class="btn-modern" disabled="@retagging" @onclick="RetagLibrary">
+                    @(retagging ? "Re-tagging…" : "Re-tag library")
+                </button>
+                @if (retagResult is not null)
+                {
+                    <p class="text-muted">@retagResult</p>
+                }
+            </div>
+            <div class="maintenance-action">
+                <strong>File names</strong>
+                <p>
+                    Apply the download name pattern to tracks already on disk.
+                    Tags and audio stay untouched.
+                </p>
+                <p class="maintenance-pattern">
+                    Current pattern <code>@fileNamePattern</code>
+                    <a href="#downloads">Change</a>
+                </p>
+                <button class="btn-modern" disabled="@(renaming || renameCounting || saving)" @onclick="AskRenameFiles">
+                    @(renameCounting ? "Checking tracks…" : renaming ? "Renaming…" : "Check file names")
+                </button>
+            </div>
         </div>
-        @if (retagResult is not null)
+        @if (renameConfirm && renameSummary is { } summary)
         {
-            <p class="text-muted">@retagResult</p>
-        }
-        @if (renameConfirm)
-        {
-            <div class="hint-box">
-                @renamePreview
-                <div class="flex-actions">
-                    <button class="btn-modern primary" disabled="@renaming" @onclick="RenameFiles">
-                        @(renaming ? "Renaming…" : "Rename")
+            <div class="rename-preview" aria-live="polite">
+                <div class="rename-preview-head">
+                    <div>
+                        <span class="eyebrow">Rename preview</span>
+                        <h3>
+                            @(summary.ToRename == 0
+                                ? "Nothing will change"
+                                : $"{summary.ToRename} downloaded {(summary.ToRename == 1 ? "track" : "tracks")} will be renamed")
+                        </h3>
+                        <p class="rename-pattern">New names follow <code>@fileNamePattern</code>.</p>
+                    </div>
+                    <button class="icon-button" type="button" title="Close preview" @onclick="CancelRename">
+                        <Icon Name="x" Size="16" />
                     </button>
+                </div>
+                <dl class="rename-counts">
+                    <div class="primary">
+                        <dt>Will be renamed</dt>
+                        <dd>@summary.ToRename</dd>
+                    </div>
+                    <div>
+                        <dt>Already named</dt>
+                        <dd>@summary.AlreadyNamed</dd>
+                    </div>
+                    <div class="@(summary.Missing > 0 ? "warn" : null)">
+                        <dt>Missing files</dt>
+                        <dd>@summary.Missing</dd>
+                    </div>
+                    <div class="@(summary.Shared > 0 ? "warn" : null)">
+                        <dt>Shared paths</dt>
+                        <dd>@summary.Shared</dd>
+                    </div>
+                    <div class="@(summary.Outside > 0 ? "warn" : null)">
+                        <dt>Outside library folders</dt>
+                        <dd>@summary.Outside</dd>
+                    </div>
+                    <div class="@(summary.ArchiveSkipped > 0 ? "muted" : null)">
+                        <dt>Archive copies skipped</dt>
+                        <dd>@summary.ArchiveSkipped</dd>
+                    </div>
+                </dl>
+                <p class="rename-note">
+                    @summary.Total downloaded tracks checked. Archive copies move with their track,
+                    and playlists pick up new paths on their next sync. Skipped paths are logged
+                    with the reason when you open <a href="/logs">Logs</a> at Debug.
+                </p>
+                @if (summary.Shared > 0 || summary.Outside > 0)
+                {
+                    <p class="rename-note">
+                        Shared means more than one row points at the same path. Rows for the same
+                        song move together; different songs stay put. Outside means the file is not
+                        under the configured music, archive, playlist or scan folders.
+                    </p>
+                }
+                <div class="flex-actions">
+                    @if (summary.ToRename > 0)
+                    {
+                        <button class="btn-modern primary" disabled="@renaming" @onclick="RenameFiles">
+                            @(renaming
+                                ? "Renaming…"
+                                : $"Rename {summary.ToRename} {(summary.ToRename == 1 ? "track" : "tracks")}")
+                        </button>
+                    }
                     <button class="btn-modern ghost" disabled="@renaming" @onclick="CancelRename">
-                        Cancel
+                        @(summary.ToRename == 0 ? "Close" : "Cancel")
                     </button>
                 </div>
             </div>
@@ -243,7 +302,7 @@
     private bool renaming;
     private bool renameCounting;
     private bool renameConfirm;
-    private string? renamePreview;
+    private RenamePlanSummary? renameSummary;
     private string? renameResult;
 
     // Unsaved-changes state for the floating save bar.
@@ -358,8 +417,6 @@
         renameCounting = true;
         try
         {
-            var pattern = await Settings.GetAsync(
-                FileNamePattern.SettingKey, FileNamePattern.Default);
             var summary = await Renamer.CountAsync();
             if (summary.KeepsSourceName)
             {
@@ -370,12 +427,12 @@
             {
                 renameResult = summary.Total == 0
                     ? "No downloaded tracks to rename."
-                    : $"Nothing to rename: {RenameBreakdown(summary)}.";
+                    : "Nothing to rename. The breakdown shows why.";
+                renameSummary = summary;
+                renameConfirm = true;
                 return;
             }
-            renamePreview =
-                $"{RenameBreakdown(summary)}. New names follow '{pattern}'; archive copies "
-                + "move with their track, and playlists pick the new paths up on their next sync.";
+            renameSummary = summary;
             renameConfirm = true;
         }
         catch (Exception ex)
@@ -389,34 +446,16 @@
         }
     }
 
-    /// <summary>The preview breakdown, one clause per outcome that occurred.</summary>
-    private static string RenameBreakdown(RenamePlanSummary summary)
-    {
-        var parts = new List<string>();
-        if (summary.ToRename > 0)
-            parts.Add($"{summary.ToRename} downloaded {(summary.ToRename == 1 ? "track" : "tracks")} will be renamed");
-        if (summary.AlreadyNamed > 0)
-            parts.Add($"{summary.AlreadyNamed} already {(summary.AlreadyNamed == 1 ? "has" : "have")} the pattern name");
-        if (summary.Missing > 0)
-            parts.Add($"{summary.Missing} {(summary.Missing == 1 ? "file is" : "files are")} missing");
-        if (summary.Shared > 0)
-            parts.Add($"{summary.Shared} {(summary.Shared == 1 ? "shares" : "share")} a path with another row");
-        if (summary.Outside > 0)
-            parts.Add($"{summary.Outside} {(summary.Outside == 1 ? "is" : "are")} outside the managed folders");
-        if (summary.ArchiveSkipped > 0)
-            parts.Add($"{summary.ArchiveSkipped} archive {(summary.ArchiveSkipped == 1 ? "copy" : "copies")} will be skipped");
-        return string.Join(", ", parts);
-    }
-
     private void CancelRename()
     {
         renameConfirm = false;
-        renamePreview = null;
+        renameSummary = null;
     }
 
     private async Task RenameFiles()
     {
         renameConfirm = false;
+        renameSummary = null;
         renaming = true;
         try
         {
@@ -431,7 +470,6 @@
             if (report.Failed > 0) parts.Add($"{report.Failed} failed");
             renameResult = string.Join(", ", parts) + ".";
             Notifications.Success(renameResult);
-            renamePreview = null;
         }
         catch (Exception ex)
         {
