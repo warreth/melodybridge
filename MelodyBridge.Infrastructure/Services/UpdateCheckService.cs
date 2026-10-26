@@ -10,11 +10,14 @@ public sealed record UpdateCheckResult(
     bool Succeeded,
     string? LatestVersion,
     string? ReleaseUrl,
-    string? Error);
+    string? Error,
+    string? ReleaseName = null,
+    string? ReleaseBody = null);
 
 /// <summary>
-/// Checks GitHub for a newer release than the running <see cref="AppInfo.Version"/>.
-/// Runs only when the user asks (About tab); no telemetry, no background calls.
+/// Checks GitHub for releases and the running <see cref="AppInfo.Version"/>.
+/// A GET to the public GitHub API sends no account data; the app checks on
+/// demand and once a day while automatic update checks stay enabled.
 /// </summary>
 public sealed class UpdateCheckService(HttpClient http)
 {
@@ -35,6 +38,45 @@ public sealed class UpdateCheckService(HttpClient http)
         {
             // Offline or DNS failure is a normal outcome, not an error state.
             return new UpdateCheckResult(false, null, null, ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// The published release for one exact version, used for the what's-new
+    /// dialog after an upgrade. The tag may carry a leading v. Returns null
+    /// when that version has no release or GitHub cannot be reached.
+    /// </summary>
+    public async Task<UpdateCheckResult?> FindReleaseAsync(
+        string version, CancellationToken ct = default)
+    {
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, AppInfo.ReleasesListFeed);
+            request.Headers.UserAgent.ParseAdd($"MelodyBridge/{AppInfo.Version}");
+            using var response = await http.SendAsync(request, ct);
+            if (!response.IsSuccessStatusCode) return null;
+
+            using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
+            if (doc.RootElement.ValueKind != JsonValueKind.Array) return null;
+
+            foreach (var release in doc.RootElement.EnumerateArray())
+            {
+                if (release.TryGetProperty("draft", out var draft)
+                    && draft.ValueKind == JsonValueKind.True) continue;
+                if (!release.TryGetProperty("tag_name", out var tag)
+                    || tag.ValueKind != JsonValueKind.String) continue;
+                var label = tag.GetString()?.TrimStart('v', 'V');
+                if (!string.Equals(label, version, StringComparison.OrdinalIgnoreCase)) continue;
+                var parsed = ParseRelease(release);
+                if (parsed.Succeeded) return parsed;
+            }
+            return null;
+        }
+        catch (Exception)
+        {
+            // Offline is a normal outcome: the dialog falls back to the
+            // release page instead of blocking startup.
+            return null;
         }
     }
 
@@ -93,7 +135,15 @@ public sealed class UpdateCheckService(HttpClient http)
         if (string.IsNullOrWhiteSpace(latest))
             return new UpdateCheckResult(false, null, null, "No release found.");
 
-        return new UpdateCheckResult(true, latest!, url, null);
+        var name = release.TryGetProperty("name", out var title)
+            && title.ValueKind == JsonValueKind.String
+                ? title.GetString()
+                : null;
+        var body = release.TryGetProperty("body", out var notes)
+            && notes.ValueKind == JsonValueKind.String
+                ? notes.GetString()
+                : null;
+        return new UpdateCheckResult(true, latest!, url, null, name, body);
     }
 
     /// <summary>

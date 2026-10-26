@@ -4,6 +4,7 @@
 @using Microsoft.JSInterop
 @inject DevPanelService DevPanel
 @inject NotificationService Notifications
+@inject UpdateService Updates
 @implements IDisposable
 
 <div class="app-shell">
@@ -86,6 +87,11 @@
     </section>
 }
 
+@if (Updates.PendingReleaseNotes is { } releaseNotes)
+{
+    <ReleaseNotesDialog Notes="releaseNotes" OnDismiss="DismissReleaseNotes" />
+}
+
 @if (_toasts.Count > 0)
 {
     <div class="toast-stack">
@@ -133,6 +139,7 @@
     protected override void OnInitialized()
     {
         Notifications.Changed += RefreshNotifications;
+        Updates.Changed += RefreshUpdate;
         // A background watcher may have pushed a login problem before this
         // circuit existed; the history and the bell still need it.
         RefreshNotifications();
@@ -171,6 +178,12 @@
     }
 
     private void DismissToast(AppNotification toast) => Notifications.Dismiss(toast);
+
+    /// <summary>The update service sets pending notes from a background
+    /// thread; marshal the redraw onto this circuit.</summary>
+    private void RefreshUpdate() => _ = InvokeAsync(StateHasChanged);
+
+    private async Task DismissReleaseNotes() => await Updates.DismissReleaseNotesAsync();
 
     private void ToggleHistory()
     {
@@ -229,6 +242,7 @@
     public void Dispose()
     {
         Notifications.Changed -= RefreshNotifications;
+        Updates.Changed -= RefreshUpdate;
         _themeRef?.Dispose();
     }
 }

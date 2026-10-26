@@ -17,6 +17,7 @@
 @inject DatabaseBackupService DbBackup
 @inject NtfyNotifier Ntfy
 @inject UpdateCheckService UpdateCheck
+@inject UpdateService Update
 @inject NotificationService Notifications
 @inject IMediaServerDirectoryFactory DirectoryFactory
 @inject IJSRuntime JS
@@ -838,7 +839,7 @@ else if (activeTab == "about")
                 <button class="btn-modern secondary" @onclick="CheckForUpdates" disabled="@checkingUpdate">
                     @(checkingUpdate ? "Checking..." : "Check for updates")
                 </button>
-                @if (updateResult is { } u)
+                @if (VisibleUpdate is { } u)
                 {
                     @if (u.Succeeded && UpdateCheckService.IsNewer(u.LatestVersion!, AppInfo.Version))
                     {
@@ -855,6 +856,17 @@ else if (activeTab == "about")
                     }
                 }
             </div>
+            <label class="toggle-switch wide">
+                <input type="checkbox" @bind="updateCheckEnabled"
+                       @bind:after="SaveUpdateCheckSetting" />
+                <span class="toggle-slider"></span>
+                <span>Check GitHub automatically for new versions</span>
+            </label>
+            <small class="text-muted">
+                Checks once at startup and then once a day. It sends no account
+                data, only a request for the public release list. Turning this off
+                also hides the what's-new dialog after an upgrade.
+            </small>
             <div class="flex-actions">
                 <button class="btn-modern ghost" @onclick="RestartTour">Show the guided tour again</button>
                 <button class="btn-modern ghost" @onclick="RestartChecklist">Show the setup checklist again</button>
@@ -1173,6 +1185,19 @@ else if (activeTab == "about")
     // About tab
     private UpdateCheckResult? updateResult;
     private bool checkingUpdate;
+    private bool updateCheckEnabled = true;
+
+    /// <summary>Manual result first, then whatever the daily check found.</summary>
+    private UpdateCheckResult? VisibleUpdate
+    {
+        get
+        {
+            if (updateResult is not null) return updateResult;
+            var found = Update.Available;
+            return found is { Succeeded: true, LatestVersion: { } latest }
+                && UpdateCheckService.IsNewer(latest, AppInfo.Version) ? found : null;
+        }
+    }
     private string? dbMessage;
     private bool pendingRestore;
 
@@ -1260,6 +1285,7 @@ else if (activeTab == "about")
         _youtubeConnected = await YouTubeAccount.IsConnectedAsync();
         _spotifyWebConnected = await SpotifyWeb.IsConnectedAsync();
         advancedMode = await TourReset.GetBoolAsync(DevPanelService.AdvancedSettingKey, false);
+        updateCheckEnabled = await TourReset.GetBoolAsync(UpdateService.EnabledKey, true);
         spotifyWebSecretsUrl = await SpotifyWeb.GetSettingAsync("secrets_url") ?? string.Empty;
         spotifyClientId = await SpotifyAccount.GetSettingAsync("client_id") ?? string.Empty;
         youtubeClientId = await YouTubeAccount.GetSettingAsync("client_id") ?? string.Empty;
@@ -1926,6 +1952,17 @@ else if (activeTab == "about")
         {
             checkingUpdate = false;
             StateHasChanged();
+        }
+    }
+
+    private async Task SaveUpdateCheckSetting()
+    {
+        await TourReset.SetAsync(UpdateService.EnabledKey,
+            updateCheckEnabled ? "true" : "false");
+        if (updateCheckEnabled)
+        {
+            await Update.EnsureReleaseNotesAsync();
+            await Update.CheckAndNotifyAsync();
         }
     }
 

@@ -52,6 +52,7 @@ public static class TestServices
             new DatabaseRestore(),
             NullLogger<DatabaseBackupService>.Instance));
         services.AddSingleton(new MelodyBridge.Server.Services.NotificationService());
+        services.AddUpdateService(dbFactory);
         // Advanced mode flips this singleton and the sidebar reads it. Tests
         // that need their own instance register it after this call.
         services.AddSingleton(new MelodyBridge.Server.Services.DevPanelService());
@@ -106,6 +107,28 @@ public static class TestServices
                 sp.GetRequiredService<MelodyBridge.Infrastructure.MediaServers.INavidromeSettings>(),
                 sp.GetRequiredService<IMediaServerDirectoryFactory>(),
                 NullLogger<MelodyBridge.Infrastructure.MediaServers.MediaServerStatusProbe>.Instance));
+    }
+
+    /// <summary>
+    /// Registers the update state the shell and Settings inject. Pages that
+    /// already called AddDownloadPages have it; layout-only tests call this
+    /// with their own database factory.
+    /// </summary>
+    public static void AddUpdateService(this IServiceCollection services,
+        IDbContextFactory<MelodyBridgeDbContext> dbFactory)
+    {
+        if (!services.Any(d => d.ServiceType == typeof(SettingsStore)))
+            services.AddSingleton(new SettingsStore(dbFactory));
+        if (!services.Any(d => d.ServiceType == typeof(UpdateCheckService)))
+            services.AddSingleton(new UpdateCheckService(new HttpClient()));
+        if (!services.Any(d => d.ServiceType == typeof(MelodyBridge.Server.Services.NotificationService)))
+            services.AddSingleton(new MelodyBridge.Server.Services.NotificationService());
+        services.AddSingleton(sp => new MelodyBridge.Server.Services.UpdateService(
+            sp.GetRequiredService<UpdateCheckService>(),
+            sp.GetRequiredService<SettingsStore>(),
+            sp.GetRequiredService<MelodyBridge.Server.Services.NotificationService>(),
+            new MelodyBridge.Server.Services.InstallState(DatabaseExistedAtStartup: true),
+            NullLogger<MelodyBridge.Server.Services.UpdateService>.Instance));
     }
 
     /// <summary>Plugins page stub: a fixed version and recorded updates.</summary>

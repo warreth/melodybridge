@@ -36,4 +36,8 @@ public static class AppInfo
     /// <summary>Newest releases, newest first: the fallback while no stable release exists.</summary>
     public const string ReleasesListFeed =
         "https://api.github.com/repos/warreth/melodybridge/releases?per_page=20";
+
+    /// <summary>The public release page, for the offline what's-new fallback.</summary>
+    public const string ReleasesPage =
+        "https://github.com/warreth/melodybridge/releases";
 }

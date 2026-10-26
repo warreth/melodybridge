@@ -25,6 +25,7 @@ public class ShellUiTests
         _ctx.Services.AddPluginAuthMonitor();
         _ctx.Services.AddSingleton(new MelodyBridge.Server.Services.DevPanelService());
         _ctx.Services.AddSingleton(new MelodyBridge.Server.Services.NotificationService());
+        _ctx.Services.AddUpdateService(TestHelpers.CreateInMemFactory());
         _ctx.JSInterop.Mode = JSRuntimeMode.Loose;
     }
 

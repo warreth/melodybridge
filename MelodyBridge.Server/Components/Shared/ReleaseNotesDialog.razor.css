@@ -1,0 +1,22 @@
+/* The dialog owns the first screen after an upgrade: readable line length,
+   a scrolling body for long release lists, and the release link beside the
+   single close action. */
+.release-notes-overlay { z-index: 140; }
+.release-notes-modal { width: min(44rem, calc(100vw - 2rem)); }
+.release-notes-body {
+    max-height: min(55vh, 30rem);
+    overflow-y: auto;
+    display: grid;
+    gap: .55rem;
+    padding-right: .35rem;
+}
+.release-notes-body ::deep(h3) { margin: .2rem 0 0; font-size: 1rem; }
+.release-notes-body ::deep(h4) { margin: .4rem 0 0; font-size: .92rem; }
+.release-notes-body ::deep(p) { margin: 0; color: var(--muted); }
+.release-notes-body ::deep(ul) {
+    margin: 0;
+    padding-left: 1.15rem;
+    display: grid;
+    gap: .25rem;
+}
+.release-notes-body ::deep(li) { color: var(--foreground); }

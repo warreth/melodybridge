@@ -1,0 +1,77 @@
+@* Release bodies are a short Markdown list of commit subjects. Render the
+   small subset the release workflow writes, with Razor encoding the text:
+   headings, bullet lists and paragraphs. Raw HTML in a release body stays
+   text. *@
+@foreach (var block in Blocks)
+{
+    if (block.Kind == "bullets")
+    {
+        <ul>
+            @foreach (var item in block.Items ?? [])
+            {
+                <li>@item</li>
+            }
+        </ul>
+    }
+    else if (block.Kind == "h3")
+    {
+        <h3>@block.Text</h3>
+    }
+    else if (block.Kind == "h4")
+    {
+        <h4>@block.Text</h4>
+    }
+    else
+    {
+        <p>@block.Text</p>
+    }
+}
+
+@code {
+    [Parameter, EditorRequired] public string? Text { get; set; }
+
+    private sealed record Block(string Kind, string Text = "", IReadOnlyList<string>? Items = null);
+
+    private IReadOnlyList<Block> Blocks => Parse(Text);
+
+    private static IReadOnlyList<Block> Parse(string? text)
+    {
+        var blocks = new List<Block>();
+        if (string.IsNullOrWhiteSpace(text)) return blocks;
+
+        var bullets = new List<string>();
+        void FlushBullets()
+        {
+            if (bullets.Count == 0) return;
+            blocks.Add(new Block("bullets", Items: bullets.ToList()));
+            bullets.Clear();
+        }
+
+        foreach (var raw in text.Replace("\r\n", "\n").Split('\n'))
+        {
+            var line = raw.Trim();
+            if (line.Length == 0)
+            {
+                FlushBullets();
+                continue;
+            }
+            if (line.StartsWith("- ", StringComparison.Ordinal)
+                || line.StartsWith("* ", StringComparison.Ordinal))
+            {
+                bullets.Add(line[2..].Trim());
+                continue;
+            }
+            FlushBullets();
+            if (line.StartsWith("### ", StringComparison.Ordinal))
+                blocks.Add(new Block("h4", line[4..].Trim()));
+            else if (line.StartsWith("## ", StringComparison.Ordinal))
+                blocks.Add(new Block("h3", line[3..].Trim()));
+            else if (line.StartsWith("# ", StringComparison.Ordinal))
+                blocks.Add(new Block("h3", line[2..].Trim()));
+            else
+                blocks.Add(new Block("p", line));
+        }
+        FlushBullets();
+        return blocks;
+    }
+}

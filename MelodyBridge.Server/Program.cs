@@ -26,6 +26,12 @@ builder.Services.AddControllers();
 // MELODYBRIDGE_DB moves the file for Docker, where /app holds the
 // application and writable state lives under a mounted /app/state.
 var dbFile = Environment.GetEnvironmentVariable("MELODYBRIDGE_DB") ?? "melodybridge.db";
+// Read before the database layer creates the file: a missing file is a
+// first install, an existing one is an upgrade (the what's-new dialog
+// only applies to the latter).
+var databaseExistedAtStartup = File.Exists(dbFile);
+builder.Services.AddSingleton(
+    new MelodyBridge.Server.Services.InstallState(databaseExistedAtStartup));
 builder.Services.AddDbContextFactory<MelodyBridgeDbContext>(options =>
     options.UseSqlite(
         $"Data Source={dbFile};Default Timeout={SqliteDatabase.BusyTimeoutSeconds}"));
@@ -53,9 +59,11 @@ builder.Services.AddHttpClient("github", c =>
 {
     c.Timeout = TimeSpan.FromSeconds(15);
 });
-builder.Services.AddScoped(sp =>
+builder.Services.AddSingleton(sp =>
     new UpdateCheckService(
         sp.GetRequiredService<IHttpClientFactory>().CreateClient("github")));
+builder.Services.AddSingleton<MelodyBridge.Server.Services.UpdateService>();
+builder.Services.AddHostedService<MelodyBridge.Server.Services.UpdateWatchService>();
 
 // Toasts: singleton so events raised anywhere reach the one layout.
 builder.Services.AddSingleton(new MelodyBridge.Server.Services.NotificationService());

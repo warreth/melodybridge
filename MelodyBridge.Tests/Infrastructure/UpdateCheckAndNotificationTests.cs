@@ -54,6 +54,61 @@ public class UpdateCheckAndNotificationTests
     }
 
     [Test]
+    public async Task CheckAsync_CarriesTheReleaseNameAndBody()
+    {
+        var handler = new StubHandler("""
+            {
+              "tag_name": "v1.2.0",
+              "name": "v1.2.0",
+              "html_url": "https://github.com/warreth/melodybridge/releases/tag/v1.2.0",
+              "body": "- feat(sync): one editor\n- fix(ui): smaller cards"
+            }
+            """);
+        var service = new UpdateCheckService(new HttpClient(handler));
+
+        var result = await service.CheckAsync();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.ReleaseName, Is.EqualTo("v1.2.0"));
+            Assert.That(result.ReleaseBody, Does.Contain("feat(sync): one editor"));
+        });
+    }
+
+    [Test]
+    public async Task FindReleaseAsync_PicksTheExactVersionFromTheList()
+    {
+        var handler = new RoutingHandler(url =>
+            (System.Net.HttpStatusCode.OK,
+                """
+                [
+                  {"tag_name":"v2.0.0","name":"v2.0.0","body":"newest","html_url":"https://github.com/warreth/melodybridge/releases/tag/v2.0.0","draft":false},
+                  {"tag_name":"v1.6.0","name":"v1.6.0","body":"- feat(playlists): rule profiles","html_url":"https://github.com/warreth/melodybridge/releases/tag/v1.6.0","draft":false},
+                  {"tag_name":"v1.5.0","name":"v1.5.0","body":"old","html_url":"https://github.com/warreth/melodybridge/releases/tag/v1.5.0","draft":false}
+                ]
+                """));
+        var service = new UpdateCheckService(new HttpClient(handler));
+
+        var result = await service.FindReleaseAsync("1.6.0");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.Not.Null);
+            Assert.That(result!.ReleaseBody, Does.Contain("rule profiles"));
+            Assert.That(result.ReleaseUrl, Does.Contain("v1.6.0"));
+            Assert.That(handler.RequestedUrls.Single(), Does.Contain("/releases?per_page=20"));
+        });
+    }
+
+    [Test]
+    public async Task FindReleaseAsync_Offline_ReturnsNull()
+    {
+        var service = new UpdateCheckService(new HttpClient(new ThrowingHandler()));
+
+        Assert.That(await service.FindReleaseAsync("1.6.0"), Is.Null);
+    }
+
+    [Test]
     public async Task CheckAsync_Offline_Returns_Failure_Not_Throw()
     {
         var handler = new ThrowingHandler();

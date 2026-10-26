@@ -1,0 +1,51 @@
+@if (Notes is not null)
+{
+    <div class="wizard-overlay release-notes-overlay">
+        <div class="wizard-modal release-notes-modal" role="dialog" aria-modal="true"
+             aria-labelledby="release-notes-title" @onclick:stopPropagation="true">
+            <div class="wizard-header">
+                <div>
+                    <span class="eyebrow">Release notes</span>
+                    <h2 id="release-notes-title">What's new in @Notes.Version</h2>
+                    @if (!string.IsNullOrWhiteSpace(Notes.Title)
+                         && !string.Equals(Notes.Title, $"v{Notes.Version}", StringComparison.OrdinalIgnoreCase))
+                    {
+                        <span class="text-muted">@Notes.Title</span>
+                    }
+                </div>
+                <button class="icon-button" title="Close" @onclick="OnDismiss">
+                    <Icon Name="x" Size="18" />
+                </button>
+            </div>
+            <div class="wizard-body release-notes-body">
+                @if (string.IsNullOrWhiteSpace(Notes.Body))
+                {
+                    <div class="hint-box">
+                        The release notes could not be loaded here. Open the release on
+                        GitHub to read what changed in this version.
+                    </div>
+                }
+                else
+                {
+                    <ReleaseNotesBody Text="@Notes.Body" />
+                }
+            </div>
+            <div class="wizard-footer">
+                <div class="flex-actions">
+                    <a class="btn-modern ghost" href="@(Notes.Url ?? "https://github.com/warreth/melodybridge/releases")"
+                       target="_blank" rel="noopener">
+                        Open on GitHub <Icon Name="external" Size="13" />
+                    </a>
+                </div>
+                <div class="wizard-actions">
+                    <button class="btn-modern primary" @onclick="OnDismiss">Got it</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public MelodyBridge.Server.Services.ReleaseNotesInfo? Notes { get; set; }
+    [Parameter] public EventCallback OnDismiss { get; set; }
+}

@@ -129,6 +129,7 @@ public class ToastTests
         ctx.Services.AddSingleton(svc);
         ctx.Services.AddPluginAuthMonitor();
         ctx.Services.AddSingleton(new DevPanelService());
+        ctx.Services.AddUpdateService(TestHelpers.CreateInMemFactory());
 
         var cut = ctx.Render<MainLayout>();
         svc.Error("plugin login failed", "Fix plugin", "/plugins#plugin-qobuz");
@@ -157,6 +158,7 @@ public class ToastTests
         ctx.Services.AddSingleton(svc);
         ctx.Services.AddPluginAuthMonitor();
         ctx.Services.AddSingleton(new DevPanelService());
+        ctx.Services.AddUpdateService(TestHelpers.CreateInMemFactory());
 
         var cut = ctx.Render<MainLayout>();
         svc.Success("Download finished");

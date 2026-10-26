@@ -596,6 +596,37 @@ public class SettingsPageTests
             Assert.That(cut.Markup, Does.Contain("guided tour"));
             Assert.That(cut.Markup, Does.Contain("Export logs"),
                 "logs export moved from Network to About");
+            Assert.That(cut.Markup, Does.Contain("Check GitHub automatically"),
+                "automatic update checks have a visible switch");
+        }, TimeSpan.FromSeconds(3));
+    }
+
+    [Test]
+    public async Task Settings_AboutTab_UpdateCheckTogglePersists()
+    {
+        var cut = _ctx.Render<Settings>();
+        cut.FindAll("button.tab-link").First(b => b.TextContent.Trim() == "About").Click();
+
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("Check GitHub automatically")),
+            TimeSpan.FromSeconds(3));
+        var toggle = cut.FindAll("label.toggle-switch.wide")
+            .Single(l => l.TextContent.Contains("Check GitHub automatically"))
+            .QuerySelector("input[type='checkbox']")!;
+        Assert.That(toggle.HasAttribute("checked"), Is.True,
+            "automatic checks are on by default");
+
+        toggle.Change(false);
+
+        cut.WaitForAssertion(() =>
+        {
+            using var db = _ctx.Services
+                .GetRequiredService<IDbContextFactory<MelodyBridgeDbContext>>()
+                .CreateDbContext();
+            Assert.That(db.DownloaderSettings
+                    .Single(s => s.Key == MelodyBridge.Server.Services.UpdateService.EnabledKey)
+                    .Value,
+                Is.EqualTo("false"));
         }, TimeSpan.FromSeconds(3));
     }
 
