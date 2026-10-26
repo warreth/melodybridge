@@ -13,6 +13,7 @@
 @inject Application.Services.IDownloadCoordinator Coordinator
 @inject IDbContextFactory<MelodyBridgeDbContext> DbFactory
 @inject MediaServerProfileStore ServerProfiles
+@inject SyncRuleProfileStore RuleProfiles
 @inject MelodyBridge.Server.Services.NotificationService Notifications
 @implements IDisposable
 
@@ -682,8 +683,8 @@ else
                     <h2>Send playlists to your servers</h2>
                     <p class="text-muted">
                         The quick path: each playlist gets its own sync job with the same
-                        name, schedule and targets. Open a job afterwards for path remaps
-                        or different targets per playlist.
+                        name, schedule, rule profile and targets. Open a job afterwards
+                        for different rules or targets per playlist.
                     </p>
                 </div>
                 <button class="icon-button" title="Close" @onclick="ClosePublishPanel"><Icon Name="x" Size="18" /></button>
@@ -764,7 +765,14 @@ else
                             <span class="publish-option-body">
                                 <strong><Icon Name="list-music" Size="15" /> M3U file</strong>
                                 <small>
-                                    @if (string.IsNullOrWhiteSpace(publishM3uFolder))
+                                    @if (PublishRuleProfile is { } fileProfile)
+                                    {
+                                        <span>
+                                            One file per playlist through <strong>@fileProfile.Name</strong>,
+                                            in <span class="text-muted">@fileProfile.M3uOutputFolder</span>.
+                                        </span>
+                                    }
+                                    else if (string.IsNullOrWhiteSpace(publishM3uFolder))
                                     {
                                         <span class="sync-warn">Set the Playlist output folder in Settings first.</span>
                                     }
@@ -791,6 +799,52 @@ else
                             </label>
                         }
                     </div>
+                    @if (publishM3uEnabled)
+                    {
+                        <div class="publish-m3u-config">
+                            <div class="section-title-row">
+                                <h4>M3U rule profile</h4>
+                                <a class="link-button" href="/sync-jobs">
+                                    Manage profiles
+                                </a>
+                            </div>
+                            <label>
+                                Rule profile
+                                <select aria-label="Rule profile for quick publish"
+                                        @bind="publishRuleProfileId">
+                                    <option value="">Custom folder</option>
+                                    @foreach (var profile in publishRuleProfiles)
+                                    {
+                                        <option value="@profile.Id">@profile.Name</option>
+                                    }
+                                </select>
+                            </label>
+                            @if (PublishRuleProfile is { } ruleProfile)
+                            {
+                                <small class="text-muted">
+                                    @ruleProfile.M3uFileNamePattern in @ruleProfile.M3uOutputFolder,
+                                    @PublishProfileFormat(ruleProfile),
+                                    @ruleProfile.PathRemapRules.Count path rules and
+                                    @ruleProfile.ExtensionRemapRules.Count extension rules.
+                                </small>
+                            }
+                            else if (publishRuleProfiles.Count == 0)
+                            {
+                                <div class="hint-box">
+                                    No rule profiles yet. A profile keeps the output folder, file name,
+                                    format and remaps together. Create one on the
+                                    <a href="/sync-jobs">Sync jobs</a> page, or keep the custom folder.
+                                </div>
+                            }
+                            else
+                            {
+                                <small class="text-muted">
+                                    Custom folder: @publishM3uFolder. Pick a profile to use its
+                                    folder, file name, format and remaps.
+                                </small>
+                            }
+                        </div>
+                    }
                     <div class="publish-schedule">
                         <SchedulePicker Label="Schedule for every job" @bind-Value="publishSchedule"
                                         LiveValidation="true"
@@ -925,10 +979,12 @@ else
     private string publishMessage = string.Empty;
     private string publishError = string.Empty;
     private List<MediaServerProfile> publishProfiles = new();
+    private List<SyncRuleProfile> publishRuleProfiles = new();
     private readonly HashSet<string> publishPlaylistIds = new(StringComparer.Ordinal);
     private readonly HashSet<string> publishProfileIds = new(StringComparer.Ordinal);
     private HashSet<string> jobPlaylistIds = new(StringComparer.Ordinal);
     private bool publishM3uEnabled;
+    private string publishRuleProfileId = "";
     private string publishM3uFolder = "/app/playlists";
     private ScanSchedule publishSchedule = ScanSchedule.Manual;
     private bool publishScheduleValid = true;
@@ -949,10 +1005,23 @@ else
     private bool AllSelected =>
         visiblePlaylists.Count > 0 && visiblePlaylists.All(p => selectedPlaylistIds.Contains(p.Id));
 
+    private SyncRuleProfile? PublishRuleProfile
+        => publishRuleProfiles.FirstOrDefault(p => p.Id == publishRuleProfileId);
+
     private bool CanPublish => publishPlaylistIds.Count > 0
         && (publishProfileIds.Count > 0 || publishM3uEnabled)
-        && (!publishM3uEnabled || !string.IsNullOrWhiteSpace(publishM3uFolder))
+        && (!publishM3uEnabled || PublishRuleProfile is not null
+            || !string.IsNullOrWhiteSpace(publishM3uFolder))
         && publishScheduleValid;
+
+    private static string PublishProfileFormat(SyncRuleProfile profile)
+    {
+        if (profile.M3uCrlf && profile.M3uBom && !profile.M3uBackslashes)
+            return "UTF-8 BOM and CRLF";
+        if (profile.M3uCrlf && !profile.M3uBom && !profile.M3uBackslashes)
+            return "CRLF without BOM";
+        return "custom text format";
+    }
 
     private string PublishButtonLabel => publishPlaylistIds.Count switch
     {
@@ -973,6 +1042,8 @@ else
         publishScheduleValid = true;
         publishM3uFolder = await Settings.GetAsync("playlist_path", "/app/playlists");
         publishProfiles = (await ServerProfiles.GetAllAsync()).ToList();
+        publishRuleProfiles = await RuleProfiles.GetAllAsync();
+        publishRuleProfileId = publishRuleProfiles.FirstOrDefault()?.Id ?? "";
         jobPlaylistIds = await QuickSyncJobs.PlaylistsWithJobAsync(DbFactory);
         showPublishPanel = true;
     }
@@ -1022,6 +1093,13 @@ else
             // open. Refresh before creating: a job must never store a dead
             // target, and the user must see which selection changed.
             publishProfiles = (await ServerProfiles.GetAllAsync()).ToList();
+            publishRuleProfiles = await RuleProfiles.GetAllAsync();
+            if (publishM3uEnabled && !string.IsNullOrWhiteSpace(publishRuleProfileId)
+                && PublishRuleProfile is null)
+            {
+                publishError = "The selected rule profile no longer exists. Pick another one.";
+                return;
+            }
             var currentIds = publishProfiles.Select(p => p.Id).ToHashSet(StringComparer.Ordinal);
             var removed = publishProfileIds.RemoveWhere(id => !currentIds.Contains(id));
             if (publishProfileIds.Count == 0 && !publishM3uEnabled)
@@ -1044,9 +1122,15 @@ else
                 .Where(p => publishPlaylistIds.Contains(p.Id))
                 .Select(p => (p.Id, p.Name))
                 .ToList();
-            var options = new QuickSyncOptions(publishSchedule, publishM3uEnabled, publishM3uFolder);
+            var options = new QuickSyncOptions(
+                publishSchedule,
+                publishM3uEnabled,
+                publishM3uFolder,
+                publishM3uEnabled && !string.IsNullOrWhiteSpace(publishRuleProfileId)
+                    ? publishRuleProfileId : null);
             var result = await QuickSyncJobs.CreateAsync(
-                DbFactory, ServerProfiles, selected, publishProfileIds.ToList(), options);
+                DbFactory, ServerProfiles, selected, publishProfileIds.ToList(),
+                options, RuleProfiles);
 
             var message = result.Created.Count switch
             {
@@ -1057,7 +1141,9 @@ else
             if (publishSchedule.Mode != ScanScheduleMode.Manual && result.Created.Count > 0)
                 message += $" with a {publishSchedule.Describe()} schedule";
             if (publishM3uEnabled && result.Created.Count > 0)
-                message += " including an M3U file";
+                message += PublishRuleProfile is { } usedProfile
+                    ? $" including M3U files from '{usedProfile.Name}'"
+                    : " including an M3U file";
             if (result.Skipped.Count > 0)
             {
                 message += ". Skipped: " + string.Join("; ",

@@ -62,6 +62,25 @@ public static class SafeFileNames
         return candidate;
     }
 
+    /// <summary>
+    /// A unique variant of an already built path (for example one that came
+    /// from a rule profile's file name pattern). The suffix goes before the
+    /// extension, so a custom pattern keeps its shape.
+    /// </summary>
+    public static string UniquePath(string path, IEnumerable<string> usedPaths)
+    {
+        var used = usedPaths.Select(PathKey).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (!used.Contains(PathKey(path))) return path;
+
+        var folder = Path.GetDirectoryName(path) ?? "";
+        var extension = Path.GetExtension(path);
+        var baseName = Path.GetFileNameWithoutExtension(path);
+        var candidate = path;
+        for (var suffix = 2; used.Contains(PathKey(candidate)); suffix++)
+            candidate = Path.Combine(folder, $"{baseName} ({suffix}){extension}");
+        return candidate;
+    }
+
     /// <summary>One comparison form for paths that may use either separator.</summary>
     public static string PathKey(string path)
         => path.Replace('\\', '/').TrimEnd('/');

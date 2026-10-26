@@ -422,6 +422,66 @@ public class PlaylistsPageTests
     }
 
     [Test]
+    public async Task Playlists_PublishWizard_UsesTheSelectedRuleProfile()
+    {
+        SeedOnePlaylist("Jazz Classics", 3, Platform.Spotify);
+        SeedProfile("Home Jellyfin");
+        var rules = new MelodyBridge.Infrastructure.Services.SyncRuleProfileStore(
+            new SqliteFactory(_dbPath));
+        await rules.SaveAsync(new MelodyBridge.Core.SyncRuleProfile
+        {
+            Id = "rules-1",
+            Name = "Living room",
+            M3uOutputFolder = "/srv/playlists",
+            M3uFileNamePattern = "{playlist}.m3u8",
+            M3uCrlf = true,
+            M3uBom = true,
+        });
+
+        var cut = _ctx.Render<Playlists>();
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("Jazz Classics")), TimeSpan.FromSeconds(3));
+        cut.FindAll("button").Single(b => b.TextContent.Contains("Publish")).Click();
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.FindAll(".publish-option"), Is.Not.Empty), TimeSpan.FromSeconds(3));
+
+        cut.FindAll(".publish-option")
+            .Single(o => o.TextContent.Contains("Jazz Classics"))
+            .QuerySelector("input")!.Change(true);
+        cut.FindAll(".publish-option")
+            .Single(o => o.TextContent.Contains("M3U file"))
+            .QuerySelector("input")!.Change(true);
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.Markup, Does.Contain("M3U rule profile"));
+            Assert.That(cut.Find("select[aria-label='Rule profile for quick publish']")
+                .GetAttribute("value"), Is.EqualTo("rules-1"),
+                "the first profile is the ready default, not a hidden folder");
+            Assert.That(cut.Markup, Does.Contain("Living room"));
+            Assert.That(cut.Markup, Does.Contain("One file per playlist through"),
+                "the M3U row names the selected profile");
+        }, TimeSpan.FromSeconds(3));
+
+        cut.FindAll("button").Single(b => b.TextContent.Contains("Create 1 sync job")).Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            using var db = new SqliteFactory(_dbPath).CreateDbContext();
+            var job = db.SyncJobs.Single();
+            Assert.That(job.RuleProfileId, Is.EqualTo("rules-1"),
+                "the created job follows the chosen profile");
+            var file = MelodyBridge.Infrastructure.Services.SyncJobMapping
+                .TargetsOf(job).Single(t => t.Kind == OutputTargetType.M3uFile);
+            Assert.That(file.M3uPath,
+                Is.EqualTo(Path.Combine("/srv/playlists", "Jazz Classics.m3u8")),
+                "the profile's folder and pattern name the file");
+        }, TimeSpan.FromSeconds(5));
+
+        Assert.That(cut.Markup, Does.Contain("M3U files from 'Living room'"));
+    }
+
+    [Test]
     public void Playlists_PublishWizard_HidesPlaylistsThatAlreadyHaveAJob()
     {
         SeedOnePlaylist("Already Published", 1, Platform.Spotify);

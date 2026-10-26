@@ -57,6 +57,9 @@ public class QuickSyncJobsTests
         });
     }
 
+    private async Task SeedRuleProfileAsync(SyncRuleProfile profile)
+        => await new SyncRuleProfileStore(_factory).SaveAsync(profile);
+
     [Test]
     public async Task Create_MakesOneNamedJobPerPlaylist_WithEveryTickedProfile()
     {
@@ -281,6 +284,102 @@ public class QuickSyncJobsTests
         var job = db.SyncJobs.Single();
         Assert.That(SyncJobMapping.TargetsOf(job).Single().Kind,
             Is.EqualTo(OutputTargetType.M3uFile));
+    }
+
+    [Test]
+    public async Task Create_WithRuleProfile_LinksTheJobAndUsesItsRules()
+    {
+        await SeedPlaylistsAsync(("p1", "Jazz Classics"));
+        await SeedProfileAsync("px1", "JF", "Jellyfin");
+        await SeedRuleProfileAsync(new SyncRuleProfile
+        {
+            Id = "rules-1",
+            Name = "Living room",
+            M3uOutputFolder = "/srv/playlists",
+            M3uFileNamePattern = "{playlist}-tv.m3u8",
+            M3uCrlf = false,
+            M3uBom = false,
+            M3uRelativePaths = true,
+            PathRemapRules = new Dictionary<string, string> { ["/music"] = "/media/music" },
+            ExtensionRemapRules = new Dictionary<string, string> { [".flac"] = ".mp3" },
+        });
+        var rulesStore = new SyncRuleProfileStore(_factory);
+
+        var result = await QuickSyncJobs.CreateAsync(_factory, _profiles,
+            new[] { ("p1", "Jazz Classics") }, new[] { "px1" },
+            new QuickSyncOptions(ScanSchedule.Manual, M3uEnabled: true,
+                M3uDirectory: "/ignored", RuleProfileId: "rules-1"),
+            rulesStore);
+
+        Assert.That(result.Created, Has.Count.EqualTo(1));
+        await using var db = _factory.CreateDbContext();
+        var job = db.SyncJobs.Single();
+        var file = SyncJobMapping.TargetsOf(job).Single(t => t.Kind == OutputTargetType.M3uFile);
+        Assert.Multiple(() =>
+        {
+            Assert.That(job.RuleProfileId, Is.EqualTo("rules-1"),
+                "the quick job follows the profile on every run");
+            Assert.That(file.M3uPath, Is.EqualTo(
+                Path.Combine("/srv/playlists", "Jazz Classics-tv.m3u8")),
+                "the profile's folder and file name pattern win over the custom folder");
+            Assert.That(job.M3uCrlf, Is.False, "the profile's text format is stored as a fallback");
+            Assert.That(job.M3uBom, Is.False);
+            Assert.That(job.M3uRelativePaths, Is.True);
+            Assert.That(job.PathRemapRules, Does.Contain("/media/music"));
+            Assert.That(job.ExtensionRemapRules, Does.Contain(".mp3"));
+        });
+    }
+
+    [Test]
+    public async Task Create_WithDeletedRuleProfile_SkipsEveryPlaylist()
+    {
+        await SeedPlaylistsAsync(("p1", "Jazz"));
+        await SeedProfileAsync("px1", "JF", "Jellyfin");
+        var rulesStore = new SyncRuleProfileStore(_factory);
+
+        var result = await QuickSyncJobs.CreateAsync(_factory, _profiles,
+            new[] { ("p1", "Jazz") }, new[] { "px1" },
+            new QuickSyncOptions(ScanSchedule.Manual, M3uEnabled: true, RuleProfileId: "gone"),
+            rulesStore);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Created, Is.Empty);
+            Assert.That(result.Skipped.Single().Reason,
+                Does.Contain("rule profile no longer exists"));
+        });
+        await using var db = _factory.CreateDbContext();
+        Assert.That(db.SyncJobs.Count(), Is.Zero);
+    }
+
+    [Test]
+    public async Task Create_WithRuleProfile_KeepsCollidingNamesInSeparateFiles()
+    {
+        await SeedPlaylistsAsync(("p1", "AC/DC"), ("p2", "AC_DC"));
+        await SeedProfileAsync("px1", "JF", "Jellyfin");
+        await SeedRuleProfileAsync(new SyncRuleProfile
+        {
+            Id = "rules-1",
+            Name = "Living room",
+            M3uOutputFolder = "/srv/playlists",
+            M3uFileNamePattern = "{job}.m3u8",
+        });
+        var rulesStore = new SyncRuleProfileStore(_factory);
+
+        var result = await QuickSyncJobs.CreateAsync(_factory, _profiles,
+            new[] { ("p1", "AC/DC"), ("p2", "AC_DC") }, new[] { "px1" },
+            new QuickSyncOptions(ScanSchedule.Manual, M3uEnabled: true, RuleProfileId: "rules-1"),
+            rulesStore);
+
+        var paths = result.Created
+            .Select(j => SyncJobMapping.TargetsOf(j)
+                .Single(t => t.Kind == OutputTargetType.M3uFile).M3uPath)
+            .ToList();
+        Assert.That(paths, Is.EquivalentTo(new[]
+        {
+            Path.Combine("/srv/playlists", "AC_DC.m3u8"),
+            Path.Combine("/srv/playlists", "AC_DC (2).m3u8"),
+        }));
     }
 
     [Test]

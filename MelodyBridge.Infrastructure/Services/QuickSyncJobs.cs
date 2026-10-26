@@ -1,3 +1,4 @@
+using System.Text.Json;
 using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.Data;
 using MelodyBridge.Infrastructure.MediaServers;
@@ -24,7 +25,8 @@ public sealed record QuickSyncResult(
 public sealed record QuickSyncOptions(
     ScanSchedule Schedule,
     bool M3uEnabled = false,
-    string? M3uDirectory = null)
+    string? M3uDirectory = null,
+    string? RuleProfileId = null)
 {
     public static QuickSyncOptions Default { get; } =
         new(ScanSchedule.Manual);
@@ -78,6 +80,7 @@ public static class QuickSyncJobs
         IEnumerable<(string PlaylistId, string Name)> playlists,
         IReadOnlyList<string> profileIds,
         QuickSyncOptions? options = null,
+        SyncRuleProfileStore? ruleProfileStore = null,
         CancellationToken ct = default)
     {
         var created = new List<SyncJobEntity>();
@@ -100,7 +103,20 @@ public static class QuickSyncJobs
                     skipped.Add(new(name, "no target was selected"));
                 return new(created, skipped);
             }
-            if (options.M3uEnabled && string.IsNullOrWhiteSpace(options.M3uDirectory))
+            SyncRuleProfile? ruleProfile = null;
+            if (options.M3uEnabled && !string.IsNullOrWhiteSpace(options.RuleProfileId))
+            {
+                if (ruleProfileStore is not null)
+                    ruleProfile = await ruleProfileStore.FindAsync(options.RuleProfileId, ct);
+                if (ruleProfile is null)
+                {
+                    foreach (var (_, name) in wanted)
+                        skipped.Add(new(name, "the selected rule profile no longer exists"));
+                    return new(created, skipped);
+                }
+            }
+            if (options.M3uEnabled && ruleProfile is null
+                && string.IsNullOrWhiteSpace(options.M3uDirectory))
             {
                 foreach (var (_, name) in wanted)
                     skipped.Add(new(name, "the M3U output folder is not set"));
@@ -174,13 +190,32 @@ public static class QuickSyncJobs
                 var targets = new List<SyncTarget>();
                 if (options.M3uEnabled)
                 {
-                    var m3uPath = SafeFileNames.UniqueFile(
-                        options.M3uDirectory!, name, ".m3u8", usedM3uPaths);
+                    string m3uPath;
+                    if (ruleProfile is not null)
+                    {
+                        // A linked job follows the profile live. Keep a copy
+                        // of its format and rules on the row too, so deleting
+                        // the profile leaves the job with what it had.
+                        entity.RuleProfileId = ruleProfile.Id;
+                        entity.M3uRelativePaths = ruleProfile.M3uRelativePaths;
+                        entity.M3uCrlf = ruleProfile.M3uCrlf;
+                        entity.M3uBackslashes = ruleProfile.M3uBackslashes;
+                        entity.M3uBom = ruleProfile.M3uBom;
+                        entity.PathRemapRules = JsonSerializer.Serialize(ruleProfile.PathRemapRules);
+                        entity.ExtensionRemapRules = JsonSerializer.Serialize(ruleProfile.ExtensionRemapRules);
+                        m3uPath = SafeFileNames.UniquePath(
+                            SyncRuleProfileStore.ResolveOutputPath(ruleProfile, name), usedM3uPaths);
+                    }
+                    else
+                    {
+                        m3uPath = SafeFileNames.UniqueFile(
+                            options.M3uDirectory!, name, ".m3u8", usedM3uPaths);
+                        // Quick publish has no format step: use the widest text
+                        // defaults, and let the job's editor switch to Plain.
+                        entity.M3uCrlf = true;
+                        entity.M3uBom = true;
+                    }
                     usedM3uPaths.Add(SafeFileNames.PathKey(m3uPath));
-                    // Quick publish has no format step: use the widest text
-                    // defaults, and let the job's editor switch to Plain.
-                    entity.M3uCrlf = true;
-                    entity.M3uBom = true;
                     targets.Add(new SyncTarget(OutputTargetType.M3uFile, M3uPath: m3uPath));
                 }
                 targets.AddRange(existingProfiles.Select(p =>

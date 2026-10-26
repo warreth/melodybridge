@@ -67,3 +67,16 @@
 .publish-option-body strong { overflow-wrap: anywhere; }
 .publish-option-body small { color: var(--muted); }
 .publish-option-note { color: var(--muted); font-size: .8rem; }
+
+/* Quick publish: the rule profile picker sits under the target list, so
+   the choice reads as part of the M3U target it belongs to. */
+.publish-m3u-config {
+    display: grid;
+    gap: .5rem;
+    padding: .7rem .8rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface-2);
+}
+.publish-m3u-config h4 { margin: 0; font-size: .88rem; }
+.publish-m3u-config label { display: grid; gap: .3rem; }
