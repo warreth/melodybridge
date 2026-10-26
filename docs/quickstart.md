@@ -71,6 +71,6 @@ in the app is a container path: the music folder is `/music`, not `C:\Music` or
   build and what every volume and environment variable does.
 - [How it works](/concepts) for the download waterfall, the quality checks and
   how your library survives a database wipe.
-- [Publishing playlists](/publishing) for the full sync job wizard and schedules.
+- [Publishing playlists](/publishing) for the sync job editor, rule profiles and schedules.
 - [Accounts and imports](/accounts) when you want private playlists or liked
   songs, not just public links.

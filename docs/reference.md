@@ -32,11 +32,21 @@ Connect**: the app shows a code, you approve it in Jellyfin, and the sign-in
 finishes by itself. Plex takes an X-Plex-Token. Every profile has a **Test**
 button, and one can be marked **Use as app default**.
 
-Profiles are what sync jobs pick: the wizard lists the profiles of the chosen
-kind, and a job stores the profile, not a copy of its credentials. Edit a
+Profiles are what sync jobs pick: the job editor lists the profiles of the
+chosen kind, and a job stores the profile, not a copy of its credentials. Edit a
 profile once and every job that uses it follows. The profile marked as app
 default feeds the app-wide fallback the sync clients use when no profile is
 picked.
+
+### Sync rule profiles
+
+Named output rules for sync jobs: M3U output folder, file name pattern, text
+format, relative paths, path remaps and extension remaps. Open the **Rule
+profiles** tab on the Sync jobs page to create one. A linked job follows the
+profile live, so changing the library mount or playlist folder updates every
+job that uses it. The quick editor shows the resolved M3U path and a preview of
+the player path and M3U entry. **Select jobs** applies a profile, a schedule, an
+M3U folder or a media server target to several jobs at once.
 
 ### Default paths
 
@@ -48,7 +58,8 @@ picked.
   along with it.
 - **Playlist output folder** (`/app/playlists`): where M3U files are written.
   A new sync job starts with `<folder>/<job name>.m3u8`; type a different path
-  in the wizard when a job should land elsewhere.
+  in the quick or advanced editor when a job should land elsewhere. A rule
+  profile can set the folder and file name for every linked job.
 - **Archive path** and **Archive format**: the defaults for archive copies.
   Leave the path empty for no archive. Per-playlist values override these, and
   the playlist page shows what the app default currently is. The format picker

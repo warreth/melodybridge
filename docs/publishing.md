@@ -7,7 +7,7 @@ and Plex in a single run. Jobs run by hand or on a schedule, so your "New
 releases" playlist can show up on the media server without you touching
 anything.
 
-<img src="/screens/sync.webp" alt="Sync jobs page with job cards and the five step wizard" width="800">
+<img src="/screens/sync.webp" alt="Sync jobs page with jobs, rule profiles and bulk selection" width="800">
 
 ## Publish playlists in a few clicks
 
@@ -26,37 +26,75 @@ Playlists that already have a job are left out of the list, so the same playlist
 is not offered twice; creating the jobs re-reads the list, and anything deleted
 in the meantime is named in the result instead of becoming a dangling target.
 
-The quick path still skips path remaps and the per-job Jellyfin user. Open a
-created job with **Edit** on the Sync jobs page for those.
+The quick path still skips custom remaps and the per-job Jellyfin user. Open a
+created job with **Quick edit** on the Sync jobs page, or use a rule profile.
 
 <img src="/screens/publish.webp" alt="Quick publish dialog on the Playlists page" width="800">
 
-## Create a sync job
+## Create and edit a sync job
 
-**New sync job** opens a five-step wizard.
+**New sync job** opens the quick editor, not a five-step wizard. The form is one
+screen:
 
-### Step 1: Pick your playlist
+- **Basics**: name, source playlist or folder, and the search folders.
+- **Publish to**: the M3U file, a rule profile, the compatibility format, and
+  any media server profiles. One job can publish to several targets at once.
+- **Schedule**: manual, hourly, daily, weekly, monthly or cron.
+- **Rules and preview**: the shared rules in use, a sample source path, the
+  player path and the exact M3U entry.
 
-Give the job a name and choose the source:
+**Create sync job** saves it. Later, **Quick edit** in a job's menu opens the
+same screen with the current values. **Advanced edit** opens the full editor for
+custom per-job remaps, legacy connections and every low-level option.
 
-- **Saved playlist** publishes a playlist from the Playlists page.
-- **Local folder** publishes one scan folder from the Library page, for music
-  that did not come from a playlist at all.
+<img src="/screens/sync-quick.webp" alt="Quick sync job editor with basics, targets, rules and a live rule preview" width="800">
 
-### Step 2: Where your music lives
+### Rule profiles
 
-A checkbox list of your scan folders, all checked by default. Leave them all
-checked to search every folder for matching files. Only tracks whose file lives
-in a ticked folder are published; folders that merely share a prefix (`List A`
-and `List AB`) stay apart.
+A rule profile is a reusable bundle of output rules. It sets:
 
-### Step 3: Choose the targets
+- the M3U output folder;
+- the file name pattern, with `{job}` or `{playlist}` for the job name;
+- the text format, relative paths and UTF-8 BOM/CRLF/backslash choices;
+- the path remap rules, for example `/music` to `/media/music`;
+- the extension remap rules, for example `.flac` to `.mp3`.
 
-Tick everything the job should publish to; at least one target is required.
+Open the **Rule profiles** tab to create one. Every job linked to that profile
+follows it on the next run, so changing the library mount or the playlist folder
+is one edit, not twenty. The editor shows a live preview: the M3U file, the path
+the player sees, and the M3U entry that will be written.
+
+The profile is also used by the Jellyfin, Plex and Subsonic path lookup. One set
+of rules therefore keeps the M3U and every media server target in step.
+
+<img src="/screens/sync-profiles.webp" alt="Rule profiles tab with a shared output profile" width="800">
+
+### Edit many jobs
+
+Choose **Select jobs** to switch the list to rows with checkboxes. Select any
+number of jobs, then:
+
+- **Apply profile** links them all to one rule profile;
+- **Set schedule** sets their schedule together;
+- **Set M3U folder** gives each selected job its own `{job}.m3u8` in that folder
+  and switches them to custom paths;
+- **Add server** adds one media server profile to every selected job.
+
+The selection bar works on the selected rows only. Nothing is deleted, and a
+job that already has a target keeps its other targets.
+
+### The advanced editor
+
+The old wizard is still available from **Advanced wizard** and **Advanced edit**.
+Use it when a job needs its own remap rules instead of a shared profile, or when
+you need to keep a legacy inline connection. It walks through source, search
+folders, targets, remaps and review.
+
+For a step-by-step description of the targets:
 
 | Target | What it needs |
 |---|---|
-| M3U file | An output path inside the container. It starts from the **Playlist output folder** setting plus the job name; type a different path when this job should land elsewhere. **Playlist compatibility** picks the text format: **Widest compatibility** writes UTF-8 with BOM, Windows line endings and forward slashes for a `.m3u8` file; **Windows car and MP4 players** uses backslashes instead; **Plain** keeps the old host line endings and no BOM for a `.m3u` file; **Custom** exposes the three switches. Tick **Relative paths in the M3U** to write entries relative to the M3U file (`../music/song.flac`) instead of absolute paths, so the playlist keeps working when the folder moves. Leave it off when the player or media server sees the two folders at unrelated paths, as the default Docker layout does. Putting the playlist in the same folder as the music gives bare file names and works on the most devices |
+| M3U file | An output path inside the container. With a rule profile the folder and file name come from the profile; without one, type the path. **Playlist compatibility** writes UTF-8 with BOM, Windows line endings and forward slashes for `.m3u8`, uses backslashes for a Windows car or MP4 player, or keeps the plain/old format. **Relative paths** makes entries like `../music/song.flac`; putting the playlist in the same folder as the music gives bare file names and works on the most devices |
 | Jellyfin | A Jellyfin profile from **Settings, Media servers**. **Test connection** checks it and lets you pick the user; that user applies to every Jellyfin target of the job |
 | Plex | A Plex profile. The token holder is the only account there is, so there is no user picker |
 | Subsonic | A Subsonic or Navidrome profile. Navidrome, gonic, Airsonic, Ampache, Funkwhale and Nextcloud Music all speak this API; there are no API keys |
@@ -64,28 +102,12 @@ Tick everything the job should publish to; at least one target is required.
 The job stores the profiles you tick, not a copy of their credentials: edit a
 profile once and every job that uses it follows. If a profile is deleted, the
 next edit drops that target and asks for a replacement while the job's other
-targets stay. No profile yet? The wizard links straight to the media servers tab,
-where you create one (Jellyfin sign-in and Quick Connect included), then reload
-the list here. A job created before profiles existed keeps the connection it
+targets stay. A job created before profiles existed keeps the connection it
 carries as a target you can keep or replace.
 
-The job card names every target, and the run summary counts them: a run that
-reaches three targets says so, and one refused target fails the run with its own
-message while the others still publish.
-
-### Step 4: Optional: fix file paths
-
-Add path or extension remap rules when the M3U consumer or a Jellyfin, Plex or
-Subsonic server sees files under a different path than MelodyBridge. This is
-common in Docker, where the same folder is mounted at different paths in
-different containers. A path rule maps a prefix (`/mnt/BackupHDD/Music` to
-`/media/music`), and an extension rule rewrites file extensions (`.flac` to
-`.opus`). Leave both empty when the paths already line up.
-
-### Step 5: Check and create
-
-Review the summary and press **Create sync job**. Later, **Edit** on the job
-card reopens the same wizard with the current values.
+Path and extension rules apply to the M3U entries and to the path lookup for
+Jellyfin, Plex and Subsonic. They are only needed when those consumers see files
+under a different path or extension, for example inside Docker.
 
 ## Schedules
 
