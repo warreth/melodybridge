@@ -5,6 +5,10 @@
 @if (Active)
 {
     <div class="tour-overlay" aria-live="polite">
+        @if (Current.SpotlightSelector is null)
+        {
+            <div class="tour-dim" aria-hidden="true"></div>
+        }
         <div id="tour-spotlight" class="tour-spotlight"></div>
         <div class="tour-card" role="dialog" aria-modal="true" aria-labelledby="tour-title">
             <span class="eyebrow">Tour @(_index + 1) of @Steps.Count</span>
@@ -88,9 +92,14 @@
         try
         {
             var selector = Current.SpotlightSelector;
-            // Missing element (page differs from the tour's home): fall back to
-            // a plain centered card by hiding the spotlight box.
-            var found = selector is null || await JS.InvokeAsync<bool>("melody.spotlight", selector);
+            // A stop without a selector is a plain centered card. Missing
+            // elements (the page differs from the tour's home) do the same.
+            if (selector is null)
+            {
+                await JS.InvokeVoidAsync("melody.hideSpotlight");
+                return;
+            }
+            var found = await JS.InvokeAsync<bool>("melody.spotlight", selector);
             if (!found) await JS.InvokeVoidAsync("melody.hideSpotlight");
         }
         catch (JSException)

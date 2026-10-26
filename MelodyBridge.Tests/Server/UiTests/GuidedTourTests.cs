@@ -143,6 +143,27 @@ public class GuidedTourTests
     }
 
     [Test]
+    public async Task Tour_LastStepWithoutASelector_HidesTheSpotlight()
+    {
+        var cut = _ctx.Render<Home>();
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("Tour 1 of 6")), TimeSpan.FromSeconds(3));
+
+        for (var i = 0; i < 5; i++)
+            await cut.InvokeAsync(() => cut.Find(".tour-card .btn-modern.primary").Click());
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.Markup, Does.Contain("Tour 6 of 6"));
+            Assert.That(_ctx.JSInterop.Invocations["melody.hideSpotlight"].Count,
+                Is.GreaterThanOrEqualTo(1),
+                "the hands-off step must not leave the previous tab spotlit");
+            Assert.That(cut.FindAll(".tour-dim"), Has.Count.EqualTo(1),
+                "the selectorless step keeps the page dimmed");
+        }, TimeSpan.FromSeconds(3));
+    }
+
+    [Test]
     public async Task Tour_DoneOnLastStep_HidesSpotlightAndPersists()
     {
         var cut = _ctx.Render<Home>();

@@ -2128,6 +2128,13 @@ td.file-path {
     pointer-events: auto;
     cursor: default;
 }
+/* The final, selectorless stop has no spotlight hole: one flat dim keeps
+   the page in the background while the card hands off to the checklist. */
+.tour-dim {
+    position: absolute;
+    inset: 0;
+    background: color-mix(in srgb, #000 62%, transparent);
+}
 .tour-spotlight {
     position: absolute;
     display: none;
