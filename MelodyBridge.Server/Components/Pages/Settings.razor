@@ -928,8 +928,9 @@ else if (activeTab == "about")
         </div>
         <div class="settings-section">
             <p class="panel-description">
-                Export the most recent application logs (up to 1000 entries)
-                as a plain-text file for debugging or sharing.
+                Export the application logs as a plain-text file for debugging or
+                sharing. The live stream keeps the last 1000 entries, while older
+                warnings and errors stay available in the export.
             </p>
             <button class="btn-modern primary-outline" @onclick="ExportLogs">
                 <Icon Name="download" Size="16" Class="btn-icon" /> Export logs
@@ -1284,7 +1285,7 @@ else if (activeTab == "about")
         _spotifyConnected = await SpotifyAccount.IsConnectedAsync();
         _youtubeConnected = await YouTubeAccount.IsConnectedAsync();
         _spotifyWebConnected = await SpotifyWeb.IsConnectedAsync();
-        advancedMode = await TourReset.GetBoolAsync(DevPanelService.AdvancedSettingKey, false);
+        advancedMode = await TourReset.GetBoolAsync(AdvancedMode.SettingKey, false);
         updateCheckEnabled = await TourReset.GetBoolAsync(UpdateService.EnabledKey, true);
         spotifyWebSecretsUrl = await SpotifyWeb.GetSettingAsync("secrets_url") ?? string.Empty;
         spotifyClientId = await SpotifyAccount.GetSettingAsync("client_id") ?? string.Empty;

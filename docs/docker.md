@@ -102,7 +102,6 @@ compose file only sets `ASPNETCORE_URLS`, `FlareSolverr__Url` and
 | `ASPNETCORE_ENVIRONMENT` | `Production` | Set to `Development` for the dev setup |
 | `ASPNETCORE_URLS` | `http://+:80` | Where the server listens inside the container; takes precedence over `ASPNETCORE_HTTP_PORTS` |
 | `ASPNETCORE_HTTP_PORTS` | empty | Blanked in the image so `URLS` wins without a startup warning. Set it only when you configure the port this way instead of `URLS` |
-| `DevPanel__Enabled` | `false` | Enable the `/dev` testing dashboard |
 | `FlareSolverr__Url` | `auto` | Solver endpoint: `auto`, an explicit URL, or `off` |
 | `MELODYBRIDGE_DB` | `/app/state/melodybridge.db` | SQLite database location |
 
@@ -191,8 +190,7 @@ dotnet run --project MelodyBridge.Server
 ```
 
 yt-dlp must be on PATH. Contributors can also use the dev compose file, which
-builds the image from the checkout and runs it with verbose logging and the
-`/dev` panel:
+builds the image from the checkout and runs it with verbose logging:
 
 ```bash
 docker compose -f docker-compose.yml up -d --build

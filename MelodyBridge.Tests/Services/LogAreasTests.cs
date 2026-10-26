@@ -11,7 +11,7 @@ namespace MelodyBridge.Tests.Services;
 [TestFixture]
 public class LogAreasTests
 {
-    // Dev panel short categories (no namespace): these used to land in System
+    // Short category names (no namespace): these used to land in System
     [TestCase("Download", "Downloads")]
     [TestCase("Queue", "Downloads")]
     [TestCase("Search", "Sources")]
@@ -113,7 +113,7 @@ public class LogAreasTests
         };
 
         // These are system services by design: startup, notifications,
-        // background failure reporting and the dev panel itself.
+        // background failure reporting.
         var systemTypes = new HashSet<string>(StringComparer.Ordinal)
         {
             "ToastObserverService",
@@ -121,7 +121,8 @@ public class LogAreasTests
             "NotificationService",
             "BackgroundFailureSink",
             "UpdateCheckService",
-            "DevPanelService",
+            "UpdateService",
+            "UpdateWatchService",
         };
 
         var loggerTypes = assemblies

@@ -54,7 +54,6 @@ public class ReleaseNotesUiTests
         using var ctx = new Bunit.TestContext();
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
         ctx.Services.AddPluginAuthMonitor();
-        ctx.Services.AddSingleton(new DevPanelService());
         ctx.Services.AddSingleton(notifications);
         ctx.Services.AddSingleton(settings);
         ctx.Services.AddSingleton(updates);

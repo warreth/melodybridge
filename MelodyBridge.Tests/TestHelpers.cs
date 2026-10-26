@@ -28,7 +28,7 @@ public sealed class EmptyRegistry : IDownloaderRegistry
     public Task SetConfigAsync(string id, string key, string? value, CancellationToken ct = default) => Task.CompletedTask;
 }
 
-public sealed class TestDownloader : IDownloader
+public class TestDownloader : IDownloader
 {
     public TestDownloader(string id, string name) { Id = id; Name = name; }
     public TestDownloader(string id, string name, PluginConfigField[] config) { Id = id; Name = name; ConfigFields = config; }

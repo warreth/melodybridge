@@ -33,7 +33,6 @@ public class NavMenuActiveStateTests
         using (var db = factory.CreateDbContext())
             db.Database.EnsureCreated();
         _ctx.Services.AddSingleton<IDbContextFactory<MelodyBridgeDbContext>>(factory);
-        _ctx.Services.AddSingleton(new DevPanelService());
     }
 
     [TearDown]
@@ -60,20 +59,6 @@ public class NavMenuActiveStateTests
         var nav = _ctx.Render<NavMenu>();
         _ctx.Services.GetRequiredService<NavigationManager>().NavigateTo(uri);
         return nav;
-    }
-
-    [Test]
-    public void DevPanelLink_AppearsWhenAdvancedModeTurnsOn()
-    {
-        var panel = _ctx.Services.GetRequiredService<DevPanelService>();
-        var nav = _ctx.Render<NavMenu>();
-        Assert.That(nav.Markup, Does.Not.Contain("Dev panel"),
-            "the developer entry stays hidden until advanced mode is on");
-
-        panel.Enabled = true;
-
-        nav.WaitForAssertion(() => Assert.That(nav.Markup, Does.Contain("Dev panel")),
-            TimeSpan.FromSeconds(3));
     }
 
     [Test]

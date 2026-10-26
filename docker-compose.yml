@@ -1,7 +1,7 @@
 # Development compose: always rebuilds MelodyBridge from the repo and runs
-# it with verbose logging and the dev panel enabled, next to FlareSolverr.
+# it with verbose logging, next to FlareSolverr.
 # Start with:  docker compose -f docker-compose.yml up -d --build
-# The app listens on http://localhost:3333 (dev panel /dev).
+# The app listens on http://localhost:3333.
 
 services:
   # Solves Cloudflare challenges for the Lucida plugin. Runs on the
@@ -45,7 +45,6 @@ services:
       - Logging__LogLevel__Default=Information
       - Logging__LogLevel__Microsoft=Warning
       - Logging__LogLevel__System=Warning
-      - DevPanel__Enabled=true
       - MELODYBRIDGE_DB=/app/state/melodybridge.db
     # Volumes map a HOST path (left of the colon) to a CONTAINER path
     # (right side). MelodyBridge only ever sees the container side, so

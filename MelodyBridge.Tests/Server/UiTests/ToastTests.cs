@@ -128,7 +128,6 @@ public class ToastTests
         var svc = new NotificationService(autoDismissAfter: TimeSpan.FromMinutes(1));
         ctx.Services.AddSingleton(svc);
         ctx.Services.AddPluginAuthMonitor();
-        ctx.Services.AddSingleton(new DevPanelService());
         ctx.Services.AddUpdateService(TestHelpers.CreateInMemFactory());
 
         var cut = ctx.Render<MainLayout>();
@@ -157,7 +156,6 @@ public class ToastTests
         var svc = new NotificationService(autoDismissAfter: TimeSpan.FromMilliseconds(150));
         ctx.Services.AddSingleton(svc);
         ctx.Services.AddPluginAuthMonitor();
-        ctx.Services.AddSingleton(new DevPanelService());
         ctx.Services.AddUpdateService(TestHelpers.CreateInMemFactory());
 
         var cut = ctx.Render<MainLayout>();

@@ -106,7 +106,7 @@ public class AccountTutorialTests
         {
             db.DownloaderSettings.Add(new DownloaderSettingEntity
             {
-                Key = MelodyBridge.Server.Services.DevPanelService.AdvancedSettingKey,
+                Key = MelodyBridge.Server.Services.AdvancedMode.SettingKey,
                 Value = "true",
             });
             db.SaveChanges();

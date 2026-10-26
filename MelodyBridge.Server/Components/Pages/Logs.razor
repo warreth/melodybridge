@@ -520,30 +520,45 @@
         statusMessage = copied ? "Entry copied to clipboard" : "The browser would not let the page copy.";
     }
 
+    /// <summary>
+    /// The export view: the live rows the filters selected, plus older
+    /// warnings/errors that already left the live buffer. The on-screen
+    /// stream stays capped; the file does not lose the problem history.
+    /// </summary>
+    private List<LogEntry> ExportEntries()
+    {
+        var all = LogCollector.GetExportEntries();
+        if (all.Count == totalEntries)
+            return filtered.ToList();
+        return all.Where(Matches).ToList();
+    }
+
     private async Task CopyToClipboardAsync()
     {
+        var export = ExportEntries();
         bool copied;
         try
         {
             // The helper falls back to the selection trick on plain-http
             // hosts, where navigator.clipboard does not exist.
-            copied = await JS.InvokeAsync<bool>("melody.copyText", BuildText());
+            copied = await JS.InvokeAsync<bool>("melody.copyText", BuildText(export));
         }
         catch (JSException)
         {
             copied = false;
         }
         statusMessage = copied
-            ? $"Copied {filtered.Count} {(filtered.Count == 1 ? "entry" : "entries")} to clipboard"
+            ? $"Copied {export.Count} {(export.Count == 1 ? "entry" : "entries")} to clipboard"
             : "The browser would not let the page copy. Use Export instead.";
     }
 
     private async Task DownloadFileAsync()
     {
-        var bytes = System.Text.Encoding.UTF8.GetBytes(BuildText());
+        var export = ExportEntries();
+        var bytes = System.Text.Encoding.UTF8.GetBytes(BuildText(export));
         var name = $"melodybridge-logs-{DateTime.Now:yyyyMMdd-HHmmss}.txt";
         await JS.InvokeVoidAsync("melody.downloadFile", name, "text/plain", bytes);
-        statusMessage = $"Exported {filtered.Count} {(filtered.Count == 1 ? "entry" : "entries")} to {name}";
+        statusMessage = $"Exported {export.Count} {(export.Count == 1 ? "entry" : "entries")} to {name}";
     }
 
     private void CancelClear() => confirmClear = false;
@@ -564,11 +579,11 @@
     }
 
     /// <summary>Plain text, oldest first, honoring the active filters.</summary>
-    private string BuildText()
+    private string BuildText(List<LogEntry> export)
     {
         var sb = new System.Text.StringBuilder();
-        sb.AppendLine($"MelodyBridge logs ({filtered.Count} entries, generated {DateTime.Now:yyyy-MM-dd HH:mm:ss})");
-        foreach (var e in Enumerable.Reverse(filtered))
+        sb.AppendLine($"MelodyBridge logs ({export.Count} entries, generated {DateTime.Now:yyyy-MM-dd HH:mm:ss})");
+        foreach (var e in Enumerable.Reverse(export))
         {
             sb.Append('[').Append(e.Timestamp.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"))
               .Append("] ").Append(e.Level.ToString().ToUpperInvariant())

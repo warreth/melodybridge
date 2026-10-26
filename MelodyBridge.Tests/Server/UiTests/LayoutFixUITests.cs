@@ -82,7 +82,6 @@ public class LayoutFixUITests
             new MelodyBridge.Infrastructure.MediaServers.ConfigJellyfinSettings(
                 new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build()));
         _ctx.Services.AddSingleton<ILibraryScanner>(new Moq.Mock<ILibraryScanner>().Object);
-        _ctx.Services.AddSingleton(new MelodyBridge.Server.Services.DevPanelService());
         _ctx.Services.AddSingleton<Microsoft.Extensions.Configuration.IConfiguration>(
             new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build());
         var collector = new MelodyBridge.Server.Services.LogCollector();

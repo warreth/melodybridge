@@ -23,7 +23,6 @@ public class ShellUiTests
     {
         _ctx = new Bunit.TestContext();
         _ctx.Services.AddPluginAuthMonitor();
-        _ctx.Services.AddSingleton(new MelodyBridge.Server.Services.DevPanelService());
         _ctx.Services.AddSingleton(new MelodyBridge.Server.Services.NotificationService());
         _ctx.Services.AddUpdateService(TestHelpers.CreateInMemFactory());
         _ctx.JSInterop.Mode = JSRuntimeMode.Loose;
@@ -130,22 +129,6 @@ public class ShellUiTests
             Assert.That(isTemplate || routes.Contains(target), Is.True,
                 $"nav target {target} must exist in the route table");
         }
-    }
-
-    [Test]
-    public void NavMenu_DevPanelLink_FollowsToggle()
-    {
-        var devPanel = _ctx.Services.GetRequiredService<MelodyBridge.Server.Services.DevPanelService>();
-        var nav = _ctx.Render<NavMenu>();
-
-        Assert.That(nav.FindAll(".nav-link").Any(l => l.GetAttribute("href") == "/dev"),
-            Is.False, "the dev panel stays hidden while disabled");
-
-        devPanel.Enabled = true;
-        var navWithDev = _ctx.Render<NavMenu>();
-        Assert.That(navWithDev.FindAll(".nav-link").Any(l => l.GetAttribute("href") == "/dev"),
-            Is.True, "the dev panel appears when the service is enabled");
-        devPanel.Enabled = false;
     }
 
     [Test]

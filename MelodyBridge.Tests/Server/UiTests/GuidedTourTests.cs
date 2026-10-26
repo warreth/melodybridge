@@ -51,7 +51,6 @@ public class GuidedTourTests
             new MelodyBridge.Infrastructure.MediaServers.ConfigJellyfinSettings(
                 new ConfigurationBuilder().Build()));
         _ctx.Services.AddSingleton<ILibraryScanner>(new Moq.Mock<ILibraryScanner>().Object);
-        _ctx.Services.AddSingleton(new MelodyBridge.Server.Services.DevPanelService());
         _ctx.Services.AddSingleton<IConfiguration>(new ConfigurationBuilder().Build());
         var collector = new MelodyBridge.Server.Services.LogCollector();
         _ctx.Services.AddSingleton<ILogCollector>(collector);

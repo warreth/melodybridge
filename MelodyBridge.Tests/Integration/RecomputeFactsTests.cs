@@ -384,7 +384,6 @@ public class RecomputeFactsTests
         ctx.Services.AddSingleton<IDbContextFactory<MelodyBridgeDbContext>>(_factory);
         ctx.Services.AddSingleton(new SettingsStore(_factory));
         ctx.Services.AddSingleton(new MelodyBridge.Server.Services.NotificationService());
-        ctx.Services.AddSingleton(new MelodyBridge.Server.Services.DevPanelService());
         // The page injects the ntfy notifier now; a plain client is enough
         // because this test never sends.
         ctx.Services.AddHttpClient();

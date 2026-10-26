@@ -20,12 +20,16 @@ public class LogExporter
     /// </summary>
     public string ExportToText()
     {
-        var entries = _collector.GetEntries();
+        // The live buffer is bounded; GetExportEntries adds the warnings and
+        // errors kept in the problem archive, so a long run still exports
+        // every error even after thousands of info lines rolled over.
+        var entries = _collector.GetExportEntries();
         var sb = new StringBuilder();
         sb.AppendLine("───────────────────────────────────────────────────────────────");
         sb.AppendLine("  MelodyBridge: Log Export");
         sb.AppendLine($"  Generated: {DateTime.Now:yyyy-MM-dd HH:mm:ss UTC}");
         sb.AppendLine($"  Entries:   {entries.Count}");
+        sb.AppendLine($"  Live cap:  {_collector.MaxEntries} (older warnings and errors are kept)");
         sb.AppendLine("───────────────────────────────────────────────────────────────");
         sb.AppendLine();
 

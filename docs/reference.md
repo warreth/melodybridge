@@ -160,7 +160,15 @@ the appearance section. **Theme** offers Light, Dark or Auto: Auto follows your
 device and switches with it. The accent picker below it colors tabs, buttons and
 highlights, the guided tour included. Both are stored in this browser only.
 
-**Export logs** writes the most recent 1000 entries as a text file. The database
+MelodyBridge checks GitHub once a day for a newer release and adds a notification
+with a link to the notes when one exists. After an upgrade it opens that
+version's release notes once; a first install has nothing to announce. Both
+checks send only a request for the public release list. Turn the daily check off
+with **Check GitHub automatically for new versions** when you prefer no
+outbound calls.
+
+**Export logs** writes the live 1000-entry stream plus the warnings and errors
+kept outside it, so a long run does not lose the errors that matter. The database
 section exports a zip snapshot; importing one stages it, and the next start swaps
 it in and parks the previous database next to it under a name that ends in
 `.preimport.bak`. Work you did after the export is not in the imported copy, and
@@ -449,10 +457,9 @@ automatically.
 
 The knobs most people never need, in five panels:
 
-- **Advanced mode**: *Show developer tools and technical details* adds the Dev
-  panel to the sidebar and reveals the longer notes about unofficial accounts.
-  The setting is stored and survives a restart. Leave it off for the everyday
-  interface.
+- **Advanced mode**: *Show advanced options and technical details* reveals the
+  longer notes and extra fields on the settings and import screens. The setting
+  is stored and survives a restart. Leave it off for the everyday interface.
 - **Downloads**: *Max simultaneous track downloads* (1 to 8, default 2; the
   number counts every playlist and manual download together, and the next run
   picks up a change), *Plugin time budget* and *Track time budget* (in seconds:
@@ -492,35 +499,6 @@ The knobs most people never need, in five panels:
   links keep working: renaming one playlist's name leaves the other name on the
   same bytes. Playlists and sync jobs pick the new paths up on their next run.
 
-## The Dev panel <Badge type="warning" text="Advanced" />
-
-<img src="/screens/dev-panel.webp" alt="Dev panel with runtime facts, database counts and plugin health" width="800">
-
-Turn on **Advanced mode** on the Advanced page to add the Dev panel to the
-sidebar. It is a live toolbox for checking the app and its plugins.
-
-- **Diagnostics** reads the running process and the real SQLite file: version,
-  environment, runtime, OS, architecture, uptime, database path and size, WAL
-  size, and row counts for playlists, tracks, downloads, failures, sync jobs,
-  scan locations and settings. **Refresh** reads them again.
-- **Health** runs each registered plugin's own availability check with
-  **Probe all**. Probes run in parallel, each plugin gets 15 seconds, and the
-  result shows ready or unavailable, the reason the plugin gave, whether it is
-  enabled, and how long the check took.
-- **Copy report** puts the runtime facts, database counts, plugin health and the
-  last warnings and errors on your clipboard for a bug report. Secrets in URLs
-  are masked.
-- The search and direct download tools use the normal plugin pipeline. Search
-  asks each plugin for its best hit; direct download takes a URL and either a
-  chosen plugin or the whole waterfall. Files land in a temporary dev folder,
-  not your library.
-- The queue on this page is a test queue for those tools, separate from real
-  playlist runs. The live queue is on the Downloads page.
-- The **Log viewer** shows the collected entries newest first, 200 at a time,
-  with a level filter and a text search that also matches the area. **Show 200
-  more** adds the next page and **Copy** copies every entry that matches the
-  current filter, not only the visible page.
-
 ## The Logs page
 
 <img src="/screens/logs.webp" alt="Logs page with the filterable event stream" width="800">
@@ -542,8 +520,9 @@ are errors, a banner at the top lists them; click one to jump to that area.
   download attempt's search, skip reasons, download and verification under the
   same track header.
 - The stream renders the newest 200 matching entries. **Show 200 more entries**
-  appends the next page. The filters, counts and **Copy** and **Export** actions
-  cover the whole buffer, not only the rows in view.
+  appends the next page. The filters and counts cover the live buffer. **Copy**
+  and **Export** also carry warnings and errors that already rolled out of it,
+  so a long run keeps its full problem history.
 - Each row has **Copy** and **Pin**. A pinned entry moves to the pinned card
   above the stream and stays there while it updates; **Clear** empties the
   pinned list. **Show only problems** narrows everything down to errors.

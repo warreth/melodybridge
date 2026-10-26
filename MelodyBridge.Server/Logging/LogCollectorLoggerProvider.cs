@@ -8,25 +8,25 @@ namespace MelodyBridge.Server.Logging;
 /// <summary>
 /// An <see cref="ILoggerProvider"/> that forwards all <see cref="ILogger{T}"/> calls
 /// to the application-wide <see cref="ILogCollector"/>. This bridges the standard
-/// .NET logging pipeline into the DevPanel in-memory buffer so providers, services,
-/// and controllers all appear in the DevPanel log viewer automatically.
+/// .NET logging pipeline into the shared in-memory buffer so providers, services,
+/// and controllers all appear on the Logs page automatically.
 ///
 /// Register in the host builder:
 /// <code>
-/// builder.Logging.AddProvider(new DevPanelLoggerProvider(logCollector));
+/// builder.Logging.AddProvider(new LogCollectorLoggerProvider(logCollector));
 /// </code>
 /// </summary>
-public sealed class DevPanelLoggerProvider : ILoggerProvider
+public sealed class LogCollectorLoggerProvider : ILoggerProvider
 {
     private readonly ILogCollector _collector;
 
-    public DevPanelLoggerProvider(ILogCollector collector)
+    public LogCollectorLoggerProvider(ILogCollector collector)
     {
         _collector = collector;
     }
 
     public ILogger CreateLogger(string categoryName) =>
-        new DevPanelLogger(_collector, categoryName);
+        new LogCollectorLogger(_collector, categoryName);
 
     public void Dispose() { }
 }
@@ -36,7 +36,7 @@ public sealed class DevPanelLoggerProvider : ILoggerProvider
 /// Public for the logging filter tests: they drive real entries through
 /// the real logger, no stubs.
 /// </summary>
-public sealed class DevPanelLogger : ILogger
+public sealed class LogCollectorLogger : ILogger
 {
     private readonly ILogCollector _collector;
     private readonly string _categoryName;
@@ -52,7 +52,7 @@ public sealed class DevPanelLogger : ILogger
         [Microsoft.Extensions.Logging.LogLevel.Critical] = CoreLogLevel.Critical,
     };
 
-    public DevPanelLogger(ILogCollector collector, string categoryName)
+    public LogCollectorLogger(ILogCollector collector, string categoryName)
     {
         _collector = collector;
         _categoryName = categoryName;

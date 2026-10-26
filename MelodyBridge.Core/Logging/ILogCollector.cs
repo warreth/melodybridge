@@ -2,10 +2,9 @@ namespace MelodyBridge.Core.Logging;
 
 /// <summary>
 /// Application-wide log collector that aggregates structured log entries
-/// from all components (providers, services, controllers, DevPanel).
-///
-/// Provides a uniform view of all recent log activity, consumed by
-/// the DevPanel log viewer and the log exporter.
+/// from all components (providers, services, controllers). The live view
+/// is bounded; the exporter also sees older warnings and errors kept in
+/// a separate archive.
 /// </summary>
 public interface ILogCollector
 {
@@ -17,8 +16,14 @@ public interface ILogCollector
     void Log(LogLevel level, string category, string message,
         string? detail = null, string? group = null, string? area = null);
 
-    /// <summary>Get a snapshot of all collected entries (newest first).</summary>
+    /// <summary>Get a snapshot of the live entries (newest first).</summary>
     IReadOnlyList<LogEntry> GetEntries();
+
+    /// <summary>
+    /// Everything an export should carry: the live buffer plus warnings and
+    /// errors that already rolled out of it, newest first and de-duplicated.
+    /// </summary>
+    IReadOnlyList<LogEntry> GetExportEntries();
 
     /// <summary>
     /// A monotonic count of everything ever collected (including evicted
@@ -38,4 +43,7 @@ public interface ILogCollector
 
     /// <summary>Maximum number of entries kept in memory (oldest dropped).</summary>
     int MaxEntries { get; }
+
+    /// <summary>Maximum number of warning/error entries kept outside the live buffer.</summary>
+    int MaxProblemEntries { get; }
 }

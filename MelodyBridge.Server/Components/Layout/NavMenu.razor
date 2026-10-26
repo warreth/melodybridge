@@ -1,4 +1,3 @@
-@inject DevPanelService DevPanel
 @inject MelodyBridge.Infrastructure.Services.PluginAuthMonitor AuthMonitor
 @implements IDisposable
 
@@ -33,10 +32,6 @@
         <NavLink class="nav-link" href="/settings"><Icon Name="sliders" Class="nav-icon" /> Settings</NavLink>
         <NavLink class="nav-link" href="/advanced"><Icon Name="flag" Class="nav-icon" /> Advanced</NavLink>
         <NavLink class="nav-link" href="/logs"><Icon Name="terminal" Class="nav-icon" /> Logs</NavLink>
-        @if (DevPanel.Enabled)
-        {
-            <NavLink class="nav-link" href="/dev"><Icon Name="zap" Class="nav-icon" /> Dev panel</NavLink>
-        }
     </div>
 </nav>
 
@@ -49,11 +44,8 @@
     protected override void OnInitialized()
     {
         AuthMonitor.Changed += OnAuthChanged;
-        DevPanel.Changed += OnDevPanelChanged;
         RefreshAuthCount();
     }
-
-    private void OnDevPanelChanged() => _ = InvokeAsync(StateHasChanged);
 
     private void OnAuthChanged() => _ = InvokeAsync(() =>
     {
@@ -66,6 +58,5 @@
     public void Dispose()
     {
         AuthMonitor.Changed -= OnAuthChanged;
-        DevPanel.Changed -= OnDevPanelChanged;
     }
 }

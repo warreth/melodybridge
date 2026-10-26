@@ -1676,7 +1676,7 @@ else
         var settingsTask = Settings.GetManyAsync(new[]
         {
             "default_quality", "music_path", "playlist_folders", "playlists_view", "playlists_sort",
-            MelodyBridge.Server.Services.DevPanelService.AdvancedSettingKey,
+            MelodyBridge.Server.Services.AdvancedMode.SettingKey,
         });
         await Load();
         var settings = await settingsTask;
@@ -1694,7 +1694,7 @@ else
         playlistSort = settings.GetValueOrDefault("playlists_sort", "recent");
         if (playlistSort is not ("recent" or "name" or "tracks")) playlistSort = "recent";
         advancedMode = SettingsStore.ParseBool(
-            settings.GetValueOrDefault(MelodyBridge.Server.Services.DevPanelService.AdvancedSettingKey), false);
+            settings.GetValueOrDefault(MelodyBridge.Server.Services.AdvancedMode.SettingKey), false);
 
         // Live badge refresh while any run is active. Idle ticks do no
         // database work unless a write actually moved the store stamp.

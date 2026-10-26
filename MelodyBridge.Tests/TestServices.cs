@@ -55,7 +55,6 @@ public static class TestServices
         services.AddUpdateService(dbFactory);
         // Advanced mode flips this singleton and the sidebar reads it. Tests
         // that need their own instance register it after this call.
-        services.AddSingleton(new MelodyBridge.Server.Services.DevPanelService());
         // Account connections: the pages inject the Spotify providers
         // directly, so the real (network-free until used) ones are
         // registered over the test database. Tests that need their own
@@ -294,11 +293,16 @@ public sealed class SnapshotThenWriteCollector : MelodyBridge.Core.Logging.ILogC
 
     public int MaxEntries => _inner.MaxEntries;
 
+    public int MaxProblemEntries => _inner.MaxProblemEntries;
+
     public void Log(MelodyBridge.Core.Logging.LogLevel level, string category, string message,
         string? detail = null, string? group = null, string? area = null)
         => _inner.Log(level, category, message, detail, group, area);
 
     public void Clear() => _inner.Clear();
+
+    public IReadOnlyList<MelodyBridge.Core.Logging.LogEntry> GetExportEntries()
+        => _inner.GetExportEntries();
 
     public IReadOnlyList<MelodyBridge.Core.Logging.LogEntry> GetEntries()
     {

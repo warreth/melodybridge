@@ -46,8 +46,8 @@ builder.Services.AddSingleton<LogExporter>();
 builder.Services.AddSingleton<LogsViewState>();
 
 // Bridge the standard ILogger<T> pipeline into the log collector
-// so providers, services, and controllers appear in the DevPanel
-builder.Logging.AddDevPanel(logCollector);
+// so providers, services, and controllers share the Logs page buffer
+builder.Logging.AddLogCollector(logCollector);
 
 // Register all MelodyBridge services
 builder.Services.AddMelodyBridge();
@@ -86,12 +86,6 @@ builder.Services.AddSingleton<MelodyBridge.Server.Services.NtfyNotifier>();
 builder.Services.AddSingleton<MelodyBridge.Core.IBackgroundFailureSink,
     MelodyBridge.Server.Services.BackgroundFailureSink>();
 
-// Dev panel (singleton). Off by default; advanced mode in the UI turns it
-// on, and DevPanel__Enabled=true still forces it on for containers.
-var devPanel = new DevPanelService(logCollector);
-devPanel.Enabled = builder.Configuration.GetValue<bool>("DevPanel:Enabled");
-builder.Services.AddSingleton(devPanel);
-builder.Services.AddSingleton<DevDiagnosticsService>();
 
 // Data Protection: keys live in the default container location, no volume needed.
 // Existing Blazor circuits invalidate on restart, which is fine for a personal app.
@@ -133,13 +127,6 @@ using (var scope = app.Services.CreateScope())
     using var db = dbFactory.CreateDbContext();
     db.Database.EnsureCreated();
     await SchemaPatcher.PatchAsync(db);
-
-    // Advanced mode is a stored preference, so the sidebar and pages agree
-    // right after a restart. The environment variable above is the fallback
-    // for an install with no row yet.
-    devPanel.Enabled = await scope.ServiceProvider
-        .GetRequiredService<SettingsStore>()
-        .GetBoolAsync(DevPanelService.AdvancedSettingKey, devPanel.Enabled);
 
     // Stale-claim recovery: a track claimed "in_progress" by a run that
     // died (crash, hard shutdown) can never be claimed again. Nothing can

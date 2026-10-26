@@ -1531,8 +1531,7 @@ td.file-path {
 
 /* Pill variants live once, near the base component. */
 
-/* -- Dev panel ------------------------------------------- */
-.dev-layout { display: grid; gap: 1.25rem; }
+/* -- Shared search and log primitives ------------------------------ */
 .flex-actions { display: flex; gap: .5rem; align-items: center; }
 /* Action rows that close a form or a card: the primary action sits at the
    right edge, where the eye ends up after reading the fields. */
@@ -1552,16 +1551,6 @@ td.file-path {
 }
 .search-input:focus, .search-provider-select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .search-provider-select { flex: 0 0 180px; }
-.dev-result {
-    margin-top: .75rem;
-    padding: .75rem;
-    border-radius: 8px;
-    background: var(--surface-2);
-    font-size: .88rem;
-    overflow-x: auto;
-}
-.dev-result.ok { border: 1px solid var(--success); }
-.dev-result.err { border: 1px solid var(--danger); }
 .qi-result { display: grid; gap: .5rem; }
 .qi-item { display: flex; gap: .6rem; align-items: center; padding: .5rem .6rem; border-radius: 6px; background: var(--surface-2); }
 /* The text column of a result/download row: takes the room, never

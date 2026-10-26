@@ -244,7 +244,7 @@ public class LogsPageTests
     }
 
     [Test]
-    public void Logs_DevPanelDownloadCategory_LandsInDownloads()
+    public void Logs_ShortDownloadCategory_LandsInDownloads()
     {
         _collector.Log(LogLevel.Info, "Download", "a dev panel download row");
         _collector.Log(LogLevel.Info, "Queue", "a dev panel queue row");
@@ -253,7 +253,7 @@ public class LogsPageTests
 
         var downloads = cut.FindAll(".filter-chip").Single(c => c.GetAttribute("data-area") == "Downloads");
         Assert.That(downloads.QuerySelector(".chip-count")?.TextContent, Is.EqualTo("2"),
-            "the Dev panel's short category names must not fall into System");
+            "short log category names must not fall into System");
 
         downloads.Click();
         var text = cut.Find(".logs-list").TextContent;
@@ -401,6 +401,30 @@ public class LogsPageTests
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Copy").Click();
 
         Assert.That(cut.Find(".result-box").TextContent, Does.Contain("Use Export instead"));
+    }
+
+    [Test]
+    public void Logs_ExportKeepsErrorsBeyondTheLiveBuffer()
+    {
+        var small = new LogCollector(maxEntries: 2, maxProblemEntries: 20);
+        small.Log(LogLevel.Error, "Sync", "an old error that must survive");
+        for (var i = 0; i < 4; i++)
+            small.Log(LogLevel.Info, "Sync", $"chatter {i}");
+        _collectorForPage = small;
+        _ctx.JSInterop.SetupVoid("melody.downloadFile", _ => true).SetVoidResult();
+
+        var cut = _ctx.Render<Logs>();
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Export").Click();
+
+        var call = _ctx.JSInterop.Invocations["melody.downloadFile"].Single();
+        var text = System.Text.Encoding.UTF8.GetString((byte[])call.Arguments[2]!);
+        Assert.Multiple(() =>
+        {
+            Assert.That(text, Does.Contain("an old error that must survive"),
+                "the exported file is not limited to the live buffer");
+            Assert.That(text, Does.Contain("chatter 3"));
+            Assert.That(cut.Find(".result-box").TextContent, Does.Contain("Exported 3 entries"));
+        });
     }
 
     [Test]

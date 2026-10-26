@@ -11,17 +11,17 @@ namespace MelodyBridge.Tests.Server.Logging;
 /// The EF Core command filter: by default the endless Executed
 /// DbCommand lines must not reach the Logs page, with the switch on
 /// they must, and no other category is ever affected. The tests drive
-/// the real DevPanelLogger into a real collector.
+/// the real LogCollectorLogger into a real collector.
 /// </summary>
 [TestFixture]
-public class DevPanelLoggerDatabaseFilterTests
+public class LogCollectorLoggerDatabaseFilterTests
 {
     private static LogCollector NewCollector() => new();
 
-    private DevPanelLogger LoggerFor(ILogCollector collector, string category)
+    private LogCollectorLogger LoggerFor(ILogCollector collector, string category)
     {
-        var provider = new DevPanelLoggerProvider(collector);
-        return (DevPanelLogger)provider.CreateLogger(category);
+        var provider = new LogCollectorLoggerProvider(collector);
+        return (LogCollectorLogger)provider.CreateLogger(category);
     }
 
     private static LogEntry? EntryFor(ILogCollector collector, string messageStart)
@@ -150,7 +150,7 @@ public class DevPanelLoggerDatabaseFilterTests
             // AddConfiguration expects the Logging section, exactly like
             // the host does with appsettings.json.
             builder.AddConfiguration(configuration.GetSection("Logging"));
-            builder.AddDevPanel(collector);
+            builder.AddLogCollector(collector);
         });
         var logger = factory.CreateLogger("Microsoft.EntityFrameworkCore.Database.Command");
 
