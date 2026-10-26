@@ -62,9 +62,9 @@ public class LibraryPageUiTests
 
         Assert.That(cut.Find("h1").TextContent, Is.EqualTo("Library"),
             "the page keeps its title");
-        Assert.That(cut.Markup, Does.Contain("Scan folders with music you already own"),
+        Assert.That(cut.Markup, Does.Contain("Point this at the folders"),
             "the intro explains what the page does now");
-        Assert.That(cut.Markup, Does.Contain("matches them to your playlist tracks"),
+        Assert.That(cut.Markup, Does.Contain("MELODY_ID tag"),
             "the intro mentions the ID-tag matching");
     }
 

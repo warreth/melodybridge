@@ -78,7 +78,7 @@ playlist can override it on its own page.
 | Space Saver | Any format up to 160 kbps. Small files, made for huge playlists |
 | High Quality | Any lossy format up to 320 kbps, no lossless sizes |
 | Lossless | FLAC when a source really has it; a non-strict playlist may step down to the best lossy file |
-| No filter | Whatever a source gives, junk included |
+| No filter | Whatever a source gives; no quality gate |
 | Advanced filters | A container (MP3, FLAC, Opus or AAC) plus a bitrate floor and ceiling |
 
 The primary download is never re-encoded, so a strict filter can make a track
@@ -209,7 +209,7 @@ Open a playlist card and the left panel holds everything specific to it:
 | Name | Shown everywhere in the app. The playlist's folder is named after it (or after the folder you type) |
 | Download folder | Empty means the default music path, with a subfolder named after the playlist. A folder typed here is used as it is |
 | Audio quality | One of the presets above, or advanced filters |
-| Strict quality | On: only the exact quality is accepted. Off: the download steps down to the best lower quality the enabled plugins declare. See [strict quality](/concepts#strict-quality) |
+| Strict quality | Shown when a quality preset is selected. On: only the exact quality is accepted. Off: the download steps down to the best lower quality the enabled plugins declare. See [strict quality](/concepts#strict-quality) |
 | Allow container changes | Shown when strict is off: whether a fallback step may leave the chosen container |
 | Archive copy | The switch turns the second copy on or off for this playlist. When it is off the folder and format fields disappear, and no copy is made, even when the app-wide archive path is set. When it is on, an empty folder means the default archive path plus a folder named after the playlist, and the format select says what the app default currently does |
 | Auto-sync schedule | Manual, hourly, daily, weekly, monthly or cron. A refresh that fails is retried at the next interval, not on every check, so a broken source cannot hammer itself |
@@ -468,9 +468,9 @@ The knobs most people never need, in five panels:
   source, lyrics, the release credit and the album name. Only missing fields are
   written, so artwork a plugin embedded is left alone. It reports how many files
   changed, how many were already complete and how many could not be read.
-  **Rename downloaded tracks** applies the saved file name pattern to files
-  already downloaded, archive copies included. The preview breaks the library
-  down: how many tracks would be renamed, how many already follow the pattern,
+  **Check file names** applies the saved file name pattern to files already
+  downloaded, archive copies included. The preview breaks the library down:
+  how many tracks would be renamed, how many already follow the pattern,
   how many files are missing, how many paths are shared by another row, how
   many are outside the managed folders, and how many archive copies would be
   skipped. Every skipped track is logged with its path and reason at debug

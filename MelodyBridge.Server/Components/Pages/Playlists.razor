@@ -25,7 +25,7 @@
             <h1>Playlists</h1>
             <HelpTip Path="quickstart" Text="Public links need no account. Add one, download it on its page, then publish it with a sync job." />
         </div>
-        <p>Save a public Spotify or YouTube playlist here, or import from your account or an export file.</p>
+        <p>Save a public playlist from Spotify, YouTube, Deezer, SoundCloud or ListenBrainz, or import from an account or export file.</p>
     </div>
     <div class="topbar-actions">
         <button class="btn-modern ghost" @onclick="ShowAccountPanel">Import</button>
@@ -128,7 +128,7 @@
 }
 else if (playlists.Count == 0)
 {
-    <EmptyState IconName="list-music" Title="No playlists yet">Paste a public Spotify or YouTube playlist link to save its tracks locally.</EmptyState>
+    <EmptyState IconName="list-music" Title="No playlists yet">Paste a public playlist link to save its tracks locally.</EmptyState>
 }
 else if (visiblePlaylists.Count == 0)
 {
@@ -376,13 +376,14 @@ else
             </div>
             <div class="wizard-body">
                 <div class="hint-box">
-                    Public Spotify and YouTube playlists, no account needed.
-                    Quality defaults to <strong>@savedDefaultQualityLabel</strong>: change the default in Settings.
+                    Public Spotify, YouTube, Deezer, SoundCloud and ListenBrainz
+                    playlists need no account. Quality defaults to
+                    <strong>@savedDefaultQualityLabel</strong>; change the default in Settings.
                 </div>
                 <div class="form-grid sync-split">
                     <label class="wide">
                         Playlist link
-                        <input @bind="newUrl" placeholder="https://open.spotify.com/playlist/… or youtube.com/playlist?list=…" />
+                        <input @bind="newUrl" placeholder="https://open.spotify.com/playlist/…" />
                     </label>
                     <label class="wide">
                         Download folder (optional)
@@ -392,24 +393,27 @@ else
                     <div class="quality-field wide">
                         <QualityPicker @bind-Value="newQuality" />
                     </div>
-                    <div class="toggle-with-help wide">
-                        <label class="toggle-switch wide">
-                            <input type="checkbox" @bind="newStrictQuality" />
-                            <span class="toggle-slider"></span>
-                            <span>Strict quality</span>
-                        </label>
-                        <HelpTip Path="concepts#strict-quality" Text="On: only the exact quality above is accepted; a track no source can deliver fails with the reason. Off: the download steps down to the best lower quality the enabled plugins declare, until one delivers." />
-                    </div>
-                    @if (!newStrictQuality)
+                    @if (newQuality != "auto")
                     {
                         <div class="toggle-with-help wide">
                             <label class="toggle-switch wide">
-                                <input type="checkbox" @bind="newAllowContainerChange" />
+                                <input type="checkbox" @bind="newStrictQuality" />
                                 <span class="toggle-slider"></span>
-                                <span>Allow container changes while stepping down</span>
+                                <span>Strict quality</span>
                             </label>
-                            <HelpTip Path="concepts#strict-quality" Text="Off: a fallback stays in the chosen container, so an FLAC request fails when no lossless source exists. On: it may land on the best lossy file." />
+                            <HelpTip Path="concepts#strict-quality" Text="On: only the exact quality above is accepted. Off: the download steps down to the best lower quality an enabled plugin can deliver." />
                         </div>
+                        @if (!newStrictQuality)
+                        {
+                            <div class="toggle-with-help wide">
+                                <label class="toggle-switch wide">
+                                    <input type="checkbox" @bind="newAllowContainerChange" />
+                                    <span class="toggle-slider"></span>
+                                    <span>Allow container changes while stepping down</span>
+                                </label>
+                                <HelpTip Path="concepts#strict-quality" Text="Off: a fallback must stay in the chosen container. On: it may switch to the best lossy format." />
+                            </div>
+                        }
                     }
                     <SchedulePicker Label="Auto-sync schedule" @bind-Value="newSchedule"
                                     LiveValidation="true"

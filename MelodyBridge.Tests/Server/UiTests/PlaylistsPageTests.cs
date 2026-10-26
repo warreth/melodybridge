@@ -318,10 +318,14 @@ public class PlaylistsPageTests
         var cut = _ctx.Render<Playlists>();
         cut.Find("div.topbar-actions button.primary").Click();
 
+        // No filter has no bitrate gate, so the strict controls only appear
+        // once a real quality preset is chosen.
+        cut.FindAll("select").First(s => s.TextContent.Contains("No filter"))
+            .Change("preset:saver");
         cut.WaitForAssertion(() =>
         {
             Assert.That(cut.Markup, Does.Contain("Strict quality"),
-                "the wizard lets the quality be strict");
+                "the wizard lets the selected quality be strict");
             Assert.That(cut.Markup, Does.Contain("only the exact quality above is accepted"),
                 "the question mark explains what strict means");
             Assert.That(cut.Markup, Does.Not.Contain("Allow container changes"),

@@ -22,12 +22,10 @@
             <h1>Plugins</h1>
             <HelpTip Path="concepts#the-waterfall" Text="Plugins declare what they can serve. Each track is routed to the fitting plugins and tried in order until one delivers." />
         </div>
-        <p>Plugins are tried in this order, and that order is the whole
-            story for the <strong>No filter</strong> quality. When a
-            playlist asks for a specific quality, MelodyBridge first picks
-            the plugins that can really deliver it (the declarations below
-            decide, not this list) and your order only decides between
-            equals.</p>
+        <p>Plugins are tried from top to bottom. With <strong>No filter</strong>,
+            this order decides. When a playlist asks for a specific quality,
+            only plugins that can deliver it are tried, and this order breaks
+            ties.</p>
     </div>
     <div class="topbar-actions">
         <a class="btn-modern small secondary" href="/downloads">

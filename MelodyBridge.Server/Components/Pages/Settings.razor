@@ -80,15 +80,15 @@
             <div><span class="eyebrow">Accounts</span>
                 <div class="title-with-help">
                     <h2>Spotify &amp; YouTube</h2>
-                    <HelpTip Path="accounts" Text="Both logins are read-only. For private playlists and liked songs on a free account, use the unofficial web session or import an export file." />
+                    <HelpTip Path="accounts" Text="Both are read-only. For private playlists or liked songs, use the unofficial session or import a file." />
                 </div>
             </div>
         </div>
         <div class="settings-section">
             <div class="hint-box">
-                Connect your accounts to import private playlists and your liked
-                songs. MelodyBridge only asks for read access: it never changes
-                anything on your account.
+                Connect an account to import private playlists and liked songs.
+                Public links work without one. MelodyBridge only asks for read
+                access and never changes anything on your account.
             </div>
 
             <div class="account-grid">
@@ -496,7 +496,7 @@ else if (activeTab == "paths")
                         <span class="toggle-slider"></span>
                         <span>Sort downloads into a folder per playlist</span>
                     </label>
-                    <HelpTip Path="reference#settings" Text="On: every playlist gets its own folder under the music path, which keeps dedup links and archive copies apart. Off: all downloads land directly in the music path." />
+                    <HelpTip Path="reference#settings" Text="On: each playlist gets its own folder under the music path. Off: all downloads share the music path." />
                 </div>
                 <small class="text-muted">@PlaylistFoldersHint</small>
                 <label>
@@ -516,7 +516,7 @@ else if (activeTab == "paths")
                 <span class="eyebrow">Archive</span>
                 <div class="title-with-help">
                     <h3>Archive copy</h3>
-                    <HelpTip Path="concepts#archive-copies" Text="A second copy in another folder and format, converted locally from the same download." />
+                    <HelpTip Path="concepts#archive-copies" Text="A local second copy, converted on this machine." />
                 </div>
             </div>
             <div class="hint-box">
@@ -593,7 +593,7 @@ else if (activeTab == "quality")
                 <span class="eyebrow">Quality</span>
                 <div class="title-with-help">
                     <h2>Default audio quality</h2>
-                    <HelpTip Path="reference#quality" Text="Space Saver caps at 160 kbps, High Quality at 320, Lossless asks for real FLAC. Every playlist can allow stepping down to a lower quality." />
+                    <HelpTip Path="reference#quality" Text="Space Saver caps at 160 kbps, High Quality at 320, Lossless asks for FLAC. Each playlist can allow a step down." />
                 </div>
             </div>
         </div>
@@ -609,7 +609,7 @@ else if (activeTab == "quality")
                 <span class="eyebrow">Verification</span>
                 <div class="title-with-help">
                     <h3>Real quality check</h3>
-                    <HelpTip Path="concepts#the-quality-review" Text="Downloaded files are measured: a wrong length or an inflated bitrate is kept and flagged on the track row, and you choose Keep or Retry for each one. This panel sets how strict the checks are." />
+                    <HelpTip Path="concepts#the-quality-review" Text="Wrong-length or inflated files are kept and flagged on the track row for Keep or Retry. This sets the tolerance." />
                 </div>
             </div>
             <div class="hint-box">
@@ -732,7 +732,7 @@ else if (activeTab == "notifications")
                 <span class="eyebrow">Notifications</span>
                 <div class="title-with-help">
                     <h2>Toasts</h2>
-                    <HelpTip Path="reference#notifications" Text="Toasts pop up in the corner while you use the app. Failures always reach the log, whatever these switches say." />
+                    <HelpTip Path="reference#notifications" Text="Toasts appear while you use the app. Failures always reach the log." />
                 </div>
             </div>
         </div>

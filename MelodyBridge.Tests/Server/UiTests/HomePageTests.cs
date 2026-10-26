@@ -204,6 +204,31 @@ public class HomePageTests
             "a dismissed intro must never come back");
     }
 
+    [Test]
+    public async Task DismissedIntro_WithNoPlaylists_OffersTheSetupGuide()
+    {
+        var dbFactory = _ctx.Services.GetRequiredService<IDbContextFactory<MelodyBridgeDbContext>>();
+        using (var db = dbFactory.CreateDbContext())
+        {
+            db.Playlists.RemoveRange(db.Playlists);
+            db.Tracks.RemoveRange(db.Tracks);
+            db.SyncJobs.RemoveRange(db.SyncJobs);
+            db.DownloaderSettings.Add(new DownloaderSettingEntity
+                { Key = "intro_dismissed", Value = "true" });
+            db.SaveChanges();
+        }
+
+        var cut = _ctx.Render<Home>();
+        cut.WaitForState(() => cut.Markup.Contains("Start with a playlist"), TimeSpan.FromSeconds(3));
+        Assert.That(cut.Markup, Does.Contain("Open the setup guide"));
+
+        cut.FindAll("button").Single(b => b.TextContent.Contains("Open the setup guide")).Click();
+
+        cut.WaitForState(() => cut.Markup.Contains("Get everything running"), TimeSpan.FromSeconds(3));
+        Assert.That(cut.Markup, Does.Contain("Download the music"),
+            "the guide returns to the first incomplete step");
+    }
+
     // ── Dashboard ──────────────────────────────────────────────────
 
     [Test]

@@ -75,7 +75,7 @@ public class QualityPickerTests
     [TestCase("preset:saver", "160")]
     [TestCase("preset:high", "320")]
     [TestCase("preset:lossless", "lossy")]
-    [TestCase("auto", "junk rips included")]
+    [TestCase("auto", "the source decides")]
     public void Preset_ShowsItsPlainLanguageBlurb(string stored, string mustContain)
     {
         var cut = _ctx.Render<QualityPicker>(p => p.Add(p => p.Value, stored));

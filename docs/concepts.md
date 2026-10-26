@@ -76,9 +76,10 @@ hands back whatever the source serves. Two things use that list:
 
 ### Strict quality
 
-Every playlist has a **Strict quality** switch. On, which is the default, only
-the quality you asked for may be delivered; when nothing can serve it, the
-track fails with the reason. Off, the download steps down through the quality
+Every playlist with a quality preset has a **Strict quality** switch. On, which
+is the default, only the quality you asked for may be delivered; when nothing
+can serve it, the track fails with the reason. **No filter** has no bitrate or
+container target, so the switch stays out of the way until you pick a preset. Off, the download steps down through the quality
 levels the enabled plugins themselves declare, best first, until one delivers:
 a Lossless request lands on the best lossy file, and a request with a bitrate
 floor drops its floor instead of failing. The follow-up switch **Allow

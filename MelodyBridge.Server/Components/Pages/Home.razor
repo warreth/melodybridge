@@ -23,9 +23,9 @@
         <div>
             <span class="eyebrow">Welcome to MelodyBridge</span>
             <h1>Three steps, from playlist link to your own music library.</h1>
-            <p>MelodyBridge saves the tracks of a Spotify or YouTube playlist locally, downloads the
-                music through a plugin waterfall, and publishes the result to Jellyfin, Plex or a Subsonic server
-                or an M3U file.
+            <p>MelodyBridge saves a playlist from Spotify, YouTube, Deezer, SoundCloud or
+                ListenBrainz locally, downloads the music through a plugin waterfall, and publishes
+                the result to Jellyfin, Plex, a Subsonic server or an M3U file.
                 @(doneSteps == 3
                     ? "Everything is set up already. Skip this, or keep it as a reference for what lives where."
                     : "Work through the checklist below. It disappears once everything is set up.")</p>
@@ -49,7 +49,6 @@
             </div>
             <button class="btn-modern ghost small" @onclick="@(() => RefreshStats(force: true))">Refresh</button>
         </div>
-        <MountWarning />
         <div class="workflow-list">
             <a class="workflow-step @(step1Done ? "done" : "todo")" href="/playlists">
                 <span class="workflow-number">
@@ -64,9 +63,9 @@
                 </span>
                 <div>
                     <strong>Add a playlist</strong>
-                    <p>Paste a public Spotify or YouTube playlist link on the Playlists page.
-                        MelodyBridge saves every track. With an account login you can also import
-                        private playlists and liked songs.</p>
+                    <p>Paste a public playlist link on the Playlists page. MelodyBridge saves
+                        every track. With an account login you can also import private playlists
+                        and liked songs.</p>
                     <small>@(step1Done ? $"{playlistsCount} playlist{(playlistsCount == 1 ? "" : "s")} saved" : "Not done yet")</small>
                 </div>
                 <span class="workflow-arrow"><Icon Name="chevron-right" Size="16" /></span>
@@ -109,6 +108,7 @@
                 </div>
             </a>
         </div>
+        <MountWarning />
         @if (doneSteps == 3)
         {
             <div class="result-box ok">
@@ -168,8 +168,27 @@ else
         </div>
     </section>
 
+    @if (playlistsCount == 0)
+    {
+        <section class="panel-card setup-resume">
+            <div>
+                <span class="eyebrow">First run</span>
+                <h2>Start with a playlist</h2>
+                <p>
+                    Add a public playlist link, download its tracks, then publish
+                    it to your player or media server. The setup guide walks through
+                    the same three steps.
+                </p>
+            </div>
+            <div class="flex-actions">
+                <a class="btn-modern primary" href="/playlists">Add a playlist</a>
+                <button class="btn-modern ghost" @onclick="ResumeIntro">Open the setup guide</button>
+            </div>
+        </section>
+    }
+
     <section class="stat-grid">
-        <StatCard IconName="list-music" Label="Playlists" Value="@playlistsCount.ToString()" Caption="Saved from Spotify or YouTube" />
+        <StatCard IconName="list-music" Label="Playlists" Value="@playlistsCount.ToString()" Caption="Saved from public links or accounts" />
         <StatCard IconName="download" Label="Downloaded tracks" Value="@downloadedCount.ToString()" Caption="Files on your disk" />
         <StatCard IconName="library" Label="Library" Value="@libraryCount.ToString()" Caption="Files found by the scanner" />
         <StatCard IconName="package" Label="Plugins" Value="@($"{enabledPlugins} / {totalPlugins}")" Caption="Enabled in the waterfall" />
@@ -538,6 +557,16 @@ else
         // the hand-over must read them once, whatever the idle gate says.
         await RefreshStats(force: true);
         StartRefreshTimer();
+    }
+
+    /// <summary>Brings the setup guide back from the empty dashboard.</summary>
+    private async Task ResumeIntro()
+    {
+        await Settings.SetAsync("intro_restarted", "true");
+        await Settings.SetAsync("intro_dismissed", "false");
+        _timer?.Dispose();
+        showIntro = true;
+        StateHasChanged();
     }
 
     private void StartRefreshTimer()

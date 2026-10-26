@@ -182,24 +182,27 @@ else
                         <QualityPicker @bind-Value="editQuality" @bind-Value:after="SaveNow" />
                     </div>
                 </div>
-                <div class="toggle-with-help">
-                    <label class="toggle-switch wide">
-                        <input type="checkbox" @bind="editStrictQuality" @bind:after="SaveNow" />
-                        <span class="toggle-slider"></span>
-                        <span>Strict quality</span>
-                    </label>
-                    <HelpTip Path="concepts#strict-quality" Text="On: only the exact quality above is accepted; a track no source can deliver fails with the reason. Off: the download steps down to the best lower quality the enabled plugins declare, until one delivers." />
-                </div>
-                @if (!editStrictQuality)
+                @if (editQuality != "auto")
                 {
                     <div class="toggle-with-help">
                         <label class="toggle-switch wide">
-                            <input type="checkbox" @bind="editAllowContainerChange" @bind:after="SaveNow" />
+                            <input type="checkbox" @bind="editStrictQuality" @bind:after="SaveNow" />
                             <span class="toggle-slider"></span>
-                            <span>Allow container changes while stepping down</span>
+                            <span>Strict quality</span>
                         </label>
-                        <HelpTip Path="concepts#strict-quality" Text="Off: a fallback stays in the chosen container, so an FLAC request fails when no lossless source exists. On: it may land on the best lossy file." />
+                        <HelpTip Path="concepts#strict-quality" Text="On: only the exact quality above is accepted. Off: the download steps down to the best lower quality an enabled plugin can deliver." />
                     </div>
+                    @if (!editStrictQuality)
+                    {
+                        <div class="toggle-with-help">
+                            <label class="toggle-switch wide">
+                                <input type="checkbox" @bind="editAllowContainerChange" @bind:after="SaveNow" />
+                                <span class="toggle-slider"></span>
+                                <span>Allow container changes while stepping down</span>
+                            </label>
+                            <HelpTip Path="concepts#strict-quality" Text="Off: a fallback must stay in the chosen container. On: it may switch to the best lossy format." />
+                        </div>
+                    }
                 }
             </div>
             <div class="settings-section archive-section">
@@ -210,7 +213,7 @@ else
                         <span class="toggle-slider"></span>
                         <span>Keep a second copy of every download</span>
                     </label>
-                    <HelpTip Path="concepts#archive-copies" Text="A second copy in another folder and format, converted locally from the same download. Off means this playlist makes no archive copy at all, even when a default archive path is set." />
+                    <HelpTip Path="concepts#archive-copies" Text="A local second copy, converted on this machine. Off means this playlist keeps no archive copy." />
                 </div>
                 @if (editArchiveEnabled)
                 {

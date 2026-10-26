@@ -120,7 +120,7 @@
         Value == "preset:saver" ? "Any format up to 160 kbps. Small files that sound fine; made for massive playlists."
         : Value == "preset:high" ? "Any lossy format up to 320 kbps. Full quality without lossless file sizes."
         : Value == "preset:lossless" ? "FLAC when a source really has it. When nothing does, a non-strict playlist steps down to the best lossy file."
-        : "No quality gate: whatever the sources serve lands in the library, junk rips included.";
+        : "No quality gate: the source decides. Pick a preset when you want a bitrate cap or a lossless file.";
 
     private IEnumerable<(string Value, string Label)> FloorOptions
     {

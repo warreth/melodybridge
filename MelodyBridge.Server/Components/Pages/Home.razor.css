@@ -85,3 +85,15 @@
     .login-issue { flex-wrap: wrap; }
     .login-issue .btn-modern { width: 100%; margin-left: 0; }
 }
+
+/* Resuming setup from an empty dashboard. */
+.setup-resume {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 1rem;
+    flex-wrap: wrap;
+}
+.setup-resume h2 { margin: .1rem 0 .3rem; }
+.setup-resume p { margin: 0; max-width: 62ch; }
