@@ -4,11 +4,11 @@
 
 @if (Active)
 {
-    <div class="tour-overlay">
+    <div class="tour-overlay" aria-live="polite">
         <div id="tour-spotlight" class="tour-spotlight"></div>
-        <div class="tour-card">
+        <div class="tour-card" role="dialog" aria-modal="true" aria-labelledby="tour-title">
             <span class="eyebrow">Tour @(_index + 1) of @Steps.Count</span>
-            <h3>@Current.Title</h3>
+            <h3 id="tour-title">@Current.Title</h3>
             <p>@Current.Body</p>
             <div class="flex-actions">
                 <button class="btn-modern ghost small" @onclick="Skip">Skip tour</button>

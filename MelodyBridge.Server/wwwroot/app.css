@@ -2140,7 +2140,10 @@ td.file-path {
     position: fixed;
     inset: 0;
     z-index: 200;
-    pointer-events: none;
+    /* Block the page while the tour runs: a stray click on a spotlit tab
+       would navigate away and drop the tour's progress. */
+    pointer-events: auto;
+    cursor: default;
 }
 .tour-spotlight {
     position: absolute;

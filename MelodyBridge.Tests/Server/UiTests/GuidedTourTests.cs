@@ -80,16 +80,20 @@ public class GuidedTourTests
     {
         var cut = _ctx.Render<Home>();
 
-        // Step 1 renders the tour and spotlights the stats grid.
+        // Step 1 renders the tour and spotlights the Playlists tab.
         cut.WaitForAssertion(() =>
         {
-            Assert.That(cut.Markup, Does.Contain("Tour 1 of 4"));
-            Assert.That(SpotlightSelectors(), Does.Contain(".stat-grid"));
+            Assert.That(cut.Markup, Does.Contain("Tour 1 of 6"));
+            Assert.That(SpotlightSelectors(), Does.Contain("a[href='/playlists']"));
         }, TimeSpan.FromSeconds(3));
 
-        var expected = new[] { ".stat-grid", ".stat-grid .stat-card:last-child", ".provider-list", "a[href='/sync-jobs']" };
+        var expected = new[]
+        {
+            "a[href='/playlists']", "a[href='/downloads']", "a[href='/library']",
+            "a[href='/sync-jobs']", "a[href='/settings']",
+        };
 
-        // Click through steps 2-4: each Next must re-run the spotlight JS
+        // Click through the tab stops: each Next must re-run the spotlight JS
         // with that step's selector, in order. Re-find the button every
         // time: the card re-renders and old element handles go stale.
         for (var step = 1; step < expected.Length; step++)
@@ -99,7 +103,7 @@ public class GuidedTourTests
             var selectors = SpotlightSelectors();
             Assert.That(selectors[^1], Is.EqualTo(expected[step]),
                 $"step {step + 1} must spotlight {expected[step]}");
-            Assert.That(cut.Markup, Does.Contain($"Tour {step + 1} of 4"));
+            Assert.That(cut.Markup, Does.Contain($"Tour {step + 1} of 6"));
         }
     }
 
@@ -108,7 +112,7 @@ public class GuidedTourTests
     {
         var cut = _ctx.Render<Home>();
         cut.WaitForAssertion(() =>
-            Assert.That(cut.Markup, Does.Contain("Tour 1 of 4")), TimeSpan.FromSeconds(3));
+            Assert.That(cut.Markup, Does.Contain("Tour 1 of 6")), TimeSpan.FromSeconds(3));
 
         var back = cut.Find(".tour-card .btn-modern.secondary");
         Assert.That(back.HasAttribute("disabled"), Is.True,
@@ -126,7 +130,7 @@ public class GuidedTourTests
     {
         var cut = _ctx.Render<Home>();
         cut.WaitForAssertion(() =>
-            Assert.That(cut.Markup, Does.Contain("Tour 1 of 4")), TimeSpan.FromSeconds(3));
+            Assert.That(cut.Markup, Does.Contain("Tour 1 of 6")), TimeSpan.FromSeconds(3));
 
         await cut.InvokeAsync(() => cut.Find(".tour-card .btn-modern.primary").Click()); // -> step 2
         await cut.InvokeAsync(() => cut.Find(".tour-card .btn-modern.primary").Click()); // -> step 3
@@ -134,9 +138,9 @@ public class GuidedTourTests
         await cut.InvokeAsync(() => cut.Find(".tour-card .btn-modern.secondary").Click());
 
         var selectors = SpotlightSelectors();
-        Assert.That(selectors[^1], Is.EqualTo(".stat-grid .stat-card:last-child"),
+        Assert.That(selectors[^1], Is.EqualTo("a[href='/downloads']"),
             "Back from step 3 must re-run the spotlight on step 2's element");
-        Assert.That(cut.Markup, Does.Contain("Tour 2 of 4"));
+        Assert.That(cut.Markup, Does.Contain("Tour 2 of 6"));
     }
 
     [Test]
@@ -144,9 +148,9 @@ public class GuidedTourTests
     {
         var cut = _ctx.Render<Home>();
         cut.WaitForAssertion(() =>
-            Assert.That(cut.Markup, Does.Contain("Tour 1 of 4")), TimeSpan.FromSeconds(3));
+            Assert.That(cut.Markup, Does.Contain("Tour 1 of 6")), TimeSpan.FromSeconds(3));
 
-        for (var i = 0; i < 4; i++)
+        for (var i = 0; i < 6; i++)
             await cut.InvokeAsync(() => cut.Find(".tour-card .btn-modern.primary").Click());
 
         Assert.That(_ctx.JSInterop.Invocations["melody.hideSpotlight"].Count, Is.GreaterThanOrEqualTo(1),
@@ -162,21 +166,23 @@ public class GuidedTourTests
     }
 
     [Test]
-    public async Task Tour_EveryStep_SelectorMatchesADashboardElement()
+    public void Tour_EveryTabSelector_MatchesASidebarLink()
     {
-        // The selectors must point at real markup: each one appears as a
-        // class/attribute the dashboard actually renders.
-        var cut = _ctx.Render<Home>();
-        cut.WaitForAssertion(() =>
-            Assert.That(cut.Markup, Does.Contain("Tour 1 of 4")), TimeSpan.FromSeconds(3));
-
-        // AngleSharp applies the real CSS selectors against the rendered
-        // DOM: each one must resolve to at least one element.
-        var expected = new[] { ".stat-grid", ".stat-grid .stat-card:last-child", ".provider-list", "a[href='/sync-jobs']" };
+        // The spotlight selectors point at the sidebar, which the layout
+        // renders around every page. Render the nav itself and resolve
+        // the real CSS selectors against its markup.
+        var nav = _ctx.Render<MelodyBridge.Server.Components.Layout.NavMenu>();
+        var expected = new[]
+        {
+            "a[href='/playlists']", "a[href='/downloads']", "a[href='/library']",
+            "a[href='/sync-jobs']", "a[href='/settings']",
+        };
         foreach (var selector in expected)
         {
-            Assert.That(cut.FindAll(selector), Is.Not.Empty,
-                $"{selector} must match something the dashboard renders");
+            Assert.That(nav.FindAll(selector), Is.Not.Empty,
+                $"{selector} must match a real sidebar link");
+            Assert.That(nav.Find(selector).ClassList, Does.Contain("nav-link"),
+                "the tour highlights the tab itself, not a content link");
         }
     }
 }

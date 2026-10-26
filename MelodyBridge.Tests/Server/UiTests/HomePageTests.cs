@@ -130,8 +130,8 @@ public class HomePageTests
         Assert.That(cut.Markup, Does.Contain("Add a playlist"));
         Assert.That(cut.Markup, Does.Contain("Download the music"));
         Assert.That(cut.Markup, Does.Contain("Publish it"));
-        Assert.That(cut.Markup, Does.Contain("Skip intro"),
-            "the intro must be skippable, it is optional");
+        Assert.That(cut.Markup, Does.Contain("Skip checklist"),
+            "the checklist must be skippable, it is optional");
     }
 
     [Test]
@@ -172,9 +172,9 @@ public class HomePageTests
         }
 
         var cut = _ctx.Render<Home>();
-        cut.WaitForState(() => cut.Markup.Contains("Skip intro"), TimeSpan.FromSeconds(3));
+        cut.WaitForState(() => cut.Markup.Contains("Skip checklist"), TimeSpan.FromSeconds(3));
 
-        cut.FindAll("button").Single(b => b.TextContent.Contains("Skip intro")).Click();
+        cut.FindAll("button").First(b => b.TextContent.Contains("Skip checklist")).Click();
 
         cut.WaitForState(() => cut.Markup.Contains("Dashboard"), TimeSpan.FromSeconds(3));
         Assert.That(cut.Markup, Does.Not.Contain("Get everything running"),
@@ -185,6 +185,48 @@ public class HomePageTests
             Assert.That(await db.DownloaderSettings.AnyAsync(s => s.Key == "intro_dismissed"),
                 Is.True, "the skip must be remembered across restarts");
         }
+    }
+
+    [Test]
+    public void FreshInstall_ShowsTourFirst_ThenTheChecklist()
+    {
+        var dbFactory = _ctx.Services.GetRequiredService<IDbContextFactory<MelodyBridgeDbContext>>();
+        using (var db = dbFactory.CreateDbContext())
+        {
+            db.Playlists.RemoveRange(db.Playlists);
+            db.Tracks.RemoveRange(db.Tracks);
+            db.SyncJobs.RemoveRange(db.SyncJobs);
+            db.SaveChanges();
+        }
+
+        var cut = _ctx.Render<Home>();
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.Markup, Does.Contain("Tour 1 of 6"),
+                "the tab tour runs before the checklist");
+            Assert.That(cut.Markup, Does.Contain("Get everything running"),
+                "the checklist sits behind the tour, ready when it ends");
+        }, TimeSpan.FromSeconds(3));
+
+        for (var i = 0; i < 5; i++)
+            cut.Find(".tour-card .btn-modern.primary").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.Markup, Does.Contain("Next: the setup checklist"),
+                "the last stop hands off to the dashboard checklist");
+            Assert.That(cut.Markup, Does.Contain("Tour 6 of 6"));
+        }, TimeSpan.FromSeconds(3));
+
+        cut.Find(".tour-card .btn-modern.primary").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.Markup, Does.Not.Contain("tour-card"),
+                "Done closes the tour");
+            Assert.That(cut.Markup, Does.Contain("Get everything running"),
+                "the checklist is now the next thing on screen");
+        }, TimeSpan.FromSeconds(3));
     }
 
     [Test]

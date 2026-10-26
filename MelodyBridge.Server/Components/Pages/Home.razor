@@ -12,10 +12,9 @@
 
 <PageTitle>@(showIntro ? "Welcome - MelodyBridge" : "Dashboard - MelodyBridge")</PageTitle>
 
-@if (!showIntro)
-{
-    <GuidedTour Steps="DashboardTour" PersistenceKey="tour_dismissed" />
-}
+@* The tour runs before the checklist: it spotlights the tabs a new user
+   needs, and its last stop points at the checklist right below. *@
+<GuidedTour Steps="DashboardTour" PersistenceKey="tour_dismissed" />
 
 @if (showIntro)
 {
@@ -31,7 +30,7 @@
                     : "Work through the checklist below. It disappears once everything is set up.")</p>
             <div class="hero-actions">
                 <a class="btn-modern primary" href="/playlists">Start with a playlist</a>
-                <button class="btn-modern ghost" @onclick="SkipIntro">Skip intro</button>
+                <button class="btn-modern ghost" @onclick="SkipIntro">Skip checklist</button>
             </div>
         </div>
         <div class="hero-card">
@@ -47,7 +46,10 @@
                 <span class="eyebrow">Setup</span>
                 <h2>Get everything running (@doneSteps of 3)</h2>
             </div>
-            <button class="btn-modern ghost small" @onclick="@(() => RefreshStats(force: true))">Refresh</button>
+            <div class="flex-actions">
+                <button class="btn-modern ghost small" @onclick="SkipIntro">Skip checklist</button>
+                <button class="btn-modern ghost small" @onclick="@(() => RefreshStats(force: true))">Refresh</button>
+            </div>
         </div>
         <div class="workflow-list">
             <a class="workflow-step @(step1Done ? "done" : "todo")" href="/playlists">
@@ -580,23 +582,31 @@ else
     }
 
     /// <summary>
-    /// The post-setup tour: four short stops over the dashboard's own
-    /// tiles, so it works on a fresh install without any data.
+    /// The first-run tour: the five tabs that carry the workflow, in the
+    /// order a new user meets them, then a hand-off to the setup
+    /// checklist on this page. The selectors target the sidebar links;
+    /// querySelector picks the nav link before any content link.
     /// </summary>
     private static readonly Shared.GuidedTour.TourStep[] DashboardTour =
     [
-        new("This is your dashboard",
-            "Every tile refreshes itself: playlists saved, tracks downloaded, library files and sync jobs all at a glance.",
-            ".stat-grid"),
-        new("Plugins decide the download order",
-            "yt-dlp, SoundCloud, Archive.org and Lucida try in order. The first one that delivers within your quality settings wins.",
-            ".stat-grid .stat-card:last-child"),
-        new("Your connections",
-            "Spotify and YouTube logins plus your media servers show their status here. Connect or change them on the Settings page.",
-            ".provider-list"),
-        new("Publish when the music is in",
-            "A sync job turns a playlist into a Jellyfin playlist or an M3U file. Checklists and tours can be restarted from Settings - About.",
+        new("1. Playlists",
+            "Everything starts here: save a public link or import an account playlist. The checklists and downloads for each playlist live on its own page.",
+            "a[href='/playlists']"),
+        new("2. Downloads",
+            "This is the queue. The downloader plugins run in order until one delivers a file that passes the quality check, then the track is written to your library.",
+            "a[href='/downloads']"),
+        new("3. Library",
+            "Your music folders and scan locations live here. Add the paths that MelodyBridge may read; the scanner finds files that came from elsewhere.",
+            "a[href='/library']"),
+        new("4. Sync jobs",
+            "A sync job publishes a playlist as an M3U file or to Jellyfin, Plex or Navidrome. It can run on a schedule, and rule profiles keep the output paths and formats shared.",
             "a[href='/sync-jobs']"),
+        new("5. Settings",
+            "Connect Spotify or YouTube, add media servers, set the playlist output folder and choose the theme. Everything global lives here.",
+            "a[href='/settings']"),
+        new("Next: the setup checklist",
+            "The dashboard below walks through adding a playlist, downloading it and publishing it. Skip it with the button on the checklist; bring it back any time from Settings, About.",
+            null),
     ];
 
     internal async Task RefreshStats(bool force = false)

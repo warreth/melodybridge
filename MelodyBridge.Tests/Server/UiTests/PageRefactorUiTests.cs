@@ -305,8 +305,8 @@ public class PageRefactorUiTests
         var cut = _ctx.Render<Home>();
         // Fresh install: dismiss the intro so the dashboard renders.
         cut.WaitForAssertion(() =>
-            Assert.That(cut.Markup, Does.Contain("Skip intro")), TimeSpan.FromSeconds(3));
-        cut.FindAll("button").Single(b => b.TextContent.Contains("Skip intro")).Click();
+            Assert.That(cut.Markup, Does.Contain("Skip checklist")), TimeSpan.FromSeconds(3));
+        cut.FindAll("button").First(b => b.TextContent.Contains("Skip checklist")).Click();
         cut.WaitForState(() => cut.Markup.Contains("Connections"), TimeSpan.FromSeconds(3));
 
         // The media server rows arrive with the probe's first answer, one
