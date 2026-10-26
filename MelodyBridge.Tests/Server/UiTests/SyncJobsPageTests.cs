@@ -246,6 +246,28 @@ public class SyncJobsPageTests
     }
 
     [Test]
+    public void SyncJobs_CardSize_ChangesTheGrid_AndPersists()
+    {
+        var cut = _ctx.Render<SyncJobs>();
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.FindAll(".panel-card"), Has.Count.EqualTo(2)), TimeSpan.FromSeconds(3));
+
+        Assert.That(cut.Find(".sync-job-cards").ClassList, Does.Contain("cards-medium"),
+            "the default is the medium grid");
+        cut.Find("select[aria-label='Sync job card size']").Change("small");
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.Find(".sync-job-cards").ClassList, Does.Contain("cards-small"),
+                "the grid class changes with the picker");
+        }, TimeSpan.FromSeconds(3));
+
+        using var db = _dbFactory.CreateDbContext();
+        Assert.That(db.DownloaderSettings.Any(s => s.Key == "syncjobs_card_size" && s.Value == "small"),
+            Is.True, "the card size sticks for the next visit");
+    }
+
+    [Test]
     public void SyncJobs_SortByStatus_PutsFailuresFirst_AndPersists()
     {
         var cut = _ctx.Render<SyncJobs>();

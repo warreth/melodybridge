@@ -80,3 +80,77 @@
 }
 .publish-m3u-config h4 { margin: 0; font-size: .88rem; }
 .publish-m3u-config label { display: grid; gap: .3rem; }
+
+/* Card size: one grid definition, three minimum widths. The switch in the
+   toolbar only changes the class, so the choice is instant. */
+.playlist-cards {
+    display: grid;
+    gap: 1rem;
+    margin-top: 1rem;
+    grid-template-columns: repeat(auto-fill, minmax(var(--playlist-card-min, 260px), 1fr));
+}
+.playlist-cards.cards-small { --playlist-card-min: 180px; }
+.playlist-cards.cards-medium { --playlist-card-min: 260px; }
+.playlist-cards.cards-large { --playlist-card-min: 380px; }
+.list-toolbar + .playlist-cards,
+.selection-bar + .playlist-cards { margin-top: 0; }
+
+.playlist-cards.cards-small { gap: .7rem; }
+.playlist-cards.cards-small .playlist-card { padding: .75rem; }
+.playlist-cards.cards-small .playlist-card h2 { font-size: .95rem; }
+.playlist-cards.cards-small .card-tags { font-size: .7rem; }
+.playlist-cards.cards-large .playlist-card { padding: 1.15rem; }
+.playlist-cards.cards-large .playlist-card h2 { font-size: 1.15rem; }
+
+@media (max-width: 720px) {
+    .playlist-cards { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* Phone cards stay compact: an 84px cover beside the text instead of a
+   full-width square that pushes the details below the fold. These rules
+   live here because the scoped .playlist-card base sets flex-direction,
+   and a global rule with equal specificity cannot win. */
+@media (max-width: 720px) {
+    .playlist-cards .playlist-card {
+        display: grid;
+        grid-template-columns: 84px minmax(0, 1fr);
+        grid-template-rows: auto auto 1fr;
+        gap: .3rem .8rem;
+        align-items: start;
+    }
+    .playlist-cards .playlist-card .playlist-cover {
+        grid-column: 1;
+        grid-row: 1 / span 3;
+        width: 84px;
+    }
+    .playlist-cards .playlist-card .playlist-cover .cover-badge { display: none; }
+    .playlist-cards .playlist-card .card-menu {
+        grid-column: 2;
+        justify-self: end;
+    }
+    .playlist-cards .playlist-card .card-tags { grid-column: 2; }
+    .playlist-cards .playlist-card .job-meta {
+        grid-column: 2;
+        display: block;
+        line-height: 1.45;
+    }
+    .playlist-cards .playlist-card .card-menu-trigger { width: 28px; height: 28px; }
+    .playlist-cards .playlist-card .card-tags .quality-badge { font-size: .68rem; }
+}
+
+/* The quick publish dialog uses two columns on desktop: playlists on
+   the left, targets and schedule on the right. Everything stays visible
+   without scrolling, and the M3U rule profile sits with its target. */
+.publish-columns {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 1.25rem;
+    align-items: start;
+}
+.publish-column { display: grid; gap: .6rem; align-content: start; min-width: 0; }
+.publish-column .section-title-row { margin: 0; }
+.publish-column .publish-schedule { margin-top: .35rem; }
+
+@media (max-width: 720px) {
+    .publish-columns { grid-template-columns: minmax(0, 1fr); gap: 1rem; }
+}

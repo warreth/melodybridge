@@ -178,13 +178,13 @@ discarded before the restart.
 ## The dashboard
 
 The dashboard is the at-a-glance page: playlists, downloaded tracks, library
-files and enabled plugins. The connections panel lists Spotify, YouTube, your
-media servers and FlareSolverr, and the recent errors panel links to the Logs
-page.
+files and enabled plugins. Each metric tile opens its page. The connections
+panel lists Spotify, YouTube, your media servers and FlareSolverr. A single
+compact all-clear takes the place of empty login and error panels, so the page
+only grows when there is something to read.
 
 - **Plugin logins** lists every login problem in the same red style as the
-  Plugins page, with a **Fix** link straight to that plugin card. It says "No
-  login problems found" when every enabled plugin's stored login looks usable.
+  Plugins page, with a **Fix** link straight to that plugin card.
 - The sidebar **download chip** appears while a playlist download is running or
   paused: how many runs, how many tracks are done, and how many failed. Click it
   to open the live downloads on the Plugins page.
@@ -195,9 +195,11 @@ page.
 ## The Playlists page
 
 Saved playlists show as cards or compact rows; the switch sits above the list
-and the choice is remembered. The sort control offers **Recently synced**,
-**Name A-Z** and **Most tracks**, also remembered for the next visit. Pinned
-playlists stay above the chosen order.
+and the choice is remembered. In card view, **Small**, **Medium** and **Large**
+set the card width, from a six-column overview to wide covers, and the size is
+remembered too. The sort control offers **Recently synced**, **Name A-Z** and
+**Most tracks**, also remembered for the next visit. Pinned playlists stay above
+the chosen order.
 
 **Needs attention** narrows the list to playlists with a failed source sync, a
 partial snapshot, failed track downloads, or downloaded tracks waiting for a
@@ -382,7 +384,12 @@ story for the **No filter** quality. When a playlist asks for a specific
 quality, MelodyBridge first picks the plugins that can really deliver it (their
 declared capabilities decide) and the order here only breaks ties between
 plugins of the same kind. Use the arrows to move a plugin and the switch to
-enable or disable it.
+enable or disable it. The number on each enabled plugin's icon is its place in
+the waterfall, so the route and the list always agree.
+
+The search box and the **All**, **Enabled**, **Needs login** and **Unavailable**
+filters narrow a long plugin list. The count on each filter says how many
+plugins it would show.
 
 The **Route preview** card answers "what will actually run?" before a download.
 Pick a quality preset and it shows the enabled plugins in try order, with the

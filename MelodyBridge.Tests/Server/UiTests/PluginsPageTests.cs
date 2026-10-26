@@ -35,7 +35,12 @@ public class PluginsPageTests
 
         var providers = new List<IDownloader>
         {
-            new TestDownloader("ytdlp", "yt-dlp (YouTube)"),
+            new TestDownloader("ytdlp", "yt-dlp (YouTube)",
+                new PluginCapabilities(
+                [
+                    new QualityDeliverable(AudioFormat.Mp3, Lossless: false, MinKbps: 64, MaxKbps: 320),
+                    new QualityDeliverable(AudioFormat.Flac, Lossless: true, MinKbps: 900, MaxKbps: 10000),
+                ])),
             new TestDownloader("test2", "Second Plugin"),
         };
 
@@ -69,6 +74,41 @@ public class PluginsPageTests
 
     [TearDown]
     public void TearDown() => _ctx.Dispose();
+
+    [Test]
+    public void Plugins_SearchAndLoginFilter_NarrowTheList()
+    {
+        var cut = _ctx.Render<Plugins>();
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.FindAll(".plugin-card"), Has.Count.EqualTo(2)), TimeSpan.FromSeconds(3));
+
+        var ranks = cut.FindAll(".plugin-rank").Select(r => r.TextContent.Trim()).ToList();
+        Assert.That(ranks, Is.EqualTo(new[] { "1", "2" }),
+            "the enabled waterfall order is visible on the cards");
+
+        cut.Find("input[aria-label='Find a plugin']").Input("Second");
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.FindAll(".plugin-card"), Has.Count.EqualTo(1));
+            Assert.That(cut.Find(".plugin-card").TextContent, Does.Contain("Second Plugin"));
+        }, TimeSpan.FromSeconds(3));
+
+        cut.Find("input[aria-label='Find a plugin']").Input("");
+        cut.FindAll(".filter-chip").Single(b => b.TextContent.Contains("Needs login")).Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.FindAll(".plugin-card"), Is.Empty,
+                "no login issue means the filter shows none");
+            Assert.That(cut.Markup, Does.Contain("No plugins match"));
+        }, TimeSpan.FromSeconds(3));
+
+        cut.FindAll(".filter-chip").Single(b => b.TextContent.Contains("All")).Click();
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.FindAll(".plugin-card"), Has.Count.EqualTo(2)),
+            TimeSpan.FromSeconds(3));
+    }
 
     private sealed class AuthTestDownloader : IDownloader, IPluginAuthStatusProvider, IPluginAvailabilityRefresh
     {

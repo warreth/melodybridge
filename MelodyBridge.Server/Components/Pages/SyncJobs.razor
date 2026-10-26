@@ -75,6 +75,18 @@
                     aria-pressed="@(bulkMode ? "true" : "false")">
                 <Icon Name="check" Size="14" /> @(bulkMode ? "Done selecting" : "Select jobs")
             </button>
+            @if (syncJobsView == "cards")
+            {
+                <label class="card-size-control" title="Card size">
+                    <Icon Name="layout-grid" Size="14" />
+                    <select aria-label="Sync job card size" value="@syncJobsCardSize"
+                            @onchange="OnSyncJobsCardSizeChanged">
+                        <option value="small">Small</option>
+                        <option value="medium">Medium</option>
+                        <option value="large">Large</option>
+                    </select>
+                </label>
+            }
             <div class="view-switch" role="group" aria-label="Sync job layout">
                 <button class="view-chip @(syncJobsView == "cards" ? "on" : null)" title="Card view"
                         aria-pressed="@(syncJobsView == "cards" ? "true" : "false")"
@@ -217,7 +229,7 @@
 }
 else
 {
-    <section class="content-grid two">
+    <section class="sync-job-cards cards-@syncJobsCardSize">
         @foreach (var job in jobs)
         {
             var source = SourcePlaylist(job);
@@ -953,6 +965,8 @@ else
     private string syncJobsView = "cards";
     /// <summary>Job order: last run, next run or status, kept in settings.</summary>
     private string syncJobsSort = "last-run";
+    /// <summary>Small, medium or large cards, kept in settings.</summary>
+    private string syncJobsCardSize = "medium";
     /// <summary>" · next run ..." per job, computed once per load (the cron
     /// walk is not free and the card re-renders often).</summary>
     private Dictionary<string, string> nextRunLabels = new();
@@ -993,6 +1007,8 @@ else
         if (syncJobsView is not ("cards" or "rows")) syncJobsView = "cards";
         syncJobsSort = await Settings.GetAsync("syncjobs_sort", "last-run");
         if (syncJobsSort is not ("last-run" or "next-run" or "status")) syncJobsSort = "last-run";
+        syncJobsCardSize = await Settings.GetAsync("syncjobs_card_size", "medium");
+        if (syncJobsCardSize is not ("small" or "medium" or "large")) syncJobsCardSize = "medium";
         await LoadDataAsync();
         await ReloadProfiles();
     }
@@ -1011,6 +1027,14 @@ else
                 // Interop is unavailable during prerender and in some tests.
             }
         }
+    }
+
+    private async Task OnSyncJobsCardSizeChanged(ChangeEventArgs e)
+    {
+        var size = e.Value?.ToString() ?? "medium";
+        if (size is not ("small" or "medium" or "large")) size = "medium";
+        syncJobsCardSize = size;
+        await Settings.SetAsync("syncjobs_card_size", size);
     }
 
     private async Task SetSyncJobsView(string view)

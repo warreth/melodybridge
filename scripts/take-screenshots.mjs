@@ -53,6 +53,9 @@ const ROUTES = [
   ['/library', 'library'],
   ['/plugins', 'plugins'],
   ['/sync-jobs', 'sync'],
+  ['/playlists', 'publish', { clickText: 'Publish', checkFirstPlaylist: true, checkLabel: 'M3U file', waitFor: '.wizard-modal' }],
+  ['/sync-jobs', 'sync-quick', { clickText: 'New sync job', waitFor: '.job-quick-modal', prepare: 'sync-quick' }],
+  ['/sync-jobs', 'sync-profiles', { clickText: 'Rule profiles', waitFor: '.sync-profiles' }],
   ['/settings', 'settings'],
   ['/logs', 'logs'],
   ['/advanced', 'advanced'],
@@ -109,7 +112,36 @@ async function shootTheme(browser, theme) {
           document.documentElement.setAttribute('data-theme', t)
         return document.documentElement.getAttribute('data-theme')
       }, theme)
-      await page.mouse.click(10, 10) // clear the auto-focused heading
+
+      // Optional surfaces (upgrade notes, first-run tour) must not cover a
+      // page shot. Dismissing also leaves the rest of the run unblocked.
+      if (await page.locator('.release-notes-modal').count())
+        await page.getByRole('button', { name: 'Got it' }).click()
+      if (await page.locator('.tour-card').count())
+        await page.getByRole('button', { name: 'Skip tour' }).click()
+
+      if (opts?.clickText)
+        await page.getByRole('button', { name: new RegExp(opts.clickText, 'i') }).first().click()
+      if (opts?.checkFirstPlaylist)
+        await page.locator('.publish-list').first()
+          .locator('label.publish-option input[type=checkbox]').first().check()
+      if (opts?.checkLabel)
+        await page.locator('label', { hasText: opts.checkLabel })
+          .locator('input[type=checkbox]').first().check()
+      if (opts?.waitFor) await page.waitForSelector(opts.waitFor, { timeout: 10000 })
+
+      // Fill the one-editor shot enough that the live preview has a
+      // source and a resolved path, instead of showing empty inputs.
+      if (opts?.prepare === 'sync-quick') {
+        const name = page.locator("input[placeholder='e.g. My Summer Hits']")
+        if (await name.count()) await name.fill('Summer Hits')
+        const playlistSelect = page.locator('.job-quick-modal select').nth(1)
+        if (await playlistSelect.locator('option').count() > 1)
+          await playlistSelect.selectOption({ index: 1 })
+        await page.waitForTimeout(350)
+      }
+
+      if (!opts?.clickText) await page.mouse.click(10, 10) // clear the auto-focused heading
       await page.waitForTimeout(300)
       await page.evaluate(() => window.scrollTo(0, 0))
       await page.waitForTimeout(200)

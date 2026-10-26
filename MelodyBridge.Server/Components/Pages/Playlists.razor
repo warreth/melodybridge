@@ -103,6 +103,18 @@
                         <span class="filter-count">@NeedsAttentionCount</span>
                     }
                 </button>
+                @if (playlistsView == "cards")
+                {
+                    <label class="card-size-control" title="Card size">
+                        <Icon Name="layout-grid" Size="14" />
+                        <select aria-label="Playlist card size" value="@playlistsCardSize"
+                                @onchange="OnPlaylistsCardSizeChanged">
+                            <option value="small">Small</option>
+                            <option value="medium">Medium</option>
+                            <option value="large">Large</option>
+                        </select>
+                    </label>
+                }
                 <div class="view-switch" role="group" aria-label="Playlist layout">
                     <button class="view-chip @(playlistsView == "cards" ? "on" : null)" title="Card view"
                             aria-pressed="@(playlistsView == "cards" ? "true" : "false")"
@@ -248,7 +260,7 @@ else if (playlistsView == "rows")
 }
 else
 {
-    <section class="content-grid three">
+    <section class="playlist-cards cards-@playlistsCardSize">
         @foreach (var playlist in visiblePlaylists)
         {
             var (downloaded, failed, total, sizeBytes, attention) = downloadStats.GetValueOrDefault(playlist.Id, (0, 0, 0, 0, 0));
@@ -676,7 +688,7 @@ else
 @if (showPublishPanel)
 {
     <div class="wizard-overlay" @onclick="ClosePublishPanel">
-        <div class="wizard-modal" @onclick:stopPropagation="true">
+        <div class="wizard-modal wide publish-modal" @onclick:stopPropagation="true">
             <div class="wizard-header">
                 <div>
                     <span class="eyebrow">Quick publish</span>
@@ -709,156 +721,161 @@ else
                 }
                 else
                 {
-                    <div class="section-title-row">
-                        <h3>Playlists</h3>
-                        <button class="link-button" @onclick="ToggleAllPublishPlaylists">
-                            @(AllPublishPlaylistsSelected ? "Clear" : "Select all")
-                        </button>
-                    </div>
-                    <div class="publish-list">
-                        @foreach (var playlist in publishablePlaylists)
-                        {
-                            var on = publishPlaylistIds.Contains(playlist.Id);
-                            <label class="publish-option @(on ? "on" : null)">
-                                <input type="checkbox" checked="@on"
-                                       @onchange="e => TogglePublishPlaylist(playlist.Id, e)" />
-                                <span class="publish-option-body">
-                                    <strong>@playlist.Name</strong>
-                                    <small>
-                                        @(playlist.IsManualImport ? "Imported" : playlist.SourcePlatform.ToString())
-                                        · @playlist.TrackCount track@(playlist.TrackCount == 1 ? "" : "s")
-                                        @if (!string.IsNullOrEmpty(playlist.Owner))
-                                        {
-                                            <span> · by @playlist.Owner</span>
-                                        }
-                                    </small>
-                                </span>
-                            </label>
-                        }
-                    </div>
-                    @if (alreadyPublishedCount > 0)
-                    {
-                        <p class="publish-option-note">
-                            @alreadyPublishedCount playlist@(alreadyPublishedCount == 1 ? "" : "s")
-                            already @(alreadyPublishedCount == 1 ? "has" : "have") a sync job and
-                            @(alreadyPublishedCount == 1 ? "is" : "are") not listed again.
-                        </p>
-                    }
-                    @if (publishProfiles.Count == 0)
-                    {
-                        <div class="hint-box">
-                            No media server profiles yet. Create one under
-                            <a href="/settings#media-servers">Settings, Media servers</a>,
-                            or tick M3U file below to publish to disk only.
-                        </div>
-                    }
-                    <div class="section-title-row">
-                        <h3>Send to</h3>
-                        <a class="link-button" href="/settings#media-servers">
-                            <Icon Name="plus" Size="13" /> Add profile
-                        </a>
-                    </div>
-                    <div class="publish-list">
-                        <label class="publish-option @(publishM3uEnabled ? "on" : null)">
-                            <input type="checkbox" checked="@publishM3uEnabled"
-                                   @onchange="e => publishM3uEnabled = e.Value is true" />
-                            <span class="publish-option-body">
-                                <strong><Icon Name="list-music" Size="15" /> M3U file</strong>
-                                <small>
-                                    @if (PublishRuleProfile is { } fileProfile)
-                                    {
-                                        <span>
-                                            One file per playlist through <strong>@fileProfile.Name</strong>,
-                                            in <span class="text-muted">@fileProfile.M3uOutputFolder</span>.
+                    <div class="publish-columns">
+                        <section class="publish-column" aria-label="Playlists to publish">
+                            <div class="section-title-row">
+                                <h3>Playlists</h3>
+                                <button class="link-button" @onclick="ToggleAllPublishPlaylists">
+                                    @(AllPublishPlaylistsSelected ? "Clear" : "Select all")
+                                </button>
+                            </div>
+                            <div class="publish-list">
+                                @foreach (var playlist in publishablePlaylists)
+                                {
+                                    var on = publishPlaylistIds.Contains(playlist.Id);
+                                    <label class="publish-option @(on ? "on" : null)">
+                                        <input type="checkbox" checked="@on"
+                                               @onchange="e => TogglePublishPlaylist(playlist.Id, e)" />
+                                        <span class="publish-option-body">
+                                            <strong>@playlist.Name</strong>
+                                            <small>
+                                                @(playlist.IsManualImport ? "Imported" : playlist.SourcePlatform.ToString())
+                                                · @playlist.TrackCount track@(playlist.TrackCount == 1 ? "" : "s")
+                                                @if (!string.IsNullOrEmpty(playlist.Owner))
+                                                {
+                                                    <span> · by @playlist.Owner</span>
+                                                }
+                                            </small>
                                         </span>
-                                    }
-                                    else if (string.IsNullOrWhiteSpace(publishM3uFolder))
+                                    </label>
+                                }
+                            </div>
+                            @if (alreadyPublishedCount > 0)
+                            {
+                                <p class="publish-option-note">
+                                    @alreadyPublishedCount playlist@(alreadyPublishedCount == 1 ? "" : "s")
+                                    already @(alreadyPublishedCount == 1 ? "has" : "have") a sync job and
+                                    @(alreadyPublishedCount == 1 ? "is" : "are") not listed again.
+                                </p>
+                            }
+                        </section>
+
+                        <section class="publish-column" aria-label="Targets and schedule">
+                            <div class="section-title-row">
+                                <h3>Send to</h3>
+                                <a class="link-button" href="/settings#media-servers">
+                                    <Icon Name="plus" Size="13" /> Add profile
+                                </a>
+                            </div>
+                            <div class="publish-list">
+                                <label class="publish-option @(publishM3uEnabled ? "on" : null)">
+                                    <input type="checkbox" checked="@publishM3uEnabled"
+                                           @onchange="e => publishM3uEnabled = e.Value is true" />
+                                    <span class="publish-option-body">
+                                        <strong><Icon Name="list-music" Size="15" /> M3U file</strong>
+                                        <small>
+                                            @if (PublishRuleProfile is { } fileProfile)
+                                            {
+                                                <span>
+                                                    One file per playlist through <strong>@fileProfile.Name</strong>,
+                                                    in <span class="text-muted">@fileProfile.M3uOutputFolder</span>.
+                                                </span>
+                                            }
+                                            else if (string.IsNullOrWhiteSpace(publishM3uFolder))
+                                            {
+                                                <span class="sync-warn">Set the Playlist output folder in Settings first.</span>
+                                            }
+                                            else
+                                            {
+                                                <span>
+                                                    One .m3u8 per playlist in <span class="text-muted">@publishM3uFolder</span>.
+                                                    Names that collide get a numbered suffix.
+                                                </span>
+                                            }
+                                        </small>
+                                    </span>
+                                </label>
+                                @foreach (var profile in publishProfiles)
+                                {
+                                    var on = publishProfileIds.Contains(profile.Id);
+                                    <label class="publish-option @(on ? "on" : null)">
+                                        <input type="checkbox" checked="@on"
+                                               @onchange="e => TogglePublishProfile(profile.Id, e)" />
+                                        <span class="publish-option-body">
+                                            <strong>@profile.Name</strong>
+                                            <small>@profile.Kind <span class="text-muted">@profile.BaseUrl</span></small>
+                                        </span>
+                                    </label>
+                                }
+                            </div>
+                            @if (publishProfiles.Count == 0)
+                            {
+                                <div class="hint-box">
+                                    No media server profiles yet. Create one under
+                                    <a href="/settings#media-servers">Settings, Media servers</a>,
+                                    or tick M3U file above to publish to disk only.
+                                </div>
+                            }
+                            @if (publishM3uEnabled)
+                            {
+                                <div class="publish-m3u-config">
+                                    <div class="section-title-row">
+                                        <h4>M3U rule profile</h4>
+                                        <a class="link-button" href="/sync-jobs">Manage profiles</a>
+                                    </div>
+                                    <label>
+                                        Rule profile
+                                        <select aria-label="Rule profile for quick publish"
+                                                @bind="publishRuleProfileId">
+                                            <option value="">Custom folder</option>
+                                            @foreach (var profile in publishRuleProfiles)
+                                            {
+                                                <option value="@profile.Id">@profile.Name</option>
+                                            }
+                                        </select>
+                                    </label>
+                                    @if (PublishRuleProfile is { } ruleProfile)
                                     {
-                                        <span class="sync-warn">Set the Playlist output folder in Settings first.</span>
+                                        <small class="text-muted">
+                                            @ruleProfile.M3uFileNamePattern in @ruleProfile.M3uOutputFolder,
+                                            @PublishProfileFormat(ruleProfile),
+                                            @ruleProfile.PathRemapRules.Count path rule@(ruleProfile.PathRemapRules.Count == 1 ? "" : "s") and
+                                            @ruleProfile.ExtensionRemapRules.Count extension rule@(ruleProfile.ExtensionRemapRules.Count == 1 ? "" : "s").
+                                        </small>
+                                    }
+                                    else if (publishRuleProfiles.Count == 0)
+                                    {
+                                        <div class="hint-box">
+                                            No rule profiles yet. A profile keeps the output folder, file name,
+                                            format and remaps together. Create one on the
+                                            <a href="/sync-jobs">Sync jobs</a> page, or keep the custom folder.
+                                        </div>
                                     }
                                     else
                                     {
-                                        <span>
-                                            One .m3u8 per playlist in <span class="text-muted">@publishM3uFolder</span>.
-                                            Names that collide get a numbered suffix.
-                                        </span>
+                                        <small class="text-muted">
+                                            Custom folder: @publishM3uFolder. Pick a profile to use its
+                                            folder, file name, format and remaps.
+                                        </small>
                                     }
-                                </small>
-                            </span>
-                        </label>
-                        @foreach (var profile in publishProfiles)
-                        {
-                            var on = publishProfileIds.Contains(profile.Id);
-                            <label class="publish-option @(on ? "on" : null)">
-                                <input type="checkbox" checked="@on"
-                                       @onchange="e => TogglePublishProfile(profile.Id, e)" />
-                                <span class="publish-option-body">
-                                    <strong>@profile.Name</strong>
-                                    <small>@profile.Kind <span class="text-muted">@profile.BaseUrl</span></small>
-                                </span>
-                            </label>
-                        }
-                    </div>
-                    @if (publishM3uEnabled)
-                    {
-                        <div class="publish-m3u-config">
-                            <div class="section-title-row">
-                                <h4>M3U rule profile</h4>
-                                <a class="link-button" href="/sync-jobs">
-                                    Manage profiles
-                                </a>
-                            </div>
-                            <label>
-                                Rule profile
-                                <select aria-label="Rule profile for quick publish"
-                                        @bind="publishRuleProfileId">
-                                    <option value="">Custom folder</option>
-                                    @foreach (var profile in publishRuleProfiles)
-                                    {
-                                        <option value="@profile.Id">@profile.Name</option>
-                                    }
-                                </select>
-                            </label>
-                            @if (PublishRuleProfile is { } ruleProfile)
-                            {
-                                <small class="text-muted">
-                                    @ruleProfile.M3uFileNamePattern in @ruleProfile.M3uOutputFolder,
-                                    @PublishProfileFormat(ruleProfile),
-                                    @ruleProfile.PathRemapRules.Count path rules and
-                                    @ruleProfile.ExtensionRemapRules.Count extension rules.
-                                </small>
-                            }
-                            else if (publishRuleProfiles.Count == 0)
-                            {
-                                <div class="hint-box">
-                                    No rule profiles yet. A profile keeps the output folder, file name,
-                                    format and remaps together. Create one on the
-                                    <a href="/sync-jobs">Sync jobs</a> page, or keep the custom folder.
                                 </div>
                             }
-                            else
-                            {
-                                <small class="text-muted">
-                                    Custom folder: @publishM3uFolder. Pick a profile to use its
-                                    folder, file name, format and remaps.
-                                </small>
-                            }
-                        </div>
-                    }
-                    <div class="publish-schedule">
-                        <SchedulePicker Label="Schedule for every job" @bind-Value="publishSchedule"
-                                        LiveValidation="true"
-                                        ValidityChanged="valid => publishScheduleValid = valid" />
-                        @if (!publishScheduleValid)
-                        {
-                            <p class="publish-option-note sync-warn">
-                                Enter a valid five-field cron expression before creating jobs.
-                            </p>
-                        }
-                        <p class="publish-option-note">
-                            Applies to every job created here. Change one later on the
-                            <a href="/sync-jobs">Sync jobs</a> page.
-                        </p>
+                            <div class="publish-schedule">
+                                <SchedulePicker Label="Schedule for every job" @bind-Value="publishSchedule"
+                                                LiveValidation="true"
+                                                ValidityChanged="valid => publishScheduleValid = valid" />
+                                @if (!publishScheduleValid)
+                                {
+                                    <p class="publish-option-note sync-warn">
+                                        Enter a valid five-field cron expression before creating jobs.
+                                    </p>
+                                }
+                                <p class="publish-option-note">
+                                    Applies to every job created here. Change one later on the
+                                    <a href="/sync-jobs">Sync jobs</a> page.
+                                </p>
+                            </div>
+                        </section>
                     </div>
                 }
             </div>
@@ -923,6 +940,8 @@ else
     private string newTargetDirectory = string.Empty;
     /// <summary>Card grid or compact rows, kept in settings across visits.</summary>
     private string playlistsView = "cards";
+    /// <summary>Small, medium or large cards, kept in settings.</summary>
+    private string playlistsCardSize = "medium";
     /// <summary>Sort order for the saved playlists, kept in settings.</summary>
     private string playlistSort = "recent";
     /// <summary>Narrows the list to playlists with failures or warnings.</summary>
@@ -1654,6 +1673,14 @@ else
         ? $"Leave empty to use the default music path; this playlist gets its own folder there ({resolvedDefaultMusicPath}/playlist name)."
         : $"Leave empty to drop the files directly in the default music path ({resolvedDefaultMusicPath}).";
 
+    private async Task OnPlaylistsCardSizeChanged(ChangeEventArgs e)
+    {
+        var size = e.Value?.ToString() ?? "medium";
+        if (size is not ("small" or "medium" or "large")) size = "medium";
+        playlistsCardSize = size;
+        await Settings.SetAsync("playlists_card_size", size);
+    }
+
     private async Task SetPlaylistsView(string view)
     {
         if (playlistsView == view) return;
@@ -1670,12 +1697,13 @@ else
             () => Store.GetDownloadStatsAsync(),
             () => Store.DataVersion);
 
-        // The page needs six settings before it can render its controls.
+        // The page needs its settings before it can render its controls.
         // Read them in one query while the playlist list loads instead of
-        // opening six contexts and seven sequential connections.
+        // opening a context per setting.
         var settingsTask = Settings.GetManyAsync(new[]
         {
             "default_quality", "music_path", "playlist_folders", "playlists_view", "playlists_sort",
+            "playlists_card_size",
             MelodyBridge.Server.Services.AdvancedMode.SettingKey,
         });
         await Load();
@@ -1695,6 +1723,9 @@ else
         if (playlistSort is not ("recent" or "name" or "tracks")) playlistSort = "recent";
         advancedMode = SettingsStore.ParseBool(
             settings.GetValueOrDefault(MelodyBridge.Server.Services.AdvancedMode.SettingKey), false);
+        playlistsCardSize = settings.GetValueOrDefault("playlists_card_size", "medium");
+        if (playlistsCardSize is not ("small" or "medium" or "large"))
+            playlistsCardSize = "medium";
 
         // Live badge refresh while any run is active. Idle ticks do no
         // database work unless a write actually moved the store stamp.

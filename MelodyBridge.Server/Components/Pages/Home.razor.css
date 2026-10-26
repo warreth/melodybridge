@@ -97,3 +97,89 @@
 }
 .setup-resume h2 { margin: .1rem 0 .3rem; }
 .setup-resume p { margin: 0; max-width: 62ch; }
+
+/* Dashboard columns close around their own content instead of stretching
+   the shorter card to the height of the longer stack. */
+.dashboard-grid { align-items: start; }
+
+/* Recent runs read as a feed instead of a four-column table squeezed
+   into half the page. The status and time keep their own column. */
+.run-feed { display: grid; }
+.run-row {
+    display: grid;
+    grid-template-columns: 8px minmax(0, 1fr) auto;
+    gap: .65rem;
+    align-items: start;
+    padding: .6rem 0;
+    border-top: 1px solid var(--border);
+}
+.run-row:first-child { border-top: 0; padding-top: 0; }
+.run-row:last-child { padding-bottom: 0; }
+.run-dot {
+    width: 7px;
+    height: 7px;
+    margin-top: .4rem;
+    border-radius: 50%;
+    background: var(--muted-2);
+}
+.run-dot.ok { background: var(--success); }
+.run-dot.err { background: var(--danger); }
+.run-copy { display: grid; gap: .1rem; min-width: 0; }
+.run-copy strong { font-size: .9rem; overflow-wrap: anywhere; }
+.run-copy small { color: var(--muted); font-size: .8rem; line-height: 1.4; overflow-wrap: anywhere; }
+.run-side { display: grid; justify-items: end; gap: .25rem; flex-shrink: 0; }
+.run-side small { color: var(--muted-2); font-size: .75rem; white-space: nowrap; }
+
+@media (max-width: 720px) {
+    .run-row { grid-template-columns: 8px minmax(0, 1fr); }
+    .run-side {
+        grid-column: 2;
+        justify-items: start;
+        grid-auto-flow: column;
+        justify-content: start;
+        align-items: center;
+        gap: .5rem;
+        margin-top: .2rem;
+    }
+}
+
+/* One compact all-clear instead of two empty panels. */
+.dashboard-clear {
+    display: flex;
+    align-items: center;
+    gap: .7rem;
+    padding: .8rem .9rem;
+}
+.dashboard-clear-icon {
+    flex: 0 0 auto;
+    display: grid;
+    place-items: center;
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    background: var(--accent-soft);
+    color: var(--accent-text);
+}
+.dashboard-clear div { display: grid; gap: .1rem; min-width: 0; }
+.dashboard-clear strong { font-size: .9rem; }
+.dashboard-clear span { color: var(--muted); font-size: .8rem; line-height: 1.4; }
+
+/* Phones: keep the four metrics visible as a 2x2 block instead of four
+   full-width cards, and let Refresh and Add share the action row. */
+@media (max-width: 720px) {
+    .updated-note { display: none; }
+    .page-title .topbar-actions {
+        flex-wrap: nowrap;
+        align-items: stretch;
+    }
+    .page-title .topbar-actions > .btn-modern { flex: 1 1 0; }
+    .dashboard-stats {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: .6rem;
+        margin-top: .75rem;
+    }
+    .dashboard-stats .stat-card { padding: .8rem; }
+    .dashboard-stats .stat-card strong { font-size: 1.35rem; }
+    .dashboard-stats .stat-card small { font-size: .72rem; }
+    .dashboard-stats .stat-icon { width: 32px; height: 32px; margin-bottom: .55rem; }
+}

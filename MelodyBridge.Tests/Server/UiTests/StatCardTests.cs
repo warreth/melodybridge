@@ -44,6 +44,26 @@ public class StatCardTests
     }
 
     [Test]
+    public void Href_TurnsTheWholeTileIntoALink()
+    {
+        var cut = _ctx.Render<StatCard>(p => p
+            .Add(c => c.IconName, "list-music")
+            .Add(c => c.Value, "12")
+            .Add(c => c.Label, "Playlists")
+            .Add(c => c.Href, "/playlists"));
+
+        var link = cut.Find("a.stat-card");
+        Assert.Multiple(() =>
+        {
+            Assert.That(link.GetAttribute("href"), Is.EqualTo("/playlists"));
+            Assert.That(link.QuerySelector("svg.stat-card-arrow"), Is.Not.Null,
+                "the linked tile carries the navigation chevron");
+            Assert.That(cut.FindAll("div.stat-card"), Is.Empty,
+                "a linked card does not also render the plain div root");
+        });
+    }
+
+    [Test]
     public void Caption_Is_Optional_NoSmallWithoutIt()
     {
         var cut = _ctx.Render<StatCard>(p => p

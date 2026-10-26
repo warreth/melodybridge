@@ -660,6 +660,30 @@ public class PlaylistsPageTests
     }
 
     [Test]
+    public void Playlists_CardSize_ChangesTheGrid_AndPersists()
+    {
+        SeedOnePlaylist("Size Mix", 3, Platform.Spotify);
+        var cut = _ctx.Render<Playlists>();
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.FindAll(".playlist-card"), Has.Count.EqualTo(1)), TimeSpan.FromSeconds(5));
+
+        Assert.That(cut.Find(".playlist-cards").ClassList, Does.Contain("cards-medium"),
+            "the default is the medium grid");
+        cut.Find("select[aria-label='Playlist card size']").Change("large");
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.Find(".playlist-cards").ClassList, Does.Contain("cards-large"),
+                "the grid class changes with the picker");
+            Assert.That(cut.Find(".playlist-cards").ClassList, Does.Not.Contain("cards-medium"));
+        }, TimeSpan.FromSeconds(3));
+
+        using var db = new SqliteFactory(_dbPath).CreateDbContext();
+        Assert.That(db.DownloaderSettings.Any(s => s.Key == "playlists_card_size" && s.Value == "large"),
+            Is.True, "the card size sticks for the next visit");
+    }
+
+    [Test]
     public void Playlists_SortByName_ReordersCards_AndPersists()
     {
         SeedOnePlaylist("Zulu Mix", 2, Platform.Spotify);

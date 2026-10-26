@@ -32,11 +32,17 @@ public class TestDownloader : IDownloader
 {
     public TestDownloader(string id, string name) { Id = id; Name = name; }
     public TestDownloader(string id, string name, PluginConfigField[] config) { Id = id; Name = name; ConfigFields = config; }
+    public TestDownloader(string id, string name, PluginCapabilities capabilities)
+    {
+        Id = id;
+        Name = name;
+        Capabilities = capabilities;
+    }
 
     public string Id { get; }
     public string Name { get; }
     public string Description => "test downloader";
-    public PluginCapabilities Capabilities => PluginCapabilities.Any;
+    public PluginCapabilities Capabilities { get; } = PluginCapabilities.Any;
     public IReadOnlyList<PluginConfigField> ConfigFields { get; } = Array.Empty<PluginConfigField>();
     public Task<bool> IsAvailableAsync(CancellationToken ct = default) => Task.FromResult(true);
 

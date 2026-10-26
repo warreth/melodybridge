@@ -223,7 +223,12 @@ public class PluginsInteractionTests
     [Test]
     public void Quality_Badges_AreSeparateSpans_WithSpaces()
     {
-        var cut = RenderPage(new TestDownloader("ytdlp", "yt-dlp (YouTube)"));
+        var cut = RenderPage(new TestDownloader("ytdlp", "yt-dlp (YouTube)",
+            new PluginCapabilities(
+            [
+                new QualityDeliverable(AudioFormat.Mp3, Lossless: false, MinKbps: 64, MaxKbps: 320),
+                new QualityDeliverable(AudioFormat.Flac, Lossless: true, MinKbps: 900, MaxKbps: 10000),
+            ])));
         cut.WaitForAssertion(() =>
             Assert.That(cut.FindAll(".plugin-card").Count, Is.EqualTo(1)),
             TimeSpan.FromSeconds(3));

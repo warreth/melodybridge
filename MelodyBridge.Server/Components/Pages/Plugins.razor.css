@@ -5,8 +5,15 @@
 
 .plugin-list {
     display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(480px, 1fr));
     gap: .75rem;
     margin-top: 1rem;
+}
+
+/* One column when the content column is too narrow for two readable
+   plugin cards. */
+@media (max-width: 1100px) {
+    .plugin-list { grid-template-columns: minmax(0, 1fr); }
 }
 
 /* Login warning: impossible to miss without turning the page into a
@@ -432,4 +439,75 @@
     .qi-item { align-items: stretch; flex-direction: column; }
     .qi-item .qi-meta { white-space: normal; overflow: visible; }
     .qi-item .flex-actions { justify-content: flex-start; }
+}
+
+/* Search and filter sit between the dependency card and the list, so a
+   long waterfall can be narrowed before the cards start. */
+.plugin-toolbar {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: .5rem .75rem;
+    margin-top: 1rem;
+    padding: .55rem .65rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface-2);
+}
+.plugin-search {
+    display: flex;
+    align-items: center;
+    gap: .4rem;
+    flex: 1 1 220px;
+    min-width: 0;
+    padding: 0 .55rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface);
+    color: var(--muted);
+}
+.plugin-search input {
+    flex: 1;
+    min-width: 0;
+    min-height: 34px;
+    border: 0;
+    background: transparent;
+    color: var(--text);
+    font: inherit;
+    outline: none;
+}
+.plugin-search:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.plugin-toolbar .filter-chips { flex: 1 1 auto; }
+.plugin-count {
+    color: var(--muted-2);
+    font-size: .76rem;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+/* Try-order number on the icon: the card tail already carries arrows,
+   but a rank answers "where in the waterfall is this?" at a glance. */
+.plugin-rank {
+    position: absolute;
+    right: -4px;
+    bottom: -4px;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 4px;
+    display: grid;
+    place-items: center;
+    border: 2px solid var(--surface);
+    border-radius: 9px;
+    background: var(--accent-soft);
+    color: var(--accent-text);
+    font-size: .66rem;
+    font-weight: 800;
+    line-height: 1;
+}
+
+@media (max-width: 600px) {
+    .plugin-toolbar { align-items: stretch; }
+    .plugin-search { flex-basis: 100%; }
+    .plugin-toolbar .filter-chips { width: 100%; }
+    .plugin-count { padding-left: .15rem; }
 }

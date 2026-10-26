@@ -328,8 +328,8 @@
 }
 .rule-preview-list > div {
     display: grid;
-    grid-template-columns: 8.5rem minmax(0, 1fr);
-    gap: .6rem;
+    grid-template-columns: minmax(0, 1fr);
+    gap: .15rem;
     align-items: start;
 }
 .rule-preview-list dt { color: var(--muted); font-size: .8rem; font-weight: 600; }
@@ -398,4 +398,28 @@
     display: grid;
     gap: .7rem;
     padding: .8rem;
+}
+
+/* Card size: the same three steps as the playlist grid, with wider
+   minimums because a job card carries targets and a run summary. */
+.sync-job-cards {
+    display: grid;
+    gap: 1rem;
+    margin-top: 1rem;
+    grid-template-columns: repeat(auto-fill, minmax(var(--job-card-min, 330px), 1fr));
+}
+.sync-job-cards.cards-small { --job-card-min: 260px; gap: .75rem; }
+.sync-job-cards.cards-medium { --job-card-min: 400px; }
+.sync-job-cards.cards-large { --job-card-min: 600px; }
+.list-toolbar + .sync-job-cards,
+.selection-bar + .sync-job-cards { margin-top: 0; }
+
+.sync-job-cards.cards-small .job-card { padding: .8rem; }
+.sync-job-cards.cards-small .job-card h2 { font-size: .95rem; }
+.sync-job-cards.cards-small .job-summary { font-size: .8rem; }
+.sync-job-cards.cards-large .job-card { padding: 1.2rem; }
+.sync-job-cards.cards-large .job-card h2 { font-size: 1.15rem; }
+
+@media (max-width: 720px) {
+    .sync-job-cards { grid-template-columns: minmax(0, 1fr); }
 }

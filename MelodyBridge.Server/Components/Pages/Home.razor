@@ -167,6 +167,7 @@ else
         <div class="topbar-actions">
             <small class="text-muted updated-note">Updated @_lastUpdated.ToString("HH:mm:ss")</small>
             <button class="btn-modern ghost" @onclick="@(() => RefreshStats(force: true))">Refresh</button>
+            <a class="btn-modern primary" href="/playlists"><Icon Name="plus" Size="15" /> Add playlist</a>
         </div>
     </section>
 
@@ -189,11 +190,11 @@ else
         </section>
     }
 
-    <section class="stat-grid">
-        <StatCard IconName="list-music" Label="Playlists" Value="@playlistsCount.ToString()" Caption="Saved from public links or accounts" />
-        <StatCard IconName="download" Label="Downloaded tracks" Value="@downloadedCount.ToString()" Caption="Files on your disk" />
-        <StatCard IconName="library" Label="Library" Value="@libraryCount.ToString()" Caption="Files found by the scanner" />
-        <StatCard IconName="package" Label="Plugins" Value="@($"{enabledPlugins} / {totalPlugins}")" Caption="Enabled in the waterfall" />
+    <section class="stat-grid dashboard-stats">
+        <StatCard IconName="list-music" Label="Playlists" Value="@playlistsCount.ToString()" Caption="Saved from public links or accounts" Href="/playlists" />
+        <StatCard IconName="download" Label="Downloaded tracks" Value="@downloadedCount.ToString()" Caption="Files on your disk" Href="/downloads" />
+        <StatCard IconName="library" Label="Library" Value="@libraryCount.ToString()" Caption="Files found by the scanner" Href="/library" />
+        <StatCard IconName="package" Label="Plugins" Value="@($"{enabledPlugins} / {totalPlugins}")" Caption="Enabled in the waterfall" Href="/plugins" />
     </section>
 
     <section class="content-grid two dashboard-grid">
@@ -233,64 +234,79 @@ else
             </div>
         </div>
         <div class="grid-stack">
-            <div class="panel-card">
-                <div class="panel-header">
-                    <div>
-                        <span class="eyebrow">Waterfall</span>
-                        <h2>Plugin logins</h2>
+            @if (authIssues.Count > 0)
+            {
+                <div class="panel-card">
+                    <div class="panel-header">
+                        <div>
+                            <span class="eyebrow">Waterfall</span>
+                            <h2>Plugin logins</h2>
+                        </div>
+                        <a class="btn-modern ghost small" href="/plugins">Plugins</a>
                     </div>
-                    <a class="btn-modern ghost small" href="/plugins">Plugins</a>
-                </div>
-                @if (authIssues.Count == 0)
-                {
-                    <EmptyState IconName="check-circle" Title="No login problems found">
-                        Every enabled plugin's stored login looks usable.
-                    </EmptyState>
-                }
-                else
-                {
-                    <div class="login-issue-list">
-                        @foreach (var issue in authIssues)
-                        {
-                            <div class="login-issue">
-                                <Icon Name="alert" Size="15" />
-                                <div>
-                                    <strong>@issue.PluginName</strong>
-                                    <span>@issue.Message</span>
+                    @if (authIssues.Count == 0)
+                    {
+                        <EmptyState IconName="check-circle" Title="No login problems found">
+                            Every enabled plugin's stored login looks usable.
+                        </EmptyState>
+                    }
+                    else
+                    {
+                        <div class="login-issue-list">
+                            @foreach (var issue in authIssues)
+                            {
+                                <div class="login-issue">
+                                    <Icon Name="alert" Size="15" />
+                                    <div>
+                                        <strong>@issue.PluginName</strong>
+                                        <span>@issue.Message</span>
+                                    </div>
+                                    <a class="btn-modern small ghost" href="/plugins#plugin-@issue.PluginId">Fix</a>
                                 </div>
-                                <a class="btn-modern small ghost" href="/plugins#plugin-@issue.PluginId">Fix</a>
-                            </div>
-                        }
-                    </div>
-                }
-            </div>
-
-            <div class="panel-card">
-                <div class="panel-header">
-                    <div>
-                        <span class="eyebrow">Attention</span>
-                        <h2>Recent errors (@errorCount)</h2>
-                    </div>
-                    <a class="btn-modern ghost small" href="/logs">Logs</a>
+                            }
+                        </div>
+                    }
                 </div>
-                @if (recentErrors.Count == 0)
-                {
-                    <EmptyState IconName="check-circle" Title="No errors">Everything ran clean.</EmptyState>
-                }
-                else
-                {
-                    <div class="logs-list">
-                        @foreach (var entry in recentErrors)
-                        {
-                            <a class="log-row err clickable" href="/logs">
-                                <span class="log-time">@entry.Timestamp.ToLocalTime().ToString("HH:mm:ss")</span>
-                                <span class="log-category">@entry.Area</span>
-                                <span class="log-message">@LogRedactor.Redact(entry.Message)</span>
-                            </a>
-                        }
+            }
+            @if (errorCount > 0)
+            {
+                <div class="panel-card">
+                    <div class="panel-header">
+                        <div>
+                            <span class="eyebrow">Attention</span>
+                            <h2>Recent errors (@errorCount)</h2>
+                        </div>
+                        <a class="btn-modern ghost small" href="/logs">Logs</a>
                     </div>
-                }
-            </div>
+                    @if (recentErrors.Count == 0)
+                    {
+                        <EmptyState IconName="check-circle" Title="No errors">Everything ran clean.</EmptyState>
+                    }
+                    else
+                    {
+                        <div class="logs-list">
+                            @foreach (var entry in recentErrors)
+                            {
+                                <a class="log-row err clickable" href="/logs">
+                                    <span class="log-time">@entry.Timestamp.ToLocalTime().ToString("HH:mm:ss")</span>
+                                    <span class="log-category">@entry.Area</span>
+                                    <span class="log-message">@LogRedactor.Redact(entry.Message)</span>
+                                </a>
+                            }
+                        </div>
+                    }
+                </div>
+            }
+            @if (authIssues.Count == 0 && errorCount == 0)
+            {
+                <div class="panel-card dashboard-clear">
+                    <span class="dashboard-clear-icon"><Icon Name="check-circle" Size="20" /></span>
+                    <div>
+                        <strong>No errors</strong>
+                        <span>Plugin logins look good and the log stream is clean.</span>
+                    </div>
+                </div>
+            }
 
             <div class="panel-card">
                 <div class="panel-header">
@@ -306,30 +322,21 @@ else
                 }
                 else
                 {
-                    <div class="table-wrap">
-                        <table class="modern-table compact">
-                            <thead>
-                                <tr>
-                                    <th>Job</th>
-                                    <th class="col-when">When</th>
-                                    <th>Result</th>
-                                    <th>Summary</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @foreach (var run in recentRuns)
-                                {
-                                    <tr>
-                                        <td><strong>@run.JobName</strong></td>
-                                        <td class="text-muted nowrap col-when">@run.Timestamp.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</td>
-                                        <td>
-                                            <StatusPill Variant="@(run.Status == "Completed" ? "ok" : "err")">@run.Status</StatusPill>
-                                        </td>
-                                        <td class="text-muted">@run.Message</td>
-                                    </tr>
-                                }
-                            </tbody>
-                        </table>
+                    <div class="run-feed">
+                        @foreach (var run in recentRuns)
+                        {
+                            <div class="run-row">
+                                <span class="run-dot @(run.Status == "Completed" ? "ok" : "err")" aria-hidden="true"></span>
+                                <div class="run-copy">
+                                    <strong>@run.JobName</strong>
+                                    <small>@run.Message</small>
+                                </div>
+                                <div class="run-side">
+                                    <StatusPill Variant="@(run.Status == "Completed" ? "ok" : "err")">@run.Status</StatusPill>
+                                    <small>@run.Timestamp.ToLocalTime().ToString("MMM d, HH:mm")</small>
+                                </div>
+                            </div>
+                        }
                     </div>
                 }
             </div>

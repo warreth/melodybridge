@@ -161,9 +161,36 @@
     }
 </section>
 
+<section class="plugin-toolbar" aria-label="Plugin filters">
+    <label class="plugin-search">
+        <Icon Name="search" Size="15" />
+        <input type="search" placeholder="Find a plugin…" aria-label="Find a plugin"
+               value="@pluginSearch" @oninput="OnPluginSearch" />
+    </label>
+    <div class="filter-chips">
+        @foreach (var filter in PluginFilters)
+        {
+            <button class="filter-chip @(pluginFilter == filter.Id ? "active" : "")"
+                    aria-pressed="@(pluginFilter == filter.Id ? "true" : "false")"
+                    @onclick="() => SetPluginFilter(filter.Id)">
+                @filter.Label
+                <span class="filter-count">@filter.Count</span>
+            </button>
+        }
+    </div>
+    <span class="plugin-count">@FilteredPlugins.Count of @orderedPlugins.Count</span>
+</section>
+
 <section class="plugin-list">
-    @foreach (var plugin in orderedPlugins)
+    @if (FilteredPlugins.Count == 0)
     {
+        <EmptyState IconName="search" Title="No plugins match">
+            Clear the search or pick another filter.
+        </EmptyState>
+    }
+    @foreach (var plugin in FilteredPlugins)
+    {
+        var enabledRank = EnabledRank(plugin.Id);
         var enabled = Registry.IsEnabled(plugin.Id);
         var checkedNow = availability.TryGetValue(plugin.Id, out var status);
         status ??= new PluginStatus(false, null);
@@ -177,6 +204,10 @@
             <div class="plugin-head">
                 <span class="plugin-icon-wrap @(authProblem ? "auth-error" : null)">
                     <Icon Name="@PluginIconName(plugin.Id)" Size="20" Class="provider-icon" />
+                    @if (enabledRank is { } rank)
+                    {
+                        <span class="plugin-rank" title="Try order @rank">@rank</span>
+                    }
                     @if (authProblem)
                     {
                         <span class="plugin-auth-flag" title="@authMessage" aria-label="Login needs attention">!</span>
@@ -372,9 +403,62 @@
     private bool disposed;
     private Task? _liveStatusTask;
     private QualityPresets.Id routePreset = QualityPresets.Id.Lossless;
+    private string pluginSearch = string.Empty;
+    private string pluginFilter = "all";
     private string? ytDlpVersion;
     private string? ytDlpMessage;
     private bool updatingYtDlp;
+
+    private sealed record PluginFilter(string Id, string Label, int Count);
+
+    private IReadOnlyList<PluginFilter> PluginFilters =>
+    [
+        new("all", "All", orderedPlugins.Count),
+        new("enabled", "Enabled", orderedPlugins.Count(p => Registry.IsEnabled(p.Id))),
+        new("issues", "Needs login", authIssues.Count),
+        new("unavailable", "Unavailable",
+            orderedPlugins.Count(p => Registry.IsEnabled(p.Id)
+                && availability.TryGetValue(p.Id, out var status) && !status.Ready)),
+    ];
+
+    private IReadOnlyList<IDownloader> FilteredPlugins
+    {
+        get
+        {
+            IEnumerable<IDownloader> plugins = orderedPlugins;
+            if (pluginFilter == "enabled") plugins = plugins.Where(p => Registry.IsEnabled(p.Id));
+            else if (pluginFilter == "issues")
+                plugins = plugins.Where(p => authIssues.Any(i => i.PluginId == p.Id));
+            else if (pluginFilter == "unavailable")
+                plugins = plugins.Where(p => Registry.IsEnabled(p.Id)
+                    && availability.TryGetValue(p.Id, out var status) && !status.Ready);
+
+            if (!string.IsNullOrWhiteSpace(pluginSearch))
+            {
+                var needle = pluginSearch.Trim();
+                plugins = plugins.Where(p =>
+                    p.Name.Contains(needle, StringComparison.OrdinalIgnoreCase)
+                    || p.Id.Contains(needle, StringComparison.OrdinalIgnoreCase)
+                    || p.Description.Contains(needle, StringComparison.OrdinalIgnoreCase));
+            }
+            return plugins.ToList();
+        }
+    }
+
+    private int? EnabledRank(string id)
+    {
+        var index = orderedPlugins
+            .Where(p => Registry.IsEnabled(p.Id))
+            .Select(p => p.Id)
+            .ToList()
+            .IndexOf(id);
+        return index >= 0 ? index + 1 : null;
+    }
+
+    private void OnPluginSearch(ChangeEventArgs e)
+        => pluginSearch = e.Value?.ToString() ?? string.Empty;
+
+    private void SetPluginFilter(string filter) => pluginFilter = filter;
 
     protected override async Task OnInitializedAsync()
     {

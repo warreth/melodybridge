@@ -975,6 +975,30 @@ select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-s
    A page that can grow many entities offers two shapes: cards (the
    default) and one compact row per entity. The switch and the rows are
    shared so both pages stay visually identical. */
+.card-size-control {
+    display: inline-flex;
+    align-items: center;
+    gap: .35rem;
+    padding: .1rem .15rem .1rem .55rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface);
+    color: var(--muted);
+    min-height: 34px;
+}
+.card-size-control select {
+    width: auto;
+    min-width: 5.6rem;
+    min-height: 30px;
+    padding: .2rem 1.6rem .2rem .25rem;
+    border: 0;
+    background: transparent;
+    color: var(--text);
+    font: inherit;
+    font-size: .82rem;
+}
+.card-size-control:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+
 .view-switch {
     display: inline-flex;
     gap: .15rem;
@@ -1668,36 +1692,6 @@ td.file-path {
 
     /* One-column playlist cards stay compact: the cover sits beside the
        text instead of swallowing a phone screen. */
-    .content-grid.three .playlist-card {
-        display: grid;
-        grid-template-columns: 84px minmax(0, 1fr);
-        grid-template-rows: auto auto 1fr;
-        gap: .3rem .8rem;
-        align-items: start;
-    }
-    .content-grid.three .playlist-card .playlist-cover {
-        grid-column: 1;
-        grid-row: 1 / span 3;
-        width: 84px;
-    }
-    .content-grid.three .playlist-card .panel-header {
-        grid-column: 2;
-        grid-row: 1;
-        margin-bottom: 0;
-        min-width: 0;
-    }
-    .content-grid.three .playlist-card .panel-header h2 { font-size: .98rem; }
-    .content-grid.three .playlist-card .card-tags { grid-column: 2; grid-row: 2; }
-    .content-grid.three .playlist-card .job-meta {
-        grid-column: 2;
-        grid-row: 3;
-        display: block;
-        line-height: 1.45;
-    }
-    .content-grid.three .playlist-card .job-meta span { white-space: nowrap; }
-    .content-grid.three .playlist-card .card-menu-trigger { width: 28px; height: 28px; }
-    .content-grid.three .playlist-card .card-tags .quality-badge { font-size: .68rem; }
-
     .entity-row { align-items: flex-start; }
     .entity-row-main small { white-space: normal; }
     .target-inline { margin-left: 0; }

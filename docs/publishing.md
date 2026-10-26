@@ -7,7 +7,7 @@ and Plex in a single run. Jobs run by hand or on a schedule, so your "New
 releases" playlist can show up on the media server without you touching
 anything.
 
-<img src="/screens/sync.webp" alt="Sync jobs page with jobs, rule profiles and bulk selection" width="800">
+<img src="/screens/sync.webp" alt="Sync jobs page with job cards, rule profiles and the bulk selection toolbar" width="800">
 
 ## Publish playlists in a few clicks
 
@@ -15,39 +15,45 @@ The **Publish** button on the Playlists page is the short path. Tick the
 playlists, choose where they go, and pick one schedule. Every ticked playlist
 becomes its own job, named after the playlist, with the targets and schedule you
 chose. **Send to** can be an M3U file, any number of media server profiles, or
-both. The M3U files land in the **Playlist output folder** setting, one per
-playlist, as `.m3u8` files with a UTF-8 BOM and Windows line endings. Edit the
-job afterwards to switch it to `.m3u` or another format. Names that sanitize to
-the same file get a numbered suffix, so one job never overwrites another's file.
-**Add profile** opens Settings, Media servers, when you need another target
-first.
+both.
+
+For the M3U target, choose a **rule profile**. The profile supplies the output
+folder, file name pattern, text format and remaps; the first profile is picked
+for you, and **Custom folder** falls back to the **Playlist output folder**
+setting with the widest compatibility format. Names that sanitize to the same
+file get a numbered suffix, so one job never overwrites another's file. **Add
+profile** opens Settings, Media servers, when you need another target first.
 
 Playlists that already have a job are left out of the list, so the same playlist
-is not offered twice; creating the jobs re-reads the list, and anything deleted
+is not offered twice. Creating the jobs re-reads the list, and anything deleted
 in the meantime is named in the result instead of becoming a dangling target.
 
-The quick path still skips custom remaps and the per-job Jellyfin user. Open a
-created job with **Quick edit** on the Sync jobs page, or use a rule profile.
+The quick path applies one rule profile to every created job. Open a created job
+with **Edit** on the Sync jobs page when one of them needs its own source,
+targets or advanced options.
 
-<img src="/screens/publish.webp" alt="Quick publish dialog on the Playlists page" width="800">
+<img src="/screens/publish.webp" alt="Quick publish dialog with playlists, targets and an M3U rule profile" width="800">
 
 ## Create and edit a sync job
 
-**New sync job** opens the quick editor, not a five-step wizard. The form is one
+**New sync job** opens one editor, not a step-by-step wizard. The form is one
 screen:
 
-- **Basics**: name, source playlist or folder, and the search folders.
-- **Publish to**: the M3U file, a rule profile, the compatibility format, and
-  any media server profiles. One job can publish to several targets at once.
-- **Schedule**: manual, hourly, daily, weekly, monthly or cron.
+- **Basics**: name, source playlist or folder, the search folders, and the
+  schedule.
+- **Publish to**: the M3U file, a rule profile or a custom path and compatibility
+  preset, plus any media server profiles. One job can publish to several targets
+  at once.
 - **Rules and preview**: the shared rules in use, a sample source path, the
   player path and the exact M3U entry.
+- **Advanced options**, folded away at the bottom: custom per-job path and
+  extension remaps, a Jellyfin user, and a legacy connection saved in an older
+  job. Leave the block closed when the paths already match.
 
-**Create sync job** saves it. Later, **Quick edit** in a job's menu opens the
-same screen with the current values. **Advanced edit** opens the full editor for
-custom per-job remaps, legacy connections and every low-level option.
+**Create sync job** saves it. Later, **Edit** in a job's menu opens the same
+screen with the current values. There is no second editor to hunt for.
 
-<img src="/screens/sync-quick.webp" alt="Quick sync job editor with basics, targets, rules and a live rule preview" width="800">
+<img src="/screens/sync-quick.webp" alt="Sync job editor with basics, publish targets, rules and a live rule preview" width="800">
 
 ### Rule profiles
 
@@ -65,7 +71,9 @@ is one edit, not twenty. The editor shows a live preview: the M3U file, the path
 the player sees, and the M3U entry that will be written.
 
 The profile is also used by the Jellyfin, Plex and Subsonic path lookup. One set
-of rules therefore keeps the M3U and every media server target in step.
+of rules therefore keeps the M3U and every media server target in step. Quick
+publish uses the same profiles, so a job created there starts with the folder,
+format and remaps you already chose.
 
 <img src="/screens/sync-profiles.webp" alt="Rule profiles tab with a shared output profile" width="800">
 
@@ -83,19 +91,12 @@ number of jobs, then:
 The selection bar works on the selected rows only. Nothing is deleted, and a
 job that already has a target keeps its other targets.
 
-### The advanced editor
-
-The old wizard is still available from **Advanced wizard** and **Advanced edit**.
-Use it when a job needs its own remap rules instead of a shared profile, or when
-you need to keep a legacy inline connection. It walks through source, search
-folders, targets, remaps and review.
-
-For a step-by-step description of the targets:
+### Targets at a glance
 
 | Target | What it needs |
 |---|---|
-| M3U file | An output path inside the container. With a rule profile the folder and file name come from the profile; without one, type the path. **Playlist compatibility** writes UTF-8 with BOM, Windows line endings and forward slashes for `.m3u8`, uses backslashes for a Windows car or MP4 player, or keeps the plain/old format. **Relative paths** makes entries like `../music/song.flac`; putting the playlist in the same folder as the music gives bare file names and works on the most devices |
-| Jellyfin | A Jellyfin profile from **Settings, Media servers**. **Test connection** checks it and lets you pick the user; that user applies to every Jellyfin target of the job |
+| M3U file | A rule profile, or a custom path inside the container. **Player compatibility** writes UTF-8 with BOM, Windows line endings and forward slashes for `.m3u8`, uses backslashes for a Windows car or MP4 player, or keeps the plain/old format. **Relative paths** makes entries like `../music/song.flac`; putting the playlist in the same folder as the music gives bare file names and works on the most devices |
+| Jellyfin | A Jellyfin profile from **Settings, Media servers**. Open **Advanced options** to pick the user whose favorites get marked; that user applies to every Jellyfin target of the job |
 | Plex | A Plex profile. The token holder is the only account there is, so there is no user picker |
 | Subsonic | A Subsonic or Navidrome profile. Navidrome, gonic, Airsonic, Ampache, Funkwhale and Nextcloud Music all speak this API; there are no API keys |
 
@@ -103,7 +104,7 @@ The job stores the profiles you tick, not a copy of their credentials: edit a
 profile once and every job that uses it follows. If a profile is deleted, the
 next edit drops that target and asks for a replacement while the job's other
 targets stay. A job created before profiles existed keeps the connection it
-carries as a target you can keep or replace.
+carries in **Advanced options**, where you can keep or replace it.
 
 Path and extension rules apply to the M3U entries and to the path lookup for
 Jellyfin, Plex and Subsonic. They are only needed when those consumers see files
@@ -147,16 +148,17 @@ other 30 have no local file yet, usually because they were never downloaded.
 :::
 
 **Run now** triggers a job immediately. The **...** menu opens **Log** with the
-last 20 runs and per-track detail, **Edit** for the wizard, and **Delete**,
+last 20 runs and per-track detail, **Edit** for the one editor, and **Delete**,
 which removes the job and its run history without touching playlists or music
 files.
 
 Many jobs in one list? The **Cards** / **Rows** switch above the list changes
-the layout; the choice sticks. Rows fit more jobs on screen, cards have room
-for the last run summary and its progress. The sort control orders jobs by
-**Last run**, **Next run** or **Status**. Next run puts due and upcoming jobs
-first and manual jobs last; status puts failures and never-run jobs first, so
-the jobs that need a look stay at the top.
+the layout, and **Small**, **Medium** or **Large** sets the card width; both
+choices stick. Rows fit more jobs on screen, cards have room for the last run
+summary and its progress. The sort control orders jobs by **Last run**,
+**Next run** or **Status**. Next run puts due and upcoming jobs first and manual
+jobs last; status puts failures and never-run jobs first, so the jobs that need
+a look stay at the top.
 
 ## Liked songs become favorites
 

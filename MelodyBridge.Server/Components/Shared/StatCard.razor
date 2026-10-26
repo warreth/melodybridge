@@ -2,15 +2,31 @@
    Keeps the exact markup of the old inline dashboard cards so the
    visual language stays identical. Value is a string so callers pass
    already formatted values such as "3 / 6" for plugins. *@
-<div class="stat-card">
-    <Icon Name="@IconName" Size="20" Class="stat-icon" />
-    <label>@Label</label>
-    <strong>@Value</strong>
-    @if (Caption is not null)
-    {
-        <small>@Caption</small>
-    }
-</div>
+@if (!string.IsNullOrWhiteSpace(Href))
+{
+    <a class="stat-card linked" href="@Href" title="@Label">
+        <Icon Name="@IconName" Size="20" Class="stat-icon" />
+        <label>@Label</label>
+        <strong>@Value</strong>
+        @if (Caption is not null)
+        {
+            <small>@Caption</small>
+        }
+        <Icon Name="chevron-right" Size="15" Class="stat-card-arrow" />
+    </a>
+}
+else
+{
+    <div class="stat-card">
+        <Icon Name="@IconName" Size="20" Class="stat-icon" />
+        <label>@Label</label>
+        <strong>@Value</strong>
+        @if (Caption is not null)
+        {
+            <small>@Caption</small>
+        }
+    </div>
+}
 
 @code {
     /// <summary>Icon name passed to the Icon component, for example list-music.</summary>
@@ -21,4 +37,7 @@
     [Parameter] public string Label { get; set; } = "";
     /// <summary>Optional caption under the value. When null no small element renders.</summary>
     [Parameter] public string? Caption { get; set; }
+
+    /// <summary>When set the whole tile becomes a link to this page.</summary>
+    [Parameter] public string? Href { get; set; }
 }

@@ -1,0 +1,20 @@
+/* Linked stat tiles: the whole card navigates, and a quiet chevron
+   says so before the hover. */
+a.stat-card {
+    display: block;
+    position: relative;
+    color: inherit;
+    text-decoration: none;
+}
+a.stat-card:hover { border-color: var(--border-strong); }
+a.stat-card ::deep .stat-card-arrow {
+    position: absolute;
+    top: .95rem;
+    right: .85rem;
+    color: var(--muted-2);
+    transition: transform .15s ease, color .15s ease;
+}
+a.stat-card:hover ::deep .stat-card-arrow {
+    color: var(--accent-text);
+    transform: translateX(2px);
+}
