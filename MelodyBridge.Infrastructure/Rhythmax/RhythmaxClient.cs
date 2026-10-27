@@ -43,7 +43,8 @@ public class RhythmaxClient
         string? ManifestUrl = null,
         string? Presentation = null,
         IReadOnlyList<string>? Formats = null,
-        string? Message = null);
+        string? Message = null,
+        TimeSpan? RetryAfter = null);
 
     /// <summary>One DASH representation reduced to the URLs needed to download it.</summary>
     public record DashPlan(
@@ -184,6 +185,24 @@ public class RhythmaxClient
                         Message: "Rhythmax rejected the playback token");
                 result = await RequestManifestAsync(url, token, ct);
             }
+
+            // A 429 is the shared playback pool pacing itself, not a bad
+            // request. Honor Retry-After when the API sends it, then back
+            // off once or twice before the waterfall moves on.
+            for (var attempt = 0;
+                 result.Status == ManifestStatus.RateLimited && attempt < 2;
+                 attempt++)
+            {
+                var delay = result.RetryAfter
+                    ?? TimeSpan.FromSeconds(Math.Pow(2, attempt));
+                delay = TimeSpan.FromMilliseconds(
+                    Math.Clamp(delay.TotalMilliseconds, 100, 10_000));
+                _logger.LogDebug(
+                    "Rhythmax rate limited track {TrackId}; retrying in {Delay:0.##}s",
+                    trackId, delay.TotalSeconds);
+                await Task.Delay(delay, ct);
+                result = await RequestManifestAsync(url, token, ct);
+            }
             return result;
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -214,7 +233,8 @@ public class RhythmaxClient
 
         if (response.StatusCode == HttpStatusCode.TooManyRequests)
             return new(ManifestStatus.RateLimited,
-                Message: "Rhythmax rate limited the request; try again later");
+                Message: "Rhythmax rate limited the request; try again later",
+                RetryAfter: RetryAfter(response));
 
         if (!response.IsSuccessStatusCode)
         {
@@ -222,7 +242,8 @@ public class RhythmaxClient
             var status = (int)response.StatusCode;
             if (body.Contains("429", StringComparison.Ordinal))
                 return new(ManifestStatus.RateLimited,
-                    Message: "Rhythmax has no playback slot right now (Tidal 429)");
+                    Message: "Rhythmax has no playback slot right now (Tidal 429)",
+                    RetryAfter: RetryAfter(response));
             return new(ManifestStatus.Unreachable,
                 Message: string.IsNullOrWhiteSpace(body)
                     ? $"Rhythmax answered HTTP {status}"
@@ -230,6 +251,14 @@ public class RhythmaxClient
         }
 
         return ParseManifest(await response.Content.ReadAsStringAsync(ct));
+    }
+
+    private static TimeSpan? RetryAfter(HttpResponseMessage response)
+    {
+        if (response.Headers.RetryAfter?.Delta is { } delta) return delta;
+        if (response.Headers.RetryAfter?.Date is { } date)
+            return date - DateTimeOffset.UtcNow;
+        return null;
     }
 
     private async Task<ManifestResult> PollQueueAsync(
@@ -382,93 +411,142 @@ public class RhythmaxClient
             return null;
         }
 
-        var representations = document
-            .Descendants()
-            .Where(e => e.Name.LocalName == "Representation")
+        var absolute = new Uri(manifestUrl);
+        // A multi-period manifest can start with video or a silent period.
+        // Walk periods in order and return the first audio representation
+        // that matches the requested codec.
+        var periods = document.Descendants()
+            .Where(element => element.Name.LocalName == "Period")
             .ToList();
-        if (representations.Count == 0) return null;
+        var scopes = periods.Count > 0
+            ? periods.Cast<XElement>()
+            : new[] { document.Root! };
 
-        var ordered = representations
-            .OrderByDescending(r => CodecScore(Codec(r), requestedFormat))
-            .ThenBy(r => r.Attribute("bandwidth")?.Value ?? "");
-        foreach (var representation in ordered)
+        foreach (var scope in scopes)
         {
-            var codecs = Codec(representation);
-            if (!CodecMatches(codecs, requestedFormat)) continue;
-
-            var template = representation
-                .Descendants()
-                .FirstOrDefault(e => e.Name.LocalName == "SegmentTemplate")
-                ?? representation.Parent?
-                    .Descendants()
-                    .FirstOrDefault(e => e.Name.LocalName == "SegmentTemplate");
-            if (template is null) continue;
-
-            var init = template.Attribute("initialization")?.Value;
-            var media = template.Attribute("media")?.Value;
-            if (string.IsNullOrWhiteSpace(init) || string.IsNullOrWhiteSpace(media)) continue;
-
-            var startNumber = int.TryParse(template.Attribute("startNumber")?.Value, out var start)
-                ? start
-                : 1;
-
-            var timeline = template.Descendants()
-                .FirstOrDefault(e => e.Name.LocalName == "SegmentTimeline");
-            if (timeline is null) continue;
-
-            var times = new List<long>();
-            var currentTime = 0L;
-            foreach (var s in timeline.Descendants().Where(e => e.Name.LocalName == "S"))
+            var representations = scope.Descendants()
+                .Where(element => element.Name.LocalName == "Representation")
+                .OrderByDescending(element => CodecScore(Codec(element), requestedFormat))
+                .ThenBy(element => element.Attribute("bandwidth")?.Value ?? "");
+            foreach (var representation in representations)
             {
-                if (!long.TryParse(s.Attribute("d")?.Value, out var duration) || duration <= 0)
-                    continue;
-                if (long.TryParse(s.Attribute("t")?.Value, out var startTime))
-                    currentTime = startTime;
-                var repeat = int.TryParse(s.Attribute("r")?.Value, out var r) ? r : 0;
-                if (repeat < 0) repeat = 0; // open-ended repeat is not used by Tidal
-                for (var i = 0; i <= repeat; i++)
-                {
-                    times.Add(currentTime);
-                    currentTime += duration;
-                }
+                if (!CodecMatches(Codec(representation), requestedFormat)) continue;
+                var plan = BuildPlan(representation, absolute);
+                if (plan is not null) return plan;
             }
-            if (times.Count == 0) continue;
-
-            var segments = new List<string>(times.Count);
-            var absolute = new Uri(manifestUrl);
-            var number = startNumber;
-            foreach (var time in times)
-            {
-                var segmentUrl = media
-                    .Replace("$Number$", number.ToString(), StringComparison.Ordinal)
-                    .Replace("$Time$", time.ToString(), StringComparison.Ordinal)
-                    .Replace("$RepresentationID$", representation.Attribute("id")?.Value ?? "",
-                        StringComparison.Ordinal)
-                    .Replace("$Bandwidth$", representation.Attribute("bandwidth")?.Value ?? "",
-                        StringComparison.Ordinal);
-                segments.Add(new Uri(absolute, segmentUrl).ToString());
-                number++;
-            }
-
-            var initUrl = init
-                .Replace("$Number$", startNumber.ToString(), StringComparison.Ordinal)
-                .Replace("$Time$", "0", StringComparison.Ordinal)
-                .Replace("$RepresentationID$", representation.Attribute("id")?.Value ?? "",
-                    StringComparison.Ordinal)
-                .Replace("$Bandwidth$", representation.Attribute("bandwidth")?.Value ?? "",
-                    StringComparison.Ordinal);
-
-            return new DashPlan(
-                new Uri(absolute, initUrl).ToString(),
-                segments,
-                codecs,
-                representation.Parent?.Attribute("mimeType")?.Value ?? "audio/mp4",
-                representation.Descendants()
-                    .FirstOrDefault(e => e.Name.LocalName == "Label")?.Value);
         }
 
         return null;
     }
+
+    private static DashPlan? BuildPlan(XElement representation, Uri absolute)
+    {
+        var codecs = Codec(representation);
+        var template = representation.Descendants()
+                .FirstOrDefault(element => element.Name.LocalName == "SegmentTemplate")
+            ?? representation.Parent?
+                .Descendants()
+                .FirstOrDefault(element => element.Name.LocalName == "SegmentTemplate");
+        if (template is not null)
+            return BuildSegmentTemplatePlan(representation, template, absolute, codecs);
+
+        var list = representation.Descendants()
+                .FirstOrDefault(element => element.Name.LocalName == "SegmentList")
+            ?? representation.Parent?
+                .Descendants()
+                .FirstOrDefault(element => element.Name.LocalName == "SegmentList");
+        if (list is not null)
+            return BuildSegmentListPlan(representation, list, absolute, codecs);
+
+        return null;
+    }
+
+    private static DashPlan? BuildSegmentTemplatePlan(
+        XElement representation, XElement template, Uri absolute, string codecs)
+    {
+        var init = template.Attribute("initialization")?.Value;
+        var media = template.Attribute("media")?.Value;
+        if (string.IsNullOrWhiteSpace(init) || string.IsNullOrWhiteSpace(media)) return null;
+
+        var startNumber = int.TryParse(template.Attribute("startNumber")?.Value, out var start)
+            ? start
+            : 1;
+        var timeline = template.Descendants()
+            .FirstOrDefault(element => element.Name.LocalName == "SegmentTimeline");
+        if (timeline is null) return null;
+
+        var times = new List<long>();
+        var currentTime = 0L;
+        foreach (var segment in timeline.Descendants()
+                     .Where(element => element.Name.LocalName == "S"))
+        {
+            if (!long.TryParse(segment.Attribute("d")?.Value, out var duration) || duration <= 0)
+                continue;
+            if (long.TryParse(segment.Attribute("t")?.Value, out var startTime))
+                currentTime = startTime;
+            var repeat = int.TryParse(segment.Attribute("r")?.Value, out var r) ? r : 0;
+            if (repeat < 0) repeat = 0; // open-ended repeat is not used by Tidal
+            for (var i = 0; i <= repeat; i++)
+            {
+                times.Add(currentTime);
+                currentTime += duration;
+            }
+        }
+        if (times.Count == 0) return null;
+
+        var segments = new List<string>(times.Count);
+        var number = startNumber;
+        foreach (var time in times)
+        {
+            segments.Add(new Uri(absolute,
+                Substitute(media, representation, number, time)).ToString());
+            number++;
+        }
+
+        return new DashPlan(
+            new Uri(absolute, Substitute(init, representation, startNumber, 0)).ToString(),
+            segments,
+            codecs,
+            representation.Parent?.Attribute("mimeType")?.Value ?? "audio/mp4",
+            representation.Descendants()
+                .FirstOrDefault(element => element.Name.LocalName == "Label")?.Value);
+    }
+
+    private static DashPlan? BuildSegmentListPlan(
+        XElement representation, XElement list, Uri absolute, string codecs)
+    {
+        var init = list.Descendants()
+            .FirstOrDefault(element => element.Name.LocalName == "Initialization")?
+            .Attribute("sourceURL")?.Value;
+        var media = list.Descendants()
+            .Where(element => element.Name.LocalName == "SegmentURL")
+            .Select(element => element.Attribute("media")?.Value)
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .ToList();
+        if (string.IsNullOrWhiteSpace(init) || media.Count == 0) return null;
+
+        var segments = media
+            .Select((url, index) => new Uri(absolute,
+                Substitute(url!, representation, index + 1, 0)).ToString())
+            .ToList();
+        return new DashPlan(
+            new Uri(absolute, Substitute(init, representation, 1, 0)).ToString(),
+            segments,
+            codecs,
+            representation.Parent?.Attribute("mimeType")?.Value ?? "audio/mp4",
+            representation.Descendants()
+                .FirstOrDefault(element => element.Name.LocalName == "Label")?.Value);
+    }
+
+    private static string Substitute(
+        string url, XElement representation, int number, long time)
+        => url
+            .Replace("$Number$", number.ToString(), StringComparison.Ordinal)
+            .Replace("$Time$", time.ToString(), StringComparison.Ordinal)
+            .Replace("$RepresentationID$", representation.Attribute("id")?.Value ?? "",
+                StringComparison.Ordinal)
+            .Replace("$Bandwidth$", representation.Attribute("bandwidth")?.Value ?? "",
+                StringComparison.Ordinal);
 
     // ── Download ─────────────────────────────────────────────────────────
 

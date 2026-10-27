@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http.Headers;
 using System.Text;
 using MelodyBridge.Infrastructure.Rhythmax;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -31,6 +32,13 @@ public class RhythmaxClientTests
 
     private static HttpResponseMessage Json(string body, HttpStatusCode status = HttpStatusCode.OK)
         => new(status) { Content = new StringContent(body, Encoding.UTF8, "application/json") };
+
+    private static HttpResponseMessage RateLimited()
+    {
+        var response = Json("{}", HttpStatusCode.TooManyRequests);
+        response.Headers.RetryAfter = new RetryConditionHeaderValue(TimeSpan.Zero);
+        return response;
+    }
 
     private static RhythmaxClient Client(ScriptedHandler handler)
         => new(new HttpClient(handler), "https://hifi.test",
@@ -173,6 +181,94 @@ public class RhythmaxClientTests
     }
 
     [Test]
+    public void ParseDash_SupportsSegmentList()
+    {
+        const string xml = """
+        <?xml version="1.0"?>
+        <MPD xmlns="urn:mpeg:dash:schema:mpd:2011" type="static">
+          <Period id="0"><AdaptationSet mimeType="audio/mp4">
+            <Representation id="0" codecs="flac">
+              <SegmentList timescale="44100">
+                <Initialization sourceURL="https://cdn.test/list-init.mp4"/>
+                <SegmentURL media="https://cdn.test/list-1.mp4"/>
+                <SegmentURL media="https://cdn.test/list-2.mp4"/>
+              </SegmentList>
+            </Representation>
+          </AdaptationSet></Period>
+        </MPD>
+        """;
+
+        var plan = RhythmaxClient.ParseDash(xml, "https://manifest.test/track.mpd", "flac");
+
+        Assert.That(plan, Is.Not.Null);
+        Assert.That(plan!.InitializationUrl, Is.EqualTo("https://cdn.test/list-init.mp4"));
+        Assert.That(plan.SegmentUrls,
+            Is.EqualTo(new[] { "https://cdn.test/list-1.mp4", "https://cdn.test/list-2.mp4" }));
+    }
+
+    [Test]
+    public void ParseDash_MultiPeriodSkipsVideoAndPicksTheAudioPeriod()
+    {
+        const string xml = """
+        <?xml version="1.0"?>
+        <MPD xmlns="urn:mpeg:dash:schema:mpd:2011" type="static">
+          <Period id="video"><AdaptationSet mimeType="video/mp4">
+            <Representation id="v" codecs="avc1.42E01E">
+              <SegmentList><Initialization sourceURL="https://cdn.test/v-init.mp4"/>
+                <SegmentURL media="https://cdn.test/v-1.mp4"/></SegmentList>
+            </Representation>
+          </AdaptationSet></Period>
+          <Period id="audio"><AdaptationSet mimeType="audio/mp4">
+            <Representation id="a" codecs="mp4a.40.2">
+              <SegmentList><Initialization sourceURL="https://cdn.test/a-init.mp4"/>
+                <SegmentURL media="https://cdn.test/a-1.mp4"/></SegmentList>
+            </Representation>
+          </AdaptationSet></Period>
+        </MPD>
+        """;
+
+        var plan = RhythmaxClient.ParseDash(xml, "https://manifest.test/track.mpd", "aac");
+
+        Assert.That(plan, Is.Not.Null);
+        Assert.That(plan!.Codecs, Is.EqualTo("mp4a.40.2"));
+        Assert.That(plan.InitializationUrl, Is.EqualTo("https://cdn.test/a-init.mp4"));
+        Assert.That(plan.SegmentUrls, Is.EqualTo(new[] { "https://cdn.test/a-1.mp4" }));
+    }
+
+    [Test]
+    public void ParseDash_SubstitutesTimeInSegmentTemplate()
+    {
+        const string xml = """
+        <?xml version="1.0"?>
+        <MPD xmlns="urn:mpeg:dash:schema:mpd:2011" type="static">
+          <Period id="0"><AdaptationSet mimeType="audio/mp4">
+            <Representation id="0" codecs="flac">
+              <SegmentTemplate timescale="44100"
+                initialization="https://cdn.test/init.mp4"
+                media="https://cdn.test/$Time$.mp4" startNumber="1">
+                <SegmentTimeline>
+                  <S t="0" d="100" r="1"/>
+                  <S d="50"/>
+                </SegmentTimeline>
+              </SegmentTemplate>
+            </Representation>
+          </AdaptationSet></Period>
+        </MPD>
+        """;
+
+        var plan = RhythmaxClient.ParseDash(xml, "https://manifest.test/track.mpd", "flac");
+
+        Assert.That(plan, Is.Not.Null);
+        Assert.That(plan!.SegmentUrls,
+            Is.EqualTo(new[]
+            {
+                "https://cdn.test/0.mp4",
+                "https://cdn.test/100.mp4",
+                "https://cdn.test/200.mp4",
+            }));
+    }
+
+    [Test]
     public void ParseDash_RejectsUnreadableOrEmptyManifests()
     {
         Assert.That(RhythmaxClient.ParseDash("<not-a-manifest>", "https://x/y.mpd", "flac"), Is.Null);
@@ -236,6 +332,29 @@ public class RhythmaxClientTests
     }
 
     [Test]
+    public async Task ManifestCallerCancellation_Propagates()
+    {
+        using var handler = new CancellingHandler();
+        var client = new RhythmaxClient(
+            new HttpClient(handler), "https://hifi.test",
+            NullLogger<RhythmaxClient>.Instance);
+        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(50));
+
+        Assert.CatchAsync<OperationCanceledException>(() =>
+            client.GetManifestAsync(35986110, "LOSSLESS", cts.Token));
+    }
+
+    private sealed class CancellingHandler : HttpMessageHandler
+    {
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken ct)
+        {
+            await Task.Delay(Timeout.Infinite, ct);
+            return new HttpResponseMessage(HttpStatusCode.OK);
+        }
+    }
+
+    [Test]
     public async Task GetManifest_PollsAQueuedPlaybackRequest()
     {
         using var handler = new ScriptedHandler();
@@ -265,18 +384,42 @@ public class RhythmaxClientTests
     }
 
     [Test]
-    public async Task GetManifest_RateLimitIsItsOwnStatus()
+    public async Task GetManifest_RetriesARateLimitAndThenSucceeds()
     {
         using var handler = new ScriptedHandler();
+        var manifestCalls = 0;
         handler.Respond = request =>
-            request.RequestUri!.AbsoluteUri == "https://hifi.test/token"
-                ? Json("""{"access_token":"play-token","expires_in":600}""")
-                : Json("{}", HttpStatusCode.TooManyRequests);
+        {
+            if (request.RequestUri!.AbsoluteUri == "https://hifi.test/token")
+                return Json("""{"access_token":"play-token","expires_in":600}""");
+            manifestCalls++;
+            return manifestCalls < 3 ? RateLimited() : Json(FlatManifest);
+        };
+
+        var result = await Client(handler).GetManifestAsync(35986110, "LOSSLESS");
+
+        Assert.That(result.Status, Is.EqualTo(RhythmaxClient.ManifestStatus.Ok));
+        Assert.That(manifestCalls, Is.EqualTo(3), "two retries after the first 429");
+    }
+
+    [Test]
+    public async Task GetManifest_RateLimitIsItsOwnStatusAfterRetries()
+    {
+        using var handler = new ScriptedHandler();
+        var manifestCalls = 0;
+        handler.Respond = request =>
+        {
+            if (request.RequestUri!.AbsoluteUri == "https://hifi.test/token")
+                return Json("""{"access_token":"play-token","expires_in":600}""");
+            manifestCalls++;
+            return RateLimited();
+        };
 
         var result = await Client(handler).GetManifestAsync(35986110, "LOSSLESS");
 
         Assert.That(result.Status, Is.EqualTo(RhythmaxClient.ManifestStatus.RateLimited));
         Assert.That(result.Message, Does.Contain("rate limited"));
+        Assert.That(manifestCalls, Is.EqualTo(3));
     }
 
     [Test]
