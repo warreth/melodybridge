@@ -27,7 +27,14 @@
     }
     else
     {
-        <input id="@InputId" value="@Value" placeholder="@Field.Placeholder" @onchange="OnChange" />
+        <span class="path-field">
+            <input id="@InputId" value="@Value" placeholder="@Field.Placeholder" @onchange="OnChange" />
+            @if (Field.Folder)
+            {
+                <FolderBrowseButton Value="@Value" ValueChanged="ValueChanged"
+                                    Label="@($"the {Field.Label.ToLowerInvariant()}")" />
+            }
+        </span>
     }
     @if (!string.IsNullOrWhiteSpace(Field.Description))
     {

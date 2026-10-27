@@ -18,6 +18,8 @@ public class MelodyBridgeDbContext : DbContext
     public DbSet<SyncJobRunEntity> SyncJobRuns { get; set; }
     public DbSet<ScanLocationEntity> ScanLocations { get; set; }
     public DbSet<DownloaderSettingEntity> DownloaderSettings { get; set; }
+    public DbSet<ArchiveProfileEntity> ArchiveProfiles { get; set; }
+    public DbSet<TrackArchiveCopyEntity> TrackArchiveCopies { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -46,6 +48,24 @@ public class MelodyBridgeDbContext : DbContext
             e.Property(t => t.MediaType).HasMaxLength(32);
             e.Property(t => t.CurrentPath).HasMaxLength(2048);
             e.Property(t => t.SourceUrl).HasMaxLength(2048);
+        });
+
+        modelBuilder.Entity<ArchiveProfileEntity>(e =>
+        {
+            e.HasKey(p => p.Id);
+            e.Property(p => p.Name).HasMaxLength(128);
+            e.Property(p => p.RootPath).HasMaxLength(1024);
+            e.Property(p => p.Format).HasMaxLength(64);
+            e.HasIndex(p => p.Priority);
+        });
+
+        modelBuilder.Entity<TrackArchiveCopyEntity>(e =>
+        {
+            e.HasKey(c => c.Id);
+            e.HasIndex(c => new { c.TrackId, c.ProfileId }).IsUnique();
+            e.HasIndex(c => c.Path);
+            e.Property(c => c.Path).HasMaxLength(2048);
+            e.Property(c => c.Warning).HasMaxLength(2048);
         });
 
         modelBuilder.Entity<PlaylistEntity>(e =>
@@ -461,6 +481,36 @@ public class ScanLocationEntity
     public string? ScheduleCron { get; set; }
     public bool LiveMonitoring { get; set; }
     public DateTime? LastScannedAt { get; set; }
+}
+
+/// <summary>
+/// An extra archive destination. The original single archive stays the
+/// default (archive_path + archive_format); these profiles add more
+/// copies, each with its own root and format, for every downloaded track.
+/// </summary>
+public class ArchiveProfileEntity
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+    public string Name { get; set; } = "Archive";
+    public string RootPath { get; set; } = string.Empty;
+    /// <summary>Archive format syntax, including an optional bitrate: opus:128, mp3:160, m4a:alac.</summary>
+    public string Format { get; set; } = "auto";
+    public bool Enabled { get; set; } = true;
+    public int Priority { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+}
+
+/// <summary>One extra archive copy of a track. The default copy keeps
+/// living in Tracks.ArchivePath; these rows cover the named profiles.</summary>
+public class TrackArchiveCopyEntity
+{
+    public int Id { get; set; }
+    public int TrackId { get; set; }
+    public string ProfileId { get; set; } = string.Empty;
+    public string? Path { get; set; }
+    public long SizeBytes { get; set; }
+    public string? Warning { get; set; }
+    public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 }
 
 public class DownloaderSettingEntity

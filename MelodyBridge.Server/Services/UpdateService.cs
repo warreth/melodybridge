@@ -123,11 +123,12 @@ public sealed class UpdateService(
                 return;
 
             await settings.SetAsync(NotifiedVersionKey, result.LatestVersion, ct);
-            notifications.Background(
+            notifications.Important(
                 $"MelodyBridge v{result.LatestVersion} is available",
                 "info",
                 "Release notes",
-                result.ReleaseUrl ?? AppInfo.ReleasesPage);
+                result.ReleaseUrl ?? AppInfo.ReleasesPage,
+                key: $"update:{result.LatestVersion}");
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {

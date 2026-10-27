@@ -103,3 +103,80 @@
     .track-pager .flex-actions { justify-content: stretch; }
     .track-pager .flex-actions .btn-modern { flex: 1 1 auto; }
 }
+
+/* Compact playlist setup: status chips in the header, two-column fields,
+   rare overrides behind one disclosure. */
+.playlist-settings-card { margin-top: 1rem; }
+.playlist-settings-card .settings-head { align-items: flex-start; }
+.playlist-status-strip {
+    display: flex;
+    align-items: center;
+    gap: .3rem;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+.status-chip {
+    display: inline-flex;
+    align-items: baseline;
+    gap: .25rem;
+    padding: .25rem .45rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--surface-2);
+    color: var(--muted);
+    font-size: .7rem;
+    white-space: nowrap;
+}
+.status-chip strong {
+    color: var(--text);
+    font-size: .78rem;
+    font-variant-numeric: tabular-nums;
+}
+.status-chip.bad { border-color: color-mix(in srgb, var(--danger) 28%, var(--border)); background: var(--danger-soft); }
+.status-chip.bad strong { color: var(--danger); }
+.status-chip.warn { border-color: color-mix(in srgb, var(--warning) 28%, var(--border)); background: var(--warning-soft); }
+.status-chip.warn strong { color: var(--warning); }
+
+.settings-details {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface-2);
+    padding: .1rem .65rem;
+}
+.settings-details summary {
+    cursor: pointer;
+    padding: .5rem 0;
+    color: var(--muted);
+    font-size: .82rem;
+    font-weight: 600;
+}
+.settings-details summary:hover { color: var(--text); }
+.settings-details[open] { padding-bottom: .65rem; }
+.settings-details[open] summary { border-bottom: 1px solid var(--border); margin-bottom: .6rem; }
+
+.archive-summary {
+    display: flex;
+    align-items: center;
+    gap: .45rem;
+    color: var(--muted);
+    font-size: .78rem;
+    line-height: 1.4;
+    flex-wrap: wrap;
+}
+.archive-summary .icon { flex-shrink: 0; color: var(--accent-strong); }
+.archive-summary-sep { color: var(--muted-2); }
+.archive-summary a {
+    color: var(--accent-text);
+    font-weight: 600;
+    text-decoration: none;
+}
+.archive-summary a:hover { text-decoration: underline; }
+
+.toggle-stack { display: grid; gap: .5rem; align-content: start; }
+.review-banner { margin-bottom: .75rem; }
+.review-banner a { color: var(--accent-text); font-weight: 600; }
+
+@media (max-width: 900px) {
+    .playlist-settings-card .settings-head { flex-direction: column; }
+    .playlist-status-strip { justify-content: flex-start; }
+}

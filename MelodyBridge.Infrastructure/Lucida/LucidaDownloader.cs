@@ -1,6 +1,6 @@
 using MelodyBridge.Core;
+using System.Net;
 using System.Net.Http.Headers;
-using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using MelodyBridge.Infrastructure.Services;
@@ -31,16 +31,25 @@ public class LucidaDownloader : IDownloader
     private const string PdStart = ",{\"type\":\"data\",\"data\":";
     private const string PdEnd = ",\"uses\":{\"url\":1}}];";
 
+    // SvelteKit's devalue output is JSON with trailing commas on some
+    // releases. A comment or a trailing comma must not disable search.
+    private static readonly JsonDocumentOptions JsonOptions = new()
+    {
+        AllowTrailingCommas = true,
+        CommentHandling = JsonCommentHandling.Skip,
+    };
+
     // Search services lucida.to supports, lossless-oriented and most-covered
-    // first; the country is the storefront each service searches in. The
-    // reference client's COUNTRY_DEFAULTS: qobuz only accepts US, and amazon
-    // needs no country at all (empty string sends none).
+    // first. Qobuz currently resolves through Lucida's Netherlands account,
+    // Amazon selects an account itself, Deezer uses France and Tidal uses
+    // the US storefront. The current community client uses exactly these
+    // defaults; the old US Qobuz storefront returned no usable results.
     private static readonly (string Service, string Country)[] SearchServices =
     [
-        ("tidal", "US"),
-        ("qobuz", "US"),
-        ("deezer", "FR"),
+        ("qobuz", "NL"),
         ("amazon", ""),
+        ("deezer", "FR"),
+        ("tidal", "US"),
     ];
 
     private readonly HttpClient _http;
@@ -63,7 +72,7 @@ public class LucidaDownloader : IDownloader
     public string Id => "lucida";
     public string Name => "Lucida";
     public string Description =>
-        "High-quality rips from Tidal, Deezer, Amazon and Qobuz via lucida.to. Needs a Cloudflare solver (FlareSolverr) in the settings.";
+        "High-quality rips from Qobuz, Amazon, Deezer and Tidal via lucida.to. Needs a working Cloudflare solver (FlareSolverr).";
 
     /// <inheritdoc />
     public string? LastUnavailableReason { get; private set; }
@@ -78,22 +87,23 @@ public class LucidaDownloader : IDownloader
     public async Task<bool> IsAvailableAsync(CancellationToken ct = default)
     {
         // Without a solver every request hits the challenge page and fails;
-        // being honest about it keeps the waterfall clean. lucida.to itself
-        // answers 403 to unsolved requests even when a solver is configured,
-        // so the solver is the only signal that can be probed cheaply.
+        // being honest about it keeps the waterfall clean. The solver in
+        // turn checks its endpoint health, so a wrong explicit URL cannot
+        // present this plugin as ready.
         var solverReady = await _solver.IsAvailableAsync(ct);
         LastUnavailableReason = solverReady
             ? null
-            : "A FlareSolverr URL is required (see the Lucida and FlareSolverr docs)";
+            : "A working FlareSolverr is required (see Settings > Network)";
         return solverReady;
     }
 
     public async Task<DownloaderSearchHit?> SearchAsync(TrackQuery query, CancellationToken ct = default)
     {
-        // One challenge solve up front; the solver session is reused for every
-        // service request below, and SendWithRefreshAsync re-solves on a 403.
-        // A throwing solver must not escape into the waterfall (the manager
-        // has no per-plugin catch on the search path), so solve inside try.
+        // One challenge solve up front; the solver caches the clearance for
+        // every service request below, and SendWithRefreshAsync re-solves on
+        // a 403. A throwing solver must not escape into the waterfall (the
+        // manager has no per-plugin catch on the search path), so solve
+        // inside try.
         CloudflareCredentials? credentials;
         try
         {
@@ -168,13 +178,18 @@ public class LucidaDownloader : IDownloader
                 + $"&service={service}"
                 + (country.Length > 0 ? $"&country={country}" : string.Empty));
             request.Headers.UserAgent.ParseAdd(credentials.UserAgent);
+            request.Headers.AcceptLanguage.ParseAdd("en-US,en;q=0.8");
             if (!string.IsNullOrWhiteSpace(credentials.CookieHeader))
                 request.Headers.Add("Cookie", credentials.CookieHeader);
 
-            var html = await SendWithRefreshAsync(request, credentials, ct);
-            if (html is null) return null;
+            var reply = await SendWithRefreshAsync(request, credentials, ct);
+            if (!reply.Ok || reply.Body is null)
+            {
+                _logger.LogDebug("Lucida {Service} search answered HTTP {Status}", service, reply.Status);
+                return null;
+            }
 
-            var blob = Between(html, PdStart, PdEnd);
+            var blob = Between(reply.Body, PdStart, PdEnd);
             if (blob is null) return null;
 
             return FindBestTrack(blob, query.Artist, query.Title, query.ExpectedDuration);
@@ -192,7 +207,7 @@ public class LucidaDownloader : IDownloader
     {
         try
         {
-            // Search hits carry the SOURCE service url (tidal.com/track/N
+            // Search hits carry the SOURCE service url (qobuz.com/track/N
             // and friends), not a lucida page: lucida.to hosts the page-data
             // for any service url through the url query param, exactly like
             // the reference client's fetch_page_data. Asking the service host
@@ -204,30 +219,33 @@ public class LucidaDownloader : IDownloader
                 return new DownloaderDownloadResult(false, null, "Cloudflare solver unavailable");
             }
 
-            // A solved challenge clears the earlier failure note.
-            LastUnavailableReason = null;
-
             var pageDataUrl = sourceUrl.StartsWith(BaseUrl, StringComparison.OrdinalIgnoreCase)
                 ? sourceUrl
                 : $"{BaseUrl}/?url={Uri.EscapeDataString(sourceUrl)}";
             using var pageRequest = new HttpRequestMessage(HttpMethod.Get, pageDataUrl);
             pageRequest.Headers.UserAgent.ParseAdd(credentials.UserAgent);
+            pageRequest.Headers.AcceptLanguage.ParseAdd("en-US,en;q=0.8");
             if (!string.IsNullOrWhiteSpace(credentials.CookieHeader))
                 pageRequest.Headers.Add("Cookie", credentials.CookieHeader);
 
-            var pageHtml = await SendWithRefreshAsync(pageRequest, credentials, ct);
-            var blob = pageHtml is null ? null : Between(pageHtml, PdStart, PdEnd);
-            if (blob is null)
-                return new DownloaderDownloadResult(false, null, "could not read the track page data");
+            var page = await SendWithRefreshAsync(pageRequest, credentials, ct);
+            var blob = page.Body is null ? null : Between(page.Body, PdStart, PdEnd);
+            if (!page.Ok || blob is null)
+                return new DownloaderDownloadResult(false, null,
+                    $"could not read the track page data (HTTP {page.Status}, challenge or page format changed)");
 
             var track = ExtractTrackWithToken(blob, sourceUrl);
             if (track is null)
                 return new DownloaderDownloadResult(false, null, "no track token found on the page");
 
-            // Ask the worker to prepare the rip.
+            // The site's current single-track pages carry the token encoded
+            // twice with atob() (base64). Sending the encoded value makes
+            // /api/load reject every submission, which looked like "search
+            // works, downloads never do". ExtractTrackWithToken decodes it.
+            var country = CountryFor(sourceUrl);
             var loadBody = JsonSerializer.Serialize(new
             {
-                account = new { id = "auto", type = "country" },
+                account = new { id = country.Length > 0 ? country : "auto", type = "country" },
                 compat = false,
                 downscale = "original",
                 handoff = true,
@@ -240,7 +258,7 @@ public class LucidaDownloader : IDownloader
                     secondary = track.Value.CsrfFallback,
                 },
                 upload = new { enabled = false },
-                url = sourceUrl,
+                url = track.Value.Url ?? sourceUrl,
             });
 
             using var loadRequest = new HttpRequestMessage(HttpMethod.Post,
@@ -250,42 +268,71 @@ public class LucidaDownloader : IDownloader
                 loadRequest.Headers.Add("Cookie", credentials.CookieHeader);
             loadRequest.Content = new StringContent(loadBody, Encoding.UTF8, "application/json");
 
-            var loadJson = await SendWithRefreshAsync(loadRequest, credentials, ct, loadBody);
-            if (loadJson is null) return new DownloaderDownloadResult(false, null, "load request failed");
-
-            var handoff = ReadString(loadJson, "handoff");
-            var server = ReadString(loadJson, "server");
+            var load = await SendWithRefreshAsync(loadRequest, credentials, ct, loadBody);
+            var loadJson = load.Body;
+            var handoff = loadJson is null ? null : ReadString(loadJson, "handoff");
+            var server = loadJson is null ? null : ReadString(loadJson, "server");
             if (handoff is null || server is null)
-                return new DownloaderDownloadResult(false, null, "lucida did not accept the load request");
+            {
+                var reason = loadJson is null ? null : ReadString(loadJson, "error")
+                    ?? ReadString(loadJson, "message");
+                return new DownloaderDownloadResult(false, null,
+                    $"lucida did not accept the load request (HTTP {load.Status}"
+                    + (string.IsNullOrWhiteSpace(reason) ? ")" : $": {Truncate(reason, 180)})"));
+            }
+
+            // A solved challenge clears the earlier failure note.
+            LastUnavailableReason = null;
 
             // Poll until the rip is ready. A single failed poll (transient
-            // 5xx, a solver hiccup) must not kill a 30-minute rip: a few
+            // 5xx, a solver hiccup) must not kill a long rip: a few
             // consecutive failures are tolerated before giving up.
             var statusUrl = $"https://{server}.lucida.to/api/fetch/request/{handoff}";
             var status = "unknown";
+            var lastMessage = "";
+            var lastStatusChange = DateTime.UtcNow;
             var deadline = DateTime.UtcNow + TimeSpan.FromMinutes(30);
             var pollFailures = 0;
             do
             {
                 if (ct.IsCancellationRequested)
                     return new DownloaderDownloadResult(false, null, "cancelled");
-                await Task.Delay(2000, ct);
+                await Task.Delay(1000, ct);
 
                 using var pollRequest = new HttpRequestMessage(HttpMethod.Get, statusUrl);
                 pollRequest.Headers.UserAgent.ParseAdd(credentials.UserAgent);
                 var poll = await SendWithRefreshAsync(pollRequest, credentials, ct);
-                if (poll is null)
+                if (!poll.Ok || poll.Body is null)
                 {
-                    if (++pollFailures >= 5)
-                        return new DownloaderDownloadResult(false, null, "status polling failed");
+                    pollFailures++;
+                    if (poll.Status == 404)
+                        return new DownloaderDownloadResult(false, null, "lucida lost the worker job (404)");
+                    if (pollFailures >= 6)
+                        return new DownloaderDownloadResult(false, null,
+                            $"status polling failed (HTTP {poll.Status})");
                     continue;
                 }
                 pollFailures = 0;
 
-                status = ReadString(poll, "status") ?? "unknown";
+                var nextStatus = ReadString(poll.Body, "status") ?? "unknown";
+                var message = ReadString(poll.Body, "message") ?? "";
+                if (nextStatus != status || message != lastMessage)
+                {
+                    status = nextStatus;
+                    lastMessage = message;
+                    lastStatusChange = DateTime.UtcNow;
+                }
+
                 if (status == "error")
                     return new DownloaderDownloadResult(false, null,
-                        "lucida worker: " + (ReadString(poll, "message") ?? "unknown error"));
+                        "lucida worker: " + (message.Length > 0 ? message : "unknown error"));
+
+                // A worker that never changes status for 90 seconds is
+                // stuck; waiting out the full 30 minute deadline only makes
+                // the queue slower.
+                if (DateTime.UtcNow - lastStatusChange > TimeSpan.FromSeconds(90))
+                    return new DownloaderDownloadResult(false, null,
+                        $"lucida worker made no progress for 90s (last status: {status})");
             } while (status != "completed" && DateTime.UtcNow < deadline);
 
             if (status != "completed")
@@ -303,25 +350,26 @@ public class LucidaDownloader : IDownloader
                 return new DownloaderDownloadResult(false, null,
                     $"download HTTP {(int)fileResponse.StatusCode}");
 
-            var ext = GuessExtension(fileResponse.Content.Headers.ContentType?.MediaType);
+            var ext = ExtensionFromHeaders(fileResponse.Content.Headers)
+                ?? GuessExtension(fileResponse.Content.Headers.ContentType?.MediaType);
             var fileName = $"{Sanitize(melodyId ?? "lucida-download")}{ext}";
             var path = Path.Combine(outputDirectory, fileName);
             Directory.CreateDirectory(outputDirectory);
-            await using (var source = await fileResponse.Content.ReadAsStreamAsync(ct))
-            await using (var target = File.Create(path))
+
+            try
             {
-                try
+                await using (var source = await fileResponse.Content.ReadAsStreamAsync(ct))
+                await using (var target = File.Create(path))
                 {
                     await source.CopyToAsync(target, ct);
                 }
-                catch
-                {
-                    // A half-written file is a corrupt file: never leave it
-                    // for the library scanner to pick up.
-                    target.Dispose();
-                    try { File.Delete(path); } catch { /* best effort */ }
-                    throw;
-                }
+            }
+            catch
+            {
+                // A half-written file is a corrupt file: never leave it
+                // for the library scanner to pick up.
+                try { File.Delete(path); } catch { /* best effort */ }
+                throw;
             }
 
             // Sniff the real bytes: a rip server that answers with an HTML
@@ -344,32 +392,38 @@ public class LucidaDownloader : IDownloader
         }
     }
 
+    private sealed record Reply(bool Ok, int Status, string? Body);
+
     /// <summary>
-    /// Sends a request and, on a 403 challenge, asks the solver for fresh
-    /// credentials and tries exactly once more (the browser-refresh
-    /// pattern from lucida's own client).
+    /// Sends a request and, on a 401/403/429 challenge, asks the solver for
+    /// fresh credentials and tries exactly once more (the browser-refresh
+    /// pattern from lucida's own client). Other statuses come back as a
+    /// reply so the caller can report the body instead of a generic miss.
     /// </summary>
-    private async Task<string?> SendWithRefreshAsync(
+    private async Task<Reply> SendWithRefreshAsync(
         HttpRequestMessage request, CloudflareCredentials credentials, CancellationToken ct,
         string? bodySnapshot = null)
     {
-        var response = await _http.SendAsync(request, ct);
+        using var response = await _http.SendAsync(request, ct);
+        var body = await response.Content.ReadAsStringAsync(ct);
         if (response.IsSuccessStatusCode)
-        {
-            var body = await response.Content.ReadAsStringAsync(ct);
-            response.Dispose();
-            return body;
-        }
+            return new Reply(true, (int)response.StatusCode, body);
 
-        response.Dispose();
-        var fresh = await _solver.SolveAsync(BaseUrl, ct);
-        if (fresh is null) return null;
+        if (!IsChallengeStatus(response.StatusCode))
+            return new Reply(false, (int)response.StatusCode, body);
+
+        var fresh = await _solver.SolveFreshAsync(BaseUrl, ct);
+        if (fresh is null) return new Reply(false, (int)response.StatusCode, body);
 
         using var retry = await _http.SendAsync(Clone(request, fresh, bodySnapshot), ct);
-        return retry.IsSuccessStatusCode
-            ? await retry.Content.ReadAsStringAsync(ct)
-            : null;
+        var retryBody = await retry.Content.ReadAsStringAsync(ct);
+        return new Reply(retry.IsSuccessStatusCode, (int)retry.StatusCode, retryBody);
     }
+
+    private static bool IsChallengeStatus(HttpStatusCode status)
+        => status is HttpStatusCode.Unauthorized
+            or HttpStatusCode.Forbidden
+            or HttpStatusCode.TooManyRequests;
 
     private static HttpRequestMessage Clone(
         HttpRequestMessage original, CloudflareCredentials credentials,
@@ -383,6 +437,7 @@ public class LucidaDownloader : IDownloader
         if (bodySnapshot is not null)
             clone.Content = new StringContent(bodySnapshot, Encoding.UTF8, "application/json");
         clone.Headers.UserAgent.ParseAdd(credentials.UserAgent);
+        clone.Headers.AcceptLanguage.ParseAdd("en-US,en;q=0.8");
         if (!string.IsNullOrWhiteSpace(credentials.CookieHeader))
             clone.Headers.Add("Cookie", credentials.CookieHeader);
         return clone;
@@ -398,7 +453,7 @@ public class LucidaDownloader : IDownloader
     {
         try
         {
-            using var doc = JsonDocument.Parse(blob);
+            using var doc = JsonDocument.Parse(blob, JsonOptions);
             var node = FindTracksNode(doc.RootElement);
             var tracks = node?.GetPropertySafe("tracks");
             if (tracks is not { ValueKind: JsonValueKind.Array }
@@ -412,10 +467,7 @@ public class LucidaDownloader : IDownloader
                 if (string.IsNullOrWhiteSpace(url)) continue;
 
                 var entryTitle = entry.GetPropertySafe("title")?.GetString() ?? "";
-                var entryArtist = string.Join(", ",
-                    (entry.GetPropertySafe("artists") ?? default)
-                    .EnumerateArraySafe()
-                    .Select(a => a.GetPropertySafe("name")?.GetString() ?? ""));
+                var entryArtist = ReadArtists(entry);
                 var durationMs = entry.GetPropertySafe("duration")?.GetInt64Safe();
 
                 candidates.Add(new DownloaderSearchHit(
@@ -435,30 +487,93 @@ public class LucidaDownloader : IDownloader
         }
     }
 
-    private static (string Csrf, string? CsrfFallback)? ExtractTrackWithToken(
-        string blob, string sourceUrl)
+    private static string ReadArtists(JsonElement entry)
+    {
+        var artists = entry.GetPropertySafe("artists");
+        if (artists is { ValueKind: JsonValueKind.Array })
+        {
+            return string.Join(", ",
+                artists.Value.EnumerateArray()
+                    .Select(a => a.GetPropertySafe("name")?.GetString() ?? "")
+                    .Where(name => name.Length > 0));
+        }
+
+        // Some SvelteKit releases flatten a single artist to text.
+        return artists?.GetString() ?? entry.GetPropertySafe("artist")?.GetString() ?? "";
+    }
+
+    private readonly record struct TrackToken(string Csrf, string? CsrfFallback, string? Url);
+
+    private static TrackToken? ExtractTrackWithToken(string blob, string sourceUrl)
     {
         try
         {
-            using var doc = JsonDocument.Parse(blob);
+            using var doc = JsonDocument.Parse(blob, JsonOptions);
             var root = doc.RootElement;
+            var info = root.GetPropertySafe("info");
 
-            // Track pages embed info + token at the top level.
-            var csrf = root.GetPropertySafe("token")?.GetString();
-            if (string.IsNullOrWhiteSpace(csrf))
-            {
-                var info = root.GetPropertySafe("info");
-                csrf = info?.GetPropertySafe("csrf")?.GetString();
-            }
+            // Single track pages: token at the top level, encoded twice with
+            // atob() by the web client. Album pages carry csrf per track;
+            // this plugin only downloads single tracks, but both shapes are
+            // accepted so a future album flow does not silently break.
+            var csrf = DecodeTrackToken(root.GetPropertySafe("token")?.GetString())
+                ?? info?.GetPropertySafe("csrf")?.GetString()
+                ?? root.GetPropertySafe("csrf")?.GetString();
             if (string.IsNullOrWhiteSpace(csrf)) return null;
+
             var fallback = root.GetPropertySafe("csrfFallback")?.GetString()
-                ?? root.GetPropertySafe("info")?.GetPropertySafe("csrfFallback")?.GetString();
-            return (csrf!, fallback);
+                ?? info?.GetPropertySafe("csrfFallback")?.GetString();
+            var url = info?.GetPropertySafe("url")?.GetString()
+                ?? root.GetPropertySafe("url")?.GetString()
+                ?? sourceUrl;
+            return new TrackToken(csrf!, fallback, url);
         }
         catch
         {
             return null;
         }
+    }
+
+    /// <summary>
+    /// Lucida encodes the single-track token with two base64 (atob) calls.
+    /// A token that is already plain text, or that a future release stops
+    /// encoding, comes back unchanged instead of becoming an empty value.
+    /// </summary>
+    private static string? DecodeTrackToken(string? token)
+    {
+        if (string.IsNullOrWhiteSpace(token)) return null;
+
+        var current = token.Trim();
+        for (var pass = 0; pass < 2; pass++)
+        {
+            try
+            {
+                var normalized = current.Replace('-', '+').Replace('_', '/');
+                var padding = (4 - normalized.Length % 4) % 4;
+                if (padding > 0) normalized = normalized.PadRight(normalized.Length + padding, '=');
+                var text = Encoding.UTF8.GetString(Convert.FromBase64String(normalized));
+                if (text.Length == 0 || text.Any(c => char.IsControl(c) && c is not '\n' and not '\r' and not '\t'))
+                    return current;
+                current = text;
+            }
+            catch
+            {
+                return current;
+            }
+        }
+        return current;
+    }
+
+    private static string CountryFor(string sourceUrl)
+    {
+        var host = Uri.TryCreate(sourceUrl, UriKind.Absolute, out var uri)
+            ? uri.Host.ToLowerInvariant()
+            : sourceUrl.ToLowerInvariant();
+        if (host.Contains("qobuz")) return "NL";
+        if (host.Contains("deezer")) return "FR";
+        if (host.Contains("tidal")) return "US";
+        // Amazon and SoundCloud pick an account themselves.
+        return "";
     }
 
     private static JsonElement? FindTracksNode(JsonElement element, int depth = 0)
@@ -492,7 +607,7 @@ public class LucidaDownloader : IDownloader
     {
         try
         {
-            using var doc = JsonDocument.Parse(json);
+            using var doc = JsonDocument.Parse(json, JsonOptions);
             return doc.RootElement.TryGetProperty(property, out var value)
                 && value.ValueKind == JsonValueKind.String
                 ? value.GetString()
@@ -513,14 +628,33 @@ public class LucidaDownloader : IDownloader
         return to < 0 ? null : s[from..to];
     }
 
+    private static string? ExtensionFromHeaders(HttpContentHeaders headers)
+    {
+        if (headers.ContentDisposition is { } disposition)
+        {
+            var name = disposition.FileNameStar ?? disposition.FileName;
+            if (!string.IsNullOrWhiteSpace(name))
+            {
+                var ext = Path.GetExtension(name.Trim('"'));
+                if (ext.Length is > 1 and <= 6) return ext.ToLowerInvariant();
+            }
+        }
+        return null;
+    }
+
     private static string GuessExtension(string? mediaType) => mediaType switch
     {
-        "audio/flac" => ".flac",
-        "audio/mpeg" => ".mp3",
-        "audio/mp4" or "audio/aac" => ".m4a",
-        "audio/ogg" => ".opus",
+        "audio/flac" or "audio/x-flac" => ".flac",
+        "audio/mpeg" or "audio/mp3" => ".mp3",
+        "audio/mp4" or "audio/aac" or "audio/x-m4a" => ".m4a",
+        "audio/ogg" => ".ogg",
+        "audio/opus" => ".opus",
+        "audio/wav" or "audio/x-wav" => ".wav",
         _ => ".mp3",
     };
+
+    private static string Truncate(string value, int max)
+        => value.Length <= max ? value : value[..max] + "...";
 
     private static string Sanitize(string name) =>
         string.Concat(name.Select(c => char.IsLetterOrDigit(c) ? c : '_'));
@@ -539,5 +673,12 @@ internal static class JsonElementExtensions
         => element.ValueKind == JsonValueKind.Array ? element.EnumerateArray() : Enumerable.Empty<JsonElement>();
 
     public static long? GetInt64Safe(this JsonElement element)
-        => element.ValueKind == JsonValueKind.Number && element.TryGetInt64(out var value) ? value : null;
+    {
+        if (element.ValueKind == JsonValueKind.Number && element.TryGetInt64(out var value))
+            return value;
+        if (element.ValueKind == JsonValueKind.String
+            && long.TryParse(element.GetString(), out var parsed))
+            return parsed;
+        return null;
+    }
 }

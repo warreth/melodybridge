@@ -65,7 +65,7 @@ public class SlskdDownloader : IDownloader
             Secret: true),
         new(DownloadsPathKey, "Downloads folder", null,
             "MelodyBridge asks slskd for this folder; set it here only when the app sees it at another path.",
-            Advanced: true),
+            Advanced: true, Folder: true),
     ];
 
     /// <inheritdoc />

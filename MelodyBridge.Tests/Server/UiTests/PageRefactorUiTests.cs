@@ -201,15 +201,15 @@ public class PageRefactorUiTests
         cut.WaitForAssertion(() =>
             Assert.That(cut.Markup, Does.Contain("First Plugin")), TimeSpan.FromSeconds(3));
 
-        var card = cut.Find(".plugin-card");
-        Assert.That(card.QuerySelector(".btn-group"), Is.Not.Null,
+        var order = cut.Find(".order-row");
+        Assert.That(order.QuerySelector(".btn-group"), Is.Not.Null,
             "the reorder arrows share one compact group");
-        Assert.That(card.QuerySelector("label.toggle-switch"), Is.Not.Null,
+        Assert.That(cut.Find(".plugin-card").QuerySelector("label.toggle-switch"), Is.Not.Null,
             "the enable toggle stays on the card");
 
-        var moveButtons = cut.FindAll("button[title='Try this plugin first']");
+        var moveButtons = cut.FindAll("button[title='Try this source earlier']");
         Assert.That(moveButtons.Count(), Is.EqualTo(2),
-            "every plugin except the first-disabled keeps its move-up button");
+            "every enabled source keeps its move-up button");
         moveButtons[1].Click();
 
         registry.Verify(r => r.SetOrderAsync(It.Is<IReadOnlyList<string>>(

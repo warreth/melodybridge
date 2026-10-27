@@ -16,8 +16,9 @@
         <DownloadActivityChip />
         <div class="sidebar-footer">
             <div class="sidebar-tools">
-                <button class="theme-toggle notification-bell" title="Notifications"
-                        aria-label="Notifications"
+                <button class="theme-toggle notification-bell"
+                        title="@(_unread > 0 ? $"Needs attention ({_unread})" : "Notifications")"
+                        aria-label="@(_unread > 0 ? $"Needs attention, {_unread} new" : "Notifications")"
                         aria-expanded="@(_historyOpen ? "true" : "false")"
                         @onclick="ToggleHistory">
                     <Icon Name="bell" Size="18" />
@@ -44,16 +45,16 @@
 
 @if (_historyOpen)
 {
-    <section class="notification-panel" role="dialog" aria-label="Notification history">
+    <section class="notification-panel" role="dialog" aria-label="Notifications that need attention">
         <div class="notification-head">
             <div>
-                <span class="eyebrow">Activity</span>
-                <strong>Notifications</strong>
+                <span class="eyebrow">Notifications</span>
+                <strong>Needs attention</strong>
             </div>
             <div class="flex-actions">
                 @if (_history.Count > 0)
                 {
-                    <button class="btn-modern small ghost" @onclick="ClearHistory">Clear</button>
+                    <button class="btn-modern small ghost" @onclick="ClearHistory">Clear all</button>
                 }
                 <button class="icon-button" title="Close" @onclick="CloseHistory">
                     <Icon Name="x" Size="15" />
@@ -62,7 +63,10 @@
         </div>
         @if (_history.Count == 0)
         {
-            <EmptyState IconName="bell" Title="Nothing yet">Downloads, plugin logins and sync results appear here.</EmptyState>
+            <EmptyState IconName="bell" Title="All clear">
+                Plugin logins, failed syncs, background failures and updates show up here.
+                Routine saves and finished downloads stay as short toasts.
+            </EmptyState>
         }
         else
         {
@@ -79,6 +83,11 @@
                         {
                             <a class="notification-action" href="@url" @onclick="CloseHistory">@label</a>
                         }
+                        <button class="notification-dismiss" title="Dismiss"
+                                aria-label="Dismiss notification"
+                                @onclick="() => DismissImportant(item)">
+                            <Icon Name="x" Size="13" />
+                        </button>
                     </div>
                 }
             </div>
@@ -177,6 +186,8 @@
     }
 
     private void DismissToast(AppNotification toast) => Notifications.Dismiss(toast);
+
+    private void DismissImportant(AppNotification item) => Notifications.DismissImportant(item);
 
     /// <summary>The update service sets pending notes from a background
     /// thread; marshal the redraw onto this circuit.</summary>

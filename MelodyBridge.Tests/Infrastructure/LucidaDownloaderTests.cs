@@ -101,18 +101,18 @@ public class LucidaDownloaderTests
         var handler = new StubHttpMessageHandler();
         handler.Respond = request =>
         {
-            Assert.That(request.RequestUri!.ToString(), Does.Contain("service=tidal"),
-                "the chain starts with the Tidal service for high-quality rips");
-            Assert.That(request.RequestUri!.ToString(), Does.Contain("country=US"),
-                "tidal searches its default US storefront");
+            Assert.That(request.RequestUri!.ToString(), Does.Contain("service=qobuz"),
+                "the chain starts with Qobuz, which currently resolves through NL");
+            Assert.That(request.RequestUri!.ToString(), Does.Contain("country=NL"),
+                "Qobuz searches its working Netherlands storefront");
             Assert.That(request.Headers.Contains("Cookie"), Is.True,
                 "the clearance cookie must travel with the request");
             var tracks = new
             {
                 tracks = new object[]
                 {
-                    new { title = "Some Other Song", artists = new[] { new { name = "Someone Else" } }, url = "https://tidal.com/track/1", duration = 3000 },
-                    new { title = "Never Gonna Give You Up", artists = new[] { new { name = "Rick Astley" } }, url = "https://tidal.com/track/2", duration = 213000 },
+                    new { title = "Some Other Song", artists = new[] { new { name = "Someone Else" } }, url = "https://qobuz.com/track/1", duration = 3000 },
+                    new { title = "Never Gonna Give You Up", artists = new[] { new { name = "Rick Astley" } }, url = "https://qobuz.com/track/2", duration = 213000 },
                 },
             };
             return Html(",{\"type\":\"data\",\"data\":" + JsonSerializer.Serialize(tracks));
@@ -122,7 +122,7 @@ public class LucidaDownloaderTests
         var hit = await downloader.SearchAsync(new TrackQuery("Rick Astley", "Never Gonna Give You Up", DownloadQuality.Any));
 
         Assert.That(hit, Is.Not.Null);
-        Assert.That(hit!.SourceUrl, Is.EqualTo("https://tidal.com/track/2"));
+        Assert.That(hit!.SourceUrl, Is.EqualTo("https://qobuz.com/track/2"));
         Assert.That(hit.Title, Is.EqualTo("Never Gonna Give You Up"));
         Assert.That(hit.Artist, Is.EqualTo("Rick Astley"));
         Assert.That(hit.MatchConfidence, Is.EqualTo(MatchConfidence.High));
@@ -142,7 +142,7 @@ public class LucidaDownloaderTests
             {
                 tracks = new object[]
                 {
-                    new { title = "Never Gonna Give You Up", artists = new[] { new { name = "Rick Astley" } }, url = "https://tidal.com/track/2", duration = 213000 },
+                    new { title = "Never Gonna Give You Up", artists = new[] { new { name = "Rick Astley" } }, url = "https://qobuz.com/track/2", duration = 213000 },
                 },
             };
             return Html(",{\"type\":\"data\",\"data\":" + JsonSerializer.Serialize(tracks));
@@ -173,7 +173,7 @@ public class LucidaDownloaderTests
                 {
                     tracks = new object[]
                     {
-                        new { title = "Blue Bird", artists = new[] { new { name = "Random" } }, url = "https://tidal.com/track/9", duration = 226000 },
+                        new { title = "Blue Bird", artists = new[] { new { name = "Random" } }, url = "https://qobuz.com/track/9", duration = 226000 },
                     },
                 };
                 return Html(",{\"type\":\"data\",\"data\":" + JsonSerializer.Serialize(noise));
@@ -183,7 +183,7 @@ public class LucidaDownloaderTests
             {
                 tracks = new object[]
                 {
-                    new { title = "Never Gonna Give You Up", artists = new[] { new { name = "Rick Astley" } }, url = "https://tidal.com/track/2", duration = 213000 },
+                    new { title = "Never Gonna Give You Up", artists = new[] { new { name = "Rick Astley" } }, url = "https://qobuz.com/track/2", duration = 213000 },
                 },
             };
             return Html(",{\"type\":\"data\",\"data\":" + JsonSerializer.Serialize(real));
@@ -194,7 +194,7 @@ public class LucidaDownloaderTests
             "Rick Astley", "Never Gonna Give You Up", DownloadQuality.Any, Isrc: "GBARL9300135"));
 
         Assert.That(hit, Is.Not.Null);
-        Assert.That(hit!.SourceUrl, Is.EqualTo("https://tidal.com/track/2"));
+        Assert.That(hit!.SourceUrl, Is.EqualTo("https://qobuz.com/track/2"));
         // The ISRC pass runs every service (all answer noise), then the
         // text chain finds the real track.
         Assert.That(handler.Requests, Is.GreaterThanOrEqualTo(5),
@@ -202,15 +202,15 @@ public class LucidaDownloaderTests
     }
 
     [Test]
-    public async Task SearchAsync_LowConfidenceOnTidal_FallsThroughToDeezer()
+    public async Task SearchAsync_LowConfidenceOnQobuz_FallsThroughToDeezer()
     {
         var solver = new StubSolver();
         var handler = new StubHttpMessageHandler();
-        var tidalTracks = new
+        var noise = new
         {
             tracks = new object[]
             {
-                new { title = "Totally Unrelated", artists = new[] { new { name = "Unknown Artist" } }, url = "https://tidal.com/track/9", duration = 9999 },
+                new { title = "Totally Unrelated", artists = new[] { new { name = "Unknown Artist" } }, url = "https://qobuz.com/track/9", duration = 9999 },
             },
         };
         var deezerTracks = new
@@ -223,9 +223,9 @@ public class LucidaDownloaderTests
         handler.Respond = request =>
         {
             var url = request.RequestUri!.ToString();
-            return url.Contains("service=tidal")
-                ? Html(",{\"type\":\"data\",\"data\":" + JsonSerializer.Serialize(tidalTracks))
-                : Html(",{\"type\":\"data\",\"data\":" + JsonSerializer.Serialize(deezerTracks));
+            return url.Contains("service=deezer")
+                ? Html(",{\"type\":\"data\",\"data\":" + JsonSerializer.Serialize(deezerTracks))
+                : Html(",{\"type\":\"data\",\"data\":" + JsonSerializer.Serialize(noise));
         };
 
         var downloader = Create(solver, handler, out var http);
@@ -233,8 +233,8 @@ public class LucidaDownloaderTests
 
         Assert.That(hit, Is.Not.Null, "the deezer fallback must rescue the search");
         Assert.That(hit!.SourceUrl, Is.EqualTo("https://deezer.com/track/42"));
-        Assert.That(handler.Requests, Is.EqualTo(2),
-            "tidal then deezer: exactly two search requests");
+        Assert.That(handler.Requests, Is.EqualTo(3),
+            "qobuz, amazon then deezer: exactly three search requests");
     }
 
     [Test]
@@ -246,7 +246,7 @@ public class LucidaDownloaderTests
         {
             tracks = new object[]
             {
-                new { title = "Never Gonna Give You Up", artists = new[] { new { name = "Rick Astley" } }, url = "https://tidal.com/track/2", duration = 213000 },
+                new { title = "Never Gonna Give You Up", artists = new[] { new { name = "Rick Astley" } }, url = "https://qobuz.com/track/2", duration = 213000 },
             },
         };
         handler.Respond = _ =>
@@ -258,7 +258,7 @@ public class LucidaDownloaderTests
         Assert.That(hit, Is.Not.Null);
         Assert.That(hit!.MatchConfidence, Is.EqualTo(MatchConfidence.High));
         Assert.That(handler.Requests, Is.EqualTo(1),
-            "a High-confidence hit on tidal must not try the other services");
+            "a High-confidence hit on Qobuz must not try the other services");
     }
 
     [Test]
@@ -338,6 +338,50 @@ public class LucidaDownloaderTests
 
         var content = await File.ReadAllTextAsync(result.FilePath!);
         Assert.That(content, Is.EqualTo("fLaCfake-flac-bytes"));
+        Directory.Delete(dir, recursive: true);
+    }
+
+    [Test]
+    public async Task DownloadAsync_DecodesTheDoubleBase64TokenAndUsesTheSourceCountry()
+    {
+        var solver = new StubSolver();
+        var handler = new StubHttpMessageHandler();
+        var dir = Path.Combine(Path.GetTempPath(), $"mb-lucida-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        string? loadBody = null;
+
+        string Encode(string value) =>
+            Convert.ToBase64String(Encoding.UTF8.GetBytes(value));
+        var token = Encode(Encode("csrf-real"));
+
+        handler.Respond = request =>
+        {
+            var url = request.RequestUri!.ToString();
+            if (url.Contains("/api/load"))
+            {
+                loadBody = request.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+                return Json(HttpStatusCode.OK, new { error = "test-stop" });
+            }
+
+            return Html(",{\"type\":\"data\",\"data\":{\"info\":{\"url\":\"https://qobuz.com/track/2\"},\"token\":\""
+                + token + "\",\"csrfFallback\":null}");
+        };
+
+        var downloader = Create(solver, handler, out var http);
+        var result = await downloader.DownloadAsync(
+            "https://qobuz.com/track/2", dir, "melody-token-test");
+
+        Assert.That(result.Success, Is.False);
+        Assert.That(loadBody, Is.Not.Null);
+        Assert.Multiple(() =>
+        {
+            Assert.That(loadBody, Does.Contain("\"primary\":\"csrf-real\""),
+                "the site's two atob() calls must be mirrored, or every load is rejected");
+            Assert.That(loadBody, Does.Contain("\"id\":\"NL\""),
+                "Qobuz currently resolves through the Netherlands account");
+            Assert.That(loadBody, Does.Contain("\"url\":\"https://qobuz.com/track/2\""),
+                "the canonical page-data URL is submitted, not our lucida wrapper URL");
+        });
         Directory.Delete(dir, recursive: true);
     }
 

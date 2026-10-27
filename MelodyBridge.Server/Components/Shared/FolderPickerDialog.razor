@@ -1,0 +1,199 @@
+@namespace MelodyBridge.Server.Components.Shared
+@using MelodyBridge.Infrastructure.Services
+@inject FolderBrowser Browser
+
+@if (Show)
+{
+    <div class="wizard-overlay" @onclick="() => OnCancel.InvokeAsync()">
+        <div class="wizard-modal folder-picker-modal" role="dialog" aria-modal="true"
+             aria-label="@Title" @onclick:stopPropagation="true">
+            <div class="wizard-header">
+                <div>
+                    <span class="eyebrow">Folders</span>
+                    <h2>@Title</h2>
+                </div>
+                <button class="icon-button" title="Close" @onclick="() => OnCancel.InvokeAsync()">
+                    <Icon Name="x" Size="15" />
+                </button>
+            </div>
+
+            <div class="wizard-body folder-picker-body">
+                <form class="folder-path-bar" @onsubmit="GoAsync" @onsubmit:preventDefault="true">
+                    <button type="button" class="icon-button" title="One folder up"
+                            aria-label="One folder up"
+                            disabled="@(_listing?.Parent is null)"
+                            @onclick="UpAsync">
+                        <Icon Name="chevron-up" Size="16" />
+                    </button>
+                    <input @bind="_pathInput" aria-label="Folder path"
+                           placeholder="Type a folder path or pick a shortcut" />
+                    <button type="submit" class="btn-modern small secondary">Go</button>
+                </form>
+
+                @if (_loading)
+                {
+                    <div class="folder-loading"><span class="spinner"></span> Reading folders…</div>
+                }
+                else if (_listing is not null)
+                {
+                    @if (_listing.Error is { Length: > 0 } error)
+                    {
+                        <div class="hint-box danger">@error</div>
+                    }
+                    <div class="folder-picker-grid">
+                        @if (_listing.Shortcuts.Count > 0)
+                        {
+                            <div class="folder-shortcuts" aria-label="Shortcuts">
+                                <span class="folder-pane-label">Shortcuts</span>
+                                @foreach (var shortcut in _listing.Shortcuts)
+                                {
+                                    <button type="button"
+                                            class="folder-shortcut @(PathsEqual(shortcut.Path, _listing.Path) ? "active" : null)"
+                                            @onclick="() => LoadAsync(shortcut.Path)">
+                                        <Icon Name="folder" Size="14" />
+                                        <span>
+                                            <strong>@shortcut.Label</strong>
+                                            <small>@shortcut.Path</small>
+                                        </span>
+                                    </button>
+                                }
+                            </div>
+                        }
+                        <div class="folder-list-pane">
+                            <span class="folder-pane-label">Subfolders</span>
+                            <div class="folder-list" role="list">
+                                @if (_listing.Entries.Count == 0)
+                                {
+                                    <div class="folder-empty">No subfolders here. You can still use this folder.</div>
+                                }
+                                @foreach (var entry in _listing.Entries)
+                                {
+                                    <button type="button" class="folder-row" role="listitem"
+                                            @onclick="() => LoadAsync(entry.Path)">
+                                        <Icon Name="folder" Size="15" />
+                                        <span>@entry.Name</span>
+                                        @if (entry.IsLink)
+                                        {
+                                            <small>link</small>
+                                        }
+                                        <Icon Name="chevron-right" Size="14" Class="folder-row-arrow" />
+                                    </button>
+                                }
+                            </div>
+                        </div>
+                    </div>
+
+                    @if (_listing.Files.Count > 0)
+                    {
+                        <details class="folder-files">
+                            <summary>Files in this folder (@_listing.Files.Count)</summary>
+                            <div class="folder-file-list">
+                                @foreach (var file in _listing.Files)
+                                {
+                                    <span>@file</span>
+                                }
+                            </div>
+                        </details>
+                    }
+
+                    <form class="folder-new" @onsubmit="CreateAsync" @onsubmit:preventDefault="true">
+                        <input @bind="_newFolder" aria-label="New folder name"
+                               placeholder="New folder name (optional)" />
+                        <button type="submit" class="btn-modern small secondary" disabled="@creating">
+                            @(creating ? "Creating…" : "Create folder")
+                        </button>
+                    </form>
+                }
+            </div>
+
+            <div class="wizard-footer">
+                <button class="btn-modern secondary" @onclick="() => OnCancel.InvokeAsync()">Cancel</button>
+                <span></span>
+                <button class="btn-modern primary" @onclick="ChooseAsync"
+                        disabled="@(_listing is null || !_listing.CanSelect || _loading)">
+                    Use this folder
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool Show { get; set; }
+    [Parameter] public string? InitialPath { get; set; }
+    [Parameter] public string Title { get; set; } = "Choose a folder";
+    [Parameter] public EventCallback<string> OnSelected { get; set; }
+    [Parameter] public EventCallback OnCancel { get; set; }
+
+    private FolderListing? _listing;
+    private string _pathInput = string.Empty;
+    private string _newFolder = string.Empty;
+    private bool _loading;
+    private bool creating;
+    private bool _wasOpen;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Show && !_wasOpen)
+        {
+            _wasOpen = true;
+            await LoadAsync(InitialPath);
+        }
+        else if (!Show)
+        {
+            _wasOpen = false;
+            _listing = null;
+            _newFolder = string.Empty;
+        }
+    }
+
+    private async Task LoadAsync(string? path)
+    {
+        _loading = true;
+        try
+        {
+            _listing = await Browser.BrowseAsync(path);
+            _pathInput = _listing.Path;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private Task GoAsync() => LoadAsync(_pathInput);
+
+    private Task UpAsync()
+        => _listing?.Parent is { Length: > 0 } parent
+            ? LoadAsync(parent)
+            : Task.CompletedTask;
+
+    private async Task CreateAsync()
+    {
+        if (_listing is null || creating) return;
+        creating = true;
+        try
+        {
+            var result = await Browser.CreateAsync(_listing.Path, _newFolder);
+            _listing = result;
+            _pathInput = result.Path;
+            if (result.Error is null) _newFolder = string.Empty;
+        }
+        finally
+        {
+            creating = false;
+        }
+    }
+
+    private async Task ChooseAsync()
+    {
+        if (_listing is null || !_listing.CanSelect) return;
+        await OnSelected.InvokeAsync(_listing.Path);
+    }
+
+    private static bool PathsEqual(string left, string right)
+        => string.Equals(
+            left.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+            right.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+            OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
+}

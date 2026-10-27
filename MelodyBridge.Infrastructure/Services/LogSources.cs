@@ -15,7 +15,7 @@ public static class LogSources
     {
         "Waterfall",
         "Qobuz", "Tidal", "Deezer", "yt-dlp", "SoundCloud",
-        "Monochrome", "Jumo", "Lucida", "Archive.org", "Soulseek", "DoubleDouble",
+        "Monochrome", "Jumo", "Lucida", "Archive.org", "Soulseek",
         Other,
     };
 
@@ -34,7 +34,6 @@ public static class LogSources
         if (category.Contains("Lucida", StringComparison.OrdinalIgnoreCase)) return "Lucida";
         if (category.Contains("ArchiveOrg", StringComparison.OrdinalIgnoreCase)) return "Archive.org";
         if (category.Contains("Slskd", StringComparison.OrdinalIgnoreCase)) return "Soulseek";
-        if (category.Contains("DoubleDouble", StringComparison.OrdinalIgnoreCase)) return "DoubleDouble";
         if (category.Contains("Download", StringComparison.OrdinalIgnoreCase)) return "Waterfall";
 
         return Other;

@@ -64,8 +64,7 @@ public static class ServiceCollectionExtensions
         // Internet Archive), YouTube as the widest lossy fallback, then the
         // subscription sources (Qobuz, Deezer), the free lossless ones
         // (Monochrome, Soulseek), and the community mirrors last (Lucida
-        // needs a solver; DoubleDouble reports itself unavailable while its
-        // captcha gate is up).
+        // needs a solver, Jumo is a web front-end).
         services.AddSingleton<IDownloader>(sp =>
             new SoundCloudDownloader(sp.GetRequiredService<ILogger<SoundCloudDownloader>>()));
         services.AddSingleton<IDownloader>(sp =>
@@ -190,17 +189,6 @@ public static class ServiceCollectionExtensions
                 sp.GetRequiredService<IPluginConfig>(),
                 sp.GetRequiredService<ILogger<JumoDownloader>>()));
 
-        // DoubleDouble rips many services by direct URL (submit + poll, no
-        // metadata search: the frontend search is captcha-gated). It sits
-        // last because the site is captcha-gated on every submission and
-        // the plugin reports itself unavailable; it stays registered so a
-        // working status is picked up automatically if the gate ever drops.
-        services.AddHttpClient("doubledouble", c => c.Timeout = TimeSpan.FromMinutes(3));
-        services.AddSingleton<IDownloader>(sp =>
-            new DoubleDoubleDownloader(
-                sp.GetRequiredService<IHttpClientFactory>().CreateClient("doubledouble"),
-                sp.GetRequiredService<ILogger<DoubleDoubleDownloader>>()));
-
         // ISRC enrichment for sources that do not provide one (Spotify
         // embed scrape, YouTube, CSV imports): Deezer's public search API
         // needs no account and returns the ISRC of every hit.
@@ -316,6 +304,11 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IAccountSourceProvider>(sp => sp.GetRequiredService<SpotifyUnofficialAccountProvider>());
         services.AddSingleton<IAccountSourceProvider>(sp => sp.GetRequiredService<YouTubeAccountProvider>());
         services.AddScoped<PlaylistStore>();
+        services.AddScoped<FolderBrowser>();
+        services.AddSingleton<ArchiveProfileStore>();
+        services.AddSingleton<ArchiveCopyService>();
+        services.AddSingleton<ArchiveBackfillService>();
+        services.AddSingleton<AttentionService>();
 
         // Background services
         services.AddHostedService<AutoSyncBackgroundService>();

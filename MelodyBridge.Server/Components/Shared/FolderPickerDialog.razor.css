@@ -1,0 +1,206 @@
+/* Folder picker: a shortcut rail plus a compact directory list. */
+
+.folder-picker-modal {
+    width: min(760px, calc(100vw - 2rem));
+}
+
+.folder-picker-body {
+    display: grid;
+    gap: .75rem;
+}
+
+.folder-path-bar {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: .4rem;
+    align-items: center;
+    padding: .4rem;
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    background: var(--surface-2);
+}
+
+.folder-path-bar input {
+    min-width: 0;
+    border: 0;
+    background: transparent;
+    color: var(--text);
+    font: inherit;
+    font-size: .84rem;
+    outline: none;
+}
+
+.folder-loading {
+    display: flex;
+    align-items: center;
+    gap: .45rem;
+    padding: .75rem;
+    color: var(--muted);
+    font-size: .82rem;
+}
+
+.folder-picker-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 200px) minmax(0, 1fr);
+    gap: .75rem;
+    min-height: 260px;
+}
+
+.folder-shortcuts,
+.folder-list-pane {
+    display: grid;
+    align-content: start;
+    gap: .2rem;
+    min-width: 0;
+}
+
+.folder-pane-label {
+    color: var(--muted-2);
+    font-size: .66rem;
+    font-weight: 700;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    padding: 0 .15rem .2rem;
+}
+
+.folder-shortcut,
+.folder-row {
+    display: flex;
+    align-items: center;
+    gap: .45rem;
+    min-width: 0;
+    padding: .45rem .5rem;
+    border: 1px solid transparent;
+    border-radius: 7px;
+    background: transparent;
+    color: var(--text);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.folder-shortcut:hover,
+.folder-row:hover {
+    background: var(--surface-2);
+    border-color: var(--border);
+}
+
+.folder-shortcut.active {
+    background: var(--accent-soft);
+    border-color: var(--accent);
+    color: var(--accent-text);
+}
+
+.folder-shortcut .icon,
+.folder-row .icon {
+    flex-shrink: 0;
+    color: var(--muted);
+}
+
+.folder-shortcut > span {
+    display: grid;
+    gap: .05rem;
+    min-width: 0;
+}
+
+.folder-shortcut strong {
+    font-size: .81rem;
+    line-height: 1.25;
+}
+
+.folder-shortcut small {
+    color: var(--muted);
+    font-size: .68rem;
+    line-height: 1.25;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.folder-list {
+    display: grid;
+    align-content: start;
+    gap: .1rem;
+    max-height: 320px;
+    overflow-y: auto;
+    padding: .15rem;
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    background: var(--surface-2);
+}
+
+.folder-row span {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: .84rem;
+}
+
+.folder-row small {
+    color: var(--muted-2);
+    font-size: .68rem;
+}
+
+.folder-row-arrow { color: var(--muted-2) !important; }
+
+.folder-empty {
+    padding: .9rem .7rem;
+    color: var(--muted);
+    font-size: .8rem;
+    line-height: 1.4;
+}
+
+.folder-new {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: .4rem;
+}
+
+.folder-new input {
+    min-width: 0;
+    padding: .45rem .55rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+    font-size: .82rem;
+}
+
+@media (max-width: 720px) {
+    .folder-picker-grid { grid-template-columns: minmax(0, 1fr); min-height: 0; }
+    .folder-shortcuts {
+        grid-auto-flow: column;
+        grid-auto-columns: minmax(150px, 1fr);
+        overflow-x: auto;
+        padding-bottom: .2rem;
+    }
+    .folder-shortcut small { display: none; }
+    .folder-list { max-height: 42vh; }
+    .folder-new { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* Read-only names, so a folder is recognizable without exposing bytes. */
+.folder-files {
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    background: var(--surface-2);
+    padding: .1rem .6rem;
+}
+.folder-files summary {
+    cursor: pointer;
+    padding: .45rem 0;
+    color: var(--muted);
+    font-size: .78rem;
+    font-weight: 600;
+}
+.folder-file-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .3rem .55rem;
+    padding: 0 0 .55rem;
+    color: var(--muted-2);
+    font-size: .72rem;
+}

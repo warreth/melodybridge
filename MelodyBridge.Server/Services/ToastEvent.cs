@@ -10,4 +10,6 @@ public sealed record ToastEvent(
     string Message,
     string Level,
     string? ActionLabel = null,
-    string? ActionUrl = null);
+    string? ActionUrl = null,
+    bool Important = false,
+    string? Key = null);

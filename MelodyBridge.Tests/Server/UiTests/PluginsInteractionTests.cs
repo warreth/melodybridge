@@ -81,6 +81,11 @@ public class PluginsInteractionTests
         cut.FindAll(".plugin-card")
             .Single(c => c.QuerySelector("strong")!.TextContent.Trim() == name);
 
+    /// <summary>The try-order row for a plugin, or null when it is disabled.</summary>
+    private static IElement? OrderRowFor(IRenderedComponent<Plugins> cut, string name) =>
+        cut.FindAll(".order-row")
+            .FirstOrDefault(row => row.TextContent.Contains(name, StringComparison.Ordinal));
+
     /// <summary>Fresh read of the persisted plugin state, after any click.</summary>
     private ProviderStateRow StateFor(string id)
     {
@@ -120,15 +125,15 @@ public class PluginsInteractionTests
         cut.Find("input[aria-label='Enable Second Plugin']").Change(false);
 
         cut.WaitForAssertion(() =>
-            Assert.That(CardFor(cut, "Second Plugin").QuerySelector(".btn-group"),
-                Is.Null, "a disabled plugin loses its reorder arrows"),
+            Assert.That(OrderRowFor(cut, "Second Plugin"), Is.Null,
+                "a disabled plugin leaves the try order"),
             TimeSpan.FromSeconds(3));
         Assert.That(
             CardFor(cut, "Second Plugin")
                 .QuerySelector("label.toggle-switch input[type='checkbox']"),
             Is.Not.Null, "the card keeps its enable toggle");
         Assert.That(
-            CardFor(cut, "First Plugin").QuerySelectorAll(".btn-group button").Count(),
+            OrderRowFor(cut, "First Plugin")!.QuerySelectorAll(".btn-group button").Count(),
             Is.EqualTo(2), "the enabled plugin keeps both arrows");
         Assert.That(StateFor("second").IsEnabled, Is.False,
             "the click persists to the ProviderStates row");
@@ -150,7 +155,7 @@ public class PluginsInteractionTests
 
         cut.WaitForAssertion(() =>
             Assert.That(
-                CardFor(cut, "Second Plugin").QuerySelectorAll(".btn-group button").Count(),
+                OrderRowFor(cut, "Second Plugin")!.QuerySelectorAll(".btn-group button").Count(),
                 Is.EqualTo(2), "re-enabling restores both arrows"),
             TimeSpan.FromSeconds(3));
         Assert.That(StateFor("second").IsEnabled, Is.True,
@@ -176,10 +181,10 @@ public class PluginsInteractionTests
         down.Click();
 
         cut.WaitForAssertion(() =>
-            Assert.That(cut.FindAll(".plugin-card")
-                .Select(c => c.QuerySelector("strong")!.TextContent.Trim()).ToList(),
+            Assert.That(cut.FindAll(".order-row")
+                .Select(c => c.QuerySelector(".order-main strong")!.TextContent.Trim()).ToList(),
                 Is.EqualTo(new[] { "Second Plugin", "First Plugin" }),
-                "clicking the down arrow swaps the adjacent cards in the DOM"),
+                "clicking the down arrow swaps the adjacent sources in the try order"),
             TimeSpan.FromSeconds(3));
 
         var second = StateFor("second");
@@ -187,13 +192,13 @@ public class PluginsInteractionTests
         Assert.That(second.Priority, Is.LessThan(first.Priority),
             "the swap persists through SetOrderAsync");
 
-        var cards = cut.FindAll(".plugin-card");
-        Assert.That(cards[0]
+        var rows = cut.FindAll(".order-row");
+        Assert.That(rows[0]
             .QuerySelector("button[aria-label='Move Second Plugin up']")
-            !.HasAttribute("disabled"), Is.True, "the new first card cannot move up");
-        Assert.That(cards[1]
+            !.HasAttribute("disabled"), Is.True, "the new first source cannot move up");
+        Assert.That(rows[1]
             .QuerySelector("button[aria-label='Move First Plugin down']")
-            !.HasAttribute("disabled"), Is.True, "the new last card cannot move down");
+            !.HasAttribute("disabled"), Is.True, "the new last source cannot move down");
     }
 
     [Test]
@@ -209,9 +214,9 @@ public class PluginsInteractionTests
             Assert.That(cut.FindAll(".plugin-card").Count, Is.EqualTo(2)),
             TimeSpan.FromSeconds(3));
 
-        Assert.That(CardFor(cut, "Second Plugin").QuerySelector(".btn-group"),
-            Is.Null, "a plugin seeded disabled has no arrows");
-        var enabled = CardFor(cut, "First Plugin");
+        Assert.That(OrderRowFor(cut, "Second Plugin"), Is.Null,
+            "a plugin seeded disabled has no try-order row");
+        var enabled = OrderRowFor(cut, "First Plugin")!;
         Assert.That(enabled.QuerySelectorAll(".btn-group button").Count(),
             Is.EqualTo(2), "the enabled plugin has both arrows");
         Assert.That(enabled.QuerySelector("button[aria-label='Move First Plugin up']")

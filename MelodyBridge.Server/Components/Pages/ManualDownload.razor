@@ -29,7 +29,10 @@
     <div class="manual-options-grid">
         <label class="manual-field">
             <span class="eyebrow">Save to</span>
-            <input class="search-input" @bind="targetDirectory" placeholder="/music" />
+            <span class="path-field">
+                <input class="search-input" @bind="targetDirectory" placeholder="/music" />
+                <FolderBrowseButton Value="@targetDirectory" ValueChanged="@(v => targetDirectory = v)" Label="the download folder" />
+            </span>
             <small class="text-muted">
                 An absolute folder. Files are named Artist - Title and keep
                 their source tags.

@@ -70,6 +70,8 @@ public class ToastDecisionsTests
         Assert.That(events[0].Message, Does.Contain("2 failed"));
         Assert.That(events[0].ActionLabel, Is.EqualTo("Review failed"));
         Assert.That(events[0].ActionUrl, Is.EqualTo("/playlists/pl-1"));
+        Assert.That(events[0].Important, Is.True, "a run with failures belongs in the bell");
+        Assert.That(events[0].Key, Does.StartWith("playlist-run:pl-1:"));
     }
 
     [Test]
@@ -85,6 +87,7 @@ public class ToastDecisionsTests
             Assert.That(events, Has.Count.EqualTo(1));
             Assert.That(events[0].Category, Is.EqualTo(NotificationCategories.Jobs));
             Assert.That(events[0].Message, Does.Contain("completed"));
+            Assert.That(events[0].Important, Is.False, "a normal completion stays a toast");
         });
     }
 
@@ -102,6 +105,8 @@ public class ToastDecisionsTests
             Assert.That(events[0].Category, Is.EqualTo(NotificationCategories.JobFailures));
             Assert.That(events[0].Level, Is.EqualTo("warn"));
             Assert.That(events[0].Message, Does.Contain("failed"));
+            Assert.That(events[0].Important, Is.True, "a failed sync job belongs in the bell");
+            Assert.That(events[0].Key, Does.StartWith("sync-job:j1:"));
         });
     }
 

@@ -464,6 +464,26 @@ public class SpotifyUnofficialAccountTests
     }
 
     [Test]
+    public async Task SavedWebLikedPlaylist_RefreshesThroughTheUnofficialProvider()
+    {
+        var web = new FakeSpotifyWeb { LikedTotal = 2 };
+        var provider = ProviderWith(web);
+        await provider.SaveSettingAsync("cookie", "cookie");
+        await provider.SetEnabledAsync(true);
+        var store = StoreWith(provider);
+
+        var added = await store.AddOrRefreshLikedAsync(SpotifyUnofficialAccountProvider.ProviderName);
+        var refreshed = await store.AddOrRefreshAsync(SpotifyUnofficialAccountProvider.LikedSourceUrl);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(refreshed.Id, Is.EqualTo(added.Id));
+            Assert.That(refreshed.SourceUrl, Is.EqualTo(SpotifyUnofficialAccountProvider.LikedSourceUrl));
+            Assert.That(refreshed.TrackCount, Is.EqualTo(2));
+        });
+    }
+
+    [Test]
     public async Task PrivatePlaylistImport_PrefersTheSessionOverPublicScraping()
     {
         var web = new FakeSpotifyWeb();

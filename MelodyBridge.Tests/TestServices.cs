@@ -41,6 +41,16 @@ public static class TestServices
         services.AddSingleton(settingsStore);
         services.AddSingleton(new MediaServerProfileStore(settingsStore));
         services.AddSingleton(new SyncRuleProfileStore(dbFactory));
+        services.AddSingleton(new FolderBrowser(dbFactory));
+        services.AddSingleton(new ArchiveProfileStore(dbFactory));
+        services.AddSingleton(new ArchiveCopyService(
+            dbFactory, settingsStore,
+            NullLogger<ArchiveCopyService>.Instance));
+        services.AddSingleton(sp => new ArchiveBackfillService(
+            sp.GetRequiredService<ArchiveCopyService>(),
+            NullLogger<ArchiveBackfillService>.Instance));
+        services.AddSingleton(new AttentionService(dbFactory));
+        services.AddScoped<MelodyBridge.Server.Services.AttentionActions>();
         // The Advanced page injects the rename pass; its own tests drive it
         // through a real SQLite file like the library maintenance does.
         services.AddSingleton(new FileNameRenamer(

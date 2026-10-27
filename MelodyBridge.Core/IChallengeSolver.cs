@@ -15,6 +15,13 @@ public interface IChallengeSolver
     /// value and User-Agent to use, or null when the solver could not.
     /// </summary>
     Task<CloudflareCredentials?> SolveAsync(string url, CancellationToken ct = default);
+
+    /// <summary>
+    /// Solves again even when a cached clearance exists. Callers use this
+    /// after the target answered 403 with a stale clearance.
+    /// </summary>
+    Task<CloudflareCredentials?> SolveFreshAsync(string url, CancellationToken ct = default)
+        => SolveAsync(url, ct);
 }
 
 /// <summary>The headers that get a plain client past the challenge.</summary>

@@ -114,7 +114,8 @@ public sealed class PluginAuthWatchService : BackgroundService
     {
         // Parallel downloads can report issues at the same time; one lock
         // keeps the toast de-duplication and the notification order sane.
-        var fresh = new List<(string Message, string Label, string Url)>();
+        var fresh = new List<(string PluginId, string Message, string Label, string Url)>();
+        var resolved = new List<string>();
         lock (_toastGate)
         {
             var current = _monitor.Snapshot();
@@ -125,17 +126,25 @@ public sealed class PluginAuthWatchService : BackgroundService
                     continue;
 
                 _toasted[issue.PluginId] = issue.Message;
-                fresh.Add(($"{issue.PluginName}: {issue.Message}", "Fix plugin",
+                fresh.Add((issue.PluginId, $"{issue.PluginName}: {issue.Message}", "Fix plugin",
                     $"/plugins#plugin-{issue.PluginId}"));
             }
 
-            foreach (var resolved in _toasted.Keys
+            foreach (var gone in _toasted.Keys
                          .Except(current.Select(issue => issue.PluginId), StringComparer.OrdinalIgnoreCase)
                          .ToList())
-                _toasted.Remove(resolved);
+            {
+                _toasted.Remove(gone);
+                resolved.Add(gone);
+            }
         }
 
-        foreach (var (message, label, url) in fresh)
-            _notifications.Error(message, label, url);
+        // A fixed login clears its bell entry instead of leaving a stale
+        // warning that the user can never act on.
+        foreach (var pluginId in resolved)
+            _notifications.Resolve($"auth:{pluginId}");
+
+        foreach (var (pluginId, message, label, url) in fresh)
+            _notifications.Important(message, "error", label, url, key: $"auth:{pluginId}");
     }
 }

@@ -713,7 +713,7 @@ public class SourcePickerUiTests
         var notifications = _ctx.Services.GetRequiredService<NotificationService>();
         cut.WaitForAssertion(() =>
         {
-            var final = notifications.History().First(notification =>
+            var final = notifications.Snapshot().First(notification =>
                 notification.Message.StartsWith("Retried ", StringComparison.Ordinal));
             Assert.That(final.Message, Does.Contain("not found"),
                 "a deleted row is named, not counted as a download");
@@ -758,7 +758,7 @@ public class SourcePickerUiTests
         var notifications = _ctx.Services.GetRequiredService<NotificationService>();
         cut.WaitForAssertion(() =>
         {
-            var final = notifications.History().First(notification =>
+            var final = notifications.Snapshot().First(notification =>
                 notification.Message.StartsWith("Retried ", StringComparison.Ordinal));
             Assert.That(final.Message, Does.Contain("already downloading"));
             Assert.That(final.Message, Does.Not.Contain("all downloaded"));

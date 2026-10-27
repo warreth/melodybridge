@@ -17,7 +17,7 @@ public class PlaylistStoreSurfaceTests
     {
         // Download pipeline
         "DownloadMissingAsync", "DownloadTrackAsync", "FindDedupCandidateAsync", "ResolveReviewAsync", "ResolveQualityReviewAsync",
-        "SearchCandidatesAsync", "DownloadCandidateAsync", "DeleteTrackFilesAsync", "LinkSharedTracksAsync",
+        "SearchCandidatesAsync", "DownloadCandidateAsync", "DeleteTrackFilesAsync", "LinkSharedTracksAsync", "LinkTrackAsync",
         // Queries, lifecycle and maintenance
         "GetAllAsync", "GetDownloadStatsAsync", "GetSavedExternalIdsAsync", "RemoveTrackAsync",
         "GetForDisplayAsync", "DeleteAsync", "UpdateSettingsAsync", "UpdateScheduleAsync",

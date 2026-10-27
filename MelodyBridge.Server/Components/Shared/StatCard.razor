@@ -4,7 +4,7 @@
    already formatted values such as "3 / 6" for plugins. *@
 @if (!string.IsNullOrWhiteSpace(Href))
 {
-    <a class="stat-card linked" href="@Href" title="@Label">
+    <a class="stat-card linked @ToneClass" href="@Href" title="@Label">
         <Icon Name="@IconName" Size="20" Class="stat-icon" />
         <label>@Label</label>
         <strong>@Value</strong>
@@ -17,7 +17,7 @@
 }
 else
 {
-    <div class="stat-card">
+    <div class="stat-card @ToneClass">
         <Icon Name="@IconName" Size="20" Class="stat-icon" />
         <label>@Label</label>
         <strong>@Value</strong>
@@ -40,4 +40,11 @@ else
 
     /// <summary>When set the whole tile becomes a link to this page.</summary>
     [Parameter] public string? Href { get; set; }
+
+    /// <summary>Optional semantic tone: success, warning or danger.</summary>
+    [Parameter] public string? Tone { get; set; }
+
+    private string ToneClass => Tone is "success" or "warning" or "danger"
+        ? $"tone-{Tone}"
+        : string.Empty;
 }

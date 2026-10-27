@@ -21,7 +21,8 @@ public sealed class BackgroundFailureSink(
         try
         {
             if (await settings.GetBoolAsync("notify_failures", true))
-                notifications.Background(message, "warn", "View logs", "/logs");
+                notifications.Important(
+                    message, "warn", "View logs", "/logs", key: "background:" + message);
             await ntfy.NotifyAsync(NotificationCategories.Failures, message, "warn");
         }
         catch (Exception ex)

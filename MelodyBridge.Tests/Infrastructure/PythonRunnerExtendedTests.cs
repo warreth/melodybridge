@@ -12,7 +12,7 @@ public class PythonRunnerExtendedTests
         var runner = new PythonRunner(NullLogger<PythonRunner>.Instance);
         var scriptPath = Path.Combine(Path.GetTempPath(), "nonexistent_" + Guid.NewGuid() + ".py");
 
-        Assert.Throws<Exception>(() => runner.RunPythonScript(scriptPath, ""));
+        Assert.Catch<Exception>(() => runner.RunPythonScript(scriptPath, ""));
     }
 
     [Test]
@@ -21,7 +21,7 @@ public class PythonRunnerExtendedTests
         var runner = new PythonRunner(NullLogger<PythonRunner>.Instance);
         var scriptPath = Path.Combine(Path.GetTempPath(), "script_" + Guid.NewGuid() + ".py");
 
-        Assert.Throws<Exception>(() => runner.RunPythonScript(scriptPath, null!));
+        Assert.Catch<Exception>(() => runner.RunPythonScript(scriptPath, null!));
     }
 
     [Test]

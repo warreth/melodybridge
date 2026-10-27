@@ -155,13 +155,15 @@ public class DownloaderRegistry : IDownloaderRegistry
         ["soundcloud", "archiveorg", "ytdlp", "qobuz", "deemix", "monochrome", "slskd", "doubledouble", "lucida", "jumo"],
         // The DoubleDouble retirement, before Tidal.
         ["soundcloud", "archiveorg", "ytdlp", "qobuz", "deemix", "monochrome", "slskd", "lucida", "doubledouble"],
+        // Before DoubleDouble was removed from the shipped plugins.
+        ["soundcloud", "archiveorg", "ytdlp", "qobuz", "deemix", "tidal", "monochrome", "slskd", "lucida", "jumo"],
     ];
 
     /// <summary>The order a fresh install gets, and the target of the migration.</summary>
     private static readonly string[] CurrentDefaultOrder =
     [
         "soundcloud", "archiveorg", "ytdlp", "qobuz", "deemix", "tidal",
-        "monochrome", "slskd", "lucida", "jumo", "doubledouble",
+        "monochrome", "slskd", "lucida", "jumo",
     ];
 
     /// <summary>

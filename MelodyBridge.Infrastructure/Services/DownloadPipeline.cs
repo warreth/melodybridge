@@ -29,6 +29,7 @@ internal sealed class DownloadPipeline
     private readonly PathLockTable _pathLocks;
     private readonly IRowClaimer _rowClaims;
     private readonly DownloadThrottle? _throttle;
+    private readonly ArchiveCopyService? _archiveCopies;
 
     public DownloadPipeline(
         IDbContextFactory<MelodyBridgeDbContext> dbFactory,
@@ -44,7 +45,8 @@ internal sealed class DownloadPipeline
         ITrackClaimRegistry? claims = null,
         PathLockTable? pathLocks = null,
         IRowClaimer? rowClaims = null,
-        DownloadThrottle? throttle = null)
+        DownloadThrottle? throttle = null,
+        ArchiveCopyService? archiveCopies = null)
     {
         _dbFactory = dbFactory;
         _downloadManager = downloadManager;
@@ -64,6 +66,7 @@ internal sealed class DownloadPipeline
         // never pulls a file away from a worker that is writing it.
         _pathLocks = pathLocks ?? PathLockTable.Shared;
         _throttle = throttle;
+        _archiveCopies = archiveCopies;
         // One claimer per pipeline: who reads pending rows and flips one
         // to in-progress atomically. The default reads the real rows.
         _rowClaims = rowClaims ?? new RowClaimer(_dbFactory, _claims);
@@ -520,6 +523,12 @@ internal sealed class DownloadPipeline
                     : $"{track.Warning}; could not remove the previous file {oldPath}: {ex.Message}";
             }
         }
+
+        // The named profile copies follow the same lifecycle: the fresh
+        // download recreates them below, so stale files must not survive a
+        // replacement under a different name or format.
+        if (_archiveCopies is not null)
+            await _archiveCopies.DeleteForTrackAsync(track.Id, db, deleteFiles: true, ct);
     }
 
     /// <summary>
@@ -933,6 +942,39 @@ internal sealed class DownloadPipeline
         };
     }
 
+    /// <summary>
+    /// Tries to satisfy one row from a file another playlist already has.
+    /// Used by the global attention page for a selected failed track: no
+    /// network call, no quality review, and false when no usable copy
+    /// exists.
+    /// </summary>
+    public async Task<bool> LinkTrackAsync(int trackId, CancellationToken ct = default)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var track = await db.Tracks.FindAsync(new object[] { trackId }, ct);
+        if (track is null || track.MelodyId is null) return false;
+        if (!string.IsNullOrWhiteSpace(track.CurrentPath) && File.Exists(track.CurrentPath))
+            return false;
+
+        var playlist = track.PlaylistEntityId is { Length: > 0 } playlistId
+            ? await db.Playlists.AsNoTracking().FirstOrDefaultAsync(p => p.Id == playlistId, ct)
+            : null;
+        var preferred = playlist?.PreferredFormat;
+        if (string.IsNullOrWhiteSpace(preferred))
+            preferred = await _settings.GetAsync("default_quality", "auto", ct);
+        var quality = PlaylistRules.ParseQuality(preferred);
+
+        var outcome = await _linker.TryLinkAsync(
+            track, db, quality, pauseOnQualityMismatch: false, ct);
+        if (outcome != TrackLinkOutcome.Linked) return false;
+
+        track.DownloadError = null;
+        track.AvoidPluginId = null;
+        await db.SaveChangesAsync(ct);
+        _changes.Bump();
+        return true;
+    }
+
     /// <summary>See <see cref="TrackLinker.FindCandidateAsync"/>.</summary>
     public Task<DedupMatch?> FindDedupCandidateAsync(
         string melodyId, int excludingTrackId, CancellationToken ct = default)
@@ -1189,6 +1231,8 @@ internal sealed class DownloadPipeline
         {
             FileCleanup.DeleteQuietly(track.ArchivePath);
         }
+        if (_archiveCopies is not null)
+            await _archiveCopies.DeleteForTrackAsync(track.Id, db, deleteFiles: true, ct);
 
         var avoid = track.SourcePluginId;
         track.DownloadStatus = "pending";

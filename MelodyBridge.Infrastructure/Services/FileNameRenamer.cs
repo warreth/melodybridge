@@ -41,15 +41,18 @@ public sealed class FileNameRenamer
     private readonly SettingsStore _settings;
     private readonly PathLockTable _pathLocks;
     private readonly ILogger<FileNameRenamer> _logger;
+    private readonly ArchiveCopyService? _archiveCopies;
 
     public FileNameRenamer(
         IDbContextFactory<MelodyBridgeDbContext> dbFactory,
         SettingsStore settings,
         ILogger<FileNameRenamer>? logger = null,
-        PathLockTable? pathLocks = null)
+        PathLockTable? pathLocks = null,
+        ArchiveCopyService? archiveCopies = null)
     {
         _dbFactory = dbFactory;
         _settings = settings;
+        _archiveCopies = archiveCopies;
         _logger = logger ?? Microsoft.Extensions.Logging.Abstractions
             .NullLogger<FileNameRenamer>.Instance;
         _pathLocks = pathLocks ?? PathLockTable.Shared;
@@ -190,6 +193,15 @@ public sealed class FileNameRenamer
                 s => s.SetProperty(t => t.ArchivePath, move.NewPath), ct)
             : await query.ExecuteUpdateAsync(
                 s => s.SetProperty(t => t.CurrentPath, move.NewPath), ct);
+
+        // Named archive copies keep their own rows; they follow the primary
+        // rename in every profile folder.
+        if (updated > 0 && !move.Archive && _archiveCopies is not null)
+        {
+            foreach (var trackId in move.TrackIds)
+                await _archiveCopies.RenameForTrackAsync(trackId, move.NewPath, db, ct);
+            await db.SaveChangesAsync(ct);
+        }
         return updated > 0;
     }
 
@@ -536,6 +548,12 @@ public sealed class FileNameRenamer
         {
             Add(playlist.TargetDirectory);
             Add(playlist.ArchiveDirectory);
+        }
+        foreach (var path in await db.ArchiveProfiles.AsNoTracking()
+                     .Where(profile => profile.RootPath != "")
+                     .Select(profile => profile.RootPath).ToListAsync(ct))
+        {
+            Add(path);
         }
         foreach (var path in await db.ScanLocations.AsNoTracking()
                      .Select(l => l.Path).ToListAsync(ct))

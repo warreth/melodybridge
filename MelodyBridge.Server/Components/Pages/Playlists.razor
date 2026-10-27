@@ -400,7 +400,10 @@ else
                     </label>
                     <label class="wide">
                         Download folder (optional)
-                        <input @bind="newTargetDirectory" placeholder="@resolvedDefaultMusicPath" />
+                        <span class="path-field">
+                            <input @bind="newTargetDirectory" placeholder="@resolvedDefaultMusicPath" />
+                            <FolderBrowseButton Value="@newTargetDirectory" ValueChanged="@SetNewTargetDirectory" Label="the playlist download folder" />
+                        </span>
                         <small class="text-muted">@newFolderHint</small>
                     </label>
                     <div class="quality-field wide">
@@ -946,6 +949,10 @@ else
     private string playlistSort = "recent";
     /// <summary>Narrows the list to playlists with failures or warnings.</summary>
     private bool needsAttentionOnly;
+
+    /// <summary>Dashboard links land here with ?filter=attention.</summary>
+    [Microsoft.AspNetCore.Components.SupplyParameterFromQuery(Name = "filter")]
+    public string? QueryFilter { get; set; }
     /// <summary>Selection mode turns the toolbar into bulk actions.</summary>
     private bool selectionMode;
     private readonly HashSet<string> selectedPlaylistIds = new(StringComparer.Ordinal);
@@ -1690,6 +1697,9 @@ else
 
     protected override async Task OnInitializedAsync()
     {
+        if (string.Equals(QueryFilter, "attention", StringComparison.OrdinalIgnoreCase))
+            needsAttentionOnly = true;
+
         // The counters and the store stamp they were read at. The stamp
         // is read before the counters, so a write that lands during the
         // read sends the next tick back to the store.
@@ -1952,6 +1962,8 @@ else
         importResults = new List<ImportedPlaylistResult>();
         importFailures.Clear();
     }
+
+    private void SetNewTargetDirectory(string value) => newTargetDirectory = value;
 
     private string? TargetOrNull()
         => string.IsNullOrWhiteSpace(newTargetDirectory) ? null : newTargetDirectory;

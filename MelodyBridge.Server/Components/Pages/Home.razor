@@ -1,4 +1,5 @@
 @page "/"
+@using MelodyBridge.Application.Services
 @inject IDbContextFactory<MelodyBridgeDbContext> DbFactory
 @inject IDownloaderRegistry DownloaderRegistry
 @inject MelodyBridge.Infrastructure.Services.PluginAuthMonitor AuthMonitor
@@ -161,11 +162,16 @@ else
         <div>
             <span class="eyebrow">Overview</span>
             <h1>Dashboard</h1>
-            <p>Playlists, downloads, connections and errors at a glance.</p>
+            <p>Your music, the queue and everything that needs a decision.</p>
         </div>
-        <div class="topbar-actions">
+        <div class="topbar-actions dashboard-actions">
+            <span class="dashboard-live" title="Refreshes every 5 seconds">
+                <span class="status-dot online"></span> Live
+            </span>
             <small class="text-muted updated-note">Updated @_lastUpdated.ToString("HH:mm:ss")</small>
-            <button class="btn-modern ghost" @onclick="@(() => RefreshStats(force: true))">Refresh</button>
+            <button class="btn-modern ghost small" @onclick="@(() => RefreshStats(force: true))" title="Refresh now">
+                <Icon Name="refresh" Size="14" /> Refresh
+            </button>
             <a class="btn-modern primary" href="/playlists"><Icon Name="plus" Size="15" /> Add playlist</a>
         </div>
     </section>
@@ -189,160 +195,303 @@ else
         </section>
     }
 
-    <section class="stat-grid dashboard-stats">
-        <StatCard IconName="list-music" Label="Playlists" Value="@playlistsCount.ToString()" Caption="Saved from public links or accounts" Href="/playlists" />
-        <StatCard IconName="download" Label="Downloaded tracks" Value="@downloadedCount.ToString()" Caption="Files on your disk" Href="/downloads" />
-        <StatCard IconName="library" Label="Library" Value="@libraryCount.ToString()" Caption="Files found by the scanner" Href="/library" />
-        <StatCard IconName="package" Label="Plugins" Value="@($"{enabledPlugins} / {totalPlugins}")" Caption="Enabled in the waterfall" Href="/plugins" />
-    </section>
-
-    <section class="content-grid two dashboard-grid">
-        <div class="panel-card">
+    @if (attentionTotal > 0)
+    {
+        <section class="panel-card dashboard-attention">
             <div class="panel-header">
                 <div>
-                    <span class="eyebrow">Media servers and accounts</span>
-                    <h2>Connections</h2>
+                    <span class="eyebrow">Attention</span>
+                    <h2>@attentionTotal item@(attentionTotal == 1 ? "" : "s") need@(attentionTotal == 1 ? "s" : "") a look</h2>
                 </div>
-                <a class="btn-modern ghost small" href="/settings#media-servers">Manage</a>
+                <a class="btn-modern ghost small" href="/attention">Review all</a>
             </div>
-            <div class="provider-list">
-                <ConnectionRow IconName="spotify" Title="Spotify"
-                               Detail="@(spotifyConnected ? "account connected" : "public playlists only")"
-                               PillVariant="@(spotifyConnected ? "connected" : "guest")"
-                               PillText="@(spotifyConnected ? "connected" : "guest")"
-                               Enabled="spotifyConnected" />
-                <ConnectionRow IconName="youtube" Title="YouTube"
-                               Detail="@(youtubeConnected ? "account connected" : "public playlists only")"
-                               PillVariant="@(youtubeConnected ? "connected" : "guest")"
-                               PillText="@(youtubeConnected ? "connected" : "guest")"
-                               Enabled="youtubeConnected" />
-                @foreach (var server in mediaServers)
+            <div class="attention-grid">
+                @if (failedCount > 0)
                 {
-                    <ConnectionRow IconName="@ServerIcon(server.Kind)"
-                                   Title="@ServerTitle(server)"
-                                   Detail="@ServerDetail(server)"
-                                   PillVariant="@ServerPillVariant(server)"
-                                   PillText="@ServerPillText(server)"
-                                   Enabled="@(server.State == MediaServerConnectionState.Connected)" />
+                    <a class="attention-item danger" href="/attention?kind=failed">
+                        <span class="attention-count">@failedCount</span>
+                        <span class="attention-copy">
+                            <strong>Failed download@(failedCount == 1 ? "" : "s")</strong>
+                            <small>No source, quality filter, corrupt file or timeout</small>
+                        </span>
+                        <Icon Name="chevron-right" Size="15" Class="attention-arrow" />
+                    </a>
                 }
-                <ConnectionRow IconName="flaresolverr" Title="FlareSolverr"
-                               Detail="@(flareSolverrOn ? flareSolverrUrlText : "Cloudflare bypass off")"
-                               PillVariant="@(flareSolverrOn ? "ok" : "neutral")"
-                               PillText="@(flareSolverrOn ? "on" : "off")"
-                               Enabled="flareSolverrOn" />
+                @if (dedupCount > 0)
+                {
+                    <a class="attention-item warning" href="/attention?kind=dedup">
+                        <span class="attention-count">@dedupCount</span>
+                        <span class="attention-copy">
+                            <strong>Hardlink decision@(dedupCount == 1 ? "" : "s")</strong>
+                            <small>The track exists, but at another quality</small>
+                        </span>
+                        <Icon Name="chevron-right" Size="15" Class="attention-arrow" />
+                    </a>
+                }
+                @if (reviewCount > 0)
+                {
+                    <a class="attention-item warning" href="/attention?kind=review">
+                        <span class="attention-count">@reviewCount</span>
+                        <span class="attention-copy">
+                            <strong>Quality review@(reviewCount == 1 ? "" : "s")</strong>
+                            <small>The spectrum or length check wants a decision</small>
+                        </span>
+                        <Icon Name="chevron-right" Size="15" Class="attention-arrow" />
+                    </a>
+                }
+                @if (archiveIssueCount > 0)
+                {
+                    <a class="attention-item warning" href="/attention?kind=archive">
+                        <span class="attention-count">@archiveIssueCount</span>
+                        <span class="attention-copy">
+                            <strong>Archive cop@(archiveIssueCount == 1 ? "y" : "ies")</strong>
+                            <small>A profile copy failed or its target name is taken</small>
+                        </span>
+                        <Icon Name="chevron-right" Size="15" Class="attention-arrow" />
+                    </a>
+                }
+                @if (authIssues.Count > 0)
+                {
+                    <a class="attention-item danger" href="/plugins">
+                        <span class="attention-count">@authIssues.Count</span>
+                        <span class="attention-copy">
+                            <strong>Plugin login@(authIssues.Count == 1 ? "" : "s")</strong>
+                            <small>A stored Qobuz, Deezer or Tidal login stopped working</small>
+                        </span>
+                        <Icon Name="chevron-right" Size="15" Class="attention-arrow" />
+                    </a>
+                }
+                @if (failedJobs > 0)
+                {
+                    <a class="attention-item danger" href="/sync-jobs">
+                        <span class="attention-count">@failedJobs</span>
+                        <span class="attention-copy">
+                            <strong>Failed sync job@(failedJobs == 1 ? "" : "s")</strong>
+                            <small>The last run did not publish the playlist</small>
+                        </span>
+                        <Icon Name="chevron-right" Size="15" Class="attention-arrow" />
+                    </a>
+                }
+                @if (partialCount > 0)
+                {
+                    <a class="attention-item warning" href="/playlists?filter=attention">
+                        <span class="attention-count">@partialCount</span>
+                        <span class="attention-copy">
+                            <strong>Partial sync@(partialCount == 1 ? "" : "s")</strong>
+                            <small>One or more playlists could not fetch every track</small>
+                        </span>
+                        <Icon Name="chevron-right" Size="15" Class="attention-arrow" />
+                    </a>
+                }
+                @if (errorCount > 0)
+                {
+                    <a class="attention-item neutral" href="/logs">
+                        <span class="attention-count">@errorCount</span>
+                        <span class="attention-copy">
+                            <strong>Error@(errorCount == 1 ? "" : "s") in the log</strong>
+                            <small>Open the log stream for the full context</small>
+                        </span>
+                        <Icon Name="chevron-right" Size="15" Class="attention-arrow" />
+                    </a>
+                }
             </div>
-        </div>
-        <div class="grid-stack">
             @if (authIssues.Count > 0)
             {
-                <div class="panel-card">
-                    <div class="panel-header">
-                        <div>
-                            <span class="eyebrow">Waterfall</span>
-                            <h2>Plugin logins</h2>
-                        </div>
-                        <a class="btn-modern ghost small" href="/plugins">Plugins</a>
-                    </div>
-                    @if (authIssues.Count == 0)
-                    {
-                        <EmptyState IconName="check-circle" Title="No login problems found">
-                            Every enabled plugin's stored login looks usable.
-                        </EmptyState>
-                    }
-                    else
-                    {
-                        <div class="login-issue-list">
-                            @foreach (var issue in authIssues)
-                            {
-                                <div class="login-issue">
-                                    <Icon Name="alert" Size="15" />
-                                    <div>
-                                        <strong>@issue.PluginName</strong>
-                                        <span>@issue.Message</span>
-                                    </div>
-                                    <a class="btn-modern small ghost" href="/plugins#plugin-@issue.PluginId">Fix</a>
-                                </div>
-                            }
-                        </div>
-                    }
-                </div>
-            }
-            @if (errorCount > 0)
-            {
-                <div class="panel-card">
-                    <div class="panel-header">
-                        <div>
-                            <span class="eyebrow">Attention</span>
-                            <h2>Recent errors (@errorCount)</h2>
-                        </div>
-                        <a class="btn-modern ghost small" href="/logs">Logs</a>
-                    </div>
-                    @if (recentErrors.Count == 0)
-                    {
-                        <EmptyState IconName="check-circle" Title="No errors">Everything ran clean.</EmptyState>
-                    }
-                    else
-                    {
-                        <div class="logs-list">
-                            @foreach (var entry in recentErrors)
-                            {
-                                <a class="log-row err clickable" href="/logs">
-                                    <span class="log-time">@entry.Timestamp.ToLocalTime().ToString("HH:mm:ss")</span>
-                                    <span class="log-category">@entry.Area</span>
-                                    <span class="log-message">@LogRedactor.Redact(entry.Message)</span>
-                                </a>
-                            }
-                        </div>
-                    }
-                </div>
-            }
-            @if (authIssues.Count == 0 && errorCount == 0)
-            {
-                <div class="panel-card dashboard-clear">
-                    <span class="dashboard-clear-icon"><Icon Name="check-circle" Size="20" /></span>
-                    <div>
-                        <strong>No errors</strong>
-                        <span>Plugin logins look good and the log stream is clean.</span>
-                    </div>
-                </div>
-            }
-
-            <div class="panel-card">
-                <div class="panel-header">
-                    <div>
-                        <span class="eyebrow">Sync activity</span>
-                        <h2>Recent sync runs (@recentRuns.Count)</h2>
-                    </div>
-                    <a class="btn-modern ghost small" href="/sync-jobs">Sync jobs</a>
-                </div>
-                @if (recentRuns.Count == 0)
-                {
-                    <EmptyState IconName="clock" Title="No sync runs yet">No sync job has run yet.</EmptyState>
-                }
-                else
-                {
-                    <div class="run-feed">
-                        @foreach (var run in recentRuns)
+                <div class="attention-detail">
+                    <span class="eyebrow">Plugin logins</span>
+                    <div class="login-issue-list">
+                        @foreach (var issue in authIssues)
                         {
-                            <div class="run-row">
-                                <span class="run-dot @(run.Status == "Completed" ? "ok" : "err")" aria-hidden="true"></span>
-                                <div class="run-copy">
-                                    <strong>@run.JobName</strong>
-                                    <small>@run.Message</small>
+                            <div class="login-issue">
+                                <Icon Name="alert" Size="15" />
+                                <div>
+                                    <strong>@issue.PluginName</strong>
+                                    <span>@issue.Message</span>
                                 </div>
-                                <div class="run-side">
-                                    <StatusPill Variant="@(run.Status == "Completed" ? "ok" : "err")">@run.Status</StatusPill>
-                                    <small>@run.Timestamp.ToLocalTime().ToString("MMM d, HH:mm")</small>
-                                </div>
+                                <a class="btn-modern small ghost" href="/plugins#plugin-@issue.PluginId">Fix</a>
                             </div>
                         }
                     </div>
+                </div>
+            }
+        </section>
+    }
+    else
+    {
+        <div class="dashboard-clear dashboard-clear-wide">
+            <span class="dashboard-clear-icon"><Icon Name="check-circle" Size="20" /></span>
+            <div>
+                <strong>Everything looks healthy</strong>
+                <span>@(errorCount == 0 ? "No errors, failed downloads, open reviews or login problems." : "No failed downloads, open reviews or login problems.")</span>
+            </div>
+            <a class="btn-modern ghost small" href="/attention">Open the review page</a>
+        </div>
+    }
+
+    @if (recentErrors.Count > 0)
+    {
+        <section class="panel-card dashboard-errors">
+            <div class="panel-header">
+                <div>
+                    <span class="eyebrow">Log</span>
+                    <h2>Recent errors (@errorCount)</h2>
+                </div>
+                <a class="btn-modern ghost small" href="/logs">Open log</a>
+            </div>
+            <div class="attention-error-list">
+                @foreach (var entry in recentErrors)
+                {
+                    <a class="attention-error" href="/logs">
+                        <span class="attention-error-time">@entry.Timestamp.ToLocalTime().ToString("HH:mm:ss")</span>
+                        <span class="attention-error-area">@entry.Area</span>
+                        <span class="attention-error-message">@LogRedactor.Redact(entry.Message)</span>
+                    </a>
                 }
+            </div>
+        </section>
+    }
+
+    <section class="stat-grid dashboard-stats">
+        <StatCard IconName="list-music" Label="Playlists" Value="@playlistsCount.ToString()"
+                  Caption="Linked or imported sources" Href="/playlists" />
+        <StatCard IconName="download" Label="Downloaded" Value="@downloadedCount.ToString()"
+                  Caption="Ready to play" Href="/downloads" />
+        <StatCard IconName="hard-drive" Label="Library size" Value="@librarySizeText"
+                  Caption="@($"{libraryFileCount} file{(libraryFileCount == 1 ? "" : "s")}")" Href="/library" />
+        <StatCard IconName="alert" Label="Needs attention" Value="@attentionTotal.ToString()"
+                  Caption="@(attentionTotal == 0 ? "Nothing waiting" : "Open issues across the app")"
+                  Href="/attention" Tone="@(attentionTotal > 0 ? "danger" : "success")" />
+    </section>
+
+    <section class="content-grid two dashboard-grid">
+        <div class="panel-card dashboard-activity">
+            <div class="panel-header">
+                <div>
+                    <span class="eyebrow">Activity</span>
+                    <h2>Downloads and sync runs</h2>
+                </div>
+                <a class="btn-modern ghost small" href="/downloads">Download queue</a>
+            </div>
+
+            @if (downloadSummary.Runs > 0)
+            {
+                <div class="activity-live">
+                    <div class="activity-live-head">
+                        <span class="status-dot online"></span>
+                        <strong>@downloadSummary.Headline</strong>
+                        <span class="text-muted">@downloadSummary.Detail</span>
+                        <a class="btn-modern ghost small" href="/downloads">Open</a>
+                    </div>
+                    <div class="progress-track" aria-hidden="true">
+                        <span style="width:@downloadSummary.Percent%"></span>
+                    </div>
+                    @foreach (var run in activeRuns)
+                    {
+                        <div class="active-run-row">
+                            <span class="active-run-name">@run.PlaylistName</span>
+                            <small>@(string.IsNullOrWhiteSpace(run.CurrentTrack) ? "waiting for the next track" : run.CurrentTrack)</small>
+                            <span class="active-run-count">@run.Done/@run.Total</span>
+                        </div>
+                    }
+                </div>
+            }
+            else
+            {
+                <div class="activity-idle">
+                    <Icon Name="clock" Size="16" />
+                    <span>No active downloads. The queue is empty.</span>
+                </div>
+            }
+
+            <div class="activity-section-head">
+                <span class="eyebrow">Recent sync runs</span>
+                <a class="text-link" href="/sync-jobs">All jobs</a>
+            </div>
+            @if (recentRuns.Count == 0)
+            {
+                <EmptyState IconName="clock" Title="No sync runs yet">No sync job has run yet.</EmptyState>
+            }
+            else
+            {
+                <div class="run-feed">
+                    @foreach (var run in recentRuns)
+                    {
+                        <div class="run-row">
+                            <span class="run-dot @(RunVariant(run.Status) == "err" ? "err" : RunVariant(run.Status) == "warn" ? "warn" : "ok")" aria-hidden="true"></span>
+                            <div class="run-copy">
+                                <strong>@run.JobName</strong>
+                                <small>@run.Message</small>
+                                @if (run.TotalTracks > 0)
+                                {
+                                    <small class="run-tracks">@run.ResolvedTracks of @run.TotalTracks tracks resolved</small>
+                                }
+                            </div>
+                            <div class="run-side">
+                                <StatusPill Variant="@RunVariant(run.Status)">@run.Status</StatusPill>
+                                <small>@run.Timestamp.ToLocalTime().ToString("MMM d, HH:mm")</small>
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+
+        <div class="panel-card dashboard-connections">
+            <div class="panel-header">
+                <div>
+                    <span class="eyebrow">Connections</span>
+                    <h2>Accounts and servers</h2>
+                </div>
+                <a class="btn-modern ghost small" href="/settings#accounts">Manage</a>
+            </div>
+            <div class="connection-groups">
+                <div class="connection-group">
+                    <span class="connection-group-label">Accounts</span>
+                    <ConnectionRow IconName="spotify" Title="Spotify"
+                                   Detail="@SpotifyDetail"
+                                   PillVariant="@SpotifyPillVariant"
+                                   PillText="@SpotifyPillText"
+                                   Enabled="@(spotifyConnected || spotifyWebConnected)" />
+                    <ConnectionRow IconName="youtube" Title="YouTube"
+                                   Detail="@(youtubeConnected ? "account connected" : "public playlists only")"
+                                   PillVariant="@(youtubeConnected ? "connected" : "guest")"
+                                   PillText="@(youtubeConnected ? "connected" : "guest")"
+                                   Enabled="youtubeConnected" />
+                </div>
+                <div class="connection-group">
+                    <span class="connection-group-label">Media servers</span>
+                    @if (mediaServers.Count == 0)
+                    {
+                        <a class="connection-empty" href="/settings#media-servers">
+                            No media server yet. Add Jellyfin, Plex or Navidrome.
+                        </a>
+                    }
+                    else
+                    {
+                        @foreach (var server in mediaServers)
+                        {
+                            <ConnectionRow IconName="@ServerIcon(server.Kind)"
+                                           Title="@ServerTitle(server)"
+                                           Detail="@ServerDetail(server)"
+                                           PillVariant="@ServerPillVariant(server)"
+                                           PillText="@ServerPillText(server)"
+                                           Enabled="@(server.State == MediaServerConnectionState.Connected)" />
+                        }
+                    }
+                </div>
+                <div class="connection-group">
+                    <span class="connection-group-label">Cloudflare</span>
+                    <ConnectionRow IconName="flaresolverr" Title="FlareSolverr"
+                                   Detail="@(flareSolverrOn ? $"{flareSolverrUrlText}, checked by Lucida per track" : "Off: the Lucida plugin stays unavailable")"
+                                   PillVariant="@(flareSolverrOn ? "ok" : "neutral")"
+                                   PillText="@(flareSolverrOn ? "on" : "off")"
+                                   Enabled="flareSolverrOn" />
+                </div>
             </div>
         </div>
     </section>
 
-    <section class="panel-card">
+    <section class="panel-card dashboard-playlists-section">
         <div class="panel-header">
             <div>
                 <span class="eyebrow">Your music</span>
@@ -350,17 +499,13 @@ else
             </div>
             <a class="btn-modern ghost small" href="/playlists">All playlists</a>
         </div>
-        @if (partialPlaylists.Count > 0)
+        @if (partialCount > 0)
         {
-            <div class="hint-box danger">
-                <strong>Some playlists did not sync completely.</strong>
-                @foreach (var p in partialPlaylists)
-                {
-                    <div>
-                        @p.Name: @p.SyncWarning. Re-sync from the playlist page to fetch the rest.
-                    </div>
-                }
-            </div>
+            <a class="dashboard-partial" href="/playlists?filter=attention">
+                <Icon Name="alert" Size="15" />
+                <span>@partialCount playlist@(partialCount == 1 ? "" : "s") did not sync completely. Review the missing tracks.</span>
+                <Icon Name="chevron-right" Size="15" />
+            </a>
         }
         @if (playlists.Count == 0)
         {
@@ -368,38 +513,47 @@ else
         }
         else
         {
-            <div class="playlist-grid">
+            <div class="playlist-grid dashboard-playlists">
                 @foreach (var playlist in playlists)
                 {
-                    var (downloaded, total) = playlistCounts.GetValueOrDefault(playlist.Id, (0, 0));
-                    <div class="panel-card playlist-card">
-                        <a class="playlist-cover" href="/playlists/@playlist.Id" title="Open @playlist.Name">
+                    var stats = playlistStats.GetValueOrDefault(playlist.Id);
+                    var percent = stats.total > 0 ? 100 * stats.downloaded / stats.total : 0;
+                    <div class="panel-card playlist-card dashboard-playlist">
+                        <a class="playlist-cover dashboard-cover" href="/playlists/@playlist.Id" title="Open @playlist.Name">
                             @if (!string.IsNullOrEmpty(playlist.CoverImageUrl))
                             {
                                 <img src="@playlist.CoverImageUrl" alt="@playlist.Name" loading="lazy" />
                             }
                             else
                             {
-                                <span class="playlist-cover-placeholder"><Icon Name="music" Size="28" Class="cover-placeholder-icon" /></span>
+                                <span class="playlist-cover-placeholder"><Icon Name="music" Size="24" Class="cover-placeholder-icon" /></span>
                             }
-                            @if (downloaded == total && total > 0)
+                            @if (stats.total > 0 && stats.downloaded == stats.total)
                             {
                                 <span class="cover-badge complete" title="All tracks downloaded"><Icon Name="check-circle" Size="12" /> complete</span>
                             }
-                            else if (downloaded > 0)
+                            else if (stats.downloaded > 0)
                             {
-                                <span class="cover-badge partial" title="@downloaded of @total downloaded">@downloaded/@total</span>
+                                <span class="cover-badge partial" title="@stats.downloaded of @stats.total downloaded">@stats.downloaded/@stats.total</span>
                             }
                         </a>
-                        <div>
-                            <span class="eyebrow">@(playlist.IsManualImport ? "Imported" : playlist.SourcePlatform.ToString())</span>
-                            <StatusPill Variant="@(playlist.LastSyncStatus == SyncStatus.Failed ? "err" : playlist.SyncWarning is { Length: > 0 } ? "warn" : "neutral")">
-                                @(playlist.SyncWarning is { Length: > 0 } ? "partial" : playlist.LastSyncStatus.ToString().ToLowerInvariant())
-                            </StatusPill>
-                            <h2><a href="/playlists/@playlist.Id">@playlist.Name</a></h2>
-                            <p class="panel-description">
-                                @total track@(total == 1 ? "" : "s") · @downloaded downloaded
-                            </p>
+                        <div class="dashboard-playlist-copy">
+                            <div class="dashboard-playlist-top">
+                                <span class="eyebrow">@(playlist.IsManualImport ? "Imported" : playlist.SourcePlatform.ToString())</span>
+                                @if (stats.attention > 0)
+                                {
+                                    <StatusPill Variant="err">@stats.attention</StatusPill>
+                                }
+                                else if (playlist.SyncWarning is { Length: > 0 })
+                                {
+                                    <StatusPill Variant="warn">partial</StatusPill>
+                                }
+                            </div>
+                            <h3><a href="/playlists/@playlist.Id">@playlist.Name</a></h3>
+                            <small>@stats.downloaded of @stats.total downloaded</small>
+                            <div class="mini-progress" aria-hidden="true">
+                                <span style="width:@percent%"></span>
+                            </div>
                         </div>
                     </div>
                 }
@@ -412,21 +566,31 @@ else
     private bool showIntro;
     private int playlistsCount;
     private int downloadedCount;
-    private int libraryCount;
+    private int libraryFileCount;
+    private long libraryBytes;
+    private string librarySizeText = "0 MB";
     private int jobsCount;
-    private int enabledPlugins;
-    private int totalPlugins;
+    private int failedCount;
+    private int dedupCount;
+    private int reviewCount;
+    private int partialCount;
+    private int failedJobs;
+    private int archiveIssueCount;
     private int errorCount;
+    private List<LogEntry> recentErrors = new();
     private bool spotifyConnected;
+    private bool spotifyWebConnected;
     private bool youtubeConnected;
+    private DownloadActivitySummary downloadSummary =
+        DownloadActivitySummary.From(Array.Empty<DownloadRun>());
+    private List<DownloadRun> activeRuns = new();
+    [Inject] private IServiceProvider Services { get; set; } = default!;
     private IReadOnlyList<MediaServerConnectionStatus> mediaServers =
         Array.Empty<MediaServerConnectionStatus>();
     private string flareSolverrUrl = string.Empty;
     private List<PlaylistEntity> playlists = new();
-    private List<PlaylistEntity> partialPlaylists = new();
-    private Dictionary<string, (int downloaded, int total)> playlistCounts = new();
-    private List<LogEntry> recentErrors = new();
-    private List<(string JobName, DateTime Timestamp, string Status, string Message)> recentRuns = new();
+    private Dictionary<string, (int downloaded, int failed, int total, long sizeBytes, int attention)> playlistStats = new();
+    private List<(string JobName, DateTime Timestamp, string Status, string Message, int ResolvedTracks, int TotalTracks)> recentRuns = new();
     private IReadOnlyList<PluginAuthIssue> authIssues = Array.Empty<PluginAuthIssue>();
     private DateTime? lastRunAt;
     private DateTime _lastUpdated = DateTime.Now;
@@ -456,6 +620,31 @@ else
         : "never";
     private bool flareSolverrOn => !string.IsNullOrWhiteSpace(flareSolverrUrl)
         && !flareSolverrUrl.Equals("off", StringComparison.OrdinalIgnoreCase);
+
+    private int attentionTotal =>
+        failedCount + dedupCount + reviewCount + archiveIssueCount
+        + authIssues.Count + failedJobs + partialCount;
+
+    private string SpotifyDetail => spotifyConnected
+        ? "official account connected"
+        : spotifyWebConnected
+            ? "free web session connected"
+            : "public playlists only";
+
+    private string SpotifyPillText => spotifyConnected
+        ? "connected"
+        : spotifyWebConnected ? "web session" : "guest";
+
+    private string SpotifyPillVariant => spotifyConnected
+        ? "connected"
+        : spotifyWebConnected ? "ok" : "guest";
+
+    private static string RunVariant(string status) => status switch
+    {
+        "Completed" => "ok",
+        "CompletedWithWarning" or "Warning" => "warn",
+        _ => "err",
+    };
 
     /// <summary>Brand key for a server kind; the same icons the wizard uses.</summary>
     private static string ServerIcon(string kind) => MediaServerKinds.Canonical(kind) switch
@@ -623,10 +812,15 @@ else
         // (bounds the staleness of writes the scan's savers do without a
         // bump), or the page has not read anything yet. A manual Refresh
         // always reads: a button that cannot change numbers is a lie.
-        var plugins = DownloaderRegistry.GetAll();
-        totalPlugins = plugins.Count;
-        enabledPlugins = plugins.Count(p => DownloaderRegistry.IsEnabled(p.Id));
         authIssues = AuthMonitor.Snapshot();
+        var coordinator = Services.GetService<IDownloadCoordinator>();
+        var runs = coordinator?.Snapshot() ?? Array.Empty<DownloadRun>();
+        downloadSummary = DownloadActivitySummary.From(runs);
+        activeRuns = runs
+            .Where(run => run.State is DownloadRunState.Running
+                or DownloadRunState.Paused or DownloadRunState.Cancelling)
+            .Take(3)
+            .ToList();
         var stamp = ChangeTracker.Version;
         var logStamp = LogCollector.Version;
         var due = force
@@ -654,8 +848,55 @@ else
         await using var db = await DbFactory.CreateDbContextAsync();
         playlistsCount = await db.Playlists.CountAsync();
         downloadedCount = await db.Tracks.CountAsync(t => t.DownloadStatus == "downloaded");
-        libraryCount = await db.Tracks.CountAsync(t => t.CurrentPath != null && t.PlaylistSnapshotId == null);
         jobsCount = await db.SyncJobs.CountAsync();
+        partialCount = await db.Playlists.CountAsync(p => p.SyncWarning != null && p.SyncWarning != "");
+        failedJobs = await db.SyncJobs.CountAsync(j =>
+            j.LastRunStatus != null && j.LastRunStatus != "Completed");
+
+        // One row per distinct file, not per playlist row: a track shared
+        // by three playlists is still one file on disk.
+        var files = await db.Tracks.AsNoTracking()
+            .Where(t => t.CurrentPath != null && t.CurrentPath != "")
+            .GroupBy(t => t.CurrentPath!)
+            .Select(g => new
+            {
+                Path = g.Key,
+                Size = g.Max(t => t.FileSizeBytes ?? 0),
+            })
+            .ToListAsync();
+        libraryFileCount = files.Count;
+        libraryBytes = files.Sum(file => file.Size);
+        librarySizeText = libraryBytes > 0 ? TrackDisplay.Size(libraryBytes) : "0 MB";
+
+        playlistStats = (await db.Tracks.AsNoTracking()
+                .GroupBy(t => t.PlaylistEntityId)
+                .Select(g => new
+                {
+                    Id = g.Key,
+                    Downloaded = g.Count(t => t.DownloadStatus == "downloaded"),
+                    Failed = g.Count(t => t.DownloadStatus == "failed"),
+                    Total = g.Count(),
+                    SizeBytes = g.Where(t => t.DownloadStatus == "downloaded")
+                        .Sum(t => t.FileSizeBytes ?? 0),
+                    Attention = g.Count(t => t.DownloadStatus == "failed"
+                        || t.DownloadStatus == "needs-review"
+                        || (t.DownloadStatus == "downloaded" && t.ReviewKind != null)),
+                })
+                .ToListAsync())
+            .Where(row => row.Id is not null)
+            .ToDictionary(row => row.Id!,
+                row => (row.Downloaded, row.Failed, row.Total, row.SizeBytes, row.Attention));
+        failedCount = playlistStats.Values.Sum(stats => stats.failed);
+        var attentionTracks = playlistStats.Values.Sum(stats => stats.attention);
+        dedupCount = await db.Tracks.CountAsync(t => t.DownloadStatus == "needs-review");
+        reviewCount = Math.Max(0, attentionTracks - failedCount - dedupCount);
+        archiveIssueCount = await db.Tracks.CountAsync(t =>
+            t.DownloadStatus == "downloaded"
+            && t.Warning != null
+            && (t.Warning.Contains("archive copy failed")
+                || t.Warning.Contains("already owns the archive file")
+                || t.Warning.Contains("file lived in the archive folder")
+                || t.Warning.Contains("could not verify the download")));
 
         // The intro hands over to the dashboard the moment setup is
         // complete; a checklist reopened from Settings keeps showing until
@@ -673,45 +914,46 @@ else
             // and hosts. Start them before the database reads so the page
             // waits for the slower of the two, not their sum.
             var spotifyTask = SpotifyAccount.IsConnectedAsync();
+            var spotifyWebTask = Services.GetService<SpotifyUnofficialAccountProvider>()?
+                .IsConnectedAsync() ?? Task.FromResult(false);
             var youtubeTask = YouTubeAccount.IsConnectedAsync();
             var mediaTask = MediaProbe.CurrentAsync();
             flareSolverrUrl = FlareSolverrSolver.Url ?? string.Empty;
 
             // One pass over the buffer, not two: it grows while we read.
-            var all = LogCollector.GetEntries();
-            var problems = all.Where(e => e.Level is LogLevel.Error or LogLevel.Critical).ToList();
-            recentErrors = problems.Take(5).ToList();
+            var problems = LogCollector.GetEntries()
+                .Where(e => e.Level is LogLevel.Error or LogLevel.Critical)
+                .ToList();
             errorCount = problems.Count;
+            recentErrors = problems.Take(3).ToList();
 
             playlists = await db.Playlists
                 .OrderByDescending(p => p.LastSyncAt ?? DateTime.MinValue)
                 .Take(6)
                 .ToListAsync();
-            // Incomplete syncs (rate limiting, failed pages) surface here:
-            // the banner names them, the cards show the partial pill.
-            partialPlaylists = await db.Playlists
-                .Where(p => p.SyncWarning != null && p.SyncWarning != "")
-                .OrderByDescending(p => p.LastSyncAt ?? DateTime.MinValue)
-                .Take(5)
-                .ToListAsync();
-            playlistCounts = await db.Tracks
-                .GroupBy(t => t.PlaylistEntityId)
-                .Select(g => new { Id = g.Key, Total = g.Count(), Done = g.Count(t => t.DownloadStatus == "downloaded") })
-                .ToDictionaryAsync(x => x.Id ?? "", x => (x.Done, x.Total));
-
             recentRuns = (await db.SyncJobRuns
                 .OrderByDescending(r => r.Timestamp)
                 .Take(5)
                 .Join(db.SyncJobs,
                     r => r.SyncJobId,
                     j => j.Id,
-                    (r, j) => new { r.Timestamp, r.Status, r.Message, JobName = j.Name })
+                    (r, j) => new
+                    {
+                        r.Timestamp,
+                        r.Status,
+                        r.Message,
+                        JobName = j.Name,
+                        r.ResolvedTracks,
+                        r.TotalTracks,
+                    })
                 .ToListAsync())
-                .Select(x => (x.JobName, x.Timestamp, x.Status, x.Message ?? ""))
+                .Select(x => (x.JobName, x.Timestamp, x.Status, x.Message ?? "",
+                    x.ResolvedTracks, x.TotalTracks))
                 .ToList();
 
-            await Task.WhenAll(spotifyTask, youtubeTask, mediaTask);
+            await Task.WhenAll(spotifyTask, spotifyWebTask, youtubeTask, mediaTask);
             spotifyConnected = await spotifyTask;
+            spotifyWebConnected = await spotifyWebTask;
             youtubeConnected = await youtubeTask;
             mediaServers = await mediaTask;
         }

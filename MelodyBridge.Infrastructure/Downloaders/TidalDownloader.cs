@@ -72,7 +72,7 @@ public class TidalDownloader : CliToolDownloader
             Advanced: true),
         new(AppPathKey, "tiddl app folder", null,
             "Only needed when tiddl runs with a custom TIDDL_PATH. The login comes from the tiddl session, see the Tidal docs.",
-            Advanced: true),
+            Advanced: true, Folder: true),
         new(CommandKey, "tiddl command", DefaultCommand,
             "Only needed when tiddl is not on PATH; the Docker image ships it.",
             Advanced: true),

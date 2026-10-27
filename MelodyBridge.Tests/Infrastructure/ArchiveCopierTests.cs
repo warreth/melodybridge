@@ -67,6 +67,22 @@ public class ArchiveCopierTests
             && SpectrumAnalyzer.FindFfprobe() is not null;
 
     [Test]
+    public void Mp3Bitrate_IsPassedToFfmpeg()
+    {
+        if (!MediaToolsAvailable()) Assert.Ignore("ffmpeg and ffprobe are required");
+        var primary = MakeSilentWav();
+        var archiveDir = FreshArchiveDir();
+
+        var result = ArchiveCopier.Copy(primary, archiveDir, "mp3:160",
+            melodyId: null, title: null, artist: null, album: null, trackNumber: null);
+
+        Assert.That(result.Ok, Is.True, result.Reason);
+        var kbps = BitrateProbe.MeasureKbps(result.ArchivePath);
+        Assert.That(kbps, Is.InRange(140, 180),
+            "the profile bitrate reaches libmp3lame instead of the old 256k preset");
+    }
+
+    [Test]
     public void AutoCopy_WritesIdenticalBytesWithSameExtension()
     {
         var primary = MakeSilentWav();

@@ -79,7 +79,7 @@ public class DashboardLogRedactionTests
             "GET http://127.0.0.1:59999/rest/search3?u=admin&t=3da76178cb6ad1a55db546aebaa61944&s=09d7d34d705f&f=json failed");
 
         var cut = _ctx.Render<Home>();
-        cut.WaitForAssertion(() => Assert.That(cut.Markup, Does.Contain("log-row err")),
+        cut.WaitForAssertion(() => Assert.That(cut.Markup, Does.Contain("attention-error")),
             TimeSpan.FromSeconds(5));
 
         Assert.Multiple(() =>

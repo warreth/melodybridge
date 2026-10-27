@@ -95,7 +95,10 @@
                 <div class="form-grid single">
                     <label>
                         Directory path
-                        <input @bind="newPath" placeholder="/music" />
+                        <span class="path-field">
+                            <input @bind="newPath" placeholder="/music" />
+                            <FolderBrowseButton Value="@newPath" ValueChanged="@(v => newPath = v)" Label="the scan folder" />
+                        </span>
                     </label>
                 </div>
                 <div class="form-grid single">
@@ -168,6 +171,10 @@
             .FirstOrDefaultAsync();
         archiveRoots = playlistArchiveDirs;
         if (!string.IsNullOrWhiteSpace(globalArchive)) archiveRoots.Add(globalArchive);
+        archiveRoots.AddRange(await db.ArchiveProfiles.AsNoTracking()
+            .Where(profile => profile.RootPath != "")
+            .Select(profile => profile.RootPath)
+            .ToListAsync());
 
         // Files with a MELODY_ID per location: a track belongs to the folder
         // its current path lives under, and its archive copy belongs to the
@@ -178,7 +185,10 @@
                         && (t.CurrentPath != null || t.ArchivePath != null))
             .Select(t => new { t.Id, t.CurrentPath, t.ArchivePath, t.FileSizeBytes, t.ArchiveSizeBytes })
             .ToListAsync();
-
+        var extraCopies = await db.TrackArchiveCopies.AsNoTracking()
+            .Where(copy => copy.Path != null && copy.Path != "")
+            .Select(copy => new { copy.TrackId, copy.Path, copy.SizeBytes })
+            .ToListAsync();
 
         // One entry per file path: two rows can share a path (dedup
         // hardlinks) and must not count twice. The download row knows its
@@ -207,6 +217,16 @@
                     RememberSize(byPath, track.ArchivePath!, null);
                     unmeasured.Add((track.Id, track.ArchivePath!, Archive: true));
                 }
+            }
+        }
+        foreach (var copy in extraCopies)
+        {
+            if (copy.SizeBytes > 0)
+                RememberSize(byPath, copy.Path!, copy.SizeBytes);
+            else
+            {
+                RememberSize(byPath, copy.Path!, null);
+                unmeasured.Add((copy.TrackId, copy.Path!, Archive: true));
             }
         }
         files = byPath
@@ -313,6 +333,10 @@
                         await db.Tracks.Where(t => ids.Contains(t.Id) && t.CurrentPath == group.Key)
                             .ExecuteUpdateAsync(s => s.SetProperty(t => t.FileSizeBytes, bytes));
                     }
+                    // Named archive profiles store their sizes on the copy
+                    // row, not on the track.
+                    await db.TrackArchiveCopies.Where(copy => copy.Path == group.Key)
+                        .ExecuteUpdateAsync(s => s.SetProperty(copy => copy.SizeBytes, bytes));
                 }
             }
 

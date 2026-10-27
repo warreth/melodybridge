@@ -52,7 +52,7 @@ public class DeemixDownloader : CliToolDownloader
             Advanced: true),
         new(DownloadsPathKey, "Downloads folder", null,
             "Leave empty and MelodyBridge uses its own folder. Set it only when deemix runs elsewhere, for example through docker exec.",
-            Advanced: true),
+            Advanced: true, Folder: true),
     ];
 
     private readonly DeezerClient _deezer;

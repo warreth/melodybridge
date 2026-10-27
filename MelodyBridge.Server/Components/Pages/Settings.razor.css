@@ -275,3 +275,82 @@
     .settings-search-result { align-items: flex-start; }
     .settings-search-tab { display: none; }
 }
+
+/* Extra archive profiles: a compact list under the default archive. */
+.archive-profiles {
+    display: grid;
+    gap: .65rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border);
+}
+.archive-profiles-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: .75rem;
+    flex-wrap: wrap;
+}
+.archive-profiles-head h3 { margin: .05rem 0 .2rem; font-size: 1rem; }
+.archive-profiles-head p {
+    margin: 0;
+    color: var(--muted);
+    font-size: .82rem;
+    line-height: 1.45;
+    max-width: 72ch;
+}
+.archive-profile-list { display: grid; gap: .4rem; }
+.archive-profile-row {
+    display: flex;
+    align-items: center;
+    gap: .55rem;
+    flex-wrap: wrap;
+    padding: .55rem .65rem;
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    background: var(--surface-2);
+}
+.archive-profile-row.disabled { opacity: .62; }
+.archive-profile-copy {
+    display: grid;
+    gap: .05rem;
+    flex: 1 1 220px;
+    min-width: 0;
+}
+.archive-profile-copy strong { font-size: .86rem; }
+.archive-profile-copy small {
+    color: var(--muted);
+    font-size: .74rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.archive-profile-format { color: var(--muted-2); font-size: .72rem; }
+.archive-profile-format em { font-style: normal; }
+.archive-backfill {
+    display: flex;
+    align-items: center;
+    gap: .6rem;
+    padding: .55rem .65rem;
+    border: 1px solid color-mix(in srgb, var(--accent) 25%, var(--border));
+    border-radius: 9px;
+    background: var(--surface-2);
+}
+.archive-backfill .progress-track { flex: 1 1 120px; min-width: 80px; }
+.archive-backfill .progress-track > span {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: var(--accent-strong);
+    transition: width .3s ease;
+}
+.archive-backfill-copy { display: grid; gap: .05rem; min-width: 0; }
+.archive-backfill-copy strong { font-size: .8rem; }
+.archive-backfill-copy small { color: var(--muted); font-size: .72rem; }
+
+@media (max-width: 720px) {
+    .archive-profile-row { align-items: flex-start; }
+    .archive-profile-copy { flex-basis: 100%; }
+    .archive-profile-row .btn-modern { flex: 1 1 auto; }
+}
+
+.archive-profile-modal { width: min(560px, calc(100vw - 2rem)); }

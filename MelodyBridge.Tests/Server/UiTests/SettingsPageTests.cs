@@ -213,6 +213,67 @@ public class SettingsPageTests
     }
 
     [Test]
+    public void Settings_ArchiveProfiles_SaveAndDelete()
+    {
+        var folder = Path.Combine(Path.GetTempPath(), $"mb-archive-{Guid.NewGuid():N}");
+        var cut = _ctx.Render<Settings>();
+        cut.FindAll("button.tab-link").First(b => b.TextContent == "Default paths").Click();
+
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("Archive profiles")), TimeSpan.FromSeconds(3));
+        cut.FindAll("button").First(b => b.TextContent.Contains("Add profile")).Click();
+
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("Add an archive profile")), TimeSpan.FromSeconds(3));
+        var name = cut.FindAll("label").Single(l => l.TextContent.Contains("Profile name")).QuerySelector("input")!;
+        name.Change("Opus copy");
+        var root = cut.FindAll("label").Single(l => l.TextContent.Contains("Folder")).QuerySelector("input")!;
+        root.Change(folder);
+        cut.FindAll("button").First(b => b.TextContent.Contains("Save profile")).Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.Markup, Does.Contain("Opus copy"));
+            Assert.That(cut.Markup, Does.Contain("Opus 128 kbps"));
+        }, TimeSpan.FromSeconds(5));
+
+        cut.FindAll("button").Single(b => b.GetAttribute("aria-label") == "Delete Opus copy").Click();
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("Delete Opus copy?")), TimeSpan.FromSeconds(3));
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Delete profile").Click();
+
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Not.Contain("Opus copy")), TimeSpan.FromSeconds(5));
+    }
+
+    [Test]
+    public void Settings_PathsTab_HasAFolderBrowseButton()
+    {
+        var cut = _ctx.Render<Settings>();
+        cut.FindAll("button.tab-link").First(b => b.TextContent == "Default paths").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            var browse = cut.FindAll("button.path-browse");
+            Assert.That(browse, Is.Not.Empty, "path fields expose the folder picker");
+        }, TimeSpan.FromSeconds(3));
+    }
+
+    [Test]
+    public void Settings_NetworkTab_NoLongerOwnsTheSpotifyCookie()
+    {
+        var cut = _ctx.Render<Settings>();
+        cut.FindAll("button.tab-link").First(b => b.TextContent == "Network").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.Markup, Does.Contain("FlareSolverr"));
+            Assert.That(cut.Markup, Does.Not.Contain("Spotify web session"),
+                "the one cookie lives on Accounts now");
+        }, TimeSpan.FromSeconds(3));
+    }
+
+    [Test]
     public void Settings_QualityTab_ShowsDefaultPresetAndSpectrum()
     {
         var cut = _ctx.Render<Settings>();

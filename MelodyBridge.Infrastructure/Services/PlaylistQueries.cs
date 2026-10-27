@@ -129,9 +129,17 @@ internal sealed class PlaylistQueries
             .FirstOrDefaultAsync(t => t.Id == trackId && t.PlaylistEntityId == playlistId, ct);
         if (track is null) return false;
 
+        var extraCopies = await db.TrackArchiveCopies
+            .Where(copy => copy.TrackId == trackId)
+            .ToListAsync(ct);
         if (deleteFile)
         {
-            foreach (var path in OwnPaths([track]))
+            var paths = OwnPaths([track])
+                .Concat(extraCopies
+                    .Where(copy => !string.IsNullOrWhiteSpace(copy.Path))
+                    .Select(copy => copy.Path!))
+                .Distinct(StringComparer.OrdinalIgnoreCase);
+            foreach (var path in paths)
             {
                 // Another row on the same path (primary or archive) means
                 // the name is shared: the file must survive for that row,
@@ -140,6 +148,7 @@ internal sealed class PlaylistQueries
                 try { System.IO.File.Delete(path); } catch { /* best effort */ }
             }
         }
+        db.TrackArchiveCopies.RemoveRange(extraCopies);
         db.Tracks.Remove(track);
         await db.SaveChangesAsync(ct);
         _changes.Bump();
@@ -174,10 +183,18 @@ internal sealed class PlaylistQueries
 
         var hadFiles = false;
         var deleted = new List<string>();
+        var extraCopies = await db.TrackArchiveCopies
+            .Where(copy => copy.TrackId == trackId)
+            .ToListAsync(ct);
         // Archive copies first: when one of them cannot be deleted, the
         // primary file the row points at is still on disk and the row stays
         // honest. The primary goes last.
-        foreach (var path in OwnPaths([track])
+        var pathsToDelete = OwnPaths([track])
+            .Concat(extraCopies
+                .Where(copy => !string.IsNullOrWhiteSpace(copy.Path))
+                .Select(copy => copy.Path!))
+            .Distinct(StringComparer.OrdinalIgnoreCase);
+        foreach (var path in pathsToDelete
                      .OrderBy(p => string.Equals(p, track.CurrentPath, StringComparison.Ordinal) ? 1 : 0))
         {
             hadFiles = true;
@@ -211,6 +228,7 @@ internal sealed class PlaylistQueries
             }
         }
 
+        db.TrackArchiveCopies.RemoveRange(extraCopies);
         track.CurrentPath = null;
         track.ArchivePath = null;
         track.ArchiveSizeBytes = null;

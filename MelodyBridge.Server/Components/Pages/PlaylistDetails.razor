@@ -133,16 +133,27 @@ else
         </section>
     }
 
-    <section class="content-grid two">
-        <div class="settings-card">
-            <div class="settings-head">
-                <div>
-                    <span class="eyebrow">Settings</span>
-                    <div class="title-with-help">
-                        <h2>Sync configuration</h2>
-                        <HelpTip Path="reference#playlist-options" Text="Quality, archive copy, auto-sync schedule and sync mode for this playlist. Changes save themselves." />
-                    </div>
+    <section class="settings-card playlist-settings-card">
+        <div class="settings-head">
+            <div>
+                <span class="eyebrow">Settings</span>
+                <div class="title-with-help">
+                    <h2>Playlist setup</h2>
+                    <HelpTip Path="reference#playlist-options" Text="Quality, archive copy, auto-sync schedule and sync mode for this playlist. Changes save themselves." />
                 </div>
+                <p class="panel-description">Only the parts that differ from the app defaults need a change here.</p>
+            </div>
+            <div class="playlist-status-strip">
+                <span class="status-chip"><strong>@playlist.Tracks.Count</strong> tracks</span>
+                <span class="status-chip"><strong>@downloadedCount / @playlist.Tracks.Count</strong> downloaded</span>
+                @if (FailedCount > 0)
+                {
+                    <span class="status-chip bad"><strong>@FailedCount</strong> failed</span>
+                }
+                @if (attentionCount > 0)
+                {
+                    <span class="status-chip warn"><strong>@attentionCount</strong> attention</span>
+                }
                 @if (saveState != SaveState.Idle)
                 {
                     <span class="save-state @saveState.ToString().ToLowerInvariant()">
@@ -155,69 +166,93 @@ else
                     </span>
                 }
             </div>
-            <div class="settings-section">
-                <span class="eyebrow">Basics</span>
-                <div class="form-grid single">
-                    <label>
-                        Name
-                        <input value="@editName" @oninput="OnNameInput" />
-                    </label>
-                    <label>
-                        Download folder
-                        <span class="path-field">
-                            <input value="@editTargetDirectory" @oninput="OnFolderInput" placeholder="@resolvedDefaultMusicPath" />
-                            @if (playlistFolders && string.IsNullOrWhiteSpace(editTargetDirectory))
-                            {
-                                <span class="path-suffix" title="Added to the music path">{playlist name}</span>
-                            }
-                        </span>
-                        <small class="text-muted">@DownloadFolderHint</small>
-                    </label>
-                </div>
+        </div>
+
+        <div class="settings-section">
+            <span class="eyebrow">Basics</span>
+            <div class="form-grid">
+                <label>
+                    Name
+                    <input value="@editName" @oninput="OnNameInput" />
+                </label>
+                <label>
+                    Download folder
+                    <span class="path-field">
+                        <input value="@editTargetDirectory" @oninput="OnFolderInput" placeholder="@resolvedDefaultMusicPath" />
+                        @if (playlistFolders && string.IsNullOrWhiteSpace(editTargetDirectory))
+                        {
+                            <span class="path-suffix" title="Added to the music path">{playlist name}</span>
+                        }
+                        <FolderBrowseButton Value="@editTargetDirectory" ValueChanged="@SetTargetDirectory" Label="the playlist download folder" />
+                    </span>
+                    <small class="text-muted">@DownloadFolderHint</small>
+                </label>
             </div>
-            <div class="settings-section">
-                <span class="eyebrow">Quality</span>
-                <div class="form-grid single">
-                    <div class="quality-field">
-                        <QualityPicker @bind-Value="editQuality" @bind-Value:after="SaveNow" />
-                    </div>
+        </div>
+
+        <div class="settings-section">
+            <span class="eyebrow">Quality</span>
+            <div class="form-grid">
+                <div class="quality-field">
+                    <QualityPicker @bind-Value="editQuality" @bind-Value:after="SaveNow" />
                 </div>
                 @if (editQuality != "auto")
                 {
-                    <div class="toggle-with-help">
-                        <label class="toggle-switch wide">
-                            <input type="checkbox" @bind="editStrictQuality" @bind:after="SaveNow" />
-                            <span class="toggle-slider"></span>
-                            <span>Strict quality</span>
-                        </label>
-                        <HelpTip Path="concepts#strict-quality" Text="On: only the exact quality above is accepted. Off: the download steps down to the best lower quality an enabled plugin can deliver." />
-                    </div>
-                    @if (!editStrictQuality)
-                    {
+                    <div class="toggle-stack">
                         <div class="toggle-with-help">
                             <label class="toggle-switch wide">
-                                <input type="checkbox" @bind="editAllowContainerChange" @bind:after="SaveNow" />
+                                <input type="checkbox" @bind="editStrictQuality" @bind:after="SaveNow" />
                                 <span class="toggle-slider"></span>
-                                <span>Allow container changes while stepping down</span>
+                                <span>Strict quality</span>
                             </label>
-                            <HelpTip Path="concepts#strict-quality" Text="Off: a fallback must stay in the chosen container. On: it may switch to the best lossy format." />
+                            <HelpTip Path="concepts#strict-quality" Text="On: only the exact quality above is accepted. Off: the download steps down to the best lower quality an enabled plugin can deliver." />
                         </div>
-                    }
+                        @if (!editStrictQuality)
+                        {
+                            <div class="toggle-with-help">
+                                <label class="toggle-switch wide">
+                                    <input type="checkbox" @bind="editAllowContainerChange" @bind:after="SaveNow" />
+                                    <span class="toggle-slider"></span>
+                                    <span>Allow container changes while stepping down</span>
+                                </label>
+                                <HelpTip Path="concepts#strict-quality" Text="Off: a fallback must stay in the chosen container. On: it may switch to the best lossy format." />
+                            </div>
+                        }
+                    </div>
                 }
             </div>
-            <div class="settings-section archive-section">
-                <span class="eyebrow">Archive copy</span>
-                <div class="toggle-with-help">
-                    <label class="toggle-switch wide">
-                        <input type="checkbox" @bind="editArchiveEnabled" @bind:after="SaveNow" />
-                        <span class="toggle-slider"></span>
-                        <span>Keep a second copy of every download</span>
-                    </label>
-                    <HelpTip Path="concepts#archive-copies" Text="A local second copy, converted on this machine. Off means this playlist keeps no archive copy." />
-                </div>
-                @if (editArchiveEnabled)
-                {
-                    <div class="form-grid single">
+        </div>
+
+        <div class="settings-section archive-section">
+            <span class="eyebrow">Archive copy</span>
+            <div class="toggle-with-help">
+                <label class="toggle-switch wide">
+                    <input type="checkbox" @bind="editArchiveEnabled" @bind:after="SaveNow" />
+                    <span class="toggle-slider"></span>
+                    <span>Keep archive copies of every download</span>
+                </label>
+                <HelpTip Path="concepts#archive-copies" Text="The default archive plus every extra archive profile. Off means this playlist keeps no archive copies." />
+            </div>
+            <div class="archive-summary">
+                <Icon Name="archive" Size="15" />
+                <span>
+                    @if (editArchiveEnabled)
+                    {
+                        <text>@(HasArchiveTarget ? $"Default archive: {ArchiveFormatLabel(resolvedDefaultArchiveFormat)}" : "No default archive path in Settings.")</text>
+                    }
+                    else
+                    {
+                        <text>No archive copies for this playlist.</text>
+                    }
+                    <span aria-hidden="true" class="archive-summary-sep">·</span>
+                    <a href="/settings#paths">Manage profiles</a>
+                </span>
+            </div>
+            @if (editArchiveEnabled)
+            {
+                <details class="settings-details">
+                    <summary>Per-playlist archive overrides</summary>
+                    <div class="form-grid">
                         <label>
                             Archive folder
                             <span class="path-field">
@@ -227,6 +262,7 @@ else
                                 {
                                     <span class="path-suffix" title="Added to the archive path">{playlist name}</span>
                                 }
+                                <FolderBrowseButton Value="@editArchiveDirectory" ValueChanged="@SetArchiveDirectory" Label="the playlist archive folder" />
                             </span>
                             <small class="text-muted">@archiveFolderHint</small>
                         </label>
@@ -243,7 +279,7 @@ else
                                     <option value="aac">AAC: small and modern (192k)</option>
                                     <option value="custom">Custom container...</option>
                                 </select>
-                                <small class="text-muted">Fetched once from the source, converted locally with ffmpeg.</small>
+                                <small class="text-muted">The override applies to the default archive; extra profiles always use their own folder and format.</small>
                             </label>
                             @if (editArchiveFormatChoice == "custom")
                             {
@@ -251,76 +287,44 @@ else
                                     Custom archive container
                                     <input value="@editArchiveCustomFormat" @oninput="OnArchiveCustomFormatInput"
                                            placeholder="ogg" />
-                                    <small class="text-muted">
-                                        Any container ffmpeg can write, for example ogg, wav or m4a.
-                                        Add a codec with a colon, for example <code>m4a:alac</code>;
-                                        without one ffmpeg picks the container default. A format it
-                                        cannot write leaves a warning on the track.
-                                    </small>
                                 </label>
                             }
                         }
                     </div>
-                }
-            </div>
-            <div class="settings-section">
-                <span class="eyebrow">Sync</span>
+                </details>
+            }
+        </div>
+
+        <div class="settings-section">
+            <span class="eyebrow">Sync</span>
+            <div class="form-grid">
                 @if (!playlist.IsManualImport)
                 {
                     <SchedulePicker Label="Auto-sync schedule" @bind-Value="editSchedule" @bind-Value:after="SaveNow" />
-                    <div class="toggle-with-help">
-                        <label class="toggle-switch wide">
-                            <input type="checkbox" @bind="editAutoDownload" @bind:after="SaveNow" />
-                            <span class="toggle-slider"></span>
-                            <span>Download new tracks after auto-sync</span>
-                        </label>
-                        <HelpTip Path="concepts#playlists-are-snapshots" Text="After the scheduled refresh, start a download run when there is pending work; failed tracks are retried every interval." />
-                    </div>
                 }
-                <div class="form-grid single">
-                    <label>
-                        Sync mode
-                        <select value="@editSyncMode" @onchange="OnSyncModeChanged">
-                            <option value="@PlaylistSyncMode.Additive">Additive: keep removed tracks as history</option>
-                            <option value="@PlaylistSyncMode.Mirror">Mirror: remove tracks deleted from source</option>
-                        </select>
+                <label>
+                    Sync mode
+                    <select value="@editSyncMode" @onchange="OnSyncModeChanged">
+                        <option value="@PlaylistSyncMode.Additive">Additive: keep removed tracks as history</option>
+                        <option value="@PlaylistSyncMode.Mirror">Mirror: remove tracks deleted from source</option>
+                    </select>
+                </label>
+            </div>
+            @if (!playlist.IsManualImport)
+            {
+                <div class="toggle-with-help">
+                    <label class="toggle-switch wide">
+                        <input type="checkbox" @bind="editAutoDownload" @bind:after="SaveNow" />
+                        <span class="toggle-slider"></span>
+                        <span>Download new tracks after auto-sync</span>
                     </label>
+                    <HelpTip Path="concepts#playlists-are-snapshots" Text="After the scheduled refresh, start a download run when there is pending work; failed tracks are retried every interval." />
                 </div>
-                @if (playlist.IsManualImport)
-                {
-                    <span class="text-muted">Imported snapshot: re-import the file to update the track list.</span>
-                }
-            </div>
-        </div>
-
-        <div class="panel-card">
-            <div class="panel-header">
-                <div>
-                    <span class="eyebrow">Library</span>
-                    <h2>Track status</h2>
-                </div>
-            </div>
-            <div class="settings-section">
-                <div class="stat-grid two">
-                    <div class="stat-card">
-                        <Icon Name="music" Size="20" Class="stat-icon" />
-                        <label>Tracks</label>
-                        <strong>@playlist.Tracks.Count</strong>
-                    </div>
-                    <div class="stat-card">
-                        <Icon Name="download" Size="20" Class="stat-icon" />
-                        <label>Downloaded</label>
-                        <strong>@downloadedCount / @playlist.Tracks.Count</strong>
-                    </div>
-                </div>
-                @if (downloadedCount > 0 && reviewCount > 0)
-                {
-                    <div class="hint-box">
-                        <Icon Name="alert" Size="16" Class="inline-icon" />
-                        @reviewSummaryLead a quality decision: the length differs from the playlist, or the bitrate looks inflated. Use <strong>Keep</strong> on the row to accept the file, or <strong>Retry</strong> to download it from another provider.
-                    </div>
-                }
-            </div>
+            }
+            @if (playlist.IsManualImport)
+            {
+                <span class="text-muted">Imported snapshot: re-import the file to update the track list.</span>
+            }
         </div>
     </section>
 
@@ -344,6 +348,16 @@ else
                 }
             </div>
         </div>
+        @if (downloadedCount > 0 && reviewCount > 0)
+        {
+            <div class="hint-box review-banner">
+                <Icon Name="alert" Size="16" class="inline-icon" />
+                @reviewSummaryLead a quality decision: the length differs from the playlist, or
+                the bitrate looks inflated. Use <strong>Keep</strong> on the row to accept the
+                file, or <strong>Retry</strong> to download it from another provider.
+                <a href="/attention?kind=review">Review all</a>
+            </div>
+        }
         @if (playlist.Tracks.Count == 0)
         {
             <div class="empty-state">No tracks in this snapshot. Refresh the playlist.</div>
@@ -874,6 +888,18 @@ else
     private void OnArchiveFolderInput(ChangeEventArgs e)
     {
         editArchiveDirectory = e.Value?.ToString() ?? string.Empty;
+        MarkDirty();
+    }
+
+    private void SetTargetDirectory(string value)
+    {
+        editTargetDirectory = value;
+        MarkDirty();
+    }
+
+    private void SetArchiveDirectory(string value)
+    {
+        editArchiveDirectory = value;
         MarkDirty();
     }
 

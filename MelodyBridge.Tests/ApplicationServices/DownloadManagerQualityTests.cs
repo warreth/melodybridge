@@ -148,9 +148,9 @@ public class DownloadManagerQualityTests
     [Test]
     public async Task FormatRequest_RejectsAContainerThePluginOnlyClaims()
     {
-        // Lucida and DoubleDouble claim lossless capability but ignore the
-        // quality parameter; a lossless request must not accept their MP3
-        // silently, or the documented lossy fallback never runs.
+        // Lucida claims lossless capability but ignores the quality
+        // parameter; a lossless request must not accept its MP3 silently,
+        // or the documented lossy fallback never runs.
         var mp3 = MakeRealMp3(320);
         var hit = new DownloaderSearchHit("Lossy In Disguise", "Artist", "https://lie.example/1", null);
         var manager = new DownloadManager(

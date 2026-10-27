@@ -90,7 +90,8 @@ public class PlaylistStore
         TrackLinker? linker = null,
         DataChangeTracker? changes = null,
         ITrackClaimRegistry? claims = null,
-        DownloadThrottle? throttle = null)
+        DownloadThrottle? throttle = null,
+        ArchiveCopyService? archiveCopies = null)
     {
         _dbFactory = dbFactory;
         _providers = providers.ToArray();
@@ -112,7 +113,8 @@ public class PlaylistStore
         // archive copies) is one module: DI injects the singleton, tests
         // that never wire one still get a working private instance.
         _linker = linker ?? new TrackLinker(
-            dbFactory, _settings, _hardLinks, NullLogger<TrackLinker>.Instance, _changes, _claims);
+            dbFactory, _settings, _hardLinks, NullLogger<TrackLinker>.Instance, _changes, _claims,
+            archiveCopies: archiveCopies);
         // Optional: without a resolver, tracks simply download without an
         // ISRC like before.
         _isrcResolver = isrcResolver;
@@ -127,7 +129,8 @@ public class PlaylistStore
         _transfer = new PlaylistTransfer(dbFactory, _queries, _snapshots);
         _pipeline = new DownloadPipeline(
             dbFactory, downloadManager, _settings, _linker,
-            isrcResolver, coverArt, lyrics, logger, () => Verification(), _changes, _claims, throttle: throttle);
+            isrcResolver, coverArt, lyrics, logger, () => Verification(), _changes, _claims,
+            throttle: throttle, archiveCopies: archiveCopies);
     }
 
     public Task<(int downloaded, int failed)> DownloadMissingAsync(
@@ -161,7 +164,7 @@ public class PlaylistStore
 
     /// <summary>Rebuilds the archive copy of one downloaded track. Used by
     /// the row's archive action after a failed or missing copy.</summary>
-    public Task<(bool Ok, string? Reason)> RetryArchiveAsync(
+    public virtual Task<(bool Ok, string? Reason)> RetryArchiveAsync(
         int trackId, CancellationToken ct = default)
         => _pipeline.RetryArchiveAsync(trackId, ct);
 
@@ -169,23 +172,20 @@ public class PlaylistStore
     /// state; the playlist page reloads when it moves.</summary>
     public long DataVersion => _changes.Version;
 
-    /// <summary>
-    /// Links the tracks of a playlist that already exist elsewhere in the
-    /// library, hardlink and archive copy included, without downloading.
-    /// The add/refresh path runs this itself; it is public so a repair
-    /// pass (or a test) can insist on it.
-    /// </summary>
+    /// <summary>Hardlinks a playlist's existing library files, no download.</summary>
     public Task<int> LinkSharedTracksAsync(string playlistId, CancellationToken ct = default)
         => _linker.LinkSharedTracksAsync(playlistId, ct);
 
     public Task<DedupMatch?> FindDedupCandidateAsync(
         string melodyId, int excludingTrackId, CancellationToken ct = default)
         => _pipeline.FindDedupCandidateAsync(melodyId, excludingTrackId, ct);
-
-    public Task<bool> ResolveReviewAsync(int trackId, bool hardlinkExisting, CancellationToken ct = default)
+    public virtual Task<bool> ResolveReviewAsync(int trackId, bool hardlinkExisting, CancellationToken ct = default)
         => _pipeline.ResolveReviewAsync(trackId, hardlinkExisting, ct);
 
-    public Task<bool> ResolveQualityReviewAsync(
+    public virtual Task<bool> LinkTrackAsync(int trackId, CancellationToken ct = default)
+        => _pipeline.LinkTrackAsync(trackId, ct);
+
+    public virtual Task<bool> ResolveQualityReviewAsync(
         int trackId, QualityReviewAction action, CancellationToken ct = default)
         => _pipeline.ResolveQualityReviewAsync(trackId, action, ct);
 

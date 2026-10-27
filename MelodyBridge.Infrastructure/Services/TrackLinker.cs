@@ -37,6 +37,7 @@ public sealed class TrackLinker
     private readonly ITrackClaimRegistry _claims;
     private readonly DataChangeTracker? _changes;
     private readonly PathLockTable _pathLocks;
+    private readonly ArchiveCopyService? _archiveCopies;
 
     public TrackLinker(
         IDbContextFactory<MelodyBridgeDbContext> dbFactory,
@@ -45,13 +46,15 @@ public sealed class TrackLinker
         ILogger<TrackLinker> logger,
         DataChangeTracker? changes = null,
         ITrackClaimRegistry? claims = null,
-        PathLockTable? pathLocks = null)
+        PathLockTable? pathLocks = null,
+        ArchiveCopyService? archiveCopies = null)
     {
         _dbFactory = dbFactory;
         _settings = settings;
         _hardLinks = hardLinks;
         _logger = logger;
         _changes = changes;
+        _archiveCopies = archiveCopies;
         // The claims that are live in this process: a linking pass holds
         // its row, so a batch that starts now leaves it alone.
         _claims = claims ?? new LiveTrackClaims();
@@ -148,6 +151,10 @@ public sealed class TrackLinker
             .ToListAsync(ct);
         var global = await _settings.GetAsync("archive_path", "", ct);
         if (!string.IsNullOrWhiteSpace(global)) roots.Add(global);
+        roots.AddRange(await db.ArchiveProfiles.AsNoTracking()
+            .Where(profile => profile.RootPath != "")
+            .Select(profile => profile.RootPath)
+            .ToListAsync(ct));
         return roots;
     }
 
@@ -480,6 +487,9 @@ public sealed class TrackLinker
     private async Task LinkArchiveAsync(
         TrackEntity track, DedupMatch candidate, MelodyBridgeDbContext db, CancellationToken ct)
     {
+        if (_archiveCopies is not null)
+            await _archiveCopies.ArchiveExtraCopiesAsync(track, db, save: false, ct: ct);
+
         var archiveTarget = await ResolveArchiveTargetAsync(track.PlaylistEntityId, db, ct);
         if (!archiveTarget.Enabled || archiveTarget.Folder is null)
         {
@@ -532,6 +542,11 @@ public sealed class TrackLinker
     public async Task<ArchiveOutcome> ArchiveDownloadedTrackAsync(
         TrackEntity track, MelodyBridgeDbContext db, CancellationToken ct)
     {
+        // Named archive profiles are additive: they run even when the
+        // original single archive has no folder configured.
+        if (_archiveCopies is not null)
+            await _archiveCopies.ArchiveExtraCopiesAsync(track, db, save: false, ct: ct);
+
         var target = await ResolveArchiveTargetAsync(track.PlaylistEntityId, db, ct);
         if (!target.Enabled || target.Folder is null)
         {

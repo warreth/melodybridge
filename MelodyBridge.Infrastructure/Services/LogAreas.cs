@@ -101,6 +101,9 @@ public static class LogAreas
         ("FileSystemMonitoring", "Library"),
         ("ScanScheduling", "Library"),
         ("TrackLinker", "Library"),
+        ("ArchiveCopy", "Library"),
+        ("ArchiveBackfill", "Library"),
+        ("Attention", "Library"),
         ("CoverArt", "Library"),
         ("Lyrics", "Library"),
 

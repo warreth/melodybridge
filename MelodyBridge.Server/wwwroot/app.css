@@ -682,6 +682,7 @@ select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-s
 .connection-row small { font-size: .78rem; color: var(--muted); margin: 0; }
 .connection-row .pill { justify-self: end; }
 .connection-row.enabled { border-left: 3px solid var(--accent-soft); }
+.connection-group .connection-row:last-child { border-bottom: 0; }
 .connection-icon { color: var(--muted); flex-shrink: 0; }
 .connection-info { min-width: 0; }
 .connection-info small {
@@ -689,7 +690,8 @@ select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-s
     color: var(--muted);
     font-size: .78rem;
     line-height: 1.4;
-    word-break: break-all;
+    overflow-wrap: anywhere;
+    word-break: normal;
 }
 .provider-info { display: flex; flex-direction: column; gap: .15rem; min-width: 0; }
 .provider-info small { font-size: .78rem; color: var(--muted); white-space: normal; }
@@ -1495,6 +1497,11 @@ textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent
 .toggle-row { display: flex; align-items: center; gap: .6rem; }
 .toggle-row input[type=checkbox] { width: 18px; height: 18px; accent-color: var(--accent-strong); }
 
+/* Path fields: the input keeps the width and the optional browse button
+   sits at its edge. Pages with their own scoped copy keep the same rule. */
+.path-field { display: flex; align-items: center; gap: .5rem; min-width: 0; }
+.path-field > input { flex: 1; min-width: 0; }
+
 /* -- Modern table ---------------------------------------- */
 .table-wrap { overflow-x: auto; position: relative; }
 .table-pager {
@@ -1648,18 +1655,13 @@ td.file-path {
     .app-nav {
         display: flex;
         flex-direction: row;
-        flex-wrap: nowrap;
+        flex-wrap: wrap;
         gap: .25rem;
         flex: 1 1 100%;
         order: 3;
         min-width: 0;
-        overflow-x: auto;
-        overscroll-behavior-x: contain;
-        scrollbar-width: none;
-        -webkit-overflow-scrolling: touch;
         padding-bottom: .1rem;
     }
-    .app-nav::-webkit-scrollbar { display: none; }
     .nav-section { display: contents; margin: 0; }
     .nav-section-header { display: none; }
     .app-nav .nav-link { flex: 0 0 auto; white-space: nowrap; min-height: 34px; padding: .4rem .65rem; font-size: .85rem; }
@@ -2268,7 +2270,7 @@ td.file-path {
 .notification-row.success .notification-dot { background: var(--success); }
 .notification-row.warn .notification-dot { background: var(--warning); }
 .notification-row.error .notification-dot { background: var(--danger); }
-.notification-copy { display: grid; gap: .1rem; min-width: 0; }
+.notification-copy { display: grid; gap: .1rem; min-width: 0; flex: 1; }
 .notification-copy span { font-size: .82rem; line-height: 1.4; overflow-wrap: anywhere; }
 .notification-copy small { color: var(--muted-2); font-size: .68rem; font-variant-numeric: tabular-nums; }
 .notification-action {
@@ -2281,6 +2283,25 @@ td.file-path {
     white-space: nowrap;
 }
 .notification-action:hover { text-decoration: underline; }
+.notification-dismiss {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    margin-left: .1rem;
+    width: 1.6rem;
+    height: 1.6rem;
+    padding: 0;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--muted-2);
+    cursor: pointer;
+}
+.notification-dismiss:hover {
+    background: var(--surface-3);
+    color: var(--foreground);
+}
 
 @media (max-width: 1100px) {
     .notification-panel {
@@ -2688,3 +2709,16 @@ input::placeholder, textarea::placeholder { color: var(--muted-2, #8a8f98); opac
 /* Icon sizing inside buttons and rows keeps text alignment stable. */
 svg.icon { flex-shrink: 0; }
 
+
+/* Phones: keep the two columns that decide what to do next (status and
+   actions) ahead of the secondary artist and row number. The title takes
+   the rest; an artist can be read on the playlist or source page. */
+@media (max-width: 560px) {
+    .track-table .col-pos,
+    .track-table .col-position,
+    .track-table .col-artist,
+    .track-table .col-duration { display: none; }
+    .track-table .col-title { width: auto; }
+    .track-table .col-status { width: 6.5rem; }
+    .track-table .col-actions { width: 6rem; }
+}

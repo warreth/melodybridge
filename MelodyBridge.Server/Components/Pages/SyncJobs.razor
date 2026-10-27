@@ -134,7 +134,10 @@
                     disabled="@(selectedJobIds.Count == 0)">
                 Set schedule
             </button>
-            <input @bind="bulkM3uFolder" placeholder="/app/playlists" aria-label="M3U folder for selected jobs" />
+            <span class="path-field">
+                <input @bind="bulkM3uFolder" placeholder="/app/playlists" aria-label="M3U folder for selected jobs" />
+                <FolderBrowseButton Value="@bulkM3uFolder" ValueChanged="@(v => bulkM3uFolder = v)" Label="the M3U output folder" />
+            </span>
             <button class="btn-modern small" @onclick="ApplyBulkM3uFolder"
                     disabled="@(selectedJobIds.Count == 0 || string.IsNullOrWhiteSpace(bulkM3uFolder))">
                 Set M3U folder
@@ -393,8 +396,13 @@ else
                     </label>
                     <label class="wide">
                         M3U output folder
-                        <input @bind="profileDraft.M3uOutputFolder" @bind:event="oninput"
-                               placeholder="/app/playlists" />
+                        <span class="path-field">
+                            <input @bind="profileDraft.M3uOutputFolder" @bind:event="oninput"
+                                   placeholder="/app/playlists" />
+                            <FolderBrowseButton Value="@profileDraft.M3uOutputFolder"
+                                                ValueChanged="@(v => profileDraft.M3uOutputFolder = v)"
+                                                Label="the M3U output folder" />
+                        </span>
                     </label>
                     <label>
                         File name pattern

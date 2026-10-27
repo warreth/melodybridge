@@ -41,15 +41,30 @@ public static class ArchiveCopier
         return normalized.Length == 0 ? "auto" : normalized;
     }
 
-    /// <summary>The container (extension/muxer) and optional codec of a
-    /// format string. "ogg" is container only; "m4a:alac" names both.</summary>
-    private static (string Container, string? Codec) SplitFormat(string? format)
+    /// <summary>
+    /// A parsed archive format: the container extension, an optional codec
+    /// and an optional bitrate. The colon syntax accepts either order:
+    /// "opus:128" (bitrate), "m4a:alac" (codec), "m4a:alac:192" (both).
+    /// </summary>
+    public sealed record ArchiveFormatSpec(string Container, string? Codec, int? BitrateKbps);
+
+    public static ArchiveFormatSpec ParseFormat(string? format)
     {
         var normalized = NormalizeFormat(format);
-        var colon = normalized.IndexOf(':');
-        if (colon < 0) return (normalized, null);
-        var codec = normalized[(colon + 1)..].Trim();
-        return (normalized[..colon].Trim(), codec.Length == 0 ? null : codec);
+        var parts = normalized.Split(':', StringSplitOptions.TrimEntries);
+        var container = parts[0];
+        string? codec = null;
+        int? bitrate = null;
+        for (var i = 1; i < parts.Length; i++)
+        {
+            var part = parts[i];
+            if (part.Length == 0) continue;
+            if (part.All(char.IsDigit) && int.TryParse(part, out var parsed))
+                bitrate = parsed;
+            else
+                codec = part;
+        }
+        return new ArchiveFormatSpec(container, codec, bitrate);
     }
 
     /// <summary>
@@ -200,22 +215,35 @@ public static class ArchiveCopier
         {
             "-nostdin", "-y", "-i", primaryPath, "-map_metadata", "0", "-vn",
         };
-        var (container, codec) = SplitFormat(archiveFormat);
-        switch (container)
+        var spec = ParseFormat(archiveFormat);
+        void AddBitrate(int fallback)
         {
-            case "opus" when codec is null:
-                args.AddRange(new[] { "-c:a", "libopus", "-b:a", "128k" }); break;
-            case "flac" when codec is null:
-                args.AddRange(new[] { "-c:a", "flac", "-compression_level", "5" }); break;
-            case "mp3" when codec is null:
-                args.AddRange(new[] { "-c:a", "libmp3lame", "-b:a", "256k" }); break;
-            case "aac" when codec is null:
-                args.AddRange(new[] { "-c:a", "aac", "-b:a", "192k" }); break;
+            var kbps = spec.BitrateKbps ?? fallback;
+            args.AddRange(new[] { "-b:a", $"{kbps}k" });
+        }
+
+        switch (spec.Container)
+        {
+            case "opus":
+                args.AddRange(new[] { "-c:a", spec.Codec ?? "libopus" });
+                AddBitrate(128);
+                break;
+            case "flac":
+                args.AddRange(new[] { "-c:a", spec.Codec ?? "flac", "-compression_level", "5" });
+                break;
+            case "mp3":
+                args.AddRange(new[] { "-c:a", spec.Codec ?? "libmp3lame" });
+                AddBitrate(256);
+                break;
+            case "aac":
+                args.AddRange(new[] { "-c:a", spec.Codec ?? "aac" });
+                AddBitrate(192);
+                break;
             // Custom container: an explicit codec wins; without one ffmpeg
-            // picks the container's default. A format ffmpeg cannot mux
-            // fails with a warning on the track.
+            // picks the container's default. A bitrate is passed when set.
             default:
-                if (codec is not null) args.AddRange(new[] { "-c:a", codec });
+                if (spec.Codec is not null) args.AddRange(new[] { "-c:a", spec.Codec });
+                if (spec.BitrateKbps is > 0) args.AddRange(new[] { "-b:a", $"{spec.BitrateKbps}k" });
                 break;
         }
         args.Add(targetPath);
@@ -237,10 +265,26 @@ public static class ArchiveCopier
     /// </summary>
     public static string TargetExtension(string primaryPath, string? archiveFormat)
     {
-        var (container, _) = SplitFormat(archiveFormat);
+        var container = ParseFormat(archiveFormat).Container;
         return container == "auto"
             ? Path.GetExtension(primaryPath)
             : container == "aac" ? ".m4a" : "." + container;
+    }
+
+    /// <summary>
+    /// True when two archive formats would write the same file name for
+    /// the same primary. A shared folder is only safe when the extensions
+    /// differ; Auto is a wildcard because it keeps the primary's extension.
+    /// </summary>
+    public static bool ExtensionsMayCollide(string? first, string? second)
+    {
+        var a = ParseFormat(first).Container;
+        var b = ParseFormat(second).Container;
+        if (a == "auto" || b == "auto") return true;
+        return string.Equals(
+            TargetExtension("primary.flac", first),
+            TargetExtension("primary.flac", second),
+            StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>ffmpeg path on this host, mirroring FindFfprobe's discovery.</summary>

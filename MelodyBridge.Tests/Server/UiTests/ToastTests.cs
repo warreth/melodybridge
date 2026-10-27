@@ -66,12 +66,13 @@ public class ToastTests
     }
 
     [Test]
-    public async Task ErrorsStayLongerThanSuccess_AndRemainInHistory()
+    public async Task ImportantEntry_KeepsItsBellRowAfterTheToastFades()
     {
         var svc = new NotificationService(
             autoDismissAfter: TimeSpan.FromMilliseconds(50),
             problemDismissAfter: TimeSpan.FromMilliseconds(250));
-        svc.Error("plugin login failed", "Fix plugin", "/plugins#plugin-qobuz");
+        svc.Important("plugin login failed", "error", "Fix plugin", "/plugins#plugin-qobuz",
+            key: "auth:qobuz");
 
         await Task.Delay(100);
         var toast = svc.Snapshot().Single();
@@ -85,25 +86,76 @@ public class ToastTests
         await Task.Delay(250);
         Assert.That(svc.Snapshot(), Is.Empty, "a problem toast fades after its longer delay");
         Assert.That(svc.History().Single().Message, Is.EqualTo("plugin login failed"),
-            "the history keeps the entry after the toast is gone");
+            "the bell keeps an important entry after its toast is gone");
     }
 
     [Test]
-    public void HistoryAndUnread_CountUntilMarkedSeen()
+    public void NormalToasts_DoNotEnterTheBell()
     {
         var svc = new NotificationService(autoDismissAfter: TimeSpan.FromMinutes(1));
-        svc.Success("one");
-        svc.Error("two");
+        svc.Success("saved");
+        svc.Error("export failed");
 
         Assert.Multiple(() =>
         {
-            Assert.That(svc.History(), Has.Count.EqualTo(2));
-            Assert.That(svc.UnreadCount, Is.EqualTo(2));
+            Assert.That(svc.Snapshot(), Has.Count.EqualTo(2), "both still show as toasts");
+            Assert.That(svc.History(), Is.Empty,
+                "routine feedback must not turn the bell into a log");
+            Assert.That(svc.UnreadCount, Is.EqualTo(0));
+        });
+    }
+
+    [Test]
+    public void HistoryAndUnread_CountOnlyImportantEntriesUntilMarkedSeen()
+    {
+        var svc = new NotificationService(autoDismissAfter: TimeSpan.FromMinutes(1));
+        svc.Success("one");
+        svc.Important("two", "error", key: "sync:1");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(svc.History(), Has.Count.EqualTo(1));
+            Assert.That(svc.UnreadCount, Is.EqualTo(1));
         });
 
         svc.MarkAllSeen();
         Assert.That(svc.UnreadCount, Is.EqualTo(0));
-        Assert.That(svc.History(), Has.Count.EqualTo(2), "seen does not delete history");
+        Assert.That(svc.History(), Has.Count.EqualTo(1), "seen does not delete the bell entry");
+    }
+
+    [Test]
+    public void ImportantKey_ReplacesTheOldEntryWithoutDoubleUnread()
+    {
+        var svc = new NotificationService(autoDismissAfter: TimeSpan.FromMinutes(1));
+        svc.Important("token expired", "error", key: "auth:qobuz");
+        svc.Important("token rejected", "error", key: "auth:qobuz");
+
+        Assert.That(svc.History(), Has.Count.EqualTo(1));
+        Assert.That(svc.History()[0].Message, Is.EqualTo("token rejected"));
+        Assert.That(svc.UnreadCount, Is.EqualTo(1),
+            "a changed reason is still the same condition");
+    }
+
+    [Test]
+    public void Resolve_RemovesTheBellEntry()
+    {
+        var svc = new NotificationService(autoDismissAfter: TimeSpan.FromMinutes(1));
+        svc.Important("token expired", "error", key: "auth:qobuz");
+        svc.Resolve("auth:qobuz");
+
+        Assert.That(svc.History(), Is.Empty);
+        Assert.That(svc.UnreadCount, Is.EqualTo(0));
+    }
+
+    [Test]
+    public void DismissImportant_RemovesTheBellEntryAndToast()
+    {
+        var svc = new NotificationService(autoDismissAfter: TimeSpan.FromMinutes(1));
+        svc.Important("token expired", "error", key: "auth:qobuz");
+        svc.DismissImportant(svc.History().Single());
+
+        Assert.That(svc.History(), Is.Empty);
+        Assert.That(svc.Snapshot(), Is.Empty);
     }
 
     [Test]
@@ -131,7 +183,8 @@ public class ToastTests
         ctx.Services.AddUpdateService(TestHelpers.CreateInMemFactory());
 
         var cut = ctx.Render<MainLayout>();
-        svc.Error("plugin login failed", "Fix plugin", "/plugins#plugin-qobuz");
+        svc.Important("plugin login failed", "error", "Fix plugin", "/plugins#plugin-qobuz",
+            key: "auth:qobuz");
 
         var bell = cut.Find(".notification-bell");
         Assert.That(bell.TextContent, Does.Contain("1"), "the bell shows the unread count");

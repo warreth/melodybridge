@@ -121,11 +121,22 @@ public class LibraryReconciler
             .Where(root => !string.IsNullOrWhiteSpace(root))
             .Distinct(FileRelocator.PathComparer)
             .ToList();
+        archiveRoots.AddRange(await db.ArchiveProfiles.AsNoTracking()
+            .Where(profile => profile.RootPath != "")
+            .Select(profile => profile.RootPath)
+            .ToListAsync(ct));
         var archivePaths = playlists
             .SelectMany(p => p.Tracks)
             .Select(t => t.ArchivePath)
             .Where(path => !string.IsNullOrWhiteSpace(path))
             .ToHashSet(FileRelocator.PathComparer);
+        foreach (var copyPath in await db.TrackArchiveCopies.AsNoTracking()
+                     .Where(copy => copy.Path != null)
+                     .Select(copy => copy.Path!)
+                     .ToListAsync(ct))
+        {
+            archivePaths.Add(copyPath);
+        }
 
         var relinked = 0;
         var lost = 0;

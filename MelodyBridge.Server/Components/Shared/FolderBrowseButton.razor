@@ -1,0 +1,37 @@
+@namespace MelodyBridge.Server.Components.Shared
+
+<button type="button" class="icon-button path-browse" title="Browse folders"
+        aria-label="Browse folders" @onclick="Open">
+    <Icon Name="folder" Size="15" />
+</button>
+
+<FolderPickerDialog Show="_open" InitialPath="@Value" Title="@DialogTitle"
+                    OnSelected="Selected" OnCancel="Close" />
+
+@code {
+    /// <summary>
+    /// The small folder button every path field can put beside its input.
+    /// It opens the shared server-side picker and writes the chosen path
+    /// back through the normal two-way binding.
+    /// </summary>
+    [Parameter] public string? Value { get; set; }
+    [Parameter] public EventCallback<string> ValueChanged { get; set; }
+    /// <summary>What the folder is for, used in the dialog title.</summary>
+    [Parameter] public string? Label { get; set; }
+
+    private bool _open;
+
+    private string DialogTitle => string.IsNullOrWhiteSpace(Label)
+        ? "Choose a folder"
+        : $"Choose {Label.ToLowerInvariant()}";
+
+    private void Open() => _open = true;
+
+    private void Close() => _open = false;
+
+    private async Task Selected(string path)
+    {
+        _open = false;
+        await ValueChanged.InvokeAsync(path);
+    }
+}

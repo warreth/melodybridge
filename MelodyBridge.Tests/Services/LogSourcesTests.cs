@@ -22,7 +22,6 @@ public class LogSourcesTests
     [TestCase("MelodyBridge.Infrastructure.Lucida.LucidaDownloader", "Lucida")]
     [TestCase("MelodyBridge.Infrastructure.Downloaders.ArchiveOrgDownloader", "Archive.org")]
     [TestCase("MelodyBridge.Infrastructure.Downloaders.SlskdDownloader", "Soulseek")]
-    [TestCase("MelodyBridge.Infrastructure.Downloaders.DoubleDoubleDownloader", "DoubleDouble")]
     [TestCase("MelodyBridge.Application.Services.DownloadManager", "Waterfall")]
     [TestCase("MelodyBridge.Infrastructure.Services.PlaylistStore", "Other")]
     [TestCase("", "Other")]

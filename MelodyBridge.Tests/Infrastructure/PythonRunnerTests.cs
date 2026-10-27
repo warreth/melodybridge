@@ -18,7 +18,7 @@ public class PythonRunnerTests
         var runner = new PythonRunner(NullLogger<PythonRunner>.Instance);
 
         // Should throw since "python" may not be available or script doesn't exist
-        Assert.Throws<Exception>(() =>
+        Assert.Catch<Exception>(() =>
             runner.RunPythonScript("/nonexistent/script.py", ""));
     }
 
@@ -27,7 +27,7 @@ public class PythonRunnerTests
     {
         var runner = new PythonRunner(NullLogger<PythonRunner>.Instance);
 
-        Assert.Throws<Exception>(() =>
+        Assert.Catch<Exception>(() =>
             runner.RunPythonScript("", "test"));
     }
 }

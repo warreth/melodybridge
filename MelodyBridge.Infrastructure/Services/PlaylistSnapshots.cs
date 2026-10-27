@@ -123,6 +123,7 @@ internal sealed class PlaylistSnapshots
             var likedPlatform = likedAccount.Name switch
             {
                 SpotifyAccountProvider.ProviderName => Platform.Spotify,
+                SpotifyUnofficialAccountProvider.ProviderName => Platform.Spotify,
                 YouTubeAccountProvider.ProviderName => Platform.YouTubeMusic,
                 _ => throw new InvalidOperationException($"Unknown account '{likedAccount.Name}'."),
             };
@@ -550,6 +551,12 @@ internal sealed class PlaylistSnapshots
         if (source.Equals(SpotifyAccountProvider.LikedSourceUrl, StringComparison.OrdinalIgnoreCase))
             return _accountProviders.FirstOrDefault(a => string.Equals(
                 a.Name, SpotifyAccountProvider.ProviderName, StringComparison.OrdinalIgnoreCase));
+        // A free-account liked list uses the unofficial web session. Without
+        // this branch a refresh fell through to the public scraper, which
+        // cannot parse the marker.
+        if (source.Equals(SpotifyUnofficialAccountProvider.LikedSourceUrl, StringComparison.OrdinalIgnoreCase))
+            return _accountProviders.FirstOrDefault(a => string.Equals(
+                a.Name, SpotifyUnofficialAccountProvider.ProviderName, StringComparison.OrdinalIgnoreCase));
         // "LL" is the raw likes list id older rows stored as the source.
         if (source.Equals(YouTubeAccountProvider.LikedSourceUrl, StringComparison.OrdinalIgnoreCase)
             || source.Equals("LL", StringComparison.OrdinalIgnoreCase))

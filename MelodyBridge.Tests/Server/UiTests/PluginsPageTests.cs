@@ -82,9 +82,9 @@ public class PluginsPageTests
         cut.WaitForAssertion(() =>
             Assert.That(cut.FindAll(".plugin-card"), Has.Count.EqualTo(2)), TimeSpan.FromSeconds(3));
 
-        var ranks = cut.FindAll(".plugin-rank").Select(r => r.TextContent.Trim()).ToList();
+        var ranks = cut.FindAll(".order-index").Select(r => r.TextContent.Trim()).ToList();
         Assert.That(ranks, Is.EqualTo(new[] { "1", "2" }),
-            "the enabled waterfall order is visible on the cards");
+            "the enabled try order is visible in the source strip");
 
         cut.Find("input[aria-label='Find a plugin']").Input("Second");
 
@@ -95,7 +95,7 @@ public class PluginsPageTests
         }, TimeSpan.FromSeconds(3));
 
         cut.Find("input[aria-label='Find a plugin']").Input("");
-        cut.FindAll(".filter-chip").Single(b => b.TextContent.Contains("Needs login")).Click();
+        cut.FindAll(".filter-chip").Single(b => b.TextContent.Contains("Problems")).Click();
 
         cut.WaitForAssertion(() =>
         {
@@ -464,6 +464,10 @@ public class PluginsPageTests
         var cut = _ctx.Render<Plugins>();
 
         cut.WaitForAssertion(() =>
+            Assert.That(cut.Find(".route-select"), Is.Not.Null), TimeSpan.FromSeconds(3));
+        cut.Find(".route-select").Change("Lossless");
+
+        cut.WaitForAssertion(() =>
         {
             Assert.That(cut.Find(".route-chain").TextContent, Does.Contain("Qobuz"));
             Assert.That(cut.Find(".route-chain").TextContent, Does.Not.Contain("SoundCloud"));
@@ -551,8 +555,8 @@ public class PluginsPageTests
         var cut = _ctx.Render<Plugins>();
 
         Assert.That(cut.Markup, Does.Contain("Plugins"));
-        Assert.That(cut.Markup, Does.Contain("tried in order until one delivers"),
-            "the intro explains the waterfall in the current wording");
+        Assert.That(cut.Markup, Does.Contain("One setup list, one try order"),
+            "the intro explains the setup and the try order");
         Assert.That(cut.Markup, Does.Contain("yt-dlp (YouTube)"));
         Assert.That(cut.Markup, Does.Contain("Second Plugin"));
     }
@@ -568,7 +572,7 @@ public class PluginsPageTests
             Assert.That(cut.Markup, Does.Contain("2026.08.19"),
                 "the installed yt-dlp version is shown"), TimeSpan.FromSeconds(3));
 
-        var button = cut.FindAll("button").Single(b => b.TextContent.Contains("Update yt-dlp"));
+        var button = cut.FindAll("button").Single(b => b.TextContent.Trim() == "Update");
         await cut.InvokeAsync(() => button.Click());
 
         cut.WaitForAssertion(() =>
@@ -586,9 +590,9 @@ public class PluginsPageTests
     {
         var cut = _ctx.Render<Plugins>();
 
-        Assert.That(cut.Markup, Does.Contain("Try this plugin first"));
-        var upButtons = cut.FindAll("button[title='Try this plugin first']");
-        Assert.That(upButtons.Count, Is.EqualTo(2), "one move-up per plugin");
+        Assert.That(cut.Markup, Does.Contain("Try this source earlier"));
+        var upButtons = cut.FindAll("button[title='Try this source earlier']");
+        Assert.That(upButtons.Count, Is.EqualTo(2), "one move-up per enabled plugin");
     }
 
     [Test]

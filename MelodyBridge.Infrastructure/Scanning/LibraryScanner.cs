@@ -405,6 +405,10 @@ public class LibraryScanner : ILibraryScanner
             .Select(s => s.Value)
             .FirstOrDefaultAsync(ct);
         if (!string.IsNullOrWhiteSpace(global)) roots.Add(global);
+        roots.AddRange(await _db.ArchiveProfiles.AsNoTracking()
+            .Where(profile => profile.RootPath != "")
+            .Select(profile => profile.RootPath)
+            .ToListAsync(ct));
         return roots;
     }
 }

@@ -304,16 +304,6 @@ public class QualityRouterTests
     }
 
     [Test]
-    public void DoubleDoubleManifest_IsHonestAboutBeingUncontrollable()
-    {
-        Assert.That(DoubleDoubleDownloader.Caps.Containers,
-            Is.EquivalentTo(new[] { AudioFormat.Flac, AudioFormat.Mp3 }));
-        Assert.That(DoubleDoubleDownloader.Caps.SupportsLossless, Is.True);
-        Assert.That(DoubleDoubleDownloader.Caps.Deliverables.All(d => !d.Controlled), Is.True,
-            "the submit API has no quality parameter either");
-    }
-
-    [Test]
     public void Manifests_AreServedByTheirCapabilities()
     {
         // The manifests are routing inputs, not decoration: spot-check each
@@ -329,7 +319,6 @@ public class QualityRouterTests
         Assert.That(LucidaDownloader.Caps.CanServe(new DownloadQuality(AudioFormat.Opus)), Is.False);
         Assert.That(LucidaDownloader.Caps.CanServe(new DownloadQuality(AudioFormat.Flac)), Is.True,
             "uncontrollable does not mean unusable: Lucida may hand back a FLAC");
-        Assert.That(DoubleDoubleDownloader.Caps.CanServe(new DownloadQuality(AudioFormat.Flac)), Is.True);
         Assert.That(ArchiveOrgDownloader.Caps.CanServe(new DownloadQuality(AudioFormat.Mp3, MaxKbps: 96)), Is.False,
             "the 128 kbps floor is real, not a comment");
         Assert.That(SlskdDownloader.Caps.CanServe(new DownloadQuality(AudioFormat.Flac)), Is.True,

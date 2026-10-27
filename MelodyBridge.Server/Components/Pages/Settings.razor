@@ -15,6 +15,9 @@
 @inject LibraryPathMover PathMover
 @inject SettingsStore TourReset
 @inject DatabaseBackupService DbBackup
+@inject ArchiveProfileStore ArchiveProfiles
+@inject ArchiveCopyService ArchiveCopies
+@inject ArchiveBackfillService ArchiveBackfill
 @inject NtfyNotifier Ntfy
 @inject UpdateCheckService UpdateCheck
 @inject UpdateService Update
@@ -156,106 +159,112 @@
 
                 <div class="account-card">
                     <div class="account-head">
-                        <strong>Spotify (unofficial)</strong>
+                        <strong>Spotify web session</strong>
                         <span class="account-badges">
-                            <StatusPill Variant="warn">unofficial</StatusPill>
-                            <StatusPill Variant="@(_spotifyWebConnected ? "connected" : "neutral")">
-                                @(_spotifyWebConnected ? "connected" : "not connected")
+                            @if (_spotifyWebConnected)
+                            {
+                                <StatusPill Variant="warn">unofficial</StatusPill>
+                            }
+                            <StatusPill Variant="@(_spotifyWebConnected ? "connected" : _spotifyWebHasCookie ? "ok" : "neutral")">
+                                @(_spotifyWebConnected ? "imports on" : _spotifyWebHasCookie ? "fallback saved" : "not connected")
                             </StatusPill>
                         </span>
-                        @if (_spotifyWebConnected)
+                        @if (_spotifyWebConnected || _spotifyWebHasCookie)
                         {
-                            <button class="btn-modern subtle small" @onclick="DisconnectSpotifyWeb">Disconnect</button>
+                            <button class="btn-modern subtle small" @onclick="DisconnectSpotifyWeb">Remove cookie</button>
                         }
                     </div>
-                    @if (_spotifyWebConnected)
+                    <p class="account-note">
+                        One <code>sp_dc</code> cookie does both jobs: it lets MelodyBridge
+                        fetch public Spotify pages when the normal scrape is blocked,
+                        and it powers liked-song and playlist imports on a free account.
+                        The public fallback is safe to use; account imports are
+                        unofficial and can break, so a burner account is safest.
+                        Prefer no cookie at all? The <em>Files</em> tab imports an
+                        Exportify CSV.
+                    </p>
+                    @if (advancedMode)
                     {
                         <p class="account-note">
-                            Liked songs and playlists import through your own Spotify web
-                            session, so a free account works and no developer app is needed.
-                            It stays on until you disconnect.
+                            The <code>sp_dc</code> value is a live credential of your
+                            account. It is stored in this server's database in plain
+                            text, so anyone who can read the database can act as you.
+                            Spotify can break this route without notice.
                         </p>
-                        <div class="flex-actions">
-                            <button class="btn-modern secondary" @onclick="TestSpotifyWeb" disabled="@testingSpotifyWeb">
-                                @(testingSpotifyWeb ? "Testing…" : "Test session")
-                            </button>
-                            <span class="text-muted">@spotifyWebMessage</span>
-                        </div>
                     }
-                    else
-                    {
-                        @if (advancedMode)
+                    <div class="account-connect">
+                        <label>
+                            Spotify web cookie (sp_dc value)
+                            <input @bind="spotifyWebCookie" type="password"
+                                   placeholder="@(_spotifyWebHasCookie ? "Saved. Paste a new value to replace it." : "sp_dc=...")" />
+                        </label>
+                        @if (!_spotifyWebConnected)
                         {
-                            <p class="account-note">
-                                Imports liked songs and playlists on a free account, fully automatic,
-                                by reusing your own Spotify web session. The <code>sp_dc</code> cookie
-                                you paste is a live credential of your account: it is stored in this
-                                server's database in plain text, anyone who reads it can act as you, and
-                                Spotify can break this route without notice. A burner account removes
-                                most of that risk. Prefer no risk? The <em>Files</em> tab imports an
-                                Exportify CSV instead.
-                            </p>
-                        }
-                        else
-                        {
-                            <p class="account-note">
-                                Imports liked songs and playlists on a free account through your own
-                                Spotify web session. A burner account is safest; the <em>Files</em>
-                                tab imports an Exportify CSV with no cookie at all.
-                            </p>
-                        }
-                        <div class="account-connect">
-                            <label>
-                                Spotify session cookie (sp_dc value)
-                                <input @bind="spotifyWebCookie" type="password" placeholder="sp_dc=..." />
-                            </label>
                             <label class="toggle-switch wide">
                                 <input type="checkbox" @bind="spotifyWebAcknowledged" />
                                 <span class="toggle-slider"></span>
-                                <span>I understand this is unofficial, unsafe for a real account and may break</span>
+                                <span>I understand account imports are unofficial and may break</span>
                             </label>
-                            <details class="oauth-steps">
-                                <summary>@(advancedMode
-                                    ? "Where to find the cookie, and when to change the secrets URL"
-                                    : "Where to find the cookie")</summary>
-                                <ol>
-                                    <li>
-                                        Log in at
-                                        <a href="https://open.spotify.com" target="_blank" rel="noopener">open.spotify.com</a>
-                                        in a browser.
-                                    </li>
-                                    <li>
-                                        Open developer tools (F12), then Application or Storage, then
-                                        Cookies for <code>open.spotify.com</code>.
-                                    </li>
-                                    <li>Copy the value of the cookie named <code>sp_dc</code> and paste it above.</li>
-                                    @if (advancedMode)
-                                    {
-                                        <li>
-                                            The cookie stops working when the browser session ends, or
-                                            when Spotify rotates its TOTP secrets. Paste a fresh value,
-                                            or point the secrets URL at a newer list, if imports stop.
-                                        </li>
-                                    }
-                                </ol>
+                        }
+                        <details class="oauth-steps">
+                            <summary>@(advancedMode
+                                ? "Where to find the cookie, and when to change the secrets URL"
+                                : "Where to find the cookie")</summary>
+                            <ol>
+                                <li>
+                                    Log in at
+                                    <a href="https://open.spotify.com" target="_blank" rel="noopener">open.spotify.com</a>
+                                    in a browser.
+                                </li>
+                                <li>
+                                    Open developer tools (F12), then Application or Storage, then
+                                    Cookies for <code>open.spotify.com</code>.
+                                </li>
+                                <li>Copy the value of the cookie named <code>sp_dc</code> and paste it above.</li>
                                 @if (advancedMode)
                                 {
-                                    <label>
-                                        TOTP secrets URL
-                                        <input @bind="spotifyWebSecretsUrl" placeholder="@SpotifyWebSession.DefaultSecretsUrl" />
-                                    </label>
+                                    <li>
+                                        The cookie stops working when the browser session ends, or
+                                        when Spotify rotates its TOTP secrets. Paste a fresh value,
+                                        or point the secrets URL at a newer list, if imports stop.
+                                    </li>
                                 }
-                            </details>
+                            </ol>
+                            @if (advancedMode)
+                            {
+                                <label>
+                                    TOTP secrets URL
+                                    <input @bind="spotifyWebSecretsUrl" placeholder="@SpotifyWebSession.DefaultSecretsUrl" />
+                                </label>
+                            }
+                        </details>
+                        <div class="flex-actions">
+                            <button class="btn-modern secondary" @onclick="SaveSpotifyFallback"
+                                    disabled="@savingSpotifyFallback">
+                                @(savingSpotifyFallback ? "Saving…" : "Save for public fallback")
+                            </button>
                             <button class="btn-modern primary" @onclick="EnableSpotifyWeb"
                                     disabled="@(!spotifyWebAcknowledged || enablingSpotifyWeb)">
-                                @(enablingSpotifyWeb ? "Testing…" : "Enable and test")
+                                @(enablingSpotifyWeb
+                                    ? "Testing…"
+                                    : _spotifyWebConnected ? "Replace and test" : "Enable account imports")
                             </button>
+                            @if (_spotifyWebConnected)
+                            {
+                                <button class="btn-modern ghost" @onclick="TestSpotifyWeb" disabled="@testingSpotifyWeb">
+                                    @(testingSpotifyWeb ? "Testing…" : "Test session")
+                                </button>
+                            }
                         </div>
-                    }
-                    @if (spotifyWebError is not null)
-                    {
-                        <div class="result-box error">@spotifyWebError</div>
-                    }
+                        @if (!string.IsNullOrWhiteSpace(spotifyWebMessage))
+                        {
+                            <div class="result-box ok">@spotifyWebMessage</div>
+                        }
+                        @if (spotifyWebError is not null)
+                        {
+                            <div class="result-box error">@spotifyWebError</div>
+                        }
+                    </div>
                 </div>
 
                 <div class="account-card">
@@ -481,6 +490,7 @@ else if (activeTab == "paths")
                         {
                             <span class="path-suffix" title="Added to every playlist's own folder name">{playlist}</span>
                         }
+                        <FolderBrowseButton Value="@musicPath" ValueChanged="@SetMusicPath" Label="the music folder" />
                     </span>
                     @if (musicPathWarning is { Length: > 0 })
                     {
@@ -502,9 +512,12 @@ else if (activeTab == "paths")
                 <small class="text-muted">@PlaylistFoldersHint</small>
                 <label>
                     Playlist output folder
-                    <input @bind="playlistPath" @bind:after="ValidatePaths"
-                           aria-invalid="@(playlistPathWarning is { Length: > 0 } ? "true" : null)"
-                           aria-describedby="@(playlistPathWarning is { Length: > 0 } ? "playlist-path-warning" : null)" />
+                    <span class="path-field">
+                        <input @bind="playlistPath" @bind:after="ValidatePaths"
+                               aria-invalid="@(playlistPathWarning is { Length: > 0 } ? "true" : null)"
+                               aria-describedby="@(playlistPathWarning is { Length: > 0 } ? "playlist-path-warning" : null)" />
+                        <FolderBrowseButton Value="@playlistPath" ValueChanged="@SetPlaylistPath" Label="the playlist folder" />
+                    </span>
                     @if (playlistPathWarning is { Length: > 0 })
                     {
                         <small class="text-warn" id="playlist-path-warning">@playlistPathWarning</small>
@@ -516,14 +529,15 @@ else if (activeTab == "paths")
             <div class="section-head">
                 <span class="eyebrow">Archive</span>
                 <div class="title-with-help">
-                    <h3>Archive copy</h3>
-                    <HelpTip Path="concepts#archive-copies" Text="A local second copy, converted on this machine." />
+                    <h3>Archive copies</h3>
+                    <HelpTip Path="concepts#archive-copies" Text="Local second copies, converted on this machine. The default plus any extra profiles." />
                 </div>
             </div>
             <div class="hint-box">
-                Optional second home for every download. Each track is fetched
-                once; the archive copy is a local conversion with ffmpeg, so
-                the second library never costs another internet download.
+                Each track is fetched once. The default archive below is the
+                original second copy; extra profiles add more local copies in
+                their own formats, for example Opus 128 and MP3 160. A profile
+                only costs disk space and ffmpeg CPU, never another download.
             </div>
             <div class="form-grid single">
                 <label>
@@ -536,6 +550,7 @@ else if (activeTab == "paths")
                         {
                             <span class="path-suffix" title="Added to every playlist's own archive folder name">{playlist}</span>
                         }
+                        <FolderBrowseButton Value="@archivePath" ValueChanged="@SetArchivePath" Label="the archive folder" />
                     </span>
                     @if (archivePathWarning is { Length: > 0 })
                     {
@@ -550,12 +565,10 @@ else if (activeTab == "paths")
                 <label>
                     Archive format
                     <select value="@archiveFormatChoice" @onchange="OnArchiveFormatChoiceChanged">
-                        <option value="auto">Auto: copy the downloaded file as-is</option>
-                        <option value="opus">Opus: small and efficient (128k)</option>
-                        <option value="flac">FLAC: lossless (level 5)</option>
-                        <option value="mp3">MP3: widely compatible (256k)</option>
-                        <option value="aac">AAC: small and modern (192k)</option>
-                        <option value="custom">Custom container...</option>
+                        @foreach (var option in ArchiveFormatOptions)
+                        {
+                            <option value="@option.Value">@option.Label</option>
+                        }
                     </select>
                 </label>
                 @if (archiveFormatChoice == "custom")
@@ -576,6 +589,98 @@ else if (activeTab == "paths")
                     default. A format ffmpeg cannot write leaves a warning on the track.
                 </div>
             }
+            <div class="archive-profiles">
+                <div class="archive-profiles-head">
+                    <div>
+                        <span class="eyebrow">Extra copies</span>
+                        <h3>Archive profiles</h3>
+                        <p>
+                            Every enabled profile gets a copy of every downloaded
+                            track. Playlist archive switches turn all copies off
+                            for that playlist; the folder and format overrides on
+                            a playlist apply to the default archive only.
+                        </p>
+                    </div>
+                    <button class="btn-modern small secondary" @onclick="OpenNewArchiveProfile">
+                        <Icon Name="plus" Size="14" /> Add profile
+                    </button>
+                </div>
+
+                @if (ArchiveBackfill.IsRunning || ArchiveBackfill.Progress.Total > 0)
+                {
+                    <div class="archive-backfill">
+                        <div class="progress-track" aria-hidden="true">
+                            <span style="width:@ArchiveBackfillPercent%"></span>
+                        </div>
+                        <div class="archive-backfill-copy">
+                            <strong>
+                                @(ArchiveBackfill.IsRunning ? "Building archive copies" : "Last archive pass")
+                            </strong>
+                            <small>
+                                @ArchiveBackfill.Progress.Done of @ArchiveBackfill.Progress.Total
+                                @(ArchiveBackfill.Progress.Failed > 0 ? $", {ArchiveBackfill.Progress.Failed} failed" : "")
+                                @if (!string.IsNullOrWhiteSpace(ArchiveBackfill.Progress.Message))
+                                {
+                                    <span> · @ArchiveBackfill.Progress.Message</span>
+                                }
+                            </small>
+                        </div>
+                        @if (ArchiveBackfill.IsRunning)
+                        {
+                            <button class="btn-modern small ghost" @onclick="ArchiveBackfill.Stop">Stop</button>
+                        }
+                    </div>
+                }
+
+                @if (archiveProfiles.Count == 0)
+                {
+                    <div class="hint-box">
+                        No extra profiles yet. Add one for a second format, for
+                        example Opus 128 next to an MP3 160 default.
+                    </div>
+                }
+                else
+                {
+                    <div class="archive-profile-list">
+                        @foreach (var profile in archiveProfiles)
+                        {
+                            <div class="archive-profile-row @(profile.Enabled ? "" : "disabled")">
+                                <div class="archive-profile-copy">
+                                    <strong>@profile.Name</strong>
+                                    <small>@profile.RootPath</small>
+                                    <span class="archive-profile-format">
+                                        @ArchiveFormatText(profile.Format)
+                                        @if (!profile.Enabled)
+                                        {
+                                            <em> · off</em>
+                                        }
+                                    </span>
+                                </div>
+                                <label class="toggle-switch" title="Enable this profile">
+                                    <input type="checkbox" checked="@profile.Enabled"
+                                           aria-label="Enable @profile.Name"
+                                           @onchange="e => ToggleArchiveProfile(profile, (bool)e.Value!)" />
+                                    <span class="toggle-slider"></span>
+                                </label>
+                                <button class="btn-modern small ghost"
+                                        @onclick="() => StartArchiveBackfill(profile)"
+                                        disabled="@(ArchiveBackfill.IsRunning)">
+                                    Build missing
+                                </button>
+                                <button class="btn-modern small ghost" @onclick="() => OpenEditArchiveProfile(profile)">
+                                    Edit
+                                </button>
+                                <button class="icon-button" title="Delete @profile.Name"
+                                        aria-label="Delete @profile.Name"
+                                        @onclick="() => AskDeleteArchiveProfile(profile)">
+                                    <Icon Name="trash" Size="15" />
+                                </button>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+
             <MountWarning />
             <div class="hint-box">
                 New downloads land under the music path, M3U files go to the
@@ -697,32 +802,6 @@ else if (activeTab == "network")
         </div>
     </section>
 
-    <section class="settings-card">
-        <div class="settings-head">
-            <div>
-                <span class="eyebrow">Network</span>
-                <div class="title-with-help">
-                    <h2>Spotify web session</h2>
-                    <HelpTip Path="reference#network" Text="Only needed when public playlist scraping starts failing." />
-                </div>
-            </div>
-        </div>
-        <div class="settings-section">
-            <div class="hint-box">
-                Public playlists and liked songs work without this. Paste a
-                Spotify web cookie (the sp_dc value from a logged-in browser
-                session) only if public scraping starts failing for you: the
-                app then sends it along as a fallback. The cookie is stored in
-                the database, not an environment variable.
-            </div>
-            <div class="form-grid single">
-                <label>
-                    Spotify cookie (optional)
-                    <input @bind="spotifyCookie" @bind:after="MarkDirty" type="password" placeholder="sp_dc=..." />
-                </label>
-            </div>
-        </div>
-    </section>
 
 }
 else if (activeTab == "notifications")
@@ -976,6 +1055,105 @@ else if (activeTab == "about")
     </section>
 }
 
+@if (showArchiveProfileEditor && archiveDraft is not null)
+{
+    <div class="wizard-overlay" @onclick="CloseArchiveProfileEditor">
+        <div class="wizard-modal archive-profile-modal" role="dialog" aria-modal="true"
+             aria-label="Archive profile" @onclick:stopPropagation="true">
+            <div class="wizard-header">
+                <div>
+                    <span class="eyebrow">Archive copy</span>
+                    <h2>@(string.IsNullOrWhiteSpace(archiveDraft.Id) ? "Add an archive profile" : "Edit archive profile")</h2>
+                </div>
+                <button class="icon-button" title="Close" @onclick="CloseArchiveProfileEditor">
+                    <Icon Name="x" Size="15" />
+                </button>
+            </div>
+            <div class="wizard-body">
+                <div class="form-grid single">
+                    <label>
+                        Profile name
+                        <input @bind="archiveDraft.Name" placeholder="Opus archive" />
+                    </label>
+                    <label>
+                        Folder
+                        <span class="path-field">
+                            <input @bind="archiveDraft.RootPath" placeholder="/archive-opus" />
+                            <FolderBrowseButton Value="@archiveDraft.RootPath"
+                                                ValueChanged="@(v => archiveDraft.RootPath = v)"
+                                                Label="the archive folder" />
+                        </span>
+                        <small class="text-muted">
+                            Each track gets the same file name as the default archive,
+                            in this folder, with the format below.
+                        </small>
+                    </label>
+                    <label>
+                        Container
+                        <select @bind="archiveDraftContainer" @bind:after="OnArchiveDraftContainerChanged">
+                            <option value="auto">Auto: copy the downloaded file as-is</option>
+                            <option value="opus">Opus</option>
+                            <option value="flac">FLAC (lossless)</option>
+                            <option value="mp3">MP3</option>
+                            <option value="aac">AAC (lands as .m4a)</option>
+                            <option value="custom">Custom container...</option>
+                        </select>
+                    </label>
+                    @if (ShowArchiveDraftBitrate)
+                    {
+                        <label>
+                            Bitrate
+                            <select @bind="archiveDraftBitrate">
+                                @foreach (var rate in new[] { "96", "128", "160", "192", "256", "320" })
+                                {
+                                    <option value="@rate">@rate kbps</option>
+                                }
+                            </select>
+                        </label>
+                    }
+                    @if (archiveDraftContainer == "custom")
+                    {
+                        <label>
+                            Custom container
+                            <input @bind="archiveDraftCustomContainer" placeholder="m4a" />
+                        </label>
+                        <label>
+                            Codec (optional)
+                            <input @bind="archiveDraftCodec" placeholder="alac" />
+                            <small class="text-muted">
+                                Leave empty to let ffmpeg pick the container default.
+                                For example <code>m4a</code> plus <code>alac</code>.
+                            </small>
+                        </label>
+                    }
+                </div>
+                <div class="hint-box">
+                    @ArchiveDraftSummary
+                </div>
+                @if (!string.IsNullOrWhiteSpace(archiveProfileError))
+                {
+                    <div class="result-box error">@archiveProfileError</div>
+                }
+            </div>
+            <div class="wizard-footer">
+                <button class="btn-modern secondary" @onclick="CloseArchiveProfileEditor">Cancel</button>
+                <span></span>
+                <button class="btn-modern primary" @onclick="SaveArchiveProfile" disabled="@archiveSaving">
+                    @(archiveSaving ? "Saving…" : "Save profile")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<ConfirmDialog Show="archivePendingDelete is not null"
+               Eyebrow="Archive profile"
+               Title="@($"Delete {archivePendingDelete?.Name}?")"
+               Message="The copy records are removed and this profile stops creating new copies. Files already on disk stay where they are; keep the folder out of the music path if you do not want a scan to adopt them."
+               ConfirmLabel="Delete profile"
+               OnConfirm="DeleteArchiveProfile"
+               OnCancel="CancelDeleteArchiveProfile" />
+
 @code {
     // Tab ids double as URL fragments: /settings#accounts opens Accounts.
     private static readonly (string Id, string Label)[] Tabs =
@@ -1025,7 +1203,7 @@ else if (activeTab == "about")
     private static readonly SettingsSearchHit[] SearchIndex =
     [
         new("Spotify account", "accounts", "Connect, disconnect and private playlists", "spotify login oauth client id"),
-        new("Spotify web session", "accounts", "Unofficial cookie login for free accounts", "spotify cookie unofficial web session"),
+        new("Spotify web session", "accounts", "Cookie for free-account imports and the public fallback", "spotify cookie unofficial web session fallback"),
         new("YouTube account", "accounts", "Connect or disconnect the Google login", "youtube google oauth client secret"),
         new("Jellyfin server", "media-servers", "URL, API key and user", "jellyfin media server connection"),
         new("Plex server", "media-servers", "URL and token", "plex media server token"),
@@ -1143,6 +1321,17 @@ else if (activeTab == "about")
     private string archiveFormatChoice = "auto";
     /// <summary>The container typed for a custom archive format.</summary>
     private string archiveFormatCustom = "";
+    private List<ArchiveProfileEntity> archiveProfiles = new();
+    private bool showArchiveProfileEditor;
+    private ArchiveProfileEntity? archiveDraft;
+    private string archiveDraftContainer = "opus";
+    private string archiveDraftBitrate = "128";
+    private string archiveDraftCodec = "";
+    private string archiveDraftCustomContainer = "ogg";
+    private string? archiveDraftOriginalRoot;
+    private ArchiveProfileEntity? archivePendingDelete;
+    private bool archiveSaving;
+    private string? archiveProfileError;
     private string defaultQuality = "auto";
     private string spectrumMode = "Fast";
     private string spectrumClassGap = "2";
@@ -1215,6 +1404,8 @@ else if (activeTab == "about")
         Nav.LocationChanged += OnLocationChanged;
 
         profiles = (await ServerProfiles.GetAllAsync()).ToList();
+        archiveProfiles = (await ArchiveProfiles.GetAllAsync()).ToList();
+        ArchiveBackfill.Changed += OnArchiveBackfillChanged;
 
         // An import that was staged but not applied yet: the next start
         // swaps it in. Say so, so the user knows a restart is pending.
@@ -1270,7 +1461,7 @@ else if (activeTab == "about")
         lengthToleranceSeconds = FindSetting(settings, "quality_length_tolerance_seconds", "30");
         lengthTolerancePercent = FindSetting(settings, "quality_length_tolerance_percent", "10");
         flaresolverrUrl = FindSetting(settings, "flaresolverr_url", Config?["FlareSolverr:Url"] ?? "auto");
-        spotifyCookie = FindSetting(settings, "spotify_cookie", string.Empty);
+        _spotifyWebHasCookie = FindSetting(settings, "spotify_cookie", string.Empty).Length > 0;
         playlistFolders = await TourReset.GetBoolAsync("playlist_folders", true);
         notifyDownloads = await TourReset.GetBoolAsync("notify_downloads", true);
         notifyFailures = await TourReset.GetBoolAsync("notify_failures", true);
@@ -1285,6 +1476,8 @@ else if (activeTab == "about")
         _spotifyConnected = await SpotifyAccount.IsConnectedAsync();
         _youtubeConnected = await YouTubeAccount.IsConnectedAsync();
         _spotifyWebConnected = await SpotifyWeb.IsConnectedAsync();
+        if (_spotifyWebConnected) _spotifyWebHasCookie = true;
+        spotifyWebAcknowledged = _spotifyWebConnected;
         advancedMode = await TourReset.GetBoolAsync(AdvancedMode.SettingKey, false);
         updateCheckEnabled = await TourReset.GetBoolAsync(UpdateService.EnabledKey, true);
         spotifyWebSecretsUrl = await SpotifyWeb.GetSettingAsync("secrets_url") ?? string.Empty;
@@ -1298,7 +1491,6 @@ else if (activeTab == "about")
     /// <summary>Advanced mode reveals the longer cookie notes and the secrets URL.</summary>
     private bool advancedMode;
     private string spotifyClientId = string.Empty;
-    private string spotifyCookie = string.Empty;
     /// <summary>One folder per playlist under the music path (default on).</summary>
     private bool playlistFolders = true;
     private string youtubeClientId = string.Empty;
@@ -1396,11 +1588,13 @@ else if (activeTab == "about")
     // ── unofficial Spotify web session ──────────────────────────────────
 
     private bool _spotifyWebConnected;
+    private bool _spotifyWebHasCookie;
     private string spotifyWebCookie = string.Empty;
     private string spotifyWebSecretsUrl = string.Empty;
     private bool spotifyWebAcknowledged;
     private bool enablingSpotifyWeb;
     private bool testingSpotifyWeb;
+    private bool savingSpotifyFallback;
     private string spotifyWebMessage = string.Empty;
     private string? spotifyWebError;
 
@@ -1417,8 +1611,14 @@ else if (activeTab == "about")
         try
         {
             var cookie = NormalizeCookie(spotifyWebCookie);
+            if (cookie.Length == 0) cookie = await LoadFallbackCookieAsync();
             if (cookie.Length == 0)
                 throw new InvalidOperationException("Paste the sp_dc cookie value first.");
+
+            // The same cookie powers the public fallback, so save both
+            // forms before the account test: a working public fallback is
+            // useful even when the unofficial account route is blocked.
+            await SaveSpotifyFallbackCookieAsync(cookie);
 
             await SpotifyWeb.SaveSettingAsync("cookie", cookie);
             var secretsUrl = spotifyWebSecretsUrl.Trim();
@@ -1428,12 +1628,16 @@ else if (activeTab == "about")
 
             spotifyWebMessage = await SpotifyWeb.TestAsync();
             _spotifyWebConnected = true;
+            _spotifyWebHasCookie = true;
+            spotifyWebAcknowledged = true;
             spotifyWebCookie = string.Empty; // never echo the secret back into the page
             Notifications.Success(spotifyWebMessage);
         }
         catch (Exception ex)
         {
-            // A cookie that does not work must not look enabled.
+            // A cookie that does not work must not look enabled for
+            // imports. The public fallback keeps the saved value because
+            // it may still work for page scraping.
             await SpotifyWeb.SetEnabledAsync(false);
             _spotifyWebConnected = false;
             spotifyWebError = ex.Message;
@@ -1466,10 +1670,91 @@ else if (activeTab == "about")
     private async Task DisconnectSpotifyWeb()
     {
         await SpotifyWeb.LogoutAsync();
+        await ClearSpotifyFallbackCookieAsync();
         _spotifyWebConnected = false;
+        _spotifyWebHasCookie = false;
+        spotifyWebAcknowledged = false;
+        spotifyWebCookie = string.Empty;
         spotifyWebMessage = string.Empty;
         spotifyWebError = null;
-        Notifications.Info("Unofficial Spotify session disconnected; the cookie was deleted");
+        Notifications.Info("Spotify web session removed; the cookie was deleted");
+    }
+
+    /// <summary>
+    /// Saves the cookie for public page scraping and leaves account imports
+    /// alone. This is the safe half of the one-cookie design.
+    /// </summary>
+    private async Task SaveSpotifyFallback()
+    {
+        spotifyWebError = null;
+        spotifyWebMessage = string.Empty;
+        savingSpotifyFallback = true;
+        try
+        {
+            var cookie = NormalizeCookie(spotifyWebCookie);
+            if (cookie.Length == 0) cookie = await LoadFallbackCookieAsync();
+            if (cookie.Length == 0)
+                throw new InvalidOperationException("Paste the sp_dc cookie value first.");
+
+            await SaveSpotifyFallbackCookieAsync(cookie);
+            _spotifyWebHasCookie = true;
+            spotifyWebCookie = string.Empty;
+            spotifyWebMessage = "Cookie saved for the public Spotify fallback.";
+            Notifications.Success(spotifyWebMessage);
+        }
+        catch (Exception ex)
+        {
+            spotifyWebError = ex.Message;
+        }
+        finally
+        {
+            savingSpotifyFallback = false;
+        }
+    }
+
+    private async Task SaveSpotifyFallbackCookieAsync(string bareCookie)
+    {
+        var header = "sp_dc=" + bareCookie;
+        await using var db = await DbFactory.CreateDbContextAsync();
+        await Upsert(db, "spotify_cookie", header);
+        await db.SaveChangesAsync();
+        MelodyBridge.Infrastructure.Services.SpotifySourceProvider.WebCookie = header;
+    }
+
+    private async Task ClearSpotifyFallbackCookieAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        await Upsert(db, "spotify_cookie", string.Empty);
+        await db.SaveChangesAsync();
+        MelodyBridge.Infrastructure.Services.SpotifySourceProvider.WebCookie = null;
+    }
+
+    private async Task<string> LoadFallbackCookieAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var header = await db.DownloaderSettings
+            .Where(row => row.Key == "spotify_cookie")
+            .Select(row => row.Value)
+            .FirstOrDefaultAsync();
+        return ExtractSpDcCookie(header);
+    }
+
+    /// <summary>
+    /// Pulls sp_dc out of a full cookie header or accepts a bare value.
+    /// The old Network field stored the header, the unofficial provider
+    /// stored the bare value; one input must read both without changing
+    /// the value a working install already has.
+    /// </summary>
+    private static string ExtractSpDcCookie(string? header)
+    {
+        var value = (header ?? string.Empty).Trim();
+        if (value.Length == 0) return string.Empty;
+        foreach (var part in value.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (part.StartsWith("sp_dc=", StringComparison.OrdinalIgnoreCase))
+                return part["sp_dc=".Length..].Trim().Trim('"');
+        }
+        return NormalizeCookie(value);
     }
 
     /// <summary>
@@ -1521,39 +1806,14 @@ else if (activeTab == "about")
                 flareMessage = "Solver is off: Lucida stays unavailable.";
                 return;
             }
-            if (url.Equals("auto", StringComparison.OrdinalIgnoreCase))
-            {
-                // Same sweep the solver runs: first /health that answers
-                // 200 wins, so the report matches what Lucida will use.
-                using var http = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(2) };
-                foreach (var candidate in MelodyBridge.Infrastructure.Cloudflare.FlareSolverrSolver.AutoDetectCandidates)
-                {
-                    try
-                    {
-                        using var response = await http.GetAsync($"{candidate}/health");
-                        if (response.IsSuccessStatusCode)
-                        {
-                            flareStatus = "ok";
-                            flareMessage = $"FlareSolverr answered at {candidate}: Lucida can use it.";
-                            return;
-                        }
-                    }
-                    catch (Exception)
-                    {
-                        // Unreachable candidate: fall through to the next one.
-                    }
-                }
-                flareStatus = "err";
-                flareMessage = "No FlareSolverr answered on the Docker network. Check the container.";
-                return;
-            }
-            using var http2 = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(8) };
-            var response2 = await http2.PostAsJsonAsync($"{url.TrimEnd('/')}/v1",
-                new { cmd = "sessions.list" });
-            flareStatus = response2.IsSuccessStatusCode ? "ok" : $"http {(int)response2.StatusCode}";
-            flareMessage = response2.IsSuccessStatusCode
-                ? "FlareSolverr answered: Lucida can use it."
-                : "It responded but not with OK. Check the URL and container logs.";
+
+            // A /health answer only proves the HTTP server is up. The real
+            // question is whether the browser can finish a challenge, so
+            // the test solves lucida.to end to end.
+            var probe = await MelodyBridge.Infrastructure.Cloudflare.FlareSolverrSolver
+                .ProbeAsync(url, "https://lucida.to");
+            flareStatus = probe.Ok ? "ok" : "err";
+            flareMessage = probe.Message;
         }
         catch (Exception ex)
         {
@@ -1593,12 +1853,10 @@ else if (activeTab == "about")
             await Upsert(db, "quality_length_tolerance_seconds", lengthToleranceSeconds);
             await Upsert(db, "quality_length_tolerance_percent", lengthTolerancePercent);
             await Upsert(db, "flaresolverr_url", flaresolverrUrl);
-            await Upsert(db, "spotify_cookie", spotifyCookie);
             await db.SaveChangesAsync();
             PlaylistStore.Verification = () => VerificationOptions.FromSettings(
                 spectrumMode, spectrumClassGap, lengthToleranceSeconds, lengthTolerancePercent);
             FlareSolverrSolver.Url = flaresolverrUrl;
-            MelodyBridge.Infrastructure.Services.SpotifySourceProvider.WebCookie = spotifyCookie;
 
             // The account credential fields save here too: they are as much
             // part of the page as the paths, and losing them silently on a
@@ -1656,10 +1914,78 @@ else if (activeTab == "about")
 
     /// <summary>An edit landed: the floating save bar appears.</summary>
     /// <summary>Maps a stored format to the select and its optional text field.</summary>
+    private static readonly (string Value, string Label)[] BaseArchiveFormatOptions =
+    [
+        ("auto", "Auto: copy the downloaded file as-is"),
+        ("opus", "Opus: small and efficient (128k)"),
+        ("opus:192", "Opus: higher quality (192k)"),
+        ("flac", "FLAC: lossless (level 5)"),
+        ("mp3", "MP3: widely compatible (256k)"),
+        ("mp3:128", "MP3: compact (128k)"),
+        ("mp3:160", "MP3: balanced (160k)"),
+        ("mp3:320", "MP3: high quality (320k)"),
+        ("aac", "AAC: small and modern (192k)"),
+        ("aac:256", "AAC: higher quality (256k)"),
+        ("custom", "Custom container..."),
+    ];
+
+    private IReadOnlyList<(string Value, string Label)> ArchiveFormatOptions
+    {
+        get
+        {
+            var options = BaseArchiveFormatOptions.ToList();
+            if (IsSimpleArchiveFormat(archiveFormat)
+                && !options.Any(option => option.Value == archiveFormat))
+            {
+                options.Insert(options.Count - 1,
+                    (archiveFormat, ArchiveFormatText(archiveFormat)));
+            }
+            return options;
+        }
+    }
+
+    private static bool IsSimpleArchiveFormat(string? format)
+    {
+        var spec = ArchiveCopier.ParseFormat(format);
+        return spec.Codec is null
+            && spec.Container is "auto" or "opus" or "flac" or "mp3" or "aac";
+    }
+
+    private static string ArchiveFormatText(string? format)
+    {
+        var spec = ArchiveCopier.ParseFormat(format);
+        return spec.Container switch
+        {
+            "auto" => "Auto (same file)",
+            "flac" => "FLAC lossless",
+            "opus" or "mp3" or "aac" =>
+                $"{ContainerLabel(spec.Container)} {spec.BitrateKbps ?? DefaultBitrate(spec.Container)} kbps",
+            _ => spec.Container
+                + (spec.Codec is { Length: > 0 } ? " / " + spec.Codec : "")
+                + (spec.BitrateKbps is { } rate ? $" / {rate} kbps" : ""),
+        };
+    }
+
+    private static int DefaultBitrate(string container) => container switch
+    {
+        "opus" => 128,
+        "aac" => 192,
+        _ => 256,
+    };
+
+    private static string ContainerLabel(string container) => container switch
+    {
+        "opus" => "Opus",
+        "mp3" => "MP3",
+        "aac" => "AAC",
+        "flac" => "FLAC",
+        _ => container,
+    };
+
     private void SetArchiveFormatState(string? stored)
     {
         archiveFormat = ArchiveCopier.NormalizeFormat(stored);
-        if (ArchiveCopier.IsPresetFormat(archiveFormat))
+        if (IsSimpleArchiveFormat(archiveFormat))
         {
             archiveFormatChoice = archiveFormat;
             archiveFormatCustom = "";
@@ -1669,6 +1995,201 @@ else if (activeTab == "about")
             archiveFormatChoice = "custom";
             archiveFormatCustom = archiveFormat;
         }
+    }
+
+    private async Task ReloadArchiveProfilesAsync()
+        => archiveProfiles = (await ArchiveProfiles.GetAllAsync()).ToList();
+
+    private void OpenNewArchiveProfile()
+    {
+        var number = archiveProfiles.Count + 1;
+        archiveDraft = new ArchiveProfileEntity
+        {
+            Id = "",
+            Name = $"Archive {number}",
+            RootPath = "",
+            Format = "opus:128",
+            Enabled = true,
+        };
+        archiveDraftOriginalRoot = null;
+        LoadArchiveDraftFormat(archiveDraft.Format);
+        archiveProfileError = null;
+        showArchiveProfileEditor = true;
+    }
+
+    private void OpenEditArchiveProfile(ArchiveProfileEntity profile)
+    {
+        archiveDraft = new ArchiveProfileEntity
+        {
+            Id = profile.Id,
+            Name = profile.Name,
+            RootPath = profile.RootPath,
+            Format = profile.Format,
+            Enabled = profile.Enabled,
+            Priority = profile.Priority,
+            CreatedAt = profile.CreatedAt,
+        };
+        archiveDraftOriginalRoot = profile.RootPath;
+        LoadArchiveDraftFormat(profile.Format);
+        archiveProfileError = null;
+        showArchiveProfileEditor = true;
+    }
+
+    private void LoadArchiveDraftFormat(string? format)
+    {
+        var spec = ArchiveCopier.ParseFormat(format);
+        if (spec.Container is "auto" or "opus" or "flac" or "mp3" or "aac"
+            && spec.Codec is null)
+        {
+            archiveDraftContainer = spec.Container;
+            archiveDraftBitrate = (spec.BitrateKbps ?? DefaultBitrate(spec.Container)).ToString();
+            archiveDraftCodec = "";
+            archiveDraftCustomContainer = "ogg";
+        }
+        else
+        {
+            archiveDraftContainer = "custom";
+            archiveDraftCustomContainer = spec.Container;
+            archiveDraftCodec = spec.Codec ?? "";
+            archiveDraftBitrate = (spec.BitrateKbps ?? 192).ToString();
+        }
+    }
+
+    private bool ShowArchiveDraftBitrate
+        => archiveDraftContainer is "opus" or "mp3" or "aac" or "custom";
+
+    private void OnArchiveDraftContainerChanged()
+    {
+        archiveDraftBitrate = archiveDraftContainer switch
+        {
+            "opus" => "128",
+            "mp3" => "256",
+            "aac" => "192",
+            "custom" => archiveDraftBitrate,
+            _ => "",
+        };
+    }
+
+    private string ArchiveDraftSummary => archiveDraftContainer switch
+    {
+        "auto" => "Byte-for-byte copy of the downloaded file. No ffmpeg work.",
+        "flac" => "Lossless FLAC, compression level 5. The largest option.",
+        "opus" => $"Opus at {archiveDraftBitrate} kbps. Small files with good quality.",
+        "mp3" => $"MP3 at {archiveDraftBitrate} kbps. Plays almost everywhere.",
+        "aac" => $"AAC at {archiveDraftBitrate} kbps, written as .m4a.",
+        _ => "A custom ffmpeg container. Use the codec field when the container needs one.",
+    };
+
+    private string BuildArchiveDraftFormat()
+    {
+        if (archiveDraftContainer is "auto" or "flac")
+            return archiveDraftContainer;
+        if (archiveDraftContainer == "custom")
+        {
+            var container = archiveDraftCustomContainer.Trim().TrimStart('.').ToLowerInvariant();
+            var codec = archiveDraftCodec.Trim().ToLowerInvariant();
+            var rate = archiveDraftBitrate.Trim();
+            return container
+                + (codec.Length > 0 ? ":" + codec : "")
+                + (rate.Length > 0 ? ":" + rate : "");
+        }
+        return archiveDraftContainer + ":" + archiveDraftBitrate;
+    }
+
+    private async Task SaveArchiveProfile()
+    {
+        if (archiveDraft is null) return;
+        archiveProfileError = null;
+        archiveSaving = true;
+        try
+        {
+            archiveDraft.Name = archiveDraft.Name.Trim();
+            archiveDraft.RootPath = archiveDraft.RootPath.Trim();
+            if (archiveDraft.RootPath.Length == 0)
+                throw new InvalidOperationException("Choose a folder for this archive.");
+            archiveDraft.Format = BuildArchiveDraftFormat();
+            if (archiveProfiles.Any(other =>
+                !string.Equals(other.Id, archiveDraft.Id, StringComparison.Ordinal)
+                && string.Equals(other.RootPath.Trim(), archiveDraft.RootPath,
+                    OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)
+                && ArchiveCopier.ExtensionsMayCollide(other.Format, archiveDraft.Format)))
+            {
+                throw new InvalidOperationException(
+                    "Another archive profile already uses this folder and format.");
+            }
+            if (archivePath.Trim().Length > 0
+                && string.Equals(
+                    Path.GetFullPath(archiveDraft.RootPath),
+                    Path.GetFullPath(archivePath.Trim()),
+                    OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)
+                && ArchiveCopier.ExtensionsMayCollide(archiveDraft.Format, archiveFormat))
+            {
+                throw new InvalidOperationException(
+                    "The default archive already uses this folder and format. Pick another folder or format.");
+            }
+
+            // Move the existing copies before the profile points at the new
+            // root, so the files and the rows keep the same story.
+            if (archiveDraftOriginalRoot is { Length: > 0 } oldRoot
+                && !string.Equals(oldRoot, archiveDraft.RootPath, StringComparison.Ordinal))
+            {
+                await ArchiveCopies.MoveRootAsync(oldRoot, archiveDraft.RootPath);
+            }
+
+            await ArchiveProfiles.SaveAsync(archiveDraft);
+            await ReloadArchiveProfilesAsync();
+            showArchiveProfileEditor = false;
+            archiveDraft = null;
+            Notifications.Success("Archive profile saved.");
+        }
+        catch (Exception ex)
+        {
+            archiveProfileError = ex.Message;
+        }
+        finally
+        {
+            archiveSaving = false;
+        }
+    }
+
+    private void CloseArchiveProfileEditor()
+    {
+        showArchiveProfileEditor = false;
+        archiveDraft = null;
+        archiveProfileError = null;
+    }
+
+    private async Task ToggleArchiveProfile(ArchiveProfileEntity profile, bool enabled)
+    {
+        await ArchiveProfiles.SetEnabledAsync(profile.Id, enabled);
+        await ReloadArchiveProfilesAsync();
+        Notifications.Success(enabled
+            ? $"{profile.Name} enabled. Use Build missing for tracks you already have."
+            : $"{profile.Name} disabled; existing copies stay on disk.");
+    }
+
+    private void AskDeleteArchiveProfile(ArchiveProfileEntity profile)
+        => archivePendingDelete = profile;
+
+    private void CancelDeleteArchiveProfile()
+        => archivePendingDelete = null;
+
+    private async Task DeleteArchiveProfile()
+    {
+        if (archivePendingDelete is null) return;
+        var name = archivePendingDelete.Name;
+        await ArchiveProfiles.DeleteAsync(archivePendingDelete.Id);
+        archivePendingDelete = null;
+        await ReloadArchiveProfilesAsync();
+        Notifications.Info($"{name} removed. Files already on disk were kept.");
+    }
+
+    private void StartArchiveBackfill(ArchiveProfileEntity profile)
+    {
+        if (!ArchiveBackfill.Start(profile.Id, profile.Name))
+            Notifications.Warn("An archive pass is already running.");
+        else
+            Notifications.Info($"Building {profile.Name} copies for your existing tracks.");
     }
 
     private void OnArchiveFormatChoiceChanged(ChangeEventArgs e)
@@ -1736,6 +2257,24 @@ else if (activeTab == "about")
                 ? "Every playlist gets its own folder under the music path."
                 : $"Every playlist gets its own folder, for example {root}/My playlist.";
         }
+    }
+
+    private void SetMusicPath(string value)
+    {
+        musicPath = value;
+        ValidatePaths();
+    }
+
+    private void SetPlaylistPath(string value)
+    {
+        playlistPath = value;
+        ValidatePaths();
+    }
+
+    private void SetArchivePath(string value)
+    {
+        archivePath = value;
+        ValidatePaths();
     }
 
     /// <summary>Advisory path checks: warnings, never a blocked save.</summary>
@@ -1879,6 +2418,8 @@ else if (activeTab == "about")
         profileError = null;
         await ServerProfiles.SaveAsync(editingProfile);
         profiles = (await ServerProfiles.GetAllAsync()).ToList();
+        archiveProfiles = (await ArchiveProfiles.GetAllAsync()).ToList();
+        ArchiveBackfill.Changed += OnArchiveBackfillChanged;
         editingProfile = null;
         Notifications.Success("Profile saved.");
     }
@@ -1936,6 +2477,8 @@ else if (activeTab == "about")
                 Notifications.Info($"Deleted profile '{deleteProfileName}'.");
             }
             profiles = (await ServerProfiles.GetAllAsync()).ToList();
+        archiveProfiles = (await ArchiveProfiles.GetAllAsync()).ToList();
+        ArchiveBackfill.Changed += OnArchiveBackfillChanged;
         }
         deleteProfileId = null;
     }
@@ -2038,5 +2581,23 @@ else if (activeTab == "about")
         StateHasChanged();
     }
 
-    public void Dispose() => Nav.LocationChanged -= OnLocationChanged;
+    public void Dispose()
+    {
+        Nav.LocationChanged -= OnLocationChanged;
+        ArchiveBackfill.Changed -= OnArchiveBackfillChanged;
+    }
+
+    private void OnArchiveBackfillChanged()
+        => _ = InvokeAsync(StateHasChanged);
+
+    private int ArchiveBackfillPercent
+    {
+        get
+        {
+            var progress = ArchiveBackfill.Progress;
+            return progress.Total <= 0
+                ? 0
+                : Math.Clamp(100 * progress.Done / progress.Total, 0, 100);
+        }
+    }
 }

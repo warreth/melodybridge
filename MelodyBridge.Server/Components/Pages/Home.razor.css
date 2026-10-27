@@ -25,7 +25,9 @@
 
 /* Tablet and below: one column, so the narrow sync-runs and errors cards
    get the full width instead of clipping their tables. */
-@media (max-width: 1100px) {
+/* Keep the two dashboard columns on laptop widths: they carry short
+   rows, not wide tables. Only tablet and below stack them. */
+@media (max-width: 900px) {
     .dashboard-grid {
         grid-template-columns: minmax(0, 1fr);
     }
@@ -183,3 +185,297 @@
     .dashboard-stats .stat-card small { font-size: .72rem; }
     .dashboard-stats .stat-icon { width: 32px; height: 32px; margin-bottom: .55rem; }
 }
+
+/* ---------------------------------------------------------------- */
+/* Dashboard refresh: attention first, then activity and setup.      */
+/* ---------------------------------------------------------------- */
+
+.dashboard-actions { align-items: center; gap: .5rem; }
+.dashboard-live {
+    display: inline-flex;
+    align-items: center;
+    gap: .35rem;
+    padding: .28rem .55rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--muted);
+    font-size: .72rem;
+    font-weight: 600;
+    white-space: nowrap;
+}
+.dashboard-live .status-dot { width: 7px; height: 7px; }
+
+/* The one band that says what needs a decision. It is intentionally
+   louder than the numbers below, but still a compact set of rows. */
+.dashboard-attention {
+    margin-top: 1rem;
+    border-color: color-mix(in srgb, var(--danger) 28%, var(--border));
+    background: color-mix(in srgb, var(--danger-soft) 55%, var(--surface));
+}
+.dashboard-attention .panel-header { margin-bottom: .75rem; }
+.dashboard-attention h2 { font-size: 1.05rem; }
+.attention-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: .5rem;
+}
+.attention-item {
+    display: flex;
+    align-items: center;
+    gap: .65rem;
+    min-width: 0;
+    padding: .6rem .7rem;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    color: var(--text);
+    text-decoration: none;
+}
+.attention-item:hover { border-color: var(--border-strong); }
+.attention-count {
+    display: grid;
+    place-items: center;
+    flex: 0 0 auto;
+    min-width: 2rem;
+    height: 2rem;
+    padding: 0 .35rem;
+    border-radius: 8px;
+    font-size: .82rem;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+}
+.attention-item.danger .attention-count { background: var(--danger-soft); color: var(--danger); }
+.attention-item.warning .attention-count { background: var(--warning-soft); color: var(--warning); }
+.attention-item.neutral .attention-count { background: var(--surface-2); color: var(--muted); }
+.attention-copy { display: grid; gap: .1rem; min-width: 0; }
+.attention-copy strong { font-size: .84rem; line-height: 1.3; }
+.attention-copy small { color: var(--muted); font-size: .75rem; line-height: 1.35; overflow-wrap: anywhere; }
+.attention-arrow { flex: 0 0 auto; margin-left: auto; color: var(--muted-2); }
+
+.dashboard-clear-wide {
+    margin-top: 1rem;
+    border: 1px solid color-mix(in srgb, var(--success) 26%, var(--border));
+    border-radius: var(--radius);
+    background: var(--success-soft);
+}
+.dashboard-clear-wide .dashboard-clear-icon {
+    background: var(--success-soft);
+    color: var(--success);
+}
+.dashboard-clear-wide .btn-modern { margin-left: auto; flex-shrink: 0; }
+
+.dashboard-grid { margin-top: 1rem; }
+.dashboard-activity,
+.dashboard-connections { min-width: 0; }
+
+/* Live download summary inside the activity card. */
+.activity-live {
+    display: grid;
+    gap: .55rem;
+    padding: .7rem .75rem;
+    border: 1px solid color-mix(in srgb, var(--accent) 25%, var(--border));
+    border-radius: 10px;
+    background: var(--surface-2);
+}
+.activity-live-head {
+    display: flex;
+    align-items: center;
+    gap: .45rem;
+    flex-wrap: wrap;
+}
+.activity-live-head strong { font-size: .88rem; }
+.activity-live-head .text-muted { font-size: .78rem; }
+.activity-live-head .btn-modern { margin-left: auto; }
+.activity-live .progress-track { height: 5px; }
+.activity-live .progress-track > span,
+.mini-progress > span {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: var(--accent-strong);
+    transition: width .35s ease;
+}
+.active-run-row {
+    display: grid;
+    grid-template-columns: minmax(0, auto) minmax(0, 1fr) auto;
+    gap: .5rem;
+    align-items: baseline;
+    padding-top: .45rem;
+    border-top: 1px solid var(--border);
+    font-size: .78rem;
+}
+.active-run-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.active-run-row small { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.active-run-count { color: var(--muted-2); font-variant-numeric: tabular-nums; }
+
+.activity-idle {
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    padding: .65rem .75rem;
+    border: 1px dashed var(--border);
+    border-radius: 9px;
+    color: var(--muted);
+    font-size: .8rem;
+}
+.activity-section-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: .75rem;
+    margin: .95rem 0 .15rem;
+}
+.activity-section-head .eyebrow { margin: 0; }
+.text-link { color: var(--accent-text); font-size: .76rem; font-weight: 600; text-decoration: none; }
+.text-link:hover { text-decoration: underline; }
+.run-dot.warn { background: var(--warning); }
+.run-tracks { color: var(--muted-2) !important; font-size: .72rem !important; }
+
+/* Connections are grouped by what the user has to configure, not by
+   whatever order the probe returned. */
+.connection-groups { display: grid; gap: .85rem; }
+.connection-group { display: grid; gap: .35rem; }
+.connection-group + .connection-group {
+    padding-top: .75rem;
+    border-top: 1px solid var(--border);
+}
+.connection-group-label {
+    color: var(--muted-2);
+    font-size: .66rem;
+    font-weight: 700;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+}
+.connection-empty {
+    display: block;
+    padding: .55rem .6rem;
+    border: 1px dashed var(--border);
+    border-radius: 8px;
+    color: var(--muted);
+    font-size: .78rem;
+    line-height: 1.4;
+    text-decoration: none;
+}
+.connection-empty:hover { border-color: var(--accent); color: var(--text); }
+
+/* Playlists: three compact cards per row instead of six ragged tiles. */
+.dashboard-playlists-section { margin-top: 1rem; }
+.dashboard-partial {
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    margin-bottom: .75rem;
+    padding: .55rem .65rem;
+    border: 1px solid color-mix(in srgb, var(--warning) 30%, var(--border));
+    border-radius: 8px;
+    background: var(--warning-soft);
+    color: var(--text);
+    font-size: .8rem;
+    text-decoration: none;
+}
+.dashboard-partial .icon { flex-shrink: 0; color: var(--warning); }
+.dashboard-partial span { flex: 1; min-width: 0; }
+.dashboard-playlists {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: .75rem;
+}
+.dashboard-playlist {
+    display: grid;
+    grid-template-columns: 64px minmax(0, 1fr);
+    gap: .7rem;
+    align-items: start;
+    padding: .7rem;
+}
+.dashboard-playlists .dashboard-cover {
+    width: 64px;
+    height: 64px;
+    aspect-ratio: auto;
+    border-radius: 8px;
+    flex: 0 0 64px;
+}
+.dashboard-cover .cover-badge { font-size: .56rem; padding: .1rem .3rem; right: .2rem; bottom: .2rem; }
+.dashboard-playlist-copy { display: grid; gap: .15rem; min-width: 0; }
+.dashboard-playlist-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: .4rem;
+    min-width: 0;
+}
+.dashboard-playlist-top .eyebrow { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dashboard-playlist h3 {
+    margin: 0;
+    font-size: .9rem;
+    line-height: 1.3;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+}
+.dashboard-playlist h3 a { color: var(--text); text-decoration: none; }
+.dashboard-playlist h3 a:hover { color: var(--accent-strong); text-decoration: underline; }
+.dashboard-playlist-copy > small { color: var(--muted); font-size: .72rem; }
+.mini-progress {
+    height: 3px;
+    margin-top: .2rem;
+    border-radius: 99px;
+    background: color-mix(in srgb, var(--border) 35%, transparent);
+    overflow: hidden;
+}
+.mini-progress > span { background: var(--accent); }
+
+@media (max-width: 1100px) {
+    .attention-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .dashboard-playlists { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    /* Four metrics still fit on one row between tablet and desktop; the
+       global 2x2 rule would only add height. */
+    .dashboard-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+
+@media (max-width: 720px) {
+    .dashboard-actions { flex-wrap: wrap; }
+    .dashboard-live { order: -1; }
+    .attention-grid { grid-template-columns: minmax(0, 1fr); }
+    .dashboard-clear-wide { flex-wrap: wrap; }
+    .dashboard-clear-wide .btn-modern { margin-left: 0; }
+    .dashboard-playlists { grid-template-columns: minmax(0, 1fr); }
+    .dashboard-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .active-run-row { grid-template-columns: minmax(0, 1fr) auto; }
+    .active-run-row small { grid-column: 1 / -1; }
+    .dashboard-playlist { grid-template-columns: 56px minmax(0, 1fr); }
+}
+
+/* Details live inside the attention band, not as extra cards. */
+.attention-detail {
+    display: grid;
+    gap: .4rem;
+    margin-top: .75rem;
+    padding-top: .75rem;
+    border-top: 1px solid color-mix(in srgb, var(--danger) 16%, var(--border));
+}
+.attention-error-list { display: grid; gap: .15rem; }
+.attention-error {
+    display: grid;
+    grid-template-columns: auto minmax(5rem, auto) minmax(0, 1fr);
+    gap: .55rem;
+    align-items: baseline;
+    padding: .3rem .4rem;
+    border-radius: 6px;
+    color: var(--text);
+    font-size: .76rem;
+    text-decoration: none;
+}
+.attention-error:hover { background: var(--surface-2); }
+.attention-error-time { color: var(--muted-2); font-variant-numeric: tabular-nums; }
+.attention-error-area { color: var(--muted); font-weight: 600; }
+.attention-error-message { overflow-wrap: anywhere; }
+@media (max-width: 720px) {
+    .attention-error { grid-template-columns: auto minmax(0, 1fr); }
+    .attention-error-area { display: none; }
+}
+
+/* A compact error strip: three rows, no nested scroller, only when there
+   is something in the live log. */
+.dashboard-errors { margin-top: 1rem; }
+.dashboard-errors .panel-header { margin-bottom: .35rem; }
+.dashboard-errors h2 { font-size: 1rem; }

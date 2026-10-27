@@ -1,0 +1,621 @@
+@page "/attention"
+@using MelodyBridge.Application.Services
+@using MelodyBridge.Infrastructure.Services
+@inject AttentionService AttentionData
+@inject AttentionActions Actions
+@inject PlaylistStore Store
+@inject NotificationService Notifications
+@inject DataChangeTracker Changes
+@inject NavigationManager Nav
+@implements IDisposable
+
+<PageTitle>Needs attention - MelodyBridge</PageTitle>
+
+<section class="page-title">
+    <div>
+        <span class="eyebrow">Library health</span>
+        <h1>Needs attention</h1>
+        <p>Every failed download, open review and archive repair in one place, grouped by what it needs.</p>
+    </div>
+    <div class="topbar-actions">
+        <small class="text-muted updated-note">@(lastLoaded == default ? "" : $"loaded {lastLoaded:HH:mm:ss}")</small>
+        <button class="btn-modern ghost small" @onclick="LoadAsync" disabled="@loading">
+            <Icon Name="refresh" Size="14" /> @(loading ? "Loading…" : "Refresh")
+        </button>
+        <a class="btn-modern secondary small" href="/playlists">
+            <Icon Name="list-music" Size="14" /> Playlists
+        </a>
+    </div>
+</section>
+
+<section class="attention-summary">
+    <button class="attention-metric @(kindFilter == "all" ? "active" : null)" @onclick='() => SetFilterAsync("all")'>
+        <strong>@snapshot.Total</strong>
+        <span>all open</span>
+    </button>
+    <button class="attention-metric bad @(kindFilter == "failed" ? "active" : null)" @onclick='() => SetFilterAsync("failed")'>
+        <strong>@snapshot.FailedCount</strong>
+        <span>failed</span>
+    </button>
+    <button class="attention-metric warn @(kindFilter == "review" ? "active" : null)" @onclick='() => SetFilterAsync("review")'>
+        <strong>@snapshot.ReviewCount</strong>
+        <span>reviews</span>
+    </button>
+    <button class="attention-metric warn @(kindFilter == "dedup" ? "active" : null)" @onclick='() => SetFilterAsync("dedup")'>
+        <strong>@snapshot.DedupCount</strong>
+        <span>hardlinks</span>
+    </button>
+    <button class="attention-metric @(kindFilter == "archive" ? "active" : null)" @onclick='() => SetFilterAsync("archive")'>
+        <strong>@snapshot.ArchiveCount</strong>
+        <span>archives</span>
+    </button>
+    <button class="attention-metric @(kindFilter == "playlists" ? "active" : null)" @onclick='() => SetFilterAsync("playlists")'>
+        <strong>@snapshot.Playlists.Count</strong>
+        <span>playlists</span>
+    </button>
+</section>
+
+@if (_lastResult is not null)
+{
+    <div class="result-box @(_lastResult.Failed == 0 ? "ok" : "error") attention-result">
+        <strong>@_lastResult.Summary</strong>
+        @if (_lastResult.Messages.Count > 0)
+        {
+            <span>@string.Join(" · ", _lastResult.Messages.Take(3))</span>
+        }
+    </div>
+}
+
+@if (_busy)
+{
+    <div class="attention-progress">
+        <span class="spinner"></span>
+        <div>
+            <strong>@_busyLabel</strong>
+            <small>@_progressDone of @_progressTotal</small>
+        </div>
+        <div class="progress-track" aria-hidden="true">
+            <span style="width:@ProgressPercent%"></span>
+        </div>
+    </div>
+}
+
+@if (SelectedTracks.Count > 0)
+{
+    <section class="attention-bulk" aria-label="Bulk actions">
+        <strong>@SelectedTracks.Count selected</strong>
+        @if (HasRetrySelection)
+        {
+            <button class="btn-modern small primary" disabled="@_busy" @onclick="() => RunSelectedAsync(SelectedAction.Retry)">
+                Retry downloads
+            </button>
+            <button class="btn-modern small secondary" disabled="@_busy" @onclick="() => RunSelectedAsync(SelectedAction.RetryElsewhere)">
+                Retry elsewhere
+            </button>
+        }
+        @if (HasHardlinkSelection)
+        {
+            <button class="btn-modern small secondary" disabled="@_busy" @onclick="() => RunSelectedAsync(SelectedAction.Hardlink)">
+                Find hardlinks
+            </button>
+        }
+        @if (HasDedupSelection)
+        {
+            <button class="btn-modern small secondary" disabled="@_busy" @onclick="() => RunSelectedAsync(SelectedAction.DedupHardlink)">
+                Hardlink existing
+            </button>
+            <button class="btn-modern small secondary" disabled="@_busy" @onclick="() => RunSelectedAsync(SelectedAction.DedupDownload)">
+                Download new
+            </button>
+        }
+        @if (HasArchiveSelection)
+        {
+            <button class="btn-modern small secondary" disabled="@_busy" @onclick="() => RunSelectedAsync(SelectedAction.Archive)">
+                Recreate archives
+            </button>
+        }
+        <button class="btn-modern small ghost" @onclick="ClearSelection">Clear</button>
+    </section>
+}
+
+@if (VisibleGroups.Count == 0 && (kindFilter != "playlists" || snapshot.Playlists.Count == 0))
+{
+    <EmptyState IconName="check-circle" Title="Nothing needs attention">
+        Every downloaded track passed its checks.@(kindFilter == "all" ? "" : " Try another filter to see the other groups.")
+    </EmptyState>
+}
+else
+{
+    @foreach (var group in VisibleGroups)
+    {
+        <section class="attention-group" aria-labelledby="group-@group.Kind">
+            <div class="attention-group-head">
+                <div class="attention-group-title">
+                    <span class="attention-group-icon @Tone(group.Kind)">
+                        <Icon Name="@KindIcon(group.Kind)" Size="17" />
+                    </span>
+                    <div>
+                        <h2 id="group-@group.Kind">
+                            @group.Label
+                            <span class="group-count">@group.Tracks.Count</span>
+                        </h2>
+                        <p>@group.Description</p>
+                    </div>
+                </div>
+                <div class="attention-group-actions">
+                    @if (group.Tracks.Count > 1)
+                    {
+                        <button class="btn-modern small ghost" @onclick="() => ToggleGroup(group)">
+                            @(GroupSelected(group) ? "Clear group" : "Select group")
+                        </button>
+                    }
+                    @if (AttentionKinds.IsFailure(group.Kind))
+                    {
+                        <button class="btn-modern small secondary" disabled="@_busy"
+                                @onclick="() => RunGroupAsync(group, SelectedAction.Retry)">
+                            Retry all
+                        </button>
+                    }
+                    @if (group.Kind == AttentionKinds.Dedup)
+                    {
+                        <button class="btn-modern small secondary" disabled="@_busy"
+                                @onclick="() => RunGroupAsync(group, SelectedAction.DedupHardlink)">
+                            Find hardlinks
+                        </button>
+                    }
+                    @if (group.Kind is AttentionKinds.Archive
+                        or AttentionKinds.FileMissing or AttentionKinds.Unverified)
+                    {
+                        <button class="btn-modern small secondary" disabled="@_busy"
+                                @onclick="() => RunGroupAsync(group, SelectedAction.Archive)">
+                            Recreate all
+                        </button>
+                    }
+                </div>
+            </div>
+
+            <div class="attention-rows">
+                @foreach (var track in VisibleTracks(group))
+                {
+                    <div class="attention-row @(selected.Contains(track.TrackId) ? "selected" : null)">
+                        <input type="checkbox" class="row-select" checked="@selected.Contains(track.TrackId)"
+                               aria-label="Select @track.Title"
+                               @onchange="() => ToggleTrack(track.TrackId)" />
+                        <div class="attention-row-copy">
+                            <div class="attention-row-title">
+                                <strong>@track.Title</strong>
+                                @if (!string.IsNullOrWhiteSpace(track.Artist))
+                                {
+                                    <span>@track.Artist</span>
+                                }
+                                <a class="attention-playlist" href="/playlists/@track.PlaylistId">@track.PlaylistName</a>
+                            </div>
+                            <small>@track.Detail</small>
+                        </div>
+                        <StatusPill Variant="@PillVariant(track.Kind)">@KindShort(track.Kind)</StatusPill>
+                        <div class="attention-row-actions">
+                            @if (AttentionKinds.IsFailure(track.Kind) || track.Kind == AttentionKinds.FileMissing)
+                            {
+                                <button class="btn-modern small secondary" disabled="@_busy"
+                                        @onclick="() => RunTrackAsync(track, SelectedAction.Retry)">
+                                    Retry
+                                </button>
+                                <button class="btn-modern small ghost" disabled="@_busy"
+                                        @onclick="() => RunTrackAsync(track, SelectedAction.RetryElsewhere)">
+                                    Elsewhere
+                                </button>
+                                <button class="btn-modern small ghost" disabled="@_busy"
+                                        @onclick="() => RunTrackAsync(track, SelectedAction.Hardlink)">
+                                    Hardlink
+                                </button>
+                            }
+                            else if (track.Kind == AttentionKinds.Dedup)
+                            {
+                                <button class="btn-modern small secondary" disabled="@_busy"
+                                        @onclick="() => RunTrackAsync(track, SelectedAction.DedupHardlink)">
+                                    Hardlink existing
+                                </button>
+                                <button class="btn-modern small ghost" disabled="@_busy"
+                                        @onclick="() => RunTrackAsync(track, SelectedAction.DedupDownload)">
+                                    Download new
+                                </button>
+                            }
+                            else if (track.Kind.StartsWith("review-", StringComparison.Ordinal))
+                            {
+                                <button class="btn-modern small secondary" disabled="@_busy"
+                                        @onclick="() => RunTrackAsync(track, SelectedAction.Keep)">
+                                    Keep file
+                                </button>
+                                <button class="btn-modern small ghost" disabled="@_busy"
+                                        @onclick="() => RunTrackAsync(track, SelectedAction.RetryReview)">
+                                    Retry download
+                                </button>
+                            }
+                            else if (track.Kind is AttentionKinds.Archive or AttentionKinds.Unverified)
+                            {
+                                <button class="btn-modern small secondary" disabled="@_busy"
+                                        @onclick="() => RunTrackAsync(track, SelectedAction.Archive)">
+                                    Recreate
+                                </button>
+                            }
+                            <a class="btn-modern small ghost" href="/playlists/@track.PlaylistId">Open</a>
+                        </div>
+                    </div>
+                }
+            </div>
+            @if (group.Tracks.Count > RowLimit)
+            {
+                <button class="attention-more" @onclick="() => ToggleExpanded(group.Kind)">
+                    @(expandedGroups.Contains(group.Kind)
+                        ? $"Show first {RowLimit}"
+                        : $"Show all {group.Tracks.Count}")
+                    <Icon Name="@(expandedGroups.Contains(group.Kind) ? "chevron-up" : "chevron-down")" Size="14" />
+                </button>
+            }
+        </section>
+    }
+
+    @if (kindFilter is "all" or "playlists" && snapshot.Playlists.Count > 0)
+    {
+        <section class="attention-group" aria-labelledby="group-playlists">
+            <div class="attention-group-head">
+                <div class="attention-group-title">
+                    <span class="attention-group-icon warn"><Icon Name="list-music" Size="17" /></span>
+                    <div>
+                        <h2 id="group-playlists">Playlist syncs <span class="group-count">@snapshot.Playlists.Count</span></h2>
+                        <p>A refresh was incomplete or failed. Re-sync to fetch the rest.</p>
+                    </div>
+                </div>
+            </div>
+            <div class="attention-rows">
+                @foreach (var playlist in snapshot.Playlists)
+                {
+                    <div class="attention-row">
+                        <span class="attention-playlist-icon"><Icon Name="list-music" Size="15" /></span>
+                        <div class="attention-row-copy">
+                            <div class="attention-row-title">
+                                <strong>@playlist.Name</strong>
+                                <StatusPill Variant="@(playlist.Status == SyncStatus.Failed ? "err" : "warn")">
+                                    @(playlist.Status == SyncStatus.Failed ? "failed" : "partial")
+                                </StatusPill>
+                            </div>
+                            <small>@(playlist.Warning ?? "The last refresh did not complete.")</small>
+                        </div>
+                        <div class="attention-row-actions">
+                            @if (playlist.SourceUrl is { Length: > 0 } source
+                                && !source.StartsWith("spotify:import:", StringComparison.OrdinalIgnoreCase))
+                            {
+                                <button class="btn-modern small secondary" disabled="@_busy"
+                                        @onclick="() => ResyncPlaylistAsync(playlist)">
+                                    Re-sync
+                                </button>
+                            }
+                            <a class="btn-modern small ghost" href="/playlists/@playlist.PlaylistId">Open</a>
+                        </div>
+                    </div>
+                }
+            </div>
+        </section>
+    }
+}
+
+@code {
+    private enum SelectedAction
+    {
+        Retry,
+        RetryElsewhere,
+        Hardlink,
+        Archive,
+        Keep,
+        RetryReview,
+        DedupHardlink,
+        DedupDownload,
+    }
+
+    [Microsoft.AspNetCore.Components.SupplyParameterFromQuery(Name = "kind")]
+    public string? QueryKind { get; set; }
+
+    private AttentionSnapshot snapshot = new(Array.Empty<AttentionGroup>(), Array.Empty<AttentionPlaylist>());
+    private const int RowLimit = 8;
+    private readonly HashSet<int> selected = new();
+    private readonly HashSet<string> expandedGroups = new(StringComparer.Ordinal);
+    private string kindFilter = "all";
+    private bool loading;
+    private bool _busy;
+    private string _busyLabel = "";
+    private int _progressDone;
+    private int _progressTotal;
+    private AttentionActions.BulkResult? _lastResult;
+    private DateTime lastLoaded;
+    private long _seenVersion = -1;
+    private Timer? _timer;
+    private bool _disposed;
+
+    private IReadOnlyList<AttentionGroup> VisibleGroups => snapshot.Groups
+        .Where(group => kindFilter switch
+        {
+            "failed" => AttentionKinds.IsFailure(group.Kind),
+            "review" => group.Kind.StartsWith("review-", StringComparison.Ordinal),
+            "dedup" => group.Kind == AttentionKinds.Dedup,
+            "archive" => group.Kind is AttentionKinds.Archive
+                or AttentionKinds.FileMissing or AttentionKinds.Unverified,
+            "playlists" => false,
+            _ => true,
+        })
+        .ToList();
+
+    private IReadOnlyList<AttentionTrack> VisibleTracks(AttentionGroup group)
+        => expandedGroups.Contains(group.Kind) || group.Tracks.Count <= RowLimit
+            ? group.Tracks
+            : group.Tracks.Take(RowLimit).ToList();
+
+    private void ToggleExpanded(string kind)
+    {
+        if (!expandedGroups.Add(kind)) expandedGroups.Remove(kind);
+    }
+
+    private IReadOnlyList<AttentionTrack> SelectedTracks => VisibleGroups
+        .SelectMany(group => group.Tracks)
+        .Where(track => selected.Contains(track.TrackId))
+        .ToList();
+
+    private bool HasRetrySelection => SelectedTracks.Any(track =>
+        AttentionKinds.IsFailure(track.Kind) || track.Kind == AttentionKinds.FileMissing);
+
+    private bool HasHardlinkSelection => SelectedTracks.Any(track =>
+        AttentionKinds.IsFailure(track.Kind) || track.Kind == AttentionKinds.FileMissing);
+
+    private bool HasDedupSelection => SelectedTracks.Any(track =>
+        track.Kind == AttentionKinds.Dedup);
+
+    private bool HasArchiveSelection => SelectedTracks.Any(track =>
+        track.Kind is AttentionKinds.Archive or AttentionKinds.FileMissing
+            or AttentionKinds.Unverified);
+
+    private int ProgressPercent => _progressTotal <= 0
+        ? 0
+        : Math.Clamp(100 * _progressDone / _progressTotal, 0, 100);
+
+    protected override void OnParametersSet()
+    {
+        if (string.IsNullOrWhiteSpace(QueryKind)) return;
+        var normalized = NormalizeFilter(QueryKind);
+        if (normalized == kindFilter) return;
+        kindFilter = normalized;
+        selected.Clear();
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        kindFilter = NormalizeFilter(QueryKind);
+        await LoadAsync();
+        _timer = new Timer(_ => _ = InvokeAsync(async () =>
+        {
+            if (_disposed) return;
+            if (Changes.Version == _seenVersion) return;
+            await LoadAsync();
+        }), null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
+    }
+
+    private static string NormalizeFilter(string? kind)
+        => kind is "failed" or "review" or "dedup" or "archive" or "playlists"
+            ? kind
+            : "all";
+
+    private async Task LoadAsync()
+    {
+        loading = true;
+        try
+        {
+            _seenVersion = Changes.Version;
+            snapshot = await AttentionData.GetAsync();
+            selected.RemoveWhere(id => !snapshot.Groups
+                .SelectMany(group => group.Tracks)
+                .Any(track => track.TrackId == id));
+            lastLoaded = DateTime.Now;
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    private Task SetFilterAsync(string filter)
+    {
+        kindFilter = filter;
+        selected.Clear();
+        return Task.CompletedTask;
+    }
+
+    private void ToggleTrack(int trackId)
+    {
+        if (!selected.Add(trackId)) selected.Remove(trackId);
+    }
+
+    private bool GroupSelected(AttentionGroup group)
+        => group.Tracks.Count > 0 && group.Tracks.All(track => selected.Contains(track.TrackId));
+
+    private void ToggleGroup(AttentionGroup group)
+    {
+        if (GroupSelected(group))
+            foreach (var track in group.Tracks) selected.Remove(track.TrackId);
+        else
+            foreach (var track in group.Tracks) selected.Add(track.TrackId);
+    }
+
+    private void ClearSelection() => selected.Clear();
+
+    private Task RunSelectedAsync(SelectedAction action)
+    {
+        var tracks = action switch
+        {
+            SelectedAction.Retry or SelectedAction.RetryElsewhere
+                => SelectedTracks.Where(track => AttentionKinds.IsFailure(track.Kind)
+                    || track.Kind == AttentionKinds.FileMissing).ToList(),
+            SelectedAction.Hardlink
+                => SelectedTracks.Where(track => AttentionKinds.IsFailure(track.Kind)
+                    || track.Kind == AttentionKinds.FileMissing).ToList(),
+            SelectedAction.Archive
+                => SelectedTracks.Where(track => track.Kind is AttentionKinds.Archive
+                    or AttentionKinds.FileMissing or AttentionKinds.Unverified).ToList(),
+            SelectedAction.DedupHardlink or SelectedAction.DedupDownload
+                => SelectedTracks.Where(track => track.Kind == AttentionKinds.Dedup).ToList(),
+            _ => SelectedTracks,
+        };
+        return RunAsync(tracks, action, null);
+    }
+
+    private Task RunGroupAsync(AttentionGroup group, SelectedAction action)
+        => RunAsync(group.Tracks, action, group);
+
+    private Task RunTrackAsync(AttentionTrack track, SelectedAction action)
+        => RunAsync(new[] { track }, action, null);
+
+    private async Task RunAsync(
+        IReadOnlyList<AttentionTrack> tracks, SelectedAction action, AttentionGroup? group)
+    {
+        if (tracks.Count == 0 || _busy) return;
+        _busy = true;
+        _lastResult = null;
+        _busyLabel = action switch
+        {
+            SelectedAction.Retry => "Retrying downloads",
+            SelectedAction.RetryElsewhere => "Retrying at another source",
+            SelectedAction.Hardlink => "Looking for hardlinks",
+            SelectedAction.Archive => "Recreating archive copies",
+            SelectedAction.Keep => "Keeping files",
+            SelectedAction.RetryReview => "Retrying reviewed files",
+            SelectedAction.DedupHardlink => "Hardlinking existing files",
+            SelectedAction.DedupDownload => "Downloading new copies",
+            _ => "Working",
+        };
+        _progressDone = 0;
+        _progressTotal = tracks.Count;
+        var progress = new Progress<int>(done => _progressDone = done);
+        var ids = tracks.Select(track => track.TrackId).ToList();
+        try
+        {
+            _lastResult = action switch
+            {
+                SelectedAction.Retry => await Actions.RetryAsync(ids, false, progress),
+                SelectedAction.RetryElsewhere => await Actions.RetryAsync(ids, true, progress),
+                SelectedAction.Hardlink => await Actions.HardlinkAsync(ids, progress),
+                SelectedAction.Archive => await Actions.ArchiveAsync(ids, progress),
+                SelectedAction.Keep => await Actions.QualityReviewAsync(ids, QualityReviewAction.Keep, progress),
+                SelectedAction.RetryReview => await Actions.QualityReviewAsync(ids, QualityReviewAction.Retry, progress),
+                SelectedAction.DedupHardlink => await Actions.DedupAsync(ids, true, progress),
+                SelectedAction.DedupDownload => await Actions.DedupAsync(ids, false, progress),
+                _ => null,
+            };
+            if (_lastResult is not null)
+            {
+                if (_lastResult.Failed == 0) Notifications.Success(_lastResult.Summary);
+                else Notifications.Warn(_lastResult.Summary);
+            }
+            selected.Clear();
+            if (group is not null && group.Tracks.Count == 1) selected.Clear();
+            await LoadAsync();
+        }
+        catch (OperationCanceledException)
+        {
+            Notifications.Info("The action was stopped.");
+        }
+        catch (Exception ex)
+        {
+            Notifications.Error("The action failed: " + ex.Message);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task ResyncPlaylistAsync(AttentionPlaylist playlist)
+    {
+        _busy = true;
+        _busyLabel = "Re-syncing " + playlist.Name;
+        try
+        {
+            await Store.AddOrRefreshAsync(playlist.SourceUrl!);
+            Notifications.Success($"{playlist.Name} refreshed.");
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            Notifications.Error($"Could not refresh {playlist.Name}: {ex.Message}");
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private static string Tone(string kind) => kind switch
+    {
+        AttentionKinds.FailedNoSource or AttentionKinds.FailedAuth
+            or AttentionKinds.FailedCorrupt or AttentionKinds.FileMissing => "bad",
+        AttentionKinds.FailedQualityFilter or AttentionKinds.FailedFormat
+            or AttentionKinds.FailedDuration or AttentionKinds.FailedInvalidAudio
+            or AttentionKinds.FailedTimeout or AttentionKinds.FailedCancelled
+            or AttentionKinds.FailedMetadata or AttentionKinds.FailedOther => "warn",
+        AttentionKinds.Dedup => "warn",
+        AttentionKinds.ReviewLength or AttentionKinds.ReviewSpectrum or AttentionKinds.ReviewBoth => "warn",
+        _ => "neutral",
+    };
+
+    private static string PillVariant(string kind) => Tone(kind) switch
+    {
+        "bad" => "err",
+        "warn" => "warn",
+        _ => "neutral",
+    };
+
+    private static string KindShort(string kind) => kind switch
+    {
+        AttentionKinds.FailedNoSource => "no source",
+        AttentionKinds.FailedQualityFilter => "quality",
+        AttentionKinds.FailedFormat => "format",
+        AttentionKinds.FailedDuration => "length",
+        AttentionKinds.FailedInvalidAudio => "not audio",
+        AttentionKinds.FailedCorrupt => "corrupt",
+        AttentionKinds.FailedAuth => "login",
+        AttentionKinds.FailedTimeout => "timeout",
+        AttentionKinds.FailedCancelled => "cancelled",
+        AttentionKinds.FailedMetadata => "metadata",
+        AttentionKinds.FailedOther => "error",
+        AttentionKinds.Dedup => "hardlink",
+        AttentionKinds.ReviewLength => "length review",
+        AttentionKinds.ReviewSpectrum => "quality review",
+        AttentionKinds.ReviewBoth => "two reviews",
+        AttentionKinds.Archive => "archive",
+        AttentionKinds.FileMissing => "missing file",
+        AttentionKinds.Unverified => "unverified",
+        _ => "open",
+    };
+
+    private static string KindIcon(string kind) => kind switch
+    {
+        AttentionKinds.FailedNoSource => "search",
+        AttentionKinds.FailedQualityFilter => "filter",
+        AttentionKinds.FailedFormat => "file-down",
+        AttentionKinds.FailedDuration => "clock",
+        AttentionKinds.FailedInvalidAudio or AttentionKinds.FailedCorrupt => "alert",
+        AttentionKinds.FailedAuth => "eye",
+        AttentionKinds.FailedTimeout => "clock",
+        AttentionKinds.FailedCancelled => "x",
+        AttentionKinds.FailedMetadata => "info",
+        AttentionKinds.FailedOther => "alert",
+        AttentionKinds.Dedup => "copy",
+        AttentionKinds.ReviewLength or AttentionKinds.ReviewSpectrum or AttentionKinds.ReviewBoth => "sliders",
+        AttentionKinds.Archive => "archive",
+        AttentionKinds.FileMissing => "folder",
+        AttentionKinds.Unverified => "help",
+        _ => "alert",
+    };
+
+    public void Dispose()
+    {
+        _disposed = true;
+        _timer?.Dispose();
+    }
+}

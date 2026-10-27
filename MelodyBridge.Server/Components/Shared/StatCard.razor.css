@@ -18,3 +18,21 @@ a.stat-card:hover ::deep .stat-card-arrow {
     color: var(--accent-text);
     transform: translateX(2px);
 }
+
+/* An attention tone borrows the semantic token of the thing it measures,
+   so the dashboard can be scanned before the numbers are read. */
+.stat-card.tone-danger {
+    border-color: color-mix(in srgb, var(--danger) 32%, var(--border));
+    background: var(--danger-soft);
+}
+.stat-card.tone-warning {
+    border-color: color-mix(in srgb, var(--warning) 32%, var(--border));
+    background: var(--warning-soft);
+}
+.stat-card.tone-success {
+    border-color: color-mix(in srgb, var(--success) 24%, var(--border));
+    background: var(--success-soft);
+}
+.stat-card.tone-danger ::deep .stat-icon { background: var(--danger-soft); color: var(--danger); }
+.stat-card.tone-warning ::deep .stat-icon { background: var(--warning-soft); color: var(--warning); }
+.stat-card.tone-success ::deep .stat-icon { background: var(--success-soft); color: var(--success); }

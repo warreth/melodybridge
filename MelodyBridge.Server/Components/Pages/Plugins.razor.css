@@ -12,7 +12,7 @@
 
 /* One column when the content column is too narrow for two readable
    plugin cards. */
-@media (max-width: 1100px) {
+@media (max-width: 900px) {
     .plugin-list { grid-template-columns: minmax(0, 1fr); }
 }
 
@@ -510,4 +510,195 @@
     .plugin-search { flex-basis: 100%; }
     .plugin-toolbar .filter-chips { width: 100%; }
     .plugin-count { padding-left: .15rem; }
+}
+
+/* ---------------------------------------------------------------- */
+/* Source order: the one place where priority is edited.             */
+/* ---------------------------------------------------------------- */
+
+.source-order { margin-bottom: 1rem; }
+.source-order-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+.source-order-head h2 { margin: .1rem 0 .3rem; font-size: 1.1rem; }
+.source-order-head .panel-description { margin: 0; max-width: 62ch; }
+.source-order-preview-control {
+    display: grid;
+    gap: .25rem;
+    min-width: 160px;
+}
+.source-order-preview-control label {
+    color: var(--muted-2);
+    font-size: .7rem;
+    font-weight: 700;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+}
+
+.order-list {
+    display: grid;
+    gap: .35rem;
+    margin-top: .85rem;
+}
+.order-row {
+    display: flex;
+    align-items: center;
+    gap: .55rem;
+    flex-wrap: wrap;
+    padding: .45rem .55rem;
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    background: var(--surface-2);
+}
+.order-row.has-problem {
+    border-color: color-mix(in srgb, var(--danger) 32%, var(--border));
+}
+.order-index {
+    flex: 0 0 22px;
+    width: 22px;
+    height: 22px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    background: var(--accent-soft);
+    color: var(--accent-text);
+    font-size: .68rem;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+}
+.order-icon {
+    flex: 0 0 28px;
+    width: 28px;
+    height: 28px;
+    display: grid;
+    place-items: center;
+    border-radius: 7px;
+    background: var(--surface);
+    color: var(--accent-strong);
+}
+.order-icon.has-problem { color: var(--danger); background: var(--danger-soft); }
+.order-main {
+    display: grid;
+    gap: .05rem;
+    flex: 1 1 180px;
+    min-width: 0;
+}
+.order-main strong { font-size: .85rem; }
+.order-reason {
+    color: var(--muted);
+    font-size: .73rem;
+    line-height: 1.35;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.order-row .pill { flex: 0 0 auto; margin-left: auto; }
+.order-row .btn-group { flex: 0 0 auto; }
+.order-open { flex: 0 0 auto; color: var(--muted); }
+
+/* The quality preview is a footnote under the order, not a second list
+   of the same plugins at full size. */
+.source-order .route-preview {
+    margin: .9rem 0 0;
+    padding-top: .8rem;
+    border-top: 1px solid var(--border);
+}
+.source-order .route-preview-head { align-items: center; }
+.source-order .route-preview-head .text-muted { font-size: .72rem; }
+.source-order .route-chain { margin-top: .55rem; }
+
+.dependency-strip { margin-bottom: 1rem; }
+.dependency-row {
+    display: flex;
+    align-items: center;
+    gap: .65rem;
+    flex-wrap: wrap;
+}
+.dependency-icon {
+    width: 32px;
+    height: 32px;
+    display: grid;
+    place-items: center;
+    border-radius: 8px;
+    background: var(--surface-2);
+    color: var(--accent-strong);
+}
+.dependency-copy { display: grid; gap: .05rem; flex: 1 1 220px; min-width: 0; }
+.dependency-copy strong { font-size: .85rem; }
+.dependency-copy small { color: var(--muted); font-size: .76rem; line-height: 1.4; }
+
+.plugin-groups { display: grid; gap: 1.25rem; margin-top: 1rem; }
+.plugin-group { display: grid; gap: .35rem; }
+.plugin-group-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+}
+.plugin-group-head h2 {
+    display: flex;
+    align-items: center;
+    gap: .45rem;
+    margin: .05rem 0 .2rem;
+    font-size: 1.05rem;
+}
+.plugin-group-head p {
+    margin: 0;
+    color: var(--muted);
+    font-size: .82rem;
+    line-height: 1.45;
+    max-width: 72ch;
+}
+.group-count {
+    display: inline-grid;
+    place-items: center;
+    min-width: 1.35rem;
+    height: 1.35rem;
+    padding: 0 .3rem;
+    border-radius: 999px;
+    background: var(--surface-2);
+    color: var(--muted);
+    font-size: .68rem;
+    font-variant-numeric: tabular-nums;
+}
+.plugin-group .plugin-list { margin-top: .35rem; }
+
+/* Compact cards: the list is for setup and status, not a second copy of
+   the description. */
+.plugin-card { padding: .85rem; gap: .5rem; }
+.plugin-description {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+.plugin-setup-link {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--accent-text);
+    font: inherit;
+    font-size: .76rem;
+    font-weight: 700;
+    cursor: pointer;
+}
+.plugin-setup-link:hover { text-decoration: underline; }
+
+@media (max-width: 900px) {
+    .plugin-list { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 720px) {
+    .source-order-head { flex-direction: column; }
+    .source-order-preview-control { width: 100%; }
+    .source-order-preview-control .route-select { width: 100%; }
+    .order-row { align-items: flex-start; }
+    .order-main { flex-basis: calc(100% - 90px); }
+    .order-row .pill { margin-left: 90px; }
+    .order-row .btn-group { margin-left: auto; }
+    .plugin-group-head { flex-direction: column; gap: 0; }
 }

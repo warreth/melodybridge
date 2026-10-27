@@ -114,6 +114,36 @@ public static class SchemaPatcher
             );
             """, ct);
 
+        // Extra archive destinations arrived after the first release: the
+        // original single archive stays in Tracks.ArchivePath, and every
+        // named profile gets one copy row per track.
+        await db.Database.ExecuteSqlRawAsync("""
+            CREATE TABLE IF NOT EXISTS ArchiveProfiles (
+                Id TEXT NOT NULL PRIMARY KEY,
+                Name TEXT NOT NULL DEFAULT '',
+                RootPath TEXT NOT NULL DEFAULT '',
+                Format TEXT NOT NULL DEFAULT 'auto',
+                Enabled INTEGER NOT NULL DEFAULT 1,
+                Priority INTEGER NOT NULL DEFAULT 0,
+                CreatedAt TEXT NOT NULL DEFAULT '0001-01-01 00:00:00'
+            );
+            CREATE TABLE IF NOT EXISTS TrackArchiveCopies (
+                Id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                TrackId INTEGER NOT NULL,
+                ProfileId TEXT NOT NULL,
+                Path TEXT NULL,
+                SizeBytes INTEGER NOT NULL DEFAULT 0,
+                Warning TEXT NULL,
+                UpdatedAt TEXT NOT NULL DEFAULT '0001-01-01 00:00:00'
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS IX_TrackArchiveCopies_TrackId_ProfileId
+                ON TrackArchiveCopies (TrackId, ProfileId);
+            CREATE INDEX IF NOT EXISTS IX_TrackArchiveCopies_Path
+                ON TrackArchiveCopies (Path);
+            CREATE INDEX IF NOT EXISTS IX_ArchiveProfiles_Priority
+                ON ArchiveProfiles (Priority);
+            """, ct);
+
         foreach (var (table, column, definition) in Columns)
         {
             var existing = await GetColumnsAsync(db, table, ct);

@@ -41,7 +41,9 @@ internal sealed class ToastDecisions
                 $"'{run.PlaylistName}' finished: {run.Done} of {run.Total} done{failed}.",
                 run.Failed > 0 ? "warn" : "success",
                 run.Failed > 0 ? "Review failed" : "Open playlist",
-                $"/playlists/{run.PlaylistId}");
+                $"/playlists/{run.PlaylistId}",
+                Important: run.Failed > 0,
+                Key: $"playlist-run:{run.PlaylistId}:{run.StartedAtUtc:O}");
         }
     }
 
@@ -75,7 +77,10 @@ internal sealed class ToastDecisions
             else
             {
                 yield return new ToastEvent(NotificationCategories.JobFailures,
-                    $"Sync job '{job.Name}' {job.Status?.ToLowerInvariant()}: {job.Summary}", "warn");
+                    $"Sync job '{job.Name}' {job.Status?.ToLowerInvariant()}: {job.Summary}", "warn",
+                    "Open sync jobs", "/sync-jobs",
+                    Important: true,
+                    Key: $"sync-job:{job.Id}:{at:O}");
             }
         }
     }

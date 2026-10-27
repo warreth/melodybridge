@@ -217,9 +217,10 @@ public class FlareSolverrSolverTests
     }
 
     [Test]
-    public async Task ExplicitUrl_SkipsDetectionAndPostsStraight()
+    public async Task ExplicitUrl_ChecksHealthOnceAndPostsStraight()
     {
         using var handler = new StubHttpMessageHandler();
+        handler.Routes["http://solver.lan:8191/health"] = Ok;
         handler.Routes["http://solver.lan:8191/v1"] = () => SolveJson("c2", "ua2");
         var solver = new FlareSolverrSolver(
             new HttpClient(handler),
@@ -229,9 +230,80 @@ public class FlareSolverrSolverTests
 
         Assert.That(FlareSolverrSolver.IsAutoMode, Is.False);
         Assert.That(await solver.IsAvailableAsync(), Is.True);
+        Assert.That(await solver.IsAvailableAsync(), Is.True, "the health answer is cached briefly");
         var result = await solver.SolveAsync("https://lucida.to");
         Assert.That(result, Is.Not.Null);
-        Assert.That(handler.Requests.Select(r => r.Url), Is.EqualTo(new[] { "http://solver.lan:8191/v1" }));
+        Assert.That(handler.Requests.Select(r => r.Url),
+            Is.EqualTo(new[] { "http://solver.lan:8191/health", "http://solver.lan:8191/v1" }));
+    }
+
+    [Test]
+    public async Task ExplicitUrl_UnhealthyEndpointIsNotReady()
+    {
+        using var handler = new StubHttpMessageHandler();
+        handler.Routes["http://solver.lan:8191/health"] = () => new HttpResponseMessage(HttpStatusCode.BadGateway);
+        var solver = new FlareSolverrSolver(
+            new HttpClient(handler),
+            Microsoft.Extensions.Options.Options.Create(
+                new FlareSolverrOptions { Url = "http://solver.lan:8191" }),
+            NullLogger<FlareSolverrSolver>.Instance);
+
+        Assert.That(await solver.IsAvailableAsync(), Is.False,
+            "a wrong explicit URL must not look ready until the first track fails");
+    }
+
+    [Test]
+    public async Task Probe_SolvesForReal_AndReportsTheEndpoint()
+    {
+        using var handler = new StubHttpMessageHandler();
+        handler.Routes["http://flaresolverr:8191/health"] = Ok;
+        handler.Routes["http://flaresolverr:8191/v1"] = () => SolveJson("probe", "ua-probe");
+
+        var result = await FlareSolverrSolver.ProbeAsync(
+            new HttpClient(handler), "auto", "https://lucida.to");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Ok, Is.True, result.Message);
+            Assert.That(result.Endpoint, Is.EqualTo("http://flaresolverr:8191"));
+            Assert.That(result.Message, Does.Contain("Solved lucida.to"));
+        });
+    }
+
+    [Test]
+    public async Task Probe_Off_IsAnHonestFailureWithoutRequests()
+    {
+        using var handler = new StubHttpMessageHandler();
+        var result = await FlareSolverrSolver.ProbeAsync(
+            new HttpClient(handler), "off", "https://lucida.to");
+
+        Assert.That(result.Ok, Is.False);
+        Assert.That(result.Message, Does.Contain("off"));
+        Assert.That(handler.Requests, Is.Empty);
+    }
+
+    [Test]
+    public async Task SolvedClearance_IsReusedUntilFreshIsRequested()
+    {
+        using var handler = new StubHttpMessageHandler();
+        handler.Routes["http://solver.lan:8191/v1"] = () => SolveJson("c3", "ua3");
+        var solver = new FlareSolverrSolver(
+            new HttpClient(handler),
+            Microsoft.Extensions.Options.Options.Create(
+                new FlareSolverrOptions { Url = "http://solver.lan:8191" }),
+            NullLogger<FlareSolverrSolver>.Instance);
+
+        var first = await solver.SolveAsync("https://lucida.to");
+        var second = await solver.SolveAsync("https://lucida.to");
+        Assert.That(first, Is.Not.Null);
+        Assert.That(second, Is.Not.Null);
+        Assert.That(handler.Requests.Count, Is.EqualTo(1),
+            "a solved clearance must not open the browser again for every track");
+
+        var fresh = await solver.SolveFreshAsync("https://lucida.to");
+        Assert.That(fresh, Is.Not.Null);
+        Assert.That(handler.Requests.Count, Is.EqualTo(2),
+            "a 403 must be able to force exactly one fresh solve");
     }
 
     [Test]
