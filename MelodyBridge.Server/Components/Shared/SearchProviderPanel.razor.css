@@ -213,5 +213,7 @@
     .search-provider-head { flex-direction: column; }
     .search-provider-list { grid-template-columns: minmax(0, 1fr); }
     .search-self-row { grid-template-columns: minmax(0, 1fr) auto; }
-    .search-self-note { grid-column: 1 / -1; white-space: normal; }
+    /* On a phone the inventory is long enough already; the note is
+       secondary and the source link opens the full card. */
+    .search-self-note { display: none; }
 }
