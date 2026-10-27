@@ -128,6 +128,7 @@ public interface ISearchProvider
     SearchData Data { get; }                       // ISRC, text, URL, length
     IReadOnlyList<SearchProviderTarget> Targets { get; }
     int Priority { get; }                          // tie-break, higher wins
+    bool IsLegacy => false;                        // true for an adapter
     Task<DownloaderSearchHit?> SearchAsync(
         string downloaderId, TrackQuery query, CancellationToken ct = default);
 }
@@ -154,14 +155,32 @@ the app. When several providers can serve a source, the target priority is
 the first tie-breaker, then the provider priority, then the name. Higher
 wins.
 
-`LegacyDownloaderSearchProvider` is the bridge for the catalogues that still
-keep their search inside the downloader. Qobuz, Deezer, Jumo, Monochrome and
-Lucida declare `Provider` search but have no standalone provider class yet.
-The registry creates one legacy adapter per such source and calls the old
-`SearchAsync` through it. The adapter is a temporary module: extracting a
-catalogue search into a real provider replaces it without changing the
-router, the waterfall or the Plugins page. Their source-specific code stays
-in the downloader under the legacy path until that extraction.
+Every built-in subscription or community catalogue now has its own provider:
+`QobuzSearchProvider`, `DeemixSearchProvider`, `JumoSearchProvider`,
+`MonochromeSearchProvider` and `LucidaSearchProvider` live in
+`MelodyBridge.Infrastructure/SearchProviders/`. Each owns the query to URL
+step and the ranking; the downloader keeps the download.
+
+Where the search and the download share mutable state, a session class owns
+it so both sides see the same value: `QobuzSession` (token, tool config, auth
+verdict), `JumoSession` (client, region cache, availability) and
+`LucidaSession` (challenge solver, send with refresh, availability). Deezer
+and Monochrome had no shared state and need only their client and a base URL.
+The provider and the downloader are registered as singletons over the same
+session, so a token rejection or a throttled search updates the plugin card
+immediately.
+
+`LegacyDownloaderSearchProvider` remains as the safety net for a third-party
+plugin that declares `Provider` search without one. The registry creates the
+adapter only when no explicit provider targets the source, and the panel marks
+it `legacy`. It is not used by any built-in source.
+
+To add a provider: put the class in `SearchProviders/`, reuse the source's
+existing client (and add a session when token, region or solver state is
+shared), register it as `ISearchProvider`, point the downloader's
+`SearchInfo` at `ViaProvider` with the data it reads, and test the request
+order and the ranking next to the provider. Leave the adapter alone unless the
+source genuinely still owns its search.
 
 The built-in `TidalPublicCatalog` gets a short-lived token from the public
 Rhythmax token worker, searches Tidal v1 by ISRC with `/tracks?isrc=...`, and
@@ -284,14 +303,13 @@ Implement this to add a download source. Built-in plugins:
 | `ArchiveOrgDownloader` | `archiveorg` | Internet Archive (public JSON APIs) | Public-domain and community recordings; picks the matching file inside a multi-track item, not the first one; rejects files under 128 kbps |
 | `YtDlpDownloader` | `ytdlp` | YouTube (via yt-dlp) | Widest fallback; audio-only best stream, top-5 ranked by match and duration; explicit formats transcode to the requested cap |
 
-Qobuz, Deezer, Jumo, Monochrome and Lucida still keep their catalogue search
-inside the downloader. Their `SearchInfo` says `Provider`, and
-`SearchProviderRegistry` creates a `LegacyDownloaderSearchProvider` for each
-one because no standalone provider targets the source yet. That adapter calls
-the existing `SearchAsync`, so the waterfall and the Plugins page move to the
-provider route without a risky rewrite. Extract a source by moving its search
-into a real provider, changing its `SearchInfo` data, and deleting the adapter
-path; nothing in the router or the panel changes.
+The catalogue search for Qobuz, Deezer, Jumo, Monochrome and Lucida sits in
+its own provider under `SearchProviders/`; the downloader only downloads. Their
+`SearchInfo` says `Provider` with the data the provider reads. Qobuz, Jumo and
+Lucida share a session with the downloader for token, region or solver state;
+Deezer and Monochrome need only their client and the base URL helper. A new
+source follows the same split: provider for query to URL, downloader for URL to
+file.
 
 Place new implementations in `MelodyBridge.Infrastructure/Downloaders/` and register via `services.AddSingleton<IDownloader, YourPlugin>()`. A plugin that ships its own protocol client or byte-level helpers lives in its own folder next to it instead (`Infrastructure/Lucida/`, `Infrastructure/Jumo/`) and registers the same way. Quality-gate downloads against the requested `DownloadQuality` band so bad rips never enter the library.
 

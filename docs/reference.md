@@ -461,8 +461,9 @@ stopped working.
 
 The **Search routing** card at the bottom of the page is collapsed by default.
 Open it to see where each source gets its track. A provider row names the data
-it reads (ISRC, title and artist) and the source cards it can search. The
-sources that search themselves are listed separately,
+it reads (ISRC, title and artist) and the source cards it can search. When two
+providers target the same source, the card marks the one the router uses as
+**primary**. The sources that search themselves are listed separately,
 with their data and any note such as "title-only fallback". A source marked
 **fallback** only runs after every other source. A direct-URL source has no
 search at all. If a source declares a provider search but no provider targets
