@@ -45,32 +45,30 @@ public class DownloaderCompositionTests
     }
 
     [Test]
-    public void EveryIsrcCapableLegacySource_HasAProviderRoute()
+    public void EveryIsrcCapableSource_HasItsOwnProvider()
     {
         using var host = AppDownloadHost.Create();
         var searches = host.Services.GetRequiredService<ISearchProviderRegistry>();
 
-        Assert.That(searches.ForDownloader("qobuz"),
-            Is.InstanceOf<QobuzSearchProvider>(),
-            "Qobuz has its own catalogue provider");
-        Assert.That(searches.ForDownloader("deemix"),
-            Is.InstanceOf<DeemixSearchProvider>(),
-            "Deezer has its own catalogue provider");
-        Assert.That(searches.ForDownloader("jumo"),
-            Is.InstanceOf<JumoSearchProvider>(),
-            "Jumo has its own catalogue provider");
-        Assert.That(searches.ForDownloader("monochrome"),
-            Is.InstanceOf<MonochromeSearchProvider>(),
-            "Monochrome has its own catalogue provider");
-
-        foreach (var id in new[] { "lucida" })
+        var expected = new Dictionary<string, Type>
+        {
+            ["qobuz"] = typeof(QobuzSearchProvider),
+            ["deemix"] = typeof(DeemixSearchProvider),
+            ["jumo"] = typeof(JumoSearchProvider),
+            ["monochrome"] = typeof(MonochromeSearchProvider),
+            ["lucida"] = typeof(LucidaSearchProvider),
+        };
+        foreach (var (id, type) in expected)
         {
             var provider = searches.ForDownloader(id);
             Assert.That(provider, Is.Not.Null, $"{id} must have a search provider");
-            Assert.That(provider, Is.InstanceOf<LegacyDownloaderSearchProvider>(),
-                $"{id} still uses the legacy source-side search adapter");
+            Assert.That(provider, Is.InstanceOf(type),
+                $"{id} uses its own catalogue provider");
             Assert.That(provider!.Targets.Single().DownloaderId, Is.EqualTo(id));
         }
+
+        Assert.That(searches.GetAll().Any(p => p is LegacyDownloaderSearchProvider), Is.False,
+            "no built-in source still needs the legacy adapter");
     }
 
     [Test]

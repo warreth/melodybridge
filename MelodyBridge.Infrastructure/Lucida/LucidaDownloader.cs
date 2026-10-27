@@ -3,9 +3,11 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using MelodyBridge.Infrastructure.SearchProviders;
 using MelodyBridge.Infrastructure.Services;
 using MelodyBridge.Infrastructure.Tagging;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace MelodyBridge.Infrastructure.Lucida;
 
@@ -24,36 +26,7 @@ namespace MelodyBridge.Infrastructure.Lucida;
 /// </summary>
 public class LucidaDownloader : IDownloader
 {
-    private const string BaseUrl = "https://lucida.to";
-
-    // Page-data blob markers: the search page embeds a JSON array whose first
-    // element is {"type":"data","data":...} and ends before ,"uses":{"url":1}}];
-    private const string PdStart = ",{\"type\":\"data\",\"data\":";
-    private const string PdEnd = ",\"uses\":{\"url\":1}}];";
-
-    // SvelteKit's devalue output is JSON with trailing commas on some
-    // releases. A comment or a trailing comma must not disable search.
-    private static readonly JsonDocumentOptions JsonOptions = new()
-    {
-        AllowTrailingCommas = true,
-        CommentHandling = JsonCommentHandling.Skip,
-    };
-
-    // Search services lucida.to supports, lossless-oriented and most-covered
-    // first. Qobuz currently resolves through Lucida's Netherlands account,
-    // Amazon selects an account itself, Deezer uses France and Tidal uses
-    // the US storefront. The current community client uses exactly these
-    // defaults; the old US Qobuz storefront returned no usable results.
-    private static readonly (string Service, string Country)[] SearchServices =
-    [
-        ("qobuz", "NL"),
-        ("amazon", ""),
-        ("deezer", "FR"),
-        ("tidal", "US"),
-    ];
-
-    private readonly HttpClient _http;
-    private readonly IChallengeSolver _solver;
+    private readonly LucidaSession _session;
     private readonly ILogger<LucidaDownloader> _logger;
 
     // Lucida's API has no quality parameter (verified against the public
@@ -83,131 +56,32 @@ public class LucidaDownloader : IDownloader
     public IReadOnlyList<string> Notes => new[] { "needs a FlareSolverr URL" };
 
     /// <inheritdoc />
-    public string? LastUnavailableReason { get; private set; }
+    public string? LastUnavailableReason => _session.LastUnavailableReason;
 
-    public LucidaDownloader(HttpClient http, IChallengeSolver solver, ILogger<LucidaDownloader> logger)
+    public LucidaDownloader(LucidaSession session, ILogger<LucidaDownloader> logger)
     {
-        _http = http;
-        _solver = solver;
+        _session = session;
         _logger = logger;
     }
 
-    public async Task<bool> IsAvailableAsync(CancellationToken ct = default)
-    {
-        // Without a solver every request hits the challenge page and fails;
-        // being honest about it keeps the waterfall clean. The solver in
-        // turn checks its endpoint health, so a wrong explicit URL cannot
-        // present this plugin as ready.
-        var solverReady = await _solver.IsAvailableAsync(ct);
-        LastUnavailableReason = solverReady
-            ? null
-            : "A working FlareSolverr is required (see Settings > Network)";
-        return solverReady;
-    }
-
-    public async Task<DownloaderSearchHit?> SearchAsync(TrackQuery query, CancellationToken ct = default)
-    {
-        // One challenge solve up front; the solver caches the clearance for
-        // every service request below, and SendWithRefreshAsync re-solves on
-        // a 403. A throwing solver must not escape into the waterfall (the
-        // manager has no per-plugin catch on the search path), so solve
-        // inside try.
-        CloudflareCredentials? credentials;
-        try
-        {
-            credentials = await _solver.SolveAsync(BaseUrl, ct);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug("Lucida solver failed for search: {Message}", ex.Message);
-            LastUnavailableReason = "The FlareSolverr solver did not answer";
-            return null;
-        }
-        if (credentials is null)
-        {
-            LastUnavailableReason = "lucida.to answered a Cloudflare challenge the solver could not solve";
-            return null;
-        }
-
-        // ISRC first when the playlist (or the resolver) knows one: Qobuz
-        // and Amazon index ISRCs, so the code finds the exact recording
-        // even when the title search is noisy. Services that treat it as
-        // text return noise the ranker rejects, and the text chain below
-        // takes over. Scoring always runs against the real artist/title.
-        if (query.HasIsrc)
-        {
-            var byIsrc = await SearchServicesAsync(query, query.Isrc!, credentials, ct);
-            if (byIsrc?.MatchConfidence == MatchConfidence.High) return byIsrc;
-        }
-
-        // Storefront indexes are literal: parenthetical mix suffixes and
-        // featuring tags tank the hit rate, so every service gets the
-        // cleaned terms (the raw pair stays for match scoring).
-        var searchText = SearchTerms.Query(query.Artist, query.Title);
-        if (searchText.Length == 0) return null;
-        return await SearchServicesAsync(query, searchText, credentials, ct);
-    }
-
     /// <summary>
-    /// Runs the service chain with one query text: the first
-    /// High-confidence hit wins, otherwise the best Low-confidence hit is
-    /// kept so the caller can try the text query.
+    /// Convenience constructor for tests and one-off hosts: creates a
+    /// session from the same client and solver. The app wires one shared
+    /// session so the provider and the downloader see the same state.
     /// </summary>
-    private async Task<DownloaderSearchHit?> SearchServicesAsync(
-        TrackQuery query, string searchText, CloudflareCredentials credentials, CancellationToken ct)
+    public LucidaDownloader(
+        HttpClient http, IChallengeSolver solver, ILogger<LucidaDownloader> logger)
+        : this(new LucidaSession(http, solver, NullLogger<LucidaSession>.Instance), logger)
     {
-        DownloaderSearchHit? best = null;
-        foreach (var (service, country) in SearchServices)
-        {
-            var hit = await SearchServiceAsync(service, country, query, searchText, credentials, ct);
-            if (hit is null) continue;
-
-            // A High-confidence match cannot be beaten by a later service;
-            // skip the remaining requests entirely.
-            if (hit.MatchConfidence == MatchConfidence.High) return hit;
-            best = hit;
-        }
-        return best;
     }
 
-    /// <summary>
-    /// Runs one search against a single lucida service. Any failure (network,
-    /// missing blob, bad parse) returns null so the chain can try the next
-    /// service instead of failing the whole search.
-    /// </summary>
-    private async Task<DownloaderSearchHit?> SearchServiceAsync(
-        string service, string country, TrackQuery query, string searchText,
-        CloudflareCredentials credentials, CancellationToken ct)
-    {
-        try
-        {
-            using var request = new HttpRequestMessage(HttpMethod.Get,
-                $"{BaseUrl}/search?query={Uri.EscapeDataString(searchText)}"
-                + $"&service={service}"
-                + (country.Length > 0 ? $"&country={country}" : string.Empty));
-            request.Headers.UserAgent.ParseAdd(credentials.UserAgent);
-            request.Headers.AcceptLanguage.ParseAdd("en-US,en;q=0.8");
-            if (!string.IsNullOrWhiteSpace(credentials.CookieHeader))
-                request.Headers.Add("Cookie", credentials.CookieHeader);
+    public Task<bool> IsAvailableAsync(CancellationToken ct = default)
+        => _session.IsAvailableAsync(ct);
 
-            var reply = await SendWithRefreshAsync(request, credentials, ct);
-            if (!reply.Ok || reply.Body is null)
-            {
-                _logger.LogDebug("Lucida {Service} search answered HTTP {Status}", service, reply.Status);
-                return null;
-            }
-
-            var blob = Between(reply.Body, PdStart, PdEnd);
-            if (blob is null) return null;
-
-            return FindBestTrack(blob, query.Artist, query.Title, query.ExpectedDuration);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug("Lucida {Service} search failed: {Message}", service, ex.Message);
-            return null;
-        }
-    }
+    /// <summary>Provider-backed: the search lives in LucidaSearchProvider.</summary>
+    public Task<DownloaderSearchHit?> SearchAsync(
+        TrackQuery query, CancellationToken ct = default)
+        => Task.FromResult<DownloaderSearchHit?>(null);
 
     public async Task<DownloaderDownloadResult> DownloadAsync(
         string sourceUrl, string outputDirectory, string? melodyId,
@@ -220,24 +94,24 @@ public class LucidaDownloader : IDownloader
             // for any service url through the url query param, exactly like
             // the reference client's fetch_page_data. Asking the service host
             // directly gets a service page with no SvelteKit blob at all.
-            var credentials = await _solver.SolveAsync(BaseUrl, ct);
+            var credentials = await _session.SolveAsync(ct);
             if (credentials is null)
             {
-                LastUnavailableReason = "lucida.to answered a Cloudflare challenge the solver could not solve";
+                _session.SetUnavailable("lucida.to answered a Cloudflare challenge the solver could not solve");
                 return new DownloaderDownloadResult(false, null, "Cloudflare solver unavailable");
             }
 
-            var pageDataUrl = sourceUrl.StartsWith(BaseUrl, StringComparison.OrdinalIgnoreCase)
+            var pageDataUrl = sourceUrl.StartsWith(LucidaSession.BaseUrl, StringComparison.OrdinalIgnoreCase)
                 ? sourceUrl
-                : $"{BaseUrl}/?url={Uri.EscapeDataString(sourceUrl)}";
+                : $"{LucidaSession.BaseUrl}/?url={Uri.EscapeDataString(sourceUrl)}";
             using var pageRequest = new HttpRequestMessage(HttpMethod.Get, pageDataUrl);
             pageRequest.Headers.UserAgent.ParseAdd(credentials.UserAgent);
             pageRequest.Headers.AcceptLanguage.ParseAdd("en-US,en;q=0.8");
             if (!string.IsNullOrWhiteSpace(credentials.CookieHeader))
                 pageRequest.Headers.Add("Cookie", credentials.CookieHeader);
 
-            var page = await SendWithRefreshAsync(pageRequest, credentials, ct);
-            var blob = page.Body is null ? null : Between(page.Body, PdStart, PdEnd);
+            var page = await _session.SendWithRefreshAsync(pageRequest, credentials, ct);
+            var blob = page.Body is null ? null : LucidaSession.Between(page.Body, LucidaSession.PdStart, LucidaSession.PdEnd);
             if (!page.Ok || blob is null)
                 return new DownloaderDownloadResult(false, null,
                     $"could not read the track page data (HTTP {page.Status}, challenge or page format changed)");
@@ -270,27 +144,27 @@ public class LucidaDownloader : IDownloader
             });
 
             using var loadRequest = new HttpRequestMessage(HttpMethod.Post,
-                $"{BaseUrl}/api/load?url=/api/fetch/stream/v2");
+                $"{LucidaSession.BaseUrl}/api/load?url=/api/fetch/stream/v2");
             loadRequest.Headers.UserAgent.ParseAdd(credentials.UserAgent);
             if (!string.IsNullOrWhiteSpace(credentials.CookieHeader))
                 loadRequest.Headers.Add("Cookie", credentials.CookieHeader);
             loadRequest.Content = new StringContent(loadBody, Encoding.UTF8, "application/json");
 
-            var load = await SendWithRefreshAsync(loadRequest, credentials, ct, loadBody);
+            var load = await _session.SendWithRefreshAsync(loadRequest, credentials, ct, loadBody);
             var loadJson = load.Body;
-            var handoff = loadJson is null ? null : ReadString(loadJson, "handoff");
-            var server = loadJson is null ? null : ReadString(loadJson, "server");
+            var handoff = loadJson is null ? null : LucidaSession.ReadString(loadJson, "handoff");
+            var server = loadJson is null ? null : LucidaSession.ReadString(loadJson, "server");
             if (handoff is null || server is null)
             {
-                var reason = loadJson is null ? null : ReadString(loadJson, "error")
-                    ?? ReadString(loadJson, "message");
+                var reason = loadJson is null ? null : LucidaSession.ReadString(loadJson, "error")
+                    ?? LucidaSession.ReadString(loadJson, "message");
                 return new DownloaderDownloadResult(false, null,
                     $"lucida did not accept the load request (HTTP {load.Status}"
                     + (string.IsNullOrWhiteSpace(reason) ? ")" : $": {Truncate(reason, 180)})"));
             }
 
             // A solved challenge clears the earlier failure note.
-            LastUnavailableReason = null;
+            _session.SetUnavailable(null);
 
             // Poll until the rip is ready. A single failed poll (transient
             // 5xx, a solver hiccup) must not kill a long rip: a few
@@ -309,7 +183,7 @@ public class LucidaDownloader : IDownloader
 
                 using var pollRequest = new HttpRequestMessage(HttpMethod.Get, statusUrl);
                 pollRequest.Headers.UserAgent.ParseAdd(credentials.UserAgent);
-                var poll = await SendWithRefreshAsync(pollRequest, credentials, ct);
+                var poll = await _session.SendWithRefreshAsync(pollRequest, credentials, ct);
                 if (!poll.Ok || poll.Body is null)
                 {
                     pollFailures++;
@@ -322,8 +196,8 @@ public class LucidaDownloader : IDownloader
                 }
                 pollFailures = 0;
 
-                var nextStatus = ReadString(poll.Body, "status") ?? "unknown";
-                var message = ReadString(poll.Body, "message") ?? "";
+                var nextStatus = LucidaSession.ReadString(poll.Body, "status") ?? "unknown";
+                var message = LucidaSession.ReadString(poll.Body, "message") ?? "";
                 if (nextStatus != status || message != lastMessage)
                 {
                     status = nextStatus;
@@ -352,7 +226,7 @@ public class LucidaDownloader : IDownloader
             if (!string.IsNullOrWhiteSpace(credentials.CookieHeader))
                 fileRequest.Headers.Add("Cookie", credentials.CookieHeader);
 
-            using var fileResponse = await _http.SendAsync(fileRequest,
+            using var fileResponse = await _session.Http.SendAsync(fileRequest,
                 HttpCompletionOption.ResponseHeadersRead, ct);
             if (!fileResponse.IsSuccessStatusCode)
                 return new DownloaderDownloadResult(false, null,
@@ -400,123 +274,13 @@ public class LucidaDownloader : IDownloader
         }
     }
 
-    private sealed record Reply(bool Ok, int Status, string? Body);
-
-    /// <summary>
-    /// Sends a request and, on a 401/403/429 challenge, asks the solver for
-    /// fresh credentials and tries exactly once more (the browser-refresh
-    /// pattern from lucida's own client). Other statuses come back as a
-    /// reply so the caller can report the body instead of a generic miss.
-    /// </summary>
-    private async Task<Reply> SendWithRefreshAsync(
-        HttpRequestMessage request, CloudflareCredentials credentials, CancellationToken ct,
-        string? bodySnapshot = null)
-    {
-        using var response = await _http.SendAsync(request, ct);
-        var body = await response.Content.ReadAsStringAsync(ct);
-        if (response.IsSuccessStatusCode)
-            return new Reply(true, (int)response.StatusCode, body);
-
-        if (!IsChallengeStatus(response.StatusCode))
-            return new Reply(false, (int)response.StatusCode, body);
-
-        var fresh = await _solver.SolveFreshAsync(BaseUrl, ct);
-        if (fresh is null) return new Reply(false, (int)response.StatusCode, body);
-
-        using var retry = await _http.SendAsync(Clone(request, fresh, bodySnapshot), ct);
-        var retryBody = await retry.Content.ReadAsStringAsync(ct);
-        return new Reply(retry.IsSuccessStatusCode, (int)retry.StatusCode, retryBody);
-    }
-
-    private static bool IsChallengeStatus(HttpStatusCode status)
-        => status is HttpStatusCode.Unauthorized
-            or HttpStatusCode.Forbidden
-            or HttpStatusCode.TooManyRequests;
-
-    private static HttpRequestMessage Clone(
-        HttpRequestMessage original, CloudflareCredentials credentials,
-        string? bodySnapshot)
-    {
-        // The first send disposes the original content (default
-        // CompletionOption buffers then releases it), so aliasing it in
-        // the retry throws ObjectDisposedException. The body snapshot is
-        // captured at request construction and rebuilt here instead.
-        var clone = new HttpRequestMessage(original.Method, original.RequestUri);
-        if (bodySnapshot is not null)
-            clone.Content = new StringContent(bodySnapshot, Encoding.UTF8, "application/json");
-        clone.Headers.UserAgent.ParseAdd(credentials.UserAgent);
-        clone.Headers.AcceptLanguage.ParseAdd("en-US,en;q=0.8");
-        if (!string.IsNullOrWhiteSpace(credentials.CookieHeader))
-            clone.Headers.Add("Cookie", credentials.CookieHeader);
-        return clone;
-    }
-
-    /// <summary>
-    /// Picks the best matching track from the search page-data blob:
-    /// every entry is a candidate, ranked by title/artist similarity plus
-    /// duration proximity, with the runner-ups attached as alternatives.
-    /// </summary>
-    private static DownloaderSearchHit? FindBestTrack(
-        string blob, string artist, string title, TimeSpan? expectedDuration)
-    {
-        try
-        {
-            using var doc = JsonDocument.Parse(blob, JsonOptions);
-            var node = FindTracksNode(doc.RootElement);
-            var tracks = node?.GetPropertySafe("tracks");
-            if (tracks is not { ValueKind: JsonValueKind.Array }
-                || tracks.Value.GetArrayLength() == 0)
-                return null;
-
-            var candidates = new List<DownloaderSearchHit>();
-            foreach (var entry in tracks.Value.EnumerateArray())
-            {
-                var url = entry.GetPropertySafe("url")?.GetString();
-                if (string.IsNullOrWhiteSpace(url)) continue;
-
-                var entryTitle = entry.GetPropertySafe("title")?.GetString() ?? "";
-                var entryArtist = ReadArtists(entry);
-                var durationMs = entry.GetPropertySafe("duration")?.GetInt64Safe();
-
-                candidates.Add(new DownloaderSearchHit(
-                    entryTitle,
-                    entryArtist,
-                    url,
-                    durationMs is > 0 ? TimeSpan.FromMilliseconds(durationMs.Value) : null,
-                    MatchConfidence: Services.FuzzyMatcher.Confidence(
-                        artist, title, entryArtist, entryTitle)));
-            }
-
-            return SearchRanker.Rank(artist, title, expectedDuration, candidates);
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    private static string ReadArtists(JsonElement entry)
-    {
-        var artists = entry.GetPropertySafe("artists");
-        if (artists is { ValueKind: JsonValueKind.Array })
-        {
-            return string.Join(", ",
-                artists.Value.EnumerateArray()
-                    .Select(a => a.GetPropertySafe("name")?.GetString() ?? "")
-                    .Where(name => name.Length > 0));
-        }
-
-        // Some SvelteKit releases flatten a single artist to text.
-        return artists?.GetString() ?? entry.GetPropertySafe("artist")?.GetString() ?? "";
-    }
-
     private readonly record struct TrackToken(string Csrf, string? CsrfFallback, string? Url);
 
     private static TrackToken? ExtractTrackWithToken(string blob, string sourceUrl)
     {
         try
         {
-            using var doc = JsonDocument.Parse(blob, JsonOptions);
+            using var doc = JsonDocument.Parse(blob, LucidaSession.JsonOptions);
             var root = doc.RootElement;
             var info = root.GetPropertySafe("info");
 
@@ -582,58 +346,6 @@ public class LucidaDownloader : IDownloader
         if (host.Contains("tidal")) return "US";
         // Amazon and SoundCloud pick an account themselves.
         return "";
-    }
-
-    private static JsonElement? FindTracksNode(JsonElement element, int depth = 0)
-    {
-        if (depth > 8) return null;
-        switch (element.ValueKind)
-        {
-            case JsonValueKind.Object:
-                var tracks = element.GetPropertySafe("tracks");
-                if (tracks is { ValueKind: JsonValueKind.Array })
-                    return element;
-                foreach (var value in element.EnumerateObject())
-                {
-                    var found = FindTracksNode(value.Value, depth + 1);
-                    if (found is not null) return found;
-                }
-                return null;
-            case JsonValueKind.Array:
-                foreach (var value in element.EnumerateArray())
-                {
-                    var found = FindTracksNode(value, depth + 1);
-                    if (found is not null) return found;
-                }
-                return null;
-            default:
-                return null;
-        }
-    }
-
-    private static string? ReadString(string json, string property)
-    {
-        try
-        {
-            using var doc = JsonDocument.Parse(json, JsonOptions);
-            return doc.RootElement.TryGetProperty(property, out var value)
-                && value.ValueKind == JsonValueKind.String
-                ? value.GetString()
-                : null;
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    private static string? Between(string s, string start, string end)
-    {
-        var from = s.IndexOf(start, StringComparison.Ordinal);
-        if (from < 0) return null;
-        from += start.Length;
-        var to = s.IndexOf(end, from, StringComparison.Ordinal);
-        return to < 0 ? null : s[from..to];
     }
 
     private static string? ExtensionFromHeaders(HttpContentHeaders headers)

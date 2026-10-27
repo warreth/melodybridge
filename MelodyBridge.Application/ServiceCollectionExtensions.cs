@@ -228,10 +228,17 @@ public static class ServiceCollectionExtensions
                 sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<FlareSolverrOptions>>(),
                 sp.GetRequiredService<ILogger<FlareSolverrSolver>>()));
         services.AddHttpClient("lucida", c => c.Timeout = TimeSpan.FromMinutes(30));
+        services.AddSingleton(sp => new LucidaSession(
+            sp.GetRequiredService<IHttpClientFactory>().CreateClient("lucida"),
+            sp.GetRequiredService<IChallengeSolver>(),
+            sp.GetRequiredService<ILogger<LucidaSession>>()));
+        services.AddSingleton<ISearchProvider>(sp =>
+            new LucidaSearchProvider(
+                sp.GetRequiredService<LucidaSession>(),
+                sp.GetRequiredService<ILogger<LucidaSearchProvider>>()));
         services.AddSingleton<IDownloader>(sp =>
             new LucidaDownloader(
-                sp.GetRequiredService<IHttpClientFactory>().CreateClient("lucida"),
-                sp.GetRequiredService<IChallengeSolver>(),
+                sp.GetRequiredService<LucidaSession>(),
                 sp.GetRequiredService<ILogger<LucidaDownloader>>()));
 
         // Jumo: a community Qobuz front-end that needs no account. The
