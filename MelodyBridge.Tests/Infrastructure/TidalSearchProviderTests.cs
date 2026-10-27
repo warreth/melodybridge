@@ -36,40 +36,6 @@ public class TidalSearchProviderTests
     }
     """;
 
-    private static readonly string TextJson = """
-    {
-      "items": [
-        {
-          "id": 1,
-          "title": "Back In Black",
-          "duration": 256,
-          "isrc": "AUAP08000046",
-          "streamReady": true,
-          "audioQuality": "LOSSLESS",
-          "artist": { "name": "AC/DC" }
-        },
-        {
-          "id": 2,
-          "title": "Back In Black (Karaoke Version)",
-          "duration": 256,
-          "isrc": null,
-          "streamReady": true,
-          "audioQuality": "HIGH",
-          "artist": { "name": "Karaoke Hits" }
-        },
-        {
-          "id": 3,
-          "title": "Back In Black",
-          "duration": 256,
-          "isrc": "AUAP08000046",
-          "streamReady": false,
-          "audioQuality": "LOSSLESS",
-          "artist": { "name": "AC/DC" }
-        }
-      ]
-    }
-    """;
-
     private sealed class ScriptedHandler : HttpMessageHandler
     {
         public List<string> Requests { get; } = new();
