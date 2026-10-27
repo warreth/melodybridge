@@ -16,6 +16,7 @@ public class RhythmaxClientTests
     private sealed class ScriptedHandler : HttpMessageHandler
     {
         public List<string> Requests { get; } = new();
+        public List<string?> Authorizations { get; } = new();
         public Func<HttpRequestMessage, HttpResponseMessage> Respond { get; set; } =
             _ => new HttpResponseMessage(HttpStatusCode.NotFound);
 
@@ -23,6 +24,7 @@ public class RhythmaxClientTests
             HttpRequestMessage request, CancellationToken ct)
         {
             Requests.Add(request.RequestUri!.ToString());
+            Authorizations.Add(request.Headers.Authorization?.Parameter);
             return Task.FromResult(Respond(request));
         }
     }
@@ -202,14 +204,18 @@ public class RhythmaxClientTests
     public async Task GetManifest_RefreshesOnceAfterAnUnauthorizedAnswer()
     {
         using var handler = new ScriptedHandler();
-        var manifestCalls = 0;
+        var tokenCalls = 0;
         handler.Respond = request =>
         {
             var url = request.RequestUri!.AbsoluteUri;
             if (url == "https://hifi.test/token")
-                return Json("""{"access_token":"play-token","expires_in":600}""");
-            manifestCalls++;
-            return manifestCalls == 1
+            {
+                tokenCalls++;
+                return Json(tokenCalls == 1
+                    ? """{"access_token":"stale-play-token","expires_in":600}"""
+                    : """{"access_token":"fresh-play-token","expires_in":600}""");
+            }
+            return request.Headers.Authorization?.Parameter == "stale-play-token"
                 ? Json("{}", HttpStatusCode.Unauthorized)
                 : Json(FlatManifest);
         };
@@ -218,8 +224,59 @@ public class RhythmaxClientTests
         var result = await client.GetManifestAsync(35986110, "LOSSLESS");
 
         Assert.That(result.Status, Is.EqualTo(RhythmaxClient.ManifestStatus.Ok));
-        Assert.That(handler.Requests.Count(r => r == "https://hifi.test/token"), Is.EqualTo(2));
-        Assert.That(manifestCalls, Is.EqualTo(2));
+        Assert.That(tokenCalls, Is.EqualTo(2));
+        var manifestAuth = handler.Requests
+            .Select((url, index) => (url, auth: handler.Authorizations[index]))
+            .Where(r => r.url.Contains("/manifests"))
+            .Select(r => r.auth)
+            .ToList();
+        Assert.That(manifestAuth,
+            Is.EqualTo(new[] { "stale-play-token", "fresh-play-token" }),
+            "the retried manifest must use the refreshed token");
+    }
+
+    [Test]
+    public async Task GetManifest_PollsAQueuedPlaybackRequest()
+    {
+        using var handler = new ScriptedHandler();
+        var manifestCalls = 0;
+        handler.Respond = request =>
+        {
+            var url = request.RequestUri!.AbsoluteUri;
+            if (url == "https://hifi.test/token")
+                return Json("""{"access_token":"play-token","expires_in":600}""");
+            if (url.Contains("/manifests"))
+            {
+                manifestCalls++;
+                return Json("""
+                  {"status":"pending","statusUrl":"https://hifi.test/queue/1","retryAfter":1}
+                  """, HttpStatusCode.Accepted);
+            }
+            return url == "https://hifi.test/queue/1"
+                ? Json(FlatManifest)
+                : new HttpResponseMessage(HttpStatusCode.NotFound);
+        };
+
+        var result = await Client(handler).GetManifestAsync(35986110, "LOSSLESS");
+
+        Assert.That(result.Status, Is.EqualTo(RhythmaxClient.ManifestStatus.Ok));
+        Assert.That(manifestCalls, Is.EqualTo(1));
+        Assert.That(handler.Requests, Does.Contain("https://hifi.test/queue/1"));
+    }
+
+    [Test]
+    public async Task GetManifest_RateLimitIsItsOwnStatus()
+    {
+        using var handler = new ScriptedHandler();
+        handler.Respond = request =>
+            request.RequestUri!.AbsoluteUri == "https://hifi.test/token"
+                ? Json("""{"access_token":"play-token","expires_in":600}""")
+                : Json("{}", HttpStatusCode.TooManyRequests);
+
+        var result = await Client(handler).GetManifestAsync(35986110, "LOSSLESS");
+
+        Assert.That(result.Status, Is.EqualTo(RhythmaxClient.ManifestStatus.RateLimited));
+        Assert.That(result.Message, Does.Contain("rate limited"));
     }
 
     [Test]
@@ -246,5 +303,47 @@ public class RhythmaxClientTests
 
         Assert.That(ready, Is.True);
         Assert.That(reason, Is.Null);
+    }
+
+    [Test]
+    public async Task Health_ReportsDeadAndNoActiveAccount()
+    {
+        using var handler = new ScriptedHandler();
+        handler.Respond = _ => Json("""{"status":"DEAD","active":0}""");
+        var client = Client(handler);
+
+        var (ready, reason) = await client.CheckHealthAsync();
+
+        Assert.That(ready, Is.False);
+        Assert.That(reason, Does.Contain("no working Tidal account"));
+    }
+
+    [Test]
+    public async Task Health_ReportsAnHttpError()
+    {
+        using var handler = new ScriptedHandler();
+        handler.Respond = _ => Json("{}", HttpStatusCode.InternalServerError);
+        var client = Client(handler);
+
+        var (ready, reason) = await client.CheckHealthAsync();
+
+        Assert.That(ready, Is.False);
+        Assert.That(reason, Does.Contain("500"));
+    }
+
+    [Test]
+    public async Task Health_MalformedJsonIsUnavailable()
+    {
+        using var handler = new ScriptedHandler();
+        handler.Respond = _ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("not-json", Encoding.UTF8, "text/plain"),
+        };
+        var client = Client(handler);
+
+        var (ready, reason) = await client.CheckHealthAsync();
+
+        Assert.That(ready, Is.False);
+        Assert.That(reason, Is.Not.Null.And.Not.Empty);
     }
 }

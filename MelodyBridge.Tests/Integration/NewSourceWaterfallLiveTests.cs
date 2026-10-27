@@ -53,17 +53,19 @@ public class NewSourceWaterfallLiveTests
         // the race, so a miss gets a fresh window.
         string? path = null;
         string? lastFailure = null;
-        string? notReady = null;
+        string? lastNotReady = null;
+        var sawReady = false;
         for (var attempt = 0; attempt < 8 && path is null; attempt++)
         {
             var (ready, reason) = await client.CheckHealthAsync();
             if (!ready)
             {
-                notReady = reason ?? "Rhythmax is not ready";
+                lastNotReady = reason ?? "Rhythmax is not ready";
                 await Task.Delay(TimeSpan.FromSeconds(5));
                 continue;
             }
 
+            sawReady = true;
             path = await host.DownloadManager.DownloadTrackAsync(
                 new TrackQuery("AC/DC", "Back In Black",
                     new DownloadQuality(AudioFormat.Flac),
@@ -76,13 +78,30 @@ public class NewSourceWaterfallLiveTests
             }
         }
 
-        if (path is null) Assert.Ignore(notReady ?? lastFailure ?? "Rhythmax was not available");
+        if (path is null)
+        {
+            // Only an explicitly unavailable public pool is a skip. Once
+            // the health check says FULL, a search or download failure is
+            // the code's problem and must fail the test.
+            if (!sawReady)
+                Assert.Ignore(lastNotReady ?? "Rhythmax was not available");
+            if (IsExternalPacing(lastFailure))
+                Assert.Ignore(lastFailure);
+            Assert.Fail(lastFailure ?? "Rhythmax was ready but produced no file");
+        }
 
         Assert.That(AudioSignature.DetectContainer(path!), Is.EqualTo(".flac"));
         Assert.That(TaglibHelper.ReadMelodyId(path!), Is.EqualTo(melody));
         Assert.That(BitrateProbe.MeasureKbps(path!), Is.InRange(700, 1400));
         Assert.That(host.DownloadManager.LastPluginId(melody), Is.EqualTo("rhythmax"));
     }
+
+    private static bool IsExternalPacing(string? failure)
+        => failure is not null
+           && (failure.Contains("no working Tidal account", StringComparison.OrdinalIgnoreCase)
+               || failure.Contains("only preview", StringComparison.OrdinalIgnoreCase)
+               || failure.Contains("playback slot", StringComparison.OrdinalIgnoreCase)
+               || failure.Contains("429", StringComparison.Ordinal));
 
     [Test]
     public async Task FlacMusic_DownloadsThroughItsOwnTitleSearch()
