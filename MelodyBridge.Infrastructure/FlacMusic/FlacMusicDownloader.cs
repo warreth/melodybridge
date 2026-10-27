@@ -32,7 +32,7 @@ public class FlacMusicDownloader : IDownloader, IPluginAvailabilityRefresh
     ]);
 
     private static readonly Regex ChineseTitleSuffix = new(
-        @"\s*[-–—]\s*《.*$", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+        @"\s*[-\u2013\u2014]\s*《.*$", RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
     public string Id => "flacmusic";
     public string Name => "FLAC Music (CN)";
