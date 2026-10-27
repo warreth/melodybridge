@@ -198,6 +198,8 @@
     </div>
 </section>
 
+<SearchProviderPanel />
+
 <section class="panel-card dependency-strip">
     <div class="dependency-row">
         <span class="dependency-icon"><Icon Name="play" Size="16" /></span>
@@ -1000,6 +1002,8 @@
         "qobuz" => "https://docs.melodybridge.app/qobuz",
         "deemix" => "https://docs.melodybridge.app/deemix",
         "tidal" => "https://docs.melodybridge.app/tidal",
+        "rhythmax" => "https://docs.melodybridge.app/tidal#rhythmax",
+        "flacmusic" => "https://docs.melodybridge.app/flacmusic",
         "jumo" => "https://docs.melodybridge.app/jumo",
         "lucida" => "https://docs.melodybridge.app/lucida",
         "slskd" => "https://docs.melodybridge.app/slskd",
@@ -1208,6 +1212,8 @@
         "qobuz" => "music",
         "deemix" => "music",
         "tidal" => "music",
+        "rhythmax" => "music",
+        "flacmusic" => "globe",
         "jumo" => "globe",
         _ => "music",
     };
@@ -1268,7 +1274,8 @@
         "qobuz" => new[] { "your subscription", "hi-res" },
         "deemix" => new[] { "your ARL", "FLAC with HiFi" },
         "tidal" => new[] { "your subscription", "hi-res" },
-
+        "rhythmax" => new[] { "no Tidal account", "Tidal ISRC search" },
+        "flacmusic" => new[] { "title-only fallback", "Kuwo and NetEase" },
         "jumo" => new[] { "no account", "community front-end" },
         _ => Array.Empty<string>(),
     };

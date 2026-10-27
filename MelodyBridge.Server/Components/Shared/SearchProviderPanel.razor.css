@@ -1,0 +1,217 @@
+/* Search routing map on the Plugins page. A provider is one inner
+   surface; its targets read as links to the source cards below. Shared
+   card chrome comes from app.css. */
+
+.search-provider-map {
+    display: grid;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.search-provider-head {
+    display: flex;
+    align-items: start;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.search-provider-head h2 { margin: 0; }
+.search-provider-head .panel-description { margin: .35rem 0 0; max-width: 70ch; }
+
+.search-provider-count {
+    flex: none;
+    padding: .2rem .55rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--surface-2);
+    color: var(--muted);
+    font-size: .75rem;
+    font-weight: 600;
+}
+
+.search-provider-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+    gap: .65rem;
+}
+
+.search-provider {
+    display: grid;
+    gap: .65rem;
+    align-content: start;
+    padding: .9rem 1rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface-2);
+}
+
+.search-provider-title {
+    display: flex;
+    align-items: start;
+    gap: .6rem;
+    min-width: 0;
+}
+
+.search-provider-title > div {
+    display: grid;
+    gap: .1rem;
+    min-width: 0;
+}
+
+.search-provider-title strong { font-size: .92rem; }
+.search-provider-title span:not(.search-provider-icon) {
+    color: var(--muted);
+    font-size: .8rem;
+    line-height: 1.45;
+}
+
+.search-provider-icon {
+    width: 30px;
+    height: 30px;
+    display: inline-grid;
+    place-items: center;
+    flex: none;
+    border-radius: 7px;
+    background: var(--accent-soft);
+    color: var(--accent-text);
+}
+
+.search-provider-reads {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: .35rem;
+}
+
+.search-provider-targets {
+    display: grid;
+    gap: .35rem;
+}
+
+.search-target-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .35rem;
+}
+
+.search-data-label {
+    color: var(--muted-2);
+    font-size: .68rem;
+    font-weight: 700;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+}
+
+.search-data-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: .1rem .45rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--surface);
+    color: var(--muted);
+    font-size: .7rem;
+    white-space: nowrap;
+}
+
+.search-target {
+    display: inline-flex;
+    align-items: center;
+    gap: .3rem;
+    padding: .18rem .5rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--surface);
+    color: var(--text);
+    font-size: .76rem;
+    text-decoration: none;
+}
+
+.search-target:hover { border-color: var(--accent); color: var(--accent-text); }
+.search-target .icon { color: var(--accent-text); flex: none; }
+.search-target.is-disabled { opacity: .55; }
+.search-target-name { font-weight: 600; }
+.search-target-data { color: var(--muted-2); }
+.search-target-off {
+    color: var(--warning);
+    font-size: .66rem;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+.search-self-block {
+    display: grid;
+    gap: .5rem;
+    padding-top: .85rem;
+    border-top: 1px solid var(--border);
+}
+
+.search-self-head h3 { margin: 0; font-size: .9rem; }
+.search-self-head p { margin: .15rem 0 0; color: var(--muted); font-size: .8rem; }
+
+.search-self-list {
+    display: grid;
+    gap: .25rem;
+}
+
+/* The list is an inventory, not the main content: two columns halve the
+   height on a desktop without hiding the note. */
+@media (min-width: 900px) {
+    .search-self-list {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+.search-self-row {
+    display: grid;
+    grid-template-columns: minmax(150px, max-content) auto minmax(0, 1fr);
+    align-items: baseline;
+    gap: .5rem;
+    min-width: 0;
+    padding: .35rem .5rem;
+    border: 1px solid transparent;
+    border-radius: 7px;
+    color: var(--text);
+    font-size: .78rem;
+    text-decoration: none;
+}
+
+.search-self-row:hover {
+    border-color: var(--border);
+    background: var(--surface-2);
+}
+
+.search-self-name { font-weight: 600; white-space: nowrap; }
+.search-fallback-badge {
+    margin-left: .3rem;
+    padding: .05rem .3rem;
+    border-radius: 999px;
+    background: var(--warning-soft);
+    color: var(--warning);
+    font-size: .62rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    vertical-align: .05rem;
+}
+.search-self-note {
+    color: var(--muted-2);
+    font-size: .72rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.search-provider-warning {
+    display: flex;
+    align-items: start;
+    gap: .45rem;
+}
+
+.search-provider-warning .icon { flex: none; margin-top: .1rem; color: var(--danger); }
+
+@media (max-width: 640px) {
+    .search-provider-head { flex-direction: column; }
+    .search-provider-list { grid-template-columns: minmax(0, 1fr); }
+    .search-self-row { grid-template-columns: minmax(0, 1fr) auto; }
+    .search-self-note { grid-column: 1 / -1; white-space: normal; }
+}
