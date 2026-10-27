@@ -378,6 +378,32 @@ public class FlacMusicDownloaderTests
             "https://music.163.com.example.net/#/song?id=3880720", out _), Is.False);
     }
 
+    [Test]
+    public async Task SearchCallerCancellation_Propagates()
+    {
+        using var handler = new CancellingHandler();
+        var downloader = new FlacMusicDownloader(
+            new FlacMusicClient(new HttpClient(handler),
+                NullLogger<FlacMusicClient>.Instance),
+            new StubPluginConfig(),
+            NullLogger<FlacMusicDownloader>.Instance);
+        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(50));
+
+        Assert.CatchAsync<OperationCanceledException>(() =>
+            downloader.SearchAsync(new TrackQuery("AC/DC", "Back In Black",
+                DownloadQuality.Any), cts.Token));
+    }
+
+    private sealed class CancellingHandler : HttpMessageHandler
+    {
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken ct)
+        {
+            await Task.Delay(Timeout.Infinite, ct);
+            return new HttpResponseMessage(HttpStatusCode.OK);
+        }
+    }
+
     // ── Search ───────────────────────────────────────────────────────────
 
     [Test]

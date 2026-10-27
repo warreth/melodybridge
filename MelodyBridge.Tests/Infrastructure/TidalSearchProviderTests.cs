@@ -221,6 +221,28 @@ public class TidalSearchProviderTests
             Is.EqualTo(2), "a smaller limit must not reuse a wider cached response");
     }
 
+    [Test]
+    public async Task CatalogueCallerCancellation_Propagates()
+    {
+        using var handler = new CancellingHandler();
+        var catalog = new TidalPublicCatalog(
+            new HttpClient(handler), NullLogger<TidalPublicCatalog>.Instance);
+        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(50));
+
+        Assert.CatchAsync<OperationCanceledException>(() =>
+            catalog.SearchByIsrcAsync("AUAP08000046", "US", ct: cts.Token));
+    }
+
+    private sealed class CancellingHandler : HttpMessageHandler
+    {
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken ct)
+        {
+            await Task.Delay(Timeout.Infinite, ct);
+            return new HttpResponseMessage(HttpStatusCode.OK);
+        }
+    }
+
     // ── Provider search, not just the ranker ─────────────────────────────
 
     [Test]
