@@ -2,6 +2,7 @@ using System.Globalization;
 using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.Deezer;
 using MelodyBridge.Infrastructure.Downloaders;
+using MelodyBridge.Infrastructure.SearchProviders;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace MelodyBridge.Tests.Integration;
@@ -31,18 +32,22 @@ public class DeemixLiveTests
         try { Directory.Delete(_outDir, recursive: true); } catch { /* best effort */ }
     }
 
+    private static DeezerClient Client()
+        => new(new HttpClient { Timeout = TimeSpan.FromSeconds(30) },
+            NullLogger<DeezerClient>.Instance);
+
     private static DeemixDownloader Create(StubPluginConfig config)
-        => new(new DeezerClient(
-                new HttpClient { Timeout = TimeSpan.FromSeconds(30) },
-                NullLogger<DeezerClient>.Instance),
-            config, NullLogger<DeemixDownloader>.Instance);
+        => new(Client(), config, NullLogger<DeemixDownloader>.Instance);
+
+    private static DeemixSearchProvider CreateProvider()
+        => new(Client());
 
     [Test]
     public async Task Search_PublicApi_FindsWellKnownTracks()
     {
-        var plugin = Create(new StubPluginConfig());
+        var provider = CreateProvider();
 
-        var hit = await plugin.SearchAsync(new TrackQuery(
+        var hit = await provider.SearchAsync("deemix", new TrackQuery(
             "Rick Astley", "Never Gonna Give You Up", DownloadQuality.Any,
             ExpectedDuration: TimeSpan.FromSeconds(213)));
 
@@ -71,7 +76,7 @@ public class DeemixLiveTests
         Assert.That(await plugin.IsAvailableAsync(), Is.True,
             "the deemix command must be resolvable");
 
-        var hit = await plugin.SearchAsync(new TrackQuery(
+        var hit = await CreateProvider().SearchAsync("deemix", new TrackQuery(
             "Rick Astley", "Never Gonna Give You Up", DownloadQuality.Any,
             ExpectedDuration: TimeSpan.FromSeconds(213)));
         Assert.That(hit, Is.Not.Null, "precondition: the search finds a source");

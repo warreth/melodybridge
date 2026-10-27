@@ -3,6 +3,7 @@ using System.Globalization;
 using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.Audio;
 using MelodyBridge.Infrastructure.Jumo;
+using MelodyBridge.Infrastructure.SearchProviders;
 using MelodyBridge.Infrastructure.Tagging;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -21,6 +22,7 @@ namespace MelodyBridge.Tests.Integration;
 public class JumoDownloaderLiveTests
 {
     private JumoDownloader _downloader = null!;
+    private JumoSearchProvider _provider = null!;
     private string _outDir = null!;
 
     [OneTimeSetUp]
@@ -28,9 +30,11 @@ public class JumoDownloaderLiveTests
     {
         var config = new StubPluginConfig();
         var http = new HttpClient { Timeout = TimeSpan.FromMinutes(3) };
-        _downloader = new JumoDownloader(
+        var session = new JumoSession(
             new JumoClient(http, NullLogger<JumoClient>.Instance),
-            config, NullLogger<JumoDownloader>.Instance);
+            config, NullLogger<JumoSession>.Instance);
+        _provider = new JumoSearchProvider(session, NullLogger<JumoSearchProvider>.Instance);
+        _downloader = new JumoDownloader(session, config, NullLogger<JumoDownloader>.Instance);
         _outDir = Path.Combine(Path.GetTempPath(), $"mb-jumo-{Guid.NewGuid():N}");
         Directory.CreateDirectory(_outDir);
     }
@@ -43,7 +47,7 @@ public class JumoDownloaderLiveTests
 
     private async Task<DownloaderSearchHit> SearchOrSkipAsync()
     {
-        var hit = await _downloader.SearchAsync(
+        var hit = await _provider.SearchAsync("jumo",
             new TrackQuery("Daft Punk", "One More Time", DownloadQuality.Any, TimeSpan.FromSeconds(320)));
         if (hit is null)
             Assert.Ignore("the jumo service refused the search from this network (bot gate or outage)");

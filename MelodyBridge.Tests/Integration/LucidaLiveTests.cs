@@ -12,6 +12,16 @@ namespace MelodyBridge.Tests.Integration;
 [Category("Live")]
 public class LucidaLiveTests
 {
+    private static MelodyBridge.Infrastructure.SearchProviders.LucidaSearchProvider Provider(
+        HttpClient http, MelodyBridge.Core.IChallengeSolver solver)
+        => new(
+            new MelodyBridge.Infrastructure.SearchProviders.LucidaSession(
+                http, solver,
+                Microsoft.Extensions.Logging.Abstractions.NullLogger<
+                    MelodyBridge.Infrastructure.SearchProviders.LucidaSession>.Instance),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<
+                MelodyBridge.Infrastructure.SearchProviders.LucidaSearchProvider>.Instance);
+
     [Test]
     public async Task WithoutSolver_PluginReportsUnavailable()
     {
@@ -43,20 +53,21 @@ public class LucidaLiveTests
             Assert.Ignore("FLARESOLVERR_URL not set: start FlareSolverr and set it to run this test");
 
         var http = new HttpClient { BaseAddress = new Uri("https://lucida.to") };
-        var downloader = new MelodyBridge.Infrastructure.Lucida.LucidaDownloader(
+        var solver = new MelodyBridge.Infrastructure.Cloudflare.FlareSolverrSolver(
             http,
-            new MelodyBridge.Infrastructure.Cloudflare.FlareSolverrSolver(
-                http,
-                Microsoft.Extensions.Options.Options.Create(
-                    new MelodyBridge.Infrastructure.Cloudflare.FlareSolverrOptions { Url = solverUrl }),
-                Microsoft.Extensions.Logging.Abstractions.NullLogger<
-                    MelodyBridge.Infrastructure.Cloudflare.FlareSolverrSolver>.Instance),
+            Microsoft.Extensions.Options.Options.Create(
+                new MelodyBridge.Infrastructure.Cloudflare.FlareSolverrOptions { Url = solverUrl }),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<
+                MelodyBridge.Infrastructure.Cloudflare.FlareSolverrSolver>.Instance);
+        var downloader = new MelodyBridge.Infrastructure.Lucida.LucidaDownloader(
+            http, solver,
             Microsoft.Extensions.Logging.Abstractions.NullLogger<
                 MelodyBridge.Infrastructure.Lucida.LucidaDownloader>.Instance);
 
         Assert.That(await downloader.IsAvailableAsync(), Is.True);
 
-        var hit = await downloader.SearchAsync(new TrackQuery("Rick Astley", "Never Gonna Give You Up", DownloadQuality.Any));
+        var hit = await Provider(http, solver).SearchAsync("lucida",
+            new TrackQuery("Rick Astley", "Never Gonna Give You Up", DownloadQuality.Any));
         Assert.That(hit, Is.Not.Null, "the search must find a well-known track");
         Assert.That(hit!.SourceUrl, Is.Not.Empty);
     }
@@ -69,20 +80,17 @@ public class LucidaLiveTests
             Assert.Ignore("FLARESOLVERR_URL not set: start FlareSolverr and set it to run this test");
 
         var http = new HttpClient { BaseAddress = new Uri("https://lucida.to") };
-        var downloader = new MelodyBridge.Infrastructure.Lucida.LucidaDownloader(
+        var solver = new MelodyBridge.Infrastructure.Cloudflare.FlareSolverrSolver(
             http,
-            new MelodyBridge.Infrastructure.Cloudflare.FlareSolverrSolver(
-                http,
-                Microsoft.Extensions.Options.Options.Create(
-                    new MelodyBridge.Infrastructure.Cloudflare.FlareSolverrOptions { Url = solverUrl }),
-                Microsoft.Extensions.Logging.Abstractions.NullLogger<
-                    MelodyBridge.Infrastructure.Cloudflare.FlareSolverrSolver>.Instance),
+            Microsoft.Extensions.Options.Options.Create(
+                new MelodyBridge.Infrastructure.Cloudflare.FlareSolverrOptions { Url = solverUrl }),
             Microsoft.Extensions.Logging.Abstractions.NullLogger<
-                MelodyBridge.Infrastructure.Lucida.LucidaDownloader>.Instance);
+                MelodyBridge.Infrastructure.Cloudflare.FlareSolverrSolver>.Instance);
 
         // The chain must survive a non-tidal service: whichever service wins,
         // the hit proves the multi-service search works against the real site.
-        var hit = await downloader.SearchAsync(new TrackQuery("Daft Punk", "One More Time", DownloadQuality.Any));
+        var hit = await Provider(http, solver).SearchAsync("lucida",
+            new TrackQuery("Daft Punk", "One More Time", DownloadQuality.Any));
         Assert.That(hit, Is.Not.Null, "the search must find a well-known track");
         Assert.That(hit!.SourceUrl, Is.Not.Empty);
     }

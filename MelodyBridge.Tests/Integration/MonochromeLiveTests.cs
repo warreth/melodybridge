@@ -1,6 +1,7 @@
 using System.Globalization;
 using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.Downloaders;
+using MelodyBridge.Infrastructure.SearchProviders;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace MelodyBridge.Tests.Integration;
@@ -15,15 +16,21 @@ namespace MelodyBridge.Tests.Integration;
 public class MonochromeLiveTests
 {
     private MonochromeDownloader _downloader = null!;
+    private MonochromeSearchProvider _provider = null!;
     private string _outDir = null!;
 
     [OneTimeSetUp]
     public void Setup()
     {
+        var config = new EmptyPluginConfig();
         _downloader = new MonochromeDownloader(
             new HttpClient { BaseAddress = new Uri(MonochromeDownloader.DefaultBaseUrl) },
-            new EmptyPluginConfig(),
+            config,
             NullLogger<MonochromeDownloader>.Instance);
+        _provider = new MonochromeSearchProvider(
+            new HttpClient { BaseAddress = new Uri(MonochromeDownloader.DefaultBaseUrl) },
+            config,
+            NullLogger<MonochromeSearchProvider>.Instance);
         _outDir = Path.Combine(Path.GetTempPath(), $"mb-monochrome-live-{Guid.NewGuid():N}");
         Directory.CreateDirectory(_outDir);
     }
@@ -53,7 +60,7 @@ public class MonochromeLiveTests
     [Test]
     public async Task Search_WellKnownTrack_FindsItWithHighConfidence()
     {
-        var hit = await _downloader.SearchAsync(
+        var hit = await _provider.SearchAsync("monochrome",
             new TrackQuery("Rick Astley", "Never Gonna Give You Up", DownloadQuality.Any));
 
         Assert.That(hit, Is.Not.Null, "the official API must find this well-known track");
@@ -68,11 +75,13 @@ public class MonochromeLiveTests
     [Test]
     public async Task Download_RealTrack_ProducesAValidFlac()
     {
-        var hit = await _downloader.SearchAsync(
+        var hit = await _provider.SearchAsync("monochrome",
             new TrackQuery("Rick Astley", "Never Gonna Give You Up", DownloadQuality.Any));
         Assert.That(hit, Is.Not.Null, "precondition: search finds the track");
 
         var result = await _downloader.DownloadAsync(hit!.SourceUrl!, _outDir, "mb-monochrome-live");
+        if (!result.Success && result.ErrorMessage?.Contains("429") == true)
+            Assert.Ignore("the Monochrome API rate limited this run: " + result.ErrorMessage);
         Assert.That(result.Success, Is.True, $"download failed: {result.ErrorMessage}");
         Assert.That(result.FilePath, Is.Not.Null);
         Assert.That(File.Exists(result.FilePath), Is.True, "reported file must exist");

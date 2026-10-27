@@ -76,14 +76,14 @@ public class DownloadManagerLiveTests
     {
         var manager = _app.DownloadManager;
 
-        // The playlist claims 60 seconds; every real source of this track
-        // runs 2:25 or longer (the API even carries a 171s edit), so every
-        // candidate is a gross mismatch. Downloading one anyway would be
-        // the wrong track. 100s would NOT be enough: 171/100 lands inside
-        // the plausible window.
+        // The playlist claims 80 seconds. The real versions run 171s and
+        // 213s, and the catalogues also surface a 39s ringtone edit; all
+        // three are outside the plausible window around 80. The duration
+        // gate only runs from 45s up, so a smaller claim would be ignored
+        // as too little signal.
         var path = await manager.DownloadTrackAsync(
             new TrackQuery("Rick Astley", "Never Gonna Give You Up", DownloadQuality.Any,
-                ExpectedDuration: TimeSpan.FromSeconds(60)), _outDir, "mb-live-mgr-2");
+                ExpectedDuration: TimeSpan.FromSeconds(80)), _outDir, "mb-live-mgr-2");
 
         Assert.That(path, Is.Null, "a gross duration mismatch must not download");
         Assert.That(manager.LastFailure("mb-live-mgr-2"), Does.Contain("wrong length"));

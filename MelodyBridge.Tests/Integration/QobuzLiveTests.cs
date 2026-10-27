@@ -87,7 +87,9 @@ public class QobuzLiveTests
         Assert.That(await plugin.IsAvailableAsync(), Is.True,
             "the token and the qobuz-dlp command must both be valid");
 
-        var hit = await plugin.SearchAsync(new TrackQuery(
+        var provider = new QobuzSearchProvider(
+            Client(), new QobuzSession(config, NullLogger<QobuzSession>.Instance));
+        var hit = await provider.SearchAsync("qobuz", new TrackQuery(
             "Daft Punk", "Around the World", DownloadQuality.Any,
             ExpectedDuration: TimeSpan.FromSeconds(429)));
         Assert.That(hit, Is.Not.Null, "precondition: the search finds a source");
