@@ -269,6 +269,116 @@ public class RhythmaxClientTests
     }
 
     [Test]
+    public void ParseDash_SegmentTemplateWithDuration_UsesThePresentationDuration()
+    {
+        const string xml = """
+        <?xml version="1.0"?>
+        <MPD xmlns="urn:mpeg:dash:schema:mpd:2011" type="static"
+             mediaPresentationDuration="PT30S">
+          <Period id="0"><AdaptationSet mimeType="audio/mp4">
+            <Representation id="0" codecs="flac">
+              <SegmentTemplate timescale="44100" duration="441000"
+                initialization="https://cdn.test/init-$Number$.mp4"
+                media="https://cdn.test/seg-$Number$.mp4" startNumber="1"/>
+            </Representation>
+          </AdaptationSet></Period>
+        </MPD>
+        """;
+
+        var plan = RhythmaxClient.ParseDash(xml, "https://manifest.test/track.mpd", "flac");
+
+        Assert.That(plan, Is.Not.Null);
+        Assert.Multiple(() =>
+        {
+            Assert.That(plan!.InitializationUrl, Is.EqualTo("https://cdn.test/init-1.mp4"));
+            Assert.That(plan.SegmentUrls, Is.EqualTo(new[]
+            {
+                "https://cdn.test/seg-1.mp4",
+                "https://cdn.test/seg-2.mp4",
+                "https://cdn.test/seg-3.mp4",
+            }), "30 seconds at ten seconds per segment");
+        });
+    }
+
+    [Test]
+    public void ParseDash_SegmentBase_UsesTheInitAndIndexRanges()
+    {
+        const string xml = """
+        <?xml version="1.0"?>
+        <MPD xmlns="urn:mpeg:dash:schema:mpd:2011" type="static">
+          <Period id="0"><AdaptationSet mimeType="audio/mp4">
+            <Representation id="0" codecs="flac" indexRange="1000-1999">
+              <BaseURL>https://cdn.test/audio.mp4</BaseURL>
+              <SegmentBase>
+                <Initialization range="0-999"/>
+              </SegmentBase>
+            </Representation>
+          </AdaptationSet></Period>
+        </MPD>
+        """;
+
+        var plan = RhythmaxClient.ParseDash(xml, "https://manifest.test/track.mpd", "flac");
+
+        Assert.That(plan, Is.Not.Null);
+        Assert.Multiple(() =>
+        {
+            Assert.That(plan!.InitializationUrl, Is.EqualTo("https://cdn.test/audio.mp4"));
+            Assert.That(plan.InitializationRange,
+                Is.EqualTo(new RhythmaxClient.ByteRange(0, 1000)));
+            Assert.That(plan.SegmentUrls, Is.EqualTo(new[] { "https://cdn.test/audio.mp4" }));
+            Assert.That(plan.MediaRange,
+                Is.EqualTo(new RhythmaxClient.ByteRange(2000)),
+                "the media starts after both the init and the index");
+        });
+    }
+
+    [Test]
+    public void ParseDash_SegmentBaseWithoutInit_StartsAfterTheIndex()
+    {
+        const string xml = """
+        <?xml version="1.0"?>
+        <MPD xmlns="urn:mpeg:dash:schema:mpd:2011" type="static">
+          <Period id="0"><AdaptationSet mimeType="audio/mp4">
+            <Representation id="0" codecs="mp4a.40.2" indexRange="0-99">
+              <BaseURL>https://cdn.test/audio.mp4</BaseURL>
+              <SegmentBase/>
+            </Representation>
+          </AdaptationSet></Period>
+        </MPD>
+        """;
+
+        var plan = RhythmaxClient.ParseDash(xml, "https://manifest.test/track.mpd", "aac");
+
+        Assert.That(plan, Is.Not.Null);
+        Assert.Multiple(() =>
+        {
+            Assert.That(plan!.InitializationUrl, Is.Empty, "there is no separate init range");
+            Assert.That(plan.InitializationRange, Is.Null);
+            Assert.That(plan.MediaRange, Is.EqualTo(new RhythmaxClient.ByteRange(100)));
+        });
+    }
+
+    [Test]
+    public void ParseDash_SegmentTemplateDurationWithoutTotal_ReturnsNull()
+    {
+        const string xml = """
+        <?xml version="1.0"?>
+        <MPD xmlns="urn:mpeg:dash:schema:mpd:2011" type="static">
+          <Period id="0"><AdaptationSet mimeType="audio/mp4">
+            <Representation id="0" codecs="flac">
+              <SegmentTemplate timescale="44100" duration="441000"
+                initialization="https://cdn.test/init.mp4"
+                media="https://cdn.test/seg-$Number$.mp4"/>
+            </Representation>
+          </AdaptationSet></Period>
+        </MPD>
+        """;
+
+        Assert.That(RhythmaxClient.ParseDash(xml, "https://manifest.test/track.mpd", "flac"),
+            Is.Null, "without a duration there is no honest segment count");
+    }
+
+    [Test]
     public void ParseDash_RejectsUnreadableOrEmptyManifests()
     {
         Assert.That(RhythmaxClient.ParseDash("<not-a-manifest>", "https://x/y.mpd", "flac"), Is.Null);

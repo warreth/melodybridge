@@ -1,5 +1,7 @@
 using System.Net;
+using System.Net.Http.Headers;
 using System.Text.Json;
+using System.Xml;
 using System.Xml.Linq;
 using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.Audio;
@@ -46,13 +48,23 @@ public class RhythmaxClient
         string? Message = null,
         TimeSpan? RetryAfter = null);
 
+    /// <summary>A byte range for a SegmentBase representation; a null length runs to EOF.</summary>
+    public record ByteRange(long Start, long? Length = null)
+    {
+        public string Header => Length is { } length
+            ? $"bytes={Start}-{Start + length - 1}"
+            : $"bytes={Start}-";
+    }
+
     /// <summary>One DASH representation reduced to the URLs needed to download it.</summary>
     public record DashPlan(
         string InitializationUrl,
         IReadOnlyList<string> SegmentUrls,
         string Codecs,
         string MimeType,
-        string? Label);
+        string? Label,
+        ByteRange? InitializationRange = null,
+        ByteRange? MediaRange = null);
 
     /// <summary>What one successful download produced.</summary>
     public record DownloadResult(string FilePath, string Codecs);
@@ -458,6 +470,14 @@ public class RhythmaxClient
         if (list is not null)
             return BuildSegmentListPlan(representation, list, absolute, codecs);
 
+        var segmentBase = representation.Descendants()
+                .FirstOrDefault(element => element.Name.LocalName == "SegmentBase")
+            ?? representation.Parent?
+                .Descendants()
+                .FirstOrDefault(element => element.Name.LocalName == "SegmentBase");
+        if (segmentBase is not null)
+            return BuildSegmentBasePlan(representation, segmentBase, absolute, codecs);
+
         return null;
     }
 
@@ -473,24 +493,43 @@ public class RhythmaxClient
             : 1;
         var timeline = template.Descendants()
             .FirstOrDefault(element => element.Name.LocalName == "SegmentTimeline");
-        if (timeline is null) return null;
-
         var times = new List<long>();
-        var currentTime = 0L;
-        foreach (var segment in timeline.Descendants()
-                     .Where(element => element.Name.LocalName == "S"))
+        if (timeline is not null)
         {
-            if (!long.TryParse(segment.Attribute("d")?.Value, out var duration) || duration <= 0)
-                continue;
-            if (long.TryParse(segment.Attribute("t")?.Value, out var startTime))
-                currentTime = startTime;
-            var repeat = int.TryParse(segment.Attribute("r")?.Value, out var r) ? r : 0;
-            if (repeat < 0) repeat = 0; // open-ended repeat is not used by Tidal
-            for (var i = 0; i <= repeat; i++)
+            var currentTime = 0L;
+            foreach (var segment in timeline.Descendants()
+                         .Where(element => element.Name.LocalName == "S"))
             {
-                times.Add(currentTime);
-                currentTime += duration;
+                if (!long.TryParse(segment.Attribute("d")?.Value, out var duration) || duration <= 0)
+                    continue;
+                if (long.TryParse(segment.Attribute("t")?.Value, out var startTime))
+                    currentTime = startTime;
+                var repeat = int.TryParse(segment.Attribute("r")?.Value, out var r) ? r : 0;
+                if (repeat < 0) repeat = 0; // open-ended repeat is not used by Tidal
+                for (var i = 0; i <= repeat; i++)
+                {
+                    times.Add(currentTime);
+                    currentTime += duration;
+                }
             }
+        }
+        else
+        {
+            // Some DASH packs use a fixed segment duration and the MPD's
+            // presentation duration instead of a SegmentTimeline.
+            if (!long.TryParse(template.Attribute("duration")?.Value, out var duration)
+                || duration <= 0)
+                return null;
+            var timescale = long.TryParse(template.Attribute("timescale")?.Value, out var scale)
+                            && scale > 0
+                ? scale
+                : 1;
+            var total = ScopeDuration(representation);
+            if (total is null) return null;
+            var segmentSeconds = (double)duration / timescale;
+            var count = (long)Math.Ceiling(total.Value.TotalSeconds / segmentSeconds);
+            if (count <= 0 || count > 100_000) return null;
+            for (var i = 0L; i < count; i++) times.Add(i * duration);
         }
         if (times.Count == 0) return null;
 
@@ -510,6 +549,97 @@ public class RhythmaxClient
             representation.Parent?.Attribute("mimeType")?.Value ?? "audio/mp4",
             representation.Descendants()
                 .FirstOrDefault(element => element.Name.LocalName == "Label")?.Value);
+    }
+
+    /// <summary>
+    /// A SegmentBase representation is one file: the initialization and the
+    /// media live at byte ranges of the same URL. The index range, when
+    /// present, separates the two; the media runs to EOF.
+    /// </summary>
+    private static DashPlan? BuildSegmentBasePlan(
+        XElement representation, XElement segmentBase, Uri absolute, string codecs)
+    {
+        var baseUrl = NearestBaseUrl(representation) ?? NearestBaseUrl(representation.Parent);
+        if (string.IsNullOrWhiteSpace(baseUrl)) return null;
+        var mediaUrl = new Uri(absolute, baseUrl).ToString();
+
+        var initialization = segmentBase.Descendants()
+            .FirstOrDefault(element => element.Name.LocalName == "Initialization");
+        var initializationRange = ParseRange(initialization?.Attribute("range")?.Value);
+        if (initialization is not null && initializationRange is null) return null;
+
+        var indexRange = ParseRange(segmentBase.Attribute("indexRange")?.Value)
+            ?? ParseRange(representation.Attribute("indexRange")?.Value);
+
+        var mediaStart = 0L;
+        if (initializationRange is not null)
+            mediaStart = Math.Max(mediaStart,
+                initializationRange.Start + (initializationRange.Length ?? 0));
+        if (indexRange is not null)
+            mediaStart = Math.Max(mediaStart, indexRange.Start + (indexRange.Length ?? 0));
+
+        var initSource = initialization?.Attribute("sourceURL")?.Value;
+        var initializationUrl = initialization is null
+            ? ""
+            : string.IsNullOrWhiteSpace(initSource)
+                ? mediaUrl
+                : new Uri(absolute, initSource).ToString();
+
+        return new DashPlan(
+            initializationUrl,
+            new[] { mediaUrl },
+            codecs,
+            representation.Parent?.Attribute("mimeType")?.Value ?? "audio/mp4",
+            representation.Descendants()
+                .FirstOrDefault(element => element.Name.LocalName == "Label")?.Value,
+            initializationRange,
+            mediaStart > 0 ? new ByteRange(mediaStart) : null);
+    }
+
+    /// <summary>The nearest BaseURL at or above the element, or null.</summary>
+    private static string? NearestBaseUrl(XElement? element)
+    {
+        for (var node = element; node is not null; node = node.Parent)
+        {
+            var value = node.Elements()
+                .FirstOrDefault(child => child.Name.LocalName == "BaseURL")?.Value;
+            if (!string.IsNullOrWhiteSpace(value)) return value;
+        }
+        return null;
+    }
+
+    /// <summary>The period or presentation duration, in ISO 8601 form.</summary>
+    private static TimeSpan? ScopeDuration(XElement representation)
+    {
+        for (var node = representation.Parent; node is not null; node = node.Parent)
+        {
+            var attribute = node.Name.LocalName == "MPD"
+                ? "mediaPresentationDuration"
+                : "duration";
+            var value = node.Attribute(attribute)?.Value;
+            if (string.IsNullOrWhiteSpace(value)) continue;
+            try
+            {
+                return XmlConvert.ToTimeSpan(value);
+            }
+            catch (FormatException)
+            {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    /// <summary>Parses "start-end" or "start-" into a byte range.</summary>
+    private static ByteRange? ParseRange(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        var parts = value.Split('-', 2);
+        if (!long.TryParse(parts[0], out var start) || start < 0) return null;
+        if (parts.Length == 1 || string.IsNullOrWhiteSpace(parts[1]))
+            return new ByteRange(start);
+        if (!long.TryParse(parts[1], out var end) || end < start) return null;
+        return new ByteRange(start, end - start + 1);
     }
 
     private static DashPlan? BuildSegmentListPlan(
@@ -579,9 +709,10 @@ public class RhythmaxClient
             await using (var output = new FileStream(work, FileMode.Create, FileAccess.Write,
                              FileShare.None, 81920, FileOptions.Asynchronous | FileOptions.SequentialScan))
             {
-                await CopyAsync(plan.InitializationUrl, output, ct);
+                if (plan.InitializationUrl.Length > 0)
+                    await CopyAsync(plan.InitializationUrl, output, plan.InitializationRange, ct);
                 foreach (var segment in plan.SegmentUrls)
-                    await CopyAsync(segment, output, ct);
+                    await CopyAsync(segment, output, plan.MediaRange, ct);
             }
 
             if (new FileInfo(work).Length == 0)
@@ -628,9 +759,19 @@ public class RhythmaxClient
         }
     }
 
-    private async Task CopyAsync(string url, Stream output, CancellationToken ct)
+    private async Task CopyAsync(
+        string url, Stream output, ByteRange? range, CancellationToken ct)
     {
-        using var response = await _http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct);
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        if (range is not null)
+            request.Headers.Range = range.Length is { } length
+                ? new RangeHeaderValue(range.Start, range.Start + length - 1)
+                : new RangeHeaderValue(range.Start, null);
+
+        using var response = await _http.SendAsync(
+            request, HttpCompletionOption.ResponseHeadersRead, ct);
+        if (range is not null && response.StatusCode != HttpStatusCode.PartialContent)
+            throw new RhythmaxException("Rhythmax ignored a byte range request");
         response.EnsureSuccessStatusCode();
         await using var source = await response.Content.ReadAsStreamAsync(ct);
         await source.CopyToAsync(output, 81920, ct);

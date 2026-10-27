@@ -38,7 +38,7 @@ public class RhythmaxDownloadTests
 
     private sealed class ScriptedHandler : HttpMessageHandler
     {
-        public List<(string Url, string? Authorization)> Requests { get; } = new();
+        public List<(string Url, string? Authorization, string? Range)> Requests { get; } = new();
         public Func<HttpRequestMessage, HttpResponseMessage> Respond { get; set; } =
             _ => new HttpResponseMessage(HttpStatusCode.NotFound);
 
@@ -46,7 +46,8 @@ public class RhythmaxDownloadTests
             HttpRequestMessage request, CancellationToken ct)
         {
             Requests.Add((request.RequestUri!.AbsoluteUri,
-                request.Headers.Authorization?.Parameter));
+                request.Headers.Authorization?.Parameter,
+                request.Headers.Range?.ToString()));
             return Task.FromResult(Respond(request));
         }
     }
@@ -157,6 +158,76 @@ public class RhythmaxDownloadTests
             Is.True);
         Assert.That(handler.Requests.Any(r => r.Url == "https://hifi.test/init"), Is.True);
         Assert.That(handler.Requests.Any(r => r.Url == "https://hifi.test/seg"), Is.True);
+    }
+
+    /// <summary>A SegmentBase manifest: one file, init and media at byte ranges.</summary>
+    private static string SegmentBaseDashXml(int initLength)
+        => $"""
+        <?xml version="1.0" encoding="UTF-8"?>
+        <MPD xmlns="urn:mpeg:dash:schema:mpd:2011" type="static">
+          <Period id="0"><AdaptationSet contentType="audio" mimeType="audio/mp4">
+            <Representation id="0" codecs="flac">
+              <BaseURL>https://hifi.test/audio.mp4</BaseURL>
+              <SegmentBase>
+                <Initialization range="0-{initLength - 1}"/>
+              </SegmentBase>
+            </Representation>
+          </AdaptationSet></Period>
+        </MPD>
+        """;
+
+    private static HttpResponseMessage Ranged(byte[] payload, string? rangeHeader)
+    {
+        if (string.IsNullOrWhiteSpace(rangeHeader))
+            return Bytes(payload);
+        var spec = rangeHeader.Replace("bytes=", "", StringComparison.Ordinal);
+        var parts = spec.Split('-', 2);
+        var start = int.Parse(parts[0]);
+        var end = parts.Length == 2 && parts[1].Length > 0
+            ? int.Parse(parts[1])
+            : payload.Length - 1;
+        var slice = payload[start..(end + 1)];
+        var response = new HttpResponseMessage(HttpStatusCode.PartialContent)
+        {
+            Content = new ByteArrayContent(slice),
+        };
+        response.Content.Headers.ContentRange =
+            new System.Net.Http.Headers.ContentRangeHeaderValue(start, end, payload.Length);
+        return response;
+    }
+
+    [Test]
+    public async Task Download_SegmentBase_RequestsTheInitAndMediaRanges()
+    {
+        var payload = FragmentedMp4("flac");
+        var initLength = payload.Length / 2;
+        using var handler = new ScriptedHandler();
+        handler.Respond = request => request.RequestUri!.AbsoluteUri switch
+        {
+            "https://hifi.test/token" => Json("""{"access_token":"play-token","expires_in":600}"""),
+            var url when url.Contains("/manifests") => Json(ManifestJson("https://hifi.test/track.mpd")),
+            "https://hifi.test/track.mpd" => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    SegmentBaseDashXml(initLength), Encoding.UTF8, "application/dash+xml"),
+            },
+            "https://hifi.test/audio.mp4" => Ranged(payload, request.Headers.Range?.ToString()),
+            _ => new HttpResponseMessage(HttpStatusCode.NotFound),
+        };
+
+        var result = await Downloader(handler).DownloadAsync(
+            "https://tidal.com/browse/track/35986110", NewDir(), "mb-rhythmax-base",
+            new DownloadQuality(AudioFormat.Flac));
+
+        Assert.That(result.Success, Is.True, result.ErrorMessage);
+        Assert.That(AudioSignature.DetectContainer(result.FilePath!), Is.EqualTo(".flac"));
+        var ranges = handler.Requests
+            .Where(r => r.Url == "https://hifi.test/audio.mp4")
+            .Select(r => r.Range)
+            .ToList();
+        Assert.That(ranges, Has.Count.EqualTo(2), "one init request and one media request");
+        Assert.That(ranges[0], Is.EqualTo($"bytes=0-{initLength - 1}"));
+        Assert.That(ranges[1], Is.EqualTo($"bytes={initLength}-"));
     }
 
     [Test]
