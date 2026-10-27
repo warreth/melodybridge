@@ -98,6 +98,8 @@ public class SearchProviderPanelTests
 
         var cut = _ctx.Render<SearchProviderPanel>();
 
+        Assert.That(cut.Find("details.search-provider-map").HasAttribute("open"), Is.False,
+            "the routing map is collapsed until the user asks for it");
         Assert.That(cut.FindAll(".search-provider"), Has.Count.EqualTo(1));
         var provider = cut.Find(".search-provider");
         Assert.That(provider.TextContent, Does.Contain("Tidal ISRC search"));

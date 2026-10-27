@@ -459,9 +459,10 @@ the card. The search box and the **All**, **Accounts**, **Free** and
 would show. **Problems** includes unavailable sources and stored logins that
 stopped working.
 
-The **Search routing** card below it shows where each source gets its track.
-A provider row names the data it reads (ISRC, title and artist) and the source
-cards it can search. The sources that search themselves are listed separately,
+The **Search routing** card at the bottom of the page is collapsed by default.
+Open it to see where each source gets its track. A provider row names the data
+it reads (ISRC, title and artist) and the source cards it can search. The
+sources that search themselves are listed separately,
 with their data and any note such as "title-only fallback". A source marked
 **fallback** only runs after every other source. A direct-URL source has no
 search at all. If a source declares a provider search but no provider targets

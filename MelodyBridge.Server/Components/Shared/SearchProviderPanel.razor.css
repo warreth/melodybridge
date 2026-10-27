@@ -3,9 +3,7 @@
    card chrome comes from app.css. */
 
 .search-provider-map {
-    display: grid;
-    gap: 1rem;
-    margin-bottom: 1rem;
+    margin-top: 1rem;
 }
 
 .search-provider-head {
@@ -13,10 +11,36 @@
     align-items: start;
     justify-content: space-between;
     gap: 1rem;
+    cursor: pointer;
+    list-style: none;
 }
+
+.search-provider-head::-webkit-details-marker { display: none; }
+.search-provider-head::marker { content: ""; }
 
 .search-provider-head h2 { margin: 0; }
 .search-provider-head .panel-description { margin: .35rem 0 0; max-width: 70ch; }
+
+.search-provider-chevron {
+    flex: none;
+    margin-top: .15rem;
+    color: var(--muted);
+    transition: transform .15s ease;
+}
+
+.search-provider-map[open] .search-provider-chevron { transform: rotate(180deg); }
+
+.search-provider-body {
+    display: grid;
+    gap: 1rem;
+    padding-top: 1rem;
+}
+
+/* The author display above otherwise overrides the browser's own
+   "hide the body of a closed details" rule. */
+.search-provider-map:not([open]) > .search-provider-body {
+    display: none;
+}
 
 .search-provider-count {
     flex: none;

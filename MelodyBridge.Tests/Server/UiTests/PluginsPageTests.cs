@@ -88,9 +88,15 @@ public class PluginsPageTests
 
         cut.WaitForAssertion(() =>
         {
-            Assert.That(cut.FindAll(".search-provider-map"), Has.Count.EqualTo(1));
+            Assert.That(cut.FindAll("details.search-provider-map"), Has.Count.EqualTo(1));
             Assert.That(cut.Markup, Does.Contain("How each source finds the track"));
         }, TimeSpan.FromSeconds(3));
+
+        Assert.That(cut.Find("details.search-provider-map").HasAttribute("open"), Is.False,
+            "the search map starts collapsed");
+        var order = cut.FindAll(".plugin-groups, details.search-provider-map");
+        Assert.That(order.Last().ClassList, Does.Contain("search-provider-map"),
+            "the search map sits after the source cards");
     }
 
     [Test]

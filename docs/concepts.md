@@ -79,8 +79,8 @@ hands back whatever the source serves. Two things use that list:
 
 A source does not have to know how to search. A **search provider** turns a
 track query into a download URL, and the source only downloads that URL. The
-Plugins page has a **Search routing** card that shows every provider, the
-sources it can search, and the data it reads.
+Plugins page has a **Search routing** card at the bottom, collapsed by default,
+that shows every provider, the sources it can search, and the data it reads.
 
 The built-in Tidal ISRC searcher is the example. It asks Tidal for the ISRC
 first, accepts an exact code as the recording even when the title is spelled

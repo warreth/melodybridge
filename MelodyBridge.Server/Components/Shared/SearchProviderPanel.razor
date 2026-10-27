@@ -25,8 +25,8 @@
 
 @if (searchProviders is not null)
 {
-    <section class="panel-card search-provider-map" aria-labelledby="search-provider-title">
-        <div class="search-provider-head">
+    <details class="panel-card search-provider-map" aria-labelledby="search-provider-title">
+        <summary class="search-provider-head">
             <div>
                 <span class="eyebrow">Search routing</span>
                 <h2 id="search-provider-title">How each source finds the track</h2>
@@ -39,8 +39,10 @@
             <span class="search-provider-count">
                 @providers.Count provider@(providers.Count == 1 ? "" : "s")
             </span>
-        </div>
+            <Icon Name="chevron-down" Size="16" Class="search-provider-chevron" />
+        </summary>
 
+        <div class="search-provider-body">
         @if (providers.Count == 0)
         {
             <div class="hint-box">
@@ -90,7 +92,7 @@
                                     <a href="#plugin-@target.DownloaderId"
                                        class="search-target @(enabled ? "" : "is-disabled")"
                                        title="@(target.Note ?? $"Search {downloader?.Name ?? target.DownloaderId}")">
-                                        <Icon Name="music" Size="14" />
+                                        <Icon Name="@(downloader?.IconName ?? "music")" Size="14" />
                                         <span class="search-target-name">@(downloader?.Name ?? target.DownloaderId)</span>
                                         <span class="search-target-data">@DataLabel(target.Data)</span>
                                         @if (!enabled)
