@@ -132,6 +132,24 @@ public interface IDownloader
     string? LastUnavailableReason => null;
 
     /// <summary>
+    /// How this source gets its candidate URLs and which query data it can
+    /// match. Defaults to a title/artist search of its own catalogue for
+    /// backwards compatibility; URL-only and provider-backed sources
+    /// override it. The Plugins page reads this to show the search map, and
+    /// the router uses it to decide whether a search provider runs instead.
+    /// </summary>
+    DownloaderSearchInfo SearchInfo => DownloaderSearchInfo.Self(SearchData.Text);
+
+    /// <summary>
+    /// True for a source that is only a last resort. The quality router
+    /// keeps it behind every ordinary source, even when it could technically
+    /// serve the requested quality more directly. The Chinese title-search
+    /// fallback sets this so a lossless request does not skip the curated
+    /// providers just because it controls FLAC.
+    /// </summary>
+    bool FallbackOnly => false;
+
+    /// <summary>
     /// Find a downloadable source URL for the track query, honoring the
     /// requested quality where the source exposes it. Plugins rank their
     /// candidates with <c>SearchRanker</c>: title/artist similarity plus

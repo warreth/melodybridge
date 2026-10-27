@@ -22,8 +22,8 @@ public class DownloaderCompositionTests
 
         Assert.That(ids, Is.EqualTo(new[]
         {
-            "soundcloud", "archiveorg", "ytdlp", "qobuz", "deemix", "tidal",
-            "monochrome", "slskd", "lucida", "jumo",
+            "soundcloud", "archiveorg", "ytdlp", "qobuz", "deemix", "tidal", "rhythmax",
+            "monochrome", "slskd", "lucida", "jumo", "flacmusic",
         }), "a fresh install tries the plugins in the order AddMelodyBridge registers them");
     }
 

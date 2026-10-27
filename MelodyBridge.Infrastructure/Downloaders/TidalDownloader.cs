@@ -49,6 +49,14 @@ public class TidalDownloader : CliToolDownloader
     public override string Name => "Tidal";
     public override string Description => "Lossless and hi-res downloads through your own tiddl";
 
+    /// <summary>
+    /// The Tidal searcher resolves the track URL by ISRC (or text), so this
+    /// source no longer searches its own catalogue in the waterfall. Its
+    /// SearchAsync stays for compatibility and direct callers only.
+    /// </summary>
+    public override DownloaderSearchInfo SearchInfo =>
+        DownloaderSearchInfo.ViaProvider(SearchData.Isrc | SearchData.Text);
+
     public override IReadOnlyList<PluginConfigField> ConfigFields =>
     [
         new(TokenKey, "Tidal token", null,

@@ -4,11 +4,13 @@ using MelodyBridge.Infrastructure.Accounts;
 using MelodyBridge.Infrastructure.Cloudflare;
 using MelodyBridge.Infrastructure.Deezer;
 using MelodyBridge.Infrastructure.Downloaders;
+using MelodyBridge.Infrastructure.FlacMusic;
 using MelodyBridge.Infrastructure.Jumo;
 using MelodyBridge.Infrastructure.Lucida;
 using MelodyBridge.Infrastructure.MediaServers;
 using MelodyBridge.Infrastructure.Playlists;
 using MelodyBridge.Infrastructure.Qobuz;
+using MelodyBridge.Infrastructure.Rhythmax;
 using MelodyBridge.Infrastructure.Scanning;
 using MelodyBridge.Infrastructure.Services;
 using MelodyBridge.Infrastructure.Tidal;
@@ -137,6 +139,46 @@ public static class ServiceCollectionExtensions
                 sp.GetRequiredService<IPluginConfig>(),
                 sp.GetRequiredService<ILogger<TidalDownloader>>()));
 
+        // The Tidal search provider is independent of the user's own
+        // session: it uses the public token worker the Rhythmax frontend
+        // uses, searches Tidal v1 by ISRC first, and hands the URL to either
+        // Tidal download source.
+        services.AddHttpClient("tidal-public", c =>
+        {
+            c.DefaultRequestHeaders.UserAgent.ParseAdd("MelodyBridge/1.0 (+https://melodybridge.app)");
+            c.Timeout = TimeSpan.FromSeconds(20);
+        }).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+        {
+            AutomaticDecompression = System.Net.DecompressionMethods.All,
+        });
+        services.AddSingleton(sp => new TidalPublicCatalog(
+            sp.GetRequiredService<IHttpClientFactory>().CreateClient("tidal-public"),
+            sp.GetRequiredService<ILogger<TidalPublicCatalog>>()));
+        services.AddSingleton<ISearchProvider, TidalSearchProvider>();
+        services.AddSingleton<ISearchProviderRegistry, SearchProviderRegistry>();
+
+        // Rhythmax is the no-account Tidal source: the same public hifi
+        // API behind tidal.odskyler.com. It only downloads the URL the
+        // Tidal searcher resolved, so all Tidal searching lives in one place.
+        services.AddHttpClient("rhythmax", c =>
+        {
+            c.DefaultRequestHeaders.UserAgent.ParseAdd("MelodyBridge/1.0 (+https://melodybridge.app)");
+            // A DASH download can take minutes on a slow Tidal CDN; the
+            // plugin's own per-call deadlines keep a single segment bounded.
+            c.Timeout = TimeSpan.FromMinutes(30);
+        }).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+        {
+            AutomaticDecompression = System.Net.DecompressionMethods.All,
+        });
+        services.AddSingleton(sp => new RhythmaxClient(
+            sp.GetRequiredService<IHttpClientFactory>().CreateClient("rhythmax"),
+            sp.GetRequiredService<ILogger<RhythmaxClient>>()));
+        services.AddSingleton<IDownloader>(sp =>
+            new RhythmaxDownloader(
+                sp.GetRequiredService<RhythmaxClient>(),
+                sp.GetRequiredService<IPluginConfig>(),
+                sp.GetRequiredService<ILogger<RhythmaxDownloader>>()));
+
         // Monochrome streams lossless FLAC from its official API; the
         // client allows long transfers, the plugin caps each call itself.
         services.AddHttpClient("monochrome", c => c.Timeout = TimeSpan.FromMinutes(10))
@@ -188,6 +230,26 @@ public static class ServiceCollectionExtensions
                     sp.GetRequiredService<ILogger<JumoClient>>()),
                 sp.GetRequiredService<IPluginConfig>(),
                 sp.GetRequiredService<ILogger<JumoDownloader>>()));
+
+        // The last-resort source: a Chinese Kuwo/NetEase front-end with no
+        // ISRC index. It sits at the end of the shipped order, so it is only
+        // reached when every ISRC-aware and ordinary fallback had its turn.
+        services.AddHttpClient("flacmusic", c =>
+        {
+            c.DefaultRequestHeaders.UserAgent.ParseAdd("MelodyBridge/1.0 (+https://melodybridge.app)");
+            c.Timeout = TimeSpan.FromMinutes(15);
+        }).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+        {
+            AutomaticDecompression = System.Net.DecompressionMethods.All,
+        });
+        services.AddSingleton(sp => new FlacMusicClient(
+            sp.GetRequiredService<IHttpClientFactory>().CreateClient("flacmusic"),
+            sp.GetRequiredService<ILogger<FlacMusicClient>>()));
+        services.AddSingleton<IDownloader>(sp =>
+            new FlacMusicDownloader(
+                sp.GetRequiredService<FlacMusicClient>(),
+                sp.GetRequiredService<IPluginConfig>(),
+                sp.GetRequiredService<ILogger<FlacMusicDownloader>>()));
 
         // ISRC enrichment for sources that do not provide one (Spotify
         // embed scrape, YouTube, CSV imports): Deezer's public search API

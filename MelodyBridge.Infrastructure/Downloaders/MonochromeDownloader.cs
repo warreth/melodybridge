@@ -40,6 +40,10 @@ public class MonochromeDownloader : IDownloader
     public string Name => "Monochrome (lossless)";
     public string Description => "Official Monochrome lossless API: FLAC streams, no account needed";
 
+    public DownloaderSearchInfo SearchInfo =>
+        DownloaderSearchInfo.Self(SearchData.Text | SearchData.Isrc,
+            "Monochrome catalogue search, ISRC first");
+
     /// <inheritdoc />
     public string? LastUnavailableReason { get; private set; }
 

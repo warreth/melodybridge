@@ -41,8 +41,11 @@ public static class QualityRouter
         if (!quality.HasConstraints) return plugins;
 
         // OrderBy is stable, so the user's order survives inside both groups.
+        // A fallback-only source stays last even when it controls the
+        // quality: the curated sources get their turn first.
         return plugins
-            .OrderBy(p => p.Capabilities.ServesControlled(quality) ? 0 : 1)
+            .OrderBy(p => p.FallbackOnly ? 1 : 0)
+            .ThenBy(p => p.Capabilities.ServesControlled(quality) ? 0 : 1)
             .ToList();
     }
 

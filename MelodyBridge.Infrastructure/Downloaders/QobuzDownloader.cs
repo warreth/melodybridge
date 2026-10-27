@@ -38,6 +38,10 @@ public class QobuzDownloader : CliToolDownloader
     public override string Name => "Qobuz";
     public override string Description => "Lossless and hi-res downloads through your own qobuz-dlp";
 
+    public override DownloaderSearchInfo SearchInfo =>
+        DownloaderSearchInfo.Self(SearchData.Text | SearchData.Isrc,
+            "Qobuz catalogue search, ISRC first");
+
     public override IReadOnlyList<PluginConfigField> ConfigFields =>
     [
         new(TokenKey, "Qobuz token", null,

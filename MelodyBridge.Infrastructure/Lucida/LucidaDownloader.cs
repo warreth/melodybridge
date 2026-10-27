@@ -74,6 +74,10 @@ public class LucidaDownloader : IDownloader
     public string Description =>
         "High-quality rips from Qobuz, Amazon, Deezer and Tidal via lucida.to. Needs a working Cloudflare solver (FlareSolverr).";
 
+    public DownloaderSearchInfo SearchInfo =>
+        DownloaderSearchInfo.Self(SearchData.Text | SearchData.Isrc,
+            "Lucida service search, ISRC first; hits carry no code, so a title match is still needed");
+
     /// <inheritdoc />
     public string? LastUnavailableReason { get; private set; }
 

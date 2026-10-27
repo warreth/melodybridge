@@ -70,6 +70,7 @@ public static class LogAreas
         ("AuthCallback", "Sources"),
         ("IsrcResolver", "Sources"),
         ("ListenBrainz", "Sources"),
+        ("SearchProvider", "Sources"),
 
         // Downloads: the manager, coordinator, registry, every plugin,
         // the quality probes and the Cloudflare solver they share.
@@ -79,6 +80,8 @@ public static class LogAreas
         ("Downloader", "Downloads"),
         ("Qobuz", "Downloads"),
         ("Tidal", "Downloads"),
+        ("Rhythmax", "Downloads"),
+        ("FlacMusic", "Downloads"),
         ("Deezer", "Downloads"),
         ("Jumo", "Downloads"),
         ("Slskd", "Downloads"),

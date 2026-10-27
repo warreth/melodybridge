@@ -129,10 +129,12 @@ public class DownloaderRegistryOrderTests
         new StubDownloader("qobuz", "Qobuz"),
         new StubDownloader("deemix", "Deezer (deemix)"),
         new StubDownloader("tidal", "Tidal"),
-        new StubDownloader("jumo", "Jumo"),
+        new StubDownloader("rhythmax", "Tidal (Rhythmax)"),
         new StubDownloader("monochrome", "Monochrome"),
         new StubDownloader("slskd", "Soulseek"),
         new StubDownloader("lucida", "Lucida"),
+        new StubDownloader("jumo", "Jumo"),
+        new StubDownloader("flacmusic", "FLAC Music (CN)"),
     };
 
     private DownloaderRegistry RegistryOver(params IDownloader[] plugins)
@@ -166,8 +168,8 @@ public class DownloaderRegistryOrderTests
         var fresh = RegistryOver(NewShippedPlugins());
         Assert.That(fresh.GetEnabled().Select(d => d.Id), Is.EqualTo(new[]
         {
-            "soundcloud", "archiveorg", "ytdlp", "qobuz", "deemix", "tidal",
-            "monochrome", "slskd", "lucida", "jumo",
+            "soundcloud", "archiveorg", "ytdlp", "qobuz", "deemix", "tidal", "rhythmax",
+            "monochrome", "slskd", "lucida", "jumo", "flacmusic",
         }), "an untouched default order follows the new default");
     }
 
@@ -181,8 +183,8 @@ public class DownloaderRegistryOrderTests
         var fresh = RegistryOver(NewShippedPlugins());
         Assert.That(fresh.GetEnabled().Select(d => d.Id), Is.EqualTo(new[]
         {
-            "soundcloud", "archiveorg", "ytdlp", "qobuz", "deemix", "tidal",
-            "monochrome", "slskd", "lucida", "jumo",
+            "soundcloud", "archiveorg", "ytdlp", "qobuz", "deemix", "tidal", "rhythmax",
+            "monochrome", "slskd", "lucida", "jumo", "flacmusic",
         }), "a shipped default from before the premium plugins also migrates");
     }
 
@@ -199,8 +201,8 @@ public class DownloaderRegistryOrderTests
         var fresh = RegistryOver(NewShippedPlugins());
         Assert.That(fresh.GetEnabled().Select(d => d.Id), Is.EqualTo(new[]
         {
-            "soundcloud", "archiveorg", "ytdlp", "qobuz", "deemix", "tidal",
-            "monochrome", "slskd", "lucida", "jumo",
+            "soundcloud", "archiveorg", "ytdlp", "qobuz", "deemix", "tidal", "rhythmax",
+            "monochrome", "slskd", "lucida", "jumo", "flacmusic",
         }), "the last shipped order migrates; a user's own order would not");
     }
 
@@ -215,7 +217,7 @@ public class DownloaderRegistryOrderTests
         Assert.That(fresh.GetEnabled().Select(d => d.Id), Is.EqualTo(new[]
         {
             "lucida", "soundcloud", "archiveorg", "ytdlp", "monochrome",
-            "qobuz", "deemix", "tidal", "jumo", "slskd",
+            "qobuz", "deemix", "tidal", "rhythmax", "slskd", "jumo", "flacmusic",
         }), "a user's own order is left alone; the new plugins ride at the end");
     }
 
@@ -232,8 +234,8 @@ public class DownloaderRegistryOrderTests
         var fresh = RegistryOver(NewShippedPlugins());
         Assert.That(fresh.GetEnabled().Select(d => d.Id), Is.EqualTo(new[]
         {
-            "soundcloud", "archiveorg", "ytdlp", "qobuz", "deemix", "tidal",
-            "monochrome", "slskd", "lucida", "jumo",
+            "soundcloud", "archiveorg", "ytdlp", "qobuz", "deemix", "tidal", "rhythmax",
+            "monochrome", "slskd", "lucida", "jumo", "flacmusic",
         }), "a removed trailing plugin must not stop the untouched-order migration");
     }
 
@@ -249,8 +251,8 @@ public class DownloaderRegistryOrderTests
         var fresh = RegistryOver(NewShippedPlugins());
         Assert.That(fresh.GetEnabled().Select(d => d.Id), Is.EqualTo(new[]
         {
-            "soundcloud", "archiveorg", "ytdlp", "qobuz", "deemix", "tidal",
-            "monochrome", "slskd", "lucida", "jumo",
+            "soundcloud", "archiveorg", "ytdlp", "qobuz", "deemix", "tidal", "rhythmax",
+            "monochrome", "slskd", "lucida", "jumo", "flacmusic",
         }), "the last shipped order migrates; a user's own order would not");
     }
 

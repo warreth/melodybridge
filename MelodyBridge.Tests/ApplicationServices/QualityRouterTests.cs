@@ -22,12 +22,14 @@ public class QualityRouterTests
     private sealed class CapabilityDownloader(
         string id,
         PluginCapabilities caps,
-        List<string>? searchSpy = null) : IDownloader
+        List<string>? searchSpy = null,
+        bool fallbackOnly = false) : IDownloader
     {
         public string Id => id;
         public string Name => id;
         public string Description => "";
         public PluginCapabilities Capabilities => caps;
+        public bool FallbackOnly => fallbackOnly;
         public Task<bool> IsAvailableAsync(CancellationToken ct = default) => Task.FromResult(true);
 
         public Task<DownloaderSearchHit?> SearchAsync(TrackQuery query, CancellationToken ct = default)
@@ -99,6 +101,20 @@ public class QualityRouterTests
         Assert.That(plugin.Id, Is.EqualTo("flac-only"));
         Assert.That(reason, Does.Contain("160"),
             "the reason names the cap the plugin cannot serve under");
+    }
+
+    [Test]
+    public void Lossless_FallbackOnlySource_StaysBehindEveryCuratedSource()
+    {
+        var normal = new CapabilityDownloader("normal", PluginCapabilities.LosslessSources());
+        var fallback = new CapabilityDownloader(
+            "fallback", PluginCapabilities.LosslessSources(), fallbackOnly: true);
+
+        var plan = QualityRouter.Route(
+            new DownloadQuality(AudioFormat.Flac), [fallback, normal]);
+
+        Assert.That(plan.Plugins.Select(p => p.Id), Is.EqualTo(new[] { "normal", "fallback" }),
+            "a fallback source must not jump ahead of a curated lossless source just because it declares FLAC");
     }
 
     [Test]

@@ -14,8 +14,9 @@ public static class LogSources
     public static readonly string[] All =
     {
         "Waterfall",
-        "Qobuz", "Tidal", "Deezer", "yt-dlp", "SoundCloud",
+        "Qobuz", "Tidal", "Rhythmax", "Deezer", "yt-dlp", "SoundCloud",
         "Monochrome", "Jumo", "Lucida", "Archive.org", "Soulseek",
+        "FLAC Music",
         Other,
     };
 
@@ -25,6 +26,8 @@ public static class LogSources
 
         if (category.Contains("Qobuz", StringComparison.OrdinalIgnoreCase)) return "Qobuz";
         if (category.Contains("Tidal", StringComparison.OrdinalIgnoreCase)) return "Tidal";
+        if (category.Contains("Rhythmax", StringComparison.OrdinalIgnoreCase)) return "Rhythmax";
+        if (category.Contains("FlacMusic", StringComparison.OrdinalIgnoreCase)) return "FLAC Music";
         if (category.Contains("Deemix", StringComparison.OrdinalIgnoreCase)) return "Deezer";
         if (category.Contains("DeezerClient", StringComparison.OrdinalIgnoreCase)) return "Deezer";
         if (category.Contains("YtDlp", StringComparison.OrdinalIgnoreCase)) return "yt-dlp";
@@ -34,6 +37,7 @@ public static class LogSources
         if (category.Contains("Lucida", StringComparison.OrdinalIgnoreCase)) return "Lucida";
         if (category.Contains("ArchiveOrg", StringComparison.OrdinalIgnoreCase)) return "Archive.org";
         if (category.Contains("Slskd", StringComparison.OrdinalIgnoreCase)) return "Soulseek";
+        if (category.Contains("SearchProvider", StringComparison.OrdinalIgnoreCase)) return "Waterfall";
         if (category.Contains("Download", StringComparison.OrdinalIgnoreCase)) return "Waterfall";
 
         return Other;

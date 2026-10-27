@@ -26,19 +26,22 @@ public class DownloadManager : IDownloadManager
     private readonly ProviderHealth _health;
     private readonly SettingsStore? _settings;
     private readonly PluginAuthMonitor? _auth;
+    private readonly ISearchProviderRegistry? _searches;
 
     public DownloadManager(
         IDownloaderRegistry registry,
         ILogger<DownloadManager> logger,
         ProviderHealth? health = null,
         SettingsStore? settings = null,
-        PluginAuthMonitor? auth = null)
+        PluginAuthMonitor? auth = null,
+        ISearchProviderRegistry? searches = null)
     {
         _registry = registry;
         _logger = logger;
         _health = health ?? new ProviderHealth();
         _settings = settings;
         _auth = auth;
+        _searches = searches;
     }
 
     /// <summary>Plugin budget when the setting row is missing.</summary>
@@ -177,7 +180,7 @@ public class DownloadManager : IDownloadManager
                             ?? "The plugin is not available right now"));
                     return;
                 }
-                var hits = await downloader.SearchAllAsync(query, budget.Token);
+                var hits = await SearchAllAsync(downloader, query, budget.Token);
                 _auth?.Observe(downloader);
                 var canServe = downloader.Capabilities.CanServe(query.Quality);
                 var declared = DescribeCapabilities(downloader.Capabilities);
@@ -554,7 +557,8 @@ public class DownloadManager : IDownloadManager
             // a provider whose recent attempts mostly failed runs after the
             // healthy ones. The user's order survives otherwise.
             var ordered = plan.Plugins
-                .OrderBy(p => p.Capabilities.ServesControlled(quality) ? 0 : 1)
+                .OrderBy(p => p.FallbackOnly ? 1 : 0)
+                .ThenBy(p => p.Capabilities.ServesControlled(quality) ? 0 : 1)
                 .ThenBy(p => _health.IsDegraded(p.Id) ? 1 : 0)
                 .ToList();
 
@@ -802,13 +806,19 @@ public class DownloadManager : IDownloadManager
             ? provider.AuthStatus.Message ?? "The stored login no longer works"
             : null;
 
-    /// <summary>Search with its own guard; a throw is a miss for this plugin.</summary>
+    /// <summary>
+    /// The search route of one source: a registered provider when it has
+    /// one, the source's own search only when it declares one, nothing for a
+    /// URL-only source. Guarded so a throw is a miss for this plugin.
+    /// </summary>
     private async Task<DownloaderSearchHit?> SearchAsync(
         IDownloader downloader, TrackQuery query, CancellationToken ct)
     {
         try
         {
-            return await downloader.SearchAsync(query, ct);
+            return _searches is null
+                ? await downloader.SearchAsync(query, ct)
+                : await _searches.SearchAsync(downloader, query, ct);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -818,6 +828,17 @@ public class DownloadManager : IDownloadManager
             return null;
         }
     }
+
+    /// <summary>
+    /// Every candidate for the manual picker, through the same provider
+    /// route the waterfall uses. A provider-backed source never bypasses
+    /// its provider by exposing its own legacy search here.
+    /// </summary>
+    private Task<IReadOnlyList<DownloaderSearchHit>> SearchAllAsync(
+        IDownloader downloader, TrackQuery query, CancellationToken ct)
+        => _searches is null
+            ? downloader.SearchAllAsync(query, ct)
+            : _searches.SearchAllAsync(downloader, query, ct);
 
     /// <summary>Download with its own guard; a throw is a miss for this candidate.</summary>
     private async Task<DownloaderDownloadResult?> DownloadAsync(

@@ -64,6 +64,16 @@ public abstract class CliToolDownloader : IDownloader, IPluginAuthStatusProvider
     public string? LastUnavailableReason { get; protected set; }
 
     /// <summary>
+    /// The search story of this CLI source. Declared on the base so a
+    /// subclass override maps to IDownloader, the same interface-member
+    /// trap as Description and ConfigFields.
+    /// </summary>
+    public virtual DownloaderSearchInfo SearchInfo => DownloaderSearchInfo.Self(SearchData.Text);
+
+    /// <summary>False for the CLI sources; a fallback subclass can override it.</summary>
+    public virtual bool FallbackOnly => false;
+
+    /// <summary>
     /// The last login verdict of the tool. Declared here, not in the
     /// subclasses, because the interface mapping trap would otherwise
     /// serve readers the default value.
