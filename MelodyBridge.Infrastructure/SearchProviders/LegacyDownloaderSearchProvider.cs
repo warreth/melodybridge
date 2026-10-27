@@ -30,7 +30,11 @@ public sealed class LegacyDownloaderSearchProvider : ISearchProvider
     public SearchData Data => _downloader.SearchInfo.Data;
     public bool IsLegacy => true;
     public IReadOnlyList<SearchProviderTarget> Targets =>
-        new[] { new SearchProviderTarget(_downloader.Id, Data, "Legacy source-side search") };
+        new[]
+        {
+            new SearchProviderTarget(_downloader.Id, Data,
+                _downloader.SearchInfo.Note ?? "Legacy source-side search"),
+        };
 
     public async Task<DownloaderSearchHit?> SearchAsync(
         string downloaderId, TrackQuery query, CancellationToken ct = default)

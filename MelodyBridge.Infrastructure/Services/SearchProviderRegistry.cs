@@ -59,7 +59,8 @@ public sealed class SearchProviderRegistry : ISearchProviderRegistry
                 "Duplicate search provider ids: " + string.Join(", ", duplicateIds));
 
         _providers = all
-            .OrderBy(provider => provider.Name, StringComparer.OrdinalIgnoreCase)
+            .OrderByDescending(provider => provider.Priority)
+            .ThenBy(provider => provider.Name, StringComparer.OrdinalIgnoreCase)
             .ThenBy(provider => provider.Id, StringComparer.OrdinalIgnoreCase)
             .ToList();
 

@@ -21,6 +21,15 @@
                         && searchProviders.ForDownloader(p.Id) is null)
             .OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
+    // A target with more than one provider is the only place a "primary"
+    // badge means something; with one provider it would be noise on every
+    // row.
+    var contested = providers
+        .SelectMany(p => p.Targets)
+        .GroupBy(t => t.DownloaderId, StringComparer.OrdinalIgnoreCase)
+        .Where(g => g.Count() > 1)
+        .Select(g => g.Key)
+        .ToHashSet(StringComparer.OrdinalIgnoreCase);
 }
 
 @if (searchProviders is not null)
@@ -95,6 +104,12 @@
                                         <Icon Name="@(downloader?.IconName ?? "music")" Size="14" />
                                         <span class="search-target-name">@(downloader?.Name ?? target.DownloaderId)</span>
                                         <span class="search-target-data">@DataLabel(target.Data)</span>
+                                        @if (contested.Contains(target.DownloaderId)
+                                             && ReferenceEquals(searchProviders.ForDownloader(target.DownloaderId), provider))
+                                        {
+                                            <span class="search-target-primary"
+                                                  title="The router tries this provider first for this source">primary</span>
+                                        }
                                         @if (!enabled)
                                         {
                                             <span class="search-target-off">off</span>
@@ -112,9 +127,12 @@
         {
             <div class="hint-box danger search-provider-warning">
                 <Icon Name="alert" Size="15" />
-                <span>
-                    @string.Join(" ", searchProviders.ValidationIssues)
-                </span>
+                <ul class="search-provider-issues">
+                    @foreach (var issue in searchProviders.ValidationIssues)
+                    {
+                        <li>@issue</li>
+                    }
+                </ul>
             </div>
         }
 

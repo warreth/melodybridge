@@ -144,6 +144,18 @@ public class SearchProviderRegistryTests
     }
 
     [Test]
+    public void GetAll_OrdersProvidersByPriority()
+    {
+        var high = new StubProvider("high", "Zeta", providerPriority: 9, targetPriority: 0, "wanted");
+        var low = new StubProvider("low", "Alpha", providerPriority: 1, targetPriority: 0, "wanted");
+        var registry = Registry(low, high);
+
+        Assert.That(registry.GetAll().Select(p => p.Id),
+            Is.EqualTo(new[] { "high", "low" }),
+            "the Plugins page lists the router's preference first");
+    }
+
+    [Test]
     public void DuplicateProviderIds_AreRejectedAtStartup()
     {
         var first = new StubProvider("same", "First", 0, 0, "wanted");

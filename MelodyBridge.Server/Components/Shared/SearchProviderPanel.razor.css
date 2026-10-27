@@ -175,6 +175,22 @@
     text-transform: uppercase;
 }
 
+.search-target-primary {
+    padding: .02rem .28rem;
+    border: 1px solid var(--accent);
+    border-radius: 999px;
+    color: var(--accent-text);
+    font-size: .6rem;
+    font-weight: 700;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+}
+
+.search-provider-issues {
+    margin: 0;
+    padding-left: 1.1rem;
+}
+
 .search-self-block {
     display: grid;
     gap: .5rem;

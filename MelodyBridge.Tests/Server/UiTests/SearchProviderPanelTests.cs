@@ -57,17 +57,26 @@ public class SearchProviderPanelTests
     private sealed class StubProvider : ISearchProvider
     {
         public StubProvider(params string[] targets)
+            : this("tidal", "Tidal ISRC search", 0, targets)
         {
+        }
+
+        public StubProvider(string id, string name, int priority, params string[] targets)
+        {
+            Id = id;
+            Name = name;
+            Priority = priority;
             Targets = targets
-                .Select(id => new SearchProviderTarget(id, SearchData.Isrc | SearchData.Text))
+                .Select(target => new SearchProviderTarget(target, SearchData.Isrc | SearchData.Text))
                 .ToList();
         }
 
-        public string Id => "tidal";
-        public string Name => "Tidal ISRC search";
+        public string Id { get; }
+        public string Name { get; }
         public string Description => "Looks up the recording by ISRC and returns a track URL.";
         public SearchData Data => SearchData.Isrc | SearchData.Text;
         public IReadOnlyList<SearchProviderTarget> Targets { get; }
+        public int Priority { get; }
 
         public Task<DownloaderSearchHit?> SearchAsync(
             string downloaderId, TrackQuery query, CancellationToken ct = default)
@@ -164,6 +173,50 @@ public class SearchProviderPanelTests
         var provider = cut.Find(".search-provider");
         Assert.That(provider.TextContent, Does.Contain("legacy"));
         Assert.That(provider.TextContent, Does.Contain("Searches the Qobuz catalogue, ISRC first."));
+    }
+
+    [Test]
+    public void Panel_MarksThePrimaryProviderWhenASourceHasTwo()
+    {
+        var downloader = new StubDownloader("rhythmax", "Tidal (Rhythmax)",
+            DownloaderSearchInfo.ViaProvider(SearchData.Isrc | SearchData.Text));
+        var low = new StubProvider("low", "Low priority", 1, "rhythmax");
+        var high = new StubProvider("high", "High priority", 9, "rhythmax");
+        _ctx.Services.AddSingleton<IDownloaderRegistry>(new ListDownloaderRegistry(downloader));
+        _ctx.Services.AddSingleton<ISearchProviderRegistry>(
+            new SearchProviderRegistry(new[] { low, high },
+                NullLogger<SearchProviderRegistry>.Instance));
+
+        var cut = _ctx.Render<SearchProviderPanel>();
+
+        var cards = cut.FindAll(".search-provider");
+        var highCard = cards.Single(c =>
+            c.QuerySelector(".search-provider-title strong")!.TextContent.Contains("High priority"));
+        var lowCard = cards.Single(c =>
+            c.QuerySelector(".search-provider-title strong")!.TextContent.Contains("Low priority"));
+        Assert.That(highCard.QuerySelector(".search-target-primary"), Is.Not.Null,
+            "the provider the router prefers is marked");
+        Assert.That(lowCard.QuerySelector(".search-target-primary"), Is.Null,
+            "the runner-up is not marked primary");
+    }
+
+    [Test]
+    public void Panel_RendersValidationIssuesAsAList()
+    {
+        var downloader = new StubDownloader("wanted", "Wanted",
+            DownloaderSearchInfo.ViaProvider(SearchData.Isrc | SearchData.Text));
+        _ctx.Services.AddSingleton<IDownloaderRegistry>(new ListDownloaderRegistry(downloader));
+        _ctx.Services.AddSingleton<ISearchProviderRegistry>(
+            new SearchProviderRegistry(new[] { new StubProvider("ghost") },
+                NullLogger<SearchProviderRegistry>.Instance,
+                new ListDownloaderRegistry(downloader)));
+
+        var cut = _ctx.Render<SearchProviderPanel>();
+
+        var issues = cut.FindAll(".search-provider-issues li")
+            .Select(item => item.TextContent.Trim()).ToList();
+        Assert.That(issues, Has.Some.Contains("ghost"),
+            "each routing problem is its own list item");
     }
 
     [Test]
