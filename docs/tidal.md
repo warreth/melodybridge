@@ -2,11 +2,16 @@
 
 The Tidal plugin downloads lossless and hi-res files from your own Tidal
 subscription through [tiddl](https://github.com/oskvr37/tiddl). The tool owns
-the login and the download; MelodyBridge searches Tidal's catalogue with that
-same session and hands the track URL over.
+the login and the download; MelodyBridge's shared Tidal ISRC searcher finds
+the track URL and hands it over.
 
 The Docker image ships tiddl, so there is nothing to install: log in once and
 it works.
+
+There is also **Tidal (Rhythmax)**, a second Tidal source that needs no Tidal
+account. It uses the public Rhythmax hifi API behind tidal.odskyler.com, and
+it is the source to use when you do not have a Tidal login. See
+[No Tidal account: Rhythmax](#no-tidal-account-rhythmax).
 
 ## Setup
 
@@ -49,12 +54,12 @@ banner at the top of the Plugins page. Paste a fresh token, or run
 
 ## How a download runs
 
-The search runs against Tidal's public v1 API with your stored token and picks
-the best match on title, artist and duration. A hit carrying the same ISRC is
-accepted as that recording even when the title is spelled differently, the
-strongest signal the public text search offers. The download runs as
-`tiddl download url` into a private per-track folder, and the finished file
-moves into the playlist folder.
+The shared Tidal ISRC searcher looks the recording up by ISRC first and falls
+back to a title search only when the code is missing or has no result. A hit
+carrying the exact code is accepted as that recording even when the title is
+spelled differently. The download runs as `tiddl download url` into a private
+per-track folder, and the finished file moves into the playlist folder. The
+same searcher serves both Tidal sources.
 
 | Request | Tidal tier | Result |
 |---|---|---|
@@ -66,6 +71,34 @@ moves into the playlist folder.
 Tidal has no MP3; an MP3 request is never routed here. A request that Tidal
 cannot serve in the asked band fails fast and the waterfall moves on instead
 of wasting a download.
+
+## No Tidal account: Rhythmax
+
+**Tidal (Rhythmax)** is the no-login Tidal source. It asks the public
+Rhythmax hifi API for a Tidal manifest, downloads the DASH segments, and
+remuxes the result. No token, no Tidal subscription, and no tiddl install are
+needed. The Tidal ISRC searcher supplies the track URL, so this source does
+not search Tidal by title itself.
+
+| Request | Rhythmax tier | Result |
+|---|---|---|
+| FLAC | LOSSLESS | 16-bit / 44.1 kHz FLAC |
+| AAC up to 320 kbps | HIGH | 320 kbps AAC in an m4a |
+| AAC up to 96 kbps | LOW | 96 kbps AAC in an m4a |
+| MP3 or Opus | none | Never routed here |
+
+The playback accounts belong to the public service, not to you. The card can
+say **no working Tidal account right now**, **only preview accounts**, or
+that Tidal rate limited the request. These are service-side states: retry
+later or use the tiddl source with your own account. The shared pool flips
+between those states within seconds, so a single red check does not mean the
+plugin is broken.
+
+**Tidal country** sets the catalogue region used by the search. **Rhythmax
+API base URL** under Advanced is only for a mirror or a local hifi-api.
+
+The default order keeps your own tiddl source first. If tiddl is not logged
+in, MelodyBridge skips it and reaches Rhythmax on the same run.
 
 ## Other setups
 

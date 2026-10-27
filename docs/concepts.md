@@ -72,7 +72,34 @@ hands back whatever the source serves. Two things use that list:
   asked for it run first, and your order decides between plugins of the same
   kind. A Lossless request therefore starts at the lossless producers and an
   mp3 request at the plugins that can hand out mp3, without any per-quality
-  configuration.
+  configuration. A source marked as a fallback stays last whatever quality
+  you ask for.
+
+### Search providers
+
+A source does not have to know how to search. A **search provider** turns a
+track query into a download URL, and the source only downloads that URL. The
+Plugins page has a **Search routing** card that shows every provider, the
+sources it can search, and the data it reads.
+
+The built-in Tidal ISRC searcher is the example. It asks Tidal for the ISRC
+first, accepts an exact code as the recording even when the title is spelled
+differently, and falls back to a title search. Both Tidal sources use it: the
+tiddl source downloads through your own session, and Rhythmax downloads
+through the public API. Neither one text-searches Tidal on its own.
+
+Sources fall into three groups:
+
+| Behaviour | What it means |
+|---|---|
+| Provider-backed | The source accepts a URL and ISRC or title data from a provider. Tidal and Rhythmax work this way |
+| Self-search | The source searches its own catalogue. Qobuz, Deezer, Jumo, Monochrome, Lucida, Soulseek, SoundCloud, Internet Archive and yt-dlp do this; the Chinese fallback searches by title only because it has no ISRC index |
+| Direct URL only | No search at all. DoubleDouble waits for a link from somewhere else |
+
+The routing card also names the data each search reads: ISRC, title and
+artist, a URL, or a duration. A source that is marked as a provider target
+but has no registered provider is called out in red, because it cannot find
+tracks until the provider is back.
 
 ### Strict quality
 
@@ -108,10 +135,12 @@ Advanced page.
 | Qobuz | Lossless and hi-res files from your own Qobuz subscription, through qobuz-dlp. See [Qobuz and qobuz-dlp](/qobuz) |
 | Deezer | MP3 or FLAC from your own Deezer account, through the deemix CLI. See [Deezer and deemix](/deemix) |
 | Tidal | Lossless and hi-res files from your own Tidal session, through tiddl. See [Tidal and tiddl](/tidal) |
+| Tidal (Rhythmax) | Tidal FLAC and AAC through the public Rhythmax API, no Tidal account needed. See [Tidal and tiddl](/tidal#no-tidal-account-rhythmax) |
 | Jumo | Qobuz rips through the community front-end jumo-dl.pages.dev, no account needed. See [Jumo (Qobuz rips)](/jumo) |
 | SoundCloud | Original uploads by the artist, usually 128 kbps or better |
 | Internet Archive | Public recordings and digitizations from archive.org |
 | yt-dlp | YouTube: audio-only best stream, top-5 ranked by match and duration |
+| FLAC Music (CN) | Kuwo and NetEase lossless search, title-only fallback. See [FLAC Music fallback](/flacmusic) |
 
 ### Finding the right recording
 
@@ -131,9 +160,11 @@ playlists alike; for everything else MelodyBridge looks it up through Deezer's
 public search and only accepts a confident, duration-plausible match. Sources
 that index ISRCs use it wherever they can: Qobuz, Deezer, Jumo and Lucida's
 services search by the code itself, and Qobuz, Deezer, Jumo, Monochrome and
-Tidal accept a hit carrying the exact code as that recording, even when its
-title is spelled differently. YouTube and SoundCloud do not index ISRCs at
-all, so for those the ranking rules above are the whole gate.
+the Tidal ISRC searcher accept a hit carrying the exact code as that
+recording, even when its title is spelled differently. The Tidal searcher
+resolves the URL once for both Tidal sources. YouTube and SoundCloud do not
+index ISRCs at all, so for those the ranking rules above are the whole gate.
+FLAC Music has no ISRC index either; its title search is why it stays last.
 
 When the automatic match is wrong or finds nothing, every track row has a
 **Choose source** button: the manual picker lists what every enabled plugin
@@ -149,7 +180,7 @@ matching cannot be perfect on sources that carry no ISRC and no trustworthy
 artist name; the picker is the honest way out of that. The same picker opens
 from **Download a song**, where there is no existing row to replace.
 
-<img src="/screens/plugins.webp" alt="Plugins page with the source order strip and grouped setup cards" width="800">
+<img src="/screens/plugins.webp" alt="Plugins page with the search routing map, source order strip and grouped setup cards" width="800">
 
 ### Cover art and lyrics
 

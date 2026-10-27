@@ -436,7 +436,7 @@ own stream, then tags and verifies the file.
 
 ## The Plugins page
 
-<img src="/screens/plugins.webp" alt="Plugins page with the source order strip and grouped setup cards" width="800">
+<img src="/screens/plugins.webp" alt="Plugins page with the search routing map, source order strip and grouped setup cards" width="800">
 
 Plugins search for and download your tracks. The page has two jobs: set a source
 up, and decide which source is tried first.
@@ -458,6 +458,14 @@ the card. The search box and the **All**, **Accounts**, **Free** and
 **Problems** filters narrow the cards, and the count says how many each filter
 would show. **Problems** includes unavailable sources and stored logins that
 stopped working.
+
+The **Search routing** card below it shows where each source gets its track.
+A provider row names the data it reads (ISRC, title and artist) and the source
+cards it can search. The sources that search themselves are listed separately,
+with their data and any note such as "title-only fallback". A source marked
+**fallback** only runs after every other source. A direct-URL source has no
+search at all. If a source declares a provider search but no provider targets
+it, the card calls that out in red.
 
 - Each plugin card shows its capability badges (formats, bitrate range) and a
   **Settings** row when it has options. The row opens a panel with the fields
@@ -614,6 +622,10 @@ The error on a track row is the reason the waterfall gave up:
 | *no source had this track* | Nothing matched at all. Check the spelling in the source playlist |
 | *Qobuz: Qobuz blocked this account (USER_BLOCKED)* | The token is valid, but Qobuz refuses downloads for this account. Use another account or ask Qobuz support |
 | *Tidal: The Tidal token expired* / *Tidal rejected the session* | Paste a fresh token on the Plugins page, or run `tiddl auth login` |
+| *Rhythmax has no working Tidal account right now* / *only has preview accounts* | The public Rhythmax pool is between accounts or serving previews. Retry later, or use your own Tidal session with the tiddl source |
+| *Rhythmax has no playback slot right now (Tidal 429)* | The public service rate limited the request. Retry later; the waterfall can use another source |
+| *flac.music.hi.cn did not answer* / *no longer lists this track* | The fallback site is down or the song id disappeared. Retry later or use another source |
+| *flac.music.hi.cn served aac for the requested mp3 tier* | The 128 tier returned AAC instead of MP3. The waterfall tries the other platform's candidate; if none matches, choose a different quality or source |
 | *Deezer: The Deezer ARL is no longer signed in* | Copy a fresh `arl` cookie from deezer.com and paste it on the Plugins page |
 | *no other provider is available: X delivered the flagged file and was skipped* | You chose Retry and X was the only enabled plugin left, so there was nothing else to try. Enable another plugin; a later Download attempt may use X again |
 | *corrupt download: ffprobe failed* | The file could not be read at all, so it was deleted and the track marked failed; the next run retries |

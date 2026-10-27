@@ -85,6 +85,8 @@ public interface IDownloader
     string Name { get; }
     string Description => string.Empty;
     PluginCapabilities Capabilities { get; }   // required, no default
+    DownloaderSearchInfo SearchInfo => ...;    // provider, own search or URL only
+    bool FallbackOnly => false;                // keeps a last-resort source last
     Task<bool> IsAvailableAsync(CancellationToken ct = default);
     Task<DownloaderSearchHit?> SearchAsync(TrackQuery query, CancellationToken ct = default);
     Task<DownloaderDownloadResult> DownloadAsync(
@@ -111,6 +113,50 @@ Monochrome accept a hit carrying the exact code even when the catalogue spells
 the title differently (the length is still checked). Lucida searches its
 services by the code too, but its hits carry no ISRC to verify against, so it
 still requires a confident title match. YouTube, SoundCloud and Archive.org do not index ISRCs and ignore the field.
+
+### `ISearchProvider`: the URL resolver
+
+A source can delegate searching to a provider instead of carrying its own
+catalogue logic. The interface lives next to `IDownloader` in Core:
+
+```csharp
+public interface ISearchProvider
+{
+    string Id { get; }
+    string Name { get; }
+    string Description { get; }
+    SearchData Data { get; }                       // ISRC, text, URL, length
+    IReadOnlyList<SearchProviderTarget> Targets { get; }
+    Task<DownloaderSearchHit?> SearchAsync(
+        string downloaderId, TrackQuery query, CancellationToken ct = default);
+}
+```
+
+`DownloaderSearchInfo` declares the source's route. `Self` means the source
+searches its own catalogue with the listed data, `Provider` means a provider
+must resolve the URL, and `None` means direct URLs only. `FallbackOnly` keeps
+a source behind every ordinary source in the quality router, whatever its
+capabilities say.
+
+`SearchProviderRegistry` is the router. The waterfall and the manual source
+picker both call it instead of `IDownloader.SearchAsync` directly. It uses a
+provider for `Provider` sources, the source's own search for `Self` sources,
+and nothing for `None`. A provider that throws or times out is a miss, never
+a crash. The Plugins page renders the same metadata in
+`SearchProviderPanel`, so the map cannot drift from the routing rules.
+
+The built-in `TidalPublicCatalog` gets a short-lived token from the public
+Rhythmax token worker, searches Tidal v1 by ISRC with `/tracks?isrc=...`, and
+falls back to `/search/tracks`. `TidalSearchProvider` targets both `tidal`
+(the user's tiddl download) and `rhythmax` (the public hifi download), so the
+catalogue lookup happens once and the two download sources only need a URL.
+The provider caches successful answers for five minutes; a rate limit or a
+token rejection is reported as a miss and left uncached.
+
+`FallbackOnly` is used by `FlacMusicDownloader`. The flac.music.hi.cn source
+has no ISRC index and the site's 128 kbps tier sometimes serves AAC, so it is
+the last resort even for a Lossless request. Its `SearchInfo` is `Self` with
+text data; the Plugins page marks it as a fallback.
 
 `PluginCapabilities` is the plugin's honest manifest: every quality level it
 can deliver (container, the bitrate band it arrives in, whether the content is
@@ -206,7 +252,9 @@ Implement this to add a download source. Built-in plugins:
 | `MonochromeDownloader` | `monochrome` | tracks.monochrome.st (official Monochrome API) | Lossless FLAC streams over a plain GET, no account needed; search hits carry an ISRC, and an exact match is accepted as that recording even when the title differs; the base URL is configurable per plugin for mirrors |
 | `SlskdDownloader` | `slskd` | Soulseek, through the user's own slskd instance | Lossless FLAC and high-bitrate MP3/AAC from peers; search and transfer run over slskd's REST API with an API key; locked files and undeclared containers are skipped; the finished file moves out of slskd's downloads folder, whose path the plugin reads from slskd's own options; unavailable until the URL and key are set and slskd is logged in |
 | `QobuzDownloader` | `qobuz` | qobuz-dlp (shipped in the Docker image) | Lossless and hi-res from a paid Qobuz plan; the search runs natively (bundle scrape plus a user token), the download through the CLI into a hidden per-track folder; the plugin seeds the CLI config (app id, private key, secrets) and its token file, so no interactive login is needed; unavailable until the command and a valid token are found |
-| `TidalDownloader` | `tidal` | tiddl (shipped in the Docker image) | Lossless and hi-res from the user's own Tidal session; the search runs against Tidal's v1 API with the token out of tiddl's `auth.json` (a text search that accepts an exact ISRC hit as the recording, even when the title differs), the download through `tiddl download url` with the tier mapped onto the requested band; unavailable until the command and a logged-in tiddl session are found, or when that session expired |
+| `TidalDownloader` | `tidal` | tiddl (shipped in the Docker image) | Lossless and hi-res from the user's own Tidal session; the shared `TidalSearchProvider` resolves the URL (ISRC first), the download runs through `tiddl download url` with the tier mapped onto the requested band; unavailable until the command and a logged-in tiddl session are found, or when that session expired |
+| `RhythmaxDownloader` | `rhythmax` | tidal.odskyler.com (public Rhythmax hifi API) | No Tidal account needed; the same `TidalSearchProvider` supplies the URL, the plugin asks `/manifests` for a DASH stream, downloads the init and media segments, and remuxes FLAC (ffmpeg copy) or keeps AAC as m4a; LOW/HIGH/LOSSLESS map to 96/320/16-bit FLAC; the public account pool can report preview/dead/rate limited, which is surfaced as unavailability instead of retried forever |
+| `FlacMusicDownloader` | `flacmusic` | flac.music.hi.cn (Kuwo and NetEase) | Last-resort fallback with no ISRC index, so it searches its own catalogue by title; search and `getUrl` are POST endpoints with a short-lived sign, the audio comes direct from the CDN; FLAC and MP3 128/320, and some Kuwo 128 rows actually return AAC (the plugin reports the mismatch and the waterfall can try the other platform); `FallbackOnly` keeps it behind every curated source |
 | `DeemixDownloader` | `deemix` | deemix CLI (shipped in the Docker image, runs on Node) | Deezer MP3/FLAC with the user's ARL; the search runs against Deezer's public API, the download through the CLI; the ARL setting is written into deemix's config (through `DEEMIX_DATA_DIR`) before every run, so the CLI never prompts; runs are serialized and the finished file moves out of the downloads folder |
 | `JumoDownloader` | `jumo` | jumo-dl.pages.dev (community Qobuz front-end) | No account needed; search and stream descriptors come from the service's guarded API (request-context headers plus ECDH/AES-GCM encrypted responses), the audio comes direct from the signed Qobuz CDN URLs and is AES-CTR decrypted locally; lossless lands as native FLAC, MP3 320 as plain MP3; the service rate limits (429) and can refuse some networks (403), so the plugin reports unavailability instead of hammering it |
 | `SoundCloudDownloader` | `soundcloud` | SoundCloud (via yt-dlp `scsearch`) | Original uploads, often 320 kbps; top-5 ranked; rejects files under 128 kbps |
@@ -273,11 +321,11 @@ public interface IDownloadManager
 ```
 
 `SearchCandidatesAsync(query, onCandidate, ct)` and `DownloadCandidateAsync`
-are the manual picker's pair: the search runs every enabled plugin's
-`SearchAllAsync` at the same time (one request per plugin, so the wait is the
-slowest plugin instead of the sum), streams each hit through `onCandidate`, and
-applies no acceptance gate and no quality routing (guarded per plugin, best
-first); the download fetches exactly the picked candidate. The pick overrides the
+are the manual picker's pair: the search runs every enabled source's route
+(its provider or its own search) at the same time (one request per source, so
+the wait is the slowest one instead of the sum), streams each hit through
+`onCandidate`, and applies no acceptance gate and no quality routing (guarded
+per source, best first); the download fetches exactly the picked candidate. The pick overrides the
 ranking, never the sanity: bytes must sniff as audio and the MELODY_ID tag is
 written. `DownloadPipeline.DownloadChosenTrackAsync` wraps it with the usual
 claim and the shared post-download steps (`CompleteDownloadAsync`: tags,
@@ -326,8 +374,9 @@ Recording Code when it is known. Two sources fill it:
 before the download, persists it with the track status, and passes it
 in the `TrackQuery`. A snapshot refresh carries the resolved ISRC over
 when the source does not provide one. Qobuz, Deezer and Jumo search by
-ISRC first; Tidal and Monochrome accept an exact hit from their text
-search; the rest ignore it.
+ISRC first; the Tidal provider resolves Tidal URLs by the code for both
+Tidal sources; Monochrome accepts an exact hit from its text search; the
+rest ignore it.
 
 Spotify's public web endpoints were checked and do not expose ISRCs:
 the embed page and the track page carry none, `get_access_token` is
