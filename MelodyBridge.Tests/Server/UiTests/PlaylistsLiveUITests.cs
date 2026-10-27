@@ -33,6 +33,9 @@ public class PlaylistsLiveUITests
             db.Database.EnsureCreated();
         }
         _ctx.Services.AddSingleton<IDbContextFactory<MelodyBridgeDbContext>>(factory);
+        // The add dialog now embeds the shared folder picker; the live UI
+        // test renders the real page, so the browser service must exist.
+        _ctx.Services.AddSingleton(new FolderBrowser(factory));
 
         var providers = new ISourceProvider[]
         {
