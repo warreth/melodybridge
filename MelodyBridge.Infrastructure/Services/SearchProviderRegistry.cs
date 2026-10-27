@@ -1,4 +1,5 @@
 using MelodyBridge.Core;
+using MelodyBridge.Infrastructure.SearchProviders;
 using Microsoft.Extensions.Logging;
 
 namespace MelodyBridge.Infrastructure.Services;
@@ -17,25 +18,95 @@ namespace MelodyBridge.Infrastructure.Services;
 public sealed class SearchProviderRegistry : ISearchProviderRegistry
 {
     private readonly IReadOnlyList<ISearchProvider> _providers;
+    private readonly IReadOnlyList<string> _issues;
     private readonly ILogger<SearchProviderRegistry> _logger;
 
     public SearchProviderRegistry(
         IEnumerable<ISearchProvider> providers,
-        ILogger<SearchProviderRegistry> logger)
+        ILogger<SearchProviderRegistry> logger,
+        IDownloaderRegistry? downloaders = null)
     {
-        _providers = providers
-            .GroupBy(p => p.Id, StringComparer.OrdinalIgnoreCase)
-            .Select(group => group.First())
-            .OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase)
-            .ToList();
         _logger = logger;
+
+        var all = providers.ToList();
+
+        // Bridge the sources whose search still lives in the downloader.
+        // A source that already has an explicit provider target keeps it.
+        if (downloaders is not null)
+        {
+            foreach (var downloader in downloaders.GetAll())
+            {
+                if (downloader.SearchInfo.Mode != DownloaderSearchMode.Provider) continue;
+                if (all.Any(provider => provider.Targets.Any(target =>
+                        string.Equals(target.DownloaderId, downloader.Id,
+                            StringComparison.OrdinalIgnoreCase))))
+                    continue;
+                all.Add(new LegacyDownloaderSearchProvider(downloader));
+                _logger.LogDebug(
+                    "Using the legacy search adapter for {Source}; no standalone provider targets it",
+                    downloader.Name);
+            }
+        }
+
+        var duplicateIds = all
+            .GroupBy(provider => provider.Id, StringComparer.OrdinalIgnoreCase)
+            .Where(group => group.Count() > 1)
+            .Select(group => group.Key)
+            .OrderBy(id => id, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (duplicateIds.Count > 0)
+            throw new InvalidOperationException(
+                "Duplicate search provider ids: " + string.Join(", ", duplicateIds));
+
+        _providers = all
+            .OrderBy(provider => provider.Name, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(provider => provider.Id, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var issues = new List<string>();
+        foreach (var provider in _providers)
+        {
+            if (string.IsNullOrWhiteSpace(provider.Id))
+                throw new InvalidOperationException("A search provider has no id");
+
+            var duplicateTargets = provider.Targets
+                .GroupBy(target => target.DownloaderId, StringComparer.OrdinalIgnoreCase)
+                .Where(group => group.Count() > 1)
+                .Select(group => group.Key)
+                .ToList();
+            if (duplicateTargets.Count > 0)
+                throw new InvalidOperationException(
+                    $"Search provider {provider.Id} targets the same source twice: {string.Join(", ", duplicateTargets)}");
+
+            if (provider.Targets.Count == 0)
+                issues.Add($"{provider.Name} has no target source.");
+
+            foreach (var target in provider.Targets)
+            {
+                if (string.IsNullOrWhiteSpace(target.DownloaderId))
+                {
+                    issues.Add($"{provider.Name} has a target with no source id.");
+                    continue;
+                }
+
+                if (downloaders is not null && downloaders.Get(target.DownloaderId) is null)
+                {
+                    var issue = $"{provider.Name} targets {target.DownloaderId}, which is not a registered source.";
+                    issues.Add(issue);
+                    _logger.LogError("Search provider {Provider}: {Issue}", provider.Id, issue);
+                }
+            }
+        }
+
+        _issues = issues;
     }
 
     public IReadOnlyList<ISearchProvider> GetAll() => _providers;
 
+    public IReadOnlyList<string> ValidationIssues => _issues;
+
     public ISearchProvider? ForDownloader(string downloaderId)
-        => _providers.FirstOrDefault(p => p.Targets.Any(t =>
-            string.Equals(t.DownloaderId, downloaderId, StringComparison.OrdinalIgnoreCase)));
+        => ProvidersFor(downloaderId).FirstOrDefault();
 
     public async Task<DownloaderSearchHit?> SearchAsync(
         IDownloader downloader, TrackQuery query, CancellationToken ct = default)
@@ -94,10 +165,7 @@ public sealed class SearchProviderRegistry : ISearchProviderRegistry
         if (info.Mode == DownloaderSearchMode.Self)
             return await downloader.SearchAllAsync(query, ct);
 
-        var providers = _providers
-            .Where(p => p.Targets.Any(t =>
-                string.Equals(t.DownloaderId, downloader.Id, StringComparison.OrdinalIgnoreCase)))
-            .ToList();
+        var providers = ProvidersFor(downloader.Id).ToList();
         if (providers.Count == 0)
         {
             _logger.LogWarning(
@@ -137,4 +205,22 @@ public sealed class SearchProviderRegistry : ISearchProviderRegistry
             hits.Add(hit);
         }
     }
+
+    /// <summary>
+    /// Providers that can serve the source, best first. The target's own
+    /// priority is the most specific signal, then the provider priority,
+    /// then the name for a stable tie.
+    /// </summary>
+    private IEnumerable<ISearchProvider> ProvidersFor(string downloaderId)
+        => _providers
+            .Select(provider => (Provider: provider, Target: provider.Targets
+                .Where(target => string.Equals(target.DownloaderId, downloaderId,
+                    StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(target => target.Priority)
+                .FirstOrDefault()))
+            .Where(entry => entry.Target is not null)
+            .OrderByDescending(entry => entry.Target!.Priority)
+            .ThenByDescending(entry => entry.Provider.Priority)
+            .ThenBy(entry => entry.Provider.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(entry => entry.Provider);
 }

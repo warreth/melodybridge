@@ -39,8 +39,9 @@ public class QobuzDownloader : CliToolDownloader
     public override string Description => "Lossless and hi-res downloads through your own qobuz-dlp";
 
     public override DownloaderSearchInfo SearchInfo =>
-        DownloaderSearchInfo.Self(SearchData.Text | SearchData.Isrc,
-            "Qobuz catalogue search, ISRC first");
+        DownloaderSearchInfo.ViaProvider(SearchData.Text | SearchData.Isrc,
+            "Qobuz catalogue search, ISRC first (legacy source-side adapter)");
+
 
     public override IReadOnlyList<PluginConfigField> ConfigFields =>
     [

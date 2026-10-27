@@ -43,8 +43,9 @@ public class DeemixDownloader : CliToolDownloader
     public override string Description => "Deezer downloads through your own deemix CLI: MP3 or FLAC with your ARL";
 
     public override DownloaderSearchInfo SearchInfo =>
-        DownloaderSearchInfo.Self(SearchData.Text | SearchData.Isrc,
-            "Deezer catalogue search, ISRC first");
+        DownloaderSearchInfo.ViaProvider(SearchData.Text | SearchData.Isrc,
+            "Deezer catalogue search, ISRC first (legacy source-side adapter)");
+
 
     public override IReadOnlyList<PluginConfigField> ConfigFields =>
     [

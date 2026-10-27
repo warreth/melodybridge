@@ -66,7 +66,8 @@ public sealed record DownloaderSearchInfo(
 public sealed record SearchProviderTarget(
     string DownloaderId,
     SearchData Data,
-    string? Note = null);
+    string? Note = null,
+    int Priority = 0);
 
 /// <summary>
 /// A standalone catalogue/go-to-source search. A provider resolves a track
@@ -92,6 +93,20 @@ public interface ISearchProvider
     IReadOnlyList<SearchProviderTarget> Targets { get; }
 
     /// <summary>
+    /// True when the provider is an adapter around search code that still
+    /// lives in a downloader. The Plugins page marks it so the migration
+    /// state is visible; the router treats it like any other provider.
+    /// </summary>
+    bool IsLegacy => false;
+
+    /// <summary>
+    /// Tie-breaker when more than one provider targets the same source. A
+    /// higher value wins; the target's own priority is checked first, so a
+    /// provider can be strongest for one source and weaker for another.
+    /// </summary>
+    int Priority => 0;
+
+    /// <summary>
     /// Resolve one query for one target source. Null means "no match";
     /// transport and authentication failures are the provider's own
     /// business and must not throw past the router.
@@ -111,8 +126,18 @@ public interface ISearchProviderRegistry
     /// <summary>All registered providers, for the Plugins page.</summary>
     IReadOnlyList<ISearchProvider> GetAll();
 
-    /// <summary>The first provider that can supply this source, or null.</summary>
+    /// <summary>
+    /// The best provider for this source, or null. A higher target priority
+    /// wins, then a higher provider priority, then the provider name.
+    /// </summary>
     ISearchProvider? ForDownloader(string downloaderId);
+
+    /// <summary>
+    /// Problems found while the providers were wired, such as a target that
+    /// names no registered source. The app still starts; the Plugins page
+    /// shows these next to the search map.
+    /// </summary>
+    IReadOnlyList<string> ValidationIssues => Array.Empty<string>();
 
     /// <summary>The best hit for a source, or null when no provider and no self-search.</summary>
     Task<DownloaderSearchHit?> SearchAsync(

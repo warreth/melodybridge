@@ -1,5 +1,6 @@
 using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.FlacMusic;
+using MelodyBridge.Infrastructure.SearchProviders;
 using MelodyBridge.Tests.Infrastructure;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -41,6 +42,22 @@ public class DownloaderCompositionTests
         Assert.That(provider!.Targets.Select(t => t.DownloaderId),
             Is.EquivalentTo(new[] { "tidal", "rhythmax" }));
         Assert.That(searches.ForDownloader("tidal"), Is.SameAs(provider));
+    }
+
+    [Test]
+    public void EveryIsrcCapableLegacySource_HasAProviderRoute()
+    {
+        using var host = AppDownloadHost.Create();
+        var searches = host.Services.GetRequiredService<ISearchProviderRegistry>();
+
+        foreach (var id in new[] { "qobuz", "deemix", "jumo", "monochrome", "lucida" })
+        {
+            var provider = searches.ForDownloader(id);
+            Assert.That(provider, Is.Not.Null, $"{id} must have a search provider");
+            Assert.That(provider, Is.InstanceOf<LegacyDownloaderSearchProvider>(),
+                $"{id} still uses the legacy source-side search adapter");
+            Assert.That(provider!.Targets.Single().DownloaderId, Is.EqualTo(id));
+        }
     }
 
     [Test]

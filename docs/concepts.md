@@ -92,8 +92,13 @@ Sources fall into two groups:
 
 | Behaviour | What it means |
 |---|---|
-| Provider-backed | The source accepts a URL and ISRC or title data from a provider. Tidal and Rhythmax work this way |
-| Self-search | The source searches its own catalogue. Qobuz, Deezer, Jumo, Monochrome, Lucida, Soulseek, SoundCloud, Internet Archive and yt-dlp do this; the Chinese fallback searches by title only because it has no ISRC index |
+| Provider-backed | The source accepts a URL and ISRC or title data from a provider. Tidal and Rhythmax use the shared Tidal ISRC searcher. Qobuz, Deezer, Jumo, Monochrome and Lucida use a legacy adapter that wraps their existing catalogue search until it is extracted into a standalone provider |
+| Self-search | The source searches its own catalogue and has no ISRC-indexed provider route. Soulseek, SoundCloud, Internet Archive, yt-dlp and FLAC Music work this way; the Chinese fallback searches by title only because it has no ISRC index |
+
+A provider target can carry a priority, and a provider can carry its own
+priority. That decides which provider wins when more than one can serve the
+same source. The Plugins page shows the routing problems it finds, such as a
+target that names no registered source.
 
 The routing card also names the data each search reads: ISRC, title and
 artist, a URL, or a duration. A source that is marked as a provider target

@@ -59,6 +59,18 @@
 }
 
 .search-provider-title strong { font-size: .92rem; }
+.search-legacy-badge {
+    margin-left: .3rem;
+    padding: .05rem .3rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--muted-2);
+    font-size: .6rem;
+    font-weight: 700;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    vertical-align: .08rem;
+}
 .search-provider-title span:not(.search-provider-icon) {
     color: var(--muted);
     font-size: .8rem;

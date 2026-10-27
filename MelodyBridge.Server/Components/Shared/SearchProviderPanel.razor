@@ -59,7 +59,13 @@
                                 <Icon Name="search" Size="17" />
                             </span>
                             <div>
-                                <strong>@provider.Name</strong>
+                                <strong>
+                                    @provider.Name
+                                    @if (provider.IsLegacy)
+                                    {
+                                        <span class="search-legacy-badge" title="The catalogue search still lives in the source plugin">legacy</span>
+                                    }
+                                </strong>
                                 <span>@provider.Description</span>
                             </div>
                         </div>
@@ -97,6 +103,16 @@
                         </div>
                     </article>
                 }
+            </div>
+        }
+
+        @if (searchProviders.ValidationIssues.Count > 0)
+        {
+            <div class="hint-box danger search-provider-warning">
+                <Icon Name="alert" Size="15" />
+                <span>
+                    @string.Join(" ", searchProviders.ValidationIssues)
+                </span>
             </div>
         }
 

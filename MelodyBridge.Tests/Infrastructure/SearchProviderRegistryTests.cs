@@ -1,4 +1,5 @@
 using MelodyBridge.Core;
+using MelodyBridge.Infrastructure.SearchProviders;
 using MelodyBridge.Infrastructure.Services;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -55,17 +56,40 @@ public class SearchProviderRegistryTests
 
     private sealed class StubProvider : ISearchProvider
     {
+        public StubProvider()
+            : this("stub", "Stub search", 0, 0, "wanted")
+        {
+        }
+
+        public StubProvider(params string[] targets)
+            : this("stub", "Stub search", 0, 0, targets)
+        {
+        }
+
+        public StubProvider(
+            string id, string name, int providerPriority, int targetPriority,
+            params string[] targets)
+        {
+            Id = id;
+            Name = name;
+            Priority = providerPriority;
+            Targets = targets
+                .Select(target => new SearchProviderTarget(
+                    target, SearchData.Isrc | SearchData.Text, Priority: targetPriority))
+                .ToList();
+        }
+
         public bool Throw { get; set; }
         public string? LastDownloaderId { get; private set; }
         public DownloaderSearchHit? Hit { get; set; } = new(
             "provider hit", "artist", "https://provider.test/1", TimeSpan.FromSeconds(200));
 
-        public string Id => "stub";
-        public string Name => "Stub search";
+        public string Id { get; }
+        public string Name { get; }
         public string Description => "test";
         public SearchData Data => SearchData.Isrc | SearchData.Text;
-        public IReadOnlyList<SearchProviderTarget> Targets { get; } =
-            new[] { new SearchProviderTarget("wanted", SearchData.Isrc) };
+        public IReadOnlyList<SearchProviderTarget> Targets { get; }
+        public int Priority { get; }
 
         public Task<DownloaderSearchHit?> SearchAsync(
             string downloaderId, TrackQuery query, CancellationToken ct = default)
@@ -96,6 +120,82 @@ public class SearchProviderRegistryTests
         Assert.That(downloader.SearchCalls, Is.Zero);
         Assert.That(provider.LastDownloaderId, Is.EqualTo("wanted"),
             "the provider must receive the target id it reads the country from");
+    }
+
+    [Test]
+    public void ProviderTargetPriority_ChoosesTheBestProvider()
+    {
+        var low = new StubProvider("low", "Low priority", providerPriority: 0, targetPriority: 0, "wanted");
+        var high = new StubProvider("high", "High priority", providerPriority: 0, targetPriority: 10, "wanted");
+        var registry = Registry(low, high);
+
+        Assert.That(registry.ForDownloader("wanted"), Is.SameAs(high),
+            "the target-specific priority is the strongest signal");
+    }
+
+    [Test]
+    public void ProviderPriority_BreaksATargetPriorityTie()
+    {
+        var low = new StubProvider("low", "Low priority", providerPriority: 1, targetPriority: 5, "wanted");
+        var high = new StubProvider("high", "High priority", providerPriority: 9, targetPriority: 5, "wanted");
+        var registry = Registry(low, high);
+
+        Assert.That(registry.ForDownloader("wanted"), Is.SameAs(high));
+    }
+
+    [Test]
+    public void DuplicateProviderIds_AreRejectedAtStartup()
+    {
+        var first = new StubProvider("same", "First", 0, 0, "wanted");
+        var second = new StubProvider("SAME", "Second", 0, 0, "wanted");
+
+        Assert.Throws<InvalidOperationException>(() => Registry(first, second));
+    }
+
+    [Test]
+    public void OrphanTargets_AreReportedWithoutStoppingTheApp()
+    {
+        var provider = new StubProvider("wanted", "Ghost provider", 0, 0, "ghost");
+        var registry = new SearchProviderRegistry(
+            new[] { provider }, NullLogger<SearchProviderRegistry>.Instance,
+            new ListDownloaderRegistry(new StubDownloader("wanted")));
+
+        Assert.That(registry.ValidationIssues.Any(issue => issue.Contains("ghost")), Is.True);
+    }
+
+    [Test]
+    public async Task ProviderSourceWithoutAnExplicitProvider_GetsTheLegacyAdapter()
+    {
+        var downloader = new StubDownloader(
+            "qobuz", DownloaderSearchInfo.ViaProvider(SearchData.Isrc | SearchData.Text));
+        var registry = new SearchProviderRegistry(
+            Array.Empty<ISearchProvider>(),
+            NullLogger<SearchProviderRegistry>.Instance,
+            new ListDownloaderRegistry(downloader));
+
+        var provider = registry.ForDownloader("qobuz");
+        Assert.That(provider, Is.InstanceOf<LegacyDownloaderSearchProvider>());
+
+        var hit = await registry.SearchAsync(downloader, Query());
+        Assert.That(hit, Is.Not.Null);
+        Assert.That(downloader.SearchCalls, Is.EqualTo(1),
+            "the legacy adapter must use the source's existing search");
+    }
+
+    [Test]
+    public void ExplicitProvider_WinsOverTheLegacyAdapter()
+    {
+        var downloader = new StubDownloader(
+            "qobuz", DownloaderSearchInfo.ViaProvider(SearchData.Isrc | SearchData.Text));
+        var explicitProvider = new StubProvider("explicit", "Explicit", 0, 10, "qobuz");
+        var registry = new SearchProviderRegistry(
+            new[] { explicitProvider },
+            NullLogger<SearchProviderRegistry>.Instance,
+            new ListDownloaderRegistry(downloader));
+
+        Assert.That(registry.ForDownloader("qobuz"), Is.SameAs(explicitProvider));
+        Assert.That(registry.GetAll().Any(p => p is LegacyDownloaderSearchProvider), Is.False,
+            "an explicit provider means no fallback adapter is needed");
     }
 
     [Test]

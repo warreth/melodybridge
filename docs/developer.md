@@ -127,6 +127,7 @@ public interface ISearchProvider
     string Description { get; }
     SearchData Data { get; }                       // ISRC, text, URL, length
     IReadOnlyList<SearchProviderTarget> Targets { get; }
+    int Priority { get; }                          // tie-break, higher wins
     Task<DownloaderSearchHit?> SearchAsync(
         string downloaderId, TrackQuery query, CancellationToken ct = default);
 }
@@ -144,6 +145,23 @@ provider for `Provider` sources, the source's own search for `Self` sources,
 and nothing for `None`. A provider that throws or times out is a miss, never
 a crash. The Plugins page renders the same metadata in
 `SearchProviderPanel`, so the map cannot drift from the routing rules.
+
+The router validates its wiring. Duplicate provider ids and a provider that
+lists the same target twice throw at startup. A target that names no
+registered source, or a provider with no targets, becomes a
+`ValidationIssues` entry and is shown on the Plugins page instead of failing
+the app. When several providers can serve a source, the target priority is
+the first tie-breaker, then the provider priority, then the name. Higher
+wins.
+
+`LegacyDownloaderSearchProvider` is the bridge for the catalogues that still
+keep their search inside the downloader. Qobuz, Deezer, Jumo, Monochrome and
+Lucida declare `Provider` search but have no standalone provider class yet.
+The registry creates one legacy adapter per such source and calls the old
+`SearchAsync` through it. The adapter is a temporary module: extracting a
+catalogue search into a real provider replaces it without changing the
+router, the waterfall or the Plugins page. Their source-specific code stays
+in the downloader under the legacy path until that extraction.
 
 The built-in `TidalPublicCatalog` gets a short-lived token from the public
 Rhythmax token worker, searches Tidal v1 by ISRC with `/tracks?isrc=...`, and
@@ -260,6 +278,15 @@ Implement this to add a download source. Built-in plugins:
 | `SoundCloudDownloader` | `soundcloud` | SoundCloud (via yt-dlp `scsearch`) | Original uploads, often 320 kbps; top-5 ranked; rejects files under 128 kbps |
 | `ArchiveOrgDownloader` | `archiveorg` | Internet Archive (public JSON APIs) | Public-domain and community recordings; picks the matching file inside a multi-track item, not the first one; rejects files under 128 kbps |
 | `YtDlpDownloader` | `ytdlp` | YouTube (via yt-dlp) | Widest fallback; audio-only best stream, top-5 ranked by match and duration; explicit formats transcode to the requested cap |
+
+Qobuz, Deezer, Jumo, Monochrome and Lucida still keep their catalogue search
+inside the downloader. Their `SearchInfo` says `Provider`, and
+`SearchProviderRegistry` creates a `LegacyDownloaderSearchProvider` for each
+one because no standalone provider targets the source yet. That adapter calls
+the existing `SearchAsync`, so the waterfall and the Plugins page move to the
+provider route without a risky rewrite. Extract a source by moving its search
+into a real provider, changing its `SearchInfo` data, and deleting the adapter
+path; nothing in the router or the panel changes.
 
 Place new implementations in `MelodyBridge.Infrastructure/Downloaders/` and register via `services.AddSingleton<IDownloader, YourPlugin>()`. A plugin that ships its own protocol client or byte-level helpers lives in its own folder next to it instead (`Infrastructure/Lucida/`, `Infrastructure/Jumo/`) and registers the same way. Quality-gate downloads against the requested `DownloadQuality` band so bad rips never enter the library.
 

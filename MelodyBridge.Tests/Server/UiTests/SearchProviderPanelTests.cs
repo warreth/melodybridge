@@ -147,6 +147,24 @@ public class SearchProviderPanelTests
     }
 
     [Test]
+    public void Panel_MarksALegacyCatalogueProvider()
+    {
+        var downloader = new StubDownloader("qobuz", "Qobuz",
+            DownloaderSearchInfo.ViaProvider(SearchData.Isrc | SearchData.Text));
+        _ctx.Services.AddSingleton<IDownloaderRegistry>(new ListDownloaderRegistry(downloader));
+        _ctx.Services.AddSingleton<ISearchProviderRegistry>(
+            new SearchProviderRegistry(Array.Empty<ISearchProvider>(),
+                NullLogger<SearchProviderRegistry>.Instance,
+                new ListDownloaderRegistry(downloader)));
+
+        var cut = _ctx.Render<SearchProviderPanel>();
+
+        var provider = cut.Find(".search-provider");
+        Assert.That(provider.TextContent, Does.Contain("legacy"));
+        Assert.That(provider.TextContent, Does.Contain("Searches the Qobuz catalogue, ISRC first."));
+    }
+
+    [Test]
     public void Panel_MarksADisabledTarget()
     {
         var downloader = new StubDownloader("rhythmax", "Tidal (Rhythmax)",

@@ -42,8 +42,9 @@ public class JumoDownloader : IDownloader
         "Qobuz rips via jumo-dl.pages.dev, no account needed (lossless, CD and MP3 320)";
 
     public DownloaderSearchInfo SearchInfo =>
-        DownloaderSearchInfo.Self(SearchData.Text | SearchData.Isrc,
-            "Jumo catalogue search, ISRC first");
+        DownloaderSearchInfo.ViaProvider(SearchData.Text | SearchData.Isrc,
+            "Jumo catalogue search, ISRC first (legacy source-side adapter)");
+
 
     public IReadOnlyList<PluginConfigField> ConfigFields =>
     [
