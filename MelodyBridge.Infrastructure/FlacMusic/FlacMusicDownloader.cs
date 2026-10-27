@@ -336,14 +336,13 @@ public class FlacMusicDownloader : IDownloader, IPluginAvailabilityRefresh
                 Id = path[trackIndex + 2],
             };
         }
-        else if (uri.Host.Contains("kuwo.cn", StringComparison.OrdinalIgnoreCase))
+        else if (HostIs(uri, "kuwo.cn"))
         {
             var id = path.LastOrDefault(p => p.Length > 0 && p.All(char.IsAsciiDigit));
             if (id is null) return false;
             link = new SourceLink { Platform = "kuwo", Id = id };
         }
-        else if (uri.Host.Contains("music.163.com", StringComparison.OrdinalIgnoreCase)
-                 || uri.Host.Contains("163cn.tv", StringComparison.OrdinalIgnoreCase))
+        else if (HostIs(uri, "music.163.com") || HostIs(uri, "163cn.tv"))
         {
             var query = ParseQuery(uri.Query);
             if (!query.TryGetValue("id", out var id))
@@ -446,6 +445,11 @@ public class FlacMusicDownloader : IDownloader, IPluginAvailabilityRefresh
             ? new[] { "kuwo", "wyy" }
             : new[] { value.Trim().ToLowerInvariant() };
     }
+
+    /// <summary>Exact host or a real subdomain, never a lookalike.</summary>
+    private static bool HostIs(Uri uri, string domain)
+        => uri.Host.Equals(domain, StringComparison.OrdinalIgnoreCase)
+           || uri.Host.EndsWith("." + domain, StringComparison.OrdinalIgnoreCase);
 
     private static Dictionary<string, string> ParseQuery(string query)
     {

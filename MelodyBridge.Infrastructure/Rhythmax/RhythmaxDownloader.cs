@@ -165,7 +165,12 @@ public class RhythmaxDownloader : IDownloader, IPluginAvailabilityRefresh
         if (long.TryParse(value, out trackId) && trackId > 0) return true;
 
         if (!Uri.TryCreate(value, UriKind.Absolute, out var uri)) return false;
-        if (!uri.Host.Contains("tidal.com", StringComparison.OrdinalIgnoreCase)) return false;
+        // Exact host or a real subdomain, never "nottidal.com" or
+        // "tidal.com.example.net".
+        var host = uri.Host;
+        if (!host.Equals("tidal.com", StringComparison.OrdinalIgnoreCase)
+            && !host.EndsWith(".tidal.com", StringComparison.OrdinalIgnoreCase))
+            return false;
 
         var marker = uri.AbsolutePath.LastIndexOf("/track/", StringComparison.OrdinalIgnoreCase);
         if (marker < 0) return false;

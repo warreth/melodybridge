@@ -174,12 +174,12 @@ public class TidalPublicCatalog
         }
     }
 
-    private Task<HttpResponseMessage> SendAsync(string url, string token, CancellationToken ct)
+    private async Task<HttpResponseMessage> SendAsync(string url, string token, CancellationToken ct)
     {
-        var request = new HttpRequestMessage(HttpMethod.Get, url);
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
         request.Headers.TryAddWithoutValidation("Authorization", $"Bearer {token}");
         request.Headers.TryAddWithoutValidation("Accept", "application/json");
-        return _http.SendAsync(request, ct);
+        return await _http.SendAsync(request, ct);
     }
 
     private async Task<string?> TokenAsync(bool forceRefresh, CancellationToken ct)

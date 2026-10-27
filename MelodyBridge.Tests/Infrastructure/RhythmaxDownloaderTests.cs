@@ -103,6 +103,11 @@ public class RhythmaxDownloaderTests
             "https://tidal.com/browse/album/35986110", out _), Is.False);
         Assert.That(RhythmaxDownloader.TryExtractTrackId(
             "https://example.test/track/35986110", out _), Is.False);
+        Assert.That(RhythmaxDownloader.TryExtractTrackId(
+            "https://nottidal.com/track/35986110", out _), Is.False,
+            "a lookalike host is not Tidal");
+        Assert.That(RhythmaxDownloader.TryExtractTrackId(
+            "https://tidal.com.example.net/track/35986110", out _), Is.False);
     }
 
     [Test]

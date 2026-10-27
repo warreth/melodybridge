@@ -234,6 +234,12 @@ public class FlacMusicDownloaderTests
             "https://music.163.com/#/song?id=3880720", out var netease), Is.True);
         Assert.That(netease.Platform, Is.EqualTo("wyy"));
         Assert.That(netease.Id, Is.EqualTo("3880720"));
+
+        Assert.That(FlacMusicDownloader.TryParseSourceUrl(
+            "https://kuwo.cn.example.net/play_detail/336887", out _), Is.False,
+            "a lookalike host is not Kuwo");
+        Assert.That(FlacMusicDownloader.TryParseSourceUrl(
+            "https://music.163.com.example.net/#/song?id=3880720", out _), Is.False);
     }
 
     // ── Search ───────────────────────────────────────────────────────────
