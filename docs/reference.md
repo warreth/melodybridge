@@ -16,11 +16,13 @@ and pick a result. It is a jump list, not a live filter of every field.
 ### Accounts
 
 Connect Spotify and YouTube here. Both logins only ask for read access, so they
-can never change anything on your account. The third card, **Spotify
-(unofficial)**, imports on a free account through your own web session: paste the
-`sp_dc` cookie, tick the acknowledgement and press **Enable and test**. The full
-walkthrough, including the redirect URLs, the cookie route and the file imports,
-lives in [Accounts and imports](/accounts).
+can never change anything on your account. One **Spotify web session** card
+holds a single `sp_dc` cookie for two jobs: the public page fallback and free
+account imports. Paste the cookie and press **Save for public fallback** when
+you only want the safer scraping fallback. Tick the acknowledgement and press
+**Enable account imports** to test the unofficial route. The full walkthrough,
+including the redirect URLs, the cookie route and the file imports, lives in
+[Accounts and imports](/accounts).
 
 ### Media servers
 
@@ -50,6 +52,8 @@ M3U folder or a media server target to several jobs at once.
 
 ### Default paths
 
+<img src="/screens/settings-paths.webp" alt="Default paths tab with the music, playlist and archive folders, folder buttons and archive profiles" width="800">
+
 - **Music path** (`/music` in the Docker image): the root for downloads. With
   **Sort downloads into a folder per playlist** on, the default, each playlist
   gets its own folder below it named after the playlist, so one playlist's
@@ -60,18 +64,32 @@ M3U folder or a media server target to several jobs at once.
   A new sync job starts with `<folder>/<job name>.m3u8`; type a different path
   in the quick or advanced editor when a job should land elsewhere. A rule
   profile can set the folder and file name for every linked job.
-- **Archive path** and **Archive format**: the defaults for archive copies.
-  Leave the path empty for no archive. Per-playlist values override these, and
-  the playlist page shows what the app default currently is. The format picker
-  offers Auto, Opus, FLAC, MP3 and AAC, plus Custom for another container
-  ffmpeg can write (for example ogg, wav or m4a). Add a codec after a colon
-  when the container default is not what you want, for example `m4a:alac`.
-  A format ffmpeg cannot write leaves a warning on the track. Each playlist gets its own folder under the archive path while the
-  sort toggle is on. Saving a new archive path moves the existing archive
-  copies along with it.
+- **Archive path** and **Archive format**: the default archive copy. Leave the
+  path empty for no default archive. Per-playlist values override the default,
+  and the playlist page shows what the app default currently does. The format
+  picker offers Auto, Opus, FLAC, MP3 and AAC, plus Custom for another container
+  ffmpeg can write (for example ogg, wav or m4a). Add a bitrate after a colon
+  for lossy presets (`mp3:160`, `opus:192`) or a codec (`m4a:alac`). A format
+  ffmpeg cannot write leaves a warning on the track. Each playlist gets its own
+  folder under the archive path while the sort toggle is on. Saving a new
+  archive path moves the existing default copies along with it.
 
-The path fields show a grey `{playlist}` suffix when the folder rule appends a
-playlist name, so what a field resolves to is visible before you save.
+<img src="/screens/settings-archives.webp" alt="Archive profiles with one extra copy, its folder and format, and a build-missing action" width="800">
+
+- **Archive profiles**: extra archive destinations below the default. Add as
+  many as you need, each with a name, folder, container and bitrate. Every
+  enabled profile gets a copy of every downloaded track, so one library can
+  keep an Opus 128 copy and an MP3 160 copy next to the default. **Build
+  missing** scans the existing library and creates the copies it does not have
+  yet; a progress bar stays in the section while it runs. Disabling a profile
+  keeps its files on disk. Deleting one removes the profile and its copy rows,
+  not the files. Playlist archive switches turn every copy off for that
+  playlist; per-playlist folder and format overrides apply to the default only.
+
+The path fields have a folder button that opens a server-side picker with
+shortcuts to the music, playlist, archive and scan folders. You can still type a
+path by hand. The fields show a grey `{playlist}` suffix when the folder rule
+appends a playlist name, so what a field resolves to is visible before you save.
 
 Remember that these are paths inside the container, not on your host. The page
 shows a reminder next to the fields. Changing a path moves the tracked files,
@@ -115,14 +133,11 @@ track marked failed, and the next run retries it.
 
 - **FlareSolverr URL**: `auto` (the default) looks for the solver container on
   the Docker network, a URL points at your own solver, and `off` disables Lucida
-  entirely. The **Test connection** button tells you what it found. More in
-  [Lucida and FlareSolverr](/lucida).
-- **Spotify cookie**: optional. This one only helps public playlist scraping
-  when Spotify starts refusing it: paste the `sp_dc` value from a logged-in
-  browser session and the app sends it along. It is the same cookie value the
-  unofficial account connection asks for, but the two settings are separate:
-  this field never turns on account imports. Both are stored in the database,
-  not in an environment variable.
+  entirely. **Test connection** resolves the endpoint and solves `lucida.to`
+  for real, so a healthy HTTP port that cannot finish a challenge is reported
+  honestly. More in [Lucida and FlareSolverr](/lucida).
+- The Spotify fallback cookie lives on the **Accounts** tab with the web session
+  card. One cookie covers public scraping and free-account imports.
 
 ### Notifications
 
@@ -131,11 +146,13 @@ download finishes and when a track, sync job or background task fails; both on
 by default, and failures always reach the log regardless.
 
 A success or info toast fades after a few seconds. A warning or error stays for
-12 seconds and can be closed sooner. The bell in the sidebar keeps the last
-notifications, including the ones whose toast already faded: open it to read
-them again, follow an action such as **Fix plugin**, **Open playlist**, **Retry**
-or **View logs**, or clear the history. The bell badge counts what you have not
-opened yet.
+12 seconds and can be closed sooner. Routine toasts do not enter the bell: the
+bell is a short list of things that still need a decision, such as a plugin
+login that stopped working, a failed sync job, a background failure or an
+update. Those entries stay until you dismiss them or the condition clears. Open
+the bell to follow an action such as **Fix plugin**, **Open sync jobs**,
+**Release notes** or **View logs**, dismiss one row, or clear the list. The bell
+badge counts important entries you have not opened yet.
 
 **ntfy push** sends the same events to your own ntfy server. Flip **Send
 notifications to ntfy**, enter the **Topic URL** (for example
@@ -177,20 +194,29 @@ discarded before the restart.
 
 ## The dashboard
 
-The dashboard is the at-a-glance page: playlists, downloaded tracks, library
-files and enabled plugins. Each metric tile opens its page. The connections
-panel lists Spotify, YouTube, your media servers and FlareSolverr. A single
-compact all-clear takes the place of empty login and error panels, so the page
-only grows when there is something to read.
+The dashboard is the at-a-glance page. A red **Needs attention** band lists
+everything that still wants a decision, with a count and a link per category:
+failed downloads, hardlink decisions, quality reviews, archive copies, plugin
+logins, failed sync jobs and partial playlists. When there is nothing to do, a
+short all-clear replaces the band. **Review all** opens the
+[Needs attention page](/reference#the-needs-attention-page).
 
-- **Plugin logins** lists every login problem in the same red style as the
-  Plugins page, with a **Fix** link straight to that plugin card.
-- The sidebar **download chip** appears while a playlist download is running or
-  paused: how many runs, how many tracks are done, and how many failed. Click it
-  to open the live downloads on the Plugins page.
-- On a fresh install, the setup checklist includes a **Connect a lossless
-  source** card. It links to the Qobuz, Deezer and Tidal cards for the three
-  token flows, and to Jumo and Monochrome, which need no account.
+Four metric tiles follow: playlists, downloaded tracks, library size and the
+total number of open attention items. The activity panel shows live download
+runs and the last sync runs with how many tracks each resolved. The connections
+panel groups accounts, media servers and Cloudflare. A Spotify **web session**
+row appears when the fallback cookie or free-account import is connected, even
+when no official OAuth account is linked.
+
+The playlist section shows compact cards with a progress bar and an attention
+count per playlist. On a fresh install, the setup checklist includes a
+**Connect a lossless source** card. It links to the Qobuz, Deezer and Tidal
+cards for the three token flows, and to Jumo and Monochrome, which need no
+account.
+
+The sidebar **download chip** appears while a playlist download is running or
+paused: how many runs, how many tracks are done, and how many failed. Click it
+to open the live downloads on the Downloads page.
 
 ## The Playlists page
 
@@ -223,7 +249,10 @@ schedule and one set of targets. See
 
 ## Playlist options
 
-Open a playlist card and the left panel holds everything specific to it:
+Open a playlist card and one compact setup panel holds everything specific to
+it. The header keeps the live counts (tracks, downloaded, failed, attention)
+next to the save state, so the page does not need a second status card. Rare
+archive overrides sit behind one disclosure:
 
 | Option | Notes |
 |---|---|
@@ -232,7 +261,7 @@ Open a playlist card and the left panel holds everything specific to it:
 | Audio quality | One of the presets above, or advanced filters |
 | Strict quality | Shown when a quality preset is selected. On: only the exact quality is accepted. Off: the download steps down to the best lower quality the enabled plugins declare. See [strict quality](/concepts#strict-quality) |
 | Allow container changes | Shown when strict is off: whether a fallback step may leave the chosen container |
-| Archive copy | The switch turns the second copy on or off for this playlist. When it is off the folder and format fields disappear, and no copy is made, even when the app-wide archive path is set. When it is on, an empty folder means the default archive path plus a folder named after the playlist, and the format select says what the app default currently does |
+| Archive copy | The switch turns every archive copy on or off for this playlist: the default and all extra profiles. When it is off no copy is made, even when an archive path is set. **Manage profiles** opens the archive settings. The optional overrides apply to the default archive only; extra profiles always use their own folder and format |
 | Auto-sync schedule | Manual, hourly, daily, weekly, monthly or cron. A refresh that fails is retried at the next interval, not on every check, so a broken source cannot hammer itself |
 | Download new tracks after auto-sync | Off by default. After a successful auto-sync refresh, a download run starts when there is pending work; failed tracks are retried every interval. Hidden for file imports |
 | Sync mode | Additive keeps removed tracks as history, Mirror matches the source |
@@ -261,9 +290,11 @@ archive copy**, which rebuilds the file from the current download. A failed
 rebuild leaves the previous copy in place and keeps it on the row, so
 deleting the playlist files still removes it. The **!** pill beside the
 status opens the same dialog, so a failed copy is one click from being
-repaired. Enable **Show the file column on playlist tracks** on the
-Advanced page to see the file names, including `archive: <name>` chips for
-archive copies.
+repaired. The check and the dialog cover the default archive; extra
+profile copies are repaired from the
+[Needs attention page](/reference#the-needs-attention-page). Enable **Show the
+file column on playlist tracks** on the Advanced page to see the file names,
+including `archive: <name>` chips for archive copies.
 
 - The filter box narrows the list; **Needs attention** shows only failed tracks
   and tracks waiting for a dedup or quality decision.
@@ -326,6 +357,34 @@ archive copies.
 
 <img src="/screens/source-picker.webp" alt="Choose source dialog with filters, exact quality facts and target match pills" width="800">
 
+## The Needs attention page
+
+<img src="/screens/attention.webp" alt="Needs attention page grouped by error kind with retry and hardlink actions" width="800">
+
+**Needs attention** in the sidebar collects every track and playlist that still
+wants a decision, grouped by the kind of problem rather than by playlist. The
+metric row at the top filters the page: **failed**, **reviews**, **hardlinks**,
+**archives** and **playlists**. A group shows its own **Select group**,
+**Retry all** or **Find hardlinks** action. A group with more than eight rows
+shows the first eight and a **Show all** button.
+
+Each row carries the track, artist, playlist link, the original reason and the
+actions that make sense for it:
+
+| Group | Actions |
+|---|---|
+| No source, wrong format, wrong length, not audio, corrupt, login, timeout, cancelled, metadata, other failures | **Retry**, **Elsewhere** (skips the provider that failed last), **Hardlink** (uses a file another playlist already has), **Open** |
+| Hardlink decisions | **Hardlink existing**, **Download new**, **Open** |
+| Length and quality reviews | **Keep file**, **Retry download**, **Open** |
+| Archive copies, missing files, unverified files | **Recreate**, **Open** |
+| Playlist syncs | **Re-sync**, **Open** |
+
+Tick several rows to get one bulk bar with **Retry downloads**, **Retry
+elsewhere**, **Find hardlinks** and **Recreate archives**. The page reports what
+changed and what still needs attention. It refreshes itself when the store
+changes, so a run started elsewhere appears without a manual reload. The
+dashboard's attention band links straight into the matching filter.
+
 ## The Downloads page
 
 <img src="/screens/downloads.webp" alt="Downloads page with live playlist runs and recent track activity" width="800">
@@ -377,25 +436,28 @@ own stream, then tags and verifies the file.
 
 ## The Plugins page
 
-<img src="/screens/plugins.webp" alt="Plugins page with order controls, route preview, per-plugin status and capability badges" width="800">
+<img src="/screens/plugins.webp" alt="Plugins page with the source order strip and grouped setup cards" width="800">
 
-Plugins search for and download your tracks. The order set here is the whole
-story for the **No filter** quality. When a playlist asks for a specific
-quality, MelodyBridge first picks the plugins that can really deliver it (their
-declared capabilities decide) and the order here only breaks ties between
-plugins of the same kind. Use the arrows to move a plugin and the switch to
-enable or disable it. The number on each enabled plugin's icon is its place in
-the waterfall, so the route and the list always agree.
+Plugins search for and download your tracks. The page has two jobs: set a source
+up, and decide which source is tried first.
 
-The search box and the **All**, **Enabled**, **Needs login** and **Unavailable**
-filters narrow a long plugin list. The count on each filter says how many
-plugins it would show.
+The **Try order** card is the editable list. Use the arrows to move an enabled
+source up or down. The order here is the whole story for the **No filter**
+quality. When a playlist asks for a specific quality, MelodyBridge first picks
+the plugins that can really deliver it (their declared capabilities decide) and
+this order breaks ties between plugins of the same kind. Pick a preset in
+**Preview quality** to see that capability order and which sources it skips;
+**No filter** keeps the preview out of the way because it is the same as the
+list above.
 
-The **Route preview** card answers "what will actually run?" before a download.
-Pick a quality preset and it shows the enabled plugins in try order, with the
-ones left out and the reason they were left out ("no lossless source", "cannot
-produce FLAC"). It is a declaration preview: availability is still probed per
-track.
+Below the order, the setup cards are split into **Your subscriptions** and
+**Free and community sources**. Qobuz, Deezer and Tidal each get an account card
+with **Account and settings**. Everything else needs no subscription; a
+companion tool or container (yt-dlp, slskd, FlareSolverr for Lucida) is named on
+the card. The search box and the **All**, **Accounts**, **Free** and
+**Problems** filters narrow the cards, and the count says how many each filter
+would show. **Problems** includes unavailable sources and stored logins that
+stopped working.
 
 - Each plugin card shows its capability badges (formats, bitrate range) and a
   **Settings** row when it has options. The row opens a panel with the fields
@@ -516,9 +578,9 @@ are errors, a banner at the top lists them; click one to jump to that area.
 - Filter by area (Playlists, Downloads, Sources, Library, Sync, Database,
   System), level (Info+, Warning, Error, Debug) or source (Qobuz, Tidal, Deezer,
   yt-dlp, SoundCloud, Monochrome, Jumo, Lucida, Archive.org, Soulseek,
-  DoubleDouble, Waterfall, Other). Every area chip shows how many entries it
-  holds, and the source list shows its counts too. The search box also matches
-  the friendly area names.
+  Waterfall, Other). Every area chip shows how many entries it holds, and the
+  source list shows its counts too. The search box also matches the friendly
+  area names.
 - The page opens on **Info+**, so debug and trace noise stays out until you ask
   for it. Framework chatter from ASP.NET, the host and `System.*` loggers is
   kept out as well; their warnings and errors still appear.
@@ -559,7 +621,10 @@ The error on a track row is the reason the waterfall gave up:
 
 A **needs review** state is not a failure either: it means two playlists
 disagree about a track's quality and you get to pick, see
-[How it works](/concepts).
+[How it works](/concepts). The [Needs attention
+page](/reference#the-needs-attention-page) groups every one of these messages
+and lets you retry a whole group, find a hardlink, or rebuild archive copies
+without opening each playlist.
 
 One more place to look: the **Connections** panel on the dashboard shows the
 state of Spotify, YouTube, your media servers and FlareSolverr at a glance. A

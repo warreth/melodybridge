@@ -40,7 +40,9 @@ mappings. Every path you type in the app (Settings defaults, Library locations,
 M3U output paths) must look like `/music`, never like the folder on your host.
 If a scan finds zero files in a folder that clearly has music, the folder is
 probably not mounted, or the host path was used instead. The app repeats this
-reminder next to every path input.
+reminder next to every path input. The folder button beside a path opens the
+container's own directory tree, so it can only choose folders that exist inside
+the container; add a volume first when the folder you want is not there yet.
 :::
 
 ## Upgrading from 1.0

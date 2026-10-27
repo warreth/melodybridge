@@ -20,11 +20,23 @@ Network**: `http://127.0.0.1:8191` or wherever yours listens. The options:
 - an explicit URL: use that solver
 - `off`: disable Lucida entirely
 
-**Test connection** tells you what it found. Without a working solver, Lucida
-reports itself unavailable and the waterfall quietly skips it; the other plugins
-take over and nothing else breaks.
+**Test connection** resolves the endpoint and then solves `lucida.to` for real,
+not just its `/health` page. A solver whose HTTP port answers but whose browser
+cannot finish a challenge is reported as a failure. Without a working solver,
+Lucida reports itself unavailable and the waterfall quietly skips it; the other
+plugins take over and nothing else breaks.
+
+The app caches a successful clearance for each site and reuses it for later
+tracks. It asks for a fresh solve only after a 403, or after the cache ages out.
+Auto mode remembers a healthy container and probes again quickly when one is
+missing, so a solver that starts a few seconds after the app is picked up by the
+next track instead of needing a manual button press.
 
 ## Sessions
 
 Cloudflare challenge cookies expire, so when Lucida gets a 403 the plugin asks
-the solver for fresh credentials and retries the request once, on its own.
+the solver for fresh credentials and retries the request once, on its own. The
+search uses Qobuz (Netherlands), Amazon, Deezer and Tidal in that order; the
+current lucida.to client needs the Qobuz NL storefront and no country for
+Amazon. Single-track pages encode the download token with two base64 passes, and
+the plugin mirrors that decoding before it submits the load request.

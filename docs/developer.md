@@ -110,8 +110,7 @@ Deezer and Jumo search the code itself, and Qobuz, Deezer, Jumo, Tidal and
 Monochrome accept a hit carrying the exact code even when the catalogue spells
 the title differently (the length is still checked). Lucida searches its
 services by the code too, but its hits carry no ISRC to verify against, so it
-still requires a confident title match. YouTube, SoundCloud, Archive.org and
-the DoubleDouble endpoint do not index ISRCs and ignore the field.
+still requires a confident title match. YouTube, SoundCloud and Archive.org do not index ISRCs and ignore the field.
 
 `PluginCapabilities` is the plugin's honest manifest: every quality level it
 can deliver (container, the bitrate band it arrives in, whether the content is
@@ -165,9 +164,14 @@ the track's one-shot `AvoidPluginId`, so the same failing provider is left out
 of that retry. The sidebar activity chip is `DownloadActivitySummary.From`, a
 pure formatter. Log areas and sources are `LogAreas` and `LogSources`;
 `LogCorrelation` stamps entries with the track group the Logs page can group by.
-`NotificationService` keeps active toasts and history separately: routine
-notices fade after a few seconds, warnings and errors after 12, and both remain
-in the bell history.
+`NotificationService` keeps active toasts and the bell list separately. Routine
+success, info and problem toasts fade after their time and are not kept: the
+bell is reserved for important entries (`Important`, with an optional `Key`)
+such as plugin login problems, failed sync jobs, background failures and
+updates. An important entry stays until the user dismisses it or the owning
+condition calls `Resolve(key)`. A repeated key replaces the entry instead of
+stacking, and `UnreadCount` only counts important entries. The layout renders
+important rows first and never puts routine toast history in the bell.
 
 The store itself is a facade. The implementation lives in four services next to
 it: `PlaylistQueries` (reads, lifecycle, settings and the two maintenance
@@ -198,14 +202,13 @@ Implement this to add a download source. Built-in plugins:
 
 | Plugin | Id | Source | Notes |
 |---|---|---|---|
-| `LucidaDownloader` | `lucida` | lucida.to (Tidal, Qobuz, Amazon Music) | High quality rips; needs a Cloudflare solver, otherwise skipped; Qobuz/Amazon are searched by ISRC first, but its hits carry no ISRC, so a confident title match is still required; the load API has no quality parameter, so its manifest is honest-but-uncontrollable |
+| `LucidaDownloader` | `lucida` | lucida.to (Qobuz NL, Amazon Music, Deezer, Tidal) | High quality rips; needs a working Cloudflare solver, otherwise skipped; searches by ISRC first, but its hits carry no ISRC, so a confident title match is still required; single-track page tokens are base64-encoded twice and must be decoded before `/api/load`; the load API has no quality parameter, so its manifest is honest-but-uncontrollable |
 | `MonochromeDownloader` | `monochrome` | tracks.monochrome.st (official Monochrome API) | Lossless FLAC streams over a plain GET, no account needed; search hits carry an ISRC, and an exact match is accepted as that recording even when the title differs; the base URL is configurable per plugin for mirrors |
 | `SlskdDownloader` | `slskd` | Soulseek, through the user's own slskd instance | Lossless FLAC and high-bitrate MP3/AAC from peers; search and transfer run over slskd's REST API with an API key; locked files and undeclared containers are skipped; the finished file moves out of slskd's downloads folder, whose path the plugin reads from slskd's own options; unavailable until the URL and key are set and slskd is logged in |
 | `QobuzDownloader` | `qobuz` | qobuz-dlp (shipped in the Docker image) | Lossless and hi-res from a paid Qobuz plan; the search runs natively (bundle scrape plus a user token), the download through the CLI into a hidden per-track folder; the plugin seeds the CLI config (app id, private key, secrets) and its token file, so no interactive login is needed; unavailable until the command and a valid token are found |
 | `TidalDownloader` | `tidal` | tiddl (shipped in the Docker image) | Lossless and hi-res from the user's own Tidal session; the search runs against Tidal's v1 API with the token out of tiddl's `auth.json` (a text search that accepts an exact ISRC hit as the recording, even when the title differs), the download through `tiddl download url` with the tier mapped onto the requested band; unavailable until the command and a logged-in tiddl session are found, or when that session expired |
 | `DeemixDownloader` | `deemix` | deemix CLI (shipped in the Docker image, runs on Node) | Deezer MP3/FLAC with the user's ARL; the search runs against Deezer's public API, the download through the CLI; the ARL setting is written into deemix's config (through `DEEMIX_DATA_DIR`) before every run, so the CLI never prompts; runs are serialized and the finished file moves out of the downloads folder |
 | `JumoDownloader` | `jumo` | jumo-dl.pages.dev (community Qobuz front-end) | No account needed; search and stream descriptors come from the service's guarded API (request-context headers plus ECDH/AES-GCM encrypted responses), the audio comes direct from the signed Qobuz CDN URLs and is AES-CTR decrypted locally; lossless lands as native FLAC, MP3 320 as plain MP3; the service rate limits (429) and can refuse some networks (403), so the plugin reports unavailability instead of hammering it |
-| `DoubleDoubleDownloader` | `doubledouble` | us./eu.doubledouble.top | Retired from the shipped order: the site is captcha-gated on every submission, so `IsAvailableAsync` only reports ready when its captcha config says `active: false`. Submit-and-poll rips of direct track URLs; `SearchAsync` returns null by design |
 | `SoundCloudDownloader` | `soundcloud` | SoundCloud (via yt-dlp `scsearch`) | Original uploads, often 320 kbps; top-5 ranked; rejects files under 128 kbps |
 | `ArchiveOrgDownloader` | `archiveorg` | Internet Archive (public JSON APIs) | Public-domain and community recordings; picks the matching file inside a multi-track item, not the first one; rejects files under 128 kbps |
 | `YtDlpDownloader` | `ytdlp` | YouTube (via yt-dlp) | Widest fallback; audio-only best stream, top-5 ranked by match and duration; explicit formats transcode to the requested cap |
@@ -395,12 +398,19 @@ playlist, so every playlist owns its folder, liked songs included. The
 subfolder off: the root itself is then the folder, and every caller reads the
 setting through `SettingsStore`.
 `ResolveArchiveFolder` applies the same rule under the archive path, and the
-playlist row carries an `ArchiveEnabled` switch that skips the copy entirely when
-off. The app writes the archive copy itself, so the row keeps its size in
-`ArchiveSizeBytes`: the Library page then reports the size of every archive
-copy from the database instead of measuring every file on every visit. A copy
-from before that column existed is measured once, in the background, and the
-answer is stored.
+playlist row carries an `ArchiveEnabled` switch that skips every copy entirely
+when off. The default archive keeps its path and size on the track row
+(`ArchivePath`, `ArchiveSizeBytes`); each extra profile stores one
+`TrackArchiveCopies` row per track with its own path, size and warning. The
+default is the only one with a legacy column, so existing readers and the
+one-copy flow keep working while `ArchiveCopyService` adds the profiles.
+Archive roots from `ArchiveProfiles` join the default path and every playlist
+override in `TrackLinker`, `LibraryScanner`, `LibraryReconciler`,
+`FileNameRenamer` and the Library footprint. A profile copy follows the primary
+on rename and delete, and `MoveRootAsync` moves the files when a profile folder
+changes. `ArchiveBackfillService` runs `BuildMissingAsync` one profile at a
+time and exposes progress to Settings instead of silently transcoding a whole
+library.
 `LibraryReconciler` moves downloaded files (archive copies included) that
 still sit loose under a playlist's base folder into the playlist folder during
 startup reconciliation, never overwriting what a destination already holds.
@@ -478,6 +488,59 @@ the playlists that live in it, and one query for the dedup candidates of
 a whole playlist instead of one per track. The rows it changes are
 attached to the change tracker when they change, so the pass writes the
 fields it touched and nothing else.
+
+## Needs attention
+
+`AttentionService` reads every track with `failed` or `needs-review`, every
+downloaded track with an open review or a warning, and every playlist whose
+last sync failed or came back partial. `AttentionClassifier` is the pure part:
+it turns the stored status, error and warning strings into one stable kind
+(`failed-no-source`, `failed-quality-filter`, `failed-format`,
+`failed-duration`, `failed-invalid-audio`, `failed-corrupt`, `failed-auth`,
+`failed-timeout`, `failed-cancelled`, `failed-metadata`, `failed-other`,
+`dedup`, `review-length`, `review-spectrum`, `review-both`, `archive`,
+`file-missing`, `unverified`). The classifier checks the most specific reason
+first and ignores informational warnings such as a quality hint.
+
+`AttentionActions` owns the bulk loops. Each action is the same operation as the
+row button, one track at a time, so one failure cannot cancel the rest. Retry
+uses `PlaylistStore.DownloadTrackAsync`; hardlink uses the new
+`LinkTrackAsync`, a zero-network attempt through `TrackLinker.TryLinkAsync`;
+archive rebuilds the default copy and every enabled profile; quality and dedup
+actions call their normal resolve methods and download only when the chosen
+action says so. The page reports done and failed counts and refreshes through
+`DataChangeTracker`.
+
+## Folder picker
+
+`FolderBrowser` lists directories for the shared `FolderPickerDialog` and
+`FolderBrowseButton`. It lists folders only, never files or sizes, caps the
+list, follows symlinks when checking the state directory and blocks the
+directory that holds the SQLite file (`MELODYBRIDGE_DB` or the connection
+string). Shortcuts come from the configured music, playlist and archive paths,
+scan locations and plugin download folders. The picker is a Blazor circuit
+call, not a new HTTP endpoint, so it adds no new network surface. Creation is
+limited to one valid child name under an existing parent. Path fields keep
+their typed input; the button is an addition, not a replacement.
+
+## Archive profiles and formats
+
+`ArchiveProfileStore` owns the named extra destinations. `ArchiveCopyService`
+writes one copy per enabled profile and keeps `TrackArchiveCopies` true when a
+file moves or is deleted. `ArchiveCopier.ParseFormat` accepts
+`container`, `container:bitrate` (`opus:128`, `mp3:160`) and
+`container:codec` or `container:codec:bitrate` (`m4a:alac`,
+`mp3:libmp3lame:160`). `BuildArgs` passes the bitrate to libopus, libmp3lame,
+the AAC encoder or a custom codec; FLAC keeps its lossless settings. A failed
+profile copy is a warning on the track (`archive copy failed (<profile>): ...`),
+never a failed download.
+
+The schema has `ArchiveProfiles` and `TrackArchiveCopies` plus a unique
+`(TrackId, ProfileId)` index. `SchemaPatcher` creates both tables and their
+indexes for existing databases; `EnsureCreated` covers fresh ones. The default
+archive deliberately stays on `Tracks.ArchivePath`, so a database from before
+profiles needs no data migration and an install with no extra profiles behaves
+exactly as before.
 
 Deletion is name-wise by hard link semantics: removing one playlist's
 row removes that playlist's file name only, and both `RemoveTrackAsync`

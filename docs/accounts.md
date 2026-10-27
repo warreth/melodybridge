@@ -88,9 +88,15 @@ You do not need any of the above. The unofficial connection imports liked songs
 and playlists on a free account, with no developer app and no Premium, because
 it talks to Spotify the way the web player itself does. Open Settings, Accounts,
 paste the `sp_dc` cookie from your own logged-in browser session, tick the
-acknowledgement and press **Enable and test**. The test fetches your liked songs
-and playlists right away, so a dead cookie fails on the spot instead of on your
-first import.
+acknowledgement and press **Enable account imports**. The test fetches your liked
+songs and playlists right away, so a dead cookie fails on the spot instead of on
+your first import.
+
+The same cookie also helps public playlist scraping when Spotify starts refusing
+the normal page fetch. Press **Save for public fallback** when you want only that
+safer job; account imports stay off until you tick the acknowledgement and test
+the session. The old separate Spotify cookie field on the Network tab is gone:
+this is the one place to paste it.
 
 ::: warning Not for an account you care about
 The cookie is a live credential: whoever holds it can act as your Spotify
@@ -119,8 +125,6 @@ What you get, and what to know:
   projects it credits.
 - The cookie stops working when you log out of Spotify in that browser. Paste a
   fresh one any time.
-
-## Why the unofficial route is opt-in
 
 ## YouTube
 

@@ -45,6 +45,7 @@ const themes = themeArg === 'both' ? ['light', 'dark'] : [themeArg]
 // an optional third element with a selector to scroll into view.
 const ROUTES = [
   ['/', 'home'],
+  ['/attention', 'attention'],
   ['/playlists', 'playlists'],
   [null, 'playlist-details'],
   [null, 'playlist-tracks', { scrollTo: 'table.track-table' }],
@@ -57,6 +58,8 @@ const ROUTES = [
   ['/sync-jobs', 'sync-quick', { clickText: 'New sync job', waitFor: '.job-quick-modal', prepare: 'sync-quick' }],
   ['/sync-jobs', 'sync-profiles', { clickText: 'Rule profiles', waitFor: '.sync-profiles' }],
   ['/settings', 'settings'],
+  ['/settings', 'settings-paths', { clickText: 'Default paths', waitFor: 'text=Archive profiles' }],
+  ['/settings', 'settings-archives', { clickText: 'Default paths', waitFor: 'text=Archive profiles', scrollTo: '.archive-profiles' }],
   ['/logs', 'logs'],
   ['/advanced', 'advanced'],
 ]
@@ -121,7 +124,7 @@ async function shootTheme(browser, theme) {
         await page.getByRole('button', { name: 'Skip tour' }).click()
 
       if (opts?.clickText)
-        await page.getByRole('button', { name: new RegExp(opts.clickText, 'i') }).first().click()
+        await page.locator('button', { hasText: opts.clickText }).first().click()
       if (opts?.checkFirstPlaylist)
         await page.locator('.publish-list').first()
           .locator('label.publish-option input[type=checkbox]').first().check()

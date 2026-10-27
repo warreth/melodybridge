@@ -102,13 +102,12 @@ Advanced page.
 
 | Plugin | What it fetches |
 |---|---|
-| Lucida | High quality rips from lucida.to (Tidal, Deezer, Amazon Music, Qobuz). Needs a Cloudflare solver, see [Lucida and FlareSolverr](/lucida) |
+| Lucida | High quality rips from lucida.to (Qobuz, Amazon Music, Deezer, Tidal). Needs a Cloudflare solver, see [Lucida and FlareSolverr](/lucida) |
 | Monochrome | Lossless FLAC from the official Monochrome API, no account needed |
 | Soulseek | Lossless and high-bitrate files from Soulseek peers, through your own slskd instance. See [Soulseek and slskd](/slskd) |
 | Qobuz | Lossless and hi-res files from your own Qobuz subscription, through qobuz-dlp. See [Qobuz and qobuz-dlp](/qobuz) |
 | Deezer | MP3 or FLAC from your own Deezer account, through the deemix CLI. See [Deezer and deemix](/deemix) |
 | Tidal | Lossless and hi-res files from your own Tidal session, through tiddl. See [Tidal and tiddl](/tidal) |
-| DoubleDouble | Retired: doubledouble.top now demands a captcha on every submission, so the plugin reports itself unavailable. It stays in the list (last) so an existing install can turn it off |
 | Jumo | Qobuz rips through the community front-end jumo-dl.pages.dev, no account needed. See [Jumo (Qobuz rips)](/jumo) |
 | SoundCloud | Original uploads by the artist, usually 128 kbps or better |
 | Internet Archive | Public recordings and digitizations from archive.org |
@@ -150,7 +149,7 @@ matching cannot be perfect on sources that carry no ISRC and no trustworthy
 artist name; the picker is the honest way out of that. The same picker opens
 from **Download a song**, where there is no existing row to replace.
 
-<img src="/screens/plugins.webp" alt="Plugins page with the route preview, waterfall order and capability badges" width="800">
+<img src="/screens/plugins.webp" alt="Plugins page with the source order strip and grouped setup cards" width="800">
 
 ### Cover art and lyrics
 
@@ -316,8 +315,9 @@ need the import repeated before their rows exist again.
 
 Every playlist downloads into its own folder named after it, under the music
 path: `/music/My Summer Hits/...`, liked songs included (`/music/Liked songs
-(Spotify)/...`). An archive copy mirrors that layout under the archive path, so
-two libraries never mix one playlist's files with another's. That separation is
+(Spotify)/...`). The default archive copy mirrors that layout under the archive
+path, and every extra profile mirrors it under its own root, so two libraries
+never mix one playlist's files with another's. That separation is
 what makes the duplicate handling below possible: a linked file lands in the
 playlist's own folder, never somewhere shared.
 
@@ -362,10 +362,10 @@ the same `MELODY_ID` is already sitting in another playlist folder:
 Removing a track from one playlist removes only that playlist's name for it.
 The bytes stay as long as any other playlist still links them. The whole feature
 can be turned off with **Hardlink duplicate tracks across playlists** on the
-Advanced page. A linked track reuses the original's archive copy too: when the
+Advanced page. A linked track reuses the original's archive copies too: when the
 other playlist already has one, its bytes are linked into this playlist's archive
-folder, so both playlists get a copy without a second download or a second
-transcode.
+folder, and the named profiles are filled from the same primary, so both
+playlists get their copies without a second download.
 
 Linking does not wait for a download. When you add or refresh a playlist, tracks
 the library already holds are linked right away, so a new playlist owns its own
@@ -378,30 +378,34 @@ different version next to the existing one.
 
 Archive copies give every download a second home. The use case is simple: keep a
 FLAC archive for the long term, and let your media server stream smaller Opus or
-AAC files. Or the other way around, your call.
+AAC files. Or keep two archives, one Opus 128 and one MP3 160, so every player
+has a compatible copy.
 
-Set an archive folder and format on the playlist page (**Archive copy**), or set
-the defaults under **Settings, Default paths**. Each playlist has its own folder
-under the archive path (`/archive/My Summer Hits/...`), and the playlist's format
-select says what the app default currently does. Archive folders are never
-mistaken for a track's main file: a library scan skips them and a scan that finds
-one already pointed at by a row clears that pointer. Downloading a track again
-replaces the files the row points at. A format change can leave the previous
-archive copy under its old name, and removing a playlist or track with the
-keep-files option leaves both copies on disk; neither is deleted automatically.
-The switch on the playlist page
-turns the copy off for that playlist: the folder and format fields disappear, and
-no copy is made, even when an app-wide archive path is set.
+The first copy is the **default archive** you set under **Settings, Default
+paths** and can override per playlist. Below it, **Archive profiles** add more
+destinations. Each profile has a name, folder, container and bitrate, and every
+enabled profile gets a copy of every downloaded track. The main file is still
+fetched once; each archive is a local ffmpeg conversion, so three copies do not
+mean three downloads. A playlist's archive switch turns all copies off for that
+playlist, and its folder and format overrides apply to the default archive only.
+
+Archive folders are never mistaken for a track's main file: a library scan skips
+every configured archive root, and the dedup linker ignores files that live in
+one. Downloading a track again replaces the files the row points at. A format
+change can leave the previous copy under its old name, and removing a playlist
+or track with the keep-files option leaves the copies on disk; neither is
+deleted automatically. **Build missing** fills the copies that a newly added
+profile did not have yet, one track at a time.
 
 | Format | Result |
 |---|---|
-| App default | Whatever the archive format under Settings says |
+| App default | Whatever the default archive format under Settings says |
 | Auto | A plain copy of the downloaded file |
-| Opus | 128 kbps, small and efficient |
+| Opus | 128 kbps by default; add a bitrate such as `opus:192` |
 | FLAC | Lossless, level 5 compression |
-| MP3 | 256 kbps, widely compatible |
-| AAC | 192 kbps, lands as `.m4a` |
-| Custom | Any container ffmpeg can write, with an optional `container:codec` pair such as `m4a:alac`; without a codec ffmpeg uses the container default |
+| MP3 | 256 kbps by default; `mp3:160` and `mp3:320` are also offered |
+| AAC | 192 kbps by default, lands as `.m4a` |
+| Custom | Any container ffmpeg can write, with an optional `container:codec:bitrate` set such as `m4a:alac` or `mp3:libmp3lame:160`; without a codec ffmpeg uses the container default |
 
 The track is fetched from the source once. The archive copy is produced locally
 from that file with ffmpeg, so a second library never costs a second internet
@@ -409,5 +413,23 @@ download. If ffmpeg is missing, the download still succeeds and the track gets
 an **archive copy failed** warning instead. The file column on the playlist
 tracks (enable it on the Advanced page) shows an `archive: <filename>` chip on
 tracks that have an archive copy, and a small check next to the status column
-tells you at a glance whether the copy exists, is missing from disk, or was never
-made.
+tells you at a glance whether the copy exists, is missing from disk, or was
+never made.
+
+## Needs attention
+
+The app classifies every failed or flagged track into one stable kind, so the
+global [Needs attention page](/reference#the-needs-attention-page) can group
+them: no source, quality filter, wrong format, wrong length, invalid audio,
+corrupt file, login, timeout, cancelled, missing metadata, other, hardlink
+decision, length review, spectrum review, archive copy, missing file or
+unverified file. Classification reads the stored status, error and warning
+texts; a normal download and an informational warning such as a quality hint are
+not attention.
+
+The page is a queue, not a log. Retrying a group runs the same operation as the
+row buttons, one track at a time, and finishes with a summary instead of stopping
+at the first failure. Hardlink actions only look for a file that is already in
+the library, so they cost no network download. Archive actions rebuild the
+default copy and every enabled profile. A fixed plugin login or a resolved
+review disappears from the queue on the next refresh.
