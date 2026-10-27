@@ -88,13 +88,12 @@ differently, and falls back to a title search. Both Tidal sources use it: the
 tiddl source downloads through your own session, and Rhythmax downloads
 through the public API. Neither one text-searches Tidal on its own.
 
-Sources fall into three groups:
+Sources fall into two groups:
 
 | Behaviour | What it means |
 |---|---|
 | Provider-backed | The source accepts a URL and ISRC or title data from a provider. Tidal and Rhythmax work this way |
 | Self-search | The source searches its own catalogue. Qobuz, Deezer, Jumo, Monochrome, Lucida, Soulseek, SoundCloud, Internet Archive and yt-dlp do this; the Chinese fallback searches by title only because it has no ISRC index |
-| Direct URL only | No search at all. DoubleDouble waits for a link from somewhere else |
 
 The routing card also names the data each search reads: ISRC, title and
 artist, a URL, or a duration. A source that is marked as a provider target
