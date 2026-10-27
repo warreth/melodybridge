@@ -50,7 +50,11 @@ public class DownloaderCompositionTests
         using var host = AppDownloadHost.Create();
         var searches = host.Services.GetRequiredService<ISearchProviderRegistry>();
 
-        foreach (var id in new[] { "qobuz", "deemix", "jumo", "monochrome", "lucida" })
+        Assert.That(searches.ForDownloader("qobuz"),
+            Is.InstanceOf<QobuzSearchProvider>(),
+            "Qobuz has its own catalogue provider");
+
+        foreach (var id in new[] { "deemix", "jumo", "monochrome", "lucida" })
         {
             var provider = searches.ForDownloader(id);
             Assert.That(provider, Is.Not.Null, $"{id} must have a search provider");

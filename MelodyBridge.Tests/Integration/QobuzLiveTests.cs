@@ -2,6 +2,7 @@ using System.Globalization;
 using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.Downloaders;
 using MelodyBridge.Infrastructure.Qobuz;
+using MelodyBridge.Infrastructure.SearchProviders;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace MelodyBridge.Tests.Integration;
@@ -32,7 +33,7 @@ public class QobuzLiveTests
     }
 
     private static string? Token()
-        => Environment.GetEnvironmentVariable("QOBUZ_TOKEN") ?? QobuzDownloader.ReadQobuzDlpTokenFile();
+        => Environment.GetEnvironmentVariable("QOBUZ_TOKEN") ?? QobuzSession.ReadQobuzDlpTokenFile();
 
     private static QobuzClient Client()
         => new(new HttpClient { Timeout = TimeSpan.FromSeconds(30) },
@@ -52,7 +53,7 @@ public class QobuzLiveTests
             result.Message ?? "the live Qobuz search must answer");
         var tracks = result.Tracks;
         Assert.That(tracks, Is.Not.Empty, "the live Qobuz search must find this well-known track");
-        var best = QobuzDownloader.Rank(tracks,
+        var best = QobuzSearchProvider.Rank(tracks,
             new TrackQuery("Daft Punk", "Around the World", DownloadQuality.Any,
                 ExpectedDuration: TimeSpan.FromSeconds(429)));
         Assert.That(best, Is.Not.Null);

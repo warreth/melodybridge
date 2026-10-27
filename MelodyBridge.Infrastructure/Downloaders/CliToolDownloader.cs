@@ -61,7 +61,7 @@ public abstract class CliToolDownloader : IDownloader, IPluginAuthStatusProvider
     /// reason: subclasses write it, readers (the Plugins page) go through
     /// IDownloader.
     /// </summary>
-    public string? LastUnavailableReason { get; protected set; }
+    public virtual string? LastUnavailableReason { get; protected set; }
 
     /// <summary>
     /// The search story of this CLI source. Declared on the base so a
@@ -87,7 +87,7 @@ public abstract class CliToolDownloader : IDownloader, IPluginAuthStatusProvider
     /// subclasses, because the interface mapping trap would otherwise
     /// serve readers the default value.
     /// </summary>
-    public PluginAuthStatus AuthStatus { get; protected set; } = PluginAuthStatus.Unknown;
+    public virtual PluginAuthStatus AuthStatus { get; protected set; } = PluginAuthStatus.Unknown;
 
     /// <summary>
     /// Sets the login verdict and its short reason. A changed problem is
@@ -141,7 +141,16 @@ public abstract class CliToolDownloader : IDownloader, IPluginAuthStatusProvider
     public void RefreshAvailability() => _availability.Invalidate();
 
     public abstract Task<bool> IsAvailableAsync(CancellationToken ct = default);
-    public abstract Task<DownloaderSearchHit?> SearchAsync(TrackQuery query, CancellationToken ct = default);
+
+    /// <summary>
+    /// The source-side search. Provider-backed subclasses leave this at the
+    /// null default; their ISearchProvider does the searching instead. The
+    /// member stays declared here because an interface default would not map
+    /// through the abstract base.
+    /// </summary>
+    public virtual Task<DownloaderSearchHit?> SearchAsync(
+        TrackQuery query, CancellationToken ct = default)
+        => Task.FromResult<DownloaderSearchHit?>(null);
 
     /// <summary>Config store; plugin keys are namespaced by <see cref="IDownloader.Id"/>.</summary>
     protected IPluginConfig Config { get; }

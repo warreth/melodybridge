@@ -1,7 +1,9 @@
 using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.Qobuz;
+using MelodyBridge.Infrastructure.SearchProviders;
 using MelodyBridge.Infrastructure.Services;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace MelodyBridge.Infrastructure.Downloaders;
 
@@ -22,7 +24,6 @@ public class QobuzDownloader : CliToolDownloader
     public const string DefaultCommand = "qobuz-dlp";
     public const string DefaultQuality = "6";
     private const string CommandKey = "command";
-    private const string TokenKey = "user_auth_token";
     private const string QualityKey = "quality";
 
     // Qobuz has no continuous band: 320 MP3 and lossless FLAC, period.
@@ -40,7 +41,7 @@ public class QobuzDownloader : CliToolDownloader
 
     public override DownloaderSearchInfo SearchInfo =>
         DownloaderSearchInfo.ViaProvider(SearchData.Text | SearchData.Isrc,
-            "Qobuz catalogue search, ISRC first (legacy source-side adapter)");
+            "Qobuz catalogue search, ISRC first");
 
     public override string IconName => "music";
     public override string? GuideUrl => "https://docs.melodybridge.app/qobuz";
@@ -48,7 +49,7 @@ public class QobuzDownloader : CliToolDownloader
 
     public override IReadOnlyList<PluginConfigField> ConfigFields =>
     [
-        new(TokenKey, "Qobuz token", null,
+        new(QobuzSession.TokenKey, "Qobuz token", null,
             "From play.qobuz.com: copy the X-User-Auth-Token header of an api.json request in the Network tab. A paid plan is required to download.",
             Secret: true),
         new(QualityKey, "FLAC quality", null,
@@ -65,41 +66,38 @@ public class QobuzDownloader : CliToolDownloader
     ];
 
     private readonly QobuzClient _qobuz;
-
-    /// <summary>%APPDATA% on Windows, the home folder elsewhere; injectable for tests.</summary>
-    private readonly string _homeRoot;
+    private readonly QobuzSession _session;
 
     public QobuzDownloader(
-        QobuzClient qobuz, IPluginConfig config, ILogger<QobuzDownloader> logger,
-        string? homeRoot = null)
+        QobuzClient qobuz, QobuzSession session, IPluginConfig config,
+        ILogger<QobuzDownloader> logger)
         : base(config, logger)
     {
         _qobuz = qobuz;
-        _homeRoot = homeRoot ?? DefaultHomeRoot();
+        _session = session;
     }
+
+    /// <summary>
+    /// Convenience constructor for tests and one-off hosts: creates a
+    /// session from the same client and config. The app wires one shared
+    /// session so the provider and the downloader see the same login.
+    /// </summary>
+    public QobuzDownloader(
+        QobuzClient qobuz, IPluginConfig config, ILogger<QobuzDownloader> logger,
+        string? homeRoot = null)
+        : this(qobuz,
+            new QobuzSession(config, NullLogger<QobuzSession>.Instance, homeRoot),
+            config, logger)
+    {
+    }
+
+    public override PluginAuthStatus AuthStatus => _session.AuthStatus;
+    public override string? LastUnavailableReason => _session.LastUnavailableReason;
 
     protected override string ToolLabel => "qobuz-dlp";
     protected override string DefaultCommandLine => DefaultCommand;
     protected override string CommandConfigKey => CommandKey;
     protected override TimeSpan RunTimeout => TimeSpan.FromMinutes(20);
-
-    /// <summary>The root qobuz-dlp resolves its config folder from. Internal for tests.</summary>
-    internal static string DefaultHomeRoot()
-        => OperatingSystem.IsWindows()
-            ? Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData)
-            : Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-
-    /// <summary>qobuz-dlp's config folder as the tool computes it.</summary>
-    private string ToolConfigFolder
-        => OperatingSystem.IsWindows()
-            ? Path.Combine(_homeRoot, "qobuz-dl")
-            : Path.Combine(_homeRoot, ".config", "qobuz-dl");
-
-    /// <summary>The env that makes the CLI read exactly that config folder.</summary>
-    private IReadOnlyDictionary<string, string> ToolEnvironment()
-        => OperatingSystem.IsWindows()
-            ? new Dictionary<string, string> { ["APPDATA"] = _homeRoot }
-            : new Dictionary<string, string> { ["HOME"] = _homeRoot };
 
     // ── Availability ─────────────────────────────────────────────────────
 
@@ -110,8 +108,8 @@ public class QobuzDownloader : CliToolDownloader
 
         if (!await CommandExistsAsync(ct))
         {
-            LastUnavailableReason = "qobuz-dlp is not installed on this system";
-            SetAuth(PluginAuthState.Unknown);
+            _session.SetUnavailable("qobuz-dlp is not installed on this system");
+            _session.SetAuth(PluginAuthState.Unknown);
             Logger.LogDebug("qobuz: the qobuz-dlp command is not configured or not on PATH");
             StoreAvailability(false);
             return false;
@@ -119,17 +117,19 @@ public class QobuzDownloader : CliToolDownloader
 
         if (await _qobuz.GetBundleAsync(ct) is null)
         {
-            LastUnavailableReason = "The Qobuz web player could not be reached";
-            SetAuth(PluginAuthState.Unreachable, LastUnavailableReason);
+            const string reason = "The Qobuz web player could not be reached";
+            _session.SetUnavailable(reason);
+            _session.SetAuth(PluginAuthState.Unreachable, reason);
             StoreAvailability(false);
             return false;
         }
 
-        var token = await TokenAsync(ct);
+        var token = await _session.GetTokenAsync(ct);
         if (token is null)
         {
-            LastUnavailableReason = "No Qobuz token yet";
-            SetAuth(PluginAuthState.Missing, LastUnavailableReason);
+            const string reason = "No Qobuz token yet";
+            _session.SetUnavailable(reason);
+            _session.SetAuth(PluginAuthState.Missing, reason);
             Logger.LogDebug("qobuz: no token configured and qobuz-dlp has no token file");
             StoreAvailability(false);
             return false;
@@ -140,53 +140,47 @@ public class QobuzDownloader : CliToolDownloader
         var account = check.Account?.Label;
         if (check.Status == QobuzClient.QobuzTokenStatus.Blocked)
         {
-            LastUnavailableReason = check.Message
+            var reason = check.Message
                 ?? "Qobuz blocked this account from downloading";
-            SetAuth(PluginAuthState.Blocked, LastUnavailableReason,
+            _session.SetUnavailable(reason);
+            _session.SetAuth(PluginAuthState.Blocked, reason,
                 account, "Qobuz", tier);
             StoreAvailability(false);
             return false;
         }
         if (check.Status == QobuzClient.QobuzTokenStatus.Unreachable)
         {
-            LastUnavailableReason = check.Message
+            var reason = check.Message
                 ?? "The Qobuz token could not be checked (the API did not answer)";
-            SetAuth(PluginAuthState.Unreachable, LastUnavailableReason,
+            _session.SetUnavailable(reason);
+            _session.SetAuth(PluginAuthState.Unreachable, reason,
                 account, "Qobuz", tier);
             StoreAvailability(false);
             return false;
         }
         if (check.Status == QobuzClient.QobuzTokenStatus.Rejected || check.Account is null)
         {
-            LastUnavailableReason = check.Message ?? "The Qobuz token was rejected; paste a fresh one";
-            SetAuth(PluginAuthState.Rejected, LastUnavailableReason,
+            var reason = check.Message ?? "The Qobuz token was rejected; paste a fresh one";
+            _session.SetUnavailable(reason);
+            _session.SetAuth(PluginAuthState.Rejected, reason,
                 account, "Qobuz", tier);
             StoreAvailability(false);
             return false;
         }
         if (!check.Account.CanDownload)
         {
-            LastUnavailableReason = "This Qobuz plan cannot download (a paid plan is required)";
-            SetAuth(PluginAuthState.PlanRestricted, LastUnavailableReason,
+            const string reason = "This Qobuz plan cannot download (a paid plan is required)";
+            _session.SetUnavailable(reason);
+            _session.SetAuth(PluginAuthState.PlanRestricted, reason,
                 account, "Qobuz", tier);
             StoreAvailability(false);
             return false;
         }
 
-        LastUnavailableReason = null;
-        SetAuth(PluginAuthState.Valid, null, account, "Qobuz", tier);
+        _session.SetUnavailable(null);
+        _session.SetAuth(PluginAuthState.Valid, null, account, "Qobuz", tier);
         StoreAvailability(true);
         return true;
-    }
-
-    /// <summary>
-    /// The user token: the plugin setting wins, an empty setting falls
-    /// back to qobuz-dlp's own token file so a logged-in tool just works.
-    /// </summary>
-    private async Task<string?> TokenAsync(CancellationToken ct)
-    {
-        var configured = await ConfigValueAsync(TokenKey, ct);
-        return configured.Length > 0 ? configured : ReadTokenFile(ToolConfigFolder);
     }
 
     /// <summary>
@@ -197,7 +191,7 @@ public class QobuzDownloader : CliToolDownloader
     /// </summary>
     internal async Task EnsureToolConfigAsync(string token, CancellationToken ct)
     {
-        var folder = ToolConfigFolder;
+        var folder = _session.ToolConfigFolder;
         Directory.CreateDirectory(folder);
 
         var configPath = Path.Combine(folder, "config.ini");
@@ -237,152 +231,6 @@ public class QobuzDownloader : CliToolDownloader
         smart_discography = false
         booklet_only = false
         """;
-
-    /// <summary>
-    /// qobuz-dlp's stored OAuth token. The tool's config folder changed
-    /// name between builds ("qobuz-dl" in the PyPI wheel, "qobuz-dlp" in
-    /// some checkouts), so both are tried. Internal for tests.
-    /// </summary>
-    internal static string? ReadQobuzDlpTokenFile()
-    {
-        var root = OperatingSystem.IsWindows()
-            ? Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData)
-            : Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".config");
-        return ReadTokenFile(Path.Combine(root, "qobuz-dl"))
-            ?? ReadTokenFile(Path.Combine(root, "qobuz-dlp"));
-    }
-
-    /// <summary>The token file inside a qobuz-dlp config folder, or null. Internal for tests.</summary>
-    internal static string? ReadTokenFile(string configFolder)
-    {
-        var path = Path.Combine(configFolder, ".qobuz_dl.oauth.txt");
-        try
-        {
-            if (!File.Exists(path)) return null;
-            var token = File.ReadAllText(path).Trim();
-            return token.Length > 0 ? token : null;
-        }
-        catch (Exception)
-        {
-            return null;
-        }
-    }
-
-    // ── Search ───────────────────────────────────────────────────────────
-
-    public override async Task<DownloaderSearchHit?> SearchAsync(
-        TrackQuery query, CancellationToken ct = default)
-    {
-        var token = await TokenAsync(ct);
-        if (token is null) return null;
-
-        // The Qobuz catalogue indexes ISRCs: searching the code itself
-        // finds the exact recording even when the text search never
-        // returns it (a soundtrack sharing words, a decorated title).
-        // Only an exact ISRC match is accepted from that call; anything
-        // else falls through to the text search.
-        if (query.HasIsrc)
-        {
-            var byIsrc = await _qobuz.SearchTracksAsync(query.Isrc!, 5, token, ct);
-            if (!AcceptSearchResult(byIsrc)) return null;
-            if (Rank(byIsrc.Tracks, query, requireIsrcMatch: true) is { } exact) return exact;
-        }
-
-        var searchText = query.SearchText;
-        if (searchText.Length == 0) return null;
-
-        var result = await _qobuz.SearchTracksAsync(searchText, 10, token, ct);
-        if (!AcceptSearchResult(result)) return null;
-        return Rank(result.Tracks, query);
-    }
-
-    /// <summary>
-    /// Reads a search outcome into the plugin's login state: a blocked or
-    /// refused token becomes the reason the plugin is skipped, so the
-    /// card, the nav mark and the download failure all say what is wrong
-    /// instead of "no source had this track".
-    /// </summary>
-    private bool AcceptSearchResult(QobuzClient.QobuzSearchResult result)
-    {
-        switch (result.Status)
-        {
-            case QobuzClient.QobuzSearchStatus.Ok:
-                SetAuthValid();
-                LastUnavailableReason = null;
-                return true;
-
-            case QobuzClient.QobuzSearchStatus.Blocked:
-                LastUnavailableReason = result.Message
-                    ?? "Qobuz blocked this account from downloading";
-                SetAuth(PluginAuthState.Blocked, LastUnavailableReason,
-                    AuthStatus.Account, AuthStatus.Plan, AuthStatus.Tier, AuthStatus.ExpiresAtUtc);
-                Logger.LogDebug("Qobuz: {Reason}", LastUnavailableReason);
-                StoreAvailability(false);
-                return false;
-
-            case QobuzClient.QobuzSearchStatus.Rejected:
-                LastUnavailableReason = result.Message
-                    ?? "The Qobuz token was rejected; paste a fresh one";
-                SetAuth(PluginAuthState.Rejected, LastUnavailableReason,
-                    AuthStatus.Account, AuthStatus.Plan, AuthStatus.Tier, AuthStatus.ExpiresAtUtc);
-                Logger.LogDebug("Qobuz: {Reason}", LastUnavailableReason);
-                StoreAvailability(false);
-                return false;
-
-            default:
-                LastUnavailableReason = result.Message
-                    ?? "The Qobuz API did not answer";
-                SetAuth(PluginAuthState.Unreachable, LastUnavailableReason,
-                    AuthStatus.Account, AuthStatus.Plan, AuthStatus.Tier, AuthStatus.ExpiresAtUtc);
-                Logger.LogDebug("Qobuz: {Reason}", LastUnavailableReason);
-                return false;
-        }
-    }
-
-    /// <summary>
-    /// Ranks the Qobuz results with the shared rules. An exact ISRC narrows
-    /// the pool to the recording itself and is accepted on that code (the
-    /// title spacing differs across catalogues), with the length still
-    /// checked. Internal for tests.
-    /// </summary>
-    internal static DownloaderSearchHit? Rank(
-        IReadOnlyList<QobuzClient.QobuzTrack> tracks, TrackQuery query,
-        bool requireIsrcMatch = false)
-    {
-        var candidates = new List<(DownloaderSearchHit Hit, string? Isrc)>();
-        foreach (var track in tracks)
-        {
-            var hit = new DownloaderSearchHit(
-                Title: track.Title,
-                Artist: track.Artist,
-                SourceUrl: $"https://play.qobuz.com/track/{track.Id}",
-                Duration: track.Duration,
-                MatchConfidence: FuzzyMatcher.Confidence(
-                    query.Artist, query.Title, hitArtist: track.Artist, hitTitle: track.Title),
-                // The catalog already knows this track's ceiling. A
-                // CD-only track reports 44.1 kHz even when the configured
-                // tier allows hi-res, so the picker shows the real file
-                // instead of the tier. When hi-res is not streamable,
-                // CD quality is the ceiling whatever the master holds.
-                BitDepth: track.HiresStreamable ? track.MaximumBitDepth : 16,
-                SampleRateHz: track.HiresStreamable ? track.MaximumSamplingRate : 44100);
-            candidates.Add((hit, track.Isrc));
-        }
-
-        if (candidates.Count == 0) return null;
-
-        var isrcPool = candidates.Where(c =>
-            !string.IsNullOrWhiteSpace(query.Isrc) &&
-            !string.IsNullOrWhiteSpace(c.Isrc) &&
-            string.Equals(query.Isrc.Trim(), c.Isrc.Trim(), StringComparison.OrdinalIgnoreCase)).ToList();
-        if (isrcPool.Count > 0)
-            return SearchRanker.RankExactRecording(query.Artist, query.Title,
-                query.ExpectedDuration, isrcPool.Select(c => c.Hit));
-        if (requireIsrcMatch) return null;
-        return SearchRanker.Rank(query.Artist, query.Title, query.ExpectedDuration,
-            candidates.Select(c => c.Hit));
-    }
 
     /// <inheritdoc />
     public async Task<CandidateAudioQuality?> ProbeQualityAsync(
@@ -443,9 +291,9 @@ public class QobuzDownloader : CliToolDownloader
     protected override async Task<IReadOnlyDictionary<string, string>?> PrepareEnvironmentAsync(
         CancellationToken ct)
     {
-        var token = await TokenAsync(ct);
+        var token = await _session.GetTokenAsync(ct);
         await EnsureToolConfigAsync(token ?? "", ct);
-        return ToolEnvironment();
+        return _session.ToolEnvironment();
     }
 
     /// <summary>
@@ -482,7 +330,7 @@ public class QobuzDownloader : CliToolDownloader
                 || line.Contains("account is blocked", StringComparison.OrdinalIgnoreCase)
                 || line.Contains("account blocked", StringComparison.OrdinalIgnoreCase)))
         {
-            SetAuth(PluginAuthState.Blocked,
+            _session.SetAuth(PluginAuthState.Blocked,
                 "Qobuz blocked this account (USER_BLOCKED); the token is valid, but Qobuz refuses downloads for this account");
         }
         else if (AnyFailureLine(result, line =>
@@ -492,7 +340,7 @@ public class QobuzDownloader : CliToolDownloader
                      || line.Contains("no user auth token", StringComparison.OrdinalIgnoreCase)
                      || line.Contains("unauthorized", StringComparison.OrdinalIgnoreCase)))
         {
-            SetAuth(PluginAuthState.Rejected,
+            _session.SetAuth(PluginAuthState.Rejected,
                 "The Qobuz token was rejected; paste a fresh one");
         }
     }

@@ -12,6 +12,7 @@ using MelodyBridge.Infrastructure.Playlists;
 using MelodyBridge.Infrastructure.Qobuz;
 using MelodyBridge.Infrastructure.Rhythmax;
 using MelodyBridge.Infrastructure.Scanning;
+using MelodyBridge.Infrastructure.SearchProviders;
 using MelodyBridge.Infrastructure.Services;
 using MelodyBridge.Infrastructure.Tidal;
 using Microsoft.Extensions.DependencyInjection;
@@ -102,11 +103,19 @@ public static class ServiceCollectionExtensions
             // without an Accept-Encoding request.
             AutomaticDecompression = System.Net.DecompressionMethods.All,
         });
+        services.AddSingleton(sp => new QobuzSession(
+            sp.GetRequiredService<IPluginConfig>(),
+            sp.GetRequiredService<ILogger<QobuzSession>>()));
         services.AddSingleton<IDownloader>(sp =>
             new QobuzDownloader(
                 sp.GetRequiredService<QobuzClient>(),
+                sp.GetRequiredService<QobuzSession>(),
                 sp.GetRequiredService<IPluginConfig>(),
                 sp.GetRequiredService<ILogger<QobuzDownloader>>()));
+        services.AddSingleton<ISearchProvider>(sp =>
+            new QobuzSearchProvider(
+                sp.GetRequiredService<QobuzClient>(),
+                sp.GetRequiredService<QobuzSession>()));
 
         services.AddSingleton<DeezerClient>(sp =>
             new DeezerClient(
