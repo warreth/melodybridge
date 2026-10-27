@@ -49,6 +49,9 @@ public class PluginsPageTests
         _registry.Setup(r => r.IsEnabled(It.IsAny<string>())).Returns(true);
 
         _ctx.Services.AddSingleton<IDownloaderRegistry>(_registry.Object);
+        _ctx.Services.AddSingleton<ISearchProviderRegistry>(
+            new SearchProviderRegistry(Array.Empty<ISearchProvider>(),
+                Microsoft.Extensions.Logging.Abstractions.NullLogger<SearchProviderRegistry>.Instance));
         _ctx.Services.AddSingleton<IDbContextFactory<MelodyBridgeDbContext>>(dbFactory);
         // Reuse the shared page-services helper for manager/store/coordinator/settings.
         var manager = new Application.Services.DownloadManager(
@@ -74,6 +77,18 @@ public class PluginsPageTests
 
     [TearDown]
     public void TearDown() => _ctx.Dispose();
+
+    [Test]
+    public void PluginsPage_RendersTheSearchRoutingPanel()
+    {
+        var cut = _ctx.Render<Plugins>();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.FindAll(".search-provider-map"), Has.Count.EqualTo(1));
+            Assert.That(cut.Markup, Does.Contain("How each source finds the track"));
+        }, TimeSpan.FromSeconds(3));
+    }
 
     [Test]
     public void Plugins_SearchAndLoginFilter_NarrowTheList()

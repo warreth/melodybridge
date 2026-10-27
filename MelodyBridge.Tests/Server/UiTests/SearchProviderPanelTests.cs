@@ -5,6 +5,7 @@ using MelodyBridge.Server.Components.Shared;
 using MelodyBridge.Tests;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
+using Moq;
 
 namespace MelodyBridge.Tests.Server.UiTests;
 
@@ -31,16 +32,18 @@ public class SearchProviderPanelTests
 
     private sealed class StubDownloader : IDownloader
     {
-        public StubDownloader(string id, string name, DownloaderSearchInfo info)
+        public StubDownloader(string id, string name, DownloaderSearchInfo info, bool fallbackOnly = false)
         {
             Id = id;
             Name = name;
             SearchInfo = info;
+            FallbackOnly = fallbackOnly;
         }
 
         public string Id { get; }
         public string Name { get; }
         public DownloaderSearchInfo SearchInfo { get; }
+        public bool FallbackOnly { get; }
         public PluginCapabilities Capabilities => PluginCapabilities.Any;
         public Task<bool> IsAvailableAsync(CancellationToken ct = default) => Task.FromResult(true);
         public Task<DownloaderSearchHit?> SearchAsync(TrackQuery query, CancellationToken ct = default)
@@ -87,6 +90,9 @@ public class SearchProviderPanelTests
                 DownloaderSearchInfo.ViaProvider(SearchData.Isrc | SearchData.Text)),
             new StubDownloader("ytdlp", "yt-dlp (YouTube)",
                 DownloaderSearchInfo.Self(SearchData.Text, "title search")),
+            new StubDownloader("flacmusic", "FLAC Music (CN)",
+                DownloaderSearchInfo.Self(SearchData.Text, "title-only fallback"),
+                fallbackOnly: true),
             new StubDownloader("doubledouble", "DoubleDouble",
                 DownloaderSearchInfo.UrlOnly("direct URLs only")));
 
@@ -95,16 +101,34 @@ public class SearchProviderPanelTests
         Assert.That(cut.FindAll(".search-provider"), Has.Count.EqualTo(1));
         var provider = cut.Find(".search-provider");
         Assert.That(provider.TextContent, Does.Contain("Tidal ISRC search"));
-        Assert.That(provider.TextContent, Does.Contain("ISRC"));
-        Assert.That(provider.TextContent, Does.Contain("title + artist"));
+        var badges = provider.QuerySelectorAll(".search-data-badge")
+            .Select(b => b.TextContent.Trim()).ToList();
+        Assert.That(badges, Does.Contain("ISRC"));
+        Assert.That(badges, Does.Contain("title + artist"));
         Assert.That(provider.QuerySelector(".search-target")?.GetAttribute("href"),
             Is.EqualTo("#plugin-rhythmax"));
         Assert.That(provider.TextContent, Does.Contain("Tidal (Rhythmax)"));
         var selfRows = cut.FindAll(".search-self-row").Select(r => r.TextContent.Trim()).ToList();
         Assert.That(selfRows.Any(t => t.Contains("yt-dlp (YouTube)")), Is.True);
         Assert.That(selfRows.Any(t => t.Contains("DoubleDouble")), Is.True);
+        Assert.That(selfRows.Any(t => t.Contains("FLAC Music (CN)")
+                                     && t.Contains("fallback", StringComparison.OrdinalIgnoreCase)),
+            Is.True, "the real fallback source gets its badge");
         Assert.That(cut.Markup, Does.Contain("Sources that search themselves"));
         Assert.That(cut.Markup, Does.Contain("Direct URL only"));
+    }
+
+    [Test]
+    public void Panel_ShowsTheNoProviderHintWhenEveryProviderIsMissing()
+    {
+        _ctx.Services.AddSingleton<IDownloaderRegistry>(new ListDownloaderRegistry());
+        _ctx.Services.AddSingleton<ISearchProviderRegistry>(
+            new SearchProviderRegistry(Array.Empty<ISearchProvider>(),
+                NullLogger<SearchProviderRegistry>.Instance));
+
+        var cut = _ctx.Render<SearchProviderPanel>();
+
+        Assert.That(cut.Markup, Does.Contain("No search provider is registered"));
     }
 
     [Test]
@@ -120,6 +144,27 @@ public class SearchProviderPanelTests
         Assert.That(cut.FindAll(".search-provider-warning"), Has.Count.EqualTo(1));
         Assert.That(cut.Find(".search-provider-warning").TextContent,
             Does.Contain("Tidal (Rhythmax)"));
+    }
+
+    [Test]
+    public void Panel_MarksADisabledTarget()
+    {
+        var downloader = new StubDownloader("rhythmax", "Tidal (Rhythmax)",
+            DownloaderSearchInfo.ViaProvider(SearchData.Isrc | SearchData.Text));
+        var registry = new Mock<IDownloaderRegistry>();
+        registry.Setup(r => r.GetAll()).Returns(new[] { downloader });
+        registry.Setup(r => r.Get("rhythmax")).Returns(downloader);
+        registry.Setup(r => r.IsEnabled("rhythmax")).Returns(false);
+        _ctx.Services.AddSingleton(registry.Object);
+        _ctx.Services.AddSingleton<ISearchProviderRegistry>(
+            new SearchProviderRegistry(new[] { new StubProvider("rhythmax") },
+                NullLogger<SearchProviderRegistry>.Instance));
+
+        var cut = _ctx.Render<SearchProviderPanel>();
+
+        var target = cut.Find(".search-target");
+        Assert.That(target.ClassList, Does.Contain("is-disabled"));
+        Assert.That(target.TextContent, Does.Contain("off"));
     }
 
     [Test]
