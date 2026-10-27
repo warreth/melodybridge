@@ -138,37 +138,58 @@ public class MonochromeDownloader : IDownloader
         var filePath = Path.Combine(outputDirectory,
             $"monochrome_{trackId}_{(melodyId is { Length: > 0 } ? melodyId : Guid.NewGuid().ToString("N")[..8])}.flac");
 
-        try
+        // The official CDN occasionally cuts a long FLAC stream in half
+        // (HTTP/2 INTERNAL_ERROR or a truncated body). One retry turns that
+        // into a usable file instead of a failed track; a caller cancel and
+        // a real 4xx still stop immediately.
+        const int attempts = 2;
+        for (var attempt = 1; ; attempt++)
         {
-            var baseUrl = await MonochromeApi.BaseUrlAsync(_config, Id, ct);
-            using var request = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            request.CancelAfter(StreamRequestTimeout);
-
-            using var resp = await _http.GetAsync($"{baseUrl}/track/{trackId}",
-                HttpCompletionOption.ResponseHeadersRead, request.Token);
-            if (!resp.IsSuccessStatusCode)
+            try
             {
-                _logger.LogDebug("Monochrome track {TrackId} returned {Status}", trackId, (int)resp.StatusCode);
-                return new DownloaderDownloadResult(false, null,
-                    $"Monochrome track {trackId} returned HTTP {(int)resp.StatusCode}");
-            }
+                var baseUrl = await MonochromeApi.BaseUrlAsync(_config, Id, ct);
+                using var request = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                request.CancelAfter(StreamRequestTimeout);
 
-            await using (var src = await resp.Content.ReadAsStreamAsync(request.Token))
-            await using (var dst = File.Create(filePath))
-            {
-                await src.CopyToAsync(dst, 81920, request.Token);
+                using var resp = await _http.GetAsync($"{baseUrl}/track/{trackId}",
+                    HttpCompletionOption.ResponseHeadersRead, request.Token);
+                if (!resp.IsSuccessStatusCode)
+                {
+                    _logger.LogDebug("Monochrome track {TrackId} returned {Status}", trackId, (int)resp.StatusCode);
+                    if (attempt < attempts && (int)resp.StatusCode >= 500)
+                    {
+                        await Task.Delay(500, ct);
+                        continue;
+                    }
+                    return new DownloaderDownloadResult(false, null,
+                        $"Monochrome track {trackId} returned HTTP {(int)resp.StatusCode}");
+                }
+
+                await using (var src = await resp.Content.ReadAsStreamAsync(request.Token))
+                await using (var dst = File.Create(filePath))
+                {
+                    await src.CopyToAsync(dst, 81920, request.Token);
+                }
+                break;
             }
-        }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
-        {
-            FileCleanup.DeleteQuietly(filePath);
-            throw; // caller cancellation: the outer handler cleans up
-        }
-        catch (Exception ex)
-        {
-            FileCleanup.DeleteQuietly(filePath);
-            _logger.LogDebug(ex, "Monochrome download for track {TrackId} failed", trackId);
-            return new DownloaderDownloadResult(false, null, ex.Message);
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                FileCleanup.DeleteQuietly(filePath);
+                throw; // caller cancellation: the outer handler cleans up
+            }
+            catch (Exception ex) when (attempt < attempts && IsTransientStreamFailure(ex))
+            {
+                FileCleanup.DeleteQuietly(filePath);
+                _logger.LogDebug(ex,
+                    "Monochrome stream for track {TrackId} was cut off; retrying", trackId);
+                await Task.Delay(500, ct);
+            }
+            catch (Exception ex)
+            {
+                FileCleanup.DeleteQuietly(filePath);
+                _logger.LogDebug(ex, "Monochrome download for track {TrackId} failed", trackId);
+                return new DownloaderDownloadResult(false, null, ex.Message);
+            }
         }
 
         if (new FileInfo(filePath).Length == 0)
@@ -221,6 +242,12 @@ public class MonochromeDownloader : IDownloader
         trackId = lastSegment;
         return true;
     }
+
+    /// <summary>A cut-off body or a timeout, not a caller cancel or a 4xx.</summary>
+    private static bool IsTransientStreamFailure(Exception ex)
+        => ex is IOException
+            or HttpRequestException
+            or TaskCanceledException;
 
     /// <summary>A numeric id of at most 20 digits (the API's snowflake shape).</summary>
     private static bool IsSnowflake(string value)

@@ -154,6 +154,62 @@ public class MonochromeDownloaderTests
         });
     }
 
+    /// <summary>A response body that yields a little data and then cuts off.</summary>
+    private sealed class TruncatedStream : Stream
+    {
+        private int _remaining = 128;
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            if (_remaining <= 0) throw new IOException("the response ended prematurely");
+            var read = Math.Min(count, _remaining);
+            _remaining -= read;
+            return read;
+        }
+
+        public override void Flush() { }
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    }
+
+    [Test]
+    public async Task DownloadAsync_RetriesATruncatedStream()
+    {
+        var handler = new StubHttpMessageHandler();
+        var calls = 0;
+        handler.Respond = _ =>
+        {
+            calls++;
+            return calls == 1
+                ? new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StreamContent(new TruncatedStream()),
+                }
+                : Bytes(FlacBytes());
+        };
+        var downloader = Create(handler);
+
+        var result = await downloader.DownloadAsync(
+            $"{MonochromeDownloader.DefaultBaseUrl}/track/{AroundTheWorldId}",
+            NewDir(), "mb-monochrome-retry");
+
+        Assert.That(result.Success, Is.True, result.ErrorMessage);
+        Assert.That(calls, Is.EqualTo(2), "the cut-off stream is fetched once more");
+        Assert.That(File.ReadAllBytes(result.FilePath!), Is.EqualTo(FlacBytes()),
+            "the second, complete stream is the file that lands");
+    }
+
     [Test]
     public async Task DownloadAsync_NonAudioBody_DeletesTheFile()
     {
