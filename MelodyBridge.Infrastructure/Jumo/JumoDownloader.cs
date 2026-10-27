@@ -3,8 +3,10 @@ using System.Text.Json;
 using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.Audio;
 using MelodyBridge.Infrastructure.Files;
+using MelodyBridge.Infrastructure.SearchProviders;
 using MelodyBridge.Infrastructure.Services;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace MelodyBridge.Infrastructure.Jumo;
 
@@ -22,7 +24,7 @@ namespace MelodyBridge.Infrastructure.Jumo;
 /// </summary>
 public class JumoDownloader : IDownloader
 {
-    public const string RegionKey = "region";
+    public const string RegionKey = JumoSession.RegionKey;
     public const string FlacQualityKey = "flac_quality";
     public const string DefaultFlacQuality = "27";
 
@@ -43,7 +45,7 @@ public class JumoDownloader : IDownloader
 
     public DownloaderSearchInfo SearchInfo =>
         DownloaderSearchInfo.ViaProvider(SearchData.Text | SearchData.Isrc,
-            "Jumo catalogue search, ISRC first (legacy source-side adapter)");
+            "Jumo catalogue search, ISRC first");
 
     public string IconName => "globe";
     public string? GuideUrl => "https://docs.melodybridge.app/jumo";
@@ -64,18 +66,11 @@ public class JumoDownloader : IDownloader
     ];
 
     /// <inheritdoc />
-    public string? LastUnavailableReason { get; private set; }
+    public string? LastUnavailableReason => _session.LastUnavailableReason;
 
-    private readonly JumoClient _client;
+    private readonly JumoSession _session;
     private readonly IPluginConfig _config;
     private readonly ILogger<JumoDownloader> _logger;
-    private readonly AvailabilityCache _availability = new();
-
-    /// <summary>Region lookup cache: the backend's list changes slowly.</summary>
-    private readonly SemaphoreSlim _regionGate = new(1, 1);
-    private DateTimeOffset _regionsFetchedAt = DateTimeOffset.MinValue;
-    private string? _defaultRegion;
-    private List<string> _availableRegions = [];
 
     /// <summary>How many segments are fetched at once; the CDN handles a handful fine.</summary>
     private const int SegmentConcurrency = 4;
@@ -83,224 +78,30 @@ public class JumoDownloader : IDownloader
     /// <summary>Retries per segment before the whole download fails.</summary>
     private const int SegmentAttempts = 3;
 
-    /// <summary>
-    /// Search timeout: inclusive of the client's own throttle backoff,
-    /// which can span half a minute during a limiter burst. Still well
-    /// inside the plugin budget.
-    /// </summary>
-    private static readonly TimeSpan SearchTimeout = TimeSpan.FromSeconds(60);
-    private static readonly TimeSpan RegionsTtl = TimeSpan.FromMinutes(10);
-
-    public JumoDownloader(JumoClient client, IPluginConfig config, ILogger<JumoDownloader> logger)
+    public JumoDownloader(JumoSession session, IPluginConfig config, ILogger<JumoDownloader> logger)
     {
-        _client = client;
+        _session = session;
         _config = config;
         _logger = logger;
     }
 
-    // ── Availability ─────────────────────────────────────────────────────
-
-    public async Task<bool> IsAvailableAsync(CancellationToken ct = default)
-    {
-        if (_availability.TryGet(out var cached)) return cached;
-
-        try
-        {
-            var regions = await RegionsAsync(ct);
-            var available = regions is not null;
-            LastUnavailableReason = available
-                ? null
-                : "The service's region endpoint did not answer";
-            _availability.Store(available);
-            return available;
-        }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            LastUnavailableReason = "The service could not be reached: " + ex.Message;
-            _logger.LogDebug(ex, "Jumo availability probe failed");
-            _availability.Store(false);
-            return false;
-        }
-    }
-
-    // ── Search ───────────────────────────────────────────────────────────
-
-    public async Task<DownloaderSearchHit?> SearchAsync(TrackQuery query, CancellationToken ct = default)
-    {
-        var searchText = query.SearchText;
-        if (searchText.Length == 0) return null;
-
-        try
-        {
-            var region = await EffectiveRegionAsync(ct);
-
-            foreach (var term in SearchQueries(query))
-            {
-                // A small page keeps the request light; the service throttles
-                // heavy API use (live probing saw 503s for a limit of 30 while
-                // smaller pages passed in the same window).
-                var url = JumoClient.Origin + JumoClient.SearchPath
-                    + "?query=" + Uri.EscapeDataString(term)
-                    + "&offset=0&limit=10&region=" + Uri.EscapeDataString(region) + "&view=ui";
-
-                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                timeout.CancelAfter(SearchTimeout);
-                var response = await _client.ApiGetAsync(url, timeout.Token);
-                if (response.Status != 200)
-                {
-                    _logger.LogDebug("Jumo search returned {Status}", response.Status);
-
-                    // A refused or throttled search means the service is not
-                    // usable right now. Report that as unavailable (the short
-                    // negative TTL makes the waterfall skip the plugin for a
-                    // while) instead of letting every track of a run fail as a
-                    // bare "no source" miss. No second query is tried: the
-                    // next one would be throttled too.
-                    if (response.Status is 403 or 429 or 503)
-                    {
-                        LastUnavailableReason = response.Status is 403
-                            ? "The service refused the search (HTTP 403); it guards its API against non-browser clients"
-                            : $"The service is throttling requests (HTTP {response.Status})";
-                        _availability.Store(false);
-                    }
-                    return null;
-                }
-
-                // An ISRC term only counts when the response carries that
-                // exact code; otherwise the text term gets its turn.
-                var hit = ParseSearchTracks(response.Body, query.Artist, query.Title,
-                    query.ExpectedDuration, query.Isrc,
-                    requireIsrcMatch: query.HasIsrc && term == query.Isrc);
-                if (hit is not null) return hit;
-            }
-            return null;
-        }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
-        {
-            _logger.LogDebug("Jumo search timed out");
-            return null;
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "Jumo search '{Query}' failed", searchText);
-            return null;
-        }
-    }
-
     /// <summary>
-    /// The search terms in order: the ISRC first when the query carries
-    /// one (the service's catalogue is Qobuz, which indexes the code),
-    /// then the cleaned text. The first term with a hit wins, so a track
-    /// whose text search drowns in soundtracks still finds its recording.
+    /// Convenience constructor for tests and one-off hosts: creates a
+    /// session from the same client and config. The app wires one shared
+    /// session so the provider and the downloader see the same state.
     /// </summary>
-    internal static IReadOnlyList<string> SearchQueries(TrackQuery query)
+    public JumoDownloader(JumoClient client, IPluginConfig config, ILogger<JumoDownloader> logger)
+        : this(new JumoSession(client, config, NullLogger<JumoSession>.Instance), config, logger)
     {
-        var terms = new List<string>(2);
-        if (query.HasIsrc) terms.Add(query.Isrc!);
-        var text = query.SearchText;
-        if (text.Length > 0 && !terms.Contains(text, StringComparer.Ordinal)) terms.Add(text);
-        return terms;
     }
 
-    /// <summary>
-    /// Ranks the search response's track items with the shared ranker and
-    /// maps them onto source identifiers. The album id travels along so
-    /// the download can refetch fresh descriptor URLs later.
-    /// </summary>
-    internal static DownloaderSearchHit? ParseSearchTracks(
-        string json, string artist, string fallbackTitle,
-        TimeSpan? expectedDuration = null, string? expectedIsrc = null,
-        bool requireIsrcMatch = false)
-    {
-        try
-        {
-            using var doc = JsonDocument.Parse(json);
-            if (!doc.RootElement.TryGetProperty("tracks", out var tracks) ||
-                !tracks.TryGetProperty("items", out var items) ||
-                items.ValueKind != JsonValueKind.Array)
-                return null;
+    public Task<bool> IsAvailableAsync(CancellationToken ct = default)
+        => _session.IsAvailableAsync(ct);
 
-            var candidates = new List<(DownloaderSearchHit Hit, string? Isrc, bool Hires)>();
-            foreach (var item in items.EnumerateArray())
-            {
-                if (item.ValueKind != JsonValueKind.Object) continue;
-
-                var trackId = GetId(item, "id");
-                var albumId = item.TryGetProperty("album", out var album) ? GetId(album, "id") : null;
-                if (trackId is null || albumId is null) continue;
-
-                var hitTitle = GetString(item, "title") ?? fallbackTitle;
-                var hitArtist = GetPrimaryArtist(item);
-
-                TimeSpan? duration = item.TryGetProperty("duration", out var d) &&
-                                     d.ValueKind == JsonValueKind.Number
-                    ? TimeSpan.FromSeconds(d.GetDouble())
-                    : null;
-
-                var hires = item.TryGetProperty("hires", out var h) && h.ValueKind == JsonValueKind.True;
-                var hit = new DownloaderSearchHit(
-                    Title: hitTitle,
-                    Artist: hitArtist,
-                    SourceUrl: SourceUrl(albumId, trackId),
-                    Duration: duration,
-                    MatchConfidence: FuzzyMatcher.Confidence(
-                        artist, fallbackTitle, hitArtist: hitArtist, hitTitle: hitTitle));
-                candidates.Add((hit, GetString(item, "isrc"), hires));
-            }
-
-            if (candidates.Count == 0) return null;
-
-            // An exact ISRC is the recording itself, not a guess: the
-            // catalogue's title wording may differ, so the code carries
-            // that pool while the length still has to be plausible.
-            var isrcPool = candidates
-                .Where(c => IsrcEquals(expectedIsrc, c.Isrc))
-                .ToList();
-            if (isrcPool.Count > 0)
-                return SearchRanker.RankExactRecording(artist, fallbackTitle,
-                    expectedDuration, isrcPool.Select(c => c.Hit),
-                    tieBreaker: hit => isrcPool.First(p => ReferenceEquals(p.Hit, hit)).Hires ? 1 : 0);
-            if (requireIsrcMatch) return null;
-
-            return SearchRanker.Rank(artist, fallbackTitle, expectedDuration,
-                candidates.Select(c => c.Hit),
-                tieBreaker: hit => candidates.First(p => ReferenceEquals(p.Hit, hit)).Hires ? 1 : 0);
-        }
-        catch (JsonException)
-        {
-            return null;
-        }
-    }
-
-    /// <summary>Source identifier: jumo:{albumId}:{trackId}.</summary>
-    internal static string SourceUrl(string albumId, string trackId) => $"jumo:{albumId}:{trackId}";
-
-    /// <summary>Splits a source identifier back into album and track id.</summary>
-    internal static bool TryParseSourceUrl(string? sourceUrl, out string albumId, out string trackId)
-    {
-        albumId = "";
-        trackId = "";
-        if (string.IsNullOrWhiteSpace(sourceUrl)) return false;
-        var parts = sourceUrl.Trim().Split(':');
-        if (parts.Length != 3 || parts[0] != "jumo") return false;
-        if (parts[1].Length == 0 || parts[2].Length == 0) return false;
-        albumId = parts[1];
-        trackId = parts[2];
-        return true;
-    }
-
-    /// <summary>True when both ISRCs are present and equal, ignoring case and padding.</summary>
-    internal static bool IsrcEquals(string? expected, string? actual)
-        => !string.IsNullOrWhiteSpace(expected) && !string.IsNullOrWhiteSpace(actual)
-           && string.Equals(expected.Trim(), actual.Trim(), StringComparison.OrdinalIgnoreCase);
+    /// <summary>Provider-backed: the search lives in JumoSearchProvider.</summary>
+    public Task<DownloaderSearchHit?> SearchAsync(
+        TrackQuery query, CancellationToken ct = default)
+        => Task.FromResult<DownloaderSearchHit?>(null);
 
     // ── Download ─────────────────────────────────────────────────────────
 
@@ -308,7 +109,7 @@ public class JumoDownloader : IDownloader
         string sourceUrl, string outputDirectory, string? melodyId,
         DownloadQuality? quality = null, CancellationToken ct = default)
     {
-        if (!TryParseSourceUrl(sourceUrl, out var albumId, out var trackId))
+        if (!JumoSourceId.TryParse(sourceUrl, out var albumId, out var trackId))
             return new DownloaderDownloadResult(false, null, "not a Jumo source identifier: " + sourceUrl);
 
         var format = await FormatForQualityAsync(quality, ct);
@@ -316,14 +117,14 @@ public class JumoDownloader : IDownloader
         try
         {
             Directory.CreateDirectory(outputDirectory);
-            var region = await EffectiveRegionAsync(ct);
+            var region = await _session.EffectiveRegionAsync(ct);
 
             var fetchUrl = await TrackFetchUrlAsync(albumId, trackId, format, region, ct);
             if (fetchUrl is null)
                 return new DownloaderDownloadResult(false, null,
                     $"Jumo has no format {format} streams for track {trackId} in region {region}");
 
-            var descriptor = await _client.ApiGetAsync(fetchUrl, ct);
+            var descriptor = await _session.Client.ApiGetAsync(fetchUrl, ct);
             if (descriptor.Status != 200)
                 return new DownloaderDownloadResult(false, null,
                     $"Jumo descriptor for track {trackId} returned HTTP {descriptor.Status}");
@@ -381,9 +182,9 @@ public class JumoDownloader : IDownloader
                 return null;
 
             var preview = qb.TryGetProperty("preview", out var p) && p.ValueKind == JsonValueKind.True;
-            var effectiveFormat = GetId(qb, "effective_format") ?? GetId(qb, "format_id") ?? "";
-            var contentKey = GetString(qb, "content_key") ?? "";
-            var urlTemplate = GetString(qb, "url_template") ?? "";
+            var effectiveFormat = JumoJson.GetId(qb, "effective_format") ?? JumoJson.GetId(qb, "format_id") ?? "";
+            var contentKey = JumoJson.GetString(qb, "content_key") ?? "";
+            var urlTemplate = JumoJson.GetString(qb, "url_template") ?? "";
             var segments = qb.TryGetProperty("n_segments", out var n) && n.ValueKind == JsonValueKind.Number
                 ? (int)n.GetDouble()
                 : 0;
@@ -468,7 +269,7 @@ public class JumoDownloader : IDownloader
     private Task<byte[]> FetchSegmentAsync(string urlTemplate, int index, CancellationToken ct)
     {
         var url = urlTemplate.Replace("$SEGMENT$", index.ToString(CultureInfo.InvariantCulture));
-        return _client.DownloadBytesAsync(url, ct);
+        return _session.Client.DownloadBytesAsync(url, ct);
     }
 
     /// <summary>
@@ -493,7 +294,7 @@ public class JumoDownloader : IDownloader
                 + "&track_offset=" + offset + "&track_limit=" + pageSize
                 + "&get_track_urls=true&format_id=" + Uri.EscapeDataString(format);
 
-            var response = await _client.ApiGetAsync(url, ct);
+            var response = await _session.Client.ApiGetAsync(url, ct);
             if (response.Status != 200)
             {
                 _logger.LogDebug("Jumo album {AlbumId} returned {Status}", albumId, response.Status);
@@ -510,7 +311,7 @@ public class JumoDownloader : IDownloader
 
                 foreach (var item in items.EnumerateArray())
                 {
-                    if (GetId(item, "id") != trackId) continue;
+                    if (JumoJson.GetId(item, "id") != trackId) continue;
                     if (!item.TryGetProperty("fetchUrls", out var fetchUrls) ||
                         !fetchUrls.TryGetProperty(format, out var formatUrl) ||
                         formatUrl.ValueKind != JsonValueKind.String)
@@ -545,128 +346,7 @@ public class JumoDownloader : IDownloader
         return string.IsNullOrWhiteSpace(configured) ? DefaultFlacQuality : configured.Trim();
     }
 
-    // ── Regions ──────────────────────────────────────────────────────────
-
-    /// <summary>
-    /// The region every request uses: the configured code when the service
-    /// currently offers it, otherwise the service's own default.
-    /// </summary>
-    private async Task<string> EffectiveRegionAsync(CancellationToken ct)
-    {
-        var configured = (await _config.GetAsync(Id, RegionKey, ct))?.Trim().ToUpperInvariant();
-        var regions = await RegionsAsync(ct);
-
-        if (!string.IsNullOrEmpty(configured))
-        {
-            if (regions is null || regions.Value.Available.Contains(configured))
-                return configured;
-            _logger.LogInformation(
-                "Jumo region {Configured} is not offered right now; using {Default}",
-                configured, regions.Value.Default);
-        }
-
-        return regions?.Default ?? "CA";
-    }
-
-    /// <summary>Fetches the service's region list once per <see cref="RegionsTtl"/>.</summary>
-    private async Task<(string Default, List<string> Available)?> RegionsAsync(CancellationToken ct)
-    {
-        if (DateTimeOffset.UtcNow - _regionsFetchedAt < RegionsTtl && _defaultRegion is not null)
-            return (_defaultRegion, _availableRegions);
-
-        await _regionGate.WaitAsync(ct);
-        try
-        {
-            if (DateTimeOffset.UtcNow - _regionsFetchedAt < RegionsTtl && _defaultRegion is not null)
-                return (_defaultRegion, _availableRegions);
-
-            var response = await _client.ApiGetAsync(JumoClient.Origin + JumoClient.RegionsPath, ct);
-            if (response.Status != 200) return null;
-
-            using var doc = JsonDocument.Parse(response.Body);
-            if (!doc.RootElement.TryGetProperty("regions", out var regions) ||
-                regions.ValueKind != JsonValueKind.Array)
-                return null;
-
-            var available = new List<string>();
-            foreach (var region in regions.EnumerateArray())
-            {
-                if (region.TryGetProperty("available", out var flag) && flag.ValueKind == JsonValueKind.False)
-                    continue;
-                var code = GetId(region, "code");
-                if (!string.IsNullOrEmpty(code)) available.Add(code);
-            }
-
-            var fallback = GetId(doc.RootElement, "default");
-            _defaultRegion = !string.IsNullOrEmpty(fallback) && available.Contains(fallback)
-                ? fallback
-                : available.FirstOrDefault() ?? "CA";
-            _availableRegions = available;
-            _regionsFetchedAt = DateTimeOffset.UtcNow;
-            return (_defaultRegion, _availableRegions);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            _logger.LogDebug(ex, "Jumo regions lookup failed");
-            return null;
-        }
-        finally
-        {
-            _regionGate.Release();
-        }
-    }
-
     // ── Parsing helpers ──────────────────────────────────────────────────
-
-    /// <summary>Primary artist: performer.name, artists[0].name or album.artist.name.</summary>
-    private static string? GetPrimaryArtist(JsonElement item)
-    {
-        if (item.TryGetProperty("performer", out var performer))
-        {
-            var name = GetString(performer, "name");
-            if (!string.IsNullOrEmpty(name)) return name;
-        }
-
-        if (item.TryGetProperty("artists", out var artists) &&
-            artists.ValueKind == JsonValueKind.Array && artists.GetArrayLength() > 0)
-        {
-            var name = GetString(artists[0], "name");
-            if (!string.IsNullOrEmpty(name)) return name;
-        }
-
-        if (item.TryGetProperty("artist", out var artist))
-        {
-            var name = GetString(artist, "name");
-            if (!string.IsNullOrEmpty(name)) return name;
-        }
-
-        if (item.TryGetProperty("album", out var album) &&
-            album.ValueKind == JsonValueKind.Object &&
-            album.TryGetProperty("artist", out var albumArtist))
-            return GetString(albumArtist, "name");
-
-        return null;
-    }
-
-    private static string? GetString(JsonElement element, string property)
-        => element.ValueKind == JsonValueKind.Object
-           && element.TryGetProperty(property, out var v)
-           && v.ValueKind == JsonValueKind.String
-            ? v.GetString()
-            : null;
-
-    /// <summary>An id that may arrive as a string or a number (track and album ids differ).</summary>
-    private static string? GetId(JsonElement element, string property)
-    {
-        if (element.ValueKind != JsonValueKind.Object || !element.TryGetProperty(property, out var v))
-            return null;
-        return v.ValueKind switch
-        {
-            JsonValueKind.String => v.GetString(),
-            JsonValueKind.Number => v.GetDouble().ToString(CultureInfo.InvariantCulture),
-            _ => null,
-        };
-    }
 
     /// <summary>Keeps file names safe when an id carries unusual characters.</summary>
     private static string Sanitize(string value)

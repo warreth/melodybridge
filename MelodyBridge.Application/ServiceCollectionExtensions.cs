@@ -234,11 +234,20 @@ public static class ServiceCollectionExtensions
         // then pulls the audio straight from the signed Qobuz CDN URLs and
         // decrypts locally.
         services.AddHttpClient("jumo", c => c.Timeout = TimeSpan.FromMinutes(3));
+        services.AddSingleton(sp => new JumoClient(
+            sp.GetRequiredService<IHttpClientFactory>().CreateClient("jumo"),
+            sp.GetRequiredService<ILogger<JumoClient>>()));
+        services.AddSingleton(sp => new JumoSession(
+            sp.GetRequiredService<JumoClient>(),
+            sp.GetRequiredService<IPluginConfig>(),
+            sp.GetRequiredService<ILogger<JumoSession>>()));
+        services.AddSingleton<ISearchProvider>(sp =>
+            new JumoSearchProvider(
+                sp.GetRequiredService<JumoSession>(),
+                sp.GetRequiredService<ILogger<JumoSearchProvider>>()));
         services.AddSingleton<IDownloader>(sp =>
             new JumoDownloader(
-                new JumoClient(
-                    sp.GetRequiredService<IHttpClientFactory>().CreateClient("jumo"),
-                    sp.GetRequiredService<ILogger<JumoClient>>()),
+                sp.GetRequiredService<JumoSession>(),
                 sp.GetRequiredService<IPluginConfig>(),
                 sp.GetRequiredService<ILogger<JumoDownloader>>()));
 
