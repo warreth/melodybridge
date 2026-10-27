@@ -1,7 +1,9 @@
+using System.Diagnostics;
 using System.Net;
 using System.Text;
 using System.Text.Json;
 using MelodyBridge.Core;
+using MelodyBridge.Infrastructure.Audio;
 using MelodyBridge.Infrastructure.FlacMusic;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -98,12 +100,44 @@ public class FlacMusicDownloaderTests
             data = new { list = tracks, total = tracks.Length },
         });
 
-    private static byte[] FlacBytes()
+    /// <summary>
+    /// A real one second audio file, so the download test exercises the
+    /// container sniffing and not just a four byte marker. ffmpeg is part
+    /// of the test prerequisites in this repo.
+    /// </summary>
+    private static byte[] RealAudio(string codec)
     {
-        var bytes = new byte[4096];
-        "fLaC"u8.CopyTo(bytes);
-        for (var i = 4; i < bytes.Length; i++) bytes[i] = (byte)(i % 251);
-        return bytes;
+        var ffmpeg = SpectrumAnalyzer.FindBinary("ffmpeg");
+        if (ffmpeg is null) Assert.Ignore("ffmpeg is required for the real audio fixture");
+
+        var path = Path.Combine(Path.GetTempPath(), $"mb-flacmusic-{Guid.NewGuid():N}.audio");
+        var args = codec == "flac"
+            ? new[] { "-y", "-v", "error", "-f", "lavfi", "-i", "sine=frequency=440:duration=1", "-c:a", "flac", "-f", "flac", path }
+            : new[] { "-y", "-v", "error", "-f", "lavfi", "-i", "sine=frequency=440:duration=1", "-c:a", "aac", "-f", "adts", path };
+        try
+        {
+            using var process = StartFfmpeg(ffmpeg, args);
+            process.WaitForExit(30000);
+            Assert.That(process.ExitCode, Is.Zero, "the real audio fixture did not encode");
+            return File.ReadAllBytes(path);
+        }
+        finally
+        {
+            try { File.Delete(path); } catch { /* best effort */ }
+        }
+    }
+
+    private static Process StartFfmpeg(string ffmpeg, IReadOnlyList<string> args)
+    {
+        var info = new ProcessStartInfo(ffmpeg)
+        {
+            RedirectStandardError = true,
+            RedirectStandardOutput = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+        foreach (var arg in args) info.ArgumentList.Add(arg);
+        return Process.Start(info)!;
     }
 
     // ── Parsing ──────────────────────────────────────────────────────────
@@ -166,6 +200,102 @@ public class FlacMusicDownloaderTests
             Is.EqualTo((long)(31.08 * 1024 * 1024)));
     }
 
+    [Test]
+    public void ParseSearch_ReadsTheNetEaseShapeWithNumericIds()
+    {
+        const string json = """
+        {"code":0,"msg":"ok","data":{"list":[
+          {"id":3879508,"name":"Back In Black","artist":"AC/DC",
+           "album_name":"Iron Man 2","duration":"255",
+           "minfo":[{"bitrate":"1026","size":"31.26MB","format":"flac"},
+                    {"bitrate":"320","size":"9.75MB","format":"mp3"},
+                    {"bitrate":"128","size":"3.9MB","format":"mp3"}],
+           "time":"1793052854","sign":"wyy-sign","link":"https://music.163.com/#/song?id=3879508"}
+        ]}}
+        """;
+
+        var result = FlacMusicClient.ParseSearch(json, "wyy");
+
+        Assert.That(result.Status, Is.EqualTo(FlacMusicClient.Status.Ok));
+        var track = result.Tracks.Single();
+        Assert.That(track.Platform, Is.EqualTo("wyy"));
+        Assert.That(track.Id, Is.EqualTo("3879508"));
+        Assert.That(track.Time, Is.EqualTo("1793052854"));
+        Assert.That(track.Sign, Is.EqualTo("wyy-sign"));
+        Assert.That(track.Formats.Select(f => f.BitrateKbps),
+            Is.EquivalentTo(new[] { 1026, 320, 128 }));
+    }
+
+    [Test]
+    public void SearchInfo_IsTitleOnlyAndFallbackOnly()
+    {
+        var downloader = Downloader(new ScriptedHandler());
+
+        Assert.That(downloader.FallbackOnly, Is.True,
+            "the Chinese title search must stay the last resort");
+        Assert.That(downloader.SearchInfo.Mode, Is.EqualTo(DownloaderSearchMode.Self));
+        Assert.That(downloader.SearchInfo.Data, Is.EqualTo(SearchData.Text));
+        Assert.That(downloader.SearchInfo.Note, Does.Contain("fallback"));
+    }
+
+    [Test]
+    public async Task IsAvailable_ReportsTheSitesHealthAndCachesIt()
+    {
+        using var handler = new ScriptedHandler();
+        var calls = 0;
+        handler.Respond = (_, _) =>
+        {
+            calls++;
+            return new HttpResponseMessage(calls == 1 ? HttpStatusCode.OK : HttpStatusCode.BadGateway);
+        };
+        var downloader = Downloader(handler);
+
+        Assert.That(await downloader.IsAvailableAsync(), Is.True);
+        Assert.That(await downloader.IsAvailableAsync(), Is.True,
+            "the ready answer is cached for a short window");
+        Assert.That(calls, Is.EqualTo(1));
+
+        downloader.RefreshAvailability();
+        Assert.That(await downloader.IsAvailableAsync(), Is.False);
+        Assert.That(downloader.LastUnavailableReason, Does.Contain("502"));
+    }
+
+    [Test]
+    public async Task SearchAsync_OnePlatformFailureStillUsesTheOther()
+    {
+        using var handler = new ScriptedHandler();
+        handler.Respond = (_, body) =>
+            body is not null && body.Contains("platform=kuwo")
+                ? new HttpResponseMessage(HttpStatusCode.InternalServerError)
+                : Json(SearchJson(Track(3880720, "Back In Black", "AC/DC", 255)));
+        var downloader = Downloader(handler);
+
+        var hit = await downloader.SearchAsync(new TrackQuery(
+            "AC/DC", "Back In Black", new DownloadQuality(AudioFormat.Flac)));
+
+        Assert.That(hit, Is.Not.Null);
+        Assert.That(hit!.SourceUrl, Does.Contain("/track/wyy/3880720"));
+    }
+
+    [Test]
+    public async Task SearchAllAsync_ReturnsEveryPlatformCandidate()
+    {
+        using var handler = new ScriptedHandler();
+        handler.Respond = (_, body) =>
+        {
+            var wyy = body is not null && body.Contains("platform=wyy");
+            return Json(SearchJson(Track(
+                wyy ? 3880720 : 336887, "Back In Black", "AC/DC", 255)));
+        };
+        var downloader = Downloader(handler);
+
+        var hits = await downloader.SearchAllAsync(new TrackQuery(
+            "AC/DC", "Back In Black", new DownloadQuality(AudioFormat.Flac)));
+
+        Assert.That(hits, Has.Count.EqualTo(2));
+        Assert.That(hits.Select(h => h.SourceUrl).Distinct().Count(), Is.EqualTo(2));
+    }
+
     // ── Format choice ────────────────────────────────────────────────────
 
     private static readonly FlacMusicClient.Format[] AllFormats =
@@ -197,8 +327,14 @@ public class FlacMusicDownloaderTests
     {
         Assert.That(FlacMusicDownloader.CleanTitle(
                 "Shoot to Thrill-《钢铁侠2》电影主题曲"), Is.EqualTo("Shoot to Thrill"));
+        Assert.That(FlacMusicDownloader.CleanTitle(
+                "Shoot to Thrill\u2013《钢铁侠2》"), Is.EqualTo("Shoot to Thrill"));
+        Assert.That(FlacMusicDownloader.CleanTitle(
+                "Shoot to Thrill\u2014《钢铁侠2》"), Is.EqualTo("Shoot to Thrill"));
         Assert.That(FlacMusicDownloader.CleanTitle("Back In Black"),
             Is.EqualTo("Back In Black"));
+        Assert.That(FlacMusicDownloader.CleanTitle("AC/DC - Live"),
+            Is.EqualTo("AC/DC - Live"), "only the Chinese description suffix is removed");
     }
 
     [Test]
@@ -283,7 +419,7 @@ public class FlacMusicDownloaderTests
             if (url.Contains("act=getUrl"))
                 return Json("""{"code":0,"msg":"ok","data":{"url":"https://cdn.test/a.flac"}}""");
             if (url == "https://cdn.test/a.flac")
-                return Bytes(FlacBytes());
+                return Bytes(RealAudio("flac"));
             return new HttpResponseMessage(HttpStatusCode.NotFound);
         };
         var downloader = Downloader(handler);
@@ -297,7 +433,8 @@ public class FlacMusicDownloaderTests
 
         Assert.That(result.Success, Is.True, result.ErrorMessage);
         Assert.That(result.FilePath, Does.EndWith(".flac"));
-        Assert.That(File.ReadAllBytes(result.FilePath!)[..4], Is.EqualTo("fLaC"u8.ToArray()));
+        Assert.That(new FileInfo(result.FilePath!).Length, Is.GreaterThan(1000));
+        Assert.That(AudioSignature.DetectContainer(result.FilePath!), Is.EqualTo(".flac"));
     }
 
     [Test]
@@ -324,7 +461,7 @@ public class FlacMusicDownloaderTests
                         time: "1793059999", sign: "fresh")));
             }
             if (url == "https://cdn.test/fresh.flac")
-                return Bytes(FlacBytes());
+                return Bytes(RealAudio("flac"));
             return new HttpResponseMessage(HttpStatusCode.NotFound);
         };
         var downloader = Downloader(handler);
@@ -343,6 +480,9 @@ public class FlacMusicDownloaderTests
         var refresh = handler.Requests.Single(r => r.Url.Contains("act=song"));
         Assert.That(refresh.Body, Does.Contain("id=336887"));
         Assert.That(refresh.Body, Does.Not.Contain("keyword"));
+        var retried = handler.Requests.Where(r => r.Url.Contains("act=getUrl")).Last().Body;
+        Assert.That(retried, Does.Contain("sign=fresh"));
+        Assert.That(retried, Does.Contain("time=1793059999"));
     }
 
     [Test]
@@ -360,7 +500,7 @@ public class FlacMusicDownloaderTests
             if (url == "https://cdn.test/a.aac")
             {
                 cdnCalls++;
-                return Bytes(FlacBytes());
+                return Bytes(RealAudio("aac"));
             }
             return new HttpResponseMessage(HttpStatusCode.NotFound);
         };
@@ -379,6 +519,29 @@ public class FlacMusicDownloaderTests
     }
 
     [Test]
+    public async Task DownloadAsync_ExplicitFlacRejectsAnAacStreamFromTheSite()
+    {
+        using var handler = new ScriptedHandler();
+        handler.Respond = (request, _) =>
+            request.RequestUri!.AbsoluteUri.Contains("act=getUrl")
+                ? Json("""
+                  {"code":0,"msg":"ok","data":{"url":"https://cdn.test/a.aac","format":"aac","bitrate":100}}
+                  """)
+                : new HttpResponseMessage(HttpStatusCode.NotFound);
+        var downloader = Downloader(handler);
+        var track = new FlacMusicClient.Track(
+            "kuwo", "336887", "Back In Black", "AC/DC", "Back In Black",
+            TimeSpan.FromSeconds(255), AllFormats, "1793052853", "abc", null, null);
+        var sourceUrl = FlacMusicDownloader.EncodeSourceUrl(track, "Back In Black", DownloadQuality.Any);
+
+        var result = await downloader.DownloadAsync(
+            sourceUrl, NewDir(), "melody-flac", new DownloadQuality(AudioFormat.Flac));
+
+        Assert.That(result.Success, Is.False);
+        Assert.That(result.ErrorMessage, Does.Contain("served aac"));
+    }
+
+    [Test]
     public async Task DownloadAsync_AutoQualityAcceptsTheAacTier()
     {
         using var handler = new ScriptedHandler();
@@ -390,7 +553,7 @@ public class FlacMusicDownloaderTests
                 {"code":0,"msg":"ok","data":{"url":"https://cdn.test/a.aac","format":"aac","bitrate":100}}
                 """);
             if (url == "https://cdn.test/a.aac")
-                return Bytes(FlacBytes());
+                return Bytes(RealAudio("aac"));
             return new HttpResponseMessage(HttpStatusCode.NotFound);
         };
         var downloader = Downloader(handler);
@@ -403,6 +566,8 @@ public class FlacMusicDownloaderTests
             sourceUrl, NewDir(), "melody-auto", new DownloadQuality(AudioFormat.Auto, null, 160));
 
         Assert.That(result.Success, Is.True, result.ErrorMessage);
+        Assert.That(AudioSignature.DetectContainer(result.FilePath!), Is.EqualTo(".m4a"),
+            "an ADTS AAC stream must be saved with the m4a signature");
     }
 
     [Test]
@@ -425,5 +590,7 @@ public class FlacMusicDownloaderTests
 
         Assert.That(aac.Success, Is.False);
         Assert.That(aac.ErrorMessage, Does.Contain("cannot serve"));
+        Assert.That(handler.Requests, Is.Empty,
+            "an unsupported quality must be rejected before any site call");
     }
 }

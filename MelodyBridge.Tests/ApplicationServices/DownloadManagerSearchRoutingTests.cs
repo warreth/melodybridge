@@ -1,5 +1,6 @@
 using MelodyBridge.Application.Services;
 using MelodyBridge.Core;
+using MelodyBridge.Infrastructure.FlacMusic;
 using MelodyBridge.Tests;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -116,6 +117,65 @@ public class DownloadManagerSearchRoutingTests
         Assert.That(File.Exists(path!), Is.True);
     }
 
+    private sealed class CuratedDownloader : IDownloader
+    {
+        public string Id => "curated";
+        public string Name => "Curated";
+        public PluginCapabilities Capabilities => PluginCapabilities.Any;
+
+        public Task<bool> IsAvailableAsync(CancellationToken ct = default) => Task.FromResult(true);
+
+        public Task<DownloaderSearchHit?> SearchAsync(
+            TrackQuery query, CancellationToken ct = default)
+            => Task.FromResult<DownloaderSearchHit?>(new DownloaderSearchHit(
+                query.Title, query.Artist, "https://curated.test/1", TimeSpan.FromSeconds(180)));
+
+        public Task<DownloaderDownloadResult> DownloadAsync(
+            string sourceUrl, string outputDirectory, string? melodyId,
+            DownloadQuality? quality = null, CancellationToken ct = default)
+        {
+            var path = Path.Combine(outputDirectory, $"curated-{Guid.NewGuid():N}.mp3");
+            File.WriteAllBytes(path, TestAudio.MinimalMp3());
+            return Task.FromResult(new DownloaderDownloadResult(true, path, null));
+        }
+    }
+
+    private sealed class CountingHandler : HttpMessageHandler
+    {
+        public int Requests { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken ct)
+        {
+            Requests++;
+            return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.InternalServerError));
+        }
+    }
+
+    [Test]
+    public async Task FallbackOnlySource_IsNeverTriedBeforeACuratedSource()
+    {
+        var flacHandler = new CountingHandler();
+        var flac = new FlacMusicDownloader(
+            new FlacMusicClient(new HttpClient(flacHandler),
+                NullLogger<FlacMusicClient>.Instance),
+            new StubPluginConfig(),
+            NullLogger<FlacMusicDownloader>.Instance);
+        var curated = new CuratedDownloader();
+        var manager = new DownloadManager(
+            new ListDownloaderRegistry(flac, curated),
+            NullLogger<DownloadManager>.Instance);
+
+        var path = await manager.DownloadTrackAsync(
+            new TrackQuery("artist", "title", DownloadQuality.Any),
+            NewDir(), "melody-fallback");
+
+        Assert.That(path, Is.Not.Null, manager.LastFailure("melody-fallback"));
+        Assert.That(flacHandler.Requests, Is.Zero,
+            "the fallback source must not even be probed while a curated source works");
+        Assert.That(manager.LastPluginId("melody-fallback"), Is.EqualTo("curated"));
+    }
+
     [Test]
     public async Task ManualPickerSearch_AlsoGoesThroughTheRouter()
     {
@@ -130,5 +190,7 @@ public class DownloadManagerSearchRoutingTests
         Assert.That(outcome.Candidates[0].SourceUrl, Is.EqualTo("https://provider.test/track"));
         Assert.That(router.SearchAllCalls, Is.EqualTo(1));
         Assert.That(downloader.OwnSearchAllCalls, Is.Zero);
+        Assert.That(downloader.OwnSearchCalls, Is.Zero,
+            "the manual picker must not fall through to the source's own search");
     }
 }
