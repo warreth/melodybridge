@@ -894,6 +894,16 @@ public class TidalDownloaderTests
     }
 
     [Test]
+    public void SearchInfo_IsProviderBackedForTheSharedTidalSearcher()
+    {
+        var downloader = Create();
+
+        Assert.That(downloader.SearchInfo.Mode, Is.EqualTo(DownloaderSearchMode.Provider));
+        Assert.That(downloader.SearchInfo.Data.HasFlag(SearchData.Isrc), Is.True);
+        Assert.That(downloader.SearchInfo.Data.HasFlag(SearchData.Text), Is.True);
+    }
+
+    [Test]
     public async Task Download_PastedToken_SeedsTiddlsAuthFile()
     {
         if (OperatingSystem.IsWindows()) Assert.Ignore("POSIX shell stub");

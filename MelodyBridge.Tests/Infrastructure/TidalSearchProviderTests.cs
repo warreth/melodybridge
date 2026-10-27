@@ -38,6 +38,7 @@ public class TidalSearchProviderTests
 
     private sealed class ScriptedHandler : HttpMessageHandler
     {
+        public List<(string Url, string? Authorization)> Recorded { get; } = new();
         public List<string> Requests { get; } = new();
         public Func<HttpRequestMessage, HttpResponseMessage> Respond { get; set; } =
             _ => new HttpResponseMessage(HttpStatusCode.NotFound);
@@ -45,10 +46,46 @@ public class TidalSearchProviderTests
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request, CancellationToken ct)
         {
-            Requests.Add(request.RequestUri!.ToString());
+            var url = request.RequestUri!.ToString();
+            Requests.Add(url);
+            Recorded.Add((url, request.Headers.Authorization?.Parameter));
             return Task.FromResult(Respond(request));
         }
     }
+
+    private const string TextJson = """
+    {
+      "items": [
+        {
+          "id": 1,
+          "title": "Back In Black",
+          "duration": 256,
+          "isrc": "AUAP08000046",
+          "streamReady": true,
+          "audioQuality": "LOSSLESS",
+          "artist": { "name": "AC/DC" }
+        },
+        {
+          "id": 2,
+          "title": "Back In Black (Karaoke Version)",
+          "duration": 256,
+          "isrc": null,
+          "streamReady": true,
+          "audioQuality": "HIGH",
+          "artist": { "name": "Karaoke Hits" }
+        },
+        {
+          "id": 3,
+          "title": "Back In Black",
+          "duration": 256,
+          "isrc": "AUAP08000046",
+          "streamReady": false,
+          "audioQuality": "LOSSLESS",
+          "artist": { "name": "AC/DC" }
+        }
+      ]
+    }
+    """;
 
     private static HttpResponseMessage Json(string body, HttpStatusCode status = HttpStatusCode.OK)
         => new(status) { Content = new StringContent(body, Encoding.UTF8, "application/json") };
@@ -133,6 +170,159 @@ public class TidalSearchProviderTests
         var result = await catalog.SearchByIsrcAsync("AUAP08000046", "US");
 
         Assert.That(result.Status, Is.EqualTo(TidalPublicCatalog.SearchStatus.RateLimited));
+    }
+
+    [Test]
+    public async Task IsrcSearch_RefreshesRejectedTokenAndUsesTheNewBearer()
+    {
+        using var handler = new ScriptedHandler();
+        var tokenCalls = 0;
+        handler.Respond = request =>
+        {
+            var url = request.RequestUri!.AbsoluteUri;
+            if (url.Contains("auth.odskyler.workers.dev"))
+            {
+                tokenCalls++;
+                return Json(tokenCalls == 1
+                    ? """{"access_token":"stale-token","expires_in":3600}"""
+                    : """{"access_token":"fresh-token","expires_in":3600}""");
+            }
+            return request.Headers.Authorization?.Parameter == "stale-token"
+                ? Json("""{"error":"expired"}""", HttpStatusCode.Unauthorized)
+                : Json(IsrcJson);
+        };
+
+        var result = await Catalog(handler).SearchByIsrcAsync("AUAP08000046", "US");
+
+        Assert.That(result.Status, Is.EqualTo(TidalPublicCatalog.SearchStatus.Ok));
+        Assert.That(tokenCalls, Is.EqualTo(2));
+        var catalogue = handler.Recorded
+            .Where(r => r.Url.Contains("api.tidal.com") && r.Url.Contains("/tracks?isrc="))
+            .Select(r => r.Authorization)
+            .ToList();
+        Assert.That(catalogue, Is.EqualTo(new[] { "stale-token", "fresh-token" }),
+            "the retry must use the refreshed bearer, not the rejected one");
+    }
+
+    [Test]
+    public async Task IsrcSearch_CacheKeyIncludesTheLimit()
+    {
+        using var handler = new ScriptedHandler();
+        handler.Respond = request =>
+            request.RequestUri!.AbsoluteUri.Contains("auth.odskyler.workers.dev")
+                ? Token()
+                : Json(IsrcJson);
+
+        var catalog = Catalog(handler);
+        await catalog.SearchByIsrcAsync("AUAP08000046", "US", limit: 10);
+        await catalog.SearchByIsrcAsync("AUAP08000046", "US", limit: 1);
+
+        Assert.That(handler.Requests.Count(r => r.Contains("api.tidal.com") && r.Contains("/tracks?isrc=")),
+            Is.EqualTo(2), "a smaller limit must not reuse a wider cached response");
+    }
+
+    // ── Provider search, not just the ranker ─────────────────────────────
+
+    [Test]
+    public async Task SearchAsync_UsesIsrcAndTheTargetCountry()
+    {
+        using var handler = new ScriptedHandler();
+        handler.Respond = request =>
+            request.RequestUri!.AbsoluteUri.Contains("auth.odskyler.workers.dev")
+                ? Token()
+                : Json(IsrcJson);
+        var config = new StubPluginConfig();
+        config.Set("rhythmax", "country_code", "NL");
+        var provider = new TidalSearchProvider(
+            Catalog(handler), config, NullLogger<TidalSearchProvider>.Instance);
+
+        var hit = await provider.SearchAsync("rhythmax", new TrackQuery(
+            "AC/DC", "Back In Black", new DownloadQuality(AudioFormat.Flac),
+            TimeSpan.FromSeconds(255), "AUAP08000046"));
+
+        Assert.That(hit, Is.Not.Null);
+        Assert.That(hit!.SourceUrl, Is.EqualTo("https://tidal.com/browse/track/35986110"));
+        var isrc = handler.Requests.Single(r => r.Contains("/tracks?isrc="));
+        Assert.That(isrc, Does.Contain("isrc=AUAP08000046"));
+        Assert.That(isrc, Does.Contain("countryCode=NL"));
+        Assert.That(handler.Recorded.Single(r => r.Url == isrc).Authorization,
+            Is.EqualTo("jwt-token"));
+    }
+
+    [Test]
+    public async Task SearchAsync_FallsBackToTextWhenTheIsrcHasNoHit()
+    {
+        using var handler = new ScriptedHandler();
+        handler.Respond = request =>
+        {
+            var url = request.RequestUri!.AbsoluteUri;
+            if (url.Contains("auth.odskyler.workers.dev")) return Token();
+            return url.Contains("/tracks?isrc=")
+                ? Json("""{"items":[]}""")
+                : Json(TextJson);
+        };
+        var provider = new TidalSearchProvider(
+            Catalog(handler), new StubPluginConfig(),
+            NullLogger<TidalSearchProvider>.Instance);
+
+        var hit = await provider.SearchAsync("rhythmax", new TrackQuery(
+            "AC/DC", "Back In Black", DownloadQuality.Any,
+            TimeSpan.FromSeconds(255), "AUAP08000046"));
+
+        Assert.That(hit, Is.Not.Null);
+        Assert.That(hit!.SourceUrl, Is.EqualTo("https://tidal.com/browse/track/1"));
+        Assert.That(hit.MatchConfidence, Is.EqualTo(MatchConfidence.High));
+        Assert.That(handler.Requests.Any(r => r.Contains("/search/tracks?query=")), Is.True);
+    }
+
+    [Test]
+    public async Task SearchAsync_UnplayableExactIsrcFallsThroughToText()
+    {
+        using var handler = new ScriptedHandler();
+        handler.Respond = request =>
+        {
+            var url = request.RequestUri!.AbsoluteUri;
+            if (url.Contains("auth.odskyler.workers.dev")) return Token();
+            return url.Contains("/tracks?isrc=")
+                ? Json("""
+                  {"items":[{"id":9,"title":"Back In Black","duration":256,
+                  "isrc":"AUAP08000046","streamReady":false,"artist":{"name":"AC/DC"}}]}
+                  """)
+                : Json(TextJson);
+        };
+        var provider = new TidalSearchProvider(
+            Catalog(handler), new StubPluginConfig(),
+            NullLogger<TidalSearchProvider>.Instance);
+
+        var hit = await provider.SearchAsync("rhythmax", new TrackQuery(
+            "AC/DC", "Back In Black", DownloadQuality.Any,
+            TimeSpan.FromSeconds(255), "AUAP08000046"));
+
+        Assert.That(hit, Is.Not.Null);
+        Assert.That(hit!.SourceUrl, Is.EqualTo("https://tidal.com/browse/track/1"));
+        Assert.That(handler.Requests.Any(r => r.Contains("/tracks?isrc=")), Is.True);
+        Assert.That(handler.Requests.Any(r => r.Contains("/search/tracks?query=")), Is.True);
+    }
+
+    [Test]
+    public async Task SearchAsync_IsrcRateLimitIsAMissWithoutHammeringText()
+    {
+        using var handler = new ScriptedHandler();
+        handler.Respond = request =>
+            request.RequestUri!.AbsoluteUri.Contains("auth.odskyler.workers.dev")
+                ? Token()
+                : Json("{}", HttpStatusCode.TooManyRequests);
+        var provider = new TidalSearchProvider(
+            Catalog(handler), new StubPluginConfig(),
+            NullLogger<TidalSearchProvider>.Instance);
+
+        var hit = await provider.SearchAsync("rhythmax", new TrackQuery(
+            "AC/DC", "Back In Black", DownloadQuality.Any,
+            TimeSpan.FromSeconds(255), "AUAP08000046"));
+
+        Assert.That(hit, Is.Null);
+        Assert.That(handler.Requests.Count(r => r.Contains("/search/tracks?query=")), Is.Zero,
+            "a rate-limited ISRC lookup must not immediately spend a second request");
     }
 
     // ── Ranking and provider metadata ────────────────────────────────────

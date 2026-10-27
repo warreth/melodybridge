@@ -56,6 +56,7 @@ public class SearchProviderRegistryTests
     private sealed class StubProvider : ISearchProvider
     {
         public bool Throw { get; set; }
+        public string? LastDownloaderId { get; private set; }
         public DownloaderSearchHit? Hit { get; set; } = new(
             "provider hit", "artist", "https://provider.test/1", TimeSpan.FromSeconds(200));
 
@@ -69,6 +70,7 @@ public class SearchProviderRegistryTests
         public Task<DownloaderSearchHit?> SearchAsync(
             string downloaderId, TrackQuery query, CancellationToken ct = default)
         {
+            LastDownloaderId = downloaderId;
             if (Throw) throw new HttpRequestException("catalogue down");
             return Task.FromResult(Hit);
         }
@@ -92,6 +94,8 @@ public class SearchProviderRegistryTests
         Assert.That(hit, Is.Not.Null);
         Assert.That(hit!.SourceUrl, Is.EqualTo("https://provider.test/1"));
         Assert.That(downloader.SearchCalls, Is.Zero);
+        Assert.That(provider.LastDownloaderId, Is.EqualTo("wanted"),
+            "the provider must receive the target id it reads the country from");
     }
 
     [Test]
@@ -108,6 +112,33 @@ public class SearchProviderRegistryTests
     }
 
     [Test]
+    public async Task SelfSearchingSource_StillUsesItsOwnSearchAll()
+    {
+        var downloader = new StubDownloader("wanted");
+        var registry = Registry(new StubProvider());
+
+        var hits = await registry.SearchAllAsync(downloader, Query());
+
+        Assert.That(hits, Has.Count.EqualTo(1));
+        Assert.That(downloader.SearchAllCalls, Is.EqualTo(1));
+        Assert.That(downloader.SearchCalls, Is.Zero);
+    }
+
+    [Test]
+    public async Task TargetMatching_IgnoresCase()
+    {
+        var downloader = new StubDownloader(
+            "WANTED", DownloaderSearchInfo.ViaProvider(SearchData.Isrc));
+        var provider = new StubProvider();
+        var registry = Registry(provider);
+
+        var hit = await registry.SearchAsync(downloader, Query());
+
+        Assert.That(hit, Is.Not.Null);
+        Assert.That(provider.LastDownloaderId, Is.EqualTo("WANTED"));
+    }
+
+    [Test]
     public async Task UrlOnlySource_HasNoSearch()
     {
         var downloader = new StubDownloader("wanted", DownloaderSearchInfo.UrlOnly());
@@ -120,7 +151,7 @@ public class SearchProviderRegistryTests
     }
 
     [Test]
-    public async Task ProviderWithoutATarget_IsAMiss()
+    public async Task ProviderBackedSourceWithoutAProvider_IsAMiss()
     {
         var downloader = new StubDownloader(
             "orphan", DownloaderSearchInfo.ViaProvider(SearchData.Isrc));

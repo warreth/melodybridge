@@ -1,5 +1,7 @@
 using MelodyBridge.Core;
+using MelodyBridge.Infrastructure.FlacMusic;
 using MelodyBridge.Tests.Infrastructure;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace MelodyBridge.Tests.Services;
 
@@ -25,6 +27,32 @@ public class DownloaderCompositionTests
             "soundcloud", "archiveorg", "ytdlp", "qobuz", "deemix", "tidal", "rhythmax",
             "monochrome", "slskd", "lucida", "jumo", "flacmusic",
         }), "a fresh install tries the plugins in the order AddMelodyBridge registers them");
+    }
+
+    [Test]
+    public void TheRealComposition_RegistersTheTidalSearcherForBothTidalSources()
+    {
+        using var host = AppDownloadHost.Create();
+
+        var searches = host.Services.GetRequiredService<ISearchProviderRegistry>();
+        var provider = searches.ForDownloader("rhythmax");
+
+        Assert.That(provider, Is.Not.Null, "the Tidal provider must be registered in the real app");
+        Assert.That(provider!.Targets.Select(t => t.DownloaderId),
+            Is.EquivalentTo(new[] { "tidal", "rhythmax" }));
+        Assert.That(searches.ForDownloader("tidal"), Is.SameAs(provider));
+    }
+
+    [Test]
+    public void TheRealFallbackSource_IsMarkedFallbackOnly()
+    {
+        using var host = AppDownloadHost.Create();
+
+        var flac = host.Registry.GetAll().OfType<FlacMusicDownloader>().Single();
+
+        Assert.That(flac.FallbackOnly, Is.True);
+        Assert.That(flac.SearchInfo.Mode, Is.EqualTo(DownloaderSearchMode.Self));
+        Assert.That(flac.SearchInfo.Data, Is.EqualTo(SearchData.Text));
     }
 
     [Test]

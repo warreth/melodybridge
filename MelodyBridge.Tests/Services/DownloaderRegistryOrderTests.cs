@@ -222,6 +222,23 @@ public class DownloaderRegistryOrderTests
     }
 
     [Test]
+    public async Task UntouchedPreviousCurrentOrder_MigratesToTheNewDefault()
+    {
+        // The exact order the previous release persisted, before Rhythmax
+        // and FlacMusic existed and after DoubleDouble was gone.
+        await SeedOrderAsync(
+            "soundcloud", "archiveorg", "ytdlp", "qobuz", "deemix", "tidal",
+            "monochrome", "slskd", "lucida", "jumo");
+
+        var fresh = RegistryOver(NewShippedPlugins());
+        Assert.That(fresh.GetEnabled().Select(d => d.Id), Is.EqualTo(new[]
+        {
+            "soundcloud", "archiveorg", "ytdlp", "qobuz", "deemix", "tidal", "rhythmax",
+            "monochrome", "slskd", "lucida", "jumo", "flacmusic",
+        }), "the immediate previous shipped order must migrate");
+    }
+
+    [Test]
     public async Task UntouchedOrderFromBeforeTheRemoval_MigratesToTheNewDefault()
     {
         // The exact order the app shipped before DoubleDouble was removed:
