@@ -197,6 +197,11 @@ public static class ServiceCollectionExtensions
             {
                 AutomaticDecompression = System.Net.DecompressionMethods.All,
             });
+        services.AddSingleton<ISearchProvider>(sp =>
+            new MonochromeSearchProvider(
+                sp.GetRequiredService<IHttpClientFactory>().CreateClient("monochrome"),
+                sp.GetRequiredService<IPluginConfig>(),
+                sp.GetRequiredService<ILogger<MonochromeSearchProvider>>()));
         services.AddSingleton<IDownloader>(sp =>
             new MonochromeDownloader(
                 sp.GetRequiredService<IHttpClientFactory>().CreateClient("monochrome"),

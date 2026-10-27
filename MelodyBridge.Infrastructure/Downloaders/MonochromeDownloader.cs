@@ -2,6 +2,7 @@ using System.Text.Json;
 using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.Audio;
 using MelodyBridge.Infrastructure.Files;
+using MelodyBridge.Infrastructure.SearchProviders;
 using MelodyBridge.Infrastructure.Services;
 using Microsoft.Extensions.Logging;
 
@@ -24,8 +25,7 @@ namespace MelodyBridge.Infrastructure.Downloaders;
 /// </summary>
 public class MonochromeDownloader : IDownloader
 {
-    public const string DefaultBaseUrl = "https://tracks.monochrome.st";
-    private const string BaseUrlKey = "base_url";
+    public const string DefaultBaseUrl = MonochromeApi.DefaultBaseUrl;
 
     // The official API serves one lossless tier: asking for FLAC gets a
     // real FLAC (usually ~900-1100 kbps). There is no lossy tier and no
@@ -42,7 +42,7 @@ public class MonochromeDownloader : IDownloader
 
     public DownloaderSearchInfo SearchInfo =>
         DownloaderSearchInfo.ViaProvider(SearchData.Text | SearchData.Isrc,
-            "Monochrome catalogue search, ISRC first (legacy source-side adapter)");
+            "Monochrome catalogue search, ISRC first");
 
     public string IconName => "music";
     public string? GuideUrl => null;
@@ -53,7 +53,7 @@ public class MonochromeDownloader : IDownloader
 
     public IReadOnlyList<PluginConfigField> ConfigFields =>
     [
-        new(BaseUrlKey, "API base URL", DefaultBaseUrl,
+        new(MonochromeApi.BaseUrlKey, "API base URL", DefaultBaseUrl,
             "Override the Monochrome API host, for example a community mirror. Empty uses the official host.",
             Advanced: true),
     ];
@@ -68,7 +68,6 @@ public class MonochromeDownloader : IDownloader
     private readonly AvailabilityCache _availability = new();
 
     /// <summary>Per-request deadlines so one hanging API call cannot stall the waterfall.</summary>
-    private static readonly TimeSpan SearchRequestTimeout = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan StreamRequestTimeout = TimeSpan.FromMinutes(8);
     private static readonly TimeSpan HealthTimeout = TimeSpan.FromSeconds(5);
 
@@ -77,14 +76,6 @@ public class MonochromeDownloader : IDownloader
         _http = http;
         _config = config;
         _logger = logger;
-    }
-
-    /// <summary>The configured API host, falling back to the official one.</summary>
-    private async Task<string> BaseUrlAsync(CancellationToken ct)
-    {
-        var configured = await _config.GetAsync(Id, BaseUrlKey, ct);
-        if (string.IsNullOrWhiteSpace(configured)) return DefaultBaseUrl;
-        return configured.Trim().TrimEnd('/');
     }
 
     // ── Availability ─────────────────────────────────────────────────────
@@ -98,7 +89,7 @@ public class MonochromeDownloader : IDownloader
         {
             using var probe = CancellationTokenSource.CreateLinkedTokenSource(ct);
             probe.CancelAfter(HealthTimeout);
-            var url = await BaseUrlAsync(ct) + "/health";
+            var url = await MonochromeApi.BaseUrlAsync(_config, Id, ct) + "/health";
             using var resp = await _http.GetAsync(url, probe.Token);
             var available = resp.IsSuccessStatusCode;
             LastUnavailableReason = available
@@ -122,129 +113,10 @@ public class MonochromeDownloader : IDownloader
         }
     }
 
-    // ── Search ───────────────────────────────────────────────────────────
-
-    public async Task<DownloaderSearchHit?> SearchAsync(TrackQuery query, CancellationToken ct = default)
-    {
-        // Cleaned terms: the API's index is literal, so "(Original Mix)"
-        // suffixes and featuring tags reduce matches before the request is
-        // even sent.
-        var searchText = query.SearchText;
-        if (searchText.Length == 0) return null;
-
-        var baseUrl = await BaseUrlAsync(ct);
-        var url = baseUrl + "/search/tracks?q=" + Uri.EscapeDataString(searchText) + "&limit=10";
-        try
-        {
-            using var request = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            request.CancelAfter(SearchRequestTimeout);
-
-            using var resp = await _http.GetAsync(url, request.Token);
-            if (!resp.IsSuccessStatusCode)
-            {
-                _logger.LogDebug("Monochrome search returned {Status}", (int)resp.StatusCode);
-                return null;
-            }
-
-            var body = await resp.Content.ReadAsStringAsync(request.Token);
-            return ParseSearchTracks(body, baseUrl, query.Artist, query.Title,
-                query.ExpectedDuration, query.Isrc);
-        }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
-        {
-            _logger.LogDebug("Monochrome search timed out");
-            return null;
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "Monochrome search '{Query}' failed", searchText);
-            return null;
-        }
-    }
-
-    /// <summary>
-    /// Parses a /search/tracks response ({"tracks":[…]}) into the best hit:
-    /// every item is ranked by title/artist confidence plus duration
-    /// proximity. An exact ISRC match (when the query carries one) narrows
-    /// the pool to the recording itself and is accepted on that code even
-    /// when the catalogue spells the title differently, so a noisy title
-    /// cannot pick a different master. Null when there are no usable items.
-    /// </summary>
-    internal static DownloaderSearchHit? ParseSearchTracks(
-        string json, string baseUrl, string artist, string fallbackTitle,
-        TimeSpan? expectedDuration = null, string? expectedIsrc = null)
-    {
-        try
-        {
-            using var doc = JsonDocument.Parse(json);
-            if (!doc.RootElement.TryGetProperty("tracks", out var tracks) ||
-                tracks.ValueKind != JsonValueKind.Array ||
-                tracks.GetArrayLength() == 0)
-                return null;
-
-            // Rank every item instead of trusting the API's first row:
-            // the list routinely buries the real match under remixes.
-            var candidates = new List<(DownloaderSearchHit Hit, string? Isrc)>();
-            foreach (var item in tracks.EnumerateArray())
-            {
-                // One malformed entry must not poison the response: skip
-                // the item, keep the loop.
-                if (item.ValueKind != JsonValueKind.Object) continue;
-
-                // Unplayable entries (takedowns, region blocks) would only
-                // fail later, after a wasted download attempt.
-                if (item.TryGetProperty("playable", out var playable) &&
-                    playable.ValueKind == JsonValueKind.False)
-                    continue;
-
-                var id = GetString(item, "id") ?? GetString(item, "trackId");
-                if (string.IsNullOrEmpty(id)) continue;
-
-                var hitTitle = GetString(item, "title") ?? fallbackTitle;
-                var hitArtist = GetPrimaryArtist(item);
-
-                TimeSpan? duration = item.TryGetProperty("duration", out var d) &&
-                                     d.ValueKind == JsonValueKind.Number
-                    ? TimeSpan.FromMilliseconds(d.GetDouble())
-                    : null;
-
-                var hit = new DownloaderSearchHit(
-                    Title: hitTitle,
-                    Artist: hitArtist,
-                    SourceUrl: $"{baseUrl}/track/{id}",
-                    Duration: duration,
-                    MatchConfidence: FuzzyMatcher.Confidence(
-                        artist, fallbackTitle, hitArtist: hitArtist, hitTitle: hitTitle));
-                candidates.Add((hit, GetString(item, "isrc")));
-            }
-
-            if (candidates.Count == 0) return null;
-
-            // An exact ISRC is the recording itself, not a guess: when the
-            // query carries one and any candidate matches, the others are
-            // a different master even when their titles look closer.
-            var isrcPool = candidates.Where(c => IsrcEquals(expectedIsrc, c.Isrc)).ToList();
-            if (isrcPool.Count > 0)
-                return SearchRanker.RankExactRecording(artist, fallbackTitle,
-                    expectedDuration, isrcPool.Select(c => c.Hit));
-
-            return SearchRanker.Rank(artist, fallbackTitle, expectedDuration,
-                candidates.Select(c => c.Hit));
-        }
-        catch (JsonException)
-        {
-            return null;
-        }
-    }
-
-    /// <summary>True when both ISRCs are present and equal, ignoring case and padding.</summary>
-    internal static bool IsrcEquals(string? expected, string? actual)
-        => !string.IsNullOrWhiteSpace(expected) && !string.IsNullOrWhiteSpace(actual)
-           && string.Equals(expected.Trim(), actual.Trim(), StringComparison.OrdinalIgnoreCase);
+    /// <summary>Provider-backed: the search lives in MonochromeSearchProvider.</summary>
+    public Task<DownloaderSearchHit?> SearchAsync(
+        TrackQuery query, CancellationToken ct = default)
+        => Task.FromResult<DownloaderSearchHit?>(null);
 
     // ── Download ─────────────────────────────────────────────────────────
 
@@ -268,7 +140,7 @@ public class MonochromeDownloader : IDownloader
 
         try
         {
-            var baseUrl = await BaseUrlAsync(ct);
+            var baseUrl = await MonochromeApi.BaseUrlAsync(_config, Id, ct);
             using var request = CancellationTokenSource.CreateLinkedTokenSource(ct);
             request.CancelAfter(StreamRequestTimeout);
 
@@ -354,38 +226,4 @@ public class MonochromeDownloader : IDownloader
     private static bool IsSnowflake(string value)
         => value.Length is > 0 and <= 20 && value.All(char.IsAsciiDigit);
 
-    // ── Parsing helpers ──────────────────────────────────────────────────
-
-    /// <summary>Primary artist: artistNames[0], artists[0].name or artist.name.</summary>
-    private static string? GetPrimaryArtist(JsonElement item)
-    {
-        if (item.TryGetProperty("artistNames", out var names) &&
-            names.ValueKind == JsonValueKind.Array)
-        {
-            foreach (var name in names.EnumerateArray())
-                if (name.ValueKind == JsonValueKind.String)
-                    return name.GetString();
-        }
-
-        if (item.TryGetProperty("artists", out var artists) &&
-            artists.ValueKind == JsonValueKind.Array && artists.GetArrayLength() > 0)
-            return GetString(artists[0], "name");
-
-        if (item.TryGetProperty("artist", out var artist))
-        {
-            if (artist.ValueKind == JsonValueKind.String)
-                return artist.GetString();
-            var name = GetString(artist, "name");
-            if (!string.IsNullOrEmpty(name)) return name;
-        }
-
-        return null;
-    }
-
-    private static string? GetString(JsonElement element, string property)
-        => element.ValueKind == JsonValueKind.Object
-           && element.TryGetProperty(property, out var v)
-           && v.ValueKind == JsonValueKind.String
-            ? v.GetString()
-            : null;
 }

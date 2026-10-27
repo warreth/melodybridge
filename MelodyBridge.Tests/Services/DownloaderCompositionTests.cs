@@ -59,8 +59,11 @@ public class DownloaderCompositionTests
         Assert.That(searches.ForDownloader("jumo"),
             Is.InstanceOf<JumoSearchProvider>(),
             "Jumo has its own catalogue provider");
+        Assert.That(searches.ForDownloader("monochrome"),
+            Is.InstanceOf<MonochromeSearchProvider>(),
+            "Monochrome has its own catalogue provider");
 
-        foreach (var id in new[] { "monochrome", "lucida" })
+        foreach (var id in new[] { "lucida" })
         {
             var provider = searches.ForDownloader(id);
             Assert.That(provider, Is.Not.Null, $"{id} must have a search provider");
