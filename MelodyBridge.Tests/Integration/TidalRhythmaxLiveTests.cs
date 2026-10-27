@@ -113,9 +113,8 @@ public class TidalRhythmaxLiveTests
         Assert.That(track, Is.Not.Null, "precondition: the public search finds the track");
 
         var downloader = Downloader();
-        var result = await downloader.DownloadAsync(
-            track!.SourceUrl, _outDir, "mb-rhythmax-flac",
-            new DownloadQuality(AudioFormat.Flac));
+        var result = await DownloadWithRetryAsync(downloader, track!.SourceUrl,
+            _outDir, "mb-rhythmax-flac", new DownloadQuality(AudioFormat.Flac));
 
         Assert.That(result.Success, Is.True, result.ErrorMessage);
         Assert.That(result.FilePath, Is.Not.Null);
@@ -136,9 +135,8 @@ public class TidalRhythmaxLiveTests
         Assert.That(track, Is.Not.Null, "precondition: the public search finds the track");
 
         var downloader = Downloader();
-        var result = await downloader.DownloadAsync(
-            track!.SourceUrl, _outDir, "mb-rhythmax-aac",
-            new DownloadQuality(AudioFormat.Aac, null, 320));
+        var result = await DownloadWithRetryAsync(downloader, track!.SourceUrl,
+            _outDir, "mb-rhythmax-aac", new DownloadQuality(AudioFormat.Aac, null, 320));
 
         Assert.That(result.Success, Is.True, result.ErrorMessage);
         Assert.That(result.FilePath, Is.Not.Null);
