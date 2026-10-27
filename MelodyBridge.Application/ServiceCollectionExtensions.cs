@@ -121,6 +121,8 @@ public static class ServiceCollectionExtensions
             new DeezerClient(
                 sp.GetRequiredService<IHttpClientFactory>().CreateClient("deezer"),
                 sp.GetRequiredService<ILogger<DeezerClient>>()));
+        services.AddSingleton<ISearchProvider>(sp =>
+            new DeemixSearchProvider(sp.GetRequiredService<DeezerClient>()));
         services.AddSingleton<IDownloader>(sp =>
             new DeemixDownloader(
                 sp.GetRequiredService<DeezerClient>(),

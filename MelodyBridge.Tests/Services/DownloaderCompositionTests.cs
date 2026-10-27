@@ -53,8 +53,11 @@ public class DownloaderCompositionTests
         Assert.That(searches.ForDownloader("qobuz"),
             Is.InstanceOf<QobuzSearchProvider>(),
             "Qobuz has its own catalogue provider");
+        Assert.That(searches.ForDownloader("deemix"),
+            Is.InstanceOf<DeemixSearchProvider>(),
+            "Deezer has its own catalogue provider");
 
-        foreach (var id in new[] { "deemix", "jumo", "monochrome", "lucida" })
+        foreach (var id in new[] { "jumo", "monochrome", "lucida" })
         {
             var provider = searches.ForDownloader(id);
             Assert.That(provider, Is.Not.Null, $"{id} must have a search provider");
