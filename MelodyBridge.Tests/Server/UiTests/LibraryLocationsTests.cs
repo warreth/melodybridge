@@ -116,6 +116,10 @@ public class LibraryLocationsTests
     {
         var cut = _ctx.Render<Library>();
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Add location").Click();
+        // The page initializes asynchronously; under the full suite the
+        // modal can land a moment after the click.
+        cut.WaitForAssertion(() => Assert.That(cut.Markup, Does.Contain("Add scan location")),
+            TimeSpan.FromSeconds(5));
 
         // The same six named options everywhere, the sync job wording.
         foreach (var option in new[] { "Manual", "Hourly", "Daily", "Weekly", "Monthly", "Cron" })
