@@ -57,6 +57,10 @@ public class TidalDownloader : CliToolDownloader
     public override DownloaderSearchInfo SearchInfo =>
         DownloaderSearchInfo.ViaProvider(SearchData.Isrc | SearchData.Text);
 
+    public override string IconName => "music";
+    public override string? GuideUrl => "https://docs.melodybridge.app/tidal";
+    public override IReadOnlyList<string> Notes => new[] { "your subscription", "hi-res" };
+
     public override IReadOnlyList<PluginConfigField> ConfigFields =>
     [
         new(TokenKey, "Tidal token", null,

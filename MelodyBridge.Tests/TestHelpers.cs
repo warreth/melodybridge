@@ -44,6 +44,9 @@ public class TestDownloader : IDownloader
     public string Description => "test downloader";
     public PluginCapabilities Capabilities { get; } = PluginCapabilities.Any;
     public IReadOnlyList<PluginConfigField> ConfigFields { get; } = Array.Empty<PluginConfigField>();
+    public string IconName { get; init; } = "music";
+    public string? GuideUrl { get; init; }
+    public IReadOnlyList<string> Notes { get; init; } = Array.Empty<string>();
     public Task<bool> IsAvailableAsync(CancellationToken ct = default) => Task.FromResult(true);
 
     public Task<DownloaderSearchHit?> SearchAsync(TrackQuery query, CancellationToken ct = default)

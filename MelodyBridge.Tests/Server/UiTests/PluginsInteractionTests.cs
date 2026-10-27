@@ -233,7 +233,10 @@ public class PluginsInteractionTests
             [
                 new QualityDeliverable(AudioFormat.Mp3, Lossless: false, MinKbps: 64, MaxKbps: 320),
                 new QualityDeliverable(AudioFormat.Flac, Lossless: true, MinKbps: 900, MaxKbps: 10000),
-            ])));
+            ]))
+        {
+            Notes = new[] { "widest catalog" },
+        });
         cut.WaitForAssertion(() =>
             Assert.That(cut.FindAll(".plugin-card").Count, Is.EqualTo(1)),
             TimeSpan.FromSeconds(3));

@@ -34,6 +34,9 @@ public class SoundCloudDownloader : IDownloader
     public string Name => "SoundCloud (original uploads)";
     public string Description => "SoundCloud original uploads, 128 kbps+ only";
 
+    public string IconName => "globe";
+    public IReadOnlyList<string> Notes => new[] { "original uploads" };
+
     /// <inheritdoc />
     public string? LastUnavailableReason { get; private set; }
 

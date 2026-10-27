@@ -46,6 +46,9 @@ public class DeemixDownloader : CliToolDownloader
         DownloaderSearchInfo.ViaProvider(SearchData.Text | SearchData.Isrc,
             "Deezer catalogue search, ISRC first (legacy source-side adapter)");
 
+    public override string IconName => "music";
+    public override string? GuideUrl => "https://docs.melodybridge.app/deemix";
+    public override IReadOnlyList<string> Notes => new[] { "your ARL", "FLAC with HiFi" };
 
     public override IReadOnlyList<PluginConfigField> ConfigFields =>
     [

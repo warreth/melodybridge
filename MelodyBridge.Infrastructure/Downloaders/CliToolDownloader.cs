@@ -73,6 +73,15 @@ public abstract class CliToolDownloader : IDownloader, IPluginAuthStatusProvider
     /// <summary>False for the CLI sources; a fallback subclass can override it.</summary>
     public virtual bool FallbackOnly => false;
 
+    /// <summary>Presentation metadata; declared on the base so overrides map to IDownloader.</summary>
+    public virtual string IconName => "music";
+
+    /// <inheritdoc />
+    public virtual string? GuideUrl => null;
+
+    /// <inheritdoc />
+    public virtual IReadOnlyList<string> Notes => Array.Empty<string>();
+
     /// <summary>
     /// The last login verdict of the tool. Declared here, not in the
     /// subclasses, because the interface mapping trap would otherwise

@@ -150,6 +150,22 @@ public interface IDownloader
     bool FallbackOnly => false;
 
     /// <summary>
+    /// Icon name from the shared inline icon set. Defaults to the music
+    /// note so a plugin with no presentation metadata still renders.
+    /// </summary>
+    string IconName => "music";
+
+    /// <summary>Optional docs page for the source's setup guide.</summary>
+    string? GuideUrl => null;
+
+    /// <summary>
+    /// Short capability one-liners the manifest cannot express, such as
+    /// "your subscription" or "title-only fallback". The Plugins page
+    /// renders these next to the quality badges.
+    /// </summary>
+    IReadOnlyList<string> Notes => Array.Empty<string>();
+
+    /// <summary>
     /// Find a downloadable source URL for the track query, honoring the
     /// requested quality where the source exposes it. Plugins rank their
     /// candidates with <c>SearchRanker</c>: title/artist similarity plus

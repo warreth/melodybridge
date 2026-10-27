@@ -45,6 +45,9 @@ public class JumoDownloader : IDownloader
         DownloaderSearchInfo.ViaProvider(SearchData.Text | SearchData.Isrc,
             "Jumo catalogue search, ISRC first (legacy source-side adapter)");
 
+    public string IconName => "globe";
+    public string? GuideUrl => "https://docs.melodybridge.app/jumo";
+    public IReadOnlyList<string> Notes => new[] { "no account", "community front-end" };
 
     public IReadOnlyList<PluginConfigField> ConfigFields =>
     [

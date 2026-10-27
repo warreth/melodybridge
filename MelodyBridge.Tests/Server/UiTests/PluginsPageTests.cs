@@ -40,7 +40,10 @@ public class PluginsPageTests
                 [
                     new QualityDeliverable(AudioFormat.Mp3, Lossless: false, MinKbps: 64, MaxKbps: 320),
                     new QualityDeliverable(AudioFormat.Flac, Lossless: true, MinKbps: 900, MaxKbps: 10000),
-                ])),
+                ]))
+            {
+                Notes = new[] { "widest catalog" },
+            },
             new TestDownloader("test2", "Second Plugin"),
         };
 
@@ -139,6 +142,7 @@ public class PluginsPageTests
         public string Description => "auth test downloader";
         public PluginCapabilities Capabilities { get; set; } = PluginCapabilities.Any;
         public IReadOnlyList<PluginConfigField> ConfigFields { get; }
+        public string? GuideUrl { get; set; }
         public PluginAuthStatus AuthStatus { get; set; } = PluginAuthStatus.Unknown;
         public bool Available { get; set; } = true;
         public int Probes { get; private set; }
@@ -413,6 +417,7 @@ public class PluginsPageTests
         var plugin = new AuthTestDownloader("qobuz", "Qobuz")
         {
             Available = true,
+            GuideUrl = "https://docs.melodybridge.app/qobuz",
             AuthStatus = new PluginAuthStatus(
                 PluginAuthState.Valid,
                 Account: "Studio",

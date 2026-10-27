@@ -44,6 +44,9 @@ public class MonochromeDownloader : IDownloader
         DownloaderSearchInfo.ViaProvider(SearchData.Text | SearchData.Isrc,
             "Monochrome catalogue search, ISRC first (legacy source-side adapter)");
 
+    public string IconName => "music";
+    public string? GuideUrl => null;
+    public IReadOnlyList<string> Notes => new[] { "lossless", "no account" };
 
     /// <inheritdoc />
     public string? LastUnavailableReason { get; private set; }

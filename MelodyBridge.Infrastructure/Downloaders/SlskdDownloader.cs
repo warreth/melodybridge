@@ -56,6 +56,10 @@ public class SlskdDownloader : IDownloader
     public string Name => "Soulseek (slskd)";
     public string Description => "Lossless and high-bitrate files from Soulseek peers through your own slskd instance";
 
+    public string IconName => "server";
+    public string? GuideUrl => "https://docs.melodybridge.app/slskd";
+    public IReadOnlyList<string> Notes => new[] { "lossless FLAC", "your own slskd" };
+
     public IReadOnlyList<PluginConfigField> ConfigFields =>
     [
         new(BaseUrlKey, "slskd URL", DefaultBaseUrl,

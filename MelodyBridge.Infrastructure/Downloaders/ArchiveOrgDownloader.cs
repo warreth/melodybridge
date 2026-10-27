@@ -22,6 +22,9 @@ public class ArchiveOrgDownloader : IDownloader
     public string Name => "Internet Archive";
     public string Description => "archive.org public recordings and digitizations, MP3";
 
+    public string IconName => "server";
+    public IReadOnlyList<string> Notes => new[] { "public-domain recordings" };
+
     /// <inheritdoc />
     public string? LastUnavailableReason { get; private set; }
 

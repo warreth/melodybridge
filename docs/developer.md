@@ -195,6 +195,11 @@ Plugins do not write the MELODY_ID tag themselves. `DownloadManager`
 writes it once for every plugin after the file passes the quality band;
 a plugin's tagging code only handles its own metadata.
 
+Presentation metadata lives on the plugin, not in the page: `IconName` is a
+name from the shared inline icon set, `GuideUrl` points at a setup page, and
+`Notes` carries the short capability one-liners. All three have defaults on
+`IDownloader`, so a new plugin renders without touching `Plugins.razor`.
+
 A plugin that owns a login implements `IPluginAuthStatusProvider` and keeps
 `AuthStatus` current (valid, missing, expired, rejected, blocked or plan
 restricted). The default interface member rule applies here too: the property

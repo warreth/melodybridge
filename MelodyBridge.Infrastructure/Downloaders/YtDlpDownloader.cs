@@ -33,6 +33,9 @@ public partial class YtDlpDownloader : IDownloader
     public string Name => "yt-dlp (YouTube)";
     public string Description => "YouTube: best audio as MP3";
 
+    public string IconName => "play";
+    public IReadOnlyList<string> Notes => new[] { "widest catalog" };
+
     /// <inheritdoc />
     public string? LastUnavailableReason { get; private set; }
 

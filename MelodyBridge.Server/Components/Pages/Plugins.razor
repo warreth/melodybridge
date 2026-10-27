@@ -120,7 +120,7 @@
                 <div class="order-row @(authProblem ? "has-problem" : null)">
                     <span class="order-index">@(i + 1)</span>
                     <span class="order-icon @(authProblem ? "has-problem" : null)">
-                        <Icon Name="@PluginIconName(plugin.Id)" Size="17" />
+                        <Icon Name="@plugin.IconName" Size="17" />
                     </span>
                     <div class="order-main">
                         <strong>@plugin.Name</strong>
@@ -269,7 +269,7 @@
                              id="plugin-@plugin.Id">
                         <div class="plugin-head">
                             <span class="plugin-icon-wrap @(authProblem ? "auth-error" : null)">
-                                <Icon Name="@PluginIconName(plugin.Id)" Size="20" Class="provider-icon" />
+                                <Icon Name="@plugin.IconName" Size="20" Class="provider-icon" />
                                 @if (authProblem)
                                 {
                                     <span class="plugin-auth-flag" title="@authMessage" aria-label="Login needs attention">!</span>
@@ -308,7 +308,7 @@
                                     {
                                         <span>@checkedText</span>
                                     }
-                                    @if (PluginGuideUrl(plugin.Id) is { } guide)
+                                    @if (plugin.GuideUrl is { } guide)
                                     {
                                         <a class="plugin-guide" href="@guide" target="_blank" rel="noopener">
                                             Setup guide <Icon Name="external" Size="11" />
@@ -996,20 +996,6 @@
         return $"expires in {minutes} minute{(minutes == 1 ? "" : "s")}";
     }
 
-    /// <summary>The docs page that explains this plugin's setup, when there is one.</summary>
-    private static string? PluginGuideUrl(string pluginId) => pluginId switch
-    {
-        "qobuz" => "https://docs.melodybridge.app/qobuz",
-        "deemix" => "https://docs.melodybridge.app/deemix",
-        "tidal" => "https://docs.melodybridge.app/tidal",
-        "rhythmax" => "https://docs.melodybridge.app/tidal#rhythmax",
-        "flacmusic" => "https://docs.melodybridge.app/flacmusic",
-        "jumo" => "https://docs.melodybridge.app/jumo",
-        "lucida" => "https://docs.melodybridge.app/lucida",
-        "slskd" => "https://docs.melodybridge.app/slskd",
-        _ => null,
-    };
-
     /// <summary>The short pill label for a login problem.</summary>
     private static string AuthLabel(PluginAuthState state) => state switch
     {
@@ -1201,23 +1187,6 @@
         StateHasChanged();
     }
 
-    private static string PluginIconName(string id) => id switch
-    {
-        "ytdlp" => "play",
-        "soundcloud" => "globe",
-        "archiveorg" => "server",
-        "lucida" => "zap",
-        "monochrome" => "music",
-        "slskd" => "server",
-        "qobuz" => "music",
-        "deemix" => "music",
-        "tidal" => "music",
-        "rhythmax" => "music",
-        "flacmusic" => "globe",
-        "jumo" => "globe",
-        _ => "music",
-    };
-
     /// <summary>
     /// What this plugin can actually deliver, derived from its declared
     /// capabilities (never a hand-kept list that drifts), plus a short
@@ -1240,7 +1209,7 @@
             if (!group.Key.Controlled) label += ", service decides";
             badges.Add(label);
         }
-        badges.AddRange(PluginNotes(plugin.Id));
+        badges.AddRange(plugin.Notes);
         return badges;
     }
 
@@ -1260,24 +1229,6 @@
         AudioFormat.Opus => "Opus",
         AudioFormat.Aac => "AAC",
         _ => format.ToString(),
-    };
-
-    /// <summary>Curated one-liners that capabilities cannot express.</summary>
-    private static IEnumerable<string> PluginNotes(string id) => id switch
-    {
-        "ytdlp" => new[] { "widest catalog" },
-        "soundcloud" => new[] { "original uploads" },
-        "archiveorg" => new[] { "public-domain recordings" },
-        "lucida" => new[] { "needs a FlareSolverr URL" },
-        "monochrome" => new[] { "lossless", "no account" },
-        "slskd" => new[] { "lossless FLAC", "your own slskd" },
-        "qobuz" => new[] { "your subscription", "hi-res" },
-        "deemix" => new[] { "your ARL", "FLAC with HiFi" },
-        "tidal" => new[] { "your subscription", "hi-res" },
-        "rhythmax" => new[] { "no Tidal account", "Tidal ISRC search" },
-        "flacmusic" => new[] { "title-only fallback", "Kuwo and NetEase" },
-        "jumo" => new[] { "no account", "community front-end" },
-        _ => Array.Empty<string>(),
     };
 
     public void Dispose()

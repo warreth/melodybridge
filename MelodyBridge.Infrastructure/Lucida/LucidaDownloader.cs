@@ -78,6 +78,9 @@ public class LucidaDownloader : IDownloader
         DownloaderSearchInfo.ViaProvider(SearchData.Text | SearchData.Isrc,
             "Lucida service search, ISRC first; hits carry no code, so a title match is still needed (legacy source-side adapter)");
 
+    public string IconName => "zap";
+    public string? GuideUrl => "https://docs.melodybridge.app/lucida";
+    public IReadOnlyList<string> Notes => new[] { "needs a FlareSolverr URL" };
 
     /// <inheritdoc />
     public string? LastUnavailableReason { get; private set; }

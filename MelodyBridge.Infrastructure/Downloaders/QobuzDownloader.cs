@@ -42,6 +42,9 @@ public class QobuzDownloader : CliToolDownloader
         DownloaderSearchInfo.ViaProvider(SearchData.Text | SearchData.Isrc,
             "Qobuz catalogue search, ISRC first (legacy source-side adapter)");
 
+    public override string IconName => "music";
+    public override string? GuideUrl => "https://docs.melodybridge.app/qobuz";
+    public override IReadOnlyList<string> Notes => new[] { "your subscription", "hi-res" };
 
     public override IReadOnlyList<PluginConfigField> ConfigFields =>
     [

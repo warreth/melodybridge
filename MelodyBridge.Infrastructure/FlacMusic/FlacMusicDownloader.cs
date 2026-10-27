@@ -45,6 +45,10 @@ public class FlacMusicDownloader : IDownloader, IPluginAvailabilityRefresh
         DownloaderSearchInfo.Self(SearchData.Text,
             "Title-only fallback; no ISRC support");
 
+    public string IconName => "globe";
+    public string? GuideUrl => "https://docs.melodybridge.app/flacmusic";
+    public IReadOnlyList<string> Notes => new[] { "title-only fallback", "Kuwo and NetEase" };
+
     /// <summary>
     /// It is the fallback, full stop. Even a lossless request keeps every
     /// curated source ahead of it: the site has no ISRC index and its

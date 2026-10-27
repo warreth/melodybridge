@@ -44,6 +44,10 @@ public class RhythmaxDownloader : IDownloader, IPluginAvailabilityRefresh
         DownloaderSearchInfo.ViaProvider(SearchData.Isrc | SearchData.Text,
             "Uses the Tidal ISRC searcher; no source-side title search");
 
+    public string IconName => "music";
+    public string? GuideUrl => "https://docs.melodybridge.app/tidal#no-tidal-account-rhythmax";
+    public IReadOnlyList<string> Notes => new[] { "no Tidal account", "Tidal ISRC search" };
+
     public string? LastUnavailableReason { get; private set; }
 
     public IReadOnlyList<PluginConfigField> ConfigFields =>
