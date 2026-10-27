@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
@@ -439,6 +440,35 @@ public class RhythmaxClientTests
         Assert.That(manifestAuth,
             Is.EqualTo(new[] { "stale-play-token", "fresh-play-token" }),
             "the retried manifest must use the refreshed token");
+    }
+
+    [Test]
+    public async Task GetManifest_LongRetryAfter_ReturnsRateLimitedWithoutWaiting()
+    {
+        using var handler = new ScriptedHandler();
+        var manifestCalls = 0;
+        handler.Respond = request =>
+        {
+            if (request.RequestUri!.AbsoluteUri == "https://hifi.test/token")
+                return Json("""{"access_token":"play-token","expires_in":600}""");
+            manifestCalls++;
+            var response = Json("{}", HttpStatusCode.TooManyRequests);
+            response.Headers.RetryAfter = new RetryConditionHeaderValue(TimeSpan.FromSeconds(30));
+            return response;
+        };
+
+        var stopwatch = Stopwatch.StartNew();
+        var result = await Client(handler).GetManifestAsync(35986110, "LOSSLESS");
+        stopwatch.Stop();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Status, Is.EqualTo(RhythmaxClient.ManifestStatus.RateLimited));
+            Assert.That(manifestCalls, Is.EqualTo(1),
+                "a Retry-After above the 10 s budget is not retried");
+            Assert.That(stopwatch.Elapsed, Is.LessThan(TimeSpan.FromSeconds(2)),
+                "the waterfall must not sit on a full pool");
+        });
     }
 
     [Test]

@@ -199,20 +199,29 @@ public class RhythmaxClient
             }
 
             // A 429 is the shared playback pool pacing itself, not a bad
-            // request. Honor Retry-After when the API sends it, then back
-            // off once or twice before the waterfall moves on.
+            // request. Honor Retry-After when the API sends it, but keep a
+            // total budget: a 429 with a long header means the pool is full,
+            // and waiting it out only delays the next waterfall source.
+            const int maxRetries = 2;
+            var retryBudget = TimeSpan.FromSeconds(10);
+            var spent = TimeSpan.Zero;
             for (var attempt = 0;
-                 result.Status == ManifestStatus.RateLimited && attempt < 2;
+                 result.Status == ManifestStatus.RateLimited && attempt < maxRetries;
                  attempt++)
             {
                 var delay = result.RetryAfter
                     ?? TimeSpan.FromSeconds(Math.Pow(2, attempt));
-                delay = TimeSpan.FromMilliseconds(
-                    Math.Clamp(delay.TotalMilliseconds, 100, 10_000));
+                if (delay < TimeSpan.FromMilliseconds(100))
+                    delay = TimeSpan.FromMilliseconds(100);
+
+                var remaining = retryBudget - spent;
+                if (remaining <= TimeSpan.Zero || delay > remaining) break;
+
                 _logger.LogDebug(
                     "Rhythmax rate limited track {TrackId}; retrying in {Delay:0.##}s",
                     trackId, delay.TotalSeconds);
                 await Task.Delay(delay, ct);
+                spent += delay;
                 result = await RequestManifestAsync(url, token, ct);
             }
             return result;
