@@ -95,11 +95,12 @@ public class ArchiveOrgDownloader : IDownloader
                 docs.ValueKind != JsonValueKind.Array || docs.GetArrayLength() == 0)
                 return null;
 
-            // Collect candidates from several items (an item usually holds
-            // a whole album): the right track may be the third item or the
-            // eighth file inside one, so nothing is trusted by position.
+            // Collect candidates from every returned item (an item usually
+            // holds a whole album): the right track may be the fifth item
+            // or the eighth file inside one, so nothing is trusted by
+            // position. The query already asks for five rows.
             var candidates = new List<DownloaderSearchHit>();
-            foreach (var docItem in docs.EnumerateArray().Take(3))
+            foreach (var docItem in docs.EnumerateArray())
             {
                 var identifier = GetString(docItem, "identifier");
                 if (string.IsNullOrEmpty(identifier)) continue;
