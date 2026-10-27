@@ -141,18 +141,29 @@ public class RhythmaxDownloader : IDownloader, IPluginAvailabilityRefresh
         if (quality.Format == AudioFormat.Flac) return "LOSSLESS";
         if (quality.Format is AudioFormat.Mp3 or AudioFormat.Opus) return null;
 
-        if (quality.Format == AudioFormat.Aac || quality.HasConstraints)
+        // An explicit AAC request never becomes FLAC, even when its floor
+        // is above every AAC tier. The router already excludes that band;
+        // a direct caller must get null, not a format it did not ask for.
+        if (quality.Format == AudioFormat.Aac) return AacTier(quality);
+
+        if (quality.HasConstraints)
         {
             if (quality.MinKbps is >= 900) return "LOSSLESS";
-            // Prefer the 320 tier whenever the band allows it; fall back
-            // to 96 only when the cap or floor rules 320 out.
-            if (quality.IsWithinBand(320) && quality.MaxKbps is not < 320)
-                return "HIGH";
-            if (quality.IsWithinBand(96)) return "LOW";
-            return null;
+            return AacTier(quality);
         }
 
         return "LOSSLESS";
+    }
+
+    /// <summary>The 320 or 96 Tidal tier that fits the band, or null.</summary>
+    private static string? AacTier(DownloadQuality quality)
+    {
+        // Prefer 320 whenever the band allows it; fall back to 96 only
+        // when the cap or floor rules 320 out.
+        if (quality.IsWithinBand(320) && quality.MaxKbps is not < 320)
+            return "HIGH";
+        if (quality.IsWithinBand(96)) return "LOW";
+        return null;
     }
 
     /// <summary>Track id from a Tidal URL or a bare id. Internal for tests.</summary>

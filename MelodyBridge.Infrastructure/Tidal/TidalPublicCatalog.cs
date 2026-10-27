@@ -84,7 +84,8 @@ public class TidalPublicCatalog
         var url = $"{ApiBase}/tracks?isrc={Uri.EscapeDataString(code)}"
             + $"&limit={Math.Clamp(limit, 1, 50)}&offset=0"
             + $"&countryCode={Uri.EscapeDataString(NormalizeCountry(countryCode))}";
-        return SearchCachedAsync("isrc:" + code + ":" + NormalizeCountry(countryCode), url, ct);
+        return SearchCachedAsync(
+            $"isrc:{code}:{NormalizeCountry(countryCode)}:{Math.Clamp(limit, 1, 50)}", url, ct);
     }
 
     /// <summary>The text fallback, used only when the ISRC route had no result.</summary>
@@ -97,7 +98,8 @@ public class TidalPublicCatalog
         var url = $"{ApiBase}/search/tracks?query={Uri.EscapeDataString(text)}"
             + $"&limit={Math.Clamp(limit, 1, 50)}&offset=0"
             + $"&countryCode={Uri.EscapeDataString(NormalizeCountry(countryCode))}";
-        return SearchCachedAsync("text:" + text + ":" + NormalizeCountry(countryCode), url, ct);
+        return SearchCachedAsync(
+            $"text:{text}:{NormalizeCountry(countryCode)}:{Math.Clamp(limit, 1, 50)}", url, ct);
     }
 
     private async Task<SearchResult> SearchCachedAsync(string key, string url, CancellationToken ct)

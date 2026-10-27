@@ -55,6 +55,8 @@ public class RhythmaxDownloaderTests
             Is.Null, "96 is below the floor and 320 is above the cap");
         Assert.That(RhythmaxDownloader.QualityFor(new DownloadQuality(AudioFormat.Aac, 200, 260)),
             Is.Null, "neither 96 nor 320 fits");
+        Assert.That(RhythmaxDownloader.QualityFor(new DownloadQuality(AudioFormat.Aac, 900, null)),
+            Is.Null, "an explicit AAC request must never become FLAC");
         Assert.That(RhythmaxDownloader.QualityFor(new DownloadQuality(AudioFormat.Mp3)),
             Is.Null, "Tidal has no MP3");
         Assert.That(RhythmaxDownloader.QualityFor(new DownloadQuality(AudioFormat.Opus)),
