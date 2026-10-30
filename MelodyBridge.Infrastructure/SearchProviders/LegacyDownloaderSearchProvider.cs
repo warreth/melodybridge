@@ -29,11 +29,13 @@ public sealed class LegacyDownloaderSearchProvider : ISearchProvider
         + (Data.HasFlag(SearchData.Isrc) ? ", ISRC first." : ".");
     public SearchData Data => _downloader.SearchInfo.Data;
     public bool IsLegacy => true;
+    public SearchTier Tier => SearchTier.UnofficialCatalog;
     public IReadOnlyList<SearchProviderTarget> Targets =>
         new[]
         {
             new SearchProviderTarget(_downloader.Id, Data,
-                _downloader.SearchInfo.Note ?? "Legacy source-side search"),
+                _downloader.SearchInfo.Note ?? "Legacy source-side search",
+                Tier: SearchTier.UnofficialCatalog),
         };
 
     public async Task<DownloaderSearchHit?> SearchAsync(

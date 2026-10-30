@@ -100,6 +100,19 @@ public class SearchProviderRegistryTests
         }
     }
 
+    private sealed class TieredStubProvider(string id, params SearchProviderTarget[] targets) : ISearchProvider
+    {
+        public string Id => id;
+        public string Name => "Tiered";
+        public string Description => "test";
+        public SearchData Data => SearchData.Isrc | SearchData.Text;
+        public IReadOnlyList<SearchProviderTarget> Targets { get; } = targets;
+
+        public Task<DownloaderSearchHit?> SearchAsync(
+            string downloaderId, TrackQuery query, CancellationToken ct = default)
+            => Task.FromResult<DownloaderSearchHit?>(null);
+    }
+
     private static SearchProviderRegistry Registry(params ISearchProvider[] providers)
         => new(providers, NullLogger<SearchProviderRegistry>.Instance);
 
@@ -144,6 +157,42 @@ public class SearchProviderRegistryTests
     }
 
     [Test]
+    public void ProviderFirstOrder_PutsOfficialThenRipperThenUnofficial()
+    {
+        var provider = new TieredStubProvider("tiered",
+            new SearchProviderTarget("official", SearchData.Isrc),
+            new SearchProviderTarget("ripped", SearchData.Isrc, Tier: SearchTier.Ripper),
+            new SearchProviderTarget("mirror", SearchData.Isrc,
+                Tier: SearchTier.UnofficialCatalog));
+        var registry = Registry(provider);
+
+        var order = registry.ProviderFirstOrder();
+
+        Assert.That(order.Keys, Is.EqualTo(new[] { "official", "ripped", "mirror" }),
+            "official catalogue, then the ripper on its URL, then the unofficial mirror");
+        Assert.That(order.Values, Is.Ordered.Ascending);
+    }
+
+    [Test]
+    public void ProviderFirstOrder_KeepsOneRankPerDownloader()
+    {
+        var qobuz = new TieredStubProvider("qobuz",
+            new SearchProviderTarget("qobuz", SearchData.Isrc, Priority: 30),
+            new SearchProviderTarget("lucida", SearchData.Isrc, Priority: 20,
+                Tier: SearchTier.Ripper));
+        var tidal = new TieredStubProvider("tidal",
+            new SearchProviderTarget("tidal", SearchData.Isrc, Priority: 20),
+            new SearchProviderTarget("lucida", SearchData.Isrc, Priority: 20,
+                Tier: SearchTier.Ripper));
+        var registry = Registry(qobuz, tidal);
+
+        var order = registry.ProviderFirstOrder();
+
+        Assert.That(order.Keys, Is.EqualTo(new[] { "qobuz", "tidal", "lucida" }),
+            "a downloader that several providers target gets the best cell only");
+    }
+
+    [Test]
     public void GetAll_OrdersProvidersByPriority()
     {
         var high = new StubProvider("high", "Zeta", providerPriority: 9, targetPriority: 0, "wanted");
@@ -173,6 +222,28 @@ public class SearchProviderRegistryTests
             new ListDownloaderRegistry(new StubDownloader("wanted")));
 
         Assert.That(registry.ValidationIssues.Any(issue => issue.Contains("ghost")), Is.True);
+    }
+
+    [Test]
+    public async Task SearchAsync_FallsBackToTheNextProvider()
+    {
+        var first = new StubProvider("first", "First", providerPriority: 9, targetPriority: 10, "wanted")
+        {
+            Hit = null,
+        };
+        var second = new StubProvider("second", "Second", providerPriority: 0, targetPriority: 0, "wanted");
+        var registry = Registry(first, second);
+        var downloader = new StubDownloader(
+            "wanted", DownloaderSearchInfo.ViaProvider(SearchData.Isrc));
+
+        var hit = await registry.SearchAsync(downloader, Query());
+
+        Assert.That(hit, Is.Not.Null);
+        Assert.That(hit!.SourceUrl, Is.EqualTo("https://provider.test/1"));
+        Assert.That(first.LastDownloaderId, Is.EqualTo("wanted"),
+            "the best provider is tried first");
+        Assert.That(second.LastDownloaderId, Is.EqualTo("wanted"),
+            "a miss from the best provider does not stop the fallback");
     }
 
     [Test]

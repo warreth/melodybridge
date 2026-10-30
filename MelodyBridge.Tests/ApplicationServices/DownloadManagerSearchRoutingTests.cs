@@ -42,6 +42,9 @@ public class DownloadManagerSearchRoutingTests
         public IReadOnlyList<ISearchProvider> GetAll() => Array.Empty<ISearchProvider>();
         public ISearchProvider? ForDownloader(string downloaderId) => null;
 
+        public Dictionary<string, int> Order { get; } = new(StringComparer.OrdinalIgnoreCase);
+        public IReadOnlyDictionary<string, int> ProviderFirstOrder() => Order;
+
         public Task<DownloaderSearchHit?> SearchAsync(
             IDownloader downloader, TrackQuery query, CancellationToken ct = default)
         {
@@ -94,10 +97,59 @@ public class DownloadManagerSearchRoutingTests
         }
     }
 
+    private sealed class OrderedDownloader(string id, bool succeed, List<string> attempts)
+        : IDownloader
+    {
+        public string Id => id;
+        public string Name => id;
+        public DownloaderSearchInfo SearchInfo =>
+            DownloaderSearchInfo.ViaProvider(SearchData.Isrc | SearchData.Text);
+        public PluginCapabilities Capabilities => PluginCapabilities.Any;
+
+        public Task<bool> IsAvailableAsync(CancellationToken ct = default) => Task.FromResult(true);
+
+        public Task<DownloaderSearchHit?> SearchAsync(
+            TrackQuery query, CancellationToken ct = default)
+            => throw new InvalidOperationException("the provider route must search");
+
+        public Task<DownloaderDownloadResult> DownloadAsync(
+            string sourceUrl, string outputDirectory, string? melodyId,
+            DownloadQuality? quality = null, CancellationToken ct = default)
+        {
+            attempts.Add(Id);
+            if (!succeed)
+                return Task.FromResult(new DownloaderDownloadResult(false, null, "down"));
+            var path = Path.Combine(outputDirectory, $"{Id}.mp3");
+            File.WriteAllBytes(path, TestAudio.MinimalMp3());
+            return Task.FromResult(new DownloaderDownloadResult(true, path, null));
+        }
+    }
+
     private static DownloadManager Manager(
         IDownloader downloader, ISearchProviderRegistry router)
         => new(new ListDownloaderRegistry(downloader),
             NullLogger<DownloadManager>.Instance, searches: router);
+
+    [Test]
+    public async Task Waterfall_OfficialFirstOrder_TriesTheRankedSourceFirst()
+    {
+        var attempts = new List<string>();
+        var first = new OrderedDownloader("first", succeed: true, attempts);
+        var second = new OrderedDownloader("second", succeed: false, attempts);
+        var router = new RecordingRouter();
+        router.Order["second"] = 0;
+        router.Order["first"] = 1;
+        var manager = new DownloadManager(
+            new ListDownloaderRegistry(first, second),
+            NullLogger<DownloadManager>.Instance, searches: router);
+
+        var path = await manager.DownloadTrackAsync(
+            new TrackQuery("artist", "title", DownloadQuality.Any), NewDir(), "melody-order");
+
+        Assert.That(path, Is.Not.Null, manager.LastFailure("melody-order"));
+        Assert.That(attempts, Is.EqualTo(new[] { "second", "first" }),
+            "the provider-first rank decides before the user's source order");
+    }
 
     [Test]
     public async Task Waterfall_UsesTheRouterInsteadOfTheSourcesOwnSearch()

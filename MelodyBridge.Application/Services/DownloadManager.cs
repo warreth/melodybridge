@@ -28,6 +28,9 @@ public class DownloadManager : IDownloadManager
     private readonly PluginAuthMonitor? _auth;
     private readonly ISearchProviderRegistry? _searches;
 
+    /// <summary>When true, the provider tiers order the waterfall before the user's source order.</summary>
+    public const string OfficialFirstSettingKey = "search_official_first";
+
     public DownloadManager(
         IDownloaderRegistry registry,
         ILogger<DownloadManager> logger,
@@ -553,13 +556,27 @@ public class DownloadManager : IDownloadManager
             foreach (var (downloader, reason) in plan.Excluded)
                 _logger.LogDebug("Router excluded {Name}: {Reason}", downloader.Name, reason);
 
+            // Official catalogue targets first, then rippers that consume
+            // their URLs, then unofficial catalogues. Self-search sources
+            // keep the user's order after the ranked ones. A user who wants
+            // the old pure source order turns the setting off.
+            var officialFirst = _settings is null
+                || await _settings.GetBoolAsync(OfficialFirstSettingKey, true, ct);
+            var providerOrder = officialFirst && _searches is not null
+                ? _searches.ProviderFirstOrder()
+                : null;
+
             // The router's controlled-first rule stays; inside those groups
             // a provider whose recent attempts mostly failed runs after the
-            // healthy ones. The user's order survives otherwise.
+            // healthy ones. The user's order survives within a tier.
             var ordered = plan.Plugins
                 .OrderBy(p => p.FallbackOnly ? 1 : 0)
                 .ThenBy(p => p.Capabilities.ServesControlled(quality) ? 0 : 1)
                 .ThenBy(p => _health.IsDegraded(p.Id) ? 1 : 0)
+                .ThenBy(p => providerOrder is not null
+                    && providerOrder.TryGetValue(p.Id, out var rank)
+                        ? rank
+                        : int.MaxValue)
                 .ToList();
 
             foreach (var downloader in ordered)

@@ -87,6 +87,24 @@
             link it or fetch a fresh copy. Cross-drive links fall back to a
             normal download.
         </div>
+        <div class="toggle-with-help">
+            <label class="toggle-switch wide">
+                <input type="checkbox" @bind="officialFirst" @bind:after="MarkDirty" />
+                <span class="toggle-slider"></span>
+                <span>Prefer official sources before community mirrors</span>
+            </label>
+            <HelpTip Path="concepts#finding-the-right-recording" Text="Official Qobuz, Tidal and Deezer targets run first. Lucida, Jumo and Monochrome follow; YouTube, SoundCloud and the other self-search sources stay last." />
+        </div>
+        <div class="hint-box">
+            Official catalogue targets run before rippers and community mirrors.
+            The per-source order still decides inside a tier; a FLAC request
+            keeps its quality filters either way.
+        </div>
+        <div class="hint-box">
+            Higher values finish large playlists faster but hit every source
+            harder. The limit covers playlist and manual downloads together;
+            the next run uses the new value.
+        </div>
         <div class="hint-box">
             Higher values finish large playlists faster but hit every source
             harder. The limit covers playlist and manual downloads together;
@@ -363,6 +381,7 @@
     private int trackBudgetSeconds = 1200;
     private bool showFilename;
     private bool dedupEnabled = true;
+    private bool officialFirst = true;
     private bool logDatabaseActivity;
     private bool advancedMode;
     private bool recomputing;
@@ -394,6 +413,7 @@
             trackBudgetSeconds = Math.Clamp(trackBudget, 60, 14400);
         showFilename = await Settings.GetBoolAsync("show_filename", false);
         dedupEnabled = await Settings.GetBoolAsync(PlaylistStore.DedupSettingKey, true);
+        officialFirst = await Settings.GetBoolAsync(DownloadManager.OfficialFirstSettingKey, true);
         logDatabaseActivity = await Settings.GetBoolAsync(DatabaseLogSwitch.SettingKey, false);
         advancedMode = await Settings.GetBoolAsync(AdvancedMode.SettingKey, false);
         fileNamePattern = await Settings.GetAsync(FileNamePattern.SettingKey, FileNamePattern.Default);
@@ -495,6 +515,7 @@
             await Settings.SetAsync("download_track_budget_seconds", clampedTrackBudget.ToString());
             await Settings.SetAsync("show_filename", showFilename ? "true" : "false");
             await Settings.SetAsync(PlaylistStore.DedupSettingKey, dedupEnabled ? "true" : "false");
+            await Settings.SetAsync(DownloadManager.OfficialFirstSettingKey, officialFirst ? "true" : "false");
             await Settings.SetAsync(DatabaseLogSwitch.SettingKey, logDatabaseActivity ? "true" : "false");
             await Settings.SetAsync(AdvancedMode.SettingKey, advancedMode ? "true" : "false");
             await Settings.SetAsync(FileNamePattern.SettingKey, fileNamePattern.Trim());

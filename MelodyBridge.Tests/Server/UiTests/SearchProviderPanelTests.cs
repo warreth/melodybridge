@@ -77,6 +77,7 @@ public class SearchProviderPanelTests
         public SearchData Data => SearchData.Isrc | SearchData.Text;
         public IReadOnlyList<SearchProviderTarget> Targets { get; }
         public int Priority { get; }
+        public SearchTier Tier { get; init; } = SearchTier.Official;
 
         public Task<DownloaderSearchHit?> SearchAsync(
             string downloaderId, TrackQuery query, CancellationToken ct = default)
@@ -173,6 +174,24 @@ public class SearchProviderPanelTests
         var provider = cut.Find(".search-provider");
         Assert.That(provider.TextContent, Does.Contain("legacy"));
         Assert.That(provider.TextContent, Does.Contain("Searches the Qobuz catalogue, ISRC first."));
+    }
+
+    [Test]
+    public void Panel_MarksAnUnofficialCatalogue()
+    {
+        var downloader = new StubDownloader("wanted", "Wanted",
+            DownloaderSearchInfo.ViaProvider(SearchData.Isrc | SearchData.Text));
+        var provider = new StubProvider("unofficial", "Unofficial", 0, "wanted")
+        {
+            Tier = SearchTier.UnofficialCatalog,
+        };
+        Register(provider, downloader);
+
+        var cut = _ctx.Render<SearchProviderPanel>();
+
+        var badge = cut.Find(".search-tier-badge");
+        Assert.That(badge.TextContent.Trim(), Is.EqualTo("unofficial"));
+        Assert.That(badge.ClassList, Does.Contain("unofficial"));
     }
 
     [Test]

@@ -46,8 +46,10 @@ public sealed class LucidaSearchProvider : ISearchProvider
     public string Description =>
         "Searches lucida.to's Qobuz, Amazon, Deezer and Tidal storefronts, ISRC first; a hit carries no code, so the title still has to match.";
     public SearchData Data => SearchData.Text | SearchData.Isrc;
+    public SearchTier Tier => SearchTier.Ripper;
     public IReadOnlyList<SearchProviderTarget> Targets =>
-        new[] { new SearchProviderTarget(DownloaderId, Data, "Lucida service search, ISRC first") };
+        new[] { new SearchProviderTarget(DownloaderId, Data, "Lucida service search, ISRC first",
+            Tier: SearchTier.Ripper) };
 
     public async Task<DownloaderSearchHit?> SearchAsync(
         string downloaderId, TrackQuery query, CancellationToken ct = default)

@@ -76,6 +76,8 @@
                                     {
                                         <span class="search-legacy-badge" title="The catalogue search still lives in the source plugin">legacy</span>
                                     }
+                                    <span class="search-tier-badge @TierLabel(provider.Tier)"
+                                          title="Where this provider sits in the official-first order">@TierLabel(provider.Tier)</span>
                                 </strong>
                                 <span>@provider.Description</span>
                             </div>
@@ -204,6 +206,15 @@
 }
 
 @code {
+    private static string TierLabel(SearchTier tier) => tier switch
+    {
+        SearchTier.Official => "official",
+        SearchTier.Ripper => "ripper",
+        SearchTier.UnofficialCatalog => "unofficial",
+        SearchTier.SelfSearch => "self",
+        _ => "search",
+    };
+
     private static IReadOnlyList<string> DataBadges(SearchData data)
     {
         var badges = new List<string>();

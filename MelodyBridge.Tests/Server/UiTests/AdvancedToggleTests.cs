@@ -54,8 +54,8 @@ public class AdvancedToggleTests
             Assert.That(cut.Markup, Does.Contain("Show the file column")), TimeSpan.FromSeconds(3));
 
         var labels = cut.FindAll("label.toggle-switch.wide");
-        Assert.That(labels.Count, Is.EqualTo(4),
-            "Advanced mode + dedup + display + database logs use the wide switch; the toast and ntfy switches moved to Settings - Notifications");
+        Assert.That(labels.Count, Is.EqualTo(5),
+            "Advanced mode + dedup + official-first + display + database logs use the wide switch; the toast and ntfy switches moved to Settings - Notifications");
 
         foreach (var label in labels)
         {

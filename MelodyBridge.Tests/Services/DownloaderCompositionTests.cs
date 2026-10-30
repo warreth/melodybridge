@@ -40,7 +40,7 @@ public class DownloaderCompositionTests
 
         Assert.That(provider, Is.Not.Null, "the Tidal provider must be registered in the real app");
         Assert.That(provider!.Targets.Select(t => t.DownloaderId),
-            Is.EquivalentTo(new[] { "tidal", "rhythmax" }));
+            Is.EquivalentTo(new[] { "tidal", "rhythmax", "lucida" }));
         Assert.That(searches.ForDownloader("tidal"), Is.SameAs(provider));
     }
 
@@ -54,9 +54,7 @@ public class DownloaderCompositionTests
         {
             ["qobuz"] = typeof(QobuzSearchProvider),
             ["deemix"] = typeof(DeemixSearchProvider),
-            ["jumo"] = typeof(JumoSearchProvider),
             ["monochrome"] = typeof(MonochromeSearchProvider),
-            ["lucida"] = typeof(LucidaSearchProvider),
         };
         foreach (var (id, type) in expected)
         {
@@ -64,11 +62,30 @@ public class DownloaderCompositionTests
             Assert.That(provider, Is.Not.Null, $"{id} must have a search provider");
             Assert.That(provider, Is.InstanceOf(type),
                 $"{id} uses its own catalogue provider");
-            Assert.That(provider!.Targets.Single().DownloaderId, Is.EqualTo(id));
+            Assert.That(provider!.Targets.Single(t => t.DownloaderId == id).DownloaderId, Is.EqualTo(id));
         }
 
+        var qobuz = searches.GetAll().OfType<QobuzSearchProvider>().Single();
+        Assert.That(qobuz.Targets.Any(t => t.DownloaderId == "jumo"), Is.True,
+            "the Qobuz provider maps its ids to a Jumo URL");
+        Assert.That(qobuz.Targets.Any(t => t.DownloaderId == "lucida"), Is.True,
+            "Lucida consumes the official Qobuz URL");
+        Assert.That(searches.GetAll().Any(p => p is JumoSearchProvider), Is.True,
+            "the no-account Jumo searcher remains the fallback");
+
+        Assert.That(searches.ForDownloader("lucida"),
+            Is.InstanceOf<QobuzSearchProvider>(),
+            "Lucida has no searcher; the best official provider supplies its URL");
+        Assert.That(searches.GetAll().Any(p => p is LucidaSearchProvider), Is.False,
+            "Lucida is URL-only in the real composition");
         Assert.That(searches.GetAll().Any(p => p is LegacyDownloaderSearchProvider), Is.False,
             "no built-in source still needs the legacy adapter");
+
+        var order = searches.ProviderFirstOrder();
+        Assert.That(order.Keys.Take(7), Is.EqualTo(new[]
+        {
+            "qobuz", "tidal", "rhythmax", "deemix", "lucida", "jumo", "monochrome",
+        }), "official sources first, then the ripper, then the unofficial catalogues");
     }
 
     [Test]

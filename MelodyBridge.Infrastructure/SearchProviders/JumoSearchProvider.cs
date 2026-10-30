@@ -38,8 +38,10 @@ public sealed class JumoSearchProvider : ISearchProvider
     public string Name => "Jumo catalogue";
     public string Description => "Searches the Jumo catalogue, ISRC first.";
     public SearchData Data => SearchData.Text | SearchData.Isrc;
+    public SearchTier Tier => SearchTier.UnofficialCatalog;
     public IReadOnlyList<SearchProviderTarget> Targets =>
-        new[] { new SearchProviderTarget(DownloaderId, Data, "Jumo ISRC-first search") };
+        new[] { new SearchProviderTarget(DownloaderId, Data, "Jumo ISRC-first search",
+            Tier: SearchTier.UnofficialCatalog) };
 
     public async Task<DownloaderSearchHit?> SearchAsync(
         string downloaderId, TrackQuery query, CancellationToken ct = default)

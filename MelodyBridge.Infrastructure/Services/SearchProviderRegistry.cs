@@ -109,6 +109,25 @@ public sealed class SearchProviderRegistry : ISearchProviderRegistry
     public ISearchProvider? ForDownloader(string downloaderId)
         => ProvidersFor(downloaderId).FirstOrDefault();
 
+    public IReadOnlyDictionary<string, int> ProviderFirstOrder()
+    {
+        var order = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var index = 0;
+        foreach (var cell in _providers
+                     .SelectMany(provider => provider.Targets
+                         .Select(target => (Provider: provider, Target: target)))
+                     .OrderBy(cell => cell.Target.Tier)
+                     .ThenByDescending(cell => cell.Provider.Priority)
+                     .ThenByDescending(cell => cell.Target.Priority)
+                     .ThenBy(cell => cell.Provider.Name, StringComparer.OrdinalIgnoreCase)
+                     .ThenBy(cell => cell.Target.DownloaderId, StringComparer.OrdinalIgnoreCase))
+        {
+            if (order.ContainsKey(cell.Target.DownloaderId)) continue;
+            order[cell.Target.DownloaderId] = index++;
+        }
+        return order;
+    }
+
     public async Task<DownloaderSearchHit?> SearchAsync(
         IDownloader downloader, TrackQuery query, CancellationToken ct = default)
     {
@@ -123,8 +142,8 @@ public sealed class SearchProviderRegistry : ISearchProviderRegistry
 
             case DownloaderSearchMode.Provider:
             {
-                var provider = ForDownloader(downloader.Id);
-                if (provider is null)
+                var providers = ProvidersFor(downloader.Id).ToList();
+                if (providers.Count == 0)
                 {
                     _logger.LogWarning(
                         "{Source} declares provider search but no search provider targets it",
@@ -132,25 +151,32 @@ public sealed class SearchProviderRegistry : ISearchProviderRegistry
                     return null;
                 }
 
-                try
+                // The best provider may be configured but unable to answer
+                // (a missing Qobuz token, a Tidal rate limit). The next
+                // provider for the same source is the documented fallback,
+                // so the waterfall must not stop at the first miss.
+                foreach (var provider in providers)
                 {
-                    var hit = await provider.SearchAsync(downloader.Id, query, ct);
-                    _logger.LogDebug(
-                        "{Provider} searched {Source} for '{Artist} - {Title}': {Result}",
-                        provider.Name, downloader.Name, query.Artist, query.Title,
-                        hit is null ? "no match" : hit.Title);
-                    return hit;
+                    try
+                    {
+                        var hit = await provider.SearchAsync(downloader.Id, query, ct);
+                        _logger.LogDebug(
+                            "{Provider} searched {Source} for '{Artist} - {Title}': {Result}",
+                            provider.Name, downloader.Name, query.Artist, query.Title,
+                            hit is null ? "no match" : hit.Title);
+                        if (hit is not null) return hit;
+                    }
+                    catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                    {
+                        throw;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "{Provider} search for {Source} failed",
+                            provider.Name, downloader.Name);
+                    }
                 }
-                catch (OperationCanceledException) when (ct.IsCancellationRequested)
-                {
-                    throw;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "{Provider} search for {Source} failed",
-                        provider.Name, downloader.Name);
-                    return null;
-                }
+                return null;
             }
 
             default:
