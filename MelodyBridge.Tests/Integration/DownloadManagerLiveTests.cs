@@ -113,7 +113,13 @@ public class DownloadManagerLiveTests
                     line.Contains("Monochrome", StringComparison.OrdinalIgnoreCase)
                     && (line.Contains("prematurely", StringComparison.OrdinalIgnoreCase)
                         || line.Contains("429")
-                        || line.Contains("timed out", StringComparison.OrdinalIgnoreCase))))
+                        || line.Contains("HTTP 5", StringComparison.OrdinalIgnoreCase)
+                        || line.Contains("502")
+                        || line.Contains("503")
+                        || line.Contains("timed out", StringComparison.OrdinalIgnoreCase)
+                        || line.Contains("health probe failed", StringComparison.OrdinalIgnoreCase)
+                        || line.Contains("TaskCanceledException", StringComparison.OrdinalIgnoreCase)
+                        || line.Contains("unavailable", StringComparison.OrdinalIgnoreCase))))
                 Assert.Ignore("the Monochrome API did not complete a stream this run: "
                     + manager.LastFailure("mb-live-mgr-flac"));
             Assert.That(path, Is.Not.Null, manager.LastFailure("mb-live-mgr-flac") + " | " + _app.Logs.Tail(12));

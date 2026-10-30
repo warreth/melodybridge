@@ -53,7 +53,11 @@ public class MonochromeLiveTests
     [Test]
     public async Task IsAvailable_OfficialApiAnswers()
     {
-        Assert.That(await _downloader.IsAvailableAsync(), Is.True,
+        var available = await _downloader.IsAvailableAsync();
+        if (!available && IsTransient(_downloader.LastUnavailableReason))
+            Assert.Ignore("the Monochrome API is unavailable this run: "
+                + _downloader.LastUnavailableReason);
+        Assert.That(available, Is.True,
             "tracks.monochrome.st must answer /health for this test");
     }
 
@@ -63,6 +67,9 @@ public class MonochromeLiveTests
         var hit = await _provider.SearchAsync("monochrome",
             new TrackQuery("Rick Astley", "Never Gonna Give You Up", DownloadQuality.Any));
 
+        if (hit is null && IsTransient(_provider.LastFailure))
+            Assert.Ignore("the Monochrome search endpoint is unavailable this run: "
+                + _provider.LastFailure);
         Assert.That(hit, Is.Not.Null, "the official API must find this well-known track");
         Assert.That(hit!.Title, Does.Contain("Never Gonna Give You Up"));
         Assert.That(hit.Artist, Does.Contain("Rick Astley"));
@@ -77,6 +84,9 @@ public class MonochromeLiveTests
     {
         var hit = await _provider.SearchAsync("monochrome",
             new TrackQuery("Rick Astley", "Never Gonna Give You Up", DownloadQuality.Any));
+        if (hit is null && IsTransient(_provider.LastFailure))
+            Assert.Ignore("the Monochrome search endpoint is unavailable this run: "
+                + _provider.LastFailure);
         Assert.That(hit, Is.Not.Null, "precondition: search finds the track");
 
         var result = await _downloader.DownloadAsync(hit!.SourceUrl!, _outDir, "mb-monochrome-live");
@@ -113,11 +123,23 @@ public class MonochromeLiveTests
         if (result.Success) return;
         var message = result.ErrorMessage ?? "";
         if (message.Contains("429")
+            || message.Contains("HTTP 5", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("502")
+            || message.Contains("503")
             || message.Contains("prematurely", StringComparison.OrdinalIgnoreCase)
             || message.Contains("ResponseEnded", StringComparison.OrdinalIgnoreCase)
             || message.Contains("timed out", StringComparison.OrdinalIgnoreCase))
             Assert.Ignore("the Monochrome API did not complete this run: " + message);
     }
+
+    private static bool IsTransient(string? message)
+        => !string.IsNullOrWhiteSpace(message)
+           && (message.Contains("429")
+               || message.Contains("HTTP 5", StringComparison.OrdinalIgnoreCase)
+               || message.Contains("502")
+               || message.Contains("503")
+               || message.Contains("did not answer", StringComparison.OrdinalIgnoreCase)
+               || message.Contains("timed out", StringComparison.OrdinalIgnoreCase));
 
     private static async Task<string> FfprobeAsync(string arguments, string file)
     {

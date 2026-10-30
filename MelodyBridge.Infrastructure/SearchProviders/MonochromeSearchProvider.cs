@@ -23,6 +23,9 @@ public sealed class MonochromeSearchProvider : ISearchProvider
     private readonly IPluginConfig _config;
     private readonly ILogger<MonochromeSearchProvider> _logger;
 
+    /// <summary>The last transport verdict, for the live diagnostics and the card.</summary>
+    public string? LastFailure { get; private set; }
+
     public MonochromeSearchProvider(
         HttpClient http, IPluginConfig config, ILogger<MonochromeSearchProvider> logger)
     {
@@ -60,16 +63,20 @@ public sealed class MonochromeSearchProvider : ISearchProvider
             using var resp = await _http.GetAsync(url, request.Token);
             if (!resp.IsSuccessStatusCode)
             {
+                LastFailure = $"HTTP {(int)resp.StatusCode}";
                 _logger.LogDebug("Monochrome search returned {Status}", (int)resp.StatusCode);
                 return null;
             }
 
             var body = await resp.Content.ReadAsStringAsync(request.Token);
-            return ParseSearchTracks(body, baseUrl, query.Artist, query.Title,
+            var hit = ParseSearchTracks(body, baseUrl, query.Artist, query.Title,
                 query.ExpectedDuration, query.Isrc);
+            LastFailure = hit is null ? "no usable result" : null;
+            return hit;
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
+            LastFailure = "timed out";
             _logger.LogDebug("Monochrome search timed out");
             return null;
         }
@@ -79,6 +86,7 @@ public sealed class MonochromeSearchProvider : ISearchProvider
         }
         catch (Exception ex)
         {
+            LastFailure = ex.Message;
             _logger.LogDebug(ex, "Monochrome search '{Query}' failed", searchText);
             return null;
         }
