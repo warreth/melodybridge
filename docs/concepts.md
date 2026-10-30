@@ -88,17 +88,22 @@ differently, and falls back to a title search. Both Tidal sources use it: the
 tiddl source downloads through your own session, and Rhythmax downloads
 through the public API. Neither one text-searches Tidal on its own.
 
-Sources fall into two groups:
+Sources fall into four groups:
 
 | Behaviour | What it means |
 |---|---|
-| Provider-backed | The source accepts a URL and ISRC or title data from a provider. Tidal and Rhythmax use the shared Tidal ISRC searcher. Qobuz, Deezer, Jumo, Monochrome and Lucida each have their own catalogue provider over the source's client |
+| Official catalogue | The provider reads an official ISRC index and returns the source's own URL. Tidal and Rhythmax share the public Tidal ISRC searcher; Qobuz uses your token; Deezer uses its public API |
+| Official URL, community downloader | Lucida has no searcher. It consumes the Qobuz, Tidal or Deezer URL an official provider already resolved, and can also rip SoundCloud, Amazon and Yandex links |
+| Unofficial catalogue | Jumo is a Qobuz front-end: it uses the same Qobuz album and track ids, so the Qobuz hit becomes a `jumo:` URL without a second search. Monochrome has its own snowflake ids and searches its catalogue by ISRC first |
 | Self-search | The source searches its own catalogue and has no ISRC-indexed provider route. Soulseek, SoundCloud, Internet Archive, yt-dlp and FLAC Music work this way; the Chinese fallback searches by title only because it has no ISRC index |
 
-A provider target can carry a priority, and a provider can carry its own
-priority. That decides which provider wins when more than one can serve the
-same source. The Plugins page shows the routing problems it finds, such as a
-target that names no registered source.
+A provider target can carry a priority, a tier and a provider can carry its own
+priority. Official targets run first, then the community downloader on their
+URLs, then the unofficial catalogues, then the self-search sources. Inside a
+tier the user's source order still decides. **Prefer official sources** on the
+Advanced page turns this off and restores the pure source order. The Plugins
+page shows the tier and any routing problem it finds, such as a target that
+names no registered source.
 
 The routing card also names the data each search reads: ISRC, title and
 artist, a URL, or a duration. A source that is marked as a provider target
@@ -162,13 +167,14 @@ The strongest signal is the ISRC, the recording's international audio
 fingerprint. Spotify accounts provide it for their tracks, liked songs and
 playlists alike; for everything else MelodyBridge looks it up through Deezer's
 public search and only accepts a confident, duration-plausible match. Sources
-that index ISRCs use it wherever they can: Qobuz, Deezer, Jumo and Lucida's
-services search by the code itself, and Qobuz, Deezer, Jumo, Monochrome and
-the Tidal ISRC searcher accept a hit carrying the exact code as that
-recording, even when its title is spelled differently. The Tidal searcher
-resolves the URL once for both Tidal sources. YouTube and SoundCloud do not
-index ISRCs at all, so for those the ranking rules above are the whole gate.
-FLAC Music has no ISRC index either; its title search is why it stays last.
+that index ISRCs use it wherever they can: Qobuz, Deezer, Jumo and Monochrome
+search by the code itself, and Qobuz, Deezer, Jumo, Monochrome and the Tidal
+ISRC searcher accept a hit carrying the exact code as that recording, even
+when its title is spelled differently. The Tidal searcher resolves the URL once
+for both Tidal sources. Lucida no longer searches; it downloads the official
+Qobuz, Tidal or Deezer URL. YouTube and SoundCloud do not index ISRCs at all,
+so for those the ranking rules above are the whole gate. FLAC Music has no
+ISRC index either; its title search is why it stays last.
 
 When the automatic match is wrong or finds nothing, every track row has a
 **Choose source** button: the manual picker lists what every enabled plugin

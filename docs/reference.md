@@ -461,9 +461,12 @@ stopped working.
 
 The **Search routing** card at the bottom of the page is collapsed by default.
 Open it to see where each source gets its track. A provider row names the data
-it reads (ISRC, title and artist) and the source cards it can search. When two
-providers target the same source, the card marks the one the router uses as
-**primary**. The sources that search themselves are listed separately,
+it reads (ISRC, title and artist) and the source cards it can search. Each
+provider carries a tier: **official**, **ripper**, **unofficial** or **self**.
+When two providers target the same source, the card marks the one the router
+uses as **primary**. Lucida has no searcher of its own; it appears as a target
+of the official providers. The sources that search themselves are listed
+separately,
 with their data and any note such as "title-only fallback". A source marked
 **fallback** only runs after every other source. A direct-URL source has no
 search at all. If a source declares a provider search but no provider targets
@@ -543,8 +546,12 @@ The knobs most people never need, in five panels:
   number counts every playlist and manual download together, and the next run
   picks up a change), *Plugin time budget* and *Track time budget* (in seconds:
   how long one plugin and one whole track may take before the waterfall moves on
-  or gives up), *Downloaded file names* (below) and *Hardlink duplicate tracks
-  across playlists*, the dedup toggle described in [How it works](/concepts).
+  or gives up), *Downloaded file names* (below), *Hardlink duplicate tracks
+  across playlists*, the dedup toggle described in [How it works](/concepts),
+  and *Prefer official sources before community mirrors*. That last switch is
+  on by default: official Qobuz, Tidal and Deezer targets run first, then
+  Lucida on their URL, then Jumo and Monochrome, then the self-search sources.
+  Turn it off to follow the source order exactly.
   **Downloaded file names** is the pattern for new downloads: `{artist}`,
   `{title}`, `{album}` and `{track}` are filled per track, and the default
   `{artist} - {title}` puts the artist first. Use `{source}` to keep the name the

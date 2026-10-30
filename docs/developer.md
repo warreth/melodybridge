@@ -128,6 +128,7 @@ public interface ISearchProvider
     SearchData Data { get; }                       // ISRC, text, URL, length
     IReadOnlyList<SearchProviderTarget> Targets { get; }
     int Priority { get; }                          // tie-break, higher wins
+    SearchTier Tier => SearchTier.Official;
     bool IsLegacy => false;                        // true for an adapter
     Task<DownloaderSearchHit?> SearchAsync(
         string downloaderId, TrackQuery query, CancellationToken ct = default);
@@ -153,13 +154,35 @@ registered source, or a provider with no targets, becomes a
 `ValidationIssues` entry and is shown on the Plugins page instead of failing
 the app. When several providers can serve a source, the target priority is
 the first tie-breaker, then the provider priority, then the name. Higher
-wins.
+wins. The single-source search (the waterfall's route) tries those providers
+in that order and moves on after a miss, so a missing Qobuz token still lets
+Jumo answer for the Jumo downloader.
 
-Every built-in subscription or community catalogue now has its own provider:
-`QobuzSearchProvider`, `DeemixSearchProvider`, `JumoSearchProvider`,
-`MonochromeSearchProvider` and `LucidaSearchProvider` live in
-`MelodyBridge.Infrastructure/SearchProviders/`. Each owns the query to URL
-step and the ranking; the downloader keeps the download.
+Each target also carries a `SearchTier`: `Official`, `Ripper`,
+`UnofficialCatalog` or `SelfSearch`. `ProviderFirstOrder()` turns the target
+matrix into one rank per downloader: official targets first, then Lucida on
+their URLs, then Jumo and Monochrome, then the sources that search
+themselves. `DownloadManager` applies that rank after its fallback,
+controlled-quality and health ordering, so a degraded official source still
+loses to a healthy one. The `search_official_first` setting (Prefer official
+sources on the Advanced page) defaults on; turning it off restores the pure
+source order.
+
+Every built-in catalogue has its own provider: `QobuzSearchProvider`,
+`DeemixSearchProvider`, `JumoSearchProvider` and `MonochromeSearchProvider`
+live in `MelodyBridge.Infrastructure/SearchProviders/`. Each owns the query to
+URL step and the ranking; the downloader keeps the download. Tidal's provider
+lives with its client in `Infrastructure/Tidal/`.
+
+Lucida deliberately has no provider. It consumes the official Qobuz, Tidal and
+Deezer URLs that those providers already resolved, so `LucidaSearchProvider` is
+not registered; the class stays for an optional deep search, not the default
+route. The Qobuz provider maps its own album and track ids to a `jumo:` URL for
+Jumo (a Qobuz front-end), so a Qobuz token can feed both the Qobuz downloader
+and Jumo without a second catalogue search. The Jumo provider remains the
+fallback for installs without a Qobuz token. Monochrome has its own snowflake
+ids, so it keeps its provider; it asks for the ISRC first when the query has
+one and falls back to the text search.
 
 Where the search and the download share mutable state, a session class owns
 it so both sides see the same value: `QobuzSession` (token, tool config, auth
@@ -184,9 +207,10 @@ source genuinely still owns its search.
 
 The built-in `TidalPublicCatalog` gets a short-lived token from the public
 Rhythmax token worker, searches Tidal v1 by ISRC with `/tracks?isrc=...`, and
-falls back to `/search/tracks`. `TidalSearchProvider` targets both `tidal`
-(the user's tiddl download) and `rhythmax` (the public hifi download), so the
-catalogue lookup happens once and the two download sources only need a URL.
+falls back to `/search/tracks`. `TidalSearchProvider` targets `tidal` (the
+user's tiddl download), `rhythmax` (the public hifi download) and `lucida`
+(the community ripper), so the catalogue lookup happens once and the three
+download sources only need a URL.
 The provider caches successful answers for five minutes; a rate limit or a
 token rejection is reported as a miss and left uncached.
 
@@ -290,26 +314,27 @@ Implement this to add a download source. Built-in plugins:
 
 | Plugin | Id | Source | Notes |
 |---|---|---|---|
-| `LucidaDownloader` | `lucida` | lucida.to (Qobuz NL, Amazon Music, Deezer, Tidal) | High quality rips; needs a working Cloudflare solver, otherwise skipped; searches by ISRC first, but its hits carry no ISRC, so a confident title match is still required; single-track page tokens are base64-encoded twice and must be decoded before `/api/load`; the load API has no quality parameter, so its manifest is honest-but-uncontrollable |
+| `LucidaDownloader` | `lucida` | lucida.to (Qobuz NL, Amazon Music, Deezer, Tidal, SoundCloud, Yandex) | High quality rips; needs a working Cloudflare solver, otherwise skipped; no own searcher in the default composition, it consumes the official Qobuz, Tidal and Deezer URLs; single-track page tokens are base64-encoded twice and must be decoded before `/api/load`; the load API has no quality parameter, so its manifest is honest-but-uncontrollable |
 | `MonochromeDownloader` | `monochrome` | tracks.monochrome.st (official Monochrome API) | Lossless FLAC streams over a plain GET, no account needed; search hits carry an ISRC, and an exact match is accepted as that recording even when the title differs; the base URL is configurable per plugin for mirrors |
 | `SlskdDownloader` | `slskd` | Soulseek, through the user's own slskd instance | Lossless FLAC and high-bitrate MP3/AAC from peers; search and transfer run over slskd's REST API with an API key; locked files and undeclared containers are skipped; the finished file moves out of slskd's downloads folder, whose path the plugin reads from slskd's own options; unavailable until the URL and key are set and slskd is logged in |
-| `QobuzDownloader` | `qobuz` | qobuz-dlp (shipped in the Docker image) | Lossless and hi-res from a paid Qobuz plan; the search runs natively (bundle scrape plus a user token), the download through the CLI into a hidden per-track folder; the plugin seeds the CLI config (app id, private key, secrets) and its token file, so no interactive login is needed; unavailable until the command and a valid token are found |
+| `QobuzDownloader` | `qobuz` | qobuz-dlp (shipped in the Docker image) | Lossless and hi-res from a paid Qobuz plan; `QobuzSearchProvider` searches the official API (bundle scrape plus a user token) and also supplies Lucida and Jumo, the download runs through the CLI into a hidden per-track folder; the plugin seeds the CLI config (app id, private key, secrets) and its token file, so no interactive login is needed; unavailable until the command and a valid token are found |
 | `TidalDownloader` | `tidal` | tiddl (shipped in the Docker image) | Lossless and hi-res from the user's own Tidal session; the shared `TidalSearchProvider` resolves the URL (ISRC first), the download runs through `tiddl download url` with the tier mapped onto the requested band; unavailable until the command and a logged-in tiddl session are found, or when that session expired |
 | `RhythmaxDownloader` | `rhythmax` | tidal.odskyler.com (public Rhythmax hifi API) | No Tidal account needed; the same `TidalSearchProvider` supplies the URL, the plugin asks `/manifests` for a DASH stream, downloads the init and media segments, and remuxes FLAC (ffmpeg copy) or keeps AAC as m4a; LOW/HIGH/LOSSLESS map to 96/320/16-bit FLAC; the public account pool can report preview/dead/rate limited, which is surfaced as unavailability instead of retried forever |
 | `FlacMusicDownloader` | `flacmusic` | flac.music.hi.cn (Kuwo and NetEase) | Last-resort fallback with no ISRC index, so it searches its own catalogue by title; search and `getUrl` are POST endpoints with a short-lived sign, the audio comes direct from the CDN; FLAC and MP3 128/320, and some Kuwo 128 rows actually return AAC (the plugin reports the mismatch and the waterfall can try the other platform); `FallbackOnly` keeps it behind every curated source |
 | `DeemixDownloader` | `deemix` | deemix CLI (shipped in the Docker image, runs on Node) | Deezer MP3/FLAC with the user's ARL; the search runs against Deezer's public API, the download through the CLI; the ARL setting is written into deemix's config (through `DEEMIX_DATA_DIR`) before every run, so the CLI never prompts; runs are serialized and the finished file moves out of the downloads folder |
-| `JumoDownloader` | `jumo` | jumo-dl.pages.dev (community Qobuz front-end) | No account needed; search and stream descriptors come from the service's guarded API (request-context headers plus ECDH/AES-GCM encrypted responses), the audio comes direct from the signed Qobuz CDN URLs and is AES-CTR decrypted locally; lossless lands as native FLAC, MP3 320 as plain MP3; the service rate limits (429) and can refuse some networks (403), so the plugin reports unavailability instead of hammering it |
+| `JumoDownloader` | `jumo` | jumo-dl.pages.dev (community Qobuz front-end) | No account needed; uses the same Qobuz album and track ids as Qobuz, so the Qobuz provider can hand it a `jumo:` URL without a second search; the Jumo provider remains the fallback without a Qobuz token; stream descriptors come from the service's guarded API (request-context headers plus ECDH/AES-GCM encrypted responses), the audio comes direct from the signed Qobuz CDN URLs and is AES-CTR decrypted locally; lossless lands as native FLAC, MP3 320 as plain MP3; the service rate limits (429) and can refuse some networks (403), so the plugin reports unavailability instead of hammering it |
 | `SoundCloudDownloader` | `soundcloud` | SoundCloud (via yt-dlp `scsearch`) | Original uploads, often 320 kbps; top-5 ranked; rejects files under 128 kbps |
 | `ArchiveOrgDownloader` | `archiveorg` | Internet Archive (public JSON APIs) | Public-domain and community recordings; picks the matching file inside a multi-track item, not the first one; rejects files under 128 kbps |
 | `YtDlpDownloader` | `ytdlp` | YouTube (via yt-dlp) | Widest fallback; audio-only best stream, top-5 ranked by match and duration; explicit formats transcode to the requested cap |
 
-The catalogue search for Qobuz, Deezer, Jumo, Monochrome and Lucida sits in
-its own provider under `SearchProviders/`; the downloader only downloads. Their
+The catalogue search for Qobuz, Deezer, Jumo and Monochrome sits in its own
+provider under `SearchProviders/`; the downloader only downloads. Their
 `SearchInfo` says `Provider` with the data the provider reads. Qobuz, Jumo and
 Lucida share a session with the downloader for token, region or solver state;
-Deezer and Monochrome need only their client and the base URL helper. A new
-source follows the same split: provider for query to URL, downloader for URL to
-file.
+Deezer and Monochrome need only their client and the base URL helper. Lucida is
+the exception: it is a pure URL consumer, so its `SearchInfo` declares `Url`
+data and it appears as a target of the official providers. A new source
+follows the same split: provider for query to URL, downloader for URL to file.
 
 Place new implementations in `MelodyBridge.Infrastructure/Downloaders/` and register via `services.AddSingleton<IDownloader, YourPlugin>()`. A plugin that ships its own protocol client or byte-level helpers lives in its own folder next to it instead (`Infrastructure/Lucida/`, `Infrastructure/Jumo/`) and registers the same way. Quality-gate downloads against the requested `DownloadQuality` band so bad rips never enter the library.
 
