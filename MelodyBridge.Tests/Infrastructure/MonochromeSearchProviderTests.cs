@@ -66,6 +66,71 @@ public class MonochromeSearchProviderTests
 
     private const string AroundTheWorldId = "155143832910958592";
 
+    private static string QueryOf(HttpRequestMessage request)
+        => Uri.UnescapeDataString(request.RequestUri!.Query);
+
+    [Test]
+    public async Task SearchAsync_WithAnIsrc_AsksForTheCodeFirst()
+    {
+        var queries = new List<string>();
+        var handler = new StubHttpMessageHandler
+        {
+            Respond = request =>
+            {
+                queries.Add(QueryOf(request));
+                return Json(HttpStatusCode.OK, TracksJson(
+                    Track("222", "The Last Airbender", "SLVL", 217000, isrc: "USRC17607839")));
+            },
+        };
+        var provider = Create(handler);
+
+        var hit = await provider.SearchAsync("monochrome", new TrackQuery(
+            "SLVL", "The Last Airbender (VIP)", DownloadQuality.Any,
+            ExpectedDuration: TimeSpan.FromSeconds(217), Isrc: "USRC17607839"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(queries.First(), Does.Contain("USRC17607839"),
+                "the code is the first catalogue query");
+            Assert.That(queries, Has.Count.EqualTo(1),
+                "the exact code resolved it; the text query must not run");
+            Assert.That(hit, Is.Not.Null);
+            Assert.That(hit!.SourceUrl, Does.EndWith("/222"));
+        });
+    }
+
+    [Test]
+    public async Task SearchAsync_IsrcOnlyNoise_FallsBackToText()
+    {
+        var queries = new List<string>();
+        var handler = new StubHttpMessageHandler
+        {
+            Respond = request =>
+            {
+                var query = QueryOf(request);
+                queries.Add(query);
+                return query.Contains("USRC17607839", StringComparison.Ordinal)
+                    ? Json(HttpStatusCode.OK, TracksJson(
+                        Track("999", "Blue Bird", "Random", 226000, isrc: "OTHER00000001")))
+                    : Json(HttpStatusCode.OK, TracksJson(
+                        Track("222", "The Last Airbender", "SLVL", 217000, isrc: "USRC17607839")));
+            },
+        };
+        var provider = Create(handler);
+
+        var hit = await provider.SearchAsync("monochrome", new TrackQuery(
+            "SLVL", "The Last Airbender (VIP)", DownloadQuality.Any,
+            ExpectedDuration: TimeSpan.FromSeconds(217), Isrc: "USRC17607839"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(queries, Has.Count.EqualTo(2),
+                "the strict code pass is followed by the text pass");
+            Assert.That(hit, Is.Not.Null);
+            Assert.That(hit!.SourceUrl, Does.EndWith("/222"));
+        });
+    }
+
     [Test]
     public async Task SearchAsync_ParsesTracksShape_AndBuildsStreamUrl()
     {

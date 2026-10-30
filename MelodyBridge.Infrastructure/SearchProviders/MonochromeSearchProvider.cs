@@ -38,8 +38,10 @@ public sealed class MonochromeSearchProvider : ISearchProvider
     public string Name => "Monochrome catalogue";
     public string Description => "Searches the Monochrome catalogue, ISRC first.";
     public SearchData Data => SearchData.Text | SearchData.Isrc;
+    public SearchTier Tier => SearchTier.UnofficialCatalog;
     public IReadOnlyList<SearchProviderTarget> Targets =>
-        new[] { new SearchProviderTarget(DownloaderId, Data, "Monochrome ISRC-first search") };
+        new[] { new SearchProviderTarget(DownloaderId, Data, "Monochrome ISRC-first search",
+            Tier: SearchTier.UnofficialCatalog) };
 
     public async Task<DownloaderSearchHit?> SearchAsync(
         string downloaderId, TrackQuery query, CancellationToken ct = default)
@@ -47,12 +49,28 @@ public sealed class MonochromeSearchProvider : ISearchProvider
         if (!string.Equals(downloaderId, DownloaderId, StringComparison.OrdinalIgnoreCase))
             return null;
 
+        // The catalogue returns an ISRC on every hit. Ask for the code
+        // first when the query carries one; a service that does not index
+        // codes answers with noise, the strict pass rejects it, and the
+        // cleaned text below gets its turn.
+        if (query.HasIsrc)
+        {
+            var byIsrc = await SearchTextAsync(query.Isrc!, query, requireIsrcMatch: true, ct);
+            if (byIsrc is not null) return byIsrc;
+        }
+
         // Cleaned terms: the API's index is literal, so "(Original Mix)"
         // suffixes and featuring tags reduce matches before the request is
         // even sent.
         var searchText = query.SearchText;
         if (searchText.Length == 0) return null;
+        return await SearchTextAsync(searchText, query, requireIsrcMatch: false, ct);
+    }
 
+    private async Task<DownloaderSearchHit?> SearchTextAsync(
+        string searchText, TrackQuery query, bool requireIsrcMatch,
+        CancellationToken ct)
+    {
         var baseUrl = await MonochromeApi.BaseUrlAsync(_config, DownloaderId, ct);
         var url = baseUrl + "/search/tracks?q=" + Uri.EscapeDataString(searchText) + "&limit=10";
         try
@@ -70,7 +88,7 @@ public sealed class MonochromeSearchProvider : ISearchProvider
 
             var body = await resp.Content.ReadAsStringAsync(request.Token);
             var hit = ParseSearchTracks(body, baseUrl, query.Artist, query.Title,
-                query.ExpectedDuration, query.Isrc);
+                query.ExpectedDuration, query.Isrc, requireIsrcMatch);
             LastFailure = hit is null ? "no usable result" : null;
             return hit;
         }
@@ -102,7 +120,8 @@ public sealed class MonochromeSearchProvider : ISearchProvider
     /// </summary>
     internal static DownloaderSearchHit? ParseSearchTracks(
         string json, string baseUrl, string artist, string fallbackTitle,
-        TimeSpan? expectedDuration = null, string? expectedIsrc = null)
+        TimeSpan? expectedDuration = null, string? expectedIsrc = null,
+        bool requireIsrcMatch = false)
     {
         try
         {
@@ -157,6 +176,7 @@ public sealed class MonochromeSearchProvider : ISearchProvider
             if (isrcPool.Count > 0)
                 return SearchRanker.RankExactRecording(artist, fallbackTitle,
                     expectedDuration, isrcPool.Select(c => c.Hit));
+            if (requireIsrcMatch) return null;
 
             return SearchRanker.Rank(artist, fallbackTitle, expectedDuration,
                 candidates.Select(c => c.Hit));
