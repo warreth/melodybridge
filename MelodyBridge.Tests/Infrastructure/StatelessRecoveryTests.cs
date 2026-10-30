@@ -176,8 +176,10 @@ public class StatelessRecoveryTests
             Assert.That(rows.OrderBy(t => t.ExternalId).Select(t => t.MelodyId!),
                 Is.EqualTo(idsInFirstLife),
                 "re-added rows must carry the same MELODY_IDs the files are tagged with");
-            Assert.That(rows.Select(t => t.DownloadStatus), Is.All.EqualTo("pending"),
-                "a fresh database knows nothing about the downloads");
+            Assert.That(rows.Select(t => t.DownloadStatus), Is.All.EqualTo("downloaded"),
+                "the add/refresh adoption finds the tagged files immediately");
+            Assert.That(rows.Select(t => t.CurrentPath), Is.All.Not.Null,
+                "every adopted row already points at its file");
         }
 
         // ---- 4. Point the library at the folder: scan, then reconcile.
@@ -190,6 +192,8 @@ public class StatelessRecoveryTests
         var reconciler = new LibraryReconciler(factoryB, NullLogger<LibraryReconciler>.Instance);
         var (relinked, lost) = await reconciler.ReconcileAllAsync();
         Assert.That(lost, Is.EqualTo(0), "every file is still on disk");
+        Assert.That(relinked, Is.EqualTo(0),
+            "the add/refresh adoption already linked them");
 
         await using (var db = await factoryB.CreateDbContextAsync())
         {
@@ -217,7 +221,6 @@ public class StatelessRecoveryTests
         // ---- 6. Zero downloads issued: the proof that nothing re-downloaded.
         Assert.That(downloads.Calls, Is.EqualTo(0),
             "recovery must adopt the existing files, never download again");
-        Assert.That(relinked, Is.EqualTo(3), "all three tracks relinked by the reconciler");
     }
 
     private static string _realMp3 = null!;

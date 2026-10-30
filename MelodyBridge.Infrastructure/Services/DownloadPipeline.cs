@@ -3,6 +3,7 @@ using MelodyBridge.Core.Logging;
 using MelodyBridge.Infrastructure.Audio;
 using MelodyBridge.Infrastructure.Data;
 using MelodyBridge.Infrastructure.Files;
+using MelodyBridge.Infrastructure.Tagging;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -395,7 +396,7 @@ internal sealed class DownloadPipeline
         // The library's file name pattern: plugins write their own names
         // (video ids, jumo_..., dd_<guid>), which are correct but ugly in a
         // music folder. An empty pattern keeps the plugin's name.
-        path = await ApplyFileNameAsync(track, path, ct);
+        path = await ApplyFileNameAsync(track, path, db, ct);
         if (track.MelodyId is { Length: > 0 } melodyId)
             _downloadManager.UpdateProgressPath(melodyId, path);
 
@@ -438,7 +439,8 @@ internal sealed class DownloadPipeline
     /// pattern that expands to nothing, or a file that cannot be renamed,
     /// keeps the name the plugin chose.
     /// </summary>
-    private async Task<string> ApplyFileNameAsync(TrackEntity track, string path, CancellationToken ct)
+    private async Task<string> ApplyFileNameAsync(
+        TrackEntity track, string path, MelodyBridgeDbContext db, CancellationToken ct)
     {
         var pattern = await _settings.GetAsync(
             FileNamePattern.SettingKey, FileNamePattern.Default, ct);
@@ -461,7 +463,31 @@ internal sealed class DownloadPipeline
             if (PlaylistStore.PathsEqual(candidate, path)) return path;
 
             using var scope = await _pathLocks.AcquireAsync(candidate, ct);
-            if (File.Exists(candidate)) continue;
+            if (File.Exists(candidate))
+            {
+                // The same track's old file, no longer owned by any row
+                // (a playlist that was removed and re-added). Replacing it
+                // keeps the plain name instead of creating " (2)" next to
+                // it. A file another row still points at is left alone.
+                if (!await IsSameTrackOrphanAsync(db, track, candidate, ct)) continue;
+
+                var backup = candidate + ".mb-old-" + Guid.NewGuid().ToString("N");
+                File.Move(candidate, backup);
+                try
+                {
+                    File.Move(path, candidate);
+                    File.Delete(backup);
+                }
+                catch
+                {
+                    if (!File.Exists(candidate)) File.Move(backup, candidate);
+                    throw;
+                }
+                _logger.LogInformation(
+                    "Replaced the orphaned file of '{Title}' at {Path} instead of creating a numbered duplicate",
+                    track.Title, candidate);
+                return candidate;
+            }
             try
             {
                 File.Move(path, candidate);
@@ -480,6 +506,22 @@ internal sealed class DownloadPipeline
             }
         }
         return path;
+    }
+
+    /// <summary>
+    /// True when the path holds this track's own file (same MELODY_ID) and
+    /// no other row points at it. The orphan left by a removed playlist
+    /// fits; another playlist's primary or archive copy does not.
+    /// </summary>
+    private static async Task<bool> IsSameTrackOrphanAsync(
+        MelodyBridgeDbContext db, TrackEntity track, string path, CancellationToken ct)
+    {
+        if (track.MelodyId is not { Length: > 0 } melodyId) return false;
+        if (!string.Equals(TaglibHelper.ReadMelodyId(path), melodyId, StringComparison.Ordinal))
+            return false;
+        return !await db.Tracks.AsNoTracking()
+            .AnyAsync(t => t.Id != track.Id
+                && (t.CurrentPath == path || t.ArchivePath == path), ct);
     }
 
     /// <summary>

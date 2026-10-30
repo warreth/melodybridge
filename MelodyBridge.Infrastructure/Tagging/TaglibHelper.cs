@@ -3,6 +3,14 @@ using TagLib;
 
 namespace MelodyBridge.Infrastructure.Tagging;
 
+/// <summary>The tag facts one file carries, for adoption and duplicate matching.</summary>
+public readonly record struct AudioFileIdentity(
+    string? MelodyId,
+    string? Title,
+    string? Artist,
+    TimeSpan? Duration,
+    string? Album);
+
 public static class TaglibHelper
 {
     // Marker format used in the Comment fallback: "MELODY_ID={id}" on its own line.
@@ -132,46 +140,70 @@ public static class TaglibHelper
         }
     }
 
-    public static string? ReadMelodyId(string filePath)
+    /// <summary>
+    /// The tag facts an adoption pass needs, read in one open: the stored
+    /// MELODY_ID, the title, the first performer and the audio duration.
+    /// A file that cannot be read comes back as an empty identity.
+    /// </summary>
+    public static AudioFileIdentity ReadIdentity(string filePath)
     {
         try
         {
             var file = TagLib.File.Create(filePath);
+            return new AudioFileIdentity(
+                ReadMelodyId(file),
+                file.Tag.Title,
+                file.Tag.FirstPerformer,
+                file.Properties?.Duration,
+                file.Tag.Album);
+        }
+        catch
+        {
+            return default;
+        }
+    }
 
-            // ID3v2 TXXX
-            try
-            {
-                var id3v2 = file.GetTag(TagTypes.Id3v2) as TagLib.Id3v2.Tag;
-                if (id3v2 != null)
-                {
-                    var frame = TagLib.Id3v2.UserTextInformationFrame.Get(id3v2, MelodyIdField, false);
-                    if (frame != null && frame.Text?.Length > 0)
-                        return frame.Text[0];
-                }
-            }
-            catch { }
-
-            // Xiph comment field (Ogg Vorbis/Opus, FLAC)
-            try
-            {
-                var xiph = file.GetTag(TagTypes.Xiph) as TagLib.Ogg.XiphComment;
-                var field = xiph?.GetFirstField(MelodyIdField);
-                if (!string.IsNullOrEmpty(field))
-                    return field;
-            }
-            catch { }
-
-            // Comment marker
-            var comment = file.Tag.Comment ?? string.Empty;
-            var match = CommentMarkerRegex.Match(comment);
-            if (match.Success)
-                return match.Groups[1].Value;
-
-            return null;
+    public static string? ReadMelodyId(string filePath)
+    {
+        try
+        {
+            return ReadMelodyId(TagLib.File.Create(filePath));
         }
         catch
         {
             return null;
         }
     }
+
+    private static string? ReadMelodyId(TagLib.File file)
+    {
+        // ID3v2 TXXX
+        try
+        {
+            var id3v2 = file.GetTag(TagTypes.Id3v2) as TagLib.Id3v2.Tag;
+            if (id3v2 != null)
+            {
+                var frame = TagLib.Id3v2.UserTextInformationFrame.Get(id3v2, MelodyIdField, false);
+                if (frame != null && frame.Text?.Length > 0)
+                    return frame.Text[0];
+            }
+        }
+        catch { }
+
+        // Xiph comment field (Ogg Vorbis/Opus, FLAC)
+        try
+        {
+            var xiph = file.GetTag(TagTypes.Xiph) as TagLib.Ogg.XiphComment;
+            var field = xiph?.GetFirstField(MelodyIdField);
+            if (!string.IsNullOrEmpty(field))
+                return field;
+        }
+        catch { }
+
+        // Comment marker
+        var comment = file.Tag.Comment ?? string.Empty;
+        var match = CommentMarkerRegex.Match(comment);
+        return match.Success ? match.Groups[1].Value : null;
+    }
+
 }

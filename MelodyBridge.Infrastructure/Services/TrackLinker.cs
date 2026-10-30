@@ -342,21 +342,82 @@ public sealed class TrackLinker
 
         var byMelodyId = await LoadCandidatesAsync(pending, ct);
 
+        // Only a row without a database candidate needs the folder walk.
+        // A playlist whose tracks are all shared with another playlist
+        // must not pay for reading every tag in its folder again.
+        var needsFolder = pending.Any(track =>
+            !byMelodyId.TryGetValue(track.MelodyId!, out var rows)
+            || PickFor(track, rows) is null);
+        MelodyFileIndex? folderIndex = null;
+        HashSet<string>? ownedIds = null;
+        HashSet<string>? ownedPaths = null;
+        if (needsFolder)
+        {
+            var archiveRoots = await ArchiveRootsAsync(db, ct);
+            var directIds = pending.Select(t => t.MelodyId!).ToHashSet(StringComparer.Ordinal);
+            folderIndex = MelodyFileIndex.Build(folder, archiveRoots, directIds);
+
+            // A legacy tag may still be owned by a row that survived: never
+            // rewrite another song's id. The sets are loaded once per pass.
+            ownedIds = (await db.Tracks.AsNoTracking()
+                    .Where(t => t.MelodyId != null)
+                    .Select(t => t.MelodyId!)
+                    .ToListAsync(ct))
+                .ToHashSet(StringComparer.Ordinal);
+            ownedPaths = (await db.Tracks.AsNoTracking()
+                    .Where(t => t.CurrentPath != null || t.ArchivePath != null)
+                    .Select(t => new { t.CurrentPath, t.ArchivePath })
+                    .ToListAsync(ct))
+                .SelectMany(t => new[] { t.CurrentPath, t.ArchivePath })
+                .Where(path => !string.IsNullOrWhiteSpace(path))
+                .Select(path => path!)
+                .ToHashSet(FileRelocator.PathComparer);
+        }
+
         var linked = 0;
+        var adopted = 0;
+        var rewritten = 0;
         foreach (var track in pending)
         {
             ct.ThrowIfCancellationRequested();
-            if (!byMelodyId.TryGetValue(track.MelodyId!, out var rows)) continue;
 
-            var candidate = PickFor(track, rows);
+            DedupMatch? candidate = null;
+            if (byMelodyId.TryGetValue(track.MelodyId!, out var rows))
+                candidate = PickFor(track, rows)?.Match;
+
+            var adoptedThisTrack = false;
+            if (candidate is null && folderIndex is not null)
+            {
+                var path = folderIndex.Find(track.MelodyId!);
+                if (path is null)
+                {
+                    var legacy = folderIndex.FindByMetadata(
+                        track.Artist, track.Title, DurationOf(track),
+                        id => id is { Length: > 0 } && ownedIds!.Contains(id),
+                        path => ownedPaths!.Contains(path));
+                    if (legacy is not null)
+                    {
+                        // The file already exists and no other row owns its
+                        // old id: give it the deterministic id so this and
+                        // every later scan agree on which track it is.
+                        TaglibHelper.WriteMelodyId(legacy, track.MelodyId!);
+                        path = legacy;
+                        rewritten++;
+                    }
+                }
+
+                if (path is not null)
+                {
+                    candidate = MatchFor(path);
+                    adoptedThisTrack = true;
+                }
+            }
+
             if (candidate is null) continue;
 
             // The same claim the download pipeline uses: a concurrent run
-            // and this pass never link (or download) the same row twice.
-            // Whatever happens next, the claim must be released: a row left
-            // in_progress would be skipped by every later download until
-            // the next restart. The claim is registered before the row is
-            // claimed, so a batch that starts now sees a live pass.
+            // and this pass never link the same row twice; the claim is
+            // released on failure so a later attempt can still run.
             var previousStatus = track.DownloadStatus;
             using var claim = _claims.Claim(track.Id);
             var claimed = await db.Tracks
@@ -369,10 +430,14 @@ public sealed class TrackLinker
             try
             {
                 var outcome = await TryLinkAsync(track, db, requested,
-                    pauseOnQualityMismatch: false, ct, candidate: candidate.Match,
+                    pauseOnQualityMismatch: false, ct, candidate: candidate,
                     resolvedFolder: folder, dedupEnabled: true);
                 linkedThisTrack = outcome == TrackLinkOutcome.Linked;
-                if (linkedThisTrack) linked++;
+                if (linkedThisTrack)
+                {
+                    linked++;
+                    if (adoptedThisTrack) adopted++;
+                }
             }
             finally
             {
@@ -383,8 +448,29 @@ public sealed class TrackLinker
                 }
             }
         }
+
+        if (linked > 0 || rewritten > 0)
+        {
+            _logger.LogInformation(
+                "Linked {Count} track(s) of '{Playlist}' from existing files ({Adopted} from this folder, {Rewritten} legacy tag(s) rewritten)",
+                linked, playlist.Name, adopted, rewritten);
+        }
         return linked;
     }
+
+    private static TimeSpan? DurationOf(TrackEntity track)
+        => track.DurationMs is > 0
+            ? TimeSpan.FromMilliseconds(track.DurationMs.Value)
+            : null;
+
+    /// <summary>A candidate backed by one file on disk, with its measured facts.</summary>
+    private static DedupMatch MatchFor(string path) => new(
+        path,
+        Path.GetExtension(path).TrimStart('.').ToLowerInvariant(),
+        Audio.BitrateProbe.MeasureKbps(path),
+        SourcePlaylistId: null,
+        // TryLinkAsync replaces this with the real quality verdict.
+        QualityMatches: true);
 
     /// <summary>The claim release: back to the status the row had before.</summary>
     private static async Task RestoreStatusAsync(
