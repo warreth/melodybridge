@@ -155,6 +155,77 @@ public class QobuzSearchProviderTests
     }
 
     [Test]
+    public async Task Search_ForJumo_MapsTheQobuzIdsToAJumoUrl()
+    {
+        var handler = new StubHttpMessageHandler
+        {
+            Respond = request => request.RequestUri!.AbsolutePath.Contains("track/search")
+                ? Text("""
+                    {"tracks":{"items":[{"id":9140024,"title":"One More Time",
+                    "performer":{"name":"Daft Punk"},"duration":320,"isrc":"GBDUW0000053",
+                    "album":{"id":"0886443927087","title":"Random Access Memories"}}]}}
+                    """, "application/json")
+                : BundleRespond(request),
+        };
+        var config = new StubPluginConfig();
+        config.Set("qobuz", QobuzSession.TokenKey, "token-xyz");
+
+        var hit = await Create(handler, config).SearchAsync("jumo",
+            new TrackQuery("Daft Punk", "One More Time", DownloadQuality.Any,
+                ExpectedDuration: TimeSpan.FromSeconds(320)));
+
+        Assert.That(hit, Is.Not.Null);
+        Assert.That(hit!.SourceUrl, Is.EqualTo("jumo:0886443927087:9140024"),
+            "the Qobuz album id and track id are exactly what Jumo keys on");
+    }
+
+    [Test]
+    public async Task Search_ForJumo_WithoutAnAlbumId_IsAMiss()
+    {
+        var handler = new StubHttpMessageHandler
+        {
+            Respond = request => request.RequestUri!.AbsolutePath.Contains("track/search")
+                ? Text("""
+                    {"tracks":{"items":[{"id":9140024,"title":"One More Time",
+                    "performer":{"name":"Daft Punk"},"duration":320}]}}
+                    """, "application/json")
+                : BundleRespond(request),
+        };
+        var config = new StubPluginConfig();
+        config.Set("qobuz", QobuzSession.TokenKey, "token-xyz");
+
+        var hit = await Create(handler, config).SearchAsync("jumo",
+            new TrackQuery("Daft Punk", "One More Time", DownloadQuality.Any));
+
+        Assert.That(hit, Is.Null,
+            "without the album id the Jumo provider must stay the fallback");
+    }
+
+    [Test]
+    public async Task Search_ForLucida_ReturnsTheQobuzUrl()
+    {
+        var handler = new StubHttpMessageHandler
+        {
+            Respond = request => request.RequestUri!.AbsolutePath.Contains("track/search")
+                ? Text("""
+                    {"tracks":{"items":[{"id":9140024,"title":"One More Time",
+                    "performer":{"name":"Daft Punk"},"duration":320,
+                    "album":{"id":"0886443927087"}}]}}
+                    """, "application/json")
+                : BundleRespond(request),
+        };
+        var config = new StubPluginConfig();
+        config.Set("qobuz", QobuzSession.TokenKey, "token-xyz");
+
+        var hit = await Create(handler, config).SearchAsync("lucida",
+            new TrackQuery("Daft Punk", "One More Time", DownloadQuality.Any));
+
+        Assert.That(hit, Is.Not.Null);
+        Assert.That(hit!.SourceUrl, Is.EqualTo("https://play.qobuz.com/track/9140024"),
+            "Lucida consumes the official Qobuz URL directly");
+    }
+
+    [Test]
     public async Task Search_ForAnotherSource_IsAMissWithoutARequest()
     {
         var requests = 0;

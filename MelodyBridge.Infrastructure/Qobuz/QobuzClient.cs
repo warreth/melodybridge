@@ -63,7 +63,8 @@ public class QobuzClient
         string? Isrc,
         int? MaximumBitDepth,
         bool HiresStreamable,
-        int? MaximumSamplingRate = null);
+        int? MaximumSamplingRate = null,
+        string? AlbumId = null);
 
     /// <summary>The account behind a token.</summary>
     public record QobuzAccount(string Token, string? Label, bool CanDownload);
@@ -394,6 +395,13 @@ public class QobuzClient
                 var hires = item.TryGetProperty("hires_streamable", out var h) &&
                             h.ValueKind == JsonValueKind.True;
 
+                // Jumo (a Qobuz front-end) keys its stream by this album
+                // id and the track id, so the official hit carries it.
+                var albumId = item.TryGetProperty("album", out var album) &&
+                              album.ValueKind == JsonValueKind.Object
+                    ? GetString(album, "id")
+                    : null;
+
                 results.Add(new QobuzTrack(
                     trackId,
                     GetString(item, "title") ?? "",
@@ -402,7 +410,8 @@ public class QobuzClient
                     GetString(item, "isrc"),
                     maxDepth,
                     hires,
-                    maxRate));
+                    maxRate,
+                    albumId));
             }
             return QobuzSearchResult.Ok(results);
         }

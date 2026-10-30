@@ -26,13 +26,21 @@ public sealed class DeemixSearchProvider : ISearchProvider
     public string Name => "Deezer catalogue";
     public string Description => "Searches the Deezer catalogue, ISRC first.";
     public SearchData Data => SearchData.Text | SearchData.Isrc;
+    public int Priority => 10;
+
     public IReadOnlyList<SearchProviderTarget> Targets =>
-        new[] { new SearchProviderTarget(DownloaderId, Data, "Deezer ISRC-first search") };
+    [
+        new(DownloaderId, Data, "Deezer ISRC-first search", Priority: 30),
+        new("lucida", Data, "Deezer track URL for the Lucida ripper",
+            Priority: 20, Tier: SearchTier.Ripper),
+    ];
 
     public async Task<DownloaderSearchHit?> SearchAsync(
         string downloaderId, TrackQuery query, CancellationToken ct = default)
     {
-        if (!string.Equals(downloaderId, DownloaderId, StringComparison.OrdinalIgnoreCase))
+        var isLucida = string.Equals(downloaderId, "lucida", StringComparison.OrdinalIgnoreCase);
+        if (!isLucida
+            && !string.Equals(downloaderId, DownloaderId, StringComparison.OrdinalIgnoreCase))
             return null;
 
         // Deezer's advanced search indexes ISRCs (isrc:"..."): the code

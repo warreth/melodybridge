@@ -310,7 +310,8 @@ public class QobuzClientTests
         var payload = Encoding.UTF8.GetBytes("""
             {"tracks":{"items":[{"id":5966783,"title":"Around the World","duration":429,
             "isrc":"GBDUW0600009","maximum_bit_depth":24,"maximum_sampling_rate":96,
-            "hires_streamable":true,"performer":{"name":"Daft Punk"}}]}}
+            "hires_streamable":true,"performer":{"name":"Daft Punk"},
+            "album":{"id":"0060254712345","title":"Discovery"}}]}}
             """);
         using var compressed = new MemoryStream();
         using (var gzip = new GZipStream(compressed, CompressionMode.Compress, leaveOpen: true))
@@ -342,6 +343,8 @@ public class QobuzClientTests
             Assert.That(result.Tracks, Has.Count.EqualTo(1));
             Assert.That(result.Tracks[0].Title, Is.EqualTo("Around the World"));
             Assert.That(result.Tracks[0].MaximumSamplingRate, Is.EqualTo(96000));
+            Assert.That(result.Tracks[0].AlbumId, Is.EqualTo("0060254712345"),
+                "the Qobuz album id travels for the Jumo mapping");
         });
     }
 

@@ -63,11 +63,25 @@ public sealed record DownloaderSearchInfo(
 /// with different limits (for example Tidal's ISRC catalogue serves both
 /// the tiddl source and the Rhythmax source).
 /// </summary>
+/// <summary>
+/// Where a provider or a target sits in the official-first order: an
+/// official catalogue comes before a ripper that consumes its URL, then an
+/// unofficial catalogue, then a source that searches itself.
+/// </summary>
+public enum SearchTier
+{
+    Official = 0,
+    Ripper = 1,
+    UnofficialCatalog = 2,
+    SelfSearch = 3,
+}
+
 public sealed record SearchProviderTarget(
     string DownloaderId,
     SearchData Data,
     string? Note = null,
-    int Priority = 0);
+    int Priority = 0,
+    SearchTier Tier = SearchTier.Official);
 
 /// <summary>
 /// A standalone catalogue/go-to-source search. A provider resolves a track
@@ -91,6 +105,9 @@ public interface ISearchProvider
 
     /// <summary>The download sources this provider can supply.</summary>
     IReadOnlyList<SearchProviderTarget> Targets { get; }
+
+    /// <summary>Where this provider sits in the official-first order.</summary>
+    SearchTier Tier => SearchTier.Official;
 
     /// <summary>
     /// True when the provider is an adapter around search code that still
@@ -131,6 +148,15 @@ public interface ISearchProviderRegistry
     /// wins, then a higher provider priority, then the provider name.
     /// </summary>
     ISearchProvider? ForDownloader(string downloaderId);
+
+    /// <summary>
+    /// The official-first rank for every targeted downloader: official
+    /// catalogue targets first, then rippers that consume their URLs, then
+    /// unofficial catalogues, then self-search. Unlisted sources keep the
+    /// user's order after the ranked ones.
+    /// </summary>
+    IReadOnlyDictionary<string, int> ProviderFirstOrder()
+        => new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// Problems found while the providers were wired, such as a target that

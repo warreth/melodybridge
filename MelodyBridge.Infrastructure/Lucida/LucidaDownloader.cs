@@ -48,8 +48,8 @@ public class LucidaDownloader : IDownloader
         "High-quality rips from Qobuz, Amazon, Deezer and Tidal via lucida.to. Needs a working Cloudflare solver (FlareSolverr).";
 
     public DownloaderSearchInfo SearchInfo =>
-        DownloaderSearchInfo.ViaProvider(SearchData.Text | SearchData.Isrc,
-            "Lucida service search, ISRC first; hits carry no code, so a title match is still needed (legacy source-side adapter)");
+        DownloaderSearchInfo.ViaProvider(SearchData.Url,
+            "Accepts Qobuz, Tidal, Deezer, SoundCloud, Amazon and Yandex URLs; no own catalogue search");
 
     public string IconName => "zap";
     public string? GuideUrl => "https://docs.melodybridge.app/lucida";

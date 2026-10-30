@@ -390,8 +390,10 @@ public class TidalSearchProviderTests
         Assert.That(provider.Id, Is.EqualTo("tidal"));
         Assert.That(provider.Data, Is.EqualTo(SearchData.Isrc | SearchData.Text));
         Assert.That(provider.Targets.Select(t => t.DownloaderId),
-            Is.EquivalentTo(new[] { "tidal", "rhythmax" }));
+            Is.EquivalentTo(new[] { "tidal", "rhythmax", "lucida" }));
         Assert.That(provider.Targets.All(t => t.Data.HasFlag(SearchData.Isrc)), Is.True);
+        Assert.That(provider.Targets.Single(t => t.DownloaderId == "lucida").Note,
+            Does.Contain("Lucida"));
     }
 
     [Test]

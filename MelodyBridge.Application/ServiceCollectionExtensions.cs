@@ -233,10 +233,8 @@ public static class ServiceCollectionExtensions
             sp.GetRequiredService<IHttpClientFactory>().CreateClient("lucida"),
             sp.GetRequiredService<IChallengeSolver>(),
             sp.GetRequiredService<ILogger<LucidaSession>>()));
-        services.AddSingleton<ISearchProvider>(sp =>
-            new LucidaSearchProvider(
-                sp.GetRequiredService<LucidaSession>(),
-                sp.GetRequiredService<ILogger<LucidaSearchProvider>>()));
+        // Lucida has no provider of its own: it consumes the official
+        // Qobuz, Tidal and Deezer URLs the providers above already carry.
         services.AddSingleton<IDownloader>(sp =>
             new LucidaDownloader(
                 sp.GetRequiredService<LucidaSession>(),

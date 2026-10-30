@@ -17,9 +17,11 @@ public sealed class TidalSearchProvider : ISearchProvider
     private static readonly SearchProviderTarget[] TargetList =
     [
         new("tidal", SearchData.Isrc | SearchData.Text,
-            "Track URL for the tiddl downloader"),
+            "Track URL for the tiddl downloader", Priority: 20),
         new("rhythmax", SearchData.Isrc | SearchData.Text,
-            "Track URL for the no-account Rhythmax downloader"),
+            "Track URL for the no-account Rhythmax downloader", Priority: 10),
+        new("lucida", SearchData.Isrc | SearchData.Text,
+            "Tidal track URL for the Lucida ripper", Priority: 20, Tier: SearchTier.Ripper),
     ];
 
     private readonly TidalPublicCatalog _catalog;
@@ -38,6 +40,7 @@ public sealed class TidalSearchProvider : ISearchProvider
 
     public string Id => "tidal";
     public string Name => "Tidal ISRC search";
+    public int Priority => 20;
     public string Description =>
         "Looks up the recording in Tidal's catalogue by ISRC and falls back to a title search; returns a tidal.com track URL.";
     public SearchData Data => SearchData.Isrc | SearchData.Text;
