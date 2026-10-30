@@ -40,7 +40,7 @@
 }
 .maintenance-grid {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(13.5rem, 1fr));
     gap: .9rem;
 }
 .maintenance-action {
@@ -68,6 +68,34 @@
     font-size: .8rem;
 }
 .maintenance-pattern a { color: var(--accent-strong); font-weight: 600; }
+.duplicate-list {
+    display: grid;
+    gap: .55rem;
+    max-height: 22rem;
+    margin: 0;
+    padding: 0;
+    overflow-y: auto;
+    list-style: none;
+}
+.duplicate-list li {
+    display: grid;
+    gap: .2rem;
+    padding: .55rem .65rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg);
+    font-size: .82rem;
+}
+.duplicate-path {
+    color: var(--muted);
+    overflow-wrap: anywhere;
+}
+.duplicate-path code {
+    color: var(--text);
+    font-size: .76rem;
+}
+.duplicate-path.warn { color: var(--warning); }
+
 .rename-preview {
     display: grid;
     gap: .9rem;

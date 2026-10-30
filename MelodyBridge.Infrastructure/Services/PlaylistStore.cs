@@ -17,7 +17,7 @@ namespace MelodyBridge.Infrastructure.Services;
 /// Track rows keep their platform IDs and ordering so later stages
 /// (downloaders, library scans, sync jobs) can join on them.
 /// </summary>
-public class PlaylistStore
+public partial class PlaylistStore
 {
     private readonly IDbContextFactory<MelodyBridgeDbContext> _dbFactory;
     private readonly ISourceProvider[] _providers;
@@ -91,7 +91,8 @@ public class PlaylistStore
         DataChangeTracker? changes = null,
         ITrackClaimRegistry? claims = null,
         DownloadThrottle? throttle = null,
-        ArchiveCopyService? archiveCopies = null)
+        ArchiveCopyService? archiveCopies = null,
+        LibraryFileRepair? repair = null)
     {
         _dbFactory = dbFactory;
         _providers = providers.ToArray();
@@ -109,14 +110,13 @@ public class PlaylistStore
         // The claims that are live in this process, shared by the linker
         // and the download pipeline.
         _claims = claims ?? new LiveTrackClaims();
-        // The linking half of dedup (hardlink shared tracks and their
-        // archive copies) is one module: DI injects the singleton, tests
-        // that never wire one still get a working private instance.
+        // The linking half of dedup (hardlink shared tracks, archive copies)
+        // is one module; tests that do not wire one get a private instance.
         _linker = linker ?? new TrackLinker(
             dbFactory, _settings, _hardLinks, NullLogger<TrackLinker>.Instance, _changes, _claims,
             archiveCopies: archiveCopies);
-        // Optional: without a resolver, tracks simply download without an
-        // ISRC like before.
+        _repair = repair ?? new LibraryFileRepair(dbFactory, _settings, _linker, NullLogger<LibraryFileRepair>.Instance);
+        // Optional: without a resolver, tracks simply download without an ISRC like before.
         _isrcResolver = isrcResolver;
         // Optional download metadata: a cover to embed and lyrics to resolve.
         // Without them the file is tagged exactly as before.

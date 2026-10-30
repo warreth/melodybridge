@@ -574,7 +574,22 @@ the library already holds owns its own file names from the first
 moment: `TrackLinker.LinkSharedTracksAsync` runs right after every
 snapshot save (add, refresh, import), and `LibraryReconciler` asks the
 linker for a row without a file before it falls back to its MELODY_ID
-file index. That index never returns an archive copy (archive folders
+file index. A row without a database candidate gets a second look in
+its playlist folder: `MelodyFileIndex` maps the deterministic MELODY_ID
+to a file, and a file with an old `mb-` id or no id is matched on artist,
+title and duration and rewritten to the deterministic id. The folder
+index is only built when a row has no database candidate, so a playlist
+whose tracks are all shared with another playlist does not read every
+tag again.
+
+`ApplyFileNameAsync` also refuses to create a numbered duplicate for an
+orphaned file that carries the track's own MELODY_ID: the old file is
+replaced under the plain name, unless another row still points at it.
+`LibraryFileRepair` runs the adoption and the legacy-tag rewrite over
+the whole library, lists duplicate groups and cleans the unreferenced
+copies. A group without an owning row is reported but never deleted, and
+a numbered keeper takes the plain name back when that name is its orphan
+copy. That index never returns an archive copy (archive folders
 and remembered `ArchivePath` values stay out of it), and a
 `needs-review` row is left alone by every library pass: only a real
 download may pause it for the quality decision, an unprompted pass

@@ -51,6 +51,7 @@ public static class ServiceCollectionExtensions
         // own folder: one module for the download claim, the playlist
         // add/refresh pass and library reconciliation.
         services.AddSingleton<MelodyBridge.Infrastructure.Services.TrackLinker>();
+        services.AddSingleton<MelodyBridge.Infrastructure.Services.LibraryFileRepair>();
         // One write stamp for the whole app: the playlist page reloads when
         // a download, review, scan or refresh moved it.
         services.AddSingleton<MelodyBridge.Infrastructure.Services.DataChangeTracker>();

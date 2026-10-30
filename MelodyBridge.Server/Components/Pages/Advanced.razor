@@ -199,7 +199,86 @@
                     @(renameCounting ? "Checking tracks…" : renaming ? "Renaming…" : "Check file names")
                 </button>
             </div>
+            <div class="maintenance-action">
+                <strong>File links</strong>
+                <p>
+                    Reconnect files that are already in a playlist folder, including old
+                    MELODY_ID tags, and find numbered duplicates left by a re-added playlist.
+                </p>
+                <div class="flex-actions">
+                    <button class="btn-modern primary" disabled="@(repairingLinks || checkingDuplicates)"
+                            @onclick="RepairFileLinks">
+                        @(repairingLinks ? "Repairing…" : "Repair file links")
+                    </button>
+                    <button class="btn-modern" disabled="@(repairingLinks || checkingDuplicates)"
+                            @onclick="FindDuplicateFiles">
+                        @(checkingDuplicates ? "Checking…" : "Check duplicate files")
+                    </button>
+                </div>
+                @if (fileRepairResult is not null)
+                {
+                    <p class="text-muted">@fileRepairResult</p>
+                }
+            </div>
         </div>
+        @if (duplicateReport is { } report)
+        {
+            <div class="rename-preview" aria-live="polite">
+                <div class="rename-preview-head">
+                    <div>
+                        <span class="eyebrow">Duplicate files</span>
+                        <h3>
+                            @(report.Groups.Count == 0
+                                ? "No duplicate files found"
+                                : $"{report.OrphanCount} orphan {(report.OrphanCount == 1 ? "copy" : "copies")} in {report.Groups.Count} {(report.Groups.Count == 1 ? "track" : "tracks")}")
+                        </h3>
+                        <p class="rename-pattern">
+                            The file a playlist row points at is kept. Only unreferenced copies are removed.
+                        </p>
+                    </div>
+                    <button class="icon-button" type="button" title="Close duplicate report" @onclick="CloseDuplicateReport">
+                        <Icon Name="x" Size="16" />
+                    </button>
+                </div>
+                @if (report.Groups.Count > 0)
+                {
+                    <ul class="duplicate-list">
+                        @foreach (var group in report.Groups)
+                        {
+                            <li>
+                                <strong>@group.TrackTitle</strong>
+                                <span class="text-muted">@group.PlaylistName</span>
+                                @if (group.Keeper is not null)
+                                {
+                                    <div class="duplicate-path">Keep <code>@group.Keeper</code></div>
+                                }
+                                else
+                                {
+                                    <div class="duplicate-path warn">
+                                        No playlist row points at this track; left untouched.
+                                    </div>
+                                }
+                                @foreach (var orphan in group.Orphans)
+                                {
+                                    <div class="duplicate-path">Remove <code>@orphan</code></div>
+                                }
+                            </li>
+                        }
+                    </ul>
+                    @if (report.CanRemove)
+                    {
+                        <div class="flex-actions">
+                            <button class="btn-modern primary" disabled="@removingDuplicates"
+                                    @onclick="RemoveDuplicateFiles">
+                                @(removingDuplicates
+                                    ? "Cleaning…"
+                                    : $"Clean up {report.OrphanCount} duplicate {(report.OrphanCount == 1 ? "file" : "files")}")
+                            </button>
+                        </div>
+                    }
+                }
+            </div>
+        }
         @if (renameConfirm && renameSummary is { } summary)
         {
             <div class="rename-preview" aria-live="polite">
@@ -295,6 +374,11 @@
     private bool renameConfirm;
     private RenamePlanSummary? renameSummary;
     private string? renameResult;
+    private bool repairingLinks;
+    private bool checkingDuplicates;
+    private bool removingDuplicates;
+    private string? fileRepairResult;
+    private DuplicateFileReport? duplicateReport;
 
     // Unsaved-changes state for the floating save bar.
     private bool dirty;
@@ -314,6 +398,82 @@
         advancedMode = await Settings.GetBoolAsync(AdvancedMode.SettingKey, false);
         fileNamePattern = await Settings.GetAsync(FileNamePattern.SettingKey, FileNamePattern.Default);
     }
+
+    private async Task RepairFileLinks()
+    {
+        repairingLinks = true;
+        try
+        {
+            var report = await PlaylistStore.RepairFileLinksAsync();
+            fileRepairResult = $"Adopted {report.Linked} track(s), rewrote {report.TagsRewritten} legacy tag(s)"
+                + (report.Ambiguous == 0 ? "." : $"; {report.Ambiguous} ambiguous file(s) left untouched.");
+            Notifications.Success(fileRepairResult);
+            duplicateReport = null;
+        }
+        catch (Exception ex)
+        {
+            Notifications.Error($"File link repair failed: {ex.Message}");
+        }
+        finally
+        {
+            repairingLinks = false;
+        }
+    }
+
+    private async Task FindDuplicateFiles()
+    {
+        checkingDuplicates = true;
+        try
+        {
+            duplicateReport = await PlaylistStore.FindDuplicateFilesAsync();
+            fileRepairResult = null;
+            if (duplicateReport.Groups.Count == 0)
+                Notifications.Success("No duplicate files found.");
+            else
+                Notifications.Info(
+                    $"{duplicateReport.OrphanCount} orphan duplicate file(s) found.");
+        }
+        catch (Exception ex)
+        {
+            Notifications.Error($"Duplicate check failed: {ex.Message}");
+        }
+        finally
+        {
+            checkingDuplicates = false;
+        }
+    }
+
+    private async Task RemoveDuplicateFiles()
+    {
+        if (duplicateReport is null) return;
+        var paths = duplicateReport.Groups
+            .Where(group => group.Keeper is not null)
+            .SelectMany(group => group.Orphans)
+            .ToList();
+        if (paths.Count == 0) return;
+
+        removingDuplicates = true;
+        try
+        {
+            var result = await PlaylistStore.RemoveDuplicateFilesAsync(paths);
+            var message = $"Removed {result.Removed} orphan duplicate file(s)";
+            if (result.Renamed > 0)
+                message += $", restored {result.Renamed} plain name(s)";
+            Notifications.Success(message + ".");
+            duplicateReport = await PlaylistStore.FindDuplicateFilesAsync();
+            if (duplicateReport.Groups.Count == 0) duplicateReport = null;
+        }
+        catch (Exception ex)
+        {
+            Notifications.Error($"Could not remove duplicate files: {ex.Message}");
+        }
+        finally
+        {
+            removingDuplicates = false;
+        }
+    }
+
+    private void CloseDuplicateReport() => duplicateReport = null;
 
     private async Task SaveAll()
     {

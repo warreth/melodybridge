@@ -565,6 +565,13 @@ The knobs most people never need, in five panels:
   source, lyrics, the release credit and the album name. Only missing fields are
   written, so artwork a plugin embedded is left alone. It reports how many files
   changed, how many were already complete and how many could not be read.
+  **File links** adopts files that are already in a playlist folder, including
+  old `mb-` MELODY_IDs and untagged files whose artist, title and length match
+  a row; the tag is rewritten to the deterministic id. **Check duplicate
+  files** lists numbered copies of the same track. The file a row points at is
+  kept, unreferenced copies are removed, and a `(2)` keeper takes the plain
+  name back when the plain copy is the orphan. A group no row owns is reported
+  but left untouched.
   **Check file names** applies the saved file name pattern to files already
   downloaded, archive copies included. The preview breaks the library down:
   how many tracks would be renamed, how many already follow the pattern,

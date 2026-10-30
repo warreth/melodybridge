@@ -346,6 +346,12 @@ at startup and after every scan, so a fresh database over an existing music
 folder heals by itself. Playlists imported from a CSV file or your liked songs
 need the import repeated before their rows exist again.
 
+Re-adding a playlist while the app is running adopts its files right away, from
+the playlist folder: a file with the matching `MELODY_ID`, an old `mb-` id, or
+no id at all is matched by its tags and artist, title and length, then given
+the deterministic id. The **File links** action on the Advanced page runs the
+same repair over the whole library and then reports numbered duplicates.
+
 ## Playlist folders
 
 Every playlist downloads into its own folder named after it, under the music
