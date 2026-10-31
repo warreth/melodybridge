@@ -315,7 +315,7 @@ including `archive: <name>` chips for archive copies.
   the target and the pick keeps its source quality, **outside target** when a
   source sits above a cap and keeps its quality, or **off target** when the
   plugin will convert the pick to the requested container. A band is only
-  called a match when the probe measured it. Plugins search at the same time
+  called a match when the probe measured it. Providers search at the same time
   and results appear as they arrive; the pick itself shows a progress bar and
   a running timer. Use it when the automatic match picked the wrong recording
   or found nothing; the pick downloads through the normal pipeline and
@@ -438,8 +438,8 @@ own stream, then tags and verifies the file.
 
 <img src="/screens/plugins.webp" alt="Plugins page with the search routing map, source order strip and grouped setup cards" width="800">
 
-Plugins search for and download your tracks. The page has two jobs: set a source
-up, and decide which source is tried first.
+Providers search for your tracks and plugins download them. The page has two
+jobs: set a source up, and decide which source is tried first.
 
 The **Try order** card is the editable list. Use the arrows to move an enabled
 source up or down. The order here is the whole story for the **No filter**

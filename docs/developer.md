@@ -88,7 +88,10 @@ public interface IDownloader
     DownloaderSearchInfo SearchInfo => ...;    // provider, own search or URL only
     bool FallbackOnly => false;                // keeps a last-resort source last
     Task<bool> IsAvailableAsync(CancellationToken ct = default);
-    Task<DownloaderSearchHit?> SearchAsync(TrackQuery query, CancellationToken ct = default);
+    // Third-party self-search only; provider-backed plugins keep the default.
+    Task<DownloaderSearchHit?> SearchAsync(
+        TrackQuery query, CancellationToken ct = default)
+        => Task.FromResult<DownloaderSearchHit?>(null);
     Task<DownloaderDownloadResult> DownloadAsync(
         string sourceUrl, string outputDirectory, string? melodyId,
         DownloadQuality? quality = null, CancellationToken ct = default);
@@ -98,21 +101,20 @@ public interface IDownloader
 `TrackQuery` is one record carrying everything a plugin may search on:
 artist, title, quality, the playlist's advertised duration and the ISRC
 when known. A record instead of a widening parameter list, so the next
-matching signal is one property, not another signature change. Plugins
-rank their candidates with `SearchRanker.Rank`: title/artist similarity
-plus duration proximity, gross mismatches (a 30s preview for a 4-minute
-track) are dropped, and candidates that add an unrequested modifier
-(karaoke, cover, remix, live cut) are never offered at all. The
-runner-ups travel along in `DownloaderSearchHit.Alternatives` so a dead
-first choice (deleted video, geo-block) does not lose the plugin.
-`DownloadManager` re-checks every candidate before spending bytes.
+matching signal is one property, not another signature change. Search
+providers rank their candidates with `SearchRanker.Rank`: title/artist
+similarity plus duration proximity, gross mismatches (a 30s preview for a
+4-minute track) are dropped, and candidates that add an unrequested modifier
+(karaoke, cover, remix, live cut) are never offered at all. The runner-ups
+travel along in `DownloaderSearchHit.Alternatives` so a dead first choice
+(deleted video, geo-block) does not lose the source. `DownloadManager`
+re-checks every candidate before spending bytes.
 
-Plugins whose catalog indexes ISRCs use it as the strongest signal. Qobuz,
-Deezer and Jumo search the code itself, and Qobuz, Deezer, Jumo, Tidal and
-Monochrome accept a hit carrying the exact code even when the catalogue spells
-the title differently (the length is still checked). Lucida searches its
-services by the code too, but its hits carry no ISRC to verify against, so it
-still requires a confident title match. YouTube, SoundCloud and Archive.org do not index ISRCs and ignore the field.
+Providers whose catalogue indexes ISRCs use it as the strongest signal.
+Qobuz, Deezer and Jumo search the code itself, and Qobuz, Deezer, Jumo, Tidal
+and Monochrome accept a hit carrying the exact code even when the catalogue
+spells the title differently (the length is still checked). YouTube,
+SoundCloud and Archive.org do not index ISRCs and ignore the field.
 
 ### `ISearchProvider`: the URL resolver
 
@@ -139,9 +141,9 @@ public interface ISearchProvider
 searches its own catalogue with the listed data, `Provider` means a provider
 must resolve the URL, and `None` means direct URLs only. Every built-in source
 is `Provider`: the five self-search sources have their own providers too, and
-their downloaders only download a URL. `Self` remains for third-party plugins that
-still search inside the downloader. `FallbackOnly` keeps a source behind every
-ordinary source in the quality router, whatever its capabilities say.
+their downloaders only download a URL. `Self` remains for third-party plugins
+that still search inside the downloader. `FallbackOnly` keeps a source behind
+every ordinary source in the quality router, whatever its capabilities say.
 
 `SearchProviderRegistry` is the router. The waterfall and the manual source
 picker both call it instead of `IDownloader.SearchAsync` directly. It uses a

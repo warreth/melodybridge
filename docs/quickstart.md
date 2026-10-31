@@ -39,7 +39,7 @@ MelodyBridge downloads.
 </div>
 <div class="step" data-step="2">
 <strong>Download the music</strong>
-<p>Open the playlist and press <b>Download missing</b>. The plugins search and download each track, and the list fills in with the real quality of every file.</p>
+<p>Open the playlist and press <b>Download missing</b>. The providers search for each track, the plugins download it, and the list fills in with the real quality of every file.</p>
 </div>
 <div class="step" data-step="3">
 <strong>Publish it</strong>

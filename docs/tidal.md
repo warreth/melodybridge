@@ -110,5 +110,5 @@ tiddl that runs somewhere else:
   the folder that holds its `auth.json`
 
 The **tiddl app folder** field is only needed when the tool runs with a custom
-`TIDDL_PATH`; the plugin passes it through to the CLI as well, so the search
-and the download always use the same login.
+`TIDDL_PATH`; the plugin passes it through to the CLI as well, so the download
+uses the same login.

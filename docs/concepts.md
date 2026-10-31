@@ -181,7 +181,7 @@ When the automatic match is wrong or finds nothing, every track row has a
 found, including the hits the automatic search refused, each with its plugin
 name and a likely/unsure pill. The track's own length sits at the top and every
 hit shows its length with the difference, so a preview or a longer edit stands
-out. The plugins search at the same time, results appear as each one answers
+out. The providers search at the same time, results appear as each one answers
 instead of waiting for the slowest, and a pick shows a progress bar and a
 running timer while it downloads. Picking one downloads it through the normal
 pipeline, files and archive copy included, and replaces whatever the row held
