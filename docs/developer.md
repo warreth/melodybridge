@@ -171,7 +171,7 @@ so a degraded official source still loses to a healthy one. The `search_official
 sources on the Advanced page) defaults on; turning it off restores the pure
 source order.
 
-Every built-in source is provider-backed. The provider classes live in
+Every built-in source is provider-backed. Most provider classes live in
 `MelodyBridge.Infrastructure/SearchProviders/`: `QobuzSearchProvider`,
 `DeemixSearchProvider`, `JumoSearchProvider`, `MonochromeSearchProvider`,
 `ArchiveOrgSearchProvider`, `FlacMusicSearchProvider`, `SlskdSearchProvider`,
@@ -338,17 +338,14 @@ Implement this to add a download source. Built-in plugins:
 | `ArchiveOrgDownloader` | `archiveorg` | Internet Archive (public JSON APIs) | Public-domain and community recordings; `ArchiveOrgSearchProvider` ranks the files inside every matching item, the downloader streams the chosen MP3; rejects files under 128 kbps |
 | `YtDlpDownloader` | `ytdlp` | YouTube (via yt-dlp) | Widest fallback; `YtDlpSearchProvider` ranks the top five by match and duration, the downloader fetches the URL; explicit formats transcode to the requested cap |
 
-The catalogue search for every built-in source sits in its own provider under
-`SearchProviders/`; the downloader only downloads. Tidal's provider lives with
-its client in `Infrastructure/Tidal/`. Their `SearchInfo` says `Provider` with
-the data the provider reads. Where the search and the download share state, a
-session class owns it: `QobuzSession`, `JumoSession` and `LucidaSession` for
-token, region or solver state, and `FlacMusicSession` and `SlskdSession` for the
-site or slskd connection. The rest need only a client or the shared yt-dlp
-process. Lucida is the exception: it is a pure URL consumer, so its `SearchInfo`
-declares `Url` data and it appears as a target of the official providers. A new
-source follows the same split: provider for query to URL, downloader for URL to
-file.
+The catalogue search for every built-in source sits in its own provider; the
+downloader only downloads. Their `SearchInfo` says `Provider` with the data the
+provider reads. Where the search and the download share mutable state, they use
+the same session class as their provider. The rest need only a client or the
+shared yt-dlp process. Lucida is the exception: it is a pure URL consumer, so
+its `SearchInfo` declares `Url` data and it appears as a target of the official
+providers. A new source follows the same split: provider for query to URL,
+downloader for URL to file.
 
 Place new implementations in `MelodyBridge.Infrastructure/Downloaders/` and register via `services.AddSingleton<IDownloader, YourPlugin>()`. A plugin that ships its own protocol client or byte-level helpers lives in its own folder next to it instead (`Infrastructure/Lucida/`, `Infrastructure/Jumo/`) and registers the same way. Quality-gate downloads against the requested `DownloadQuality` band so bad rips never enter the library.
 

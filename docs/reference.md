@@ -472,7 +472,7 @@ is provider-backed. A source marked **fallback** only runs after every other
 source. A direct-URL source has no search at all. If a source declares a
 provider search but no provider targets it, the card calls that out in red.
 Third-party sources that still search inside the downloader are listed
-separately under **Sources that search themselves**.
+separately under **Third-party sources that search themselves**.
 
 - Each plugin card shows its capability badges (formats, bitrate range) and a
   **Settings** row when it has options. The row opens a panel with the fields
