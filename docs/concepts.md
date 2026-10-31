@@ -95,11 +95,11 @@ Sources fall into four groups:
 | Official catalogue | The provider reads an official ISRC index and returns the source's own URL. Tidal and Rhythmax share the public Tidal ISRC searcher; Qobuz uses your token; Deezer uses its public API |
 | Official URL, community downloader | Lucida has no searcher. It consumes the Qobuz, Tidal or Deezer URL an official provider already resolved, and can also rip SoundCloud, Amazon and Yandex links |
 | Unofficial catalogue | Jumo is a Qobuz front-end: it uses the same Qobuz album and track ids, so the Qobuz hit becomes a `jumo:` URL without a second search. Monochrome has its own snowflake ids and searches its catalogue by ISRC first |
-| Self-search | The source searches its own catalogue and has no ISRC-indexed provider route. Soulseek, SoundCloud, Internet Archive, yt-dlp and FLAC Music work this way; the Chinese fallback searches by title only because it has no ISRC index |
+| Self-search | A provider searches the source's own catalogue by title because the service has no ISRC index. Soulseek, SoundCloud, Internet Archive, yt-dlp and FLAC Music each have their own provider; the downloader only downloads the URL. The Chinese fallback searches by title only and stays last |
 
 A provider target can carry a priority, a tier and a provider can carry its own
 priority. Official targets run first, then the community downloader on their
-URLs, then the unofficial catalogues, then the self-search sources. Inside a
+URLs, then the unofficial catalogues, then the self-search providers. Inside a
 tier the user's source order still decides. **Prefer official sources** on the
 Advanced page turns this off and restores the pure source order. The Plugins
 page shows the tier and any routing problem it finds, such as a target that
@@ -146,9 +146,9 @@ Advanced page.
 | Tidal | Lossless and hi-res files from your own Tidal session, through tiddl. See [Tidal and tiddl](/tidal) |
 | Tidal (Rhythmax) | Tidal FLAC and AAC through the public Rhythmax API, no Tidal account needed. See [Tidal and tiddl](/tidal#no-tidal-account-rhythmax) |
 | Jumo | Qobuz rips through the community front-end jumo-dl.pages.dev, no account needed. See [Jumo (Qobuz rips)](/jumo) |
-| SoundCloud | Original uploads by the artist, usually 128 kbps or better |
-| Internet Archive | Public recordings and digitizations from archive.org |
-| yt-dlp | YouTube: audio-only best stream, top-5 ranked by match and duration |
+| SoundCloud | Original uploads by the artist, usually 128 kbps or better; the SoundCloud provider ranks the top five |
+| Internet Archive | Public recordings and digitizations from archive.org; the archive provider scans every matching item |
+| yt-dlp | YouTube: audio-only best stream; the YouTube provider ranks the top five by match and duration |
 | FLAC Music (CN) | Kuwo and NetEase lossless search, title-only fallback. See [FLAC Music fallback](/flacmusic) |
 
 ### Finding the right recording

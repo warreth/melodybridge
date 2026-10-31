@@ -2,9 +2,10 @@
 
 FLAC Music is the last source in the shipped waterfall. It searches a
 Chinese music front-end for tracks on Kuwo and NetEase Cloud Music by title
-and artist. It has no ISRC index and no stable public track URL, so it is the
-one built-in source that searches its own catalogue. MelodyBridge keeps it
-behind every other source, even when you ask for Lossless.
+and artist. It has no ISRC index and no stable public track URL, so a dedicated
+provider searches its catalogue by title; the downloader only downloads the
+URL it gets back. MelodyBridge keeps it behind every other source, even when
+you ask for Lossless.
 
 Use it when a track is missing from the curated sources, not as a primary
 source. The site's quality labels do not always match the bytes it serves,
