@@ -78,11 +78,6 @@ public class ArchiveOrgDownloader : IDownloader
         return available;
     }
 
-    /// <summary>Provider-backed: the search lives in ArchiveOrgSearchProvider.</summary>
-    public Task<DownloaderSearchHit?> SearchAsync(
-        TrackQuery query, CancellationToken ct = default)
-        => Task.FromResult<DownloaderSearchHit?>(null);
-
     public async Task<DownloaderDownloadResult> DownloadAsync(
         string sourceUrl,
         string outputDirectory,

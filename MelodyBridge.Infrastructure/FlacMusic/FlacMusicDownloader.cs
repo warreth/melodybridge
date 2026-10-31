@@ -93,11 +93,6 @@ public class FlacMusicDownloader : IDownloader, IPluginAvailabilityRefresh
     public Task<bool> IsAvailableAsync(CancellationToken ct = default)
         => _session.IsAvailableAsync(ct);
 
-    /// <summary>Provider-backed: the search lives in FlacMusicSearchProvider.</summary>
-    public Task<DownloaderSearchHit?> SearchAsync(
-        TrackQuery query, CancellationToken ct = default)
-        => Task.FromResult<DownloaderSearchHit?>(null);
-
     // ── Download ─────────────────────────────────────────────────────────
 
     public async Task<DownloaderDownloadResult> DownloadAsync(

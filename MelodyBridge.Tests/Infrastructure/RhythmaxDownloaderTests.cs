@@ -163,7 +163,9 @@ public class RhythmaxDownloaderTests
         Assert.That(downloader.SearchInfo.Mode, Is.EqualTo(DownloaderSearchMode.Provider));
         Assert.That(downloader.SearchInfo.Data.HasFlag(SearchData.Isrc), Is.True);
         Assert.That(downloader.SearchInfo.Data.HasFlag(SearchData.Text), Is.True);
-        Assert.That(downloader.SearchAsync(new TrackQuery("a", "b", DownloadQuality.Any))
-            .GetAwaiter().GetResult(), Is.Null);
+        Assert.That(((IDownloader)downloader).SearchAsync(
+                new TrackQuery("a", "b", DownloadQuality.Any))
+            .GetAwaiter().GetResult(), Is.Null,
+            "the interface default is a miss, never a source-side search");
     }
 }

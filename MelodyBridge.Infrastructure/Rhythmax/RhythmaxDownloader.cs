@@ -87,12 +87,6 @@ public class RhythmaxDownloader : IDownloader, IPluginAvailabilityRefresh
         return ready;
     }
 
-    public Task<DownloaderSearchHit?> SearchAsync(
-        TrackQuery query, CancellationToken ct = default)
-        // Provider-backed by contract. Returning null here is intentional:
-        // a direct caller cannot silently fall back to a source-side search.
-        => Task.FromResult<DownloaderSearchHit?>(null);
-
     public async Task<DownloaderDownloadResult> DownloadAsync(
         string sourceUrl,
         string outputDirectory,

@@ -53,11 +53,6 @@ public class SoundCloudDownloader : IDownloader
         return Task.FromResult(ready);
     }
 
-    /// <summary>Provider-backed: the search lives in SoundCloudSearchProvider.</summary>
-    public Task<DownloaderSearchHit?> SearchAsync(
-        TrackQuery query, CancellationToken ct = default)
-        => Task.FromResult<DownloaderSearchHit?>(null);
-
     /// <inheritdoc />
     public Task<CandidateAudioQuality?> ProbeQualityAsync(
         string sourceUrl, CancellationToken ct = default)

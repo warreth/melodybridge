@@ -166,22 +166,21 @@ public interface IDownloader
     IReadOnlyList<string> Notes => Array.Empty<string>();
 
     /// <summary>
-    /// Find a downloadable source URL for the track query, honoring the
-    /// requested quality where the source exposes it. Plugins rank their
-    /// candidates with <c>SearchRanker</c>: title/artist similarity plus
-    /// duration proximity, with gross mismatches and unrequested
-    /// modifiers (karaoke, cover, live cut) dropped. Plugins whose
-    /// catalog indexes ISRCs search by <c>query.Isrc</c> first when it is
-    /// present, and fall back to the text query when that yields nothing.
+    /// The source-side search for a third-party plugin that still searches
+    /// its own catalogue. Every built-in source is provider-backed and
+    /// leaves this at the null default, so the router only reaches this
+    /// member for a source whose SearchInfo says Self.
     /// </summary>
-    Task<DownloaderSearchHit?> SearchAsync(TrackQuery query, CancellationToken ct = default);
+    Task<DownloaderSearchHit?> SearchAsync(
+        TrackQuery query, CancellationToken ct = default)
+        => Task.FromResult<DownloaderSearchHit?>(null);
 
     /// <summary>
     /// Every candidate the plugin found for the query, best first, before
     /// its own ranking gate: the "choose a source by hand" dialog shows
     /// them so a human can pick a result the automatic match refused. The
-    /// default returns the ranked hit plus its alternatives; plugins that
-    /// can offer more (the yt-dlp backed ones) override it.
+    /// default returns the ranked hit plus its alternatives; a provider
+    /// for a self-search source can offer its raw candidates instead.
     /// </summary>
     async Task<IReadOnlyList<DownloaderSearchHit>> SearchAllAsync(
         TrackQuery query, CancellationToken ct = default)

@@ -54,11 +54,6 @@ public partial class YtDlpDownloader : IDownloader
         return Task.FromResult(ready);
     }
 
-    /// <summary>Provider-backed: the search lives in YtDlpSearchProvider.</summary>
-    public Task<DownloaderSearchHit?> SearchAsync(
-        TrackQuery query, CancellationToken ct = default)
-        => Task.FromResult<DownloaderSearchHit?>(null);
-
     /// <inheritdoc />
     public Task<CandidateAudioQuality?> ProbeQualityAsync(
         string sourceUrl, CancellationToken ct = default)

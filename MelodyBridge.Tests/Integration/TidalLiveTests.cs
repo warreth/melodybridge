@@ -64,6 +64,12 @@ public class TidalLiveTests
                 NullLogger<TidalClient>.Instance),
             new EnvPluginConfig(), NullLogger<TidalDownloader>.Instance);
 
+    private static TidalSearchProvider CreateSearch()
+        => new(new TidalPublicCatalog(
+                new HttpClient { Timeout = TimeSpan.FromMinutes(2) },
+                NullLogger<TidalPublicCatalog>.Instance),
+            new EnvPluginConfig(), NullLogger<TidalSearchProvider>.Instance);
+
     [Test]
     public async Task IsAvailable_LoggedInTiddl_True()
     {
@@ -76,7 +82,7 @@ public class TidalLiveTests
     public async Task Search_WellKnownTrack_FindsATidalHit()
     {
         RequireSession();
-        var hit = await Create().SearchAsync(new TrackQuery(
+        var hit = await CreateSearch().SearchAsync("tidal", new TrackQuery(
             "Daft Punk", "Around the World", DownloadQuality.Any,
             ExpectedDuration: TimeSpan.FromSeconds(429)));
 
@@ -94,7 +100,7 @@ public class TidalLiveTests
         RequireSession();
         var downloader = Create();
 
-        var hit = await downloader.SearchAsync(new TrackQuery(
+        var hit = await CreateSearch().SearchAsync("tidal", new TrackQuery(
             "Daft Punk", "Around the World", DownloadQuality.Any,
             ExpectedDuration: TimeSpan.FromSeconds(429)));
         Assert.That(hit, Is.Not.Null, "precondition: the search finds the track");

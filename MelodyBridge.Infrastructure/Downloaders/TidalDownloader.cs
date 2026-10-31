@@ -9,14 +9,13 @@ namespace MelodyBridge.Infrastructure.Downloaders;
 /// <summary>
 /// Tidal downloader plugin driven by the user's own tiddl
 /// (https://github.com/oskvr37/tiddl). tiddl owns the login
-/// (<c>tiddl auth login</c>) and the download; MelodyBridge searches
-/// Tidal's catalogue with that same session and hands over the track URL.
+/// (<c>tiddl auth login</c>) and the download. TidalSearchProvider resolves
+/// the track URL through the public catalogue; this plugin only downloads
+/// the URL it gets back.
 ///
-/// The search runs against the public v1 API with the stored bearer token,
-/// ISRC-first like the other subscription plugins. Downloads go through
-/// the shared CLI plumbing, with the tool's own quality tiers mapped onto
-/// the requested band: LOW (96 kbps m4a), NORMAL (320 kbps m4a), HIGH
-/// (16-bit FLAC) and MAX (hi-res FLAC).
+/// Downloads go through the shared CLI plumbing, with the tool's own
+/// quality tiers mapped onto the requested band: LOW (96 kbps m4a), NORMAL
+/// (320 kbps m4a), HIGH (16-bit FLAC) and MAX (hi-res FLAC).
 /// </summary>
 public class TidalDownloader : CliToolDownloader
 {
@@ -51,8 +50,7 @@ public class TidalDownloader : CliToolDownloader
 
     /// <summary>
     /// The Tidal searcher resolves the track URL by ISRC (or text), so this
-    /// source no longer searches its own catalogue in the waterfall. Its
-    /// SearchAsync stays for compatibility and direct callers only.
+    /// source only downloads a URL.
     /// </summary>
     public override DownloaderSearchInfo SearchInfo =>
         DownloaderSearchInfo.ViaProvider(SearchData.Isrc | SearchData.Text);
@@ -248,58 +246,6 @@ public class TidalDownloader : CliToolDownloader
         return true;
     }
 
-    // ── Search ───────────────────────────────────────────────────────────
-
-    public override async Task<DownloaderSearchHit?> SearchAsync(
-        TrackQuery query, CancellationToken ct = default)
-    {
-        var searchText = query.SearchText;
-        if (searchText.Length == 0) return null;
-
-        await EnsureAuthSeededAsync(ct);
-        var session = TidalAuth.Read(await AppPathAsync(ct));
-        if (session is null || string.IsNullOrWhiteSpace(session.Token))
-        {
-            LastUnavailableReason = "Run tiddl auth login to connect Tidal, or paste a token in the settings";
-            SetAuth(PluginAuthState.Missing, LastUnavailableReason);
-            return null;
-        }
-        if (session.Expired)
-        {
-            LastUnavailableReason =
-                $"The Tidal token expired on {DateTimeOffset.FromUnixTimeSeconds(session.ExpiresAtUnix).ToLocalTime():yyyy-MM-dd HH:mm}; paste a fresh one";
-            SetAuth(PluginAuthState.Expired, LastUnavailableReason,
-                AuthStatus.Account, AuthStatus.Plan, AuthStatus.Tier, AuthStatus.ExpiresAtUtc);
-            StoreAvailability(false);
-            return null;
-        }
-
-        var result = await _tidal.SearchTracksAsync(
-            searchText, 10, session.Token, session.CountryCode ?? "US", ct);
-        if (result.Status == TidalClient.TidalSearchStatus.Rejected)
-        {
-            LastUnavailableReason = result.Message
-                ?? "Tidal rejected the token; paste a fresh one";
-            SetAuth(PluginAuthState.Rejected, LastUnavailableReason,
-                AuthStatus.Account, AuthStatus.Plan, AuthStatus.Tier, AuthStatus.ExpiresAtUtc);
-            StoreAvailability(false);
-            Logger.LogDebug("Tidal: {Reason}", LastUnavailableReason);
-            return null;
-        }
-        if (result.Status == TidalClient.TidalSearchStatus.Unreachable)
-        {
-            LastUnavailableReason = result.Message ?? "The Tidal API did not answer";
-            SetAuth(PluginAuthState.Unreachable, LastUnavailableReason,
-                AuthStatus.Account, AuthStatus.Plan, AuthStatus.Tier, AuthStatus.ExpiresAtUtc);
-            Logger.LogDebug("Tidal: {Reason}", LastUnavailableReason);
-            return null;
-        }
-
-        SetAuthValid();
-        LastUnavailableReason = null;
-        return Rank(result.Tracks, query);
-    }
-
     /// <summary>
     /// A tiddl failure can be an expired or revoked session. Only the
     /// tool's own words count, so a network or quota error is not called
@@ -325,43 +271,6 @@ public class TidalDownloader : CliToolDownloader
             SetAuth(PluginAuthState.Rejected,
                 "Tidal rejected the session; paste a fresh token or run tiddl auth login");
         }
-    }
-
-    /// <summary>
-    /// Ranks the Tidal results with the shared rules. An exact ISRC
-    /// narrows the pool to the recording itself and is accepted on that
-    /// code (the catalogue may spell the title differently), with the
-    /// length still checked. Internal for tests.
-    /// </summary>
-    internal static DownloaderSearchHit? Rank(
-        IReadOnlyList<TidalClient.TidalTrack> tracks, TrackQuery query)
-    {
-        var candidates = new List<(DownloaderSearchHit Hit, string? Isrc)>();
-        foreach (var track in tracks)
-        {
-            if (!track.StreamReady) continue;
-
-            var hit = new DownloaderSearchHit(
-                Title: track.Title,
-                Artist: track.Artist,
-                SourceUrl: $"https://tidal.com/browse/track/{track.Id}",
-                Duration: track.Duration,
-                MatchConfidence: FuzzyMatcher.Confidence(
-                    query.Artist, query.Title, hitArtist: track.Artist, hitTitle: track.Title));
-            candidates.Add((hit, track.Isrc));
-        }
-
-        if (candidates.Count == 0) return null;
-
-        var isrcPool = candidates.Where(c =>
-            !string.IsNullOrWhiteSpace(query.Isrc) &&
-            !string.IsNullOrWhiteSpace(c.Isrc) &&
-            string.Equals(query.Isrc.Trim(), c.Isrc.Trim(), StringComparison.OrdinalIgnoreCase)).ToList();
-        if (isrcPool.Count > 0)
-            return SearchRanker.RankExactRecording(query.Artist, query.Title,
-                query.ExpectedDuration, isrcPool.Select(c => c.Hit));
-        return SearchRanker.Rank(query.Artist, query.Title, query.ExpectedDuration,
-            candidates.Select(c => c.Hit));
     }
 
     // ── Download ─────────────────────────────────────────────────────────

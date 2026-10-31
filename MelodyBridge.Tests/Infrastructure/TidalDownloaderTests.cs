@@ -8,9 +8,10 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace MelodyBridge.Tests.Infrastructure;
 
 /// <summary>
-/// The Tidal plugin: tiddl's stored session for the login, Tidal's v1
-/// search for the ranking, the user's own tiddl CLI (a POSIX shell stub
-/// that writes real audio) for the download. No Tidal account needed.
+/// The Tidal plugin: tiddl's stored session for the login, the public
+/// Tidal search provider for the URL, and the user's own tiddl CLI (a POSIX
+/// shell stub that writes real audio) for the download. No Tidal account
+/// needed.
 /// </summary>
 [TestFixture]
 public class TidalDownloaderTests
@@ -76,10 +77,6 @@ public class TidalDownloaderTests
             NullLogger<TidalDownloader>.Instance);
     }
 
-    private static TidalClient.TidalTrack Track(
-        long id, string title, string artist, int duration, string? isrc = null, bool ready = true)
-        => new(id, title, artist, TimeSpan.FromSeconds(duration), isrc, ready);
-
     // ── The stored session ───────────────────────────────────────────────
 
     [Test]
@@ -124,124 +121,6 @@ public class TidalDownloaderTests
         Assert.That(TidalAuth.ResolveAppPath("/tmp/custom-tiddl"), Is.EqualTo("/tmp/custom-tiddl"));
         Assert.That(TidalAuth.ResolveAppPath("  "), Does.EndWith(".tiddl"));
     }
-
-    // ── Parsing the search payload ───────────────────────────────────────
-
-    [Test]
-    public void ParseSearch_ReadsTheRealPayloadShape()
-    {
-        using var doc = JsonDocument.Parse("""
-        {
-          "tracks": {
-            "items": [
-              {
-                "id": 12345,
-                "title": "Around the World",
-                "duration": 429,
-                "isrc": "GBDUW0600009",
-                "streamReady": true,
-                "artists": [ { "id": 1, "name": "Daft Punk", "type": "MAIN" } ],
-                "artist": { "id": 1, "name": "Daft Punk", "type": "MAIN" }
-              },
-              {
-                "id": 999,
-                "title": "Around the World (Live)",
-                "duration": 300,
-                "isrc": "",
-                "streamReady": false,
-                "artists": [ { "id": 2, "name": "Tribute Band", "type": "MAIN" } ]
-              }
-            ]
-          }
-        }
-        """);
-
-        var tracks = TidalClient.ParseSearch(doc.RootElement);
-
-        Assert.That(tracks, Has.Count.EqualTo(2), "unplayable entries are still reported; ranking drops them");
-        Assert.Multiple(() =>
-        {
-            Assert.That(tracks[0].Id, Is.EqualTo(12345));
-            Assert.That(tracks[0].Title, Is.EqualTo("Around the World"));
-            Assert.That(tracks[0].Artist, Is.EqualTo("Daft Punk"));
-            Assert.That(tracks[0].Duration, Is.EqualTo(TimeSpan.FromSeconds(429)));
-            Assert.That(tracks[0].Isrc, Is.EqualTo("GBDUW0600009"));
-            Assert.That(tracks[0].StreamReady, Is.True);
-            Assert.That(tracks[1].StreamReady, Is.False);
-        });
-    }
-
-    [Test]
-    public void ParseSearch_EmptyOrUnknownShape_IsEmpty()
-    {
-        using var doc = JsonDocument.Parse("{\"tracks\":{}}");
-        Assert.That(TidalClient.ParseSearch(doc.RootElement), Is.Empty);
-    }
-
-    // ── Ranking ──────────────────────────────────────────────────────────
-
-    [Test]
-    public void Rank_PicksTheRealMatch_NotTheFirstItem()
-    {
-        var hit = TidalDownloader.Rank(new[]
-        {
-            Track(111, "Around the World (Cover)", "Some Band", 240),
-            Track(222, "Around the World", "Daft Punk", 429, "GBDUW0600009"),
-        }, new TrackQuery("Daft Punk", "Around the World", DownloadQuality.Any));
-
-        Assert.That(hit, Is.Not.Null);
-        Assert.Multiple(() =>
-        {
-            Assert.That(hit!.SourceUrl, Is.EqualTo("https://tidal.com/browse/track/222"));
-            Assert.That(hit.Artist, Is.EqualTo("Daft Punk"));
-        });
-    }
-
-    [Test]
-    public void Rank_ExactIsrc_AcceptsADifferentlyWordedTitle()
-    {
-        // Tidal titles the same recording without the requested marker.
-        // The code is the identity, so the title gate must not veto it.
-        var hit = TidalDownloader.Rank(new[]
-        {
-            Track(222, "The Last Airbender", "SLVL", 217, "USRC17607839"),
-        }, new TrackQuery("SLVL", "The Last Airbender (VIP)", DownloadQuality.Any,
-            ExpectedDuration: TimeSpan.FromSeconds(217), Isrc: "USRC17607839"));
-
-        Assert.That(hit, Is.Not.Null);
-        Assert.That(hit!.SourceUrl, Is.EqualTo("https://tidal.com/browse/track/222"));
-    }
-
-    [Test]
-    public void Rank_ExactIsrc_WinsOverACloserTitle()
-    {
-        var hit = TidalDownloader.Rank(new[]
-        {
-            Track(111, "Around the World", "Daft Punk", 429, "OTHERISRC001"),
-            Track(222, "Around the World (Remastered)", "Daft Punk", 430, "GBDUW0600009"),
-        }, new TrackQuery("Daft Punk", "Around the World", DownloadQuality.Any,
-            ExpectedDuration: TimeSpan.FromSeconds(429), Isrc: "GBDUW0600009"));
-
-        Assert.That(hit, Is.Not.Null);
-        Assert.That(hit!.SourceUrl, Is.EqualTo("https://tidal.com/browse/track/222"));
-    }
-
-    [Test]
-    public void Rank_UnplayableTracks_AreDropped()
-    {
-        var hit = TidalDownloader.Rank(new[]
-        {
-            Track(111, "Around the World", "Daft Punk", 429, "GBDUW0600009", ready: false),
-        }, new TrackQuery("Daft Punk", "Around the World", DownloadQuality.Any));
-
-        Assert.That(hit, Is.Null, "a track Tidal will not stream must never win");
-    }
-
-    [Test]
-    public void Rank_Empty_IsNull()
-        => Assert.That(TidalDownloader.Rank(
-            Array.Empty<TidalClient.TidalTrack>(),
-            new TrackQuery("A", "T", DownloadQuality.Any)), Is.Null);
 
     // ── Mapping helpers ──────────────────────────────────────────────────
 
@@ -366,88 +245,6 @@ public class TidalDownloaderTests
             Assert.That(available, Is.True);
             Assert.That(downloader.LastUnavailableReason, Is.Null);
             Assert.That(downloader.AuthStatus.State, Is.EqualTo(PluginAuthState.Valid));
-        });
-    }
-
-    // ── Search over HTTP ─────────────────────────────────────────────────
-
-    [Test]
-    public async Task Search_SendsTheStoredTokenAndParsesTheHit()
-    {
-        var appPath = NewAppPath(token: "token-xyz", country: "NL");
-        var handler = new StubHttpMessageHandler();
-        handler.Respond = request =>
-        {
-            Assert.That(request.RequestUri!.ToString(), Does.Contain("api.tidal.com/v1/search"));
-            Assert.That(request.RequestUri!.ToString(), Does.Contain("countryCode=NL"));
-            Assert.That(request.Headers.GetValues("Authorization").Single(),
-                Is.EqualTo("Bearer token-xyz"));
-            return new HttpResponseMessage(HttpStatusCode.OK)
-            {
-                Content = new StringContent("""
-                {"tracks":{"items":[{"id":222,"title":"Around the World","duration":429,
-                "isrc":"GBDUW0600009","streamReady":true,
-                "artists":[{"id":1,"name":"Daft Punk","type":"MAIN"}]}]}}
-                """, System.Text.Encoding.UTF8, "application/json"),
-            };
-        };
-        var config = new StubPluginConfig();
-        config.Set("tidal", "app_path", appPath);
-
-        var hit = await Create(config, handler).SearchAsync(
-            new TrackQuery("Daft Punk", "Around the World", DownloadQuality.Any,
-                ExpectedDuration: TimeSpan.FromSeconds(429)));
-
-        Assert.That(hit, Is.Not.Null);
-        Assert.That(hit!.SourceUrl, Is.EqualTo("https://tidal.com/browse/track/222"));
-    }
-
-    [Test]
-    public async Task Search_ExpiredSession_ReturnsNullWithoutARequest()
-    {
-        var handler = new StubHttpMessageHandler
-        {
-            Respond = _ =>
-            {
-                Assert.Fail("an expired session must not be sent to the API");
-                return new HttpResponseMessage(HttpStatusCode.OK);
-            },
-        };
-        var config = new StubPluginConfig();
-        config.Set("tidal", "app_path",
-            NewAppPath(expiresAt: DateTimeOffset.UtcNow.AddHours(-1).ToUnixTimeSeconds()));
-
-        var downloader = Create(config, handler);
-        var hit = await downloader.SearchAsync(
-            new TrackQuery("Daft Punk", "Around the World", DownloadQuality.Any));
-
-        Assert.Multiple(() =>
-        {
-            Assert.That(hit, Is.Null);
-            Assert.That(downloader.AuthStatus.State, Is.EqualTo(PluginAuthState.Expired));
-        });
-    }
-
-    [Test]
-    public async Task Search_RejectedSession_SetsTheRejectedAuthStatus()
-    {
-        var appPath = NewAppPath(token: "stale-token", country: "NL");
-        var handler = new StubHttpMessageHandler
-        {
-            Respond = _ => new HttpResponseMessage(HttpStatusCode.Unauthorized),
-        };
-        var config = new StubPluginConfig();
-        config.Set("tidal", "app_path", appPath);
-        var downloader = Create(config, handler);
-
-        var hit = await downloader.SearchAsync(
-            new TrackQuery("Daft Punk", "Around the World", DownloadQuality.Any));
-
-        Assert.Multiple(() =>
-        {
-            Assert.That(hit, Is.Null);
-            Assert.That(downloader.AuthStatus.State, Is.EqualTo(PluginAuthState.Rejected));
-            Assert.That(downloader.LastUnavailableReason, Does.Contain("rejected"));
         });
     }
 

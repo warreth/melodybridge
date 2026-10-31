@@ -142,16 +142,6 @@ public abstract class CliToolDownloader : IDownloader, IPluginAuthStatusProvider
 
     public abstract Task<bool> IsAvailableAsync(CancellationToken ct = default);
 
-    /// <summary>
-    /// The source-side search. Provider-backed subclasses leave this at the
-    /// null default; their ISearchProvider does the searching instead. The
-    /// member stays declared here because an interface default would not map
-    /// through the abstract base.
-    /// </summary>
-    public virtual Task<DownloaderSearchHit?> SearchAsync(
-        TrackQuery query, CancellationToken ct = default)
-        => Task.FromResult<DownloaderSearchHit?>(null);
-
     /// <summary>Config store; plugin keys are namespaced by <see cref="IDownloader.Id"/>.</summary>
     protected IPluginConfig Config { get; }
 

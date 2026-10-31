@@ -105,11 +105,6 @@ public class SlskdDownloader : IDownloader
     public Task<bool> IsAvailableAsync(CancellationToken ct = default)
         => _session.IsAvailableAsync(ct);
 
-    /// <summary>Provider-backed: the search lives in SlskdSearchProvider.</summary>
-    public Task<DownloaderSearchHit?> SearchAsync(
-        TrackQuery query, CancellationToken ct = default)
-        => Task.FromResult<DownloaderSearchHit?>(null);
-
     // ── Transfer reference ───────────────────────────────────────────────
 
     internal static bool TryParseSourceUrl(

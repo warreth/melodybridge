@@ -46,10 +46,6 @@ public class CliToolDownloaderTests
         public override Task<bool> IsAvailableAsync(CancellationToken ct = default)
             => Task.FromResult(true);
 
-        public override Task<DownloaderSearchHit?> SearchAsync(
-            TrackQuery query, CancellationToken ct = default)
-            => Task.FromResult<DownloaderSearchHit?>(null);
-
         protected override Task<string> WorkDirectoryAsync(
             string outputDirectory, string? melodyId, CancellationToken ct)
             => Task.FromResult(Path.Combine(outputDirectory, _workDirectory));

@@ -113,11 +113,6 @@ public class MonochromeDownloader : IDownloader
         }
     }
 
-    /// <summary>Provider-backed: the search lives in MonochromeSearchProvider.</summary>
-    public Task<DownloaderSearchHit?> SearchAsync(
-        TrackQuery query, CancellationToken ct = default)
-        => Task.FromResult<DownloaderSearchHit?>(null);
-
     // ── Download ─────────────────────────────────────────────────────────
 
     public async Task<DownloaderDownloadResult> DownloadAsync(
