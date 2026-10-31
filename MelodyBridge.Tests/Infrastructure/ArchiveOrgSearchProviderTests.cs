@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Text;
 using MelodyBridge.Core;
@@ -90,6 +91,32 @@ public class ArchiveOrgSearchProviderTests
             Assert.That(handler.Requests.Any(url => url.Contains("/metadata/item-4")), Is.True,
                 "the fourth search row is not dropped");
         });
+    }
+
+    [Test]
+    [NonParallelizable]
+    public async Task Search_ParsesFractionalSecondsInvariantly()
+    {
+        var handler = new StubHandler();
+        handler.Respond = request => request.RequestUri!.AbsolutePath.Contains("advancedsearch")
+            ? Json("""{"response":{"numFound":1,"docs":[{"identifier":"item-1","title":"Für Elise"}]}}""")
+            : Json("""{"metadata":{"title":"Für Elise","creator":"Johanne Stockmarr"},"files":[{"name":"01 - Fur Elise.mp3","title":"Für Elise","length":"183.5","bitrate":"192"}]}""");
+        var provider = Create(handler);
+        var previous = CultureInfo.CurrentCulture;
+        try
+        {
+            CultureInfo.CurrentCulture = new CultureInfo("nl-NL");
+            var hit = await provider.SearchAsync("archiveorg", new TrackQuery(
+                "Johanne Stockmarr", "Für Elise", DownloadQuality.Any));
+
+            Assert.That(hit, Is.Not.Null);
+            Assert.That(hit!.Duration!.Value.TotalSeconds, Is.EqualTo(183.5).Within(0.01),
+                "a dot decimal is seconds, not a thousands separator");
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = previous;
+        }
     }
 
     [Test]

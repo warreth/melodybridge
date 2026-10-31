@@ -1,6 +1,6 @@
+using System.Globalization;
 using System.Text.Json;
 using MelodyBridge.Core;
-using MelodyBridge.Infrastructure.Downloaders;
 using MelodyBridge.Infrastructure.Services;
 using Microsoft.Extensions.Logging;
 
@@ -187,7 +187,9 @@ public sealed class ArchiveOrgSearchProvider : ISearchProvider
     private static TimeSpan? GetDurationSeconds(string? length)
     {
         if (string.IsNullOrEmpty(length)) return null;
-        if (double.TryParse(length, out var secs))
+        // Archive returns raw seconds with a dot decimal. Parsing that
+        // with the host culture turns "183.5" into 1835 on nl-NL.
+        if (double.TryParse(length, NumberStyles.Float, CultureInfo.InvariantCulture, out var secs))
             return TimeSpan.FromSeconds(secs);
         var parts = length.Split(':');
         if (parts.Length == 2 && int.TryParse(parts[0], out var m) && int.TryParse(parts[1], out var s))
