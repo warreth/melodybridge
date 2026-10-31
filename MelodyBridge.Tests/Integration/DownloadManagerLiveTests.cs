@@ -73,6 +73,34 @@ public class DownloadManagerLiveTests
     }
 
     [Test]
+    public async Task DownloadTrack_ThroughTheSoundCloudProvider_FromTheRealWaterfall()
+    {
+        // One real self-search provider behind the app's own router. Every
+        // other source is off, so a hit can only come from SoundCloudSearchProvider.
+        var registry = _app.Registry;
+        foreach (var plugin in registry.GetAll().Where(p => p.Id != "soundcloud"))
+            await registry.SetEnabledAsync(plugin.Id, false);
+
+        try
+        {
+            var manager = _app.DownloadManager;
+            var path = await manager.DownloadTrackAsync(
+                new TrackQuery("Forss", "Flickermood", DownloadQuality.Any),
+                _outDir, "mb-live-mgr-soundcloud");
+
+            Assert.That(path, Is.Not.Null, manager.LastFailure("mb-live-mgr-soundcloud"));
+            Assert.That(File.Exists(path!), Is.True);
+            Assert.That(manager.LastPluginId("mb-live-mgr-soundcloud"),
+                Is.EqualTo("soundcloud"), "the real registry routed the search to the provider");
+        }
+        finally
+        {
+            foreach (var plugin in registry.GetAll())
+                await registry.SetEnabledAsync(plugin.Id, true);
+        }
+    }
+
+    [Test]
     public async Task DownloadTrack_WrongLengthExpectation_RejectsEveryCandidate()
     {
         var manager = _app.DownloadManager;
