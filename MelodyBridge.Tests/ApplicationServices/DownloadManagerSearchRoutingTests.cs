@@ -152,6 +152,28 @@ public class DownloadManagerSearchRoutingTests
     }
 
     [Test]
+    public async Task Waterfall_RankedSourceFirst_ThenSelfSearchInUserOrder()
+    {
+        var attempts = new List<string>();
+        var youtube = new OrderedDownloader("youtube", succeed: false, attempts);
+        var soundcloud = new OrderedDownloader("soundcloud", succeed: true, attempts);
+        var official = new OrderedDownloader("official", succeed: false, attempts);
+        var router = new RecordingRouter();
+        router.Order["official"] = 0;
+        var manager = new DownloadManager(
+            new ListDownloaderRegistry(youtube, soundcloud, official),
+            NullLogger<DownloadManager>.Instance, searches: router);
+
+        var path = await manager.DownloadTrackAsync(
+            new TrackQuery("artist", "title", DownloadQuality.Any),
+            NewDir(), "melody-self-order");
+
+        Assert.That(path, Is.Not.Null, manager.LastFailure("melody-self-order"));
+        Assert.That(attempts, Is.EqualTo(new[] { "official", "youtube", "soundcloud" }),
+            "self-search sources have no rank, so the user's order survives after it");
+    }
+
+    [Test]
     public async Task Waterfall_UsesTheRouterInsteadOfTheSourcesOwnSearch()
     {
         var downloader = new ProviderDownloader();

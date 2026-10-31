@@ -2,6 +2,7 @@ using System.Globalization;
 using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.Audio;
 using MelodyBridge.Infrastructure.FlacMusic;
+using MelodyBridge.Infrastructure.SearchProviders;
 using MelodyBridge.Tests;
 using MelodyBridge.Tests.Infrastructure;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -41,16 +42,26 @@ public class FlacMusicLiveTests
             client, new StubPluginConfig(), NullLogger<FlacMusicDownloader>.Instance);
     }
 
+    private static FlacMusicSearchProvider Search()
+    {
+        var http = new HttpClient { Timeout = TimeSpan.FromMinutes(15) };
+        var client = new FlacMusicClient(http, NullLogger<FlacMusicClient>.Instance);
+        return new FlacMusicSearchProvider(
+            new FlacMusicSession(client, new StubPluginConfig(),
+                NullLogger<FlacMusicSession>.Instance),
+            NullLogger<FlacMusicSearchProvider>.Instance);
+    }
+
     private static TrackQuery Query(DownloadQuality quality) => new(
         "AC/DC", "Back In Black", quality, TimeSpan.FromSeconds(255));
 
     [Test]
     public async Task Search_ACDC_FindsLosslessAndBothMp3Tiers()
     {
-        var downloader = Downloader();
-        var lossless = await downloader.SearchAsync(Query(new DownloadQuality(AudioFormat.Flac)));
-        var high = await downloader.SearchAsync(Query(new DownloadQuality(AudioFormat.Auto, null, 320)));
-        var small = await downloader.SearchAsync(Query(new DownloadQuality(AudioFormat.Auto, null, 160)));
+        var search = Search();
+        var lossless = await search.SearchAsync("flacmusic", Query(new DownloadQuality(AudioFormat.Flac)));
+        var high = await search.SearchAsync("flacmusic", Query(new DownloadQuality(AudioFormat.Auto, null, 320)));
+        var small = await search.SearchAsync("flacmusic", Query(new DownloadQuality(AudioFormat.Auto, null, 160)));
 
         Assert.That(lossless, Is.Not.Null, "the site must know Back in Black");
         Assert.That(lossless!.SourceUrl, Does.Contain("/track/"));
@@ -63,8 +74,9 @@ public class FlacMusicLiveTests
     [Test]
     public async Task Download_Flac_Produces16Bit44100Flac()
     {
+        var search = Search();
         var downloader = Downloader();
-        var hit = await downloader.SearchAsync(Query(new DownloadQuality(AudioFormat.Flac)));
+        var hit = await search.SearchAsync("flacmusic", Query(new DownloadQuality(AudioFormat.Flac)));
         Assert.That(hit, Is.Not.Null, "precondition: the search finds a FLAC tier");
 
         var result = await downloader.DownloadAsync(
@@ -84,8 +96,9 @@ public class FlacMusicLiveTests
     [Test]
     public async Task Download_HighMp3_Is320()
     {
+        var search = Search();
         var downloader = Downloader();
-        var hit = await downloader.SearchAsync(Query(new DownloadQuality(AudioFormat.Auto, null, 320)));
+        var hit = await search.SearchAsync("flacmusic", Query(new DownloadQuality(AudioFormat.Auto, null, 320)));
         Assert.That(hit, Is.Not.Null, "precondition: the search finds a 320 tier");
 
         var result = await downloader.DownloadAsync(
@@ -103,8 +116,9 @@ public class FlacMusicLiveTests
     [Test]
     public async Task Download_SmallLossyTier_IsAround128()
     {
+        var search = Search();
         var downloader = Downloader();
-        var hit = await downloader.SearchAsync(Query(new DownloadQuality(AudioFormat.Auto, null, 160)));
+        var hit = await search.SearchAsync("flacmusic", Query(new DownloadQuality(AudioFormat.Auto, null, 160)));
         Assert.That(hit, Is.Not.Null, "precondition: the search finds a 128 tier");
 
         var result = await downloader.DownloadAsync(

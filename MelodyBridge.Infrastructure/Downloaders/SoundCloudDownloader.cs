@@ -1,6 +1,6 @@
 using System.Text.Json;
 using MelodyBridge.Core;
-using MelodyBridge.Infrastructure.Services;
+using MelodyBridge.Infrastructure.SearchProviders;
 using Microsoft.Extensions.Logging;
 
 namespace MelodyBridge.Infrastructure.Downloaders;
@@ -8,12 +8,11 @@ namespace MelodyBridge.Infrastructure.Downloaders;
 /// <summary>
 /// SoundCloud downloader plugin backed by yt-dlp's scsearch extractor.
 ///
-/// SoundCloud serves the artist's original upload (often 320 kbps),
-/// so it is tried before YouTube in the default waterfall. The top
-/// search results are ranked by match quality instead of trusting the
-/// first row, and downloads that report an audio bitrate under
-/// 128 kbps are rejected and deleted: no low-quality files enter the
-/// library.
+/// SoundCloud serves the artist's original upload (often 320 kbps), so it is
+/// tried before YouTube in the default waterfall. SoundCloudSearchProvider
+/// ranks the search results; this downloader fetches the URL it gets back and
+/// rejects files that report an audio bitrate under 128 kbps, deleting them
+/// so no low-quality files enter the library.
 /// </summary>
 public class SoundCloudDownloader : IDownloader
 {
@@ -34,6 +33,9 @@ public class SoundCloudDownloader : IDownloader
     public string Name => "SoundCloud (original uploads)";
     public string Description => "SoundCloud original uploads, 128 kbps+ only";
 
+    public DownloaderSearchInfo SearchInfo =>
+        DownloaderSearchInfo.ViaProvider(SearchData.Text, "SoundCloud search via yt-dlp");
+
     public string IconName => "globe";
     public IReadOnlyList<string> Notes => new[] { "original uploads" };
 
@@ -52,46 +54,10 @@ public class SoundCloudDownloader : IDownloader
         return Task.FromResult(ready);
     }
 
-    public async Task<DownloaderSearchHit?> SearchAsync(TrackQuery query, CancellationToken ct = default)
-    {
-        if (YtDlpProcess.BinaryPath is null) return null;
-
-        // Top 5 ranked, never the first row: scsearch's first hit is
-        // routinely a cover, a remix or a repost of another artist.
-        // SoundCloud does not index ISRCs; the text query is the way in.
-        var hits = await SearchAllAsync(query, ct);
-        return SearchRanker.Rank(query.Artist, query.Title, query.ExpectedDuration, hits);
-    }
-
-    /// <summary>
-    /// Every parsed hit, unranked: the manual source picker shows what the
-    /// ranking refused, so a human can still pick it.
-    /// </summary>
-    public async Task<IReadOnlyList<DownloaderSearchHit>> SearchAllAsync(
+    /// <summary>Provider-backed: the search lives in SoundCloudSearchProvider.</summary>
+    public Task<DownloaderSearchHit?> SearchAsync(
         TrackQuery query, CancellationToken ct = default)
-    {
-        var searchText = query.SearchText;
-        if (searchText.Length == 0) return Array.Empty<DownloaderSearchHit>();
-
-        try
-        {
-            var (exit, stdout, _) = await YtDlpProcess.RunAsync(new[]
-            {
-                $"scsearch5:{searchText}",
-                "--flat-playlist",
-                "--dump-single-json",
-                "--no-warnings",
-            }, TimeSpan.FromSeconds(30), ct);
-
-            if (exit != 0) return Array.Empty<DownloaderSearchHit>();
-            return YtDlpDownloader.ParseFlatPlaylistHits(stdout, query.Artist, query.Title, id => id);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "SoundCloud search failed for '{Query}'", searchText);
-            return Array.Empty<DownloaderSearchHit>();
-        }
-    }
+        => Task.FromResult<DownloaderSearchHit?>(null);
 
     /// <inheritdoc />
     public Task<CandidateAudioQuality?> ProbeQualityAsync(

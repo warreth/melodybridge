@@ -126,7 +126,7 @@ public class SearchProviderPanelTests
         Assert.That(selfRows.Any(t => t.Contains("FLAC Music (CN)")
                                      && t.Contains("fallback", StringComparison.OrdinalIgnoreCase)),
             Is.True, "the real fallback source gets its badge");
-        Assert.That(cut.Markup, Does.Contain("Sources that search themselves"));
+        Assert.That(cut.Markup, Does.Contain("Third-party sources that search themselves"));
         Assert.That(cut.Markup, Does.Contain("Direct URL only"));
     }
 

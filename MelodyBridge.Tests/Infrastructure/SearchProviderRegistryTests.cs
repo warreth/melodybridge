@@ -100,6 +100,29 @@ public class SearchProviderRegistryTests
         }
     }
 
+    /// <summary>A provider whose source offers more than one raw candidate.</summary>
+    private sealed class MultiHitProvider(string id, params string[] urls) : ISearchProvider
+    {
+        public string Id => id;
+        public string Name => id;
+        public string Description => "test";
+        public SearchData Data => SearchData.Text;
+        public IReadOnlyList<SearchProviderTarget> Targets =>
+            new[] { new SearchProviderTarget("wanted", SearchData.Text) };
+
+        public Task<DownloaderSearchHit?> SearchAsync(
+            string downloaderId, TrackQuery query, CancellationToken ct = default)
+            => Task.FromResult<DownloaderSearchHit?>(new DownloaderSearchHit(
+                "hit", "artist", urls.FirstOrDefault(), TimeSpan.FromSeconds(180)));
+
+        public Task<IReadOnlyList<DownloaderSearchHit>> SearchAllAsync(
+            string downloaderId, TrackQuery query, CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<DownloaderSearchHit>>(urls
+                .Select(url => new DownloaderSearchHit(
+                    "hit", "artist", url, TimeSpan.FromSeconds(180)))
+                .ToList());
+    }
+
     private sealed class TieredStubProvider(string id, params SearchProviderTarget[] targets) : ISearchProvider
     {
         public string Id => id;
@@ -171,6 +194,21 @@ public class SearchProviderRegistryTests
         Assert.That(order.Keys, Is.EqualTo(new[] { "official", "ripped", "mirror" }),
             "official catalogue, then the ripper on its URL, then the unofficial mirror");
         Assert.That(order.Values, Is.Ordered.Ascending);
+    }
+
+    [Test]
+    public void ProviderFirstOrder_LeavesSelfSearchToTheUserOrder()
+    {
+        var provider = new TieredStubProvider("mixed",
+            new SearchProviderTarget("official", SearchData.Text),
+            new SearchProviderTarget("youtube", SearchData.Text, Tier: SearchTier.SelfSearch),
+            new SearchProviderTarget("flacmusic", SearchData.Text, Tier: SearchTier.SelfSearch));
+        var registry = Registry(provider);
+
+        var order = registry.ProviderFirstOrder();
+
+        Assert.That(order.Keys, Is.EqualTo(new[] { "official" }),
+            "self-search sources keep the user's order after the ranked tiers");
     }
 
     [Test]
@@ -319,6 +357,27 @@ public class SearchProviderRegistryTests
 
         Assert.That(hit, Is.Not.Null);
         Assert.That(provider.LastDownloaderId, Is.EqualTo("WANTED"));
+    }
+
+    [Test]
+    public async Task ManualPicker_MergesProviderCandidatesWithoutDuplicates()
+    {
+        var downloader = new StubDownloader(
+            "wanted", DownloaderSearchInfo.ViaProvider(SearchData.Text));
+        var first = new MultiHitProvider("first",
+            "https://provider.test/1", "https://provider.test/2");
+        var second = new MultiHitProvider("second",
+            "https://provider.test/2", "https://provider.test/3");
+        var registry = Registry(first, second);
+
+        var hits = await registry.SearchAllAsync(downloader, Query());
+
+        Assert.That(hits.Select(hit => hit.SourceUrl), Is.EqualTo(new[]
+        {
+            "https://provider.test/1", "https://provider.test/2", "https://provider.test/3",
+        }), "both providers contribute, in order, and a shared URL appears once");
+        Assert.That(downloader.SearchAllCalls, Is.Zero,
+            "the manual picker never falls through to a provider-backed source's own search");
     }
 
     [Test]

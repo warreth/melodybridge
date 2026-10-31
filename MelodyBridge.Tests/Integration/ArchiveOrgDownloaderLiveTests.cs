@@ -1,6 +1,7 @@
 using System.Net.Http;
 using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.Downloaders;
+using MelodyBridge.Infrastructure.SearchProviders;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace MelodyBridge.Tests.Integration;
@@ -16,6 +17,7 @@ namespace MelodyBridge.Tests.Integration;
 public class ArchiveOrgDownloaderLiveTests
 {
     private ArchiveOrgDownloader _downloader = null!;
+    private ArchiveOrgSearchProvider _search = null!;
     private string _outDir = null!;
 
     private static HttpClient SharedClient()
@@ -31,6 +33,8 @@ public class ArchiveOrgDownloaderLiveTests
     {
         _downloader = new ArchiveOrgDownloader(SharedClient(),
             NullLogger<ArchiveOrgDownloader>.Instance);
+        _search = new ArchiveOrgSearchProvider(SharedClient(),
+            NullLogger<ArchiveOrgSearchProvider>.Instance);
         _outDir = Path.Combine(Path.GetTempPath(), $"mb-ia-{Guid.NewGuid():N}");
         Directory.CreateDirectory(_outDir);
     }
@@ -45,7 +49,7 @@ public class ArchiveOrgDownloaderLiveTests
     public async Task Search_WellKnownRecording_FindsDirectMp3Url()
     {
         // A famous 78rpm digitization that is definitely in the archive.
-        var hit = await _downloader.SearchAsync(new TrackQuery("Johanne Stockmarr", "Für Elise", MelodyBridge.Core.DownloadQuality.Any));
+        var hit = await _search.SearchAsync("archiveorg", new TrackQuery("Johanne Stockmarr", "Für Elise", MelodyBridge.Core.DownloadQuality.Any));
 
         Assert.That(hit, Is.Not.Null, "archive.org must find this public-domain recording");
         Assert.That(hit!.SourceUrl, Does.Contain("archive.org/download/"),
@@ -56,14 +60,14 @@ public class ArchiveOrgDownloaderLiveTests
     [Test]
     public async Task Search_NonsenseQuery_ReturnsNull()
     {
-        var hit = await _downloader.SearchAsync(new TrackQuery("zzzxqj", "qqqwwwzzz nonexistent track 999", MelodyBridge.Core.DownloadQuality.Any));
+        var hit = await _search.SearchAsync("archiveorg", new TrackQuery("zzzxqj", "qqqwwwzzz nonexistent track 999", MelodyBridge.Core.DownloadQuality.Any));
         Assert.That(hit, Is.Null, "no result must come back as null, not an exception");
     }
 
     [Test]
     public async Task Download_DirectUrl_ProducesTaggedMp3()
     {
-        var hit = await _downloader.SearchAsync(new TrackQuery("Johanne Stockmarr", "Für Elise", MelodyBridge.Core.DownloadQuality.Any));
+        var hit = await _search.SearchAsync("archiveorg", new TrackQuery("Johanne Stockmarr", "Für Elise", MelodyBridge.Core.DownloadQuality.Any));
         Assert.That(hit, Is.Not.Null, "precondition: search finds the recording");
 
         var result = await _downloader.DownloadAsync(hit!.SourceUrl!, _outDir, "mb-ia-test-1");

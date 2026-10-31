@@ -1,19 +1,20 @@
 using System.Text;
 using System.Text.Json;
-using System.Text.RegularExpressions;
 using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.Audio;
 using MelodyBridge.Infrastructure.Files;
+using MelodyBridge.Infrastructure.SearchProviders;
 using MelodyBridge.Infrastructure.Services;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace MelodyBridge.Infrastructure.Downloaders;
 
 /// <summary>
 /// Soulseek downloader plugin backed by the user's own slskd instance
-/// (https://github.com/slskd/slskd). No cloud dependency: the search runs
-/// on the Soulseek network through slskd's REST API, the transfer is
-/// enqueued and polled, and the finished file is moved out of slskd's
+/// (https://github.com/slskd/slskd). No cloud dependency: SlskdSearchProvider
+/// searches the network, then this downloader enqueues the transfer from the
+/// URL it gets back, polls it, and moves the finished file out of slskd's
 /// downloads folder into the playlist folder.
 ///
 /// Setup: run slskd, give it a Soulseek account, create a read-write API
@@ -26,18 +27,15 @@ namespace MelodyBridge.Infrastructure.Downloaders;
 ///
 /// API shape (slskd v0.x, live-probed):
 ///   GET  /api/v0/application                    → {"server":{"isConnected","isLoggedIn"}}
-///   POST /api/v0/searches {"searchText"}        → {"id"}
-///   GET  /api/v0/searches/{id}                  → {"state":"Completed, …"}
-///   GET  /api/v0/searches/{id}/responses        → [{"username","hasFreeUploadSlot","files":[…]}]
 ///   POST /api/v0/transfers/downloads/{username} → {"enqueued":[{"id",…}]}
 ///   GET  /api/v0/transfers/downloads/{username} → {"directories":[{"files":[{"state",…}]}]}
 /// </summary>
 public class SlskdDownloader : IDownloader
 {
-    public const string DefaultBaseUrl = "http://127.0.0.1:5030";
-    private const string BaseUrlKey = "base_url";
-    private const string ApiKeyKey = "api_key";
-    private const string DownloadsPathKey = "downloads_path";
+    public const string DefaultBaseUrl = SlskdSession.DefaultBaseUrl;
+    internal const string BaseUrlKey = SlskdSession.BaseUrlKey;
+    internal const string ApiKeyKey = SlskdSession.ApiKeyKey;
+    internal const string DownloadsPathKey = SlskdSession.DownloadsPathKey;
 
     // What peers actually serve: lossless FLAC (with bit depth and sample
     // rate in the search response) and lossy files at whatever the uploader
@@ -56,6 +54,9 @@ public class SlskdDownloader : IDownloader
     public string Name => "Soulseek (slskd)";
     public string Description => "Lossless and high-bitrate files from Soulseek peers through your own slskd instance";
 
+    public DownloaderSearchInfo SearchInfo =>
+        DownloaderSearchInfo.ViaProvider(SearchData.Text, "Soulseek peer search via slskd");
+
     public string IconName => "server";
     public string? GuideUrl => "https://docs.melodybridge.app/slskd";
     public IReadOnlyList<string> Notes => new[] { "lossless FLAC", "your own slskd" };
@@ -73,23 +74,10 @@ public class SlskdDownloader : IDownloader
     ];
 
     /// <inheritdoc />
-    public string? LastUnavailableReason { get; private set; }
+    public string? LastUnavailableReason => _session.LastUnavailableReason;
 
-    private readonly HttpClient _http;
-    private readonly IPluginConfig _config;
+    private readonly SlskdSession _session;
     private readonly ILogger<SlskdDownloader> _logger;
-
-    // Availability probe cache: the waterfall asks per track, the Plugins
-    // page re-checks on a timer.
-    private readonly AvailabilityCache _availability = new();
-
-    /// <summary>Per-request deadline for the small JSON calls.</summary>
-    internal TimeSpan RequestTimeout { get; set; } = TimeSpan.FromSeconds(20);
-
-    /// <summary>How long a Soulseek search may take before giving up.</summary>
-    internal TimeSpan SearchPollTimeout { get; set; } = TimeSpan.FromSeconds(30);
-
-    internal TimeSpan SearchPollInterval { get; set; } = TimeSpan.FromSeconds(1);
 
     /// <summary>
     /// How long a transfer may take, queue time included. The waterfall's
@@ -100,353 +88,32 @@ public class SlskdDownloader : IDownloader
 
     internal TimeSpan TransferPollInterval { get; set; } = TimeSpan.FromSeconds(2);
 
-    private static readonly TimeSpan HealthTimeout = TimeSpan.FromSeconds(8);
-    private static readonly Regex TrackNumberPrefix = new(@"^\d{1,3}[\s._-]+", RegexOptions.Compiled);
-
-    public SlskdDownloader(HttpClient http, IPluginConfig config, ILogger<SlskdDownloader> logger)
+    public SlskdDownloader(SlskdSession session, ILogger<SlskdDownloader> logger)
     {
-        _http = http;
-        _config = config;
+        _session = session;
         _logger = logger;
     }
 
-    // ── Config ───────────────────────────────────────────────────────────
-
-    private async Task<string> BaseUrlAsync(CancellationToken ct)
+    /// <summary>Test and one-off host convenience: creates the session from the same inputs.</summary>
+    public SlskdDownloader(HttpClient http, IPluginConfig config, ILogger<SlskdDownloader> logger)
+        : this(new SlskdSession(http, config,
+            NullLogger<SlskdSession>.Instance), logger)
     {
-        var configured = await _config.GetAsync(Id, BaseUrlKey, ct);
-        if (string.IsNullOrWhiteSpace(configured)) return DefaultBaseUrl;
-        return configured.Trim().TrimEnd('/');
     }
 
-    private async Task<string> ApiKeyAsync(CancellationToken ct)
-        => (await _config.GetAsync(Id, ApiKeyKey, ct)).Trim();
+    internal string? DetectedDownloadsPath => _session.DetectedDownloadsPath;
 
-    /// <summary>Cached folder slskd reported through its options API.</summary>
-    private string? _detectedDownloadsPath;
+    public void RefreshAvailability() => _session.RefreshAvailability();
 
-    /// <summary>The instance that reported the cached folder.</summary>
-    private string? _detectedForBaseUrl;
+    public Task<bool> IsAvailableAsync(CancellationToken ct = default)
+        => _session.IsAvailableAsync(ct);
 
-    /// <summary>
-    /// The folder slskd itself reported, for tests and diagnostics. Null
-    /// until an availability check or a download read it.
-    /// </summary>
-    internal string? DetectedDownloadsPath => _detectedDownloadsPath;
-
-    /// <summary>
-    /// Forgets the folder slskd reported, so the next lookup asks again.
-    /// The cache is per instance and per answer: it must not survive a
-    /// changed base URL or a file that was not where slskd said it would
-    /// be.
-    /// </summary>
-    private void ForgetDetectedDownloadsPath()
-    {
-        _detectedDownloadsPath = null;
-        _detectedForBaseUrl = null;
-    }
-
-    /// <summary>
-    /// The folder slskd writes finished downloads to: the configured
-    /// override, or the path slskd itself reports through its options
-    /// API (cached). Null when neither is available.
-    /// </summary>
-    private async Task<string?> DownloadsPathAsync(CancellationToken ct)
-    {
-        var configured = (await _config.GetAsync(Id, DownloadsPathKey, ct)).Trim();
-        if (configured.Length > 0) return configured;
-
-        // The cached answer belongs to one instance: after a base URL
-        // change the previous slskd's folder is wrong, so ask the new one.
-        var baseUrl = await BaseUrlAsync(ct);
-        if (_detectedDownloadsPath is not null && _detectedForBaseUrl == baseUrl)
-            return _detectedDownloadsPath;
-        ForgetDetectedDownloadsPath();
-
-        using var options = await SendJsonAsync(HttpMethod.Get, "/api/v0/options", null, ct);
-        if (options is not null &&
-            options.RootElement.TryGetProperty("directories", out var directories) &&
-            directories.ValueKind == JsonValueKind.Object)
-        {
-            var downloads = GetString(directories, "downloads");
-            if (!string.IsNullOrEmpty(downloads))
-            {
-                _detectedDownloadsPath = downloads;
-                _detectedForBaseUrl = baseUrl;
-                _logger.LogDebug("slskd reports its downloads folder as {Folder}", downloads);
-                return downloads;
-            }
-        }
-        return null;
-    }
-
-    // ── Availability ─────────────────────────────────────────────────────
-
-    public async Task<bool> IsAvailableAsync(CancellationToken ct = default)
-    {
-        if (_availability.TryGet(out var cached))
-            return cached;
-
-        // Not configured is not available, exactly like a missing binary:
-        // the waterfall skips the plugin without a single request.
-        if ((await ApiKeyAsync(ct)).Length == 0)
-        {
-            LastUnavailableReason = "Set the slskd API key";
-            _logger.LogDebug("slskd: no API key configured");
-            _availability.Store(false);
-            return false;
-        }
-
-        try
-        {
-            using var probe = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            probe.CancelAfter(HealthTimeout);
-            using var application = await SendJsonAsync(HttpMethod.Get, "/api/v0/application", null, probe.Token);
-            if (application is null)
-            {
-                LastUnavailableReason = "slskd did not answer (check the URL and API key)";
-                _availability.Store(false);
-                return false;
-            }
-            if (!IsServerLoggedIn(application.RootElement))
-            {
-                LastUnavailableReason = "slskd is not logged in to Soulseek";
-                _logger.LogDebug("slskd is reachable but not logged in to the Soulseek network");
-                _availability.Store(false);
-                return false;
-            }
-            if (await DownloadsPathAsync(probe.Token) is null)
-            {
-                LastUnavailableReason = "slskd's downloads folder could not be read";
-                _availability.Store(false);
-                return false;
-            }
-
-            LastUnavailableReason = null;
-            _availability.Store(true);
-            return true;
-        }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            LastUnavailableReason = "slskd did not answer (check the URL and API key)";
-            _logger.LogDebug(ex, "slskd health probe failed");
-            _availability.Store(false);
-            return false;
-        }
-    }
-
-    /// <summary>True when slskd reports a connected, logged-in server.</summary>
-    internal static bool IsServerLoggedIn(JsonElement root)
-    {
-        if (!root.TryGetProperty("server", out var server) || server.ValueKind != JsonValueKind.Object)
-            return false;
-        var connected = server.TryGetProperty("isConnected", out var c) && c.ValueKind == JsonValueKind.True;
-        var loggedIn = server.TryGetProperty("isLoggedIn", out var l) && l.ValueKind == JsonValueKind.True;
-        return connected && loggedIn;
-    }
-
-    // ── Search ───────────────────────────────────────────────────────────
-
-    public async Task<DownloaderSearchHit?> SearchAsync(TrackQuery query, CancellationToken ct = default)
-    {
-        var searchText = query.SearchText;
-        if (searchText.Length == 0) return null;
-        if ((await ApiKeyAsync(ct)).Length == 0) return null;
-
-        string? searchId = null;
-        try
-        {
-            using (var created = await SendJsonAsync(HttpMethod.Post, "/api/v0/searches",
-                       new { searchText }, ct))
-            {
-                if (created is null) return null;
-                searchId = GetString(created.RootElement, "id");
-                if (string.IsNullOrEmpty(searchId)) return null;
-            }
-
-            // The network answers in seconds; a search that never completes
-            // is a miss, not something to wait on.
-            if (!await WaitForSearchAsync(searchId, ct)) return null;
-
-            using var responses = await SendJsonAsync(
-                HttpMethod.Get, $"/api/v0/searches/{searchId}/responses", null, ct);
-            if (responses is null) return null;
-            return ParseResponses(responses.RootElement, query);
-        }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
-        {
-            _logger.LogDebug("slskd search timed out");
-            return null;
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "slskd search '{Query}' failed", searchText);
-            return null;
-        }
-        finally
-        {
-            await CleanupSearchAsync(searchId);
-        }
-    }
-
-    private async Task<bool> WaitForSearchAsync(string searchId, CancellationToken ct)
-    {
-        var deadline = DateTimeOffset.UtcNow + SearchPollTimeout;
-        while (true)
-        {
-            ct.ThrowIfCancellationRequested();
-
-            using (var status = await SendJsonAsync(HttpMethod.Get, $"/api/v0/searches/{searchId}", null, ct))
-            {
-                if (status is not null)
-                {
-                    var state = GetString(status.RootElement, "state") ?? "";
-                    if (SearchIsComplete(state)) return true;
-                }
-            }
-
-            if (DateTimeOffset.UtcNow >= deadline)
-            {
-                _logger.LogDebug("slskd search did not complete within {Seconds:0} seconds", SearchPollTimeout.TotalSeconds);
-                return false;
-            }
-            await Task.Delay(SearchPollInterval, ct);
-        }
-    }
-
-    /// <summary>True when the search will not produce more responses.</summary>
-    internal static bool SearchIsComplete(string state)
-        => state.Contains("Completed", StringComparison.OrdinalIgnoreCase)
-        || state.Contains("ResponseLimitReached", StringComparison.OrdinalIgnoreCase)
-        || state.Contains("FileLimitReached", StringComparison.OrdinalIgnoreCase);
-
-    /// <summary>Best-effort cleanup so slskd's search list does not grow.</summary>
-    private async Task CleanupSearchAsync(string? searchId)
-    {
-        if (searchId is null) return;
-        try
-        {
-            using var cleanup = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-            using var _ = await SendJsonAsync(HttpMethod.Delete, $"/api/v0/searches/{searchId}", null, cleanup.Token);
-        }
-        catch { /* cleanup is best effort */ }
-    }
-
-    /// <summary>
-    /// Turns the responses into ranked candidates: locked files and
-    /// containers the plugin does not declare are dropped, files outside
-    /// the requested band are dropped, and the ranker picks the best
-    /// match with free upload slots and lossless files as tie-breakers.
-    /// </summary>
-    internal static DownloaderSearchHit? ParseResponses(JsonElement root, TrackQuery query)
-    {
-        if (root.ValueKind != JsonValueKind.Array) return null;
-
-        var candidates = new List<DownloaderSearchHit>();
-        var scores = new Dictionary<string, int>(StringComparer.Ordinal);
-        foreach (var response in root.EnumerateArray())
-        {
-            if (response.ValueKind != JsonValueKind.Object) continue;
-            var username = GetString(response, "username");
-            if (string.IsNullOrEmpty(username)) continue;
-
-            var freeSlot = response.TryGetProperty("hasFreeUploadSlot", out var slot)
-                           && slot.ValueKind == JsonValueKind.True;
-
-            if (!response.TryGetProperty("files", out var files) || files.ValueKind != JsonValueKind.Array)
-                continue;
-
-            foreach (var file in files.EnumerateArray())
-            {
-                if (file.ValueKind != JsonValueKind.Object) continue;
-                if (file.TryGetProperty("isLocked", out var locked) && locked.ValueKind == JsonValueKind.True)
-                    continue;
-
-                var filename = GetString(file, "filename");
-                if (string.IsNullOrEmpty(filename)) continue;
-
-                var container = ContainerFor(filename);
-                if (container is null) continue;
-
-                var size = file.TryGetProperty("size", out var s) && s.ValueKind == JsonValueKind.Number
-                    ? s.GetInt64()
-                    : 0;
-                if (size <= 0) continue;
-
-                int? kbps = file.TryGetProperty("bitRate", out var b) && b.ValueKind == JsonValueKind.Number
-                    ? b.GetInt32()
-                    : null;
-                // Lossless files report no bitrate: check the band against
-                // a typical lossless size, so a "up to 320" request never
-                // settles for a FLAC the measurement would reject.
-                var effectiveKbps = container == AudioFormat.Flac ? 900 : kbps;
-                if (!query.Quality.IsWithinBand(effectiveKbps)) continue;
-
-                TimeSpan? duration = file.TryGetProperty("length", out var l) && l.ValueKind == JsonValueKind.Number
-                    ? TimeSpan.FromSeconds(l.GetInt32())
-                    : null;
-
-                var (artist, title) = SplitArtistTitle(filename);
-                var sourceUrl = BuildSourceUrl(username, filename, size);
-                candidates.Add(new DownloaderSearchHit(
-                    Title: title,
-                    Artist: artist,
-                    SourceUrl: sourceUrl,
-                    Duration: duration,
-                    BitrateKbps: kbps,
-                    MatchConfidence: FuzzyMatcher.Confidence(
-                        query.Artist, query.Title, hitArtist: artist, hitTitle: title)));
-                scores[sourceUrl] = (container == AudioFormat.Flac ? 2 : 0) + (freeSlot ? 1 : 0);
-            }
-        }
-
-        if (candidates.Count == 0) return null;
-
-        return SearchRanker.Rank(query.Artist, query.Title, query.ExpectedDuration, candidates,
-            tieBreaker: hit => scores.GetValueOrDefault(hit.SourceUrl ?? "", 0));
-    }
-
-    /// <summary>The declared container for a Soulseek filename, or null.</summary>
-    internal static AudioFormat? ContainerFor(string filename)
-    {
-        var ext = Path.GetExtension(filename.Replace('\\', '/')).ToLowerInvariant();
-        return ext switch
-        {
-            ".flac" => AudioFormat.Flac,
-            ".mp3" => AudioFormat.Mp3,
-            ".m4a" or ".mp4" or ".aac" => AudioFormat.Aac,
-            _ => null,
-        };
-    }
-
-    /// <summary>
-    /// Best-effort artist/title from a Soulseek filename ("01 - Artist -
-    /// Title.ext"): peers name files loosely, so the ranker gets what it
-    /// can and the duration check does the rest.
-    /// </summary>
-    internal static (string? Artist, string Title) SplitArtistTitle(string filename)
-    {
-        var name = Path.GetFileNameWithoutExtension(filename.Replace('\\', '/'));
-        name = TrackNumberPrefix.Replace(name, "");
-        var sep = name.IndexOf(" - ", StringComparison.Ordinal);
-        if (sep > 0)
-            return (name[..sep].Trim(), name[(sep + 3)..].Trim());
-        return (null, name.Trim());
-    }
+    /// <summary>Provider-backed: the search lives in SlskdSearchProvider.</summary>
+    public Task<DownloaderSearchHit?> SearchAsync(
+        TrackQuery query, CancellationToken ct = default)
+        => Task.FromResult<DownloaderSearchHit?>(null);
 
     // ── Transfer reference ───────────────────────────────────────────────
-
-    /// <summary>The opaque reference the manager passes back for a download.</summary>
-    internal static string BuildSourceUrl(string username, string filename, long size)
-        => $"slskd:{Uri.EscapeDataString(username)}:{Uri.EscapeDataString(filename)}:{size}";
 
     internal static bool TryParseSourceUrl(
         string sourceUrl, out string username, out string filename, out long size)
@@ -478,7 +145,7 @@ public class SlskdDownloader : IDownloader
         if (!TryParseSourceUrl(sourceUrl, out var username, out var filename, out var size))
             return new DownloaderDownloadResult(false, null, "not a Soulseek transfer reference: " + sourceUrl);
 
-        var downloadsPath = await DownloadsPathAsync(ct);
+        var downloadsPath = await _session.DownloadsPathAsync(ct);
         if (downloadsPath is null)
             return new DownloaderDownloadResult(false, null,
                 "slskd's downloads folder could not be read (set it under Advanced)");
@@ -487,7 +154,7 @@ public class SlskdDownloader : IDownloader
         {
             Directory.CreateDirectory(outputDirectory);
 
-            using (var enqueued = await SendJsonAsync(
+            using (var enqueued = await _session.SendJsonAsync(
                        HttpMethod.Post, $"/api/v0/transfers/downloads/{Uri.EscapeDataString(username)}",
                        new[] { new { filename, size } }, ct))
             {
@@ -510,7 +177,7 @@ public class SlskdDownloader : IDownloader
                 // slskd's answer may be stale (it moved its downloads
                 // folder, or a second instance took over the URL): drop it
                 // so the next attempt asks again instead of failing forever.
-                ForgetDetectedDownloadsPath();
+                _session.ForgetDetectedDownloadsPath();
                 return new DownloaderDownloadResult(false, null,
                     "slskd reported success but the file is not in the downloads folder");
             }
@@ -550,7 +217,7 @@ public class SlskdDownloader : IDownloader
         {
             ct.ThrowIfCancellationRequested();
 
-            using (var transfers = await SendJsonAsync(
+            using (var transfers = await _session.SendJsonAsync(
                        HttpMethod.Get, $"/api/v0/transfers/downloads/{Uri.EscapeDataString(username)}", null, ct))
             {
                 var state = transfers is null ? null : FindTransferState(transfers.RootElement, filename);
@@ -580,9 +247,9 @@ public class SlskdDownloader : IDownloader
                 continue;
             foreach (var file in files.EnumerateArray())
             {
-                var name = GetString(file, "filename");
+                var name = SlskdJson.GetString(file, "filename");
                 if (name is not null && string.Equals(name, filename, StringComparison.OrdinalIgnoreCase))
-                    return GetString(file, "state");
+                    return SlskdJson.GetString(file, "state");
             }
         }
         return null;
@@ -632,45 +299,5 @@ public class SlskdDownloader : IDownloader
         }
     }
 
-    // ── HTTP plumbing ────────────────────────────────────────────────────
 
-    private async Task<JsonDocument?> SendJsonAsync(
-        HttpMethod method, string path, object? body, CancellationToken ct)
-    {
-        var apiKey = await ApiKeyAsync(ct);
-        if (apiKey.Length == 0) return null;
-
-        var baseUrl = await BaseUrlAsync(ct);
-        using var request = new HttpRequestMessage(method, baseUrl + path);
-        request.Headers.Add("X-API-Key", apiKey);
-        if (body is not null)
-            request.Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
-
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        timeout.CancelAfter(RequestTimeout);
-        using var response = await _http.SendAsync(request, timeout.Token);
-        if (!response.IsSuccessStatusCode)
-        {
-            _logger.LogDebug("slskd {Method} {Path} returned {Status}", method, path, (int)response.StatusCode);
-            return null;
-        }
-
-        var text = await response.Content.ReadAsStringAsync(timeout.Token);
-        try
-        {
-            return JsonDocument.Parse(text);
-        }
-        catch (JsonException)
-        {
-            _logger.LogDebug("slskd {Path} returned a non-JSON body", path);
-            return null;
-        }
-    }
-
-    private static string? GetString(JsonElement element, string property)
-        => element.ValueKind == JsonValueKind.Object
-           && element.TryGetProperty(property, out var v)
-           && v.ValueKind == JsonValueKind.String
-            ? v.GetString()
-            : null;
 }

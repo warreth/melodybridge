@@ -1,6 +1,7 @@
 using System.Globalization;
 using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.Downloaders;
+using MelodyBridge.Infrastructure.SearchProviders;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace MelodyBridge.Tests.Integration;
@@ -66,6 +67,12 @@ public class SlskdLiveTests
             TransferTimeout = TimeSpan.FromMinutes(5),
         };
 
+    private static SlskdSearchProvider CreateSearch()
+        => new(new SlskdSession(
+                new HttpClient { Timeout = TimeSpan.FromMinutes(2) },
+                new EnvPluginConfig(), NullLogger<SlskdSession>.Instance),
+            NullLogger<SlskdSearchProvider>.Instance);
+
     /// <summary>The plugin config with only the connection, no folder.</summary>
     private sealed class ConnectionOnlyConfig : IPluginConfig
     {
@@ -106,7 +113,7 @@ public class SlskdLiveTests
     public async Task Search_WellKnownTrack_FindsAPeerFile()
     {
         RequireInstance();
-        var hit = await Create().SearchAsync(new TrackQuery(
+        var hit = await CreateSearch().SearchAsync("slskd", new TrackQuery(
             "Daft Punk", "Around the World", DownloadQuality.Any,
             ExpectedDuration: TimeSpan.FromSeconds(429)));
 
@@ -120,8 +127,9 @@ public class SlskdLiveTests
     {
         RequireInstance();
         var downloader = Create();
+        var search = CreateSearch();
 
-        var hit = await downloader.SearchAsync(new TrackQuery(
+        var hit = await search.SearchAsync("slskd", new TrackQuery(
             "Daft Punk", "Around the World", DownloadQuality.Any,
             ExpectedDuration: TimeSpan.FromSeconds(429)));
         Assert.That(hit, Is.Not.Null, "precondition: the search finds a source");

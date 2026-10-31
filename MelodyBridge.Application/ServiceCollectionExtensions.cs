@@ -69,12 +69,20 @@ public static class ServiceCollectionExtensions
         // subscription sources (Qobuz, Deezer), the free lossless ones
         // (Monochrome, Soulseek), and the community mirrors last (Lucida
         // needs a solver, Jumo is a web front-end).
+        services.AddSingleton<ISearchProvider>(sp =>
+            new SoundCloudSearchProvider(sp.GetRequiredService<ILogger<SoundCloudSearchProvider>>()));
         services.AddSingleton<IDownloader>(sp =>
             new SoundCloudDownloader(sp.GetRequiredService<ILogger<SoundCloudDownloader>>()));
+        services.AddSingleton<ISearchProvider>(sp =>
+            new ArchiveOrgSearchProvider(
+                sp.GetRequiredService<IHttpClientFactory>().CreateClient("archiveorg"),
+                sp.GetRequiredService<ILogger<ArchiveOrgSearchProvider>>()));
         services.AddSingleton<IDownloader>(sp =>
             new ArchiveOrgDownloader(
                 sp.GetRequiredService<IHttpClientFactory>().CreateClient("archiveorg"),
                 sp.GetRequiredService<ILogger<ArchiveOrgDownloader>>()));
+        services.AddSingleton<ISearchProvider>(sp =>
+            new YtDlpSearchProvider(sp.GetRequiredService<ILogger<YtDlpSearchProvider>>()));
         services.AddSingleton<IDownloader>(sp =>
             new YtDlpDownloader(sp.GetRequiredService<ILogger<YtDlpDownloader>>()));
         services.AddHttpClient("archiveorg", c =>
@@ -214,10 +222,17 @@ public static class ServiceCollectionExtensions
         // skipped) until the URL and API key are set and slskd is logged
         // in; the downloads folder is read from slskd's own options.
         services.AddHttpClient("slskd", c => c.Timeout = TimeSpan.FromMinutes(2));
+        services.AddSingleton(sp => new SlskdSession(
+            sp.GetRequiredService<IHttpClientFactory>().CreateClient("slskd"),
+            sp.GetRequiredService<IPluginConfig>(),
+            sp.GetRequiredService<ILogger<SlskdSession>>()));
+        services.AddSingleton<ISearchProvider>(sp =>
+            new SlskdSearchProvider(
+                sp.GetRequiredService<SlskdSession>(),
+                sp.GetRequiredService<ILogger<SlskdSearchProvider>>()));
         services.AddSingleton<IDownloader>(sp =>
             new SlskdDownloader(
-                sp.GetRequiredService<IHttpClientFactory>().CreateClient("slskd"),
-                sp.GetRequiredService<IPluginConfig>(),
+                sp.GetRequiredService<SlskdSession>(),
                 sp.GetRequiredService<ILogger<SlskdDownloader>>()));
 
         // Cloudflare solver shared by challenge-gated plugins (Lucida).
@@ -276,10 +291,17 @@ public static class ServiceCollectionExtensions
         services.AddSingleton(sp => new FlacMusicClient(
             sp.GetRequiredService<IHttpClientFactory>().CreateClient("flacmusic"),
             sp.GetRequiredService<ILogger<FlacMusicClient>>()));
+        services.AddSingleton(sp => new FlacMusicSession(
+            sp.GetRequiredService<FlacMusicClient>(),
+            sp.GetRequiredService<IPluginConfig>(),
+            sp.GetRequiredService<ILogger<FlacMusicSession>>()));
+        services.AddSingleton<ISearchProvider>(sp =>
+            new FlacMusicSearchProvider(
+                sp.GetRequiredService<FlacMusicSession>(),
+                sp.GetRequiredService<ILogger<FlacMusicSearchProvider>>()));
         services.AddSingleton<IDownloader>(sp =>
             new FlacMusicDownloader(
-                sp.GetRequiredService<FlacMusicClient>(),
-                sp.GetRequiredService<IPluginConfig>(),
+                sp.GetRequiredService<FlacMusicSession>(),
                 sp.GetRequiredService<ILogger<FlacMusicDownloader>>()));
 
         // ISRC enrichment for sources that do not provide one (Spotify

@@ -89,6 +89,46 @@ public class DownloaderCompositionTests
     }
 
     [Test]
+    public void EveryBuiltInSource_IsProviderBacked()
+    {
+        using var host = AppDownloadHost.Create();
+        var searches = host.Services.GetRequiredService<ISearchProviderRegistry>();
+
+        foreach (var downloader in host.Registry.GetAll())
+        {
+            Assert.That(downloader.SearchInfo.Mode, Is.EqualTo(DownloaderSearchMode.Provider),
+                $"{downloader.Id} must be URL-only");
+            Assert.That(searches.ForDownloader(downloader.Id), Is.Not.Null,
+                $"{downloader.Id} must have a provider");
+        }
+    }
+
+    [Test]
+    public void TheFiveSelfSearchSources_AreProvidersInTheSelfTier()
+    {
+        using var host = AppDownloadHost.Create();
+        var searches = host.Services.GetRequiredService<ISearchProviderRegistry>();
+        var selfSearch = new[] { "archiveorg", "flacmusic", "slskd", "soundcloud", "ytdlp" };
+
+        Assert.That(searches.GetAll(), Has.Count.EqualTo(10),
+            "each built-in source has its own provider, including the five self-search ones");
+        Assert.That(searches.ProviderFirstOrder().Keys, Does.Not.Contain("ytdlp"),
+            "self-search sources keep the user's order instead of a rank");
+        Assert.That(searches.ProviderFirstOrder().Keys, Does.Not.Contain("flacmusic"));
+
+        foreach (var id in selfSearch)
+        {
+            var provider = searches.ForDownloader(id);
+            Assert.That(provider, Is.Not.Null, $"{id} must route through its own provider");
+            Assert.That(provider!.Tier, Is.EqualTo(SearchTier.SelfSearch));
+            var target = provider.Targets.Single(t =>
+                string.Equals(t.DownloaderId, id, StringComparison.OrdinalIgnoreCase));
+            Assert.That(target.Tier, Is.EqualTo(SearchTier.SelfSearch),
+                $"{id} must sit in the self-search tier");
+        }
+    }
+
+    [Test]
     public void TheRealFallbackSource_IsMarkedFallbackOnly()
     {
         using var host = AppDownloadHost.Create();
@@ -96,7 +136,8 @@ public class DownloaderCompositionTests
         var flac = host.Registry.GetAll().OfType<FlacMusicDownloader>().Single();
 
         Assert.That(flac.FallbackOnly, Is.True);
-        Assert.That(flac.SearchInfo.Mode, Is.EqualTo(DownloaderSearchMode.Self));
+        Assert.That(flac.SearchInfo.Mode, Is.EqualTo(DownloaderSearchMode.Provider),
+            "fallback-only is an ordering rule, not a search mode");
         Assert.That(flac.SearchInfo.Data, Is.EqualTo(SearchData.Text));
     }
 

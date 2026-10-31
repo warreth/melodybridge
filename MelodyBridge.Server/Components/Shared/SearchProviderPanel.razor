@@ -40,9 +40,10 @@
                 <span class="eyebrow">Search routing</span>
                 <h2 id="search-provider-title">How each source finds the track</h2>
                 <p class="panel-description">
-                    A search provider turns a track query into a download URL. Sources
-                    that support ISRC or direct URLs let the provider do the searching;
-                    only sources without that data search their own catalogue.
+                    A search provider turns a track query into a download URL. Every
+                    built-in source is provider-backed: the provider searches, the
+                    source only downloads the URL. Third-party sources without a
+                    provider can still search their own catalogue.
                 </p>
             </div>
             <span class="search-provider-count">
@@ -142,7 +143,7 @@
         {
             <div class="search-self-block">
                 <div class="search-self-head">
-                    <h3>Sources that search themselves</h3>
+                    <h3>Third-party sources that search themselves</h3>
                     <p>These have no external provider; their own catalogue search runs as part of the waterfall.</p>
                 </div>
                 <div class="search-self-list">

@@ -3,16 +3,17 @@ using System.Text;
 using System.Text.Json;
 using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.Downloaders;
+using MelodyBridge.Infrastructure.SearchProviders;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace MelodyBridge.Tests.Infrastructure;
 
 /// <summary>
-/// slskd plugin against stubbed HTTP responses following the real slskd
-/// v0.x API shapes (live-probed against slskd 0.26.1): search creation and
-/// polling, responses with locked files and bitrate metadata, transfer
-/// enqueue and polling, and the finished file under the downloads folder.
-/// No live network access needed.
+/// slskd and its search provider against stubbed HTTP responses following
+/// the real slskd v0.x API shapes (live-probed against slskd 0.26.1): search
+/// creation and polling, responses with locked files and bitrate metadata,
+/// transfer enqueue and polling, and the finished file under the downloads
+/// folder. No live network access needed.
 /// </summary>
 [TestFixture]
 public class SlskdDownloaderTests
@@ -65,10 +66,21 @@ public class SlskdDownloaderTests
         var http = new HttpClient(handler) { BaseAddress = new Uri("http://127.0.0.1:5030") };
         return new SlskdDownloader(http, config, NullLogger<SlskdDownloader>.Instance)
         {
-            SearchPollInterval = TimeSpan.FromMilliseconds(10),
-            SearchPollTimeout = TimeSpan.FromSeconds(2),
             TransferPollInterval = TimeSpan.FromMilliseconds(10),
             TransferTimeout = TimeSpan.FromSeconds(2),
+        };
+    }
+
+    private static SlskdSearchProvider CreateProvider(StubHttpMessageHandler handler)
+    {
+        var config = new StubPluginConfig();
+        config.Set("slskd", "api_key", "test-key-0123456789");
+        var http = new HttpClient(handler) { BaseAddress = new Uri("http://127.0.0.1:5030") };
+        var session = new SlskdSession(http, config, NullLogger<SlskdSession>.Instance);
+        return new SlskdSearchProvider(session, NullLogger<SlskdSearchProvider>.Instance)
+        {
+            SearchPollInterval = TimeSpan.FromMilliseconds(10),
+            SearchPollTimeout = TimeSpan.FromSeconds(2),
         };
     }
 
@@ -197,7 +209,7 @@ public class SlskdDownloaderTests
         };
 
         var result = await downloader.DownloadAsync(
-            SlskdDownloader.BuildSourceUrl("peer", "Music\\Artist - Song.flac", bytes.Length),
+            SlskdSearchProvider.BuildSourceUrl("peer", "Music\\Artist - Song.flac", bytes.Length),
             output, "mb-detected");
 
         Assert.Multiple(() =>
@@ -256,7 +268,7 @@ public class SlskdDownloaderTests
             TransferPollInterval = TimeSpan.FromMilliseconds(10),
             TransferTimeout = TimeSpan.FromSeconds(2),
         };
-        var sourceUrl = SlskdDownloader.BuildSourceUrl(
+        var sourceUrl = SlskdSearchProvider.BuildSourceUrl(
             "peer", "Music\\Artist - Song.flac", bytes.Length);
 
         var first = await downloader.DownloadAsync(sourceUrl, NewDir(), "mb-one");
@@ -325,7 +337,7 @@ public class SlskdDownloaderTests
             TransferPollInterval = TimeSpan.FromMilliseconds(10),
             TransferTimeout = TimeSpan.FromSeconds(2),
         };
-        var sourceUrl = SlskdDownloader.BuildSourceUrl(
+        var sourceUrl = SlskdSearchProvider.BuildSourceUrl(
             "peer", "Music\\Artist - Song.flac", bytes.Length);
 
         var first = await downloader.DownloadAsync(sourceUrl, NewDir(), "mb-stale");
@@ -400,9 +412,9 @@ public class SlskdDownloaderTests
                 return new HttpResponseMessage(HttpStatusCode.NoContent);
             return new HttpResponseMessage(HttpStatusCode.NotFound);
         };
-        var downloader = Create(handler);
+        var provider = CreateProvider(handler);
 
-        var hit = await downloader.SearchAsync(new TrackQuery(
+        var hit = await provider.SearchAsync("slskd", new TrackQuery(
             "Daft Punk", "Around the World", DownloadQuality.Any,
             ExpectedDuration: TimeSpan.FromSeconds(429)));
 
@@ -441,9 +453,10 @@ public class SlskdDownloaderTests
             if (request.Method == HttpMethod.Delete) return new HttpResponseMessage(HttpStatusCode.NoContent);
             return Ok(new { id = "s", state = "Completed" });
         };
-        var downloader = Create(handler);
+        var provider = CreateProvider(handler);
 
-        var hit = await downloader.SearchAsync(new TrackQuery("Artist", "Song", DownloadQuality.Any));
+        var hit = await provider.SearchAsync("slskd",
+            new TrackQuery("Artist", "Song", DownloadQuality.Any));
 
         Assert.That(hit, Is.Not.Null);
         Assert.That(hit!.SourceUrl, Does.StartWith("slskd:peer:"), "only the mp3 was usable");
@@ -467,10 +480,10 @@ public class SlskdDownloaderTests
             if (request.Method == HttpMethod.Delete) return new HttpResponseMessage(HttpStatusCode.NoContent);
             return Ok(new { id = "s", state = "Completed" });
         };
-        var downloader = Create(handler);
+        var provider = CreateProvider(handler);
 
         // A 320 request must not settle for the 128 kbps file.
-        var hit = await downloader.SearchAsync(new TrackQuery(
+        var hit = await provider.SearchAsync("slskd", new TrackQuery(
             "Artist", "Song", new DownloadQuality(AudioFormat.Mp3, MinKbps: 320, MaxKbps: 320)));
 
         Assert.That(hit, Is.Null, "neither the 128 kbps file nor a FLAC fits an exact 320 band");
@@ -488,10 +501,10 @@ public class SlskdDownloaderTests
             if (request.Method == HttpMethod.Delete) return new HttpResponseMessage(HttpStatusCode.NoContent);
             return Ok(new { id = "s", state = "Completed" });
         };
-        var downloader = Create(handler);
+        var provider = CreateProvider(handler);
 
-        Assert.That(await downloader.SearchAsync(new TrackQuery("Artist", "Song", DownloadQuality.Any)),
-            Is.Null);
+        Assert.That(await provider.SearchAsync("slskd",
+            new TrackQuery("Artist", "Song", DownloadQuality.Any)), Is.Null);
     }
 
     [Test]
@@ -505,9 +518,10 @@ public class SlskdDownloaderTests
             if (request.Method == HttpMethod.Delete) return new HttpResponseMessage(HttpStatusCode.NoContent);
             return Ok(new { id = "s", state = "InProgress" });
         };
-        var downloader = Create(handler);
+        var provider = CreateProvider(handler);
 
-        Assert.That(await downloader.SearchAsync(new TrackQuery("Artist", "Song", DownloadQuality.Any)),
+        Assert.That(await provider.SearchAsync("slskd",
+            new TrackQuery("Artist", "Song", DownloadQuality.Any)),
             Is.Null, "a search that never completes is a miss");
     }
 
@@ -561,7 +575,7 @@ public class SlskdDownloaderTests
         Directory.CreateDirectory(Path.Combine(downloads, "Homework"));
         var downloader = Create(handler, downloads);
 
-        var sourceUrl = SlskdDownloader.BuildSourceUrl(
+        var sourceUrl = SlskdSearchProvider.BuildSourceUrl(
             "peer", "MUSIQUES\\Daft Punk\\Homework\\Daft Punk - Around the World.flac", bytes.Length);
         var result = await downloader.DownloadAsync(sourceUrl, output, "mb-slskd-1");
 
@@ -607,7 +621,7 @@ public class SlskdDownloaderTests
         var downloader = Create(handler, downloads);
 
         var result = await downloader.DownloadAsync(
-            SlskdDownloader.BuildSourceUrl("peer", "Music\\Artist - Song.mp3", 123), output, "mb-fail");
+            SlskdSearchProvider.BuildSourceUrl("peer", "Music\\Artist - Song.mp3", 123), output, "mb-fail");
 
         Assert.Multiple(() =>
         {
@@ -642,7 +656,7 @@ public class SlskdDownloaderTests
         var downloader = Create(handler, downloads);
 
         var result = await downloader.DownloadAsync(
-            SlskdDownloader.BuildSourceUrl("peer", "Music\\Artist - Song.mp3", 123), output, "mb-queued");
+            SlskdSearchProvider.BuildSourceUrl("peer", "Music\\Artist - Song.mp3", 123), output, "mb-queued");
 
         Assert.Multiple(() =>
         {
@@ -677,7 +691,7 @@ public class SlskdDownloaderTests
         var downloader = Create(handler, downloads);
 
         var result = await downloader.DownloadAsync(
-            SlskdDownloader.BuildSourceUrl("peer", "Music\\Artist - Song.mp3", 123), output, "mb-nofile");
+            SlskdSearchProvider.BuildSourceUrl("peer", "Music\\Artist - Song.mp3", 123), output, "mb-nofile");
 
         Assert.Multiple(() =>
         {
@@ -714,7 +728,7 @@ public class SlskdDownloaderTests
         var downloader = Create(handler, downloads);
 
         var result = await downloader.DownloadAsync(
-            SlskdDownloader.BuildSourceUrl("peer", "Artist - Song.flac", 15), output, "mb-junk");
+            SlskdSearchProvider.BuildSourceUrl("peer", "Artist - Song.flac", 15), output, "mb-junk");
 
         Assert.Multiple(() =>
         {
@@ -746,7 +760,7 @@ public class SlskdDownloaderTests
     [TestCase("user name", "a:b\\c.flac", 1L)]
     public void SourceUrl_RoundTrips(string username, string filename, long size)
     {
-        var url = SlskdDownloader.BuildSourceUrl(username, filename, size);
+        var url = SlskdSearchProvider.BuildSourceUrl(username, filename, size);
         Assert.That(SlskdDownloader.TryParseSourceUrl(url, out var u, out var f, out var s), Is.True);
         Assert.Multiple(() =>
         {
@@ -769,7 +783,7 @@ public class SlskdDownloaderTests
     [TestCase("Song.mp3", null, "Song")]
     public void SplitArtistTitle_HandlesPeerNaming(string filename, string? artist, string title)
     {
-        var (a, t) = SlskdDownloader.SplitArtistTitle(filename);
+        var (a, t) = SlskdSearchProvider.SplitArtistTitle(filename);
         Assert.Multiple(() =>
         {
             Assert.That(a, Is.EqualTo(artist));
@@ -784,7 +798,7 @@ public class SlskdDownloaderTests
     [TestCase("a.ogg", null)]
     [TestCase("a.txt", null)]
     public void ContainerFor_MapsDeclaredContainers(string filename, AudioFormat? expected)
-        => Assert.That(SlskdDownloader.ContainerFor(filename), Is.EqualTo(expected));
+        => Assert.That(SlskdSearchProvider.ContainerFor(filename), Is.EqualTo(expected));
 
     [TestCase("Completed, Succeeded", true)]
     [TestCase("Completed, Errored", true)]
@@ -798,5 +812,5 @@ public class SlskdDownloaderTests
     [TestCase("Completed, ResponseLimitReached", true)]
     [TestCase("InProgress", false)]
     public void SearchIsComplete_KnowsTheStates(string state, bool expected)
-        => Assert.That(SlskdDownloader.SearchIsComplete(state), Is.EqualTo(expected));
+        => Assert.That(SlskdSearchProvider.SearchIsComplete(state), Is.EqualTo(expected));
 }

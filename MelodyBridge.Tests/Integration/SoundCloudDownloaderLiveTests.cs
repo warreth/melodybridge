@@ -1,5 +1,6 @@
 using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.Downloaders;
+using MelodyBridge.Infrastructure.SearchProviders;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace MelodyBridge.Tests.Integration;
@@ -15,12 +16,14 @@ namespace MelodyBridge.Tests.Integration;
 public class SoundCloudDownloaderLiveTests
 {
     private SoundCloudDownloader _downloader = null!;
+    private SoundCloudSearchProvider _search = null!;
     private string _outDir = null!;
 
     [OneTimeSetUp]
     public void Setup()
     {
         _downloader = new SoundCloudDownloader(NullLogger<SoundCloudDownloader>.Instance);
+        _search = new SoundCloudSearchProvider(NullLogger<SoundCloudSearchProvider>.Instance);
         _outDir = Path.Combine(Path.GetTempPath(), $"mb-sc-{Guid.NewGuid():N}");
         Directory.CreateDirectory(_outDir);
     }
@@ -34,7 +37,7 @@ public class SoundCloudDownloaderLiveTests
     [Test]
     public async Task Search_FindsSoundCloudUrl()
     {
-        var hit = await _downloader.SearchAsync(new TrackQuery("Forss", "Flickermood", MelodyBridge.Core.DownloadQuality.Any));
+        var hit = await _search.SearchAsync("soundcloud", new TrackQuery("Forss", "Flickermood", MelodyBridge.Core.DownloadQuality.Any));
         Assert.That(hit, Is.Not.Null, "scsearch must find this well-known SoundCloud track");
         Assert.That(hit!.SourceUrl, Does.Contain("soundcloud.com"));
         Assert.That(hit.Title, Is.Not.Null.And.Not.Empty);
@@ -43,7 +46,7 @@ public class SoundCloudDownloaderLiveTests
     [Test]
     public async Task Download_ProducesHighBitrateTaggedMp3()
     {
-        var hit = await _downloader.SearchAsync(new TrackQuery("Forss", "Flickermood", MelodyBridge.Core.DownloadQuality.Any));
+        var hit = await _search.SearchAsync("soundcloud", new TrackQuery("Forss", "Flickermood", MelodyBridge.Core.DownloadQuality.Any));
         Assert.That(hit, Is.Not.Null, "precondition: search finds the track");
 
         var result = await _downloader.DownloadAsync(

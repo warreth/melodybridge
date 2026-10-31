@@ -1,6 +1,7 @@
 using System.Text.Json;
 using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.Downloaders;
+using MelodyBridge.Infrastructure.SearchProviders;
 using MelodyBridge.Infrastructure.Services;
 
 namespace MelodyBridge.Tests.Infrastructure;
@@ -22,7 +23,7 @@ public class YtDlpFlatHitTests
             entries = new[] { entry },
         });
         return SearchRanker.Rank("Regard", "Ride It", null,
-            YtDlpDownloader.ParseFlatPlaylistHits(json, "Regard", "Ride It",
+            YtDlpSearchParser.ParseFlatPlaylistHits(json, "Regard", "Ride It",
                 id => $"https://www.youtube.com/watch?v={id}"));
     }
 
@@ -95,7 +96,7 @@ public class YtDlpFlatHitTests
     [Test]
     public void MalformedJson_ReturnsNoHits()
     {
-        Assert.That(YtDlpDownloader.ParseFlatPlaylistHits(
+        Assert.That(YtDlpSearchParser.ParseFlatPlaylistHits(
             "not json at all", "A", "T", id => id), Is.Empty);
     }
 }

@@ -116,6 +116,10 @@ public sealed class SearchProviderRegistry : ISearchProviderRegistry
         foreach (var cell in _providers
                      .SelectMany(provider => provider.Targets
                          .Select(target => (Provider: provider, Target: target)))
+                     // Self-search sources keep the user's own order after
+                     // the ranked tiers; giving them a rank would reorder
+                     // YouTube, SoundCloud and the rest by provider name.
+                     .Where(cell => cell.Target.Tier != SearchTier.SelfSearch)
                      .OrderBy(cell => cell.Target.Tier)
                      .ThenByDescending(cell => cell.Provider.Priority)
                      .ThenByDescending(cell => cell.Target.Priority)
@@ -208,11 +212,8 @@ public sealed class SearchProviderRegistry : ISearchProviderRegistry
             ct.ThrowIfCancellationRequested();
             try
             {
-                var hit = await provider.SearchAsync(downloader.Id, query, ct);
-                if (hit is null) continue;
-                Add(hit);
-                if (hit.Alternatives is { Count: > 0 } alternatives)
-                    foreach (var alternative in alternatives) Add(alternative);
+                var providerHits = await provider.SearchAllAsync(downloader.Id, query, ct);
+                foreach (var hit in providerHits) Add(hit);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {

@@ -1,38 +1,37 @@
-using System.Text.RegularExpressions;
 using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.Audio;
 using MelodyBridge.Infrastructure.Files;
 using MelodyBridge.Infrastructure.Services;
 using MelodyBridge.Infrastructure.Downloaders;
+using MelodyBridge.Infrastructure.SearchProviders;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace MelodyBridge.Infrastructure.FlacMusic;
 
 /// <summary>
 /// The last-resort source: flac.music.hi.cn, a Chinese front-end for Kuwo
-/// and NetEase. It has no ISRC index and no stable track URL, so it is the
-/// one built-in source that still searches itself. The plugin is appended to
-/// the end of the shipped order and is only reached after the ISRC-capable
-/// sources and the ordinary fallbacks had their turn.
+/// and NetEase. It has no ISRC index or stable track URL, so
+/// FlacMusicSearchProvider searches its catalogue and this downloader only
+/// resolves the URL it gets back. The plugin is appended to the end of the
+/// shipped order and is only reached after the ISRC-capable sources and the
+/// ordinary fallbacks had their turn.
 ///
 /// It offers exactly the format set the site exposes: FLAC (16-bit/44.1 kHz
 /// in practice), MP3 320 and MP3 128.
 /// </summary>
 public class FlacMusicDownloader : IDownloader, IPluginAvailabilityRefresh
 {
-    public const string DefaultBaseUrl = FlacMusicClient.DefaultBaseUrl;
-    private const string BaseUrlKey = "base_url";
-    private const string PlatformKey = "platform";
-    private const string PlatformBoth = "both";
+    public const string DefaultBaseUrl = FlacMusicSession.DefaultBaseUrl;
+    internal const string BaseUrlKey = FlacMusicSession.BaseUrlKey;
+    internal const string PlatformKey = FlacMusicSession.PlatformKey;
+    internal const string PlatformBoth = FlacMusicSession.PlatformBoth;
 
     public static readonly PluginCapabilities Caps = new(
     [
         new QualityDeliverable(AudioFormat.Flac, Lossless: true, 900, 10000),
         new QualityDeliverable(AudioFormat.Mp3, Lossless: false, 128, 320),
     ]);
-
-    private static readonly Regex ChineseTitleSuffix = new(
-        @"\s*[-\u2013\u2014]\s*《.*$", RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
     public string Id => "flacmusic";
     public string Name => "FLAC Music (CN)";
@@ -42,8 +41,8 @@ public class FlacMusicDownloader : IDownloader, IPluginAvailabilityRefresh
     public PluginCapabilities Capabilities => Caps;
 
     public DownloaderSearchInfo SearchInfo =>
-        DownloaderSearchInfo.Self(SearchData.Text,
-            "Title-only fallback; no ISRC support");
+        DownloaderSearchInfo.ViaProvider(SearchData.Text,
+            "Title-only Kuwo and NetEase search; no ISRC support");
 
     public string IconName => "globe";
     public string? GuideUrl => "https://docs.melodybridge.app/flacmusic";
@@ -56,7 +55,7 @@ public class FlacMusicDownloader : IDownloader, IPluginAvailabilityRefresh
     /// </summary>
     public bool FallbackOnly => true;
 
-    public string? LastUnavailableReason { get; private set; }
+    public string? LastUnavailableReason => _session.LastUnavailableReason;
 
     public IReadOnlyList<PluginConfigField> ConfigFields =>
     [
@@ -73,131 +72,33 @@ public class FlacMusicDownloader : IDownloader, IPluginAvailabilityRefresh
             Advanced: true),
     ];
 
-    private readonly FlacMusicClient _client;
-    private readonly IPluginConfig _config;
+    private readonly FlacMusicSession _session;
     private readonly ILogger<FlacMusicDownloader> _logger;
-    private readonly AvailabilityCache _availability = new();
 
     public FlacMusicDownloader(
-        FlacMusicClient client, IPluginConfig config, ILogger<FlacMusicDownloader> logger)
+        FlacMusicSession session, ILogger<FlacMusicDownloader> logger)
     {
-        _client = client;
-        _config = config;
+        _session = session;
         _logger = logger;
     }
 
-    public void RefreshAvailability() => _availability.Invalidate();
-
-    public async Task<bool> IsAvailableAsync(CancellationToken ct = default)
+    /// <summary>Test and one-off host convenience: creates the session from the same inputs.</summary>
+    public FlacMusicDownloader(
+        FlacMusicClient client, IPluginConfig config, ILogger<FlacMusicDownloader> logger)
+        : this(new FlacMusicSession(client, config,
+            NullLogger<FlacMusicSession>.Instance), logger)
     {
-        if (_availability.TryGet(out var cached)) return cached;
-
-        _client.BaseUrl = await BaseUrlAsync(ct);
-        var (ready, reason) = await _client.CheckHealthAsync(ct);
-        LastUnavailableReason = ready ? null : reason;
-        _availability.Store(ready);
-        return ready;
     }
 
-    // ── Search ───────────────────────────────────────────────────────────
+    public void RefreshAvailability() => _session.RefreshAvailability();
 
-    public async Task<DownloaderSearchHit?> SearchAsync(
+    public Task<bool> IsAvailableAsync(CancellationToken ct = default)
+        => _session.IsAvailableAsync(ct);
+
+    /// <summary>Provider-backed: the search lives in FlacMusicSearchProvider.</summary>
+    public Task<DownloaderSearchHit?> SearchAsync(
         TrackQuery query, CancellationToken ct = default)
-    {
-        var candidates = await BuildCandidatesAsync(query, ct);
-        if (candidates.Count == 0) return null;
-        return SearchRanker.Rank(
-            query.Artist, query.Title, query.ExpectedDuration, candidates,
-            maxAlternatives: 3,
-            tieBreaker: QualityRank);
-    }
-
-    /// <summary>All ranked candidates, for the manual source picker.</summary>
-    public async Task<IReadOnlyList<DownloaderSearchHit>> SearchAllAsync(
-        TrackQuery query, CancellationToken ct = default)
-        => (await BuildCandidatesAsync(query, ct))
-            .OrderByDescending(c => FuzzyMatcher.ScoreWithDuration(
-                query.Artist, query.Title, query.ExpectedDuration, c.Artist, c.Title, c.Duration))
-            .ThenByDescending(QualityRank)
-            .Take(10)
-            .ToList();
-
-    private async Task<List<DownloaderSearchHit>> BuildCandidatesAsync(
-        TrackQuery query, CancellationToken ct)
-    {
-        var keyword = query.SearchText;
-        if (keyword.Length == 0) return new List<DownloaderSearchHit>();
-
-        _client.BaseUrl = await BaseUrlAsync(ct);
-        var platforms = await PlatformsAsync(ct);
-        var results = await Task.WhenAll(platforms.Select(platform =>
-            _client.SearchAsync(platform, keyword, size: 20, ct)));
-
-        var failed = results.Where(r => r.Status != FlacMusicClient.Status.Ok).ToList();
-        if (failed.Count == results.Length)
-        {
-            var reason = failed.Select(f => f.Message).FirstOrDefault(m => !string.IsNullOrWhiteSpace(m));
-            LastUnavailableReason = reason ?? "flac.music.hi.cn could not be searched";
-            _logger.LogDebug("FLAC Music search failed: {Reason}", LastUnavailableReason);
-            return new List<DownloaderSearchHit>();
-        }
-
-        var hits = new List<DownloaderSearchHit>();
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var track in results.SelectMany(r => r.Tracks))
-        {
-            if (!seen.Add($"{track.Platform}:{track.Id}")) continue;
-            var format = SelectFormat(track.Formats, query.Quality);
-            if (format is null) continue;
-
-            var title = CleanTitle(track.Title);
-            var hit = new DownloaderSearchHit(
-                Title: title,
-                Artist: track.Artist,
-                SourceUrl: EncodeSourceUrl(track, title, query.Quality),
-                Duration: track.Duration,
-                BitrateKbps: format.IsFlac ? null : format.BitrateKbps,
-                MatchConfidence: FuzzyMatcher.Confidence(
-                    query.Artist, query.Title, hitArtist: track.Artist, hitTitle: title));
-            hits.Add(hit);
-        }
-        return hits;
-    }
-
-    /// <summary>
-    /// The format that fits the requested quality. FLAC wins for lossless
-    /// and unrestricted requests; a bitrate cap walks down to the highest
-    /// MP3 that fits. AAC and Opus are not offered by the site, so those
-    /// requests never route here.
-    /// Internal for tests.
-    /// </summary>
-    internal static FlacMusicClient.Format? SelectFormat(
-        IReadOnlyList<FlacMusicClient.Format> formats, DownloadQuality quality)
-    {
-        var flac = formats
-            .Where(f => f.IsFlac)
-            .OrderByDescending(f => f.BitrateKbps)
-            .FirstOrDefault();
-        var mp3 = formats
-            .Where(f => !f.IsFlac)
-            .OrderByDescending(f => f.BitrateKbps)
-            .ToList();
-
-        if (quality.Format == AudioFormat.Flac) return flac;
-        if (quality.Format is AudioFormat.Aac or AudioFormat.Opus) return null;
-        if (quality.Format == AudioFormat.Mp3)
-            return mp3.FirstOrDefault(f => quality.IsWithinBand(f.BitrateKbps));
-
-        // Auto: real lossless when no cap rules it out, otherwise the best
-        // lossy file inside the band.
-        var losslessAllowed = quality.MaxKbps is null or >= 900
-            || quality.MinKbps is >= 900;
-        if (losslessAllowed && flac is not null) return flac;
-        return mp3.FirstOrDefault(f => quality.IsWithinBand(f.BitrateKbps));
-    }
-
-    private static int QualityRank(DownloaderSearchHit hit)
-        => hit.BitrateKbps ?? 10000;
+        => Task.FromResult<DownloaderSearchHit?>(null);
 
     // ── Download ─────────────────────────────────────────────────────────
 
@@ -211,33 +112,33 @@ public class FlacMusicDownloader : IDownloader, IPluginAvailabilityRefresh
         if (!TryParseSourceUrl(sourceUrl, out var link))
             return new(false, null, "not a FLAC Music track URL: " + sourceUrl);
 
-        _client.BaseUrl = await BaseUrlAsync(ct);
+        _session.Client.BaseUrl = await _session.BaseUrlAsync(ct);
         var requested = quality ?? DownloadQuality.Any;
         var track = await ResolveTrackAsync(link, ct);
         if (track is null)
             return new(false, null, "flac.music.hi.cn no longer lists this track");
 
-        var format = SelectFormat(track.Formats, requested);
+        var format = FlacMusicSource.SelectFormat(track.Formats, requested);
         if (format is null)
             return new(false, null,
                 $"FLAC Music cannot serve {Describe(requested)} for this track");
 
-        var url = await _client.GetUrlAsync(track, format, ct);
+        var url = await _session.Client.GetUrlAsync(track, format, ct);
         if (url.Status == FlacMusicClient.Status.Expired)
         {
             // The encoded sign belongs to the search result and expires
             // quickly. Refreshing by id returns a fresh one without a text
             // search, so a retry still names the same recording.
-            var refreshed = await _client.GetTrackAsync(link.Platform, link.Id, ct);
+            var refreshed = await _session.Client.GetTrackAsync(link.Platform, link.Id, ct);
             track = refreshed.Tracks.FirstOrDefault(t => t.Id == link.Id)
                 ?? refreshed.Tracks.FirstOrDefault();
             if (track is null)
                 return new(false, null, "flac.music.hi.cn no longer lists this track");
-            format = SelectFormat(track.Formats, requested);
+            format = FlacMusicSource.SelectFormat(track.Formats, requested);
             if (format is null)
                 return new(false, null,
                     $"FLAC Music cannot serve {Describe(requested)} for this track");
-            url = await _client.GetUrlAsync(track, format, ct);
+            url = await _session.Client.GetUrlAsync(track, format, ct);
         }
         if (url.Status != FlacMusicClient.Status.Ok || url.Url is null)
             return new(false, null, url.Message ?? "flac.music.hi.cn did not return a download URL");
@@ -264,7 +165,7 @@ public class FlacMusicDownloader : IDownloader, IPluginAvailabilityRefresh
         var temp = Path.Combine(outputDirectory, $".mb-flacmusic-{stem}.part");
         try
         {
-            var download = await _client.DownloadFileAsync(url.Url, temp, ct);
+            var download = await _session.Client.DownloadFileAsync(url.Url, temp, ct);
             if (!download.Ok)
                 return new(false, null, download.Error ?? "the audio CDN did not deliver the file");
             if (new FileInfo(temp).Length == 0)
@@ -278,8 +179,8 @@ public class FlacMusicDownloader : IDownloader, IPluginAvailabilityRefresh
                 $"flacmusic-{link.Platform}-{link.Id}-{stem}{Path.GetExtension(sniffed)}");
             FileMove.MoveAcrossDevices(sniffed, target);
             YtDlpDownloader.TagDownloadedFile(target, expectedTitle: track.Title);
-            _availability.Store(true);
-            LastUnavailableReason = null;
+            _session.RefreshAvailability();
+            _session.SetUnavailable(null);
             return new(true, target, null);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -318,7 +219,7 @@ public class FlacMusicDownloader : IDownloader, IPluginAvailabilityRefresh
                 link.Formats, link.Time, link.Sign, null, null);
         }
 
-        var result = await _client.GetTrackAsync(link.Platform, link.Id, ct);
+        var result = await _session.Client.GetTrackAsync(link.Platform, link.Id, ct);
         return result.Tracks.FirstOrDefault(t => t.Id == link.Id)
             ?? result.Tracks.FirstOrDefault();
     }
@@ -389,37 +290,6 @@ public class FlacMusicDownloader : IDownloader, IPluginAvailabilityRefresh
         return true;
     }
 
-    /// <summary>The encoded URL the search hit carries. Internal for tests.</summary>
-    internal static string EncodeSourceUrl(
-        FlacMusicClient.Track track, string title, DownloadQuality quality)
-    {
-        var formats = string.Join(",",
-            track.Formats.Select(f => $"{f.Name}:{f.BitrateKbps}"));
-        var query = new List<string>
-        {
-            "formats=" + Uri.EscapeDataString(formats),
-            "artist=" + Uri.EscapeDataString(track.Artist ?? ""),
-            "title=" + Uri.EscapeDataString(title),
-        };
-        if (!string.IsNullOrWhiteSpace(track.Album))
-            query.Add("album=" + Uri.EscapeDataString(track.Album));
-        if (track.Duration is { } duration)
-            query.Add("duration=" + ((int)Math.Round(duration.TotalSeconds)).ToString());
-        if (!string.IsNullOrWhiteSpace(track.Time))
-            query.Add("time=" + Uri.EscapeDataString(track.Time));
-        if (!string.IsNullOrWhiteSpace(track.Sign))
-            query.Add("sign=" + Uri.EscapeDataString(track.Sign));
-        return $"{DefaultBaseUrl}/track/{Uri.EscapeDataString(track.Platform)}/"
-            + $"{Uri.EscapeDataString(track.Id)}?{string.Join("&", query)}";
-    }
-
-    /// <summary>"Shoot to Thrill-《Iron Man 2》" -> "Shoot to Thrill". Internal for tests.</summary>
-    internal static string CleanTitle(string title)
-    {
-        var cleaned = ChineseTitleSuffix.Replace(title, "").Trim();
-        return cleaned.Length == 0 ? title.Trim() : cleaned;
-    }
-
     public Task<CandidateAudioQuality?> ProbeQualityAsync(
         string sourceUrl, CancellationToken ct = default)
     {
@@ -434,20 +304,6 @@ public class FlacMusicDownloader : IDownloader, IPluginAvailabilityRefresh
         return Task.FromResult(mp3 is null
             ? null
             : new CandidateAudioQuality("mp3", mp3.BitrateKbps, null, null, false));
-    }
-
-    private async Task<string> BaseUrlAsync(CancellationToken ct)
-    {
-        var value = await _config.GetAsync(Id, BaseUrlKey, ct);
-        return string.IsNullOrWhiteSpace(value) ? DefaultBaseUrl : value.Trim();
-    }
-
-    private async Task<IReadOnlyList<string>> PlatformsAsync(CancellationToken ct)
-    {
-        var value = await _config.GetAsync(Id, PlatformKey, ct);
-        return string.IsNullOrWhiteSpace(value) || value.Equals(PlatformBoth, StringComparison.OrdinalIgnoreCase)
-            ? new[] { "kuwo", "wyy" }
-            : new[] { value.Trim().ToLowerInvariant() };
     }
 
     /// <summary>Exact host or a real subdomain, never a lookalike.</summary>

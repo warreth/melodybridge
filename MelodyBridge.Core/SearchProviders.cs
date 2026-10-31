@@ -66,7 +66,8 @@ public sealed record DownloaderSearchInfo(
 /// <summary>
 /// Where a provider or a target sits in the official-first order: an
 /// official catalogue comes before a ripper that consumes its URL, then an
-/// unofficial catalogue, then a source that searches itself.
+/// unofficial catalogue, then a provider that searches its source's own
+/// catalogue by title.
 /// </summary>
 public enum SearchTier
 {
@@ -130,6 +131,21 @@ public interface ISearchProvider
     /// </summary>
     Task<DownloaderSearchHit?> SearchAsync(
         string downloaderId, TrackQuery query, CancellationToken ct = default);
+
+    /// <summary>
+    /// Every candidate for the manual picker. The default returns the
+    /// primary hit and its alternatives; a provider for a self-search
+    /// source overrides it when that source offers more than one result.
+    /// </summary>
+    async Task<IReadOnlyList<DownloaderSearchHit>> SearchAllAsync(
+        string downloaderId, TrackQuery query, CancellationToken ct = default)
+    {
+        var hit = await SearchAsync(downloaderId, query, ct);
+        if (hit is null) return Array.Empty<DownloaderSearchHit>();
+        var all = new List<DownloaderSearchHit> { hit };
+        if (hit.Alternatives is { Count: > 0 } alternatives) all.AddRange(alternatives);
+        return all;
+    }
 }
 
 /// <summary>
@@ -152,8 +168,8 @@ public interface ISearchProviderRegistry
     /// <summary>
     /// The official-first rank for every targeted downloader: official
     /// catalogue targets first, then rippers that consume their URLs, then
-    /// unofficial catalogues, then self-search. Unlisted sources keep the
-    /// user's order after the ranked ones.
+    /// unofficial catalogues. Self-search targets are unlisted, so those
+    /// sources keep the user's order after the ranked ones.
     /// </summary>
     IReadOnlyDictionary<string, int> ProviderFirstOrder()
         => new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);

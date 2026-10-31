@@ -5,14 +5,15 @@ using System.Text.Json;
 using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.Audio;
 using MelodyBridge.Infrastructure.FlacMusic;
+using MelodyBridge.Infrastructure.SearchProviders;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace MelodyBridge.Tests.Infrastructure;
 
 /// <summary>
-/// The flac.music.hi.cn fallback: its search and getUrl shapes, the format
-/// picker, URL round-tripping and a real download through a scripted HTTP
-/// boundary. No live network.
+/// The flac.music.hi.cn fallback: FlacMusicSearchProvider's search and
+/// getUrl shapes, the format picker, URL round-tripping and a real download
+/// through a scripted HTTP boundary. No live network.
 /// </summary>
 [TestFixture]
 public class FlacMusicDownloaderTests
@@ -66,6 +67,17 @@ public class FlacMusicDownloaderTests
         return new FlacMusicDownloader(
             client, config ?? new StubPluginConfig(),
             NullLogger<FlacMusicDownloader>.Instance);
+    }
+
+    private static FlacMusicSearchProvider Provider(
+        ScriptedHandler handler, StubPluginConfig? config = null)
+    {
+        var client = Client(handler);
+        var session = new FlacMusicSession(
+            client, config ?? new StubPluginConfig(),
+            NullLogger<FlacMusicSession>.Instance);
+        return new FlacMusicSearchProvider(
+            session, NullLogger<FlacMusicSearchProvider>.Instance);
     }
 
     private static object Format(string format, int bitrate) => new { format, bitrate };
@@ -227,15 +239,15 @@ public class FlacMusicDownloaderTests
     }
 
     [Test]
-    public void SearchInfo_IsTitleOnlyAndFallbackOnly()
+    public void SearchInfo_IsTitleOnlyAndProviderBacked()
     {
         var downloader = Downloader(new ScriptedHandler());
 
         Assert.That(downloader.FallbackOnly, Is.True,
             "the Chinese title search must stay the last resort");
-        Assert.That(downloader.SearchInfo.Mode, Is.EqualTo(DownloaderSearchMode.Self));
+        Assert.That(downloader.SearchInfo.Mode, Is.EqualTo(DownloaderSearchMode.Provider));
         Assert.That(downloader.SearchInfo.Data, Is.EqualTo(SearchData.Text));
-        Assert.That(downloader.SearchInfo.Note, Does.Contain("fallback"));
+        Assert.That(downloader.SearchInfo.Note, Does.Contain("Title-only"));
     }
 
     [Test]
@@ -268,9 +280,9 @@ public class FlacMusicDownloaderTests
             body is not null && body.Contains("platform=kuwo")
                 ? new HttpResponseMessage(HttpStatusCode.InternalServerError)
                 : Json(SearchJson(Track(3880720, "Back In Black", "AC/DC", 255)));
-        var downloader = Downloader(handler);
+        var provider = Provider(handler);
 
-        var hit = await downloader.SearchAsync(new TrackQuery(
+        var hit = await provider.SearchAsync("flacmusic", new TrackQuery(
             "AC/DC", "Back In Black", new DownloadQuality(AudioFormat.Flac)));
 
         Assert.That(hit, Is.Not.Null);
@@ -287,9 +299,9 @@ public class FlacMusicDownloaderTests
             return Json(SearchJson(Track(
                 wyy ? 3880720 : 336887, "Back In Black", "AC/DC", 255)));
         };
-        var downloader = Downloader(handler);
+        var provider = Provider(handler);
 
-        var hits = await downloader.SearchAllAsync(new TrackQuery(
+        var hits = await provider.SearchAllAsync("flacmusic", new TrackQuery(
             "AC/DC", "Back In Black", new DownloadQuality(AudioFormat.Flac)));
 
         Assert.That(hits, Has.Count.EqualTo(2));
@@ -308,32 +320,32 @@ public class FlacMusicDownloaderTests
     [Test]
     public void SelectFormat_FollowsTheQualityBand()
     {
-        Assert.That(FlacMusicDownloader.SelectFormat(AllFormats,
+        Assert.That(FlacMusicSource.SelectFormat(AllFormats,
                 new DownloadQuality(AudioFormat.Flac))!.Name, Is.EqualTo("flac"));
-        Assert.That(FlacMusicDownloader.SelectFormat(AllFormats,
+        Assert.That(FlacMusicSource.SelectFormat(AllFormats,
                 new DownloadQuality(AudioFormat.Mp3, 200, 320))!.BitrateKbps, Is.EqualTo(320));
-        Assert.That(FlacMusicDownloader.SelectFormat(AllFormats,
+        Assert.That(FlacMusicSource.SelectFormat(AllFormats,
                 new DownloadQuality(AudioFormat.Mp3, null, 160))!.BitrateKbps, Is.EqualTo(128));
-        Assert.That(FlacMusicDownloader.SelectFormat(AllFormats,
+        Assert.That(FlacMusicSource.SelectFormat(AllFormats,
                 new DownloadQuality(AudioFormat.Auto, null, 320))!.BitrateKbps, Is.EqualTo(320));
-        Assert.That(FlacMusicDownloader.SelectFormat(AllFormats,
+        Assert.That(FlacMusicSource.SelectFormat(AllFormats,
                 new DownloadQuality(AudioFormat.Auto, null, null))!.Name, Is.EqualTo("flac"));
-        Assert.That(FlacMusicDownloader.SelectFormat(AllFormats,
+        Assert.That(FlacMusicSource.SelectFormat(AllFormats,
                 new DownloadQuality(AudioFormat.Aac)), Is.Null);
     }
 
     [Test]
     public void CleanTitle_RemovesTheChineseDescriptionSuffix()
     {
-        Assert.That(FlacMusicDownloader.CleanTitle(
+        Assert.That(FlacMusicSource.CleanTitle(
                 "Shoot to Thrill-《钢铁侠2》电影主题曲"), Is.EqualTo("Shoot to Thrill"));
-        Assert.That(FlacMusicDownloader.CleanTitle(
+        Assert.That(FlacMusicSource.CleanTitle(
                 "Shoot to Thrill\u2013《钢铁侠2》"), Is.EqualTo("Shoot to Thrill"));
-        Assert.That(FlacMusicDownloader.CleanTitle(
+        Assert.That(FlacMusicSource.CleanTitle(
                 "Shoot to Thrill\u2014《钢铁侠2》"), Is.EqualTo("Shoot to Thrill"));
-        Assert.That(FlacMusicDownloader.CleanTitle("Back In Black"),
+        Assert.That(FlacMusicSource.CleanTitle("Back In Black"),
             Is.EqualTo("Back In Black"));
-        Assert.That(FlacMusicDownloader.CleanTitle("AC/DC - Live"),
+        Assert.That(FlacMusicSource.CleanTitle("AC/DC - Live"),
             Is.EqualTo("AC/DC - Live"), "only the Chinese description suffix is removed");
     }
 
@@ -344,7 +356,7 @@ public class FlacMusicDownloaderTests
             "kuwo", "336887", "Back In Black", "AC/DC", "Back In Black",
             TimeSpan.FromSeconds(255), AllFormats, "1793052853", "abc", null, null);
 
-        var url = FlacMusicDownloader.EncodeSourceUrl(track, "Back In Black", DownloadQuality.Any);
+        var url = FlacMusicSource.EncodeSourceUrl(track, "Back In Black", DownloadQuality.Any);
 
         Assert.That(FlacMusicDownloader.TryParseSourceUrl(url, out var link), Is.True);
         Assert.That(link.Platform, Is.EqualTo("kuwo"));
@@ -379,18 +391,19 @@ public class FlacMusicDownloaderTests
     }
 
     [Test]
-    public async Task SearchCallerCancellation_Propagates()
+    public void SearchCallerCancellation_Propagates()
     {
         using var handler = new CancellingHandler();
-        var downloader = new FlacMusicDownloader(
-            new FlacMusicClient(new HttpClient(handler),
-                NullLogger<FlacMusicClient>.Instance),
-            new StubPluginConfig(),
-            NullLogger<FlacMusicDownloader>.Instance);
+        var client = new FlacMusicClient(new HttpClient(handler),
+            NullLogger<FlacMusicClient>.Instance);
+        var provider = new FlacMusicSearchProvider(
+            new FlacMusicSession(client, new StubPluginConfig(),
+                NullLogger<FlacMusicSession>.Instance),
+            NullLogger<FlacMusicSearchProvider>.Instance);
         using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(50));
 
         Assert.CatchAsync<OperationCanceledException>(() =>
-            downloader.SearchAsync(new TrackQuery("AC/DC", "Back In Black",
+            provider.SearchAsync("flacmusic", new TrackQuery("AC/DC", "Back In Black",
                 DownloadQuality.Any), cts.Token));
     }
 
@@ -417,13 +430,13 @@ public class FlacMusicDownloaderTests
                 Track(platform == "kuwo" ? 336887 : 3880720,
                     "Back In Black", "AC/DC", 255)));
         };
-        var downloader = Downloader(handler);
+        var provider = Provider(handler);
 
-        var high = await downloader.SearchAsync(new TrackQuery(
+        var high = await provider.SearchAsync("flacmusic", new TrackQuery(
             "AC/DC", "Back In Black", new DownloadQuality(AudioFormat.Auto, null, 320)));
-        var saver = await downloader.SearchAsync(new TrackQuery(
+        var saver = await provider.SearchAsync("flacmusic", new TrackQuery(
             "AC/DC", "Back In Black", new DownloadQuality(AudioFormat.Auto, null, 160)));
-        var lossless = await downloader.SearchAsync(new TrackQuery(
+        var lossless = await provider.SearchAsync("flacmusic", new TrackQuery(
             "AC/DC", "Back In Black", new DownloadQuality(AudioFormat.Flac)));
 
         Assert.That(high, Is.Not.Null);
@@ -452,7 +465,7 @@ public class FlacMusicDownloaderTests
         var track = new FlacMusicClient.Track(
             "kuwo", "336887", "Back In Black", "AC/DC", "Back In Black",
             TimeSpan.FromSeconds(255), AllFormats, "1793052853", "abc", null, null);
-        var sourceUrl = FlacMusicDownloader.EncodeSourceUrl(track, "Back In Black", DownloadQuality.Any);
+        var sourceUrl = FlacMusicSource.EncodeSourceUrl(track, "Back In Black", DownloadQuality.Any);
 
         var result = await downloader.DownloadAsync(
             sourceUrl, NewDir(), "melody-1", new DownloadQuality(AudioFormat.Flac));
@@ -494,7 +507,7 @@ public class FlacMusicDownloaderTests
         var track = new FlacMusicClient.Track(
             "kuwo", "336887", "Back In Black", "AC/DC", "Back In Black",
             TimeSpan.FromSeconds(255), AllFormats, "1793052853", "old", null, null);
-        var sourceUrl = FlacMusicDownloader.EncodeSourceUrl(track, "Back In Black", DownloadQuality.Any);
+        var sourceUrl = FlacMusicSource.EncodeSourceUrl(track, "Back In Black", DownloadQuality.Any);
 
         var result = await downloader.DownloadAsync(
             sourceUrl, NewDir(), "melody-2", new DownloadQuality(AudioFormat.Flac));
@@ -534,7 +547,7 @@ public class FlacMusicDownloaderTests
         var track = new FlacMusicClient.Track(
             "kuwo", "336887", "Back In Black", "AC/DC", "Back In Black",
             TimeSpan.FromSeconds(255), AllFormats, "1793052853", "abc", null, null);
-        var sourceUrl = FlacMusicDownloader.EncodeSourceUrl(track, "Back In Black", DownloadQuality.Any);
+        var sourceUrl = FlacMusicSource.EncodeSourceUrl(track, "Back In Black", DownloadQuality.Any);
 
         var result = await downloader.DownloadAsync(
             sourceUrl, NewDir(), "melody-mp3", new DownloadQuality(AudioFormat.Mp3, null, 160));
@@ -558,7 +571,7 @@ public class FlacMusicDownloaderTests
         var track = new FlacMusicClient.Track(
             "kuwo", "336887", "Back In Black", "AC/DC", "Back In Black",
             TimeSpan.FromSeconds(255), AllFormats, "1793052853", "abc", null, null);
-        var sourceUrl = FlacMusicDownloader.EncodeSourceUrl(track, "Back In Black", DownloadQuality.Any);
+        var sourceUrl = FlacMusicSource.EncodeSourceUrl(track, "Back In Black", DownloadQuality.Any);
 
         var result = await downloader.DownloadAsync(
             sourceUrl, NewDir(), "melody-flac", new DownloadQuality(AudioFormat.Flac));
@@ -586,7 +599,7 @@ public class FlacMusicDownloaderTests
         var track = new FlacMusicClient.Track(
             "kuwo", "336887", "Back In Black", "AC/DC", "Back In Black",
             TimeSpan.FromSeconds(255), AllFormats, "1793052853", "abc", null, null);
-        var sourceUrl = FlacMusicDownloader.EncodeSourceUrl(track, "Back In Black", DownloadQuality.Any);
+        var sourceUrl = FlacMusicSource.EncodeSourceUrl(track, "Back In Black", DownloadQuality.Any);
 
         var result = await downloader.DownloadAsync(
             sourceUrl, NewDir(), "melody-auto", new DownloadQuality(AudioFormat.Auto, null, 160));
@@ -610,7 +623,7 @@ public class FlacMusicDownloaderTests
         var track = new FlacMusicClient.Track(
             "kuwo", "336887", "Back In Black", "AC/DC", null,
             TimeSpan.FromSeconds(255), AllFormats, "1793052853", "abc", null, null);
-        var sourceUrl = FlacMusicDownloader.EncodeSourceUrl(track, "Back In Black", DownloadQuality.Any);
+        var sourceUrl = FlacMusicSource.EncodeSourceUrl(track, "Back In Black", DownloadQuality.Any);
         var aac = await downloader.DownloadAsync(
             sourceUrl, NewDir(), "melody-4", new DownloadQuality(AudioFormat.Aac));
 

@@ -1,7 +1,7 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using MelodyBridge.Core;
-using MelodyBridge.Infrastructure.Services;
+using MelodyBridge.Infrastructure.SearchProviders;
 using Microsoft.Extensions.Logging;
 
 namespace MelodyBridge.Infrastructure.Downloaders;
@@ -9,10 +9,10 @@ namespace MelodyBridge.Infrastructure.Downloaders;
 /// <summary>
 /// yt-dlp downloader plugin.
 ///
-/// Searches YouTube Music first (falls back to plain YouTube) with
-/// "artist title" queries, ranks the top results by title/artist
-/// similarity plus duration proximity, downloads the best audio stream
-/// as an audio-only file, and writes artist/title metadata tags.
+/// YtDlpSearchProvider searches YouTube with "artist title" queries and ranks
+/// the top results by title/artist similarity plus duration proximity. This
+/// part downloads the best audio stream from the URL it gets back as an
+/// audio-only file and writes artist/title metadata tags.
 /// </summary>
 public partial class YtDlpDownloader : IDownloader
 {
@@ -33,6 +33,9 @@ public partial class YtDlpDownloader : IDownloader
     public string Name => "yt-dlp (YouTube)";
     public string Description => "YouTube: best audio as MP3";
 
+    public DownloaderSearchInfo SearchInfo =>
+        DownloaderSearchInfo.ViaProvider(SearchData.Text, "YouTube search via yt-dlp");
+
     public string IconName => "play";
     public IReadOnlyList<string> Notes => new[] { "widest catalog" };
 
@@ -52,63 +55,15 @@ public partial class YtDlpDownloader : IDownloader
         return Task.FromResult(ready);
     }
 
-    public async Task<DownloaderSearchHit?> SearchAsync(TrackQuery query, CancellationToken ct = default)
-    {
-        // Top 5, ranked by title/artist similarity plus duration
-        // proximity: never blindly the first row, which is routinely a
-        // lyric video or a remix. (The old ytmsearch pseudo-extractor is
-        // gone from current yt-dlp versions; ytsearch covers the catalog.)
-        // YouTube does not index ISRCs, so the ISRC is not used here.
-        var hits = await SearchAllAsync(query, ct);
-        return SearchRanker.Rank(query.Artist, query.Title, query.ExpectedDuration, hits);
-    }
-
-    /// <summary>
-    /// Every parsed hit, unranked: the manual source picker shows what the
-    /// ranking refused, so a human can still pick it.
-    /// </summary>
-    public async Task<IReadOnlyList<DownloaderSearchHit>> SearchAllAsync(
+    /// <summary>Provider-backed: the search lives in YtDlpSearchProvider.</summary>
+    public Task<DownloaderSearchHit?> SearchAsync(
         TrackQuery query, CancellationToken ct = default)
-    {
-        if (YtDlpProcess.BinaryPath is null) return Array.Empty<DownloaderSearchHit>();
-
-        // YouTube search is noisy enough already: dropping mix suffixes
-        // and featuring tags keeps the real track on page one.
-        var searchText = query.SearchText;
-        if (searchText.Length == 0) return Array.Empty<DownloaderSearchHit>();
-
-        return await SearchExtractorAsync("ytsearch5", query.Artist, query.Title, searchText, ct);
-    }
+        => Task.FromResult<DownloaderSearchHit?>(null);
 
     /// <inheritdoc />
     public Task<CandidateAudioQuality?> ProbeQualityAsync(
         string sourceUrl, CancellationToken ct = default)
         => YtDlpProcess.ProbeAudioQualityAsync(sourceUrl, ct);
-
-    /// <summary>Runs one search extractor and parses every flat entry as a candidate.</summary>
-    private async Task<List<DownloaderSearchHit>> SearchExtractorAsync(
-        string extractor, string artist, string title, string query, CancellationToken ct)
-    {
-        try
-        {
-            var (exit, stdout, _) = await YtDlpProcess.RunAsync(new[]
-            {
-                $"{extractor}:{query}",
-                "--flat-playlist",
-                "--dump-single-json",
-                "--no-warnings",
-            }, TimeSpan.FromSeconds(30), ct);
-
-            if (exit != 0) return new List<DownloaderSearchHit>();
-            return ParseFlatPlaylistHits(stdout, artist, title,
-                id => $"https://www.youtube.com/watch?v={id}");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "yt-dlp search via {Extractor} failed for '{Query}'", extractor, query);
-            return new List<DownloaderSearchHit>();
-        }
-    }
 
     public async Task<DownloaderDownloadResult> DownloadAsync(
         string sourceUrl,
@@ -154,118 +109,6 @@ public partial class YtDlpDownloader : IDownloader
         {
             return new DownloaderDownloadResult(false, null, ex.Message);
         }
-    }
-
-    /// <summary>
-    /// Parses every entry of a flat playlist JSON into a candidate hit.
-    /// Shared by all yt-dlp-backed plugins; the caller ranks the list.
-    /// </summary>
-    internal static List<DownloaderSearchHit> ParseFlatPlaylistHits(
-        string stdout, string artist, string fallbackTitle, Func<string, string> urlFromId)
-    {
-        var hits = new List<DownloaderSearchHit>();
-        if (string.IsNullOrWhiteSpace(stdout)) return hits;
-        try
-        {
-            using var doc = JsonDocument.Parse(stdout);
-            var root = doc.RootElement;
-            var entries = root.TryGetProperty("entries", out var e) && e.ValueKind == JsonValueKind.Array
-                ? e.EnumerateArray().ToList()
-                : new List<JsonElement> { root };
-            foreach (var entry in entries)
-            {
-                if (entry.ValueKind != JsonValueKind.Object) continue;
-                var hit = ParseEntry(entry, artist, fallbackTitle, urlFromId);
-                if (hit is not null) hits.Add(hit);
-            }
-        }
-        catch (JsonException)
-        {
-            // Unparseable yt-dlp output is a plugin miss, not a crash.
-        }
-        return hits;
-    }
-
-    private static DownloaderSearchHit? ParseEntry(
-        JsonElement entry, string artist, string fallbackTitle, Func<string, string> urlFromId)
-    {
-        var id = entry.TryGetProperty("id", out var idProp) && idProp.ValueKind == JsonValueKind.String
-            ? idProp.GetString()
-            : null;
-        var sourceUrl = ExtractSourceUrl(entry, id, urlFromId);
-        if (string.IsNullOrEmpty(sourceUrl)) return null;
-
-        var hitTitle = (entry.TryGetProperty("title", out var t) && t.ValueKind == JsonValueKind.String
-            ? t.GetString()
-            : null) ?? fallbackTitle;
-
-        // The real artist: flat entries carry the channel/uploader; the old
-        // code compared the requested artist against the hit TITLE, so
-        // "Regard" never matched "Regard - Ride It (Official Video)".
-        var hitArtist = entry.TryGetProperty("uploader", out var up) && up.ValueKind == JsonValueKind.String
-            && !string.IsNullOrWhiteSpace(up.GetString()) ? up.GetString()
-            : entry.TryGetProperty("channel", out var ch) && ch.ValueKind == JsonValueKind.String
-                && !string.IsNullOrWhiteSpace(ch.GetString()) ? ch.GetString()
-                : SplitArtistFromTitle(hitTitle) ?? artist;
-        // Channel decorations are not part of the name.
-        hitArtist = StripChannelDecorations(hitArtist);
-
-        return new DownloaderSearchHit(
-            Title: hitTitle,
-            Artist: hitArtist,
-            SourceUrl: sourceUrl,
-            Duration: entry.TryGetProperty("duration", out var d) && d.TryGetDouble(out var secs)
-                ? TimeSpan.FromSeconds(secs)
-                : null,
-            MatchConfidence: FuzzyMatcher.Confidence(
-                artist, fallbackTitle, hitArtist: hitArtist, hitTitle: hitTitle));
-    }
-
-    /// <summary>
-    /// The entry's URL: a full webpage URL when the extractor provides
-    /// one, otherwise built from the bare id. A bare non-URL "url" field
-    /// (some extractors put just the id there) is never passed through.
-    /// </summary>
-    private static string? ExtractSourceUrl(JsonElement entry, string? id, Func<string, string> urlFromId)
-    {
-        foreach (var property in new[] { "webpage_url", "url" })
-        {
-            if (!entry.TryGetProperty(property, out var value) || value.ValueKind != JsonValueKind.String)
-                continue;
-            var text = value.GetString();
-            if (!string.IsNullOrEmpty(text) && Uri.TryCreate(text, UriKind.Absolute, out var uri)
-                && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps))
-                return text;
-        }
-        return string.IsNullOrEmpty(id) ? null : urlFromId(id);
-    }
-
-    /// <summary>"Artist - Title" uploader strings: splits off the artist.</summary>
-    private static string? SplitArtistFromTitle(string? title)
-    {
-        if (string.IsNullOrWhiteSpace(title)) return null;
-        var parts = title.Split(" - ", 2, StringSplitOptions.TrimEntries);
-        return parts.Length == 2 && parts[0].Length > 0 ? parts[0] : null;
-    }
-
-    /// <summary>
-    /// Drops the suffixes YouTube glues onto channel names ("RegardVEVO",
-    /// "Regard - Topic", "Regard Official") so the artist inside still
-    /// matches what was requested.
-    /// </summary>
-    private static string StripChannelDecorations(string? artist)
-    {
-        if (string.IsNullOrWhiteSpace(artist)) return artist ?? "";
-        var trimmed = artist.Trim();
-        foreach (var suffix in new[] { " - Topic", "VEVO", " Official", "Official" })
-        {
-            if (trimmed.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
-            {
-                var stripped = trimmed[..^suffix.Length].Trim();
-                if (stripped.Length > 0) trimmed = stripped;
-            }
-        }
-        return trimmed;
     }
 
     /// <summary>
