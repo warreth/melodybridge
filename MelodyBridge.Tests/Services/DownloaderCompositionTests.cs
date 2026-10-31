@@ -104,6 +104,23 @@ public class DownloaderCompositionTests
     }
 
     [Test]
+    public void NoBuiltInDownloader_DeclaresItsOwnSearch()
+    {
+        using var host = AppDownloadHost.Create();
+
+        foreach (var downloader in host.Registry.GetAll())
+        {
+            var own = downloader.GetType().GetMethod(
+                "SearchAsync",
+                System.Reflection.BindingFlags.Public
+                | System.Reflection.BindingFlags.Instance
+                | System.Reflection.BindingFlags.DeclaredOnly);
+            Assert.That(own, Is.Null,
+                $"{downloader.Id} must stay URL-only; its provider owns the search");
+        }
+    }
+
+    [Test]
     public void TheFiveSelfSearchSources_AreProvidersInTheSelfTier()
     {
         using var host = AppDownloadHost.Create();
