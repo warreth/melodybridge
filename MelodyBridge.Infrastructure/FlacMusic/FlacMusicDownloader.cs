@@ -1,9 +1,7 @@
 using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.Audio;
 using MelodyBridge.Infrastructure.Files;
-using MelodyBridge.Infrastructure.Services;
 using MelodyBridge.Infrastructure.Downloaders;
-using MelodyBridge.Infrastructure.SearchProviders;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 

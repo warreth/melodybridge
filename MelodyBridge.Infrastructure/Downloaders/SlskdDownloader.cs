@@ -1,10 +1,7 @@
-using System.Text;
 using System.Text.Json;
 using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.Audio;
 using MelodyBridge.Infrastructure.Files;
-using MelodyBridge.Infrastructure.SearchProviders;
-using MelodyBridge.Infrastructure.Services;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
