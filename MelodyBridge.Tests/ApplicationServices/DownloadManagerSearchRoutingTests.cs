@@ -1,6 +1,7 @@
 using MelodyBridge.Application.Services;
 using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.FlacMusic;
+using MelodyBridge.Infrastructure.Services;
 using MelodyBridge.Tests;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -59,6 +60,24 @@ public class DownloadManagerSearchRoutingTests
             return Task.FromResult<IReadOnlyList<DownloaderSearchHit>>(
                 Hit is null ? Array.Empty<DownloaderSearchHit>() : new[] { Hit });
         }
+    }
+
+    private sealed class TieredSearchProvider(
+        string id, SearchTier tier, params string[] targets) : ISearchProvider
+    {
+        public string Id => id;
+        public string Name => id;
+        public string Description => "test";
+        public SearchData Data => SearchData.Text;
+        public SearchTier Tier => tier;
+        public IReadOnlyList<SearchProviderTarget> Targets { get; } =
+            targets.Select(target => new SearchProviderTarget(
+                target, SearchData.Text, Tier: tier)).ToList();
+
+        public Task<DownloaderSearchHit?> SearchAsync(
+            string downloaderId, TrackQuery query, CancellationToken ct = default)
+            => Task.FromResult<DownloaderSearchHit?>(new DownloaderSearchHit(
+                "hit", "artist", $"https://{id}.test/1", TimeSpan.FromSeconds(180)));
     }
 
     private sealed class ProviderDownloader : IDownloader
@@ -158,11 +177,17 @@ public class DownloadManagerSearchRoutingTests
         var youtube = new OrderedDownloader("youtube", succeed: false, attempts);
         var soundcloud = new OrderedDownloader("soundcloud", succeed: true, attempts);
         var official = new OrderedDownloader("official", succeed: false, attempts);
-        var router = new RecordingRouter();
-        router.Order["official"] = 0;
+        var downloaders = new ListDownloaderRegistry(youtube, soundcloud, official);
+        var searches = new SearchProviderRegistry(
+            new ISearchProvider[]
+            {
+                new TieredSearchProvider("official-search", SearchTier.Official, "official"),
+                new TieredSearchProvider("self-search", SearchTier.SelfSearch,
+                    "youtube", "soundcloud"),
+            },
+            NullLogger<SearchProviderRegistry>.Instance, downloaders);
         var manager = new DownloadManager(
-            new ListDownloaderRegistry(youtube, soundcloud, official),
-            NullLogger<DownloadManager>.Instance, searches: router);
+            downloaders, NullLogger<DownloadManager>.Instance, searches: searches);
 
         var path = await manager.DownloadTrackAsync(
             new TrackQuery("artist", "title", DownloadQuality.Any),
@@ -170,7 +195,9 @@ public class DownloadManagerSearchRoutingTests
 
         Assert.That(path, Is.Not.Null, manager.LastFailure("melody-self-order"));
         Assert.That(attempts, Is.EqualTo(new[] { "official", "youtube", "soundcloud" }),
-            "self-search sources have no rank, so the user's order survives after it");
+            "the ranked provider runs first, then self-search sources in the user's order");
+        Assert.That(searches.ProviderFirstOrder().Keys, Is.EqualTo(new[] { "official" }),
+            "self-search targets are deliberately unranked");
     }
 
     [Test]

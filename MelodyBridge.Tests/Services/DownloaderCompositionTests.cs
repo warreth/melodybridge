@@ -112,12 +112,13 @@ public class DownloaderCompositionTests
 
         Assert.That(searches.GetAll(), Has.Count.EqualTo(10),
             "each built-in source has its own provider, including the five self-search ones");
-        Assert.That(searches.ProviderFirstOrder().Keys, Does.Not.Contain("ytdlp"),
-            "self-search sources keep the user's order instead of a rank");
-        Assert.That(searches.ProviderFirstOrder().Keys, Does.Not.Contain("flacmusic"));
 
+        var order = searches.ProviderFirstOrder();
         foreach (var id in selfSearch)
         {
+            Assert.That(order.ContainsKey(id), Is.False,
+                $"{id} must keep the user's order instead of getting a rank");
+
             var provider = searches.ForDownloader(id);
             Assert.That(provider, Is.Not.Null, $"{id} must route through its own provider");
             Assert.That(provider!.Tier, Is.EqualTo(SearchTier.SelfSearch));

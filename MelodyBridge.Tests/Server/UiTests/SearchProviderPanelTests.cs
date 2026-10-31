@@ -195,6 +195,24 @@ public class SearchProviderPanelTests
     }
 
     [Test]
+    public void Panel_MarksASelfSearchProvider()
+    {
+        var downloader = new StubDownloader("ytdlp", "yt-dlp (YouTube)",
+            DownloaderSearchInfo.ViaProvider(SearchData.Text));
+        var provider = new StubProvider("youtube-search", "YouTube search", 0, "ytdlp")
+        {
+            Tier = SearchTier.SelfSearch,
+        };
+        Register(provider, downloader);
+
+        var cut = _ctx.Render<SearchProviderPanel>();
+
+        var badge = cut.Find(".search-tier-badge");
+        Assert.That(badge.TextContent.Trim(), Is.EqualTo("self"));
+        Assert.That(badge.ClassList, Does.Contain("self"));
+    }
+
+    [Test]
     public void Panel_MarksThePrimaryProviderWhenASourceHasTwo()
     {
         var downloader = new StubDownloader("rhythmax", "Tidal (Rhythmax)",
