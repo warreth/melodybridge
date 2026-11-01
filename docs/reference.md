@@ -474,6 +474,8 @@ provider search but no provider targets it, the card calls that out in red.
 Third-party sources that still search inside the downloader are listed
 separately under **Third-party sources that search themselves**.
 
+<img src="/screens/plugins-routing.webp" alt="Expanded search routing panel with the ten providers and their tiers" width="800">
+
 - Each plugin card shows its capability badges (formats, bitrate range) and a
   **Settings** row when it has options. The row opens a panel with the fields
   that matter (a token, an API key, a quality) and hides the rarely touched

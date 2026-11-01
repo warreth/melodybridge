@@ -142,7 +142,8 @@ searches its own catalogue with the listed data, `Provider` means a provider
 must resolve the URL, and `None` means direct URLs only. Every built-in source
 is `Provider`: the five self-search sources have their own providers too, and
 their downloaders only download a URL. `Self` remains for third-party plugins
-that still search inside the downloader. `FallbackOnly` keeps a source behind
+that still search inside the downloader; they must declare it explicitly,
+because the interface default is URL-only. `FallbackOnly` keeps a source behind
 every ordinary source in the quality router, whatever its capabilities say.
 
 `SearchProviderRegistry` is the router. The waterfall and the manual source
@@ -351,7 +352,7 @@ downloader for URL to file.
 
 Place new implementations in `MelodyBridge.Infrastructure/Downloaders/` and register via `services.AddSingleton<IDownloader, YourPlugin>()`. A plugin that ships its own protocol client or byte-level helpers lives in its own folder next to it instead (`Infrastructure/Lucida/`, `Infrastructure/Jumo/`) and registers the same way. Quality-gate downloads against the requested `DownloadQuality` band so bad rips never enter the library.
 
-Plugins that wrap a command line tool should derive from `CliToolDownloader` (`CliToolDownloader.cs`): it owns command resolution, the private per-track work folder, one serialized process run, picking the produced file up, moving, sniffing, tagging and cleanup. A subclass supplies its id, capabilities, config fields, the work folder, the tool arguments (`BuildRequestAsync`), the tool-specific availability check and, when the tool needs a login or config file, `PrepareEnvironmentAsync`. Qobuz, Deezer and Tidal are built this way; a new CLI source is normally one small file plus a settings entry. `Description` and `ConfigFields` are abstract on the base and `LastUnavailableReason` lives there, all on purpose: `IDownloader`'s default members are bound only for the class that names the interface, so a subclass member alone would silently read as the empty default (an empty settings panel and hint instead of the plugin's real reason).
+Plugins that wrap a command line tool should derive from `CliToolDownloader` (`CliToolDownloader.cs`): it owns command resolution, the private per-track work folder, one serialized process run, picking the produced file up, moving, sniffing, tagging and cleanup. A subclass supplies its id, capabilities, config fields, the work folder, the tool arguments (`BuildRequestAsync`), the tool-specific availability check and, when the tool needs a login or config file, `PrepareEnvironmentAsync`. Qobuz, Deezer and Tidal are built this way; a new CLI source is normally one small file plus a settings entry. `Description`, `ConfigFields` and `SearchInfo` are abstract on the base and `LastUnavailableReason` lives there, all on purpose: `IDownloader`'s default members are bound only for the class that names the interface, so a subclass member alone would silently read as the empty default (an empty settings panel and hint instead of the plugin's real reason).
 
 Every plugin-produced file is sniffed with `AudioSignature` (magic bytes, never the extension) before `DownloadManager` accepts it: an HTML error page or JSON body served under a 200 status is deleted and the waterfall moves on. Plugins that save files themselves delete partial output on failure and cancellation; the yt-dlp-backed plugins keep yt-dlp's resumable `.part` fragments (never final output, and the next attempt resumes from them).
 

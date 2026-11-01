@@ -42,7 +42,8 @@ const themes = themeArg === 'both' ? ['light', 'dark'] : [themeArg]
 // --playlist), never hardcoded, so the script works against any
 // database. playlist-tracks shows the same page scrolled to the track
 // table, where the status pills and row actions live. An entry may carry
-// an optional third element with a selector to scroll into view.
+// an optional third element with a selector to scroll into view, a
+// clickSelector to open a panel, and a selector to capture just that panel.
 const ROUTES = [
   ['/', 'home'],
   ['/attention', 'attention'],
@@ -53,6 +54,10 @@ const ROUTES = [
   ['/download', 'download'],
   ['/library', 'library'],
   ['/plugins', 'plugins'],
+  ['/plugins', 'plugins-routing', {
+    clickSelector: 'details.search-provider-map summary',
+    selector: 'details.search-provider-map',
+  }],
   ['/sync-jobs', 'sync'],
   ['/playlists', 'publish', { clickText: 'Publish', checkFirstPlaylist: true, checkLabel: 'M3U file', waitFor: '.wizard-modal' }],
   ['/sync-jobs', 'sync-quick', { clickText: 'New sync job', waitFor: '.job-quick-modal', prepare: 'sync-quick' }],
@@ -125,6 +130,8 @@ async function shootTheme(browser, theme) {
 
       if (opts?.clickText)
         await page.locator('button', { hasText: opts.clickText }).first().click()
+      if (opts?.clickSelector)
+        await page.locator(opts.clickSelector).first().click()
       if (opts?.checkFirstPlaylist)
         await page.locator('.publish-list').first()
           .locator('label.publish-option input[type=checkbox]').first().check()
@@ -153,7 +160,13 @@ async function shootTheme(browser, theme) {
           document.querySelector(selector)?.scrollIntoView({ block: 'start' }), opts.scrollTo)
         await page.waitForTimeout(250)
       }
-      await page.screenshot({ path: `${RAW_DIR}/${theme}-${name}.png` })
+      if (opts?.selector) {
+        await page.locator(opts.selector).screenshot({
+          path: `${RAW_DIR}/${theme}-${name}.png`,
+        })
+      } else {
+        await page.screenshot({ path: `${RAW_DIR}/${theme}-${name}.png` })
+      }
       console.log('OK', theme, name)
     } catch (e) {
       console.log('FAIL', theme, name, String(e).split('\n')[0])
