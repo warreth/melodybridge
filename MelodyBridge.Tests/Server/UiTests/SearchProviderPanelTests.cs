@@ -195,6 +195,21 @@ public class SearchProviderPanelTests
     }
 
     [Test]
+    public void Panel_MarksAProviderTargetAsFallback()
+    {
+        var downloader = new StubDownloader("flacmusic", "FLAC Music (CN)",
+            DownloaderSearchInfo.ViaProvider(SearchData.Text), fallbackOnly: true);
+        var provider = new StubProvider("flacmusic-search", "FLAC Music search", 0, "flacmusic");
+        Register(provider, downloader);
+
+        var cut = _ctx.Render<SearchProviderPanel>();
+
+        var target = cut.Find(".search-target");
+        Assert.That(target.QuerySelector(".search-fallback-badge"), Is.Not.Null,
+            "the real fallback source is marked where its provider target is shown");
+    }
+
+    [Test]
     public void Panel_MarksASelfSearchProvider()
     {
         var downloader = new StubDownloader("ytdlp", "yt-dlp (YouTube)",

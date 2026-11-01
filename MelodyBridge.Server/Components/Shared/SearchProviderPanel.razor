@@ -107,6 +107,11 @@
                                         <Icon Name="@(downloader?.IconName ?? "music")" Size="14" />
                                         <span class="search-target-name">@(downloader?.Name ?? target.DownloaderId)</span>
                                         <span class="search-target-data">@DataLabel(target.Data)</span>
+                                        @if (downloader?.FallbackOnly == true)
+                                        {
+                                            <span class="search-fallback-badge"
+                                                  title="Only runs after every other source">fallback</span>
+                                        }
                                         @if (contested.Contains(target.DownloaderId)
                                              && ReferenceEquals(searchProviders.ForDownloader(target.DownloaderId), provider))
                                         {
