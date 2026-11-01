@@ -77,17 +77,16 @@ public sealed class ArchiveOrgSearchProvider : ISearchProvider
             // Collect candidates from every returned item (an item usually
             // holds a whole album): the right track may be the fifth item
             // or the eighth file inside one, so nothing is trusted by
-            // position. The query already asks for five rows.
-            var candidates = new List<DownloaderSearchHit>();
-            foreach (var docItem in docs.EnumerateArray())
-            {
-                var identifier = GetString(docItem, "identifier");
-                if (string.IsNullOrEmpty(identifier)) continue;
-
-                candidates.AddRange(await FindMp3CandidatesAsync(
-                    identifier!, query.Artist, query.Title, ct));
-            }
-            return candidates;
+            // position. The query caps the rows at five, so the metadata
+            // lookups can run together instead of one round trip at a time.
+            var identifiers = docs.EnumerateArray()
+                .Select(docItem => GetString(docItem, "identifier"))
+                .Where(identifier => !string.IsNullOrEmpty(identifier))
+                .ToList();
+            var lookups = identifiers.Select(identifier => FindMp3CandidatesAsync(
+                identifier!, query.Artist, query.Title, ct));
+            var perItem = await Task.WhenAll(lookups);
+            return perItem.SelectMany(hits => hits).ToList();
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {

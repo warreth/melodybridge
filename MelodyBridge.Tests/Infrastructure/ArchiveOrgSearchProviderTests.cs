@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Globalization;
 using System.Net;
 using System.Text;
@@ -21,7 +22,7 @@ public class ArchiveOrgSearchProviderTests
         public Func<HttpRequestMessage, HttpResponseMessage> Respond { get; set; } =
             _ => new HttpResponseMessage(HttpStatusCode.NotFound);
 
-        public List<string> Requests { get; } = new();
+        public ConcurrentBag<string> Requests { get; } = new();
 
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request, CancellationToken ct)
