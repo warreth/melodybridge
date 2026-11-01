@@ -15,6 +15,9 @@ public class SoundCloudSearchProviderTests
     private static SoundCloudSearchProvider Create()
         => new(NullLogger<SoundCloudSearchProvider>.Instance);
 
+    private static SoundCloudSearchProvider Create(bool binaryAvailable)
+        => new(NullLogger<SoundCloudSearchProvider>.Instance, () => binaryAvailable);
+
     [Test]
     public async Task Search_ForAnotherSource_IsAMissWithoutAProcess()
     {
@@ -33,6 +36,17 @@ public class SoundCloudSearchProviderTests
 
         Assert.That(await provider.SearchAsync("soundcloud",
             new TrackQuery("", "", DownloadQuality.Any)), Is.Null);
+    }
+
+    [Test]
+    public async Task Search_WithoutYtDlp_IsAMissWithoutAProcess()
+    {
+        var provider = Create(binaryAvailable: false);
+
+        Assert.That(await provider.SearchAsync("soundcloud",
+            new TrackQuery("Artist", "Song", DownloadQuality.Any)), Is.Null);
+        Assert.That(await provider.SearchAllAsync("soundcloud",
+            new TrackQuery("Artist", "Song", DownloadQuality.Any)), Is.Empty);
     }
 
     [Test]

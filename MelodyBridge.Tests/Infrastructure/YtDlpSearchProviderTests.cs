@@ -15,6 +15,9 @@ public class YtDlpSearchProviderTests
     private static YtDlpSearchProvider Create()
         => new(NullLogger<YtDlpSearchProvider>.Instance);
 
+    private static YtDlpSearchProvider Create(bool binaryAvailable)
+        => new(NullLogger<YtDlpSearchProvider>.Instance, () => binaryAvailable);
+
     [Test]
     public async Task Search_ForAnotherSource_IsAMissWithoutAProcess()
     {
@@ -33,6 +36,17 @@ public class YtDlpSearchProviderTests
 
         Assert.That(await provider.SearchAsync("ytdlp",
             new TrackQuery("", "", DownloadQuality.Any)), Is.Null);
+    }
+
+    [Test]
+    public async Task Search_WithoutYtDlp_IsAMissWithoutAProcess()
+    {
+        var provider = Create(binaryAvailable: false);
+
+        Assert.That(await provider.SearchAsync("ytdlp",
+            new TrackQuery("Artist", "Song", DownloadQuality.Any)), Is.Null);
+        Assert.That(await provider.SearchAllAsync("ytdlp",
+            new TrackQuery("Artist", "Song", DownloadQuality.Any)), Is.Empty);
     }
 
     [Test]

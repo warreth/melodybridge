@@ -17,10 +17,19 @@ public sealed class SoundCloudSearchProvider : ISearchProvider
     public const string DownloaderId = "soundcloud";
 
     private readonly ILogger<SoundCloudSearchProvider> _logger;
+    private readonly Func<bool> _binaryAvailable;
 
     public SoundCloudSearchProvider(ILogger<SoundCloudSearchProvider> logger)
+        : this(logger, () => YtDlpProcess.BinaryPath is not null)
+    {
+    }
+
+    /// <summary>Test seam for the missing-binary branch; production reads PATH.</summary>
+    internal SoundCloudSearchProvider(
+        ILogger<SoundCloudSearchProvider> logger, Func<bool> binaryAvailable)
     {
         _logger = logger;
+        _binaryAvailable = binaryAvailable;
     }
 
     public string Id => ProviderId;
@@ -46,7 +55,7 @@ public sealed class SoundCloudSearchProvider : ISearchProvider
     {
         if (!string.Equals(downloaderId, DownloaderId, StringComparison.OrdinalIgnoreCase))
             return Array.Empty<DownloaderSearchHit>();
-        if (YtDlpProcess.BinaryPath is null) return Array.Empty<DownloaderSearchHit>();
+        if (!_binaryAvailable()) return Array.Empty<DownloaderSearchHit>();
 
         var searchText = query.SearchText;
         if (searchText.Length == 0) return Array.Empty<DownloaderSearchHit>();

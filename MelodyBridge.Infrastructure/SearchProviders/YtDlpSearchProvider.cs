@@ -16,10 +16,19 @@ public sealed class YtDlpSearchProvider : ISearchProvider
     public const string DownloaderId = "ytdlp";
 
     private readonly ILogger<YtDlpSearchProvider> _logger;
+    private readonly Func<bool> _binaryAvailable;
 
     public YtDlpSearchProvider(ILogger<YtDlpSearchProvider> logger)
+        : this(logger, () => YtDlpProcess.BinaryPath is not null)
+    {
+    }
+
+    /// <summary>Test seam for the missing-binary branch; production reads PATH.</summary>
+    internal YtDlpSearchProvider(
+        ILogger<YtDlpSearchProvider> logger, Func<bool> binaryAvailable)
     {
         _logger = logger;
+        _binaryAvailable = binaryAvailable;
     }
 
     public string Id => ProviderId;
@@ -45,7 +54,7 @@ public sealed class YtDlpSearchProvider : ISearchProvider
     {
         if (!string.Equals(downloaderId, DownloaderId, StringComparison.OrdinalIgnoreCase))
             return Array.Empty<DownloaderSearchHit>();
-        if (YtDlpProcess.BinaryPath is null) return Array.Empty<DownloaderSearchHit>();
+        if (!_binaryAvailable()) return Array.Empty<DownloaderSearchHit>();
 
         // YouTube search is noisy enough already: dropping mix suffixes
         // and featuring tags keeps the real track on page one.
