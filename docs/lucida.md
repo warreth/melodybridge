@@ -1,10 +1,11 @@
 # Lucida and FlareSolverr
 
-The Lucida plugin pulls high quality rips from lucida.to, searching Tidal,
-Deezer, Amazon Music and Qobuz and taking the best match at the quality the
-waterfall asks for. The site sits behind a Cloudflare challenge, so the plugin
-needs a solver. MelodyBridge speaks the FlareSolverr protocol
-(https://github.com/FlareSolverr/FlareSolverr).
+The Lucida plugin pulls high quality rips from lucida.to. It does not search a
+catalogue itself: the official Qobuz, Tidal and Deezer providers hand it a
+track URL, and it can also rip a direct SoundCloud, Amazon or Yandex link at
+the quality the waterfall asks for. The site sits behind a Cloudflare
+challenge, so the plugin needs a solver. MelodyBridge speaks the FlareSolverr
+protocol (https://github.com/FlareSolverr/FlareSolverr).
 
 ## Setup
 
@@ -35,8 +36,6 @@ next track instead of needing a manual button press.
 ## Sessions
 
 Cloudflare challenge cookies expire, so when Lucida gets a 403 the plugin asks
-the solver for fresh credentials and retries the request once, on its own. The
-search uses Qobuz (Netherlands), Amazon, Deezer and Tidal in that order; the
-current lucida.to client needs the Qobuz NL storefront and no country for
-Amazon. Single-track pages encode the download token with two base64 passes, and
-the plugin mirrors that decoding before it submits the load request.
+the solver for fresh credentials and retries the request once, on its own.
+Single-track pages encode the download token with two base64 passes, and the
+plugin mirrors that decoding before it submits the load request.

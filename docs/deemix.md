@@ -39,11 +39,11 @@ state and notes that FLAC requests fall back to the account's tier.
 
 ## How a download runs
 
-The plugin searches Deezer's public API, ranks the results, and runs deemix
-for the chosen track into a per-track folder of its own. deemix downloads the
-best quality your account allows, up to the requested maximum, and the plugin
-moves the file into the playlist folder. Runs are serialized, so parallel
-tracks never pick each other's files.
+DeemixSearchProvider searches Deezer's public API and ranks the results. The
+plugin then runs deemix for the chosen track into a per-track folder of its
+own. deemix downloads the best quality your account allows, up to the requested
+maximum, and the plugin moves the file into the playlist folder. Runs are
+serialized, so parallel tracks never pick each other's files.
 
 When a track has no file at the requested tier (an older release without
 FLAC, or an account without lossless), deemix stops without writing anything

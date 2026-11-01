@@ -36,11 +36,11 @@ half-finished setup never costs waterfall time.
 
 ## How a download runs
 
-The plugin searches the network, skips locked files and containers it does not
-declare, and ranks the rest on the usual title, artist and duration match.
-Lossless files and peers with a free upload slot break ties. The transfer is
-enqueued on the peer and polled until it finishes, then the file is moved out
-of slskd's downloads folder into the playlist folder.
+SlskdSearchProvider searches the network, skips locked files and containers
+it does not declare, and ranks the rest on the usual title, artist and duration
+match. Lossless files and peers with a free upload slot break ties. The plugin
+enqueues the transfer on the peer and polls until it finishes, then moves the
+file out of slskd's downloads folder into the playlist folder.
 
 Soulseek transfers can sit in a peer's queue for a long time. The waterfall's
 plugin time budget (four minutes by default, on the Advanced page) ends that
