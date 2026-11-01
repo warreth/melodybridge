@@ -37,6 +37,7 @@ public class CliToolDownloaderTests
         public override string Description => "A stub tool";
         public override IReadOnlyList<PluginConfigField> ConfigFields => Array.Empty<PluginConfigField>();
         public override PluginCapabilities Capabilities => PluginCapabilities.Any;
+        public override DownloaderSearchInfo SearchInfo => DownloaderSearchInfo.UrlOnly();
 
         protected override string ToolLabel => "stubtool";
         protected override string DefaultCommandLine => "definitely-not-a-real-command-xyz";

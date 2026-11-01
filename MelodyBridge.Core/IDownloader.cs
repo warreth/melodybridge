@@ -133,12 +133,14 @@ public interface IDownloader
 
     /// <summary>
     /// How this source gets its candidate URLs and which query data it can
-    /// match. Defaults to a title/artist search of its own catalogue for
-    /// backwards compatibility; URL-only and provider-backed sources
-    /// override it. The Plugins page reads this to show the search map, and
-    /// the router uses it to decide whether a search provider runs instead.
+    /// match. Defaults to direct URLs only: a plugin that searches itself
+    /// must declare <see cref="DownloaderSearchMode.Self"/> explicitly, and
+    /// a provider-backed source declares <see cref="DownloaderSearchMode.Provider"/>.
+    /// The Plugins page reads this to show the search map, and the router
+    /// uses it to decide whether a provider runs instead.
     /// </summary>
-    DownloaderSearchInfo SearchInfo => DownloaderSearchInfo.Self(SearchData.Text);
+    DownloaderSearchInfo SearchInfo =>
+        DownloaderSearchInfo.UrlOnly("No search route declared");
 
     /// <summary>
     /// True for a source that is only a last resort. The quality router

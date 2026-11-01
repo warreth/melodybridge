@@ -101,6 +101,31 @@ public class SearchProviderRegistryTests
     }
 
     /// <summary>A provider whose source offers more than one raw candidate.</summary>
+    /// <summary>A third-party source that only sets the required members.</summary>
+    private sealed class DefaultInfoDownloader : IDownloader
+    {
+        public string Id => "plain";
+        public string Name => "Plain";
+        public PluginCapabilities Capabilities => PluginCapabilities.Any;
+        public int SearchCalls { get; private set; }
+
+        public Task<bool> IsAvailableAsync(CancellationToken ct = default)
+            => Task.FromResult(true);
+
+        public Task<DownloaderSearchHit?> SearchAsync(
+            TrackQuery query, CancellationToken ct = default)
+        {
+            SearchCalls++;
+            return Task.FromResult<DownloaderSearchHit?>(new DownloaderSearchHit(
+                "own hit", "artist", "https://own.test/1", TimeSpan.FromSeconds(180)));
+        }
+
+        public Task<DownloaderDownloadResult> DownloadAsync(
+            string sourceUrl, string outputDirectory, string? melodyId,
+            DownloadQuality? quality = null, CancellationToken ct = default)
+            => Task.FromResult(new DownloaderDownloadResult(false, null, "stub"));
+    }
+
     private sealed class MultiHitProvider(string id, params string[] urls) : ISearchProvider
     {
         public string Id => id;
@@ -378,6 +403,20 @@ public class SearchProviderRegistryTests
         }), "both providers contribute, in order, and a shared URL appears once");
         Assert.That(downloader.SearchAllCalls, Is.Zero,
             "the manual picker never falls through to a provider-backed source's own search");
+    }
+
+    [Test]
+    public async Task SourceWithoutADeclaredSearchRoute_IsUrlOnly()
+    {
+        var downloader = new DefaultInfoDownloader();
+        var registry = Registry(new StubProvider());
+
+        Assert.That(((IDownloader)downloader).SearchInfo.Mode,
+            Is.EqualTo(DownloaderSearchMode.None),
+            "a plugin that declares no route must never claim a self-search");
+        Assert.That(await registry.SearchAsync(downloader, Query()), Is.Null);
+        Assert.That(await registry.SearchAllAsync(downloader, Query()), Is.Empty);
+        Assert.That(downloader.SearchCalls, Is.Zero);
     }
 
     [Test]
