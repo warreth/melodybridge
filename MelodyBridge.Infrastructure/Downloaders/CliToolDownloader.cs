@@ -143,6 +143,17 @@ public abstract class CliToolDownloader : IDownloader, IPluginAuthStatusProvider
 
     public abstract Task<bool> IsAvailableAsync(CancellationToken ct = default);
 
+    /// <summary>
+    /// The interface-mapping seam for a CLI plugin that searches its own
+    /// catalogue. A subclass can override this and pair it with a Self
+    /// SearchInfo. Without a member on the base, C# keeps the interface
+    /// default for the hierarchy, so a derived search method would never be
+    /// reached through IDownloader.
+    /// </summary>
+    public virtual Task<DownloaderSearchHit?> SearchAsync(
+        TrackQuery query, CancellationToken ct = default)
+        => Task.FromResult<DownloaderSearchHit?>(null);
+
     /// <summary>Config store; plugin keys are namespaced by <see cref="IDownloader.Id"/>.</summary>
     protected IPluginConfig Config { get; }
 

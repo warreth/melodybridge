@@ -17,7 +17,7 @@ namespace MelodyBridge.Tests.Infrastructure;
 [TestFixture]
 public class CliToolDownloaderTests
 {
-    private sealed class StubTool : CliToolDownloader
+    private class StubTool : CliToolDownloader
     {
         private readonly string _workDirectory;
 
@@ -71,6 +71,22 @@ public class CliToolDownloaderTests
         }
     }
 
+    private sealed class SelfSearchingStubTool : StubTool
+    {
+        public SelfSearchingStubTool(IPluginConfig config, string workDirectory)
+            : base(config, workDirectory)
+        {
+        }
+
+        public override DownloaderSearchInfo SearchInfo =>
+            DownloaderSearchInfo.Self(SearchData.Text);
+
+        public override Task<DownloaderSearchHit?> SearchAsync(
+            TrackQuery query, CancellationToken ct = default)
+            => Task.FromResult<DownloaderSearchHit?>(new DownloaderSearchHit(
+                "own hit", "artist", "https://self.test/1", TimeSpan.FromSeconds(180)));
+    }
+
     private readonly List<string> _tempDirs = new();
 
     [TearDown]
@@ -89,6 +105,19 @@ public class CliToolDownloaderTests
         Directory.CreateDirectory(dir);
         _tempDirs.Add(dir);
         return dir;
+    }
+
+    [Test]
+    public async Task SelfSearchingSubclass_IsReachedThroughIDownloader()
+    {
+        var tool = new SelfSearchingStubTool(new StubPluginConfig(), NewDir());
+        IDownloader downloader = tool;
+
+        Assert.That(downloader.SearchInfo.Mode, Is.EqualTo(DownloaderSearchMode.Self));
+        var hit = await downloader.SearchAsync(
+            new TrackQuery("artist", "title", DownloadQuality.Any));
+        Assert.That(hit?.SourceUrl, Is.EqualTo("https://self.test/1"),
+            "the base virtual is the interface-mapping seam for a CLI self-search");
     }
 
     [Test]
