@@ -189,6 +189,11 @@ public partial class PlaylistStore
         int trackId, QualityReviewAction action, CancellationToken ct = default)
         => _pipeline.ResolveQualityReviewAsync(trackId, action, ct);
 
+    /// <summary>Re-runs the audio checks for a downloaded file and clears the unverified state.</summary>
+    public virtual Task<(bool Ok, string? Reason)> ReverifyAsync(
+        int trackId, CancellationToken ct = default)
+        => _pipeline.ReverifyAsync(trackId, ct);
+
     /// <summary>
     /// Maps a playlist's PreferredFormat to the waterfall quality. The rules
     /// live in <see cref="PlaylistRules"/>; this keeps the name the pages

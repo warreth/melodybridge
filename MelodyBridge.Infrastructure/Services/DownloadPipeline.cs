@@ -209,7 +209,12 @@ internal sealed class DownloadPipeline
         {
             var claimed = await SqliteDatabase.RetryBusyAsync(() => db.Tracks
                 .Where(t => t.Id == id
-                    && (t.DownloadStatus == null || t.DownloadStatus == "pending" || t.DownloadStatus == "failed"))
+                    && (t.DownloadStatus == null || t.DownloadStatus == "pending"
+                        || t.DownloadStatus == "failed"
+                        || (t.DownloadStatus == "downloaded"
+                            && t.Warning != null
+                            && (t.Warning.Contains("file missing on disk")
+                                || t.Warning.Contains("the file lived in the archive folder")))))
                 .ExecuteUpdateAsync(
                     s => s.SetProperty(t => t.DownloadStatus, "in_progress"), ct));
             if (claimed != 1) return "claimed-by-another-run";
@@ -1151,6 +1156,59 @@ internal sealed class DownloadPipeline
     private Task ArchiveDownloadedTrackAsync(
         TrackEntity track, MelodyBridgeDbContext db, CancellationToken ct)
         => _linker.ArchiveDownloadedTrackAsync(track, db, ct);
+
+    /// <summary>
+    /// Re-runs the integrity and spectrum checks on an existing downloaded
+    /// file. This is the repair for an "unverified" row: it clears that
+    /// warning when ffprobe can now read the file, and turns a real defect
+    /// into a normal review or a failed row instead of leaving the same
+    /// unverified state in place.
+    /// </summary>
+    public async Task<(bool Ok, string? Reason)> ReverifyAsync(
+        int trackId, CancellationToken ct = default)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var track = await db.Tracks.FindAsync(new object[] { trackId }, ct);
+        if (track is null) return (false, "track not found");
+        if (track.DownloadStatus != "downloaded" || string.IsNullOrWhiteSpace(track.CurrentPath))
+            return (false, "the track has no downloaded file yet");
+        if (!File.Exists(track.CurrentPath))
+            return (false, "the downloaded file is gone; download the track again");
+
+        var verification = _verification();
+        var expected = track.DurationMs is > 0
+            ? TimeSpan.FromMilliseconds(track.DurationMs.Value)
+            : (TimeSpan?)null;
+        var integrity = Audio.FileIntegrity.Check(
+            track.CurrentPath, expected,
+            expected is { } duration ? verification.ToleranceFor(duration) : null);
+        if (integrity.ToolMissing)
+            return (false, "ffprobe is still not installed");
+        if (integrity.Issue == Audio.IntegrityIssue.Corrupt)
+        {
+            // A re-probe is a second opinion on a file the user already
+            // has. Unlike the post-download gate, a failed or timed-out
+            // probe is not proof that the bytes are broken, so the file
+            // stays on disk and the row stays unverified.
+            var reason = integrity.Reason ?? "the audio check failed";
+            var kept = (track.Warning ?? "")
+                .Split("; ", StringSplitOptions.RemoveEmptyEntries)
+                .Where(part => !part.StartsWith(
+                    "could not verify the download", StringComparison.Ordinal))
+                .Append($"could not verify the download: {reason}");
+            track.Warning = string.Join("; ", kept);
+            await db.SaveChangesAsync(ct);
+            _changes.Bump();
+            return (false, $"the file was left in place: {reason}");
+        }
+
+        track.Bitrate = Audio.BitrateProbe.MeasureKbps(track.CurrentPath);
+        AudioProbe.Fill(track, track.CurrentPath);
+        ApplyQualityReview(track, track.CurrentPath, integrity, verification);
+        await db.SaveChangesAsync(ct);
+        _changes.Bump();
+        return (true, null);
+    }
 
     /// <summary>
     /// Rebuilds the archive copy of one downloaded track from its primary

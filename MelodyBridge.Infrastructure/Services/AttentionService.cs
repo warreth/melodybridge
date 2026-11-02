@@ -149,7 +149,7 @@ public static class AttentionKinds
         FileMissing =>
             "The database still points at a file that is no longer on disk.",
         Unverified =>
-            "ffprobe was missing, so the file could not be verified.",
+            "The audio check could not vouch for this file. Recheck it, or download it again from the playlist.",
         _ => "This track needs a decision.",
     };
 

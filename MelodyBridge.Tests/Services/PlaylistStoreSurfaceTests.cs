@@ -16,7 +16,8 @@ public class PlaylistStoreSurfaceTests
     private static readonly string[] InstanceMethods =
     {
         // Download pipeline
-        "DownloadMissingAsync", "DownloadTrackAsync", "FindDedupCandidateAsync", "ResolveReviewAsync", "ResolveQualityReviewAsync",
+        "DownloadMissingAsync", "DownloadTrackAsync", "FindDedupCandidateAsync", "ResolveReviewAsync",
+        "ResolveQualityReviewAsync", "ReverifyAsync", "RetryArchiveAsync",
         "SearchCandidatesAsync", "DownloadCandidateAsync", "DeleteTrackFilesAsync", "LinkSharedTracksAsync", "LinkTrackAsync",
         // Queries, lifecycle and maintenance
         "GetAllAsync", "GetDownloadStatsAsync", "GetSavedExternalIdsAsync", "RemoveTrackAsync",
@@ -72,11 +73,11 @@ public class PlaylistStoreSurfaceTests
     {
         // The point of the split: the facade must stay small. If it grows
         // again, logic has crept back in. The limit tracks the delegations
-        // the app needs (auto-sync attempt stamping, the archive retry and
-        // the candidate quality probe are the latest).
+        // the app needs (auto-sync attempt stamping, the archive retry, the
+        // candidate quality probe and the unverified re-probe are the latest).
         var text = File.ReadAllText(SourceFile());
         var lines = text.Split('\n').Length;
-        Assert.That(lines, Is.LessThan(300),
+        Assert.That(lines, Is.LessThan(310),
             $"PlaylistStore should stay a thin facade; it is {lines} lines");
     }
 

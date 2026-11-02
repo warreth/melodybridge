@@ -68,6 +68,8 @@ builder.Services.AddHostedService<MelodyBridge.Server.Services.UpdateWatchServic
 // Toasts: singleton so events raised anywhere reach the one layout.
 builder.Services.AddSingleton(new MelodyBridge.Server.Services.NotificationService());
 builder.Services.AddScoped<MelodyBridge.Server.Services.AttentionActions>();
+builder.Services.AddScoped<MelodyBridge.Server.Services.IAttentionActions>(
+    sp => sp.GetRequiredService<MelodyBridge.Server.Services.AttentionActions>());
 builder.Services.AddHostedService<MelodyBridge.Server.Services.ToastObserverService>();
 // Asks the media servers how they are in the background, so the dashboard
 // never has to wait for a server that does not answer.

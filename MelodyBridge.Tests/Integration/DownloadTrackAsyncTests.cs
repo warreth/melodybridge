@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.Data;
 using MelodyBridge.Infrastructure.Services;
+using MelodyBridge.Server.Services;
 using MelodyBridge.Tests.Services;
 
 namespace MelodyBridge.Tests.Integration;
@@ -276,6 +277,56 @@ public class DownloadTrackAsyncTests
         db.Playlists.Add(entity);
         await db.SaveChangesAsync();
         return await db.Tracks.Where(t => t.PlaylistEntityId == "pl-one").Select(t => t.Id).ToListAsync();
+    }
+
+    [Test]
+    public async Task AttentionRetry_OfAFileMissingRow_LeavesTheGroup()
+    {
+        var dbPath = NewDbPath();
+        var outDir = Path.Combine(Path.GetTempPath(), $"mb-missing-{Guid.NewGuid():N}");
+        try
+        {
+            var factory = await NewDbFactory(dbPath);
+            var store = NewStore(factory, new FileWritingDownloader());
+            var ids = await SeedPlaylistAsync(factory, outDir, ("a", "Lost Song", "Artist A"));
+            await using (var db = factory.CreateDbContext())
+            {
+                var track = await db.Tracks.SingleAsync(t => t.Id == ids[0]);
+                track.DownloadStatus = "downloaded";
+                track.CurrentPath = Path.Combine(outDir, "gone.mp3");
+                track.Warning = "file missing on disk, will re-download";
+                await db.SaveChangesAsync();
+            }
+
+            var archives = new ArchiveCopyService(
+                factory,
+                new SettingsStore(factory),
+                NullLogger<ArchiveCopyService>.Instance);
+            var actions = new AttentionActions(
+                store, archives, factory, NullLogger<AttentionActions>.Instance);
+
+            var result = await actions.RetryAsync(new[] { ids[0] }, avoidLastProvider: false);
+
+            Assert.That(result.Done, Is.EqualTo(1), string.Join("; ", result.Messages));
+            await using var fresh = factory.CreateDbContext();
+            var row = await fresh.Tracks.SingleAsync(t => t.Id == ids[0]);
+            Assert.Multiple(() =>
+            {
+                Assert.That(row.DownloadStatus, Is.EqualTo("downloaded"), row.DownloadError);
+                Assert.That(row.Warning, Is.Null.Or.Not.Contain("file missing on disk"));
+                Assert.That(
+                    AttentionClassifier.Classify(
+                        row.DownloadStatus, row.DownloadError, row.ReviewKind, row.Warning),
+                    Is.Null,
+                    "the retry clears the missing-file group instead of leaving the row behind");
+            });
+        }
+        finally
+        {
+            foreach (var suffix in new[] { "", "-wal", "-shm" })
+                try { File.Delete(dbPath + suffix); } catch { }
+            try { Directory.Delete(outDir, recursive: true); } catch { /* best effort */ }
+        }
     }
 
     [Test]
