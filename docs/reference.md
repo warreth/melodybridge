@@ -52,7 +52,7 @@ M3U folder or a media server target to several jobs at once.
 
 ### Default paths
 
-<img src="/screens/settings-paths.webp" alt="Default paths tab with the music, playlist and archive folders, folder buttons and archive profiles" width="800">
+<img src="/screens/settings-paths.webp" alt="Default paths tab with the music path, playlist folder and the default archive profile" width="800">
 
 - **Music path** (`/music` in the Docker image): the root for downloads. With
   **Sort downloads into a folder per playlist** on, the default, each playlist
@@ -64,27 +64,32 @@ M3U folder or a media server target to several jobs at once.
   A new sync job starts with `<folder>/<job name>.m3u8`; type a different path
   in the quick or advanced editor when a job should land elsewhere. A rule
   profile can set the folder and file name for every linked job.
-- **Archive path** and **Archive format**: the default archive copy. Leave the
-  path empty for no default archive. Per-playlist values override the default,
-  and the playlist page shows what the app default currently does. The format
-  picker offers Auto, Opus, FLAC, MP3 and AAC, plus Custom for another container
-  ffmpeg can write (for example ogg, wav or m4a). Add a bitrate after a colon
-  for lossy presets (`mp3:160`, `opus:192`) or a codec (`m4a:alac`). A format
-  ffmpeg cannot write leaves a warning on the track. Each playlist gets its own
-  folder under the archive path while the sort toggle is on. Saving a new
-  archive path moves the existing default copies along with it.
+- **Default archive**: the first archive profile, marked **default**, edited
+  from its own row. Leave the path empty for no default archive. Per-playlist
+  values override the default, and the playlist page shows what the app default
+  currently does. The format picker offers Auto, Opus, FLAC, MP3 and AAC, plus
+  Custom for another container ffmpeg can write (for example ogg, wav or m4a).
+  Add a bitrate after a colon for lossy presets (`mp3:160`, `opus:192`) or a
+  codec (`m4a:alac`). A format ffmpeg cannot write leaves a warning on the
+  track. Each playlist gets its own folder under the archive path while the
+  sort toggle is on. Saving a new default path moves the existing default
+  copies along with it.
 
-<img src="/screens/settings-archives.webp" alt="Archive profiles with one extra copy, its folder and format, and a build-missing action" width="800">
+<img src="/screens/settings-archives.webp" alt="Archive profiles with the default row and one extra copy, each with its folder and format" width="800">
 
-- **Archive profiles**: extra archive destinations below the default. Add as
-  many as you need, each with a name, folder, container and bitrate. Every
-  enabled profile gets a copy of every downloaded track, so one library can
-  keep an Opus 128 copy and an MP3 160 copy next to the default. **Build
-  missing** scans the existing library and creates the copies it does not have
-  yet; a progress bar stays in the section while it runs. Disabling a profile
-  keeps its files on disk. Deleting one removes the profile and its copy rows,
-  not the files. Playlist archive switches turn every copy off for that
-  playlist; per-playlist folder and format overrides apply to the default only.
+- **Extra archive profiles** sit below the default row. Add as many as you
+  need, each with a name, folder, container and bitrate. Every enabled profile
+  gets a copy of every downloaded track, so one library can keep an Opus 128
+  copy and an MP3 160 copy next to the default. The default row has its own
+  editor and only the default supports playlist overrides. Extra profiles have
+  their own enable toggle, **Build missing** button and delete action. **Build
+  missing** scans the existing library and creates the copies that profile
+  does not have yet; a progress bar stays in the section while it runs. The
+  default has no bulk backfill: recreate one copy at a time from the track row
+  or the Needs attention page. Disabling a profile keeps its files on disk.
+  Deleting one removes the profile and its copy rows, not the files. Playlist
+  archive switches turn every copy off for that playlist; per-playlist folder
+  and format overrides apply to the default only.
 
 The path fields have a folder button that opens a server-side picker with
 shortcuts to the music, playlist, archive and scan folders. You can still type a
@@ -172,8 +177,12 @@ stalls a download or a scan.
 
 ### About
 
-App version and **Check for updates**, a button to replay the guided tour, and
-the appearance section. **Theme** offers Light, Dark or Auto: Auto follows your
+App version and **Check for updates**, a button to replay the guided tour, the
+interface mode and the appearance section. **Interface** switches between
+**Simple**, which keeps the sidebar to playlists, downloads, attention, sources
+and settings, and **Advanced**, which also shows the library, sync jobs,
+diagnostics and logs. A first install asks for the mode; the same switch sits at
+the bottom of the sidebar. **Theme** offers Light, Dark or Auto: Auto follows your
 device and switches with it. The accent picker below it colors tabs, buttons and
 highlights, the guided tour included. Both are stored in this browser only.
 
@@ -359,31 +368,52 @@ including `archive: <name>` chips for archive copies.
 
 ## The Needs attention page
 
-<img src="/screens/attention.webp" alt="Needs attention page grouped by error kind with retry and hardlink actions" width="800">
+<img src="/screens/attention.webp" alt="Needs attention page with the automatic repair summary and grouped problems" width="800">
 
 **Needs attention** in the sidebar collects every track and playlist that still
 wants a decision, grouped by the kind of problem rather than by playlist. The
-metric row at the top filters the page: **failed**, **reviews**, **hardlinks**,
-**archives** and **playlists**. A group shows its own **Select group**,
-**Retry all** or **Find hardlinks** action. A group with more than eight rows
-shows the first eight and a **Show all** button.
+metric row at the top jumps to a group and marks it; the other groups stay on
+the page when you keep scrolling. A group with more than eight rows shows the
+first eight and a **Show all** button.
 
-Each row carries the track, artist, playlist link, the original reason and the
-actions that make sense for it:
+The page opens in **Automatic** mode. The **Fix what can be fixed** card says
+what the fixer will do, for example *retry 9 downloads, keep 2 length-reviewed
+files, retry 2 quality reviews, recheck 1 unverified file, hardlink 2
+duplicates, rebuild 2 archive copies and re-sync 1 playlist*. **Fix all**
+applies the matching repair to every group. Each group also has its own
+**Fix all** button. A progress bar and a **Stop** button stay visible while the
+work runs, and the page keeps responding.
+
+The mapping is deliberate: failed downloads retry through the normal waterfall,
+length reviews keep the playable file, quality reviews fetch a new copy,
+duplicates hardlink the existing copy, archive warnings rebuild the archive
+copy, missing files retry the download, unverified files re-run the audio
+check, and playlist syncs refresh the source.
+
+Choose **Review individually** to show the old per-row controls: checkboxes,
+the bulk action bar, and the action buttons for one track or one group. The
+choice is not destructive; switching back to Automatic simply hides the
+individual controls.
+
+Each row carries the track, artist, playlist link, the original reason and, in
+individual mode, the actions that make sense for it:
 
 | Group | Actions |
 |---|---|
 | No source, wrong format, wrong length, not audio, corrupt, login, timeout, cancelled, metadata, other failures | **Retry**, **Elsewhere** (skips the provider that failed last), **Hardlink** (uses a file another playlist already has), **Open** |
 | Hardlink decisions | **Hardlink existing**, **Download new**, **Open** |
 | Length and quality reviews | **Keep file**, **Retry download**, **Open** |
-| Archive copies, missing files, unverified files | **Recreate**, **Open** |
+| Archive copies | **Recreate**, **Open** |
+| Missing files | **Retry**, **Elsewhere**, **Hardlink**, **Open** |
+| Unverified files | **Recheck**, **Open** |
 | Playlist syncs | **Re-sync**, **Open** |
 
-Tick several rows to get one bulk bar with **Retry downloads**, **Retry
-elsewhere**, **Find hardlinks** and **Recreate archives**. The page reports what
-changed and what still needs attention. It refreshes itself when the store
-changes, so a run started elsewhere appears without a manual reload. The
-dashboard's attention band links straight into the matching filter.
+Tick several rows in individual mode to get one bulk bar with **Retry
+downloads**, **Retry elsewhere**, **Find hardlinks**, **Recheck files** and
+**Recreate archives**, depending on the kinds you selected.
+The page reports what changed and what still needs attention. It refreshes itself
+when the store changes, so a run started elsewhere appears without a manual
+reload. The dashboard's attention band links straight into the matching group.
 
 ## The Downloads page
 
@@ -436,22 +466,23 @@ own stream, then tags and verifies the file.
 
 ## The Plugins page
 
-<img src="/screens/plugins.webp" alt="Plugins page with the search routing map, source order strip and grouped setup cards" width="800">
+<img src="/screens/plugins.webp" alt="Plugins page with grouped setup cards and the optional source order collapsed" width="800">
 
 Providers search for your tracks and plugins download them. The page has two
 jobs: set a source up, and decide which source is tried first.
 
-The **Try order** card is the editable list. Use the arrows to move an enabled
-source up or down. The order here is the whole story for the **No filter**
-quality. When a playlist asks for a specific quality, MelodyBridge first picks
-the plugins that can really deliver it (their declared capabilities decide) and
-this order breaks ties between plugins of the same kind. Pick a preset in
-**Preview quality** to see that capability order and which sources it skips;
-**No filter** keeps the preview out of the way because it is the same as the
-list above.
+The **Source order and quality** card is collapsed by default. Open it only
+when you want to change the order: use the arrows to move an enabled source up
+or down. The order here is the whole story for the **No filter** quality. When
+a playlist asks for a specific quality, MelodyBridge first picks the plugins
+that can really deliver it (their declared capabilities decide) and this order
+breaks ties between plugins of the same kind. Pick a preset in **Preview
+quality** to see that capability order and which sources it skips; **No
+filter** keeps the preview out of the way because it is the same as the list
+above. The yt-dlp version and update action live in the same section.
 
-Below the order, the setup cards are split into **Your subscriptions** and
-**Free and community sources**. Qobuz, Deezer and Tidal each get an account card
+The setup cards below are split into **Your subscriptions** and **Free and
+community sources**. Qobuz, Deezer and Tidal each get an account card
 with **Account and settings**. Everything else needs no subscription; a
 companion tool or container (yt-dlp, slskd, FlareSolverr for Lucida) is named on
 the card. The search box and the **All**, **Accounts**, **Free** and

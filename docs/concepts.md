@@ -5,6 +5,17 @@ the tracks, and it publishes playlists to your players. This page explains what
 happens under the hood, because the knobs make more sense once you know the
 moving parts.
 
+## Simple and advanced mode
+
+A first install asks how you want to use the app. **Simple** keeps the sidebar
+to the everyday path: playlists, downloads, attention, sources and settings. The
+setup checklist has two steps and the publishing tools stay out of the way.
+**Advanced** shows the library, sync jobs, diagnostics and every setting.
+
+The choice is a starting point, not a lock. Switch any time from the mode button
+at the bottom of the sidebar or from Settings, About. Direct links to a hidden
+page still work, so a bookmark or an existing link never breaks.
+
 ## From link to library
 
 The short version of the pipeline:
@@ -190,7 +201,7 @@ matching cannot be perfect on sources that carry no ISRC and no trustworthy
 artist name; the picker is the honest way out of that. The same picker opens
 from **Download a song**, where there is no existing row to replace.
 
-<img src="/screens/plugins.webp" alt="Plugins page with the search routing map, source order strip and grouped setup cards" width="800">
+<img src="/screens/plugins.webp" alt="Plugins page with grouped setup cards and the optional source order collapsed" width="800">
 
 ### Cover art and lyrics
 
@@ -431,18 +442,21 @@ has a compatible copy.
 The first copy is the **default archive** you set under **Settings, Default
 paths** and can override per playlist. Below it, **Archive profiles** add more
 destinations. Each profile has a name, folder, container and bitrate, and every
-enabled profile gets a copy of every downloaded track. The main file is still
-fetched once; each archive is a local ffmpeg conversion, so three copies do not
-mean three downloads. A playlist's archive switch turns all copies off for that
-playlist, and its folder and format overrides apply to the default archive only.
+enabled profile gets a copy of every downloaded track. The default is edited in
+its own row; the extra profiles also have an enable toggle, a **Build missing**
+button and a delete action. The main file is still fetched once; each archive is
+a local ffmpeg conversion, so three copies do not mean three downloads. A
+playlist's archive switch turns all copies off for that playlist, and its folder
+and format overrides apply to the default archive only.
 
 Archive folders are never mistaken for a track's main file: a library scan skips
 every configured archive root, and the dedup linker ignores files that live in
 one. Downloading a track again replaces the files the row points at. A format
 change can leave the previous copy under its old name, and removing a playlist
 or track with the keep-files option leaves the copies on disk; neither is
-deleted automatically. **Build missing** fills the copies that a newly added
-profile did not have yet, one track at a time.
+deleted automatically. **Build missing** fills the extra-profile copies that a
+newly added profile did not have yet, one track at a time. The default copy is
+rebuilt per track from its row action.
 
 | Format | Result |
 |---|---|
@@ -474,9 +488,15 @@ unverified file. Classification reads the stored status, error and warning
 texts; a normal download and an informational warning such as a quality hint are
 not attention.
 
-The page is a queue, not a log. Retrying a group runs the same operation as the
-row buttons, one track at a time, and finishes with a summary instead of stopping
-at the first failure. Hardlink actions only look for a file that is already in
-the library, so they cost no network download. Archive actions rebuild the
-default copy and every enabled profile. A fixed plugin login or a resolved
-review disappears from the queue on the next refresh.
+The page is a queue, not a log. It opens in **Automatic** mode: the repair card
+summarizes the per-group actions, **Fix all** applies them in one run, and a
+progress bar with **Stop** keeps the page responsive. The mapping is deliberately
+different per group: retry for failed downloads and missing files, keep for
+length reviews, retry for quality reviews, hardlink for duplicates, rebuild for
+archive problems, re-run the audio check for unverified files and a re-sync for
+playlists. **Review individually** exposes the per-row and per-group
+actions. Retrying a group runs one track at a time and finishes with a summary
+instead of stopping at the first failure. Hardlink actions only look for a file
+that is already in the library, so they cost no network download. Archive actions
+rebuild the default copy and every enabled profile. A fixed plugin login or a
+resolved review disappears from the queue on the next refresh.
