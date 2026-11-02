@@ -39,6 +39,8 @@ public static class TestServices
         services.AddSingleton<IDownloadCoordinator>(sp => sp.GetRequiredService<DownloadCoordinator>());
         var settingsStore = new SettingsStore(dbFactory);
         services.AddSingleton(settingsStore);
+        services.AddSingleton(new MelodyBridge.Server.Services.InstallState(DatabaseExistedAtStartup: true));
+        services.AddSingleton<MelodyBridge.Server.Services.UiModeService>();
         services.AddSingleton(new MediaServerProfileStore(settingsStore));
         services.AddSingleton(new SyncRuleProfileStore(dbFactory));
         services.AddSingleton(new FolderBrowser(dbFactory));

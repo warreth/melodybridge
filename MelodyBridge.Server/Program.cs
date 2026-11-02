@@ -51,6 +51,7 @@ builder.Logging.AddLogCollector(logCollector);
 
 // Register all MelodyBridge services
 builder.Services.AddMelodyBridge();
+builder.Services.AddSingleton<MelodyBridge.Server.Services.UiModeService>();
 builder.Services.AddMediaServerSyncs();
 
 // Update check: dedicated client because GitHub requires a User-Agent

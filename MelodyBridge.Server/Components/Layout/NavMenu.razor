@@ -1,4 +1,6 @@
+@using Microsoft.Extensions.DependencyInjection
 @inject MelodyBridge.Infrastructure.Services.PluginAuthMonitor AuthMonitor
+@inject IServiceProvider Services
 @implements IDisposable
 
 @* NavLink, not plain anchors: the router marks the current page's
@@ -22,30 +24,71 @@
                       aria-label="@AuthAlertTitle">!</span>
             }
         </NavLink>
-        <NavLink class="nav-link" href="/library"><Icon Name="library" Class="nav-icon" /> Library</NavLink>
+        @if (_advanced)
+        {
+            <NavLink class="nav-link" href="/library"><Icon Name="library" Class="nav-icon" /> Library</NavLink>
+        }
     </div>
-    <div class="nav-section">
-        <div class="nav-section-header">Publishing</div>
-        <NavLink class="nav-link" href="/sync-jobs"><Icon Name="refresh" Class="nav-icon" /> Sync jobs</NavLink>
-    </div>
+    @if (_advanced)
+    {
+        <div class="nav-section">
+            <div class="nav-section-header">Publishing</div>
+            <NavLink class="nav-link" href="/sync-jobs"><Icon Name="refresh" Class="nav-icon" /> Sync jobs</NavLink>
+        </div>
+    }
     <div class="nav-section">
         <div class="nav-section-header">System</div>
         <NavLink class="nav-link" href="/settings"><Icon Name="sliders" Class="nav-icon" /> Settings</NavLink>
-        <NavLink class="nav-link" href="/advanced"><Icon Name="flag" Class="nav-icon" /> Advanced</NavLink>
-        <NavLink class="nav-link" href="/logs"><Icon Name="terminal" Class="nav-icon" /> Logs</NavLink>
+        @if (_advanced)
+        {
+            <NavLink class="nav-link" href="/advanced"><Icon Name="flag" Class="nav-icon" /> Advanced</NavLink>
+            <NavLink class="nav-link" href="/logs"><Icon Name="terminal" Class="nav-icon" /> Logs</NavLink>
+        }
     </div>
+    @if (_mode is not null)
+    {
+        <div class="nav-section nav-mode-section">
+            <button type="button" class="nav-link nav-mode-toggle" @onclick="ToggleModeAsync"
+                    title="@(_advanced ? "Switch to the simpler interface" : "Show every tool and setting")">
+                <Icon Name="@(_advanced ? "eye" : "sliders")" Class="nav-icon" />
+                @(_advanced ? "Simple mode" : "Advanced mode")
+            </button>
+        </div>
+    }
 </nav>
 
 @code {
+    private UiModeService? _mode;
+    private bool _advanced = true;
     private int authIssueCount;
     private string AuthAlertTitle => authIssueCount == 1
         ? "1 plugin needs your login"
         : $"{authIssueCount} plugins need your login";
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
+        _mode = Services.GetService<UiModeService>();
+        if (_mode is not null)
+        {
+            await _mode.EnsureLoadedAsync();
+            _advanced = _mode.IsAdvanced;
+            _mode.Changed += OnModeChanged;
+        }
         AuthMonitor.Changed += OnAuthChanged;
         RefreshAuthCount();
+    }
+
+    private void OnModeChanged() => _ = InvokeAsync(() =>
+    {
+        if (_mode is null) return;
+        _advanced = _mode.IsAdvanced;
+        StateHasChanged();
+    });
+
+    private async Task ToggleModeAsync()
+    {
+        if (_mode is null) return;
+        await _mode.SetAsync(!_mode.IsAdvanced);
     }
 
     private void OnAuthChanged() => _ = InvokeAsync(() =>
@@ -59,5 +102,6 @@
     public void Dispose()
     {
         AuthMonitor.Changed -= OnAuthChanged;
+        if (_mode is not null) _mode.Changed -= OnModeChanged;
     }
 }

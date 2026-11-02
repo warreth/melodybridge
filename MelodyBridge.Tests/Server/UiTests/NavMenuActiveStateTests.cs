@@ -21,6 +21,7 @@ public class NavMenuActiveStateTests
 {
     private Bunit.TestContext _ctx = null!;
     private readonly List<string> _dbs = new();
+    private TestSqliteFactory _factory = null!;
 
     [SetUp]
     public void Setup()
@@ -29,10 +30,10 @@ public class NavMenuActiveStateTests
         _ctx.Services.AddPluginAuthMonitor();
         var dbPath = Path.Combine(Path.GetTempPath(), $"mb-nav-{Guid.NewGuid():N}.db");
         _dbs.Add(dbPath);
-        var factory = new TestSqliteFactory(dbPath);
-        using (var db = factory.CreateDbContext())
+        _factory = new TestSqliteFactory(dbPath);
+        using (var db = _factory.CreateDbContext())
             db.Database.EnsureCreated();
-        _ctx.Services.AddSingleton<IDbContextFactory<MelodyBridgeDbContext>>(factory);
+        _ctx.Services.AddSingleton<IDbContextFactory<MelodyBridgeDbContext>>(_factory);
     }
 
     [TearDown]
@@ -84,6 +85,38 @@ public class NavMenuActiveStateTests
         var nav = RenderNavAt("/logs");
 
         Assert.That(ActiveHrefs(nav), Is.EqualTo(new[] { "/logs" }));
+    }
+
+    [Test]
+    public void SimpleMode_HidesAdvancedLinksAndCanSwitchBack()
+    {
+        var settings = new SettingsStore(_factory);
+        _ctx.Services.AddSingleton(settings);
+        _ctx.Services.AddSingleton(new InstallState(DatabaseExistedAtStartup: false));
+        _ctx.Services.AddSingleton(new UiModeService(
+            settings, new InstallState(DatabaseExistedAtStartup: false)));
+        var nav = _ctx.Render<NavMenu>();
+
+        nav.WaitForAssertion(() =>
+        {
+            Assert.That(nav.FindAll("a[href='/library']"), Is.Empty);
+            Assert.That(nav.FindAll("a[href='/sync-jobs']"), Is.Empty);
+            Assert.That(nav.FindAll("a[href='/advanced']"), Is.Empty);
+            Assert.That(nav.FindAll("a[href='/logs']"), Is.Empty);
+            Assert.That(nav.FindAll("a[href='/playlists']"), Has.Count.EqualTo(1));
+            Assert.That(nav.Find("button.nav-mode-toggle").TextContent, Does.Contain("Advanced mode"));
+        }, TimeSpan.FromSeconds(3));
+
+        nav.Find("button.nav-mode-toggle").Click();
+
+        nav.WaitForAssertion(() =>
+        {
+            Assert.That(nav.FindAll("a[href='/library']"), Has.Count.EqualTo(1));
+            Assert.That(nav.FindAll("a[href='/sync-jobs']"), Has.Count.EqualTo(1));
+            Assert.That(nav.FindAll("a[href='/advanced']"), Has.Count.EqualTo(1));
+            Assert.That(nav.FindAll("a[href='/logs']"), Has.Count.EqualTo(1));
+            Assert.That(nav.Find("button.nav-mode-toggle").TextContent, Does.Contain("Simple mode"));
+        }, TimeSpan.FromSeconds(3));
     }
 
     [Test]

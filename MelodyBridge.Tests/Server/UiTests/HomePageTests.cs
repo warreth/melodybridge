@@ -135,6 +135,68 @@ public class HomePageTests
     }
 
     [Test]
+    public void FreshInstall_OffersTheModeChoiceBeforeTheChecklist()
+    {
+        var settings = new SettingsStore(_dbFactory);
+        _ctx.Services.AddSingleton(new InstallState(DatabaseExistedAtStartup: false));
+        _ctx.Services.AddSingleton(new UiModeService(
+            settings, new InstallState(DatabaseExistedAtStartup: false)));
+
+        var cut = _ctx.Render<Home>();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.Markup, Does.Contain("How do you want to use MelodyBridge?"));
+            Assert.That(cut.Markup, Does.Contain("Simple"));
+            Assert.That(cut.Markup, Does.Contain("Advanced"));
+        }, TimeSpan.FromSeconds(5));
+
+        cut.FindAll("button")
+            .Single(button => button.TextContent.Contains("Simple"))
+            .Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.Markup, Does.Not.Contain("How do you want to use MelodyBridge?"));
+            Assert.That(settings.GetAsync(UiModeService.SettingKey, "").GetAwaiter().GetResult(),
+                Is.EqualTo(UiModeService.Simple));
+        }, TimeSpan.FromSeconds(5));
+    }
+
+    [Test]
+    public async Task SimpleMode_WithTwoStepsDone_HandsOverToTheDashboard()
+    {
+        using (var db = _dbFactory.CreateDbContext())
+        {
+            db.SyncJobs.RemoveRange(db.SyncJobs);
+            db.DownloaderSettings.Add(new DownloaderSettingEntity
+            {
+                Key = UiModeService.SettingKey,
+                Value = UiModeService.Simple,
+            });
+            db.SaveChanges();
+        }
+
+        var settings = new SettingsStore(_dbFactory);
+        _ctx.Services.AddSingleton(new InstallState(DatabaseExistedAtStartup: true));
+        _ctx.Services.AddSingleton(new UiModeService(
+            settings, new InstallState(DatabaseExistedAtStartup: true)));
+
+        var cut = _ctx.Render<Home>();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.Markup, Does.Not.Contain("Get everything running"),
+                "two of two simple steps are done, so the checklist hands over");
+            Assert.That(cut.Markup, Does.Contain("Dashboard"));
+        }, TimeSpan.FromSeconds(5));
+
+        using var check = _dbFactory.CreateDbContext();
+        Assert.That(check.DownloaderSettings.Any(s => s.Key == "intro_dismissed" && s.Value == "true"),
+            Is.True, "the handover is persisted like the advanced three-step path");
+    }
+
+    [Test]
     public void Intro_Skipped_WhenDatabaseAlreadyHasData()
     {
         // Setup seeds a playlist, a downloaded track and a job: the intro

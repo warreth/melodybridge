@@ -16,3 +16,20 @@
 .app-nav .nav-link.active .nav-icon {
     color: var(--accent-strong);
 }
+
+.nav-mode-section {
+    margin-top: .5rem;
+    padding-top: .65rem;
+    border-top: 1px solid var(--border);
+}
+
+.nav-mode-toggle {
+    width: 100%;
+    border: 0;
+    background: transparent;
+    cursor: pointer;
+    font: inherit;
+    font-size: .86rem;
+    font-weight: 650;
+    text-align: left;
+}

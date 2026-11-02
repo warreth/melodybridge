@@ -15,18 +15,51 @@
 
 @* The tour runs before the checklist: it spotlights the tabs a new user
    needs, and its last stop points at the checklist right below. *@
-<GuidedTour Steps="DashboardTour" PersistenceKey="tour_dismissed" />
+@if (!showModeChoice)
+{
+    <GuidedTour Steps="TourSteps" PersistenceKey="tour_dismissed" />
+}
 
-@if (showIntro)
+@if (showModeChoice)
+{
+    <section class="panel-card mode-choice" aria-labelledby="mode-choice-title">
+        <span class="eyebrow">Welcome</span>
+        <h1 id="mode-choice-title">How do you want to use MelodyBridge?</h1>
+        <p>
+            Pick a starting point. Simple keeps the app focused on playlists
+            and downloads. Advanced shows every tool, including the library,
+            sync jobs and diagnostics. You can switch any time in the sidebar.
+        </p>
+        <div class="mode-choice-grid">
+            <button type="button" class="mode-choice-option" @onclick="() => ChooseModeAsync(false)">
+                <span class="mode-choice-icon"><Icon Name="download" Size="22" /></span>
+                <strong>Simple</strong>
+                <span>Add a playlist, download it, and keep an eye on problems. The shortest path to music.</span>
+                <small>Recommended for a few playlists</small>
+            </button>
+            <button type="button" class="mode-choice-option" @onclick="() => ChooseModeAsync(true)">
+                <span class="mode-choice-icon"><Icon Name="sliders" Size="22" /></span>
+                <strong>Advanced</strong>
+                <span>Everything is visible: library tools, sync jobs, diagnostics and all settings.</span>
+                <small>For power users and media-server setups</small>
+            </button>
+        </div>
+    </section>
+}
+else if (showIntro)
 {
     <section class="hero-panel">
         <div>
             <span class="eyebrow">Welcome to MelodyBridge</span>
-            <h1>Three steps, from playlist link to your own music library.</h1>
+            <h1>@(IsSimple
+                ? "Two steps, from playlist link to your own music library."
+                : "Three steps, from playlist link to your own music library.")</h1>
             <p>MelodyBridge saves a playlist from Spotify, YouTube, Deezer, SoundCloud or
-                ListenBrainz locally, downloads the music through a plugin waterfall, and publishes
-                the result to Jellyfin, Plex, a Subsonic server or an M3U file.
-                @(doneSteps == 3
+                ListenBrainz locally and downloads the music through a plugin waterfall.
+                @(IsSimple
+                    ? "Publishing to a media server is optional; switch to Advanced mode when you need it. "
+                    : "It can then publish the result to Jellyfin, Plex, a Subsonic server or an M3U file. ")
+                @(doneSteps == stepCount
                     ? "Everything is set up already. Skip this, or keep it as a reference for what lives where."
                     : "Work through the checklist below. It disappears once everything is set up.")</p>
             <div class="hero-actions">
@@ -44,7 +77,7 @@
         <div class="panel-header">
             <div>
                 <span class="eyebrow">Setup</span>
-                <h2>Get everything running (@doneSteps of 3)</h2>
+                <h2>Get everything running (@doneSteps of @stepCount)</h2>
             </div>
             <div class="flex-actions">
                 <button class="btn-modern ghost small" @onclick="SkipIntro">Skip checklist</button>
@@ -91,6 +124,8 @@
                 </div>
                 <span class="workflow-arrow"><Icon Name="chevron-right" Size="16" /></span>
             </a>
+            @if (!IsSimple)
+            {
             <a class="workflow-step @(step3Done ? "done" : "todo")" href="/sync-jobs">
                 <span class="workflow-number">
                     @if (step3Done)
@@ -109,9 +144,10 @@
                     <small>@(step3Done ? $"{jobsCount} job{(jobsCount == 1 ? "" : "s")} configured, last run {lastRunText}" : "No sync job yet")</small>
                 </div>
             </a>
+            }
         </div>
         <MountWarning />
-        @if (doneSteps == 3)
+        @if (doneSteps == stepCount)
         {
             <div class="result-box ok">
                 Everything is set up. The dashboard replaces this page from now on.
@@ -119,6 +155,8 @@
         }
     </section>
 
+    @if (!IsSimple)
+    {
     <section class="panel-card lossless-setup">
         <div class="panel-header">
             <div>
@@ -155,6 +193,7 @@
             <a href="https://docs.melodybridge.app/tidal" target="_blank" rel="noopener">Tidal guide <Icon Name="external" Size="11" /></a>
         </div>
     </section>
+    }
 }
 else
 {
@@ -564,6 +603,9 @@ else
 
 @code {
     private bool showIntro;
+    private bool showModeChoice;
+    private UiModeService? _mode;
+    private InstallState? _install;
     private int playlistsCount;
     private int downloadedCount;
     private int libraryFileCount;
@@ -611,10 +653,13 @@ else
     /// errors panel without waiting for the idle fallback.</summary>
     private long _observedLogVersion = -1;
 
+    private bool IsSimple => _mode is { IsAdvanced: false };
+    private int stepCount => IsSimple ? 2 : 3;
     private bool step1Done => playlistsCount > 0;
     private bool step2Done => downloadedCount > 0;
     private bool step3Done => jobsCount > 0;
-    private int doneSteps => (step1Done ? 1 : 0) + (step2Done ? 1 : 0) + (step3Done ? 1 : 0);
+    private int doneSteps => (step1Done ? 1 : 0) + (step2Done ? 1 : 0)
+        + (!IsSimple && step3Done ? 1 : 0);
     private string lastRunText => lastRunAt.HasValue
         ? lastRunAt.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm")
         : "never";
@@ -727,6 +772,17 @@ else
         // when the probe has a new one: the page never waits for a media
         // server that does not answer.
         MediaProbe.Changed += OnMediaStatusChanged;
+
+        // Load the mode before the checklist check: stepCount depends on it.
+        _mode = Services.GetService<UiModeService>();
+        _install = Services.GetService<InstallState>();
+        if (_mode is not null)
+        {
+            await _mode.EnsureLoadedAsync();
+            _mode.Changed += OnModeChanged;
+            showModeChoice = _install is not null && !_install.DatabaseExistedAtStartup && !_mode.HasChosen;
+        }
+
         await RefreshStats();
 
         // Keep the dashboard current without a manual refresh.
@@ -734,6 +790,15 @@ else
     }
 
     /// <summary>A new media server verdict: the rows show it right away.</summary>
+    private void OnModeChanged() => _ = InvokeAsync(async () =>
+    {
+        if (_disposed) return;
+        if (_mode is { HasChosen: true }) showModeChoice = false;
+        await RefreshStats(force: true);
+        if (!showIntro) StartRefreshTimer();
+        StateHasChanged();
+    });
+
     private void OnMediaStatusChanged()
     {
         if (_disposed) return;
@@ -782,7 +847,7 @@ else
     /// checklist on this page. The selectors target the sidebar links;
     /// querySelector picks the nav link before any content link.
     /// </summary>
-    private static readonly Shared.GuidedTour.TourStep[] DashboardTour =
+    private static readonly Shared.GuidedTour.TourStep[] AdvancedTour =
     [
         new("1. Playlists",
             "Everything starts here: save a public link or import an account playlist. The checklists and downloads for each playlist live on its own page.",
@@ -803,6 +868,36 @@ else
             "The dashboard below walks through adding a playlist, downloading it and publishing it. Skip it with the button on the checklist; bring it back any time from Settings, About.",
             null),
     ];
+
+    private static readonly Shared.GuidedTour.TourStep[] SimpleTour =
+    [
+        new("1. Playlists",
+            "Save a public playlist link here. Everything starts with one playlist, and its page shows what is still missing.",
+            "a[href='/playlists']"),
+        new("2. Downloads",
+            "Open a playlist and press Download missing. The sources try in order until one delivers a file that passes the quality check.",
+            "a[href='/downloads']"),
+        new("3. Sources",
+            "Most people never need to change this. The shipped sources work out of the box; open it only when a source needs a login.",
+            "a[href='/plugins']"),
+        new("4. Settings",
+            "Set the music folder and choose a quality. Theme and account connections live here too.",
+            "a[href='/settings']"),
+        new("Next: the setup checklist",
+            "Add a playlist, download its tracks and you are done. Switch to Advanced any time in the sidebar when you need more tools.",
+            null),
+    ];
+
+    private IReadOnlyList<Shared.GuidedTour.TourStep> TourSteps
+        => IsSimple ? SimpleTour : AdvancedTour;
+
+    private async Task ChooseModeAsync(bool advanced)
+    {
+        if (_mode is null) return;
+        await _mode.SetAsync(advanced);
+        showModeChoice = false;
+        StateHasChanged();
+    }
 
     internal async Task RefreshStats(bool force = false)
     {
@@ -901,7 +996,7 @@ else
         // The intro hands over to the dashboard the moment setup is
         // complete; a checklist reopened from Settings keeps showing until
         // the user skips it.
-        if (showIntro && doneSteps == 3 && !_introRestarted)
+        if (showIntro && doneSteps == stepCount && !_introRestarted)
         {
             await Settings.SetAsync("intro_dismissed", "true");
             showIntro = false;
@@ -976,6 +1071,7 @@ else
     {
         _disposed = true;
         MediaProbe.Changed -= OnMediaStatusChanged;
+        if (_mode is not null) _mode.Changed -= OnModeChanged;
         _timer?.Dispose();
     }
 }
