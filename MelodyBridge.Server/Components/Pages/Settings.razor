@@ -5,6 +5,7 @@
 @using MelodyBridge.Infrastructure.Cloudflare
 @using MelodyBridge.Infrastructure.Services
 @using MelodyBridge.Server.Services
+@using Microsoft.Extensions.DependencyInjection
 @inject IDbContextFactory<MelodyBridgeDbContext> DbFactory
 @inject LogExporter Exporter
 @inject NavigationManager Nav
@@ -24,6 +25,7 @@
 @inject NotificationService Notifications
 @inject IMediaServerDirectoryFactory DirectoryFactory
 @inject IJSRuntime JS
+@inject IServiceProvider Services
 @implements IDisposable
 
 <PageTitle>Settings - MelodyBridge</PageTitle>
@@ -534,71 +536,20 @@ else if (activeTab == "paths")
                 </div>
             </div>
             <div class="hint-box">
-                Each track is fetched once. The default archive below is the
-                original second copy; extra profiles add more local copies in
+                Every track is fetched once. The default profile is the copy
+                playlists can override; extra profiles add more local copies in
                 their own formats, for example Opus 128 and MP3 160. A profile
                 only costs disk space and ffmpeg CPU, never another download.
             </div>
-            <div class="form-grid single">
-                <label>
-                    Archive path
-                    <span class="path-field">
-                        <input @bind="archivePath" @bind:after="ValidatePaths" placeholder="/archive-music"
-                               aria-invalid="@(archivePathWarning is { Length: > 0 } ? "true" : null)"
-                               aria-describedby="@(archivePathWarning is { Length: > 0 } ? "archive-path-warning" : null)" />
-                        @if (playlistFolders && !string.IsNullOrWhiteSpace(archivePath))
-                        {
-                            <span class="path-suffix" title="Added to every playlist's own archive folder name">{playlist}</span>
-                        }
-                        <FolderBrowseButton Value="@archivePath" ValueChanged="@SetArchivePath" Label="the archive folder" />
-                    </span>
-                    @if (archivePathWarning is { Length: > 0 })
-                    {
-                        <small class="text-warn" id="archive-path-warning">@archivePathWarning</small>
-                    }
-                    <small class="text-muted">
-                        Leave empty for no archive copy. Playlists can set their own path on
-                        their page. Changing this path moves the existing archive copies
-                        when you save.
-                    </small>
-                </label>
-                <label>
-                    Archive format
-                    <select value="@archiveFormatChoice" @onchange="OnArchiveFormatChoiceChanged">
-                        @foreach (var option in ArchiveFormatOptions)
-                        {
-                            <option value="@option.Value">@option.Label</option>
-                        }
-                    </select>
-                </label>
-                @if (archiveFormatChoice == "custom")
-                {
-                    <label>
-                        Custom archive container
-                        <input @bind="archiveFormatCustom" @bind:after="OnArchiveCustomFormatChanged"
-                               placeholder="ogg" />
-                    </label>
-                }
-            </div>
-            @if (archiveFormatChoice == "custom")
-            {
-                <div class="hint-box">
-                    Any container ffmpeg can write, for example ogg, wav, m4a or aiff.
-                    Add a codec with a colon for a specific encoder, for example
-                    <code>m4a:alac</code>. Without one, ffmpeg picks the container's
-                    default. A format ffmpeg cannot write leaves a warning on the track.
-                </div>
-            }
             <div class="archive-profiles">
                 <div class="archive-profiles-head">
                     <div>
-                        <span class="eyebrow">Extra copies</span>
+                        <span class="eyebrow">Profiles</span>
                         <h3>Archive profiles</h3>
                         <p>
-                            Every enabled profile gets a copy of every downloaded
-                            track. Playlist archive switches turn all copies off
-                            for that playlist; the folder and format overrides on
-                            a playlist apply to the default archive only.
+                            The default is the archive every playlist uses unless
+                            it overrides the folder. Extra profiles add one copy
+                            each, in their own folder and format.
                         </p>
                     </div>
                     <button class="btn-modern small secondary" @onclick="OpenNewArchiveProfile">
@@ -606,6 +557,75 @@ else if (activeTab == "paths")
                     </button>
                 </div>
 
+                <div class="archive-profile-list">
+                    <div class="archive-profile-row default @(showDefaultArchiveEditor ? "editing" : "")">
+                        <div class="archive-profile-copy">
+                            <strong>
+                                Default archive
+                                <span class="archive-default-badge">default</span>
+                            </strong>
+                            <small>@(string.IsNullOrWhiteSpace(archivePath) ? "No archive copy configured" : archivePath)</small>
+                            <span class="archive-profile-format">@ArchiveFormatText(archiveFormat)</span>
+                        </div>
+                        <button class="btn-modern small ghost" @onclick="() => showDefaultArchiveEditor = !showDefaultArchiveEditor">
+                            @(showDefaultArchiveEditor ? "Close" : string.IsNullOrWhiteSpace(archivePath) ? "Set up" : "Edit")
+                        </button>
+                    </div>
+                    @if (showDefaultArchiveEditor)
+                    {
+                        <div class="archive-default-editor">
+                            <div class="form-grid single">
+                                <label>
+                                    Default archive path
+                                    <span class="path-field">
+                                        <input @bind="archivePath" @bind:after="ValidatePaths" placeholder="/archive-music"
+                                               aria-invalid="@(archivePathWarning is { Length: > 0 } ? "true" : null)"
+                                               aria-describedby="@(archivePathWarning is { Length: > 0 } ? "archive-path-warning" : null)" />
+                                        @if (playlistFolders && !string.IsNullOrWhiteSpace(archivePath))
+                                        {
+                                            <span class="path-suffix" title="Added to every playlist's own archive folder name">{playlist}</span>
+                                        }
+                                        <FolderBrowseButton Value="@archivePath" ValueChanged="@SetArchivePath" Label="the archive folder" />
+                                    </span>
+                                    @if (archivePathWarning is { Length: > 0 })
+                                    {
+                                        <small class="text-warn" id="archive-path-warning">@archivePathWarning</small>
+                                    }
+                                    <small class="text-muted">
+                                        Leave empty for no default archive copy. Playlists can
+                                        override this folder on their own page. Changing it here
+                                        moves the existing default copies when you save.
+                                    </small>
+                                </label>
+                                <label>
+                                    Default archive format
+                                    <select value="@archiveFormatChoice" @onchange="OnArchiveFormatChoiceChanged">
+                                        @foreach (var option in ArchiveFormatOptions)
+                                        {
+                                            <option value="@option.Value">@option.Label</option>
+                                        }
+                                    </select>
+                                </label>
+                                @if (archiveFormatChoice == "custom")
+                                {
+                                    <label>
+                                        Custom archive container
+                                        <input @bind="archiveFormatCustom" @bind:after="OnArchiveCustomFormatChanged"
+                                               placeholder="ogg" />
+                                    </label>
+                                }
+                            </div>
+                            @if (archiveFormatChoice == "custom")
+                            {
+                                <div class="hint-box">
+                                    Any container ffmpeg can write, for example ogg, wav, m4a or aiff.
+                                    Add a codec with a colon for a specific encoder, for example
+                                    <code>m4a:alac</code>. Without one, ffmpeg picks the container's
+                                    default. A format ffmpeg cannot write leaves a warning on the track.
+                                </div>
+                            }
+                        </div>
+                    }
                 @if (ArchiveBackfill.IsRunning || ArchiveBackfill.Progress.Total > 0)
                 {
                     <div class="archive-backfill">
@@ -641,7 +661,6 @@ else if (activeTab == "paths")
                 }
                 else
                 {
-                    <div class="archive-profile-list">
                         @foreach (var profile in archiveProfiles)
                         {
                             <div class="archive-profile-row @(profile.Enabled ? "" : "disabled")">
@@ -677,10 +696,9 @@ else if (activeTab == "paths")
                                 </button>
                             </div>
                         }
-                    </div>
                 }
             </div>
-
+            </div>
             <MountWarning />
             <div class="hint-box">
                 New downloads land under the music path, M3U files go to the
@@ -952,6 +970,37 @@ else if (activeTab == "about")
             </div>
         </div>
     </section>
+
+    @if (_mode is not null)
+    {
+        <section class="settings-card about-card">
+            <div class="settings-head">
+                <div>
+                    <span class="eyebrow">Interface</span>
+                    <h2>Simple or advanced</h2>
+                </div>
+            </div>
+            <div class="settings-section">
+                <p class="panel-description">
+                    Simple keeps the sidebar focused on playlists and downloads.
+                    Advanced shows the library, sync jobs, diagnostics and every setting.
+                    You can switch any time from the sidebar too.
+                </p>
+                <div class="theme-choice" role="radiogroup" aria-label="Interface mode">
+                    <button type="button" class="theme-choice-option @(!_mode.IsAdvanced ? "active" : "")"
+                            role="radio" aria-checked="@(!_mode.IsAdvanced ? "true" : "false")"
+                            @onclick="() => SetModeAsync(false)">
+                        <Icon Name="eye" Size="16" /><span>Simple</span>
+                    </button>
+                    <button type="button" class="theme-choice-option @(_mode.IsAdvanced ? "active" : "")"
+                            role="radio" aria-checked="@(_mode.IsAdvanced ? "true" : "false")"
+                            @onclick="() => SetModeAsync(true)">
+                        <Icon Name="sliders" Size="16" /><span>Advanced</span>
+                    </button>
+                </div>
+            </div>
+        </section>
+    }
 
     <section class="settings-card about-card">
         <div class="settings-head">
@@ -1322,6 +1371,7 @@ else if (activeTab == "about")
     /// <summary>The container typed for a custom archive format.</summary>
     private string archiveFormatCustom = "";
     private List<ArchiveProfileEntity> archiveProfiles = new();
+    private bool showDefaultArchiveEditor;
     private bool showArchiveProfileEditor;
     private ArchiveProfileEntity? archiveDraft;
     private string archiveDraftContainer = "opus";
@@ -1375,6 +1425,7 @@ else if (activeTab == "about")
     // About tab
     private UpdateCheckResult? updateResult;
     private bool checkingUpdate;
+    private UiModeService? _mode;
     private bool updateCheckEnabled = true;
 
     /// <summary>Manual result first, then whatever the daily check found.</summary>
@@ -1402,6 +1453,12 @@ else if (activeTab == "about")
         if (fragment == "connections") fragment = "media-servers";
         if (Tabs.Any(t => t.Id == fragment)) activeTab = fragment;
         Nav.LocationChanged += OnLocationChanged;
+        _mode = Services.GetService<UiModeService>();
+        if (_mode is not null)
+        {
+            await _mode.EnsureLoadedAsync();
+            _mode.Changed += OnModeChanged;
+        }
 
         profiles = (await ServerProfiles.GetAllAsync()).ToList();
         archiveProfiles = (await ArchiveProfiles.GetAllAsync()).ToList();
@@ -2510,6 +2567,18 @@ else if (activeTab == "about")
         }
     }
 
+    private void OnModeChanged() => _ = InvokeAsync(StateHasChanged);
+
+    private async Task SetModeAsync(bool advanced)
+    {
+        if (_mode is null) return;
+        await _mode.SetAsync(advanced);
+        Notifications.Success(advanced
+            ? "Advanced mode is on. Every tool is in the sidebar."
+            : "Simple mode is on. Only the everyday tools are in the sidebar.");
+        StateHasChanged();
+    }
+
     private async Task RestartTour()
     {
         await TourReset.SetAsync("tour_dismissed", "false");
@@ -2585,6 +2654,7 @@ else if (activeTab == "about")
     {
         Nav.LocationChanged -= OnLocationChanged;
         ArchiveBackfill.Changed -= OnArchiveBackfillChanged;
+        if (_mode is not null) _mode.Changed -= OnModeChanged;
     }
 
     private void OnArchiveBackfillChanged()

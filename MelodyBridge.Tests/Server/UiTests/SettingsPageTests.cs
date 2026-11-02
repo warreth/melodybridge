@@ -57,12 +57,71 @@ public class SettingsPageTests
     }
 
     [Test]
+    public void PathsTab_ShowsTheDefaultArchiveAsAProfile()
+    {
+        var cut = _ctx.Render<Settings>();
+        cut.Find("button[data-tab='paths']").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            var row = cut.Find(".archive-profile-row.default");
+            Assert.That(row.TextContent, Does.Contain("Default archive"));
+            Assert.That(row.TextContent, Does.Contain("default"));
+            Assert.That(row.TextContent, Does.Contain("No archive copy configured"));
+        }, TimeSpan.FromSeconds(3));
+
+        cut.Find(".archive-profile-row.default button").Click();
+        cut.WaitForAssertion(() => Assert.That(cut.Markup, Does.Contain("Default archive path")));
+    }
+
+    [Test]
+    public async Task InterfaceMode_FollowsASidebarSwitch()
+    {
+        var cut = _ctx.Render<Settings>();
+        await cut.InvokeAsync(() => cut.Find("button[data-tab='about']").Click());
+        var mode = _ctx.Services.GetRequiredService<MelodyBridge.Server.Services.UiModeService>();
+
+        await mode.SetAsync(advanced: false);
+
+        cut.WaitForAssertion(() =>
+        {
+            var simple = cut.FindAll(".theme-choice[aria-label='Interface mode'] .theme-choice-option")
+                .Single(option => option.TextContent.Contains("Simple"));
+            Assert.That(simple.GetAttribute("class"), Does.Contain("active"));
+            Assert.That(simple.GetAttribute("aria-checked"), Is.EqualTo("true"));
+        }, TimeSpan.FromSeconds(3));
+    }
+
+    [Test]
+    public async Task InterfaceMode_CanSwitchToSimple()
+    {
+        var cut = _ctx.Render<Settings>();
+        await cut.InvokeAsync(() => cut.Find("button[data-tab='about']").Click());
+
+        var mode = cut.Find(".theme-choice[aria-label='Interface mode']");
+        var simple = mode.QuerySelectorAll(".theme-choice-option")
+            .Single(option => option.TextContent.Contains("Simple"));
+        await cut.InvokeAsync(() => simple.Click());
+
+        cut.WaitForAssertion(() =>
+        {
+            using var db = _ctx.Services
+                .GetRequiredService<IDbContextFactory<MelodyBridgeDbContext>>()
+                .CreateDbContext();
+            Assert.That(db.DownloaderSettings
+                    .Single(s => s.Key == "ui_mode").Value,
+                Is.EqualTo("simple"));
+        }, TimeSpan.FromSeconds(3));
+    }
+
+    [Test]
     public async Task PathsTab_CustomArchiveContainer_Saves()
     {
         var cut = _ctx.Render<Settings>();
         await cut.InvokeAsync(() => cut.Find("button[data-tab='paths']").Click());
+        cut.Find(".archive-profile-row.default button").Click();
         cut.WaitForAssertion(() =>
-            Assert.That(cut.Markup, Does.Contain("Archive format")));
+            Assert.That(cut.Markup, Does.Contain("Default archive format")));
 
         cut.FindAll("select")
             .Single(select => select.TextContent.Contains("Custom container"))
@@ -128,12 +187,12 @@ public class SettingsPageTests
         var cut = _ctx.Render<Settings>();
         await cut.InvokeAsync(() => cut.Find("button[data-tab='about']").Click());
 
-        var options = cut.FindAll(".theme-choice-option");
+        var options = cut.FindAll(".theme-choice[aria-label='Theme'] .theme-choice-option");
         Assert.That(options.Select(option => option.TextContent.Trim()),
             Is.EquivalentTo(new[] { "Light", "Dark", "Auto" }));
 
         await cut.InvokeAsync(() => options.Single(option => option.TextContent.Contains("Dark")).Click());
-        var dark = cut.FindAll(".theme-choice-option")
+        var dark = cut.FindAll(".theme-choice[aria-label='Theme'] .theme-choice-option")
             .Single(option => option.TextContent.Contains("Dark"));
 
         Assert.Multiple(() =>
@@ -934,7 +993,7 @@ public class SettingsPageTests
 
         cut.WaitForAssertion(() =>
         {
-            var theme = cut.FindAll(".theme-choice-option.active").Single();
+            var theme = cut.FindAll(".theme-choice[aria-label='Theme'] .theme-choice-option.active").Single();
             Assert.That(theme.TextContent.Trim(), Is.EqualTo("Dark"),
                 "a direct #about request still shows the stored theme");
             var accent = cut.FindAll("button.accent-swatch.active").Single();

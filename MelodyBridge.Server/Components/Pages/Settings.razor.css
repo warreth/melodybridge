@@ -354,3 +354,27 @@
 }
 
 .archive-profile-modal { width: min(560px, calc(100vw - 2rem)); }
+
+.archive-profile-row.default {
+    border-color: color-mix(in srgb, var(--accent) 28%, var(--border));
+    background: var(--surface);
+}
+.archive-default-badge {
+    margin-left: .35rem;
+    padding: .02rem .34rem;
+    border-radius: 999px;
+    background: var(--accent-soft);
+    color: var(--accent-text);
+    font-size: .62rem;
+    font-weight: 700;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+}
+.archive-default-editor {
+    display: grid;
+    gap: .65rem;
+    padding: .75rem;
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    background: var(--surface-2);
+}
