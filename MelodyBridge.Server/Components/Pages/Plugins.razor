@@ -77,17 +77,23 @@
     var plan = RoutePlan;
     var enabledPlugins = EnabledPlugins;
 }
-<section class="panel-card source-order">
-    <div class="source-order-head">
-        <div>
-            <span class="eyebrow">Try order</span>
-            <h2>Which source is tried first?</h2>
-            <p class="panel-description">
-                Move a source up or down with the arrows. Disabled sources are
-                skipped. A quality preset can reorder the actual try sequence
-                by capability, which is what the preview below shows.
-            </p>
-        </div>
+<details class="panel-card source-order">
+    <summary class="source-order-head">
+        <span class="source-order-title">
+            <span class="eyebrow">Advanced</span>
+            <strong class="source-order-heading">Source order and quality</strong>
+            <span class="panel-description">
+                Change which source is tried first, or preview how a quality
+                request reorders them. The shipped order works for most setups.
+            </span>
+        </span>
+        <span class="source-order-count">
+            @enabledPlugins.Count enabled
+            <Icon Name="chevron-down" Size="16" Class="source-order-chevron" />
+        </span>
+    </summary>
+
+    <div class="source-order-body">
         <div class="source-order-preview-control">
             <label for="route-preset">Preview quality</label>
             <select id="route-preset" class="route-select" aria-label="Preview a quality"
@@ -98,7 +104,6 @@
                 }
             </select>
         </div>
-    </div>
 
     @if (enabledPlugins.Count == 0)
     {
@@ -196,24 +201,25 @@
             </p>
         }
     </div>
-</section>
 
-<section class="panel-card dependency-strip">
-    <div class="dependency-row">
-        <span class="dependency-icon"><Icon Name="play" Size="16" /></span>
-        <div class="dependency-copy">
-            <strong>yt-dlp @(ytDlpChecked ? ytDlpVersion ?? "not found" : "checking…")</strong>
-            <small>Shared by the YouTube and SoundCloud plugins. Updates stay until the next image pull.</small>
+    <section class="panel-card dependency-strip">
+        <div class="dependency-row">
+            <span class="dependency-icon"><Icon Name="play" Size="16" /></span>
+            <div class="dependency-copy">
+                <strong>yt-dlp @(ytDlpChecked ? ytDlpVersion ?? "not found" : "checking…")</strong>
+                <small>Shared by the YouTube and SoundCloud plugins. Updates stay until the next image pull.</small>
+            </div>
+            <button class="btn-modern small ghost" disabled="@updatingYtDlp" @onclick="UpdateYtDlp">
+                <Icon Name="refresh" Size="14" /> @(updatingYtDlp ? "Updating…" : "Update")
+            </button>
         </div>
-        <button class="btn-modern small ghost" disabled="@updatingYtDlp" @onclick="UpdateYtDlp">
-            <Icon Name="refresh" Size="14" /> @(updatingYtDlp ? "Updating…" : "Update")
-        </button>
+        @if (!string.IsNullOrWhiteSpace(ytDlpMessage))
+        {
+            <div class="hint-box">@ytDlpMessage</div>
+        }
+    </section>
     </div>
-    @if (!string.IsNullOrWhiteSpace(ytDlpMessage))
-    {
-        <div class="hint-box">@ytDlpMessage</div>
-    }
-</section>
+</details>
 
 <section class="plugin-toolbar" aria-label="Plugin filters">
     <label class="plugin-search">

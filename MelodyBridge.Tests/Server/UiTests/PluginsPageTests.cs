@@ -100,6 +100,24 @@ public class PluginsPageTests
     }
 
     [Test]
+    public void SourceOrder_StartsCollapsedAndCarriesTheCount()
+    {
+        var cut = _ctx.Render<Plugins>();
+
+        cut.WaitForAssertion(() =>
+        {
+            var order = cut.Find("details.source-order");
+            Assert.That(order.HasAttribute("open"), Is.False,
+                "the advanced source order starts out of the way");
+            Assert.That(order.TextContent, Does.Contain("Source order and quality"));
+            Assert.That(order.TextContent, Does.Contain("2 enabled"));
+            var summary = order.QuerySelector("summary")!;
+            Assert.That(summary.QuerySelectorAll("div, h2, p, section"), Is.Empty,
+                "summary only accepts phrasing content, so no block elements inside it");
+        }, TimeSpan.FromSeconds(3));
+    }
+
+    [Test]
     public void Plugins_SearchAndLoginFilter_NarrowTheList()
     {
         var cut = _ctx.Render<Plugins>();
