@@ -44,19 +44,19 @@
     </div>
     @if (_mode is not null)
     {
-        <div class="nav-section nav-mode-section">
-            <div class="nav-mode-copy">
+        <button type="button" class="nav-section nav-mode-section" role="switch"
+                aria-checked="@(!_advanced ? "true" : "false")"
+                aria-label="Simple mode"
+                title="@(_advanced ? "Switch to the simpler interface" : "Show every tool and setting")"
+                @onclick="ToggleModeAsync">
+            <span class="nav-mode-copy">
                 <span class="nav-mode-title">Simple mode</span>
                 <small>@(_advanced ? "Off, all tools visible" : "On, only the basics")</small>
-            </div>
-            <button type="button" class="nav-mode-switch" role="switch"
-                    aria-checked="@(!_advanced ? "true" : "false")"
-                    aria-label="Simple mode"
-                    title="@(_advanced ? "Switch to the simpler interface" : "Show every tool and setting")"
-                    @onclick="ToggleModeAsync">
+            </span>
+            <span class="nav-mode-switch" aria-hidden="true">
                 <span class="nav-mode-slider"></span>
-            </button>
-        </div>
+            </span>
+        </button>
     }
 </nav>
 

@@ -105,10 +105,12 @@ public class NavMenuActiveStateTests
             Assert.That(nav.FindAll("a[href='/advanced']"), Is.Empty);
             Assert.That(nav.FindAll("a[href='/logs']"), Is.Empty);
             Assert.That(nav.FindAll("a[href='/playlists']"), Has.Count.EqualTo(1));
-            Assert.That(nav.Find("button.nav-mode-switch").GetAttribute("aria-checked"), Is.EqualTo("true"));
+            Assert.That(nav.Find("button.nav-mode-section").GetAttribute("aria-checked"), Is.EqualTo("true"));
+            Assert.That(nav.Find("button.nav-mode-section").GetAttribute("role"), Is.EqualTo("switch"),
+                "the whole sidebar row is the switch, not only the small knob");
         }, TimeSpan.FromSeconds(3));
 
-        nav.Find("button.nav-mode-switch").Click();
+        nav.Find("button.nav-mode-section").Click();
 
         nav.WaitForAssertion(() =>
         {
@@ -116,7 +118,7 @@ public class NavMenuActiveStateTests
             Assert.That(nav.FindAll("a[href='/sync-jobs']"), Has.Count.EqualTo(1));
             Assert.That(nav.FindAll("a[href='/advanced']"), Has.Count.EqualTo(1));
             Assert.That(nav.FindAll("a[href='/logs']"), Has.Count.EqualTo(1));
-            Assert.That(nav.Find("button.nav-mode-switch").GetAttribute("aria-checked"), Is.EqualTo("false"));
+            Assert.That(nav.Find("button.nav-mode-section").GetAttribute("aria-checked"), Is.EqualTo("false"));
         }, TimeSpan.FromSeconds(3));
     }
 
