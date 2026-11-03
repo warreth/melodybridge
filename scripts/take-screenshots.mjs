@@ -63,6 +63,7 @@ const ROUTES = [
   ['/sync-jobs', 'sync-quick', { clickText: 'New sync job', waitFor: '.job-quick-modal', prepare: 'sync-quick' }],
   ['/sync-jobs', 'sync-profiles', { clickText: 'Rule profiles', waitFor: '.sync-profiles' }],
   ['/settings', 'settings'],
+  ['/settings', 'settings-appearance', { clickText: 'Appearance', waitFor: 'text=Theme and color' }],
   ['/settings', 'settings-paths', { clickText: 'Default paths', waitFor: 'text=Archive profiles' }],
   ['/settings', 'settings-archives', { clickText: 'Default paths', waitFor: 'text=Archive profiles', scrollTo: '.archive-profiles' }],
   ['/logs', 'logs'],

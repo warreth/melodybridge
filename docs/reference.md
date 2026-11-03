@@ -175,17 +175,25 @@ one message with the values on screen, even with the enable toggle off. Messages
 include track names, and delivery is best effort, so a dead ntfy server never
 stalls a download or a scan.
 
+### Appearance
+
+<img src="/screens/settings-appearance.webp" alt="Appearance tab with Light, Dark and Auto plus the nine accent colors and the interface mode switch" width="800">
+
+The Appearance tab holds the look of the app. **Theme** offers Light, Dark or
+Auto, where Auto follows your device. The accent picker offers nine palettes:
+teal, cyan, blue, green, violet, rose, orange, amber and slate. Each swatch
+carries its name, and the choice colors tabs, buttons, highlights and the
+guided tour. **Interface** switches between **Simple**, which keeps the sidebar
+to the everyday tools, and **Advanced**, which also shows the library,
+diagnostics and logs. Simple also starts the plugin page in rows and trims the
+dashboard and attention page. A first install asks for the mode; the same
+switch sits at the bottom of the sidebar. Theme and accent are stored in this
+browser only.
+
 ### About
 
-App version and **Check for updates**, a button to replay the guided tour, the
-interface mode and the appearance section. **Interface** switches between
-**Simple**, which keeps the sidebar to playlists, downloads, attention, sources,
-sync jobs and settings, and **Advanced**, which also shows the library,
-diagnostics and logs. Simple also trims the dashboard, attention and plugin
-pages to their everyday controls. A first install asks for the mode; the same switch sits at the bottom of the
-sidebar. **Theme** offers Light, Dark or Auto: Auto follows your device and
-switches with it. The accent picker below it colors tabs, buttons and
-highlights, the guided tour included. Both are stored in this browser only.
+App version and **Check for updates**, a button to replay the guided tour, and
+the database backup.
 
 MelodyBridge checks GitHub once a day for a newer release and adds a notification
 with a link to the notes when one exists. After an upgrade it opens that
@@ -494,9 +502,10 @@ settings**. Everything else needs no subscription; a companion tool or container
 (yt-dlp, slskd, FlareSolverr for Lucida) is named on the card. The search box and
 the **All**, **Accounts**, **Free** and **Problems** filters narrow the cards,
 and the count says how many each filter would show. **Problems** includes
-unavailable sources and stored logins that stopped working. Simple mode hides
-the filters and the routing panel, uses a single compact source list, and keeps
-only the enable toggle and the setup row.
+unavailable sources and stored logins that stopped working. The **Cards** and
+**Rows** switch changes the layout and remembers the choice. Simple mode starts
+in Rows; Advanced starts in Cards. Both keep the same filters, routing panel,
+quality badges and setup controls.
 
 The **Search routing** panel inside **Routing and tools** shows where each
 source gets its track. A provider row names the data

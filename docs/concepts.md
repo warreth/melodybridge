@@ -11,12 +11,13 @@ A first install asks how you want to use the app. **Simple** keeps the sidebar
 to the everyday path: playlists, downloads, attention, sources, sync jobs and
 settings. The setup checklist has two steps and the publishing tools stay out of
 the way. Its dashboard keeps the library counters and playlists, the attention
-page becomes one summary and one fix button, and the plugins page becomes a
-single compact source list. **Advanced** shows the library, diagnostics, logs and
-every setting.
+page becomes one summary and one fix button, and the plugins page starts in
+compact rows. **Advanced** shows the library, diagnostics, logs and every
+setting, and starts the plugins page as cards. Both modes use the same plugin
+controls and can switch between rows and cards.
 
 The choice is a starting point, not a lock. Switch any time from the mode switch
-at the bottom of the sidebar or from Settings, About. Direct links to a hidden
+at the bottom of the sidebar or from Settings, Appearance. Direct links to a hidden
 page still work, so a bookmark or an existing link never breaks.
 
 ## From link to library

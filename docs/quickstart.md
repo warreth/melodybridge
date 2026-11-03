@@ -36,7 +36,7 @@ On the first start MelodyBridge asks whether you want the simple or the advanced
 interface. Simple keeps the app to playlists, downloads, attention, sources and
 a basic sync jobs page, and gives you a two-step checklist. Advanced exposes the
 library, diagnostics and every setting. You can switch at any time from the
-switch at the bottom of the sidebar or from Settings, About.
+switch at the bottom of the sidebar or from Settings, Appearance.
 
 <div class="steps">
 <div class="step" data-step="1">
