@@ -24,9 +24,7 @@
             <h1>Plugins</h1>
             <HelpTip Path="concepts#the-waterfall" Text="Set up your sources here. Downloads try the enabled sources in the order below." />
         </div>
-        <p>@(IsSimple
-            ? "Choose the sources MelodyBridge may use. Turn on the ones you trust and add any login they need."
-            : "Choose the sources MelodyBridge may use. Turn on the ones you trust, then tune routing only when you need to.")</p>
+        <p>Choose the sources MelodyBridge may use. Turn on the ones you trust, then tune routing only when you need to.</p>
     </div>
     <div class="topbar-actions">
         <a class="btn-modern small secondary" href="/downloads">
@@ -36,14 +34,11 @@
         <button class="btn-modern small ghost" disabled="@refreshingStatus" @onclick="RefreshAvailabilityAsync" title="Probe every plugin again">
             <Icon Name="refresh" Size="14" /> @(refreshingStatus ? "Checking…" : "Refresh status")
         </button>
-        @if (!IsSimple)
-        {
-            <button class="btn-modern small @(showAdvancedTools ? "primary" : "ghost")"
-                    aria-pressed="@(showAdvancedTools ? "true" : "false")"
-                    @onclick="ToggleAdvancedToolsAsync">
-                <Icon Name="sliders" Size="14" /> Routing and tools
-            </button>
-        }
+        <button class="btn-modern small @(showAdvancedTools ? "primary" : "ghost")"
+                aria-pressed="@(showAdvancedTools ? "true" : "false")"
+                @onclick="ToggleAdvancedToolsAsync">
+            <Icon Name="sliders" Size="14" /> Routing and tools
+        </button>
     </div>
 </section>
 
@@ -84,7 +79,7 @@
     </section>
 }
 
-@if (!IsSimple && showAdvancedTools)
+@if (showAdvancedTools)
 {
     var plan = RoutePlan;
     var enabledPlugins = EnabledPlugins;
@@ -239,24 +234,33 @@
         <input type="search" placeholder="Find a plugin…" aria-label="Find a plugin"
                value="@pluginSearch" @oninput="OnPluginSearch" />
     </label>
-    @if (!IsSimple)
-    {
-        <div class="filter-chips">
-            @foreach (var filter in PluginFilters)
-            {
-                <button class="filter-chip @(pluginFilter == filter.Id ? "active" : "")"
-                        aria-pressed="@(pluginFilter == filter.Id ? "true" : "false")"
-                        @onclick="() => SetPluginFilter(filter.Id)">
-                    @filter.Label
-                    <span class="filter-count">@filter.Count</span>
-                </button>
-            }
-        </div>
-        <span class="plugin-count">@FilteredPlugins.Count of @orderedPlugins.Count</span>
-    }
+    <div class="filter-chips">
+        @foreach (var filter in PluginFilters)
+        {
+            <button class="filter-chip @(pluginFilter == filter.Id ? "active" : "")"
+                    aria-pressed="@(pluginFilter == filter.Id ? "true" : "false")"
+                    @onclick="() => SetPluginFilter(filter.Id)">
+                @filter.Label
+                <span class="filter-count">@filter.Count</span>
+            </button>
+        }
+    </div>
+    <div class="view-switch" role="group" aria-label="Plugin layout">
+        <button class="view-chip @(pluginsView == "cards" ? "on" : null)" title="Card view"
+                aria-pressed="@(pluginsView == "cards" ? "true" : "false")"
+                @onclick='() => SetPluginsView("cards")'>
+            <Icon Name="layout-grid" Size="15" /> <span>Cards</span>
+        </button>
+        <button class="view-chip @(pluginsView == "rows" ? "on" : null)" title="Compact rows"
+                aria-pressed="@(pluginsView == "rows" ? "true" : "false")"
+                @onclick='() => SetPluginsView("rows")'>
+            <Icon Name="rows" Size="15" /> <span>Rows</span>
+        </button>
+    </div>
+    <span class="plugin-count">@FilteredPlugins.Count of @orderedPlugins.Count</span>
 </section>
 
-<section class="plugin-groups @(IsSimple ? "simple" : null)">
+<section class="plugin-groups @pluginsView">
     @if (VisibleGroups.Count == 0)
     {
         <EmptyState IconName="search" Title="No plugins match">
@@ -385,15 +389,12 @@
                                 }
                             </div>
                         </div>
-                        @if (!IsSimple)
-                        {
-                            <div class="plugin-quality">
-                                @foreach (var badge in QualityBadges(plugin))
-                                {
-                                    <span class="quality-badge">@badge</span>
-                                }
-                            </div>
-                        }
+                        <div class="plugin-quality">
+                            @foreach (var badge in QualityBadges(plugin))
+                            {
+                                <span class="quality-badge">@badge</span>
+                            }
+                        </div>
                         @if (open)
                         {
                             <div class="plugin-settings open">
@@ -403,26 +404,23 @@
                                             <div class="plugin-note @(authProblem || auth?.State == PluginAuthState.PlanRestricted ? "auth" : null)">
                                                 <Icon Name="@(authProblem ? "alert" : "info")" Size="15" />
                                                 <span>@note</span>
-                                                @if (!IsSimple)
-                                                {
-                                                    <button class="btn-modern small ghost plugin-note-action"
-                                                            @onclick="() => CopyDiagnosticsAsync(plugin)">
-                                                        <Icon Name="copy" Size="13" /> Copy diagnostics
-                                                    </button>
-                                                }
+                                                <button class="btn-modern small ghost plugin-note-action"
+                                                        @onclick="() => CopyDiagnosticsAsync(plugin)">
+                                                    <Icon Name="copy" Size="13" /> Copy diagnostics
+                                                </button>
                                             </div>
                                         }
                                         @if (plugin.ConfigFields.Count > 0)
                                         {
                                             var advancedOnly = plugin.ConfigFields.All(f => f.Advanced);
-                                            @foreach (var field in plugin.ConfigFields.Where(f => !f.Advanced || advancedOnly && !IsSimple))
+                                            @foreach (var field in plugin.ConfigFields.Where(f => !f.Advanced || advancedOnly))
                                             {
                                                 var key = $"{plugin.Id}:{field.Key}";
                                                 <PluginConfigFieldEditor PluginId="@plugin.Id" Field="@field"
                                                     Value="@configValues.GetValueOrDefault(key, "")"
                                                     ValueChanged="@(v => ConfigChanged(key, v))" />
                                             }
-                                            @if (!IsSimple && !advancedOnly && plugin.ConfigFields.Any(f => f.Advanced))
+                                            @if (!advancedOnly && plugin.ConfigFields.Any(f => f.Advanced))
                                             {
                                                 var advanced = advancedSettings.Contains(plugin.Id);
                                                 <button type="button" class="advanced-toggle" aria-expanded="@advanced"
@@ -457,21 +455,12 @@
     }
 </section>
 
-@if (!IsSimple && showAdvancedTools)
+@if (showAdvancedTools)
 {
     <SearchProviderPanel />
 }
 
-@if (IsSimple)
-{
-    <section class="panel-card plugins-simple-note">
-        <div>
-            <strong>Need source order or routing?</strong>
-            <span>Switch to Advanced mode for quality routing, the search map and per-source ordering.</span>
-        </div>
-        <button class="btn-modern ghost small" @onclick="SwitchToAdvancedAsync">Open Advanced mode</button>
-    </section>
-}
+
 
 @code {
     /// <summary>Availability verdict per plugin plus why it is not ready.</summary>
@@ -493,6 +482,9 @@
     private UiModeService? _mode;
     private bool IsSimple;
     private bool showAdvancedTools;
+    private string pluginsView = "cards";
+    private bool viewChosen;
+    private SettingsStore? _settings;
     private readonly HashSet<string> configLoaded = new(StringComparer.OrdinalIgnoreCase);
     private IReadOnlyList<IDownloader>? filteredCache;
     private IReadOnlyList<PluginGroup>? groupsCache;
@@ -639,6 +631,20 @@
             _mode.Changed += OnModeChanged;
         }
 
+        _settings = Services.GetService<SettingsStore>();
+        var savedView = _settings is null
+            ? ""
+            : await _settings.GetAsync("plugins_view", "");
+        if (savedView is "cards" or "rows")
+        {
+            pluginsView = savedView;
+            viewChosen = true;
+        }
+        else
+        {
+            pluginsView = IsSimple ? "rows" : "cards";
+        }
+
         _ = Registry.GetEnabled(); // force cache load
         await ReorderPluginsAsync();
         // The background login sweep may already know about a stale token:
@@ -660,14 +666,18 @@
     {
         if (disposed || _mode is null) return;
         IsSimple = !_mode.IsAdvanced;
-        if (IsSimple) showAdvancedTools = false;
+        if (!viewChosen)
+            pluginsView = IsSimple ? "rows" : "cards";
         StateHasChanged();
     });
 
-    private async Task SwitchToAdvancedAsync()
+    private async Task SetPluginsView(string view)
     {
-        if (_mode is null) return;
-        await _mode.SetAsync(advanced: true);
+        if (view is not ("cards" or "rows") || pluginsView == view) return;
+        pluginsView = view;
+        viewChosen = true;
+        if (_settings is not null)
+            await _settings.SetAsync("plugins_view", view);
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)

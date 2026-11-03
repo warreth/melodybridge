@@ -93,7 +93,7 @@ public class PluginsPageTests
             .Click();
 
     [Test]
-    public void Plugins_SimpleMode_HidesRoutingFiltersAndTools()
+    public void Plugins_SimpleMode_DefaultsToRows()
     {
         using (var db = _dbFactory.CreateDbContext())
         {
@@ -113,12 +113,44 @@ public class PluginsPageTests
 
         cut.WaitForAssertion(() =>
         {
+            Assert.That(cut.Find(".plugin-groups").ClassList, Does.Contain("rows"));
+            Assert.That(cut.FindAll(".filter-chip"), Is.Not.Empty,
+                "simple mode keeps the same source filters as advanced");
             Assert.That(cut.FindAll("button").Any(button =>
-                button.TextContent.Contains("Routing and tools")), Is.False);
-            Assert.That(cut.FindAll(".filter-chip"), Is.Empty);
-            Assert.That(cut.FindAll("details.search-provider-map"), Is.Empty);
-            Assert.That(cut.Markup, Does.Contain("Need source order or routing?"));
+                button.TextContent.Contains("Routing and tools")), Is.True,
+                "routing stays available from the same page");
         }, TimeSpan.FromSeconds(5));
+    }
+
+    [Test]
+    public void Plugins_AdvancedMode_DefaultsToCards()
+    {
+        var cut = _ctx.Render<Plugins>();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.Find(".plugin-groups").ClassList, Does.Contain("cards"));
+        }, TimeSpan.FromSeconds(5));
+    }
+
+    [Test]
+    public async Task Plugins_ViewSwitch_PersistsTheChoice()
+    {
+        var cut = _ctx.Render<Plugins>();
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.FindAll(".plugin-card"), Is.Not.Empty), TimeSpan.FromSeconds(5));
+
+        var rows = cut.FindAll(".view-chip")
+            .Single(button => button.TextContent.Contains("Rows"));
+        await cut.InvokeAsync(() => rows.Click());
+
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Find(".plugin-groups").ClassList, Does.Contain("rows")));
+
+        using var db = _dbFactory.CreateDbContext();
+        Assert.That(db.DownloaderSettings.Any(setting =>
+            setting.Key == "plugins_view" && setting.Value == "rows"), Is.True,
+            "the manual choice is remembered");
     }
 
     [Test]

@@ -742,35 +742,21 @@
 }
 .source-order-body .source-order-preview-control { justify-self: start; }
 
-.plugins-simple-note {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
-    flex-wrap: wrap;
-    margin-top: 1.25rem;
-    padding: .9rem 1rem;
-}
-.plugins-simple-note div { display: grid; gap: .15rem; }
-.plugins-simple-note strong { font-size: .9rem; }
-.plugins-simple-note span { color: var(--muted); font-size: .82rem; line-height: 1.45; }
-
-/* Simple mode: one calm column of source rows, no comparison grid. */
-.plugin-groups.simple .plugin-list {
+/* Rows: the same source content in a single calm column, with the
+   description hidden so the name, status and actions stay scannable. */
+.plugin-groups.rows .plugin-list {
     grid-template-columns: minmax(0, 1fr);
+    gap: .35rem;
 }
-.plugin-groups.simple .plugin-group-head p { display: none; }
-.plugin-groups.simple .plugin-group-head { margin-bottom: .1rem; }
-.plugin-groups.simple .plugin-card { padding: .7rem .8rem; }
-.plugin-groups.simple .plugin-description {
-    display: block;
-    -webkit-line-clamp: unset;
-    overflow: visible;
-    max-width: 80ch;
-}
-.plugin-groups.simple .plugin-meta { margin-top: .15rem; }
-.plugin-groups.simple .plugin-card .plugin-test { display: none; }
-.plugin-groups.simple .plugin-settings { margin-top: .1rem; }
+.plugin-groups.rows .plugin-group-head p { display: none; }
+.plugin-groups.rows .plugin-group-head { margin-bottom: .1rem; }
+.plugin-groups.rows .plugin-card { padding: .6rem .75rem; gap: .35rem; }
+.plugin-groups.rows .plugin-description { display: none; }
+.plugin-groups.rows .plugin-account { margin-top: .05rem; }
+.plugin-groups.rows .plugin-meta { margin-top: .1rem; }
+.plugin-groups.rows .plugin-quality { margin-top: .05rem; }
+.plugin-groups.rows .quality-badge { font-size: .68rem; }
+.plugin-groups.rows .plugin-settings { margin-top: .1rem; }
 
 /* Manage stays a small tail action instead of a full-width row on every
    card. The detail panel opens below the card. */
