@@ -32,7 +32,9 @@ jobs:
   # suite is the cheap gate; the container suites below are the real one.
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # The fast suite plus restore and build takes just over 20 minutes on
+    # a cold runner. Leave room so a release is not cancelled mid-test.
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
 
