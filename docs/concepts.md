@@ -17,7 +17,7 @@ setting, and starts the plugins page as cards. Both modes use the same plugin
 controls and can switch between rows and cards.
 
 The choice is a starting point, not a lock. Switch any time from the mode switch
-at the bottom of the sidebar or from Settings, Appearance. Direct links to a hidden
+at the top of the sidebar or from Settings, Appearance. Direct links to a hidden
 page still work, so a bookmark or an existing link never breaks.
 
 ## From link to library

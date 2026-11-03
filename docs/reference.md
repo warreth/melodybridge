@@ -187,7 +187,7 @@ guided tour. **Interface** switches between **Simple**, which keeps the sidebar
 to the everyday tools, and **Advanced**, which also shows the library,
 diagnostics and logs. Simple also starts the plugin page in rows and trims the
 dashboard and attention page. A first install asks for the mode; the same
-switch sits at the bottom of the sidebar. Theme and accent are stored in this
+switch sits under the brand at the top of the sidebar. Theme and accent are stored in this
 browser only.
 
 ### About
