@@ -46,7 +46,7 @@ const themes = themeArg === 'both' ? ['light', 'dark'] : [themeArg]
 // clickSelector to open a panel, and a selector to capture just that panel.
 const ROUTES = [
   ['/', 'home'],
-  ['/attention', 'attention'],
+  ['/attention?kind=failed', 'attention'],
   ['/playlists', 'playlists'],
   [null, 'playlist-details'],
   [null, 'playlist-tracks', { scrollTo: 'table.track-table' }],
@@ -55,7 +55,7 @@ const ROUTES = [
   ['/library', 'library'],
   ['/plugins', 'plugins'],
   ['/plugins', 'plugins-routing', {
-    clickSelector: 'details.search-provider-map summary',
+    clickSelectors: ['button:has-text("Routing and tools")', 'details.search-provider-map summary'],
     selector: 'details.search-provider-map',
   }],
   ['/sync-jobs', 'sync'],
@@ -130,8 +130,10 @@ async function shootTheme(browser, theme) {
 
       if (opts?.clickText)
         await page.locator('button', { hasText: opts.clickText }).first().click()
-      if (opts?.clickSelector)
-        await page.locator(opts.clickSelector).first().click()
+      const clickSelectors = opts?.clickSelectors
+        ?? (opts?.clickSelector ? [opts.clickSelector] : [])
+      for (const selector of clickSelectors)
+        await page.locator(selector).first().click()
       if (opts?.checkFirstPlaylist)
         await page.locator('.publish-list').first()
           .locator('label.publish-option input[type=checkbox]').first().check()

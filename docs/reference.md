@@ -179,11 +179,12 @@ stalls a download or a scan.
 
 App version and **Check for updates**, a button to replay the guided tour, the
 interface mode and the appearance section. **Interface** switches between
-**Simple**, which keeps the sidebar to playlists, downloads, attention, sources
-and settings, and **Advanced**, which also shows the library, sync jobs,
-diagnostics and logs. A first install asks for the mode; the same switch sits at
-the bottom of the sidebar. **Theme** offers Light, Dark or Auto: Auto follows your
-device and switches with it. The accent picker below it colors tabs, buttons and
+**Simple**, which keeps the sidebar to playlists, downloads, attention, sources,
+sync jobs and settings, and **Advanced**, which also shows the library,
+diagnostics and logs. Simple also trims the dashboard, attention and plugin
+pages to their everyday controls. A first install asks for the mode; the same switch sits at the bottom of the
+sidebar. **Theme** offers Light, Dark or Auto: Auto follows your device and
+switches with it. The accent picker below it colors tabs, buttons and
 highlights, the guided tour included. Both are stored in this browser only.
 
 MelodyBridge checks GitHub once a day for a newer release and adds a notification
@@ -368,21 +369,27 @@ including `archive: <name>` chips for archive copies.
 
 ## The Needs attention page
 
-<img src="/screens/attention.webp" alt="Needs attention page with the automatic repair summary and grouped problems" width="800">
+<img src="/screens/attention.webp" alt="Needs attention page with the filter bar, the repair summary and the failed group" width="800">
 
 **Needs attention** in the sidebar collects every track and playlist that still
 wants a decision, grouped by the kind of problem rather than by playlist. The
-metric row at the top jumps to a group and marks it; the other groups stay on
-the page when you keep scrolling. A group with more than eight rows shows the
-first eight and a **Show all** button.
+metric row is the filter bar. **All** shows only the categories; pick
+**Failed**, **Reviews**, **Hardlinks**, **Archives** or **Playlists** to see that
+group alone. A group with more than eight rows shows the first eight and a
+**Show all** button.
 
 The page opens in **Automatic** mode. The **Fix what can be fixed** card says
 what the fixer will do, for example *retry 9 downloads, keep 2 length-reviewed
 files, retry 2 quality reviews, recheck 1 unverified file, hardlink 2
 duplicates, rebuild 2 archive copies and re-sync 1 playlist*. **Fix all**
 applies the matching repair to every group. Each group also has its own
-**Fix all** button. A progress bar and a **Stop** button stay visible while the
-work runs, and the page keeps responding.
+**Fix all** button. The repair runs as a background job: leave the page and it
+keeps going, and the Downloads page shows it in the active runs list with its
+queue count and ETA. A progress bar and a **Stop** button stay visible while the
+work runs.
+
+Simple mode shows one summary card with the same **Fix all** button and a note
+that the per-track controls live in Advanced mode.
 
 The mapping is deliberate: failed downloads retry through the normal waterfall,
 length reviews keep the playable file, quality reviews fetch a new copy,
@@ -466,32 +473,33 @@ own stream, then tags and verifies the file.
 
 ## The Plugins page
 
-<img src="/screens/plugins.webp" alt="Plugins page with grouped setup cards and the optional source order collapsed" width="800">
+<img src="/screens/plugins.webp" alt="Plugins page with compact source cards and routing kept in an advanced panel" width="800">
 
 Providers search for your tracks and plugins download them. The page has two
 jobs: set a source up, and decide which source is tried first.
 
-The **Source order and quality** card is collapsed by default. Open it only
-when you want to change the order: use the arrows to move an enabled source up
-or down. The order here is the whole story for the **No filter** quality. When
-a playlist asks for a specific quality, MelodyBridge first picks the plugins
-that can really deliver it (their declared capabilities decide) and this order
-breaks ties between plugins of the same kind. Pick a preset in **Preview
-quality** to see that capability order and which sources it skips; **No
-filter** keeps the preview out of the way because it is the same as the list
-above. The yt-dlp version and update action live in the same section.
+**Routing and tools** opens the advanced panel only when you need it. It holds
+the source order, the quality preview, the yt-dlp version and update action, and
+the search routing map. The order is the whole story for the **No filter**
+quality. When a playlist asks for a specific quality, MelodyBridge first picks
+the plugins that can really deliver it (their declared capabilities decide) and
+this order breaks ties between plugins of the same kind. Pick a preset in
+**Preview quality** to see that capability order and which sources it skips;
+**No filter** keeps the preview out of the way because it is the same as the
+list above.
 
-The setup cards below are split into **Your subscriptions** and **Free and
-community sources**. Qobuz, Deezer and Tidal each get an account card
-with **Account and settings**. Everything else needs no subscription; a
-companion tool or container (yt-dlp, slskd, FlareSolverr for Lucida) is named on
-the card. The search box and the **All**, **Accounts**, **Free** and
-**Problems** filters narrow the cards, and the count says how many each filter
-would show. **Problems** includes unavailable sources and stored logins that
-stopped working.
+The setup cards are split into **Your subscriptions** and **Free and community
+sources**. Qobuz, Deezer and Tidal each get an account card with **Account and
+settings**. Everything else needs no subscription; a companion tool or container
+(yt-dlp, slskd, FlareSolverr for Lucida) is named on the card. The search box and
+the **All**, **Accounts**, **Free** and **Problems** filters narrow the cards,
+and the count says how many each filter would show. **Problems** includes
+unavailable sources and stored logins that stopped working. Simple mode hides
+the filters and the routing panel, uses a single compact source list, and keeps
+only the enable toggle and the setup row.
 
-The **Search routing** card at the bottom of the page is collapsed by default.
-Open it to see where each source gets its track. A provider row names the data
+The **Search routing** panel inside **Routing and tools** shows where each
+source gets its track. A provider row names the data
 it reads (ISRC, title and artist) and the source cards it can search. Each
 provider carries a tier: **official**, **ripper**, **unofficial** or **self**.
 When two providers target the same source, the card marks the one the router

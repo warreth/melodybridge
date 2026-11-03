@@ -8,11 +8,14 @@ moving parts.
 ## Simple and advanced mode
 
 A first install asks how you want to use the app. **Simple** keeps the sidebar
-to the everyday path: playlists, downloads, attention, sources and settings. The
-setup checklist has two steps and the publishing tools stay out of the way.
-**Advanced** shows the library, sync jobs, diagnostics and every setting.
+to the everyday path: playlists, downloads, attention, sources, sync jobs and
+settings. The setup checklist has two steps and the publishing tools stay out of
+the way. Its dashboard keeps the library counters and playlists, the attention
+page becomes one summary and one fix button, and the plugins page becomes a
+single compact source list. **Advanced** shows the library, diagnostics, logs and
+every setting.
 
-The choice is a starting point, not a lock. Switch any time from the mode button
+The choice is a starting point, not a lock. Switch any time from the mode switch
 at the bottom of the sidebar or from Settings, About. Direct links to a hidden
 page still work, so a bookmark or an existing link never breaks.
 
@@ -90,8 +93,8 @@ hands back whatever the source serves. Two things use that list:
 
 A source does not have to know how to search. A **search provider** turns a
 track query into a download URL, and the source only downloads that URL. The
-Plugins page has a **Search routing** card at the bottom, collapsed by default,
-that shows every provider, the sources it can search, and the data it reads.
+**Routing and tools** panel on the Plugins page shows the search routing map:
+every provider, the sources it can search, and the data it reads.
 
 The built-in Tidal ISRC searcher is the example. It asks Tidal for the ISRC
 first, accepts an exact code as the recording even when the title is spelled
@@ -201,7 +204,7 @@ matching cannot be perfect on sources that carry no ISRC and no trustworthy
 artist name; the picker is the honest way out of that. The same picker opens
 from **Download a song**, where there is no existing row to replace.
 
-<img src="/screens/plugins.webp" alt="Plugins page with grouped setup cards and the optional source order collapsed" width="800">
+<img src="/screens/plugins.webp" alt="Plugins page with compact source cards and routing kept in an advanced panel" width="800">
 
 ### Cover art and lyrics
 
@@ -490,7 +493,10 @@ not attention.
 
 The page is a queue, not a log. It opens in **Automatic** mode: the repair card
 summarizes the per-group actions, **Fix all** applies them in one run, and a
-progress bar with **Stop** keeps the page responsive. The mapping is deliberately
+progress bar with **Stop** keeps the page responsive. The filters show one
+category at a time instead of one long scroll. The repair runs in the
+background, so navigating away does not stop it; the Downloads page shows the
+job with its queue and ETA. The mapping is deliberately
 different per group: retry for failed downloads and missing files, keep for
 length reviews, retry for quality reviews, hardlink for duplicates, rebuild for
 archive problems, re-run the audio check for unverified files and a re-sync for
