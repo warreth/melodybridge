@@ -1909,11 +1909,12 @@ else if (activeTab == "about")
             await Upsert(db, "spectrum_class_gap", spectrumClassGap);
             await Upsert(db, "quality_length_tolerance_seconds", lengthToleranceSeconds);
             await Upsert(db, "quality_length_tolerance_percent", lengthTolerancePercent);
-            await Upsert(db, "flaresolverr_url", flaresolverrUrl);
+            var savedFlareSolverrUrl = flaresolverrUrl.Trim();
+            await Upsert(db, "flaresolverr_url", savedFlareSolverrUrl);
             await db.SaveChangesAsync();
             PlaylistStore.Verification = () => VerificationOptions.FromSettings(
                 spectrumMode, spectrumClassGap, lengthToleranceSeconds, lengthTolerancePercent);
-            FlareSolverrSolver.Url = flaresolverrUrl;
+            FlareSolverrSolver.Url = savedFlareSolverrUrl;
 
             // The account credential fields save here too: they are as much
             // part of the page as the paths, and losing them silently on a

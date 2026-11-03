@@ -23,7 +23,7 @@ namespace MelodyBridge.Infrastructure.Downloaders;
 /// Track objects carry: id/trackId (snowflake), title, artistNames[],
 /// duration (milliseconds), isrc and playable.
 /// </summary>
-public class MonochromeDownloader : IDownloader
+public class MonochromeDownloader : IDownloader, IPluginAvailabilityRefresh
 {
     public const string DefaultBaseUrl = MonochromeApi.DefaultBaseUrl;
 
@@ -55,7 +55,8 @@ public class MonochromeDownloader : IDownloader
     [
         new(MonochromeApi.BaseUrlKey, "API base URL", DefaultBaseUrl,
             "Override the Monochrome API host, for example a community mirror. Empty uses the official host.",
-            Advanced: true),
+            Advanced: true,
+            DefaultValue: DefaultBaseUrl),
     ];
 
     private readonly HttpClient _http;
@@ -69,7 +70,7 @@ public class MonochromeDownloader : IDownloader
 
     /// <summary>Per-request deadlines so one hanging API call cannot stall the waterfall.</summary>
     private static readonly TimeSpan StreamRequestTimeout = TimeSpan.FromMinutes(8);
-    private static readonly TimeSpan HealthTimeout = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan HealthTimeout = TimeSpan.FromSeconds(15);
 
     public MonochromeDownloader(HttpClient http, IPluginConfig config, ILogger<MonochromeDownloader> logger)
     {
@@ -89,14 +90,17 @@ public class MonochromeDownloader : IDownloader
         {
             using var probe = CancellationTokenSource.CreateLinkedTokenSource(ct);
             probe.CancelAfter(HealthTimeout);
-            var url = await MonochromeApi.BaseUrlAsync(_config, Id, ct) + "/health";
+            // The old /health endpoint can hang even when the catalogue
+            // itself answers. Probe the endpoint downloads actually use.
+            var url = await MonochromeApi.BaseUrlAsync(_config, Id, ct)
+                + "/search/tracks?q=monochrome&limit=1";
             using var resp = await _http.GetAsync(url, probe.Token);
             var available = resp.IsSuccessStatusCode;
             LastUnavailableReason = available
                 ? null
                 : $"The Monochrome API answered HTTP {(int)resp.StatusCode}";
             if (!available)
-                _logger.LogDebug("Monochrome health probe returned {Status}", (int)resp.StatusCode);
+                _logger.LogDebug("Monochrome search probe returned {Status}", (int)resp.StatusCode);
             _availability.Store(available);
             return available;
         }
@@ -104,14 +108,23 @@ public class MonochromeDownloader : IDownloader
         {
             throw;
         }
+        catch (OperationCanceledException)
+        {
+            LastUnavailableReason = "The Monochrome API did not answer within 15 seconds";
+            _logger.LogDebug("Monochrome search probe timed out");
+            _availability.Store(false);
+            return false;
+        }
         catch (Exception ex)
         {
             LastUnavailableReason = "The Monochrome API did not answer";
-            _logger.LogDebug(ex, "Monochrome health probe failed");
+            _logger.LogDebug(ex, "Monochrome search probe failed");
             _availability.Store(false);
             return false;
         }
     }
+
+    public void RefreshAvailability() => _availability.Invalidate();
 
     // ── Download ─────────────────────────────────────────────────────────
 

@@ -1,3 +1,4 @@
+@using Microsoft.Extensions.DependencyInjection
 @page "/plugins"
 @using System.Collections.Concurrent
 @using System.Text
@@ -11,6 +12,7 @@
 @inject MelodyBridge.Infrastructure.Services.PluginAuthMonitor AuthMonitor
 @inject IJSRuntime JS
 @inject NavigationManager Nav
+@inject IServiceProvider Services
 @implements IDisposable
 
 <PageTitle>Plugins - MelodyBridge</PageTitle>
@@ -22,8 +24,9 @@
             <h1>Plugins</h1>
             <HelpTip Path="concepts#the-waterfall" Text="Set up your sources here. Downloads try the enabled sources in the order below." />
         </div>
-        <p>One setup list, one try order. Tracks start at the top and move down
-            until a source delivers a file that passes the quality check.</p>
+        <p>@(IsSimple
+            ? "Choose the sources MelodyBridge may use. Turn on the ones you trust and add any login they need."
+            : "Choose the sources MelodyBridge may use. Turn on the ones you trust, then tune routing only when you need to.")</p>
     </div>
     <div class="topbar-actions">
         <a class="btn-modern small secondary" href="/downloads">
@@ -33,6 +36,14 @@
         <button class="btn-modern small ghost" disabled="@refreshingStatus" @onclick="RefreshAvailabilityAsync" title="Probe every plugin again">
             <Icon Name="refresh" Size="14" /> @(refreshingStatus ? "Checking…" : "Refresh status")
         </button>
+        @if (!IsSimple)
+        {
+            <button class="btn-modern small @(showAdvancedTools ? "primary" : "ghost")"
+                    aria-pressed="@(showAdvancedTools ? "true" : "false")"
+                    @onclick="ToggleAdvancedToolsAsync">
+                <Icon Name="sliders" Size="14" /> Routing and tools
+            </button>
+        }
     </div>
 </section>
 
@@ -73,10 +84,10 @@
     </section>
 }
 
-@{
+@if (!IsSimple && showAdvancedTools)
+{
     var plan = RoutePlan;
     var enabledPlugins = EnabledPlugins;
-}
 <details class="panel-card source-order">
     <summary class="source-order-head">
         <span class="source-order-title">
@@ -220,6 +231,7 @@
     </section>
     </div>
 </details>
+}
 
 <section class="plugin-toolbar" aria-label="Plugin filters">
     <label class="plugin-search">
@@ -227,21 +239,24 @@
         <input type="search" placeholder="Find a plugin…" aria-label="Find a plugin"
                value="@pluginSearch" @oninput="OnPluginSearch" />
     </label>
-    <div class="filter-chips">
-        @foreach (var filter in PluginFilters)
-        {
-            <button class="filter-chip @(pluginFilter == filter.Id ? "active" : "")"
-                    aria-pressed="@(pluginFilter == filter.Id ? "true" : "false")"
-                    @onclick="() => SetPluginFilter(filter.Id)">
-                @filter.Label
-                <span class="filter-count">@filter.Count</span>
-            </button>
-        }
-    </div>
-    <span class="plugin-count">@FilteredPlugins.Count of @orderedPlugins.Count</span>
+    @if (!IsSimple)
+    {
+        <div class="filter-chips">
+            @foreach (var filter in PluginFilters)
+            {
+                <button class="filter-chip @(pluginFilter == filter.Id ? "active" : "")"
+                        aria-pressed="@(pluginFilter == filter.Id ? "true" : "false")"
+                        @onclick="() => SetPluginFilter(filter.Id)">
+                    @filter.Label
+                    <span class="filter-count">@filter.Count</span>
+                </button>
+            }
+        </div>
+        <span class="plugin-count">@FilteredPlugins.Count of @orderedPlugins.Count</span>
+    }
 </section>
 
-<section class="plugin-groups">
+<section class="plugin-groups @(IsSimple ? "simple" : null)">
     @if (VisibleGroups.Count == 0)
     {
         <EmptyState IconName="search" Title="No plugins match">
@@ -250,7 +265,7 @@
     }
     @foreach (var group in VisibleGroups)
     {
-        <section class="plugin-group" aria-labelledby="group-@group.Id">
+        <section class="plugin-group" aria-labelledby="group-@group.Id" @key="group.Id">
             <div class="plugin-group-head">
                 <div>
                     <span class="eyebrow">@group.Eyebrow</span>
@@ -269,8 +284,9 @@
                     var authMessage = authProblem ? auth!.Message : null;
                     var details = auth is { State: PluginAuthState.Valid } ? auth : null;
                     var checking = checkingPlugins.ContainsKey(plugin.Id);
+                    var open = openSettings.Contains(plugin.Id);
                     <article class="plugin-card @(enabled ? "" : "disabled") @(authProblem ? "auth-error" : null)"
-                             id="plugin-@plugin.Id">
+                             id="plugin-@plugin.Id" @key="plugin.Id">
                         <div class="plugin-head">
                             <span class="plugin-icon-wrap @(authProblem ? "auth-error" : null)">
                                 <Icon Name="@plugin.IconName" Size="20" Class="provider-icon" />
@@ -326,6 +342,14 @@
                                     }
                                 </div>
                             </div>
+                            @{
+                                var note = authProblem
+                                    ? authMessage ?? plugin.LastUnavailableReason ?? status.Detail
+                                    : !status.Ready
+                                        ? plugin.LastUnavailableReason ?? status.Detail
+                                        : auth?.Message;
+                                var showDetails = plugin.ConfigFields.Count > 0 || authProblem || !status.Ready;
+                            }
                             <div class="plugin-tail">
                                 <button class="icon-button plugin-test" title="Test connection"
                                         aria-label="Test @plugin.Name"
@@ -340,10 +364,10 @@
                                         <Icon Name="refresh" Size="15" />
                                     }
                                 </button>
-                                <StatusPill Variant="@(authProblem ? "unavailable" : !checkedNow ? "neutral" : status.Ready ? "ready" : "unavailable")"
+                                <StatusPill Variant="@(enabled ? authProblem ? "unavailable" : !checkedNow ? "neutral" : status.Ready ? "ready" : "unavailable" : "neutral")"
                                             Class="@(authProblem ? "auth-pill" : null)"
-                                            Title="@(authProblem ? authMessage : !checkedNow ? "Checking this plugin" : status.Ready ? "Checked and reachable" : status.Detail ?? "Could not reach this plugin")">
-                                    @(authProblem ? AuthLabel(auth!.State) : !checkedNow ? "checking…" : status.Ready ? "ready" : "unavailable")
+                                            Title="@(enabled ? authProblem ? authMessage : !checkedNow ? "Checking this plugin" : status.Ready ? "Checked and reachable" : status.Detail ?? "Could not reach this plugin" : "Turn this source on to use it")">
+                                    @(enabled ? authProblem ? AuthLabel(auth!.State) : !checkedNow ? "checking…" : status.Ready ? "ready" : "unavailable" : "off")
                                 </StatusPill>
                                 <label class="toggle-switch">
                                     <input type="checkbox" checked="@enabled"
@@ -351,81 +375,79 @@
                                            @onchange="e => TogglePluginAsync(plugin.Id, (bool)e.Value!)" />
                                     <span class="toggle-slider"></span>
                                 </label>
-                            </div>
-                        </div>
-                        <div class="plugin-quality">
-                            @foreach (var badge in QualityBadges(plugin))
-                            {
-                                <span class="quality-badge">@badge</span>
-                            }
-                        </div>
-                        @{
-                            var note = authProblem
-                                ? authMessage ?? plugin.LastUnavailableReason ?? status.Detail
-                                : !status.Ready
-                                    ? plugin.LastUnavailableReason ?? status.Detail
-                                    : auth?.Message;
-                        }
-                        @if (!string.IsNullOrEmpty(note))
-                        {
-                            <div class="plugin-note @(authProblem || auth?.State == PluginAuthState.PlanRestricted ? "auth" : null)">
-                                <Icon Name="@(authProblem ? "alert" : "info")" Size="15" />
-                                <span>@note</span>
-                                <button class="btn-modern small ghost plugin-note-action"
-                                        @onclick="() => CopyDiagnosticsAsync(plugin)">
-                                    <Icon Name="copy" Size="13" /> Copy diagnostics
-                                </button>
-                            </div>
-                        }
-                        @if (plugin.ConfigFields.Count > 0)
-                        {
-                            var open = openSettings.Contains(plugin.Id);
-                            <div class="plugin-settings @(open ? "open" : null)">
-                                <button type="button" class="settings-toggle" aria-expanded="@open"
-                                        @onclick="() => ToggleSettings(plugin.Id)">
-                                    <Icon Name="sliders" Size="15" />
-                                    <span>@(IsAccountPlugin(plugin) ? "Account and settings" : "Settings")</span>
-                                    <Icon Name="chevron-down" Size="16" Class="settings-chevron" />
-                                </button>
-                                @if (open)
+                                @if (showDetails)
                                 {
-                                    <div class="settings-body">
-                                        @{
-                                            var advancedOnly = plugin.ConfigFields.All(f => f.Advanced);
-                                        }
-                                        @foreach (var field in plugin.ConfigFields.Where(f => advancedOnly || !f.Advanced))
-                                        {
-                                            var key = $"{plugin.Id}:{field.Key}";
-                                            <PluginConfigFieldEditor PluginId="@plugin.Id" Field="@field"
-                                                Value="@configValues.GetValueOrDefault(key, "")"
-                                                ValueChanged="@(v => ConfigChanged(key, v))" />
-                                        }
-                                        @if (!advancedOnly && plugin.ConfigFields.Any(f => f.Advanced))
-                                        {
-                                            var advanced = advancedSettings.Contains(plugin.Id);
-                                            <button type="button" class="advanced-toggle" aria-expanded="@advanced"
-                                                    @onclick="() => ToggleAdvanced(plugin.Id)">
-                                                <Icon Name="chevron-right" Size="14" Class="advanced-chevron" />
-                                                <span>Advanced</span>
-                                            </button>
-                                            @if (advanced)
-                                            {
-                                                <div class="advanced-fields">
-                                                    @foreach (var field in plugin.ConfigFields.Where(f => f.Advanced))
-                                                    {
-                                                        var key = $"{plugin.Id}:{field.Key}";
-                                                        <PluginConfigFieldEditor PluginId="@plugin.Id" Field="@field"
-                                                            Value="@configValues.GetValueOrDefault(key, "")"
-                                                            ValueChanged="@(v => ConfigChanged(key, v))" />
-                                                    }
-                                                </div>
-                                            }
-                                        }
-                                        <div class="flex-actions end">
-                                            <button class="btn-modern small primary" @onclick="() => SaveConfigAsync(plugin.Id)">Save settings</button>
-                                        </div>
-                                    </div>
+                                    <button type="button" class="btn-modern small ghost settings-toggle plugin-manage"
+                                            aria-expanded="@open"
+                                            @onclick="() => ToggleSettingsAsync(plugin.Id)">
+                                        <Icon Name="sliders" Size="14" /> @(open ? "Close" : "Manage")
+                                    </button>
                                 }
+                            </div>
+                        </div>
+                        @if (!IsSimple)
+                        {
+                            <div class="plugin-quality">
+                                @foreach (var badge in QualityBadges(plugin))
+                                {
+                                    <span class="quality-badge">@badge</span>
+                                }
+                            </div>
+                        }
+                        @if (open)
+                        {
+                            <div class="plugin-settings open">
+                                <div class="settings-body">
+                                        @if (!string.IsNullOrEmpty(note))
+                                        {
+                                            <div class="plugin-note @(authProblem || auth?.State == PluginAuthState.PlanRestricted ? "auth" : null)">
+                                                <Icon Name="@(authProblem ? "alert" : "info")" Size="15" />
+                                                <span>@note</span>
+                                                @if (!IsSimple)
+                                                {
+                                                    <button class="btn-modern small ghost plugin-note-action"
+                                                            @onclick="() => CopyDiagnosticsAsync(plugin)">
+                                                        <Icon Name="copy" Size="13" /> Copy diagnostics
+                                                    </button>
+                                                }
+                                            </div>
+                                        }
+                                        @if (plugin.ConfigFields.Count > 0)
+                                        {
+                                            var advancedOnly = plugin.ConfigFields.All(f => f.Advanced);
+                                            @foreach (var field in plugin.ConfigFields.Where(f => !f.Advanced || advancedOnly && !IsSimple))
+                                            {
+                                                var key = $"{plugin.Id}:{field.Key}";
+                                                <PluginConfigFieldEditor PluginId="@plugin.Id" Field="@field"
+                                                    Value="@configValues.GetValueOrDefault(key, "")"
+                                                    ValueChanged="@(v => ConfigChanged(key, v))" />
+                                            }
+                                            @if (!IsSimple && !advancedOnly && plugin.ConfigFields.Any(f => f.Advanced))
+                                            {
+                                                var advanced = advancedSettings.Contains(plugin.Id);
+                                                <button type="button" class="advanced-toggle" aria-expanded="@advanced"
+                                                        @onclick="() => ToggleAdvanced(plugin.Id)">
+                                                    <Icon Name="chevron-right" Size="14" Class="advanced-chevron" />
+                                                    <span>Advanced</span>
+                                                </button>
+                                                @if (advanced)
+                                                {
+                                                    <div class="advanced-fields">
+                                                        @foreach (var field in plugin.ConfigFields.Where(f => f.Advanced))
+                                                        {
+                                                            var key = $"{plugin.Id}:{field.Key}";
+                                                            <PluginConfigFieldEditor PluginId="@plugin.Id" Field="@field"
+                                                                Value="@configValues.GetValueOrDefault(key, "")"
+                                                                ValueChanged="@(v => ConfigChanged(key, v))" />
+                                                        }
+                                                    </div>
+                                                }
+                                            }
+                                            <div class="flex-actions end">
+                                                <button class="btn-modern small primary" @onclick="() => SaveConfigAsync(plugin.Id)">Save settings</button>
+                                            </div>
+                                        }
+                                    </div>
                             </div>
                         }
                     </article>
@@ -435,7 +457,21 @@
     }
 </section>
 
-<SearchProviderPanel />
+@if (!IsSimple && showAdvancedTools)
+{
+    <SearchProviderPanel />
+}
+
+@if (IsSimple)
+{
+    <section class="panel-card plugins-simple-note">
+        <div>
+            <strong>Need source order or routing?</strong>
+            <span>Switch to Advanced mode for quality routing, the search map and per-source ordering.</span>
+        </div>
+        <button class="btn-modern ghost small" @onclick="SwitchToAdvancedAsync">Open Advanced mode</button>
+    </section>
+}
 
 @code {
     /// <summary>Availability verdict per plugin plus why it is not ready.</summary>
@@ -454,6 +490,14 @@
     private readonly ConcurrentDictionary<string, byte> checkingPlugins = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, DateTimeOffset> lastChecked = new(StringComparer.OrdinalIgnoreCase);
     private string? testingPluginId;
+    private UiModeService? _mode;
+    private bool IsSimple;
+    private bool showAdvancedTools;
+    private readonly HashSet<string> configLoaded = new(StringComparer.OrdinalIgnoreCase);
+    private IReadOnlyList<IDownloader>? filteredCache;
+    private IReadOnlyList<PluginGroup>? groupsCache;
+    private IReadOnlyList<PluginFilter>? filtersCache;
+    private IReadOnlyList<IDownloader>? enabledCache;
     private string? handledFragment;
     private bool hashRead;
     private string browserHash = string.Empty;
@@ -483,7 +527,7 @@
         return availability.TryGetValue(plugin.Id, out var status) && !status.Ready;
     }
 
-    private IReadOnlyList<PluginFilter> PluginFilters =>
+    private IReadOnlyList<PluginFilter> PluginFilters => filtersCache ??=
     [
         new("all", "All", orderedPlugins.Count),
         new("accounts", "Accounts", orderedPlugins.Count(IsAccountPlugin)),
@@ -495,6 +539,7 @@
     {
         get
         {
+            if (filteredCache is not null) return filteredCache;
             IEnumerable<IDownloader> plugins = orderedPlugins;
             if (pluginFilter == "accounts") plugins = plugins.Where(IsAccountPlugin);
             else if (pluginFilter == "free") plugins = plugins.Where(p => !IsAccountPlugin(p));
@@ -508,17 +553,18 @@
                     || p.Id.Contains(needle, StringComparison.OrdinalIgnoreCase)
                     || p.Description.Contains(needle, StringComparison.OrdinalIgnoreCase));
             }
-            return plugins.ToList();
+            return filteredCache = plugins.ToList();
         }
     }
 
     private IReadOnlyList<IDownloader> EnabledPlugins
-        => orderedPlugins.Where(p => Registry.IsEnabled(p.Id)).ToList();
+        => enabledCache ??= orderedPlugins.Where(p => Registry.IsEnabled(p.Id)).ToList();
 
     private IReadOnlyList<PluginGroup> VisibleGroups
     {
         get
         {
+            if (groupsCache is not null) return groupsCache;
             var filtered = FilteredPlugins;
             var groups = new List<PluginGroup>();
             if (pluginFilter == "problems")
@@ -528,7 +574,7 @@
                         "problems", "Needs a decision", "Problems",
                         "Unavailable right now, or a stored login stopped working.",
                         filtered));
-                return groups;
+                return groupsCache = groups;
             }
 
             var accounts = filtered.Where(IsAccountPlugin).ToList();
@@ -545,8 +591,16 @@
                     "Free APIs and community mirrors. Some use a companion tool or container: yt-dlp, slskd, and FlareSolverr for Lucida.",
                     free));
 
-            return groups;
+            return groupsCache = groups;
         }
+    }
+
+    private void InvalidateDerived()
+    {
+        filteredCache = null;
+        groupsCache = null;
+        filtersCache = null;
+        enabledCache = null;
     }
 
     /// <summary>The short reason shown under a name in the try-order list.</summary>
@@ -564,30 +618,56 @@
     }
 
     private void OnPluginSearch(ChangeEventArgs e)
-        => pluginSearch = e.Value?.ToString() ?? string.Empty;
+    {
+        pluginSearch = e.Value?.ToString() ?? string.Empty;
+        InvalidateDerived();
+    }
 
-    private void SetPluginFilter(string filter) => pluginFilter = filter;
+    private void SetPluginFilter(string filter)
+    {
+        pluginFilter = filter;
+        InvalidateDerived();
+    }
 
     protected override async Task OnInitializedAsync()
     {
+        _mode = Services.GetService<UiModeService>();
+        if (_mode is not null)
+        {
+            await _mode.EnsureLoadedAsync();
+            IsSimple = !_mode.IsAdvanced;
+            _mode.Changed += OnModeChanged;
+        }
+
         _ = Registry.GetEnabled(); // force cache load
         await ReorderPluginsAsync();
         // The background login sweep may already know about a stale token:
         // show that mark before the first slow network probe finishes.
         authIssues = AuthMonitor.Snapshot();
         AuthMonitor.Changed += OnAuthMonitorChanged;
-        await LoadConfigValuesAsync();
 
         _timer = new Timer(_ => InvokeAsync(async () =>
         {
-            if (DateTimeOffset.UtcNow - lastAvailabilityCheck <= TimeSpan.FromSeconds(30))
+            if (disposed || refreshingStatus) return;
+            if (DateTimeOffset.UtcNow - lastAvailabilityCheck <= TimeSpan.FromSeconds(60))
                 return;
-            await ReorderPluginsAsync();
-            MarkChecking();
-            StateHasChanged();
             await RefreshAvailability();
             StateHasChanged();
-        }), null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+        }), null, TimeSpan.FromSeconds(60), TimeSpan.FromSeconds(60));
+    }
+
+    private void OnModeChanged() => _ = InvokeAsync(() =>
+    {
+        if (disposed || _mode is null) return;
+        IsSimple = !_mode.IsAdvanced;
+        if (IsSimple) showAdvancedTools = false;
+        StateHasChanged();
+    });
+
+    private async Task SwitchToAdvancedAsync()
+    {
+        if (_mode is null) return;
+        await _mode.SetAsync(advanced: true);
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -674,9 +754,7 @@
         await InvokeAsync(StateHasChanged);
         try
         {
-            var versionTask = LoadYtDlpVersionAsync();
             await RefreshAvailability();
-            await versionTask;
         }
         finally
         {
@@ -692,6 +770,14 @@
     {
         ytDlpVersion = await YtDlp.GetVersionAsync();
         ytDlpChecked = true;
+        StateHasChanged();
+    }
+
+    private async Task ToggleAdvancedToolsAsync()
+    {
+        showAdvancedTools = !showAdvancedTools;
+        if (showAdvancedTools && !ytDlpChecked)
+            await LoadYtDlpVersionAsync();
     }
 
     /// <summary>
@@ -709,16 +795,18 @@
         });
     }
 
-    /// <summary>Loads every plugin's config fields from the registry store.</summary>
-    private async Task LoadConfigValuesAsync()
+    /// <summary>Loads one plugin's config fields when its panel opens.</summary>
+    private async Task EnsureConfigLoadedAsync(string pluginId)
     {
-        var values = new Dictionary<string, string>();
-        foreach (var plugin in orderedPlugins)
-            foreach (var field in plugin.ConfigFields)
-            {
-                values[$"{plugin.Id}:{field.Key}"] = await Registry.GetConfigAsync(plugin.Id, field.Key);
-            }
-        configValues = values;
+        if (configLoaded.Contains(pluginId)) return;
+        var plugin = orderedPlugins.FirstOrDefault(p => p.Id == pluginId);
+        if (plugin is null) return;
+        foreach (var field in plugin.ConfigFields)
+        {
+            configValues[$"{plugin.Id}:{field.Key}"] =
+                await Registry.GetConfigAsync(plugin.Id, field.Key);
+        }
+        configLoaded.Add(pluginId);
     }
 
     private void ConfigChanged(string key, string value)
@@ -730,9 +818,17 @@
     /// <summary>Plugin ids whose Advanced fields are shown.</summary>
     private readonly HashSet<string> advancedSettings = new(StringComparer.OrdinalIgnoreCase);
 
-    private void ToggleSettings(string id)
+    private async Task ToggleSettingsAsync(string id)
     {
-        if (!openSettings.Add(id)) openSettings.Remove(id);
+        if (openSettings.Contains(id))
+        {
+            openSettings.Clear();
+            return;
+        }
+        openSettings.Clear();
+        openSettings.Add(id);
+        await EnsureConfigLoadedAsync(id);
+        StateHasChanged();
     }
 
     private void ToggleAdvanced(string id)
@@ -794,6 +890,7 @@
         var (ready, reason) = await ProbePluginAsync(plugin);
         if (AvailabilityVersion(plugin.Id) == version)
             availability[plugin.Id] = new PluginStatus(ready, ready ? null : reason);
+        InvalidateDerived();
         authIssues = AuthMonitor.Snapshot();
         lastAvailabilityCheck = DateTimeOffset.UtcNow;
 
@@ -811,11 +908,13 @@
     private Task ReorderPluginsAsync()
     {
         var enabled = (Registry.GetEnabled() ?? Array.Empty<IDownloader>()).ToList();
+        var enabledIds = enabled.Select(p => p.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var disabled = (Registry.GetAll() ?? Array.Empty<IDownloader>())
-            .Where(p => !enabled.Contains(p))
+            .Where(p => !enabledIds.Contains(p.Id))
             .ToList();
         orderedPlugins = enabled.Concat(disabled).ToList();
         pluginsLoaded = true;
+        InvalidateDerived();
         return Task.CompletedTask;
     }
 
@@ -849,11 +948,13 @@
 
             var results = new ConcurrentDictionary<string, (PluginStatus Status, long Version)>(
                 StringComparer.OrdinalIgnoreCase);
-            // Task.WhenAll plus a gate keeps four probes in flight without
-            // the thread-pool scheduler that Parallel.ForEachAsync uses;
-            // that scheduler can starve a component render under load.
+            // Only enabled sources matter. Disabled cards show "off" and
+            // must not burn a probe slot on every sweep.
+            var targets = orderedPlugins
+                .Where(plugin => Registry.IsEnabled(plugin.Id))
+                .ToList();
             using var gate = new SemaphoreSlim(4);
-            await Task.WhenAll(orderedPlugins.Select(async plugin =>
+            await Task.WhenAll(targets.Select(async plugin =>
             {
                 await gate.WaitAsync();
                 try
@@ -864,7 +965,15 @@
                     var version = AvailabilityVersion(plugin.Id);
                     using var budget = new CancellationTokenSource(TimeSpan.FromSeconds(30));
                     var (ready, reason) = await ProbePluginAsync(plugin, budget.Token);
-                    results[plugin.Id] = (new PluginStatus(ready, reason), version);
+                    var status = new PluginStatus(ready, reason);
+                    results[plugin.Id] = (status, version);
+                    if (AvailabilityVersion(plugin.Id) == version)
+                    {
+                        availability[plugin.Id] = status;
+                        checkingPlugins.TryRemove(plugin.Id, out _);
+                        InvalidateDerived();
+                        _ = InvokeAsync(StateHasChanged);
+                    }
                 }
                 finally
                 {
@@ -897,7 +1006,7 @@
     private void MarkChecking()
     {
         checkingPlugins.Clear();
-        foreach (var plugin in orderedPlugins)
+        foreach (var plugin in orderedPlugins.Where(plugin => Registry.IsEnabled(plugin.Id)))
             checkingPlugins[plugin.Id] = 0;
     }
 
@@ -916,7 +1025,8 @@
             var auth = (plugin as IPluginAuthStatusProvider)?.AuthStatus;
             return (ready, ready
                 ? null
-                : auth?.Message ?? AvailabilityHint(plugin) ?? "Could not reach this plugin");
+                : auth?.Message ?? plugin.LastUnavailableReason
+                    ?? AvailabilityHint(plugin) ?? "Could not reach this plugin");
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -1016,6 +1126,7 @@
     /// <summary>Opens a card's settings, scrolls to it and flashes it.</summary>
     private async Task OpenAuthSettings(string pluginId)
     {
+        openSettings.Clear();
         openSettings.Add(pluginId);
         StateHasChanged();
 
@@ -1060,6 +1171,7 @@
             var (ready, reason) = await ProbePluginAsync(plugin, budget.Token);
             if (AvailabilityVersion(pluginId) == version)
                 availability[pluginId] = new PluginStatus(ready, reason);
+            InvalidateDerived();
             authIssues = AuthMonitor.Snapshot();
             lastAvailabilityCheck = DateTimeOffset.UtcNow;
 
@@ -1082,6 +1194,7 @@
     /// <summary>Copies a support-friendly summary of one plugin's state.</summary>
     private async Task CopyDiagnosticsAsync(IDownloader plugin)
     {
+        await EnsureConfigLoadedAsync(plugin.Id);
         var auth = (plugin as IPluginAuthStatusProvider)?.AuthStatus;
         var status = availability.GetValueOrDefault(plugin.Id);
         var text = new StringBuilder()
@@ -1111,7 +1224,11 @@
             var value = configValues.GetValueOrDefault($"{plugin.Id}:{field.Key}") ?? "";
             var shown = field.Secret
                 ? (value.Length > 0 ? "set" : "not set")
-                : (value.Length > 0 ? value : "(empty)");
+                : value.Length > 0
+                    ? value
+                    : field.DefaultValue is { Length: > 0 } fallback
+                        ? $"{fallback} (default)"
+                        : "(empty)";
             text += $"{field.Label}: {shown}{Environment.NewLine}";
         }
 
@@ -1165,6 +1282,7 @@
             authIssues = AuthMonitor.Snapshot();
         }
         await ReorderPluginsAsync();
+        InvalidateDerived();
         StateHasChanged();
     }
 
@@ -1241,6 +1359,7 @@
     {
         disposed = true;
         AuthMonitor.Changed -= OnAuthMonitorChanged;
+        if (_mode is not null) _mode.Changed -= OnModeChanged;
         _timer?.Dispose();
     }
 }

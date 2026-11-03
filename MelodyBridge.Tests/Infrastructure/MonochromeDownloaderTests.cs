@@ -296,7 +296,45 @@ public class MonochromeDownloaderTests
         Assert.That(await downloader.IsAvailableAsync(), Is.True);
         Assert.That(handler.RequestedUrls, Has.Count.EqualTo(1), "the verdict is cached");
         Assert.That(handler.RequestedUrls[0],
-            Is.EqualTo(MonochromeDownloader.DefaultBaseUrl + "/health"));
+            Is.EqualTo(MonochromeDownloader.DefaultBaseUrl
+                + "/search/tracks?q=monochrome&limit=1"));
+    }
+
+    [Test]
+    public async Task IsAvailableAsync_UsesTheConfiguredBaseUrl()
+    {
+        var handler = new StubHttpMessageHandler();
+        handler.Respond = _ => new HttpResponseMessage(HttpStatusCode.OK);
+        var config = new StubPluginConfig();
+        config.Set("monochrome", "base_url", "https://mirror.example/");
+        var downloader = Create(handler, config);
+
+        Assert.That(await downloader.IsAvailableAsync(), Is.True);
+        Assert.That(handler.RequestedUrls[0],
+            Is.EqualTo("https://mirror.example/search/tracks?q=monochrome&limit=1"));
+    }
+
+    [Test]
+    public async Task RefreshAvailability_DropsTheCachedVerdict()
+    {
+        var handler = new StubHttpMessageHandler();
+        handler.Respond = _ => new HttpResponseMessage(HttpStatusCode.OK);
+        var downloader = Create(handler);
+
+        Assert.That(await downloader.IsAvailableAsync(), Is.True);
+        handler.Respond = _ => new HttpResponseMessage(HttpStatusCode.BadGateway);
+        downloader.RefreshAvailability();
+
+        Assert.That(await downloader.IsAvailableAsync(), Is.False,
+            "a saved base URL must be probed for real");
+        Assert.That(handler.RequestedUrls, Has.Count.EqualTo(2));
+    }
+
+    [Test]
+    public void ConfigField_CarriesTheEffectiveDefault()
+    {
+        var field = Create(new StubHttpMessageHandler()).ConfigFields.Single();
+        Assert.That(field.DefaultValue, Is.EqualTo(MonochromeDownloader.DefaultBaseUrl));
     }
 
     [Test]

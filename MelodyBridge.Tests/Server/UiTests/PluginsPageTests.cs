@@ -22,6 +22,7 @@ public class PluginsPageTests
     private TestContext _ctx = null!;
     private Mock<IDownloaderRegistry> _registry = null!;
     private NotificationService _notifications = null!;
+    private IDbContextFactory<MelodyBridgeDbContext> _dbFactory = null!;
 
     [SetUp]
     public void Setup()
@@ -32,6 +33,7 @@ public class PluginsPageTests
         _registry = new Mock<IDownloaderRegistry>();
 
         var dbFactory = TestHelpers.CreateInMemFactory();
+        _dbFactory = dbFactory;
 
         var providers = new List<IDownloader>
         {
@@ -70,7 +72,11 @@ public class PluginsPageTests
         // The coordinator resolves the store and db factory from the
         // provider per run, like the real app does.
         _ctx.Services.AddSingleton<Application.Services.DownloadCoordinator>();
-        _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Services.SettingsStore(dbFactory));
+        var settingsStore = new MelodyBridge.Infrastructure.Services.SettingsStore(dbFactory);
+        _ctx.Services.AddSingleton(settingsStore);
+        _ctx.Services.AddSingleton(new InstallState(DatabaseExistedAtStartup: true));
+        _ctx.Services.AddSingleton(new UiModeService(
+            settingsStore, new InstallState(DatabaseExistedAtStartup: true)));
         _notifications = new MelodyBridge.Server.Services.NotificationService(
             autoDismissAfter: TimeSpan.FromMinutes(1));
         _ctx.Services.AddSingleton(_notifications);
@@ -81,10 +87,45 @@ public class PluginsPageTests
     [TearDown]
     public void TearDown() => _ctx.Dispose();
 
+    private static void OpenTools(IRenderedComponent<Plugins> cut)
+        => cut.FindAll("button")
+            .Single(button => button.TextContent.Contains("Routing and tools"))
+            .Click();
+
+    [Test]
+    public void Plugins_SimpleMode_HidesRoutingFiltersAndTools()
+    {
+        using (var db = _dbFactory.CreateDbContext())
+        {
+            db.DownloaderSettings.Add(new DownloaderSettingEntity
+            {
+                Key = UiModeService.SettingKey,
+                Value = UiModeService.Simple,
+            });
+            db.SaveChanges();
+        }
+        var settings = new SettingsStore(_dbFactory);
+        _ctx.Services.AddSingleton(new InstallState(DatabaseExistedAtStartup: true));
+        _ctx.Services.AddSingleton(new UiModeService(
+            settings, new InstallState(DatabaseExistedAtStartup: true)));
+
+        var cut = _ctx.Render<Plugins>();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.FindAll("button").Any(button =>
+                button.TextContent.Contains("Routing and tools")), Is.False);
+            Assert.That(cut.FindAll(".filter-chip"), Is.Empty);
+            Assert.That(cut.FindAll("details.search-provider-map"), Is.Empty);
+            Assert.That(cut.Markup, Does.Contain("Need source order or routing?"));
+        }, TimeSpan.FromSeconds(5));
+    }
+
     [Test]
     public void PluginsPage_RendersTheSearchRoutingPanel()
     {
         var cut = _ctx.Render<Plugins>();
+        OpenTools(cut);
 
         cut.WaitForAssertion(() =>
         {
@@ -103,6 +144,7 @@ public class PluginsPageTests
     public void SourceOrder_StartsCollapsedAndCarriesTheCount()
     {
         var cut = _ctx.Render<Plugins>();
+        OpenTools(cut);
 
         cut.WaitForAssertion(() =>
         {
@@ -121,6 +163,7 @@ public class PluginsPageTests
     public void Plugins_SearchAndLoginFilter_NarrowTheList()
     {
         var cut = _ctx.Render<Plugins>();
+        OpenTools(cut);
         cut.WaitForAssertion(() =>
             Assert.That(cut.FindAll(".plugin-card"), Has.Count.EqualTo(2)), TimeSpan.FromSeconds(3));
 
@@ -377,6 +420,27 @@ public class PluginsPageTests
     }
 
     [Test]
+    public async Task RefreshAvailability_OnlyProbesEnabledPlugins()
+    {
+        var enabled = new AuthTestDownloader("enabled", "Enabled Plugin");
+        var disabled = new AuthTestDownloader("disabled", "Disabled Plugin");
+        _registry.Setup(r => r.GetAll()).Returns(new List<IDownloader> { enabled, disabled });
+        _registry.Setup(r => r.GetEnabled()).Returns(new List<IDownloader> { enabled });
+        _registry.Setup(r => r.IsEnabled("enabled")).Returns(true);
+        _registry.Setup(r => r.IsEnabled("disabled")).Returns(false);
+
+        var cut = _ctx.Render<Plugins>();
+        await cut.Instance.LiveStatusLoaded.WaitAsync(TimeSpan.FromSeconds(30));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(enabled.Probes, Is.GreaterThanOrEqualTo(1));
+            Assert.That(disabled.Probes, Is.Zero,
+                "a disabled source must not burn a probe slot");
+        });
+    }
+
+    [Test]
     public async Task Plugins_ShowsThePageWhileASlowProbeIsStillRunning()
     {
         var plugin = new SlowProbeDownloader();
@@ -391,7 +455,9 @@ public class PluginsPageTests
 
         plugin.Release();
         await cut.Instance.LiveStatusLoaded.WaitAsync(TimeSpan.FromSeconds(30));
-        cut.Render();
+        OpenTools(cut);
+        cut.WaitForAssertion(() => Assert.That(cut.Markup, Does.Contain("2026.08.19")),
+            TimeSpan.FromSeconds(5));
 
         Assert.Multiple(() =>
         {
@@ -506,6 +572,7 @@ public class PluginsPageTests
         _registry.Setup(r => r.GetEnabled()).Returns(new List<IDownloader> { lossy, lossless });
 
         var cut = _ctx.Render<Plugins>();
+        OpenTools(cut);
 
         cut.WaitForAssertion(() =>
             Assert.That(cut.Find(".route-select"), Is.Not.Null), TimeSpan.FromSeconds(3));
@@ -570,6 +637,7 @@ public class PluginsPageTests
             .ReturnsAsync("secret-token");
 
         var cut = _ctx.Render<Plugins>();
+        await cut.InvokeAsync(() => cut.Find("button.settings-toggle").Click());
         cut.WaitForAssertion(() =>
             Assert.That(cut.FindAll(".plugin-note-action").Count, Is.EqualTo(1)),
             TimeSpan.FromSeconds(5));
@@ -599,8 +667,8 @@ public class PluginsPageTests
         var cut = _ctx.Render<Plugins>();
 
         Assert.That(cut.Markup, Does.Contain("Plugins"));
-        Assert.That(cut.Markup, Does.Contain("One setup list, one try order"),
-            "the intro explains the setup and the try order");
+        Assert.That(cut.Markup, Does.Contain("Choose the sources MelodyBridge may use"),
+            "the intro explains what the page is for");
         Assert.That(cut.Markup, Does.Contain("yt-dlp (YouTube)"));
         Assert.That(cut.Markup, Does.Contain("Second Plugin"));
     }
@@ -612,6 +680,7 @@ public class PluginsPageTests
         _ctx.Services.AddSingleton<MelodyBridge.Infrastructure.Downloaders.YtDlpUpdater>(updater);
 
         var cut = _ctx.Render<Plugins>();
+        OpenTools(cut);
         cut.WaitForAssertion(() =>
             Assert.That(cut.Markup, Does.Contain("2026.08.19"),
                 "the installed yt-dlp version is shown"), TimeSpan.FromSeconds(3));
@@ -633,6 +702,7 @@ public class PluginsPageTests
     public void Plugins_ShowsPriorityControls()
     {
         var cut = _ctx.Render<Plugins>();
+        OpenTools(cut);
 
         Assert.That(cut.Markup, Does.Contain("Try this source earlier"));
         var upButtons = cut.FindAll("button[title='Try this source earlier']");
@@ -685,7 +755,7 @@ public class PluginsPageTests
         var cut = _ctx.Render<Plugins>();
 
         // Collapsed: the row exists, the fields stay out of the DOM.
-        Assert.That(cut.Markup, Does.Contain("Settings"), "plugins with fields get a settings row");
+        Assert.That(cut.Markup, Does.Contain("Manage"), "plugins with fields get a Manage button");
         Assert.That(cut.Markup, Does.Not.Contain("Search preference"), "fields stay hidden until opened");
 
         await cut.InvokeAsync(() => cut.Find("button.settings-toggle").Click());

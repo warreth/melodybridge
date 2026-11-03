@@ -90,7 +90,8 @@ public record PluginConfigField(
     bool Advanced = false,
     bool Secret = false,
     IReadOnlyList<PluginConfigChoice>? Options = null,
-    bool Folder = false);
+    bool Folder = false,
+    string? DefaultValue = null);
 
 /// <summary>
 /// One download plugin. Implementations search for a track by metadata

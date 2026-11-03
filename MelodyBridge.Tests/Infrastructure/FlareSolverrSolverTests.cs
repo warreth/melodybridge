@@ -160,6 +160,34 @@ public class FlareSolverrSolverTests
     }
 
     [Test]
+    public void Constructor_DoesNotOverwriteTheStartupUrl()
+    {
+        FlareSolverrSolver.Url = "auto";
+        _ = Create(new StubHttpMessageHandler());
+
+        Assert.That(FlareSolverrSolver.Url, Is.EqualTo("auto"),
+            "resolving the registry must not reset the URL Program.cs loaded");
+    }
+
+    [Test]
+    public async Task FailedSweep_RetriesAfterTheNegativeWindow()
+    {
+        using var handler = new StubHttpMessageHandler();
+        var solver = Create(handler);
+        FlareSolverrSolver.Url = "auto";
+
+        Assert.That(await solver.IsAvailableAsync(), Is.False);
+        var before = handler.Requests.Count;
+
+        handler.Routes["http://127.0.0.1:8191/health"] = Ok;
+        FlareSolverrSolver.Clock = () => DateTimeOffset.UtcNow.AddSeconds(16);
+
+        Assert.That(await solver.IsAvailableAsync(), Is.True,
+            "a solver that starts later must be found after the short negative window");
+        Assert.That(handler.Requests.Count, Is.EqualTo(before + 4));
+    }
+
+    [Test]
     public async Task Solve_WithNumericSolutionStatus_StillReturnsCredentials()
     {
         // The exact response shape that produced "The JSON value could not
@@ -167,6 +195,7 @@ public class FlareSolverrSolverTests
         // in the app log.
         using var handler = new StubHttpMessageHandler();
         handler.Routes["http://solver.lan:8191/v1"] = () => SolveJsonWithNumericStatus("num", "ua-num");
+        FlareSolverrSolver.Url = "http://solver.lan:8191";
         var solver = new FlareSolverrSolver(
             new HttpClient(handler),
             Microsoft.Extensions.Options.Options.Create(
@@ -222,6 +251,7 @@ public class FlareSolverrSolverTests
         using var handler = new StubHttpMessageHandler();
         handler.Routes["http://solver.lan:8191/health"] = Ok;
         handler.Routes["http://solver.lan:8191/v1"] = () => SolveJson("c2", "ua2");
+        FlareSolverrSolver.Url = "http://solver.lan:8191";
         var solver = new FlareSolverrSolver(
             new HttpClient(handler),
             Microsoft.Extensions.Options.Options.Create(
@@ -242,6 +272,7 @@ public class FlareSolverrSolverTests
     {
         using var handler = new StubHttpMessageHandler();
         handler.Routes["http://solver.lan:8191/health"] = () => new HttpResponseMessage(HttpStatusCode.BadGateway);
+        FlareSolverrSolver.Url = "http://solver.lan:8191";
         var solver = new FlareSolverrSolver(
             new HttpClient(handler),
             Microsoft.Extensions.Options.Options.Create(
@@ -287,6 +318,7 @@ public class FlareSolverrSolverTests
     {
         using var handler = new StubHttpMessageHandler();
         handler.Routes["http://solver.lan:8191/v1"] = () => SolveJson("c3", "ua3");
+        FlareSolverrSolver.Url = "http://solver.lan:8191";
         var solver = new FlareSolverrSolver(
             new HttpClient(handler),
             Microsoft.Extensions.Options.Options.Create(
@@ -310,6 +342,7 @@ public class FlareSolverrSolverTests
     public async Task EmptyUrl_IsAlsoDisabled()
     {
         using var handler = new StubHttpMessageHandler();
+        FlareSolverrSolver.Url = "";
         var solver = new FlareSolverrSolver(
             new HttpClient(handler),
             Microsoft.Extensions.Options.Options.Create(new FlareSolverrOptions { Url = "" }),

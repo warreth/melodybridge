@@ -5,6 +5,7 @@ using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.Data;
 using MelodyBridge.Infrastructure.Services;
 using MelodyBridge.Server.Components.Pages;
+using MelodyBridge.Server.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -64,7 +65,11 @@ public class PluginsInteractionTests
         _ctx.Services.AddSingleton<IDownloadManager>(manager);
         _ctx.Services.AddSingleton(store);
         _ctx.Services.AddSingleton<DownloadCoordinator>();
-        _ctx.Services.AddSingleton(new SettingsStore(dbFactory));
+        var settingsStore = new SettingsStore(dbFactory);
+        _ctx.Services.AddSingleton(settingsStore);
+        _ctx.Services.AddSingleton(new InstallState(DatabaseExistedAtStartup: true));
+        _ctx.Services.AddSingleton(new UiModeService(
+            settingsStore, new InstallState(DatabaseExistedAtStartup: true)));
         _ctx.Services.AddSingleton(new MelodyBridge.Server.Services.NotificationService());
         _ctx.Services.AddSingleton<MelodyBridge.Infrastructure.Downloaders.YtDlpUpdater>(
             new TestServices.StubYtDlpUpdater());
@@ -73,7 +78,11 @@ public class PluginsInteractionTests
     private IRenderedComponent<Plugins> RenderPage(params IDownloader[] plugins)
     {
         RegisterPage(plugins);
-        return _ctx.Render<Plugins>();
+        var cut = _ctx.Render<Plugins>();
+        cut.FindAll("button")
+            .Single(button => button.TextContent.Contains("Routing and tools"))
+            .Click();
+        return cut;
     }
 
     /// <summary>The plugin card that shows the given plugin name.</summary>
@@ -210,6 +219,9 @@ public class PluginsInteractionTests
         await _registry.SetEnabledAsync("second", false);
 
         var cut = _ctx.Render<Plugins>();
+        cut.FindAll("button")
+            .Single(button => button.TextContent.Contains("Routing and tools"))
+            .Click();
         cut.WaitForAssertion(() =>
             Assert.That(cut.FindAll(".plugin-card").Count, Is.EqualTo(2)),
             TimeSpan.FromSeconds(3));

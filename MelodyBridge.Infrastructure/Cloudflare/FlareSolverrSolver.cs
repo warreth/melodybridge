@@ -123,7 +123,10 @@ public class FlareSolverrSolver : IChallengeSolver
     {
         _http = http;
         _logger = logger;
-        Url = options.Value.Url;
+        // Url is process-wide state that Program.cs seeds from the saved
+        // setting. Do not overwrite it from the unbound options default:
+        // constructing the solver while the registry loads used to reset
+        // a working "auto" value to "off".
     }
 
     public async Task<bool> IsAvailableAsync(CancellationToken ct = default)
@@ -134,7 +137,14 @@ public class FlareSolverrSolver : IChallengeSolver
         // trusted blindly, which made a wrong URL look ready until the
         // first track failed.
         var baseUrl = IsAutoMode ? await DetectAsync(ct) : NormalizeEndpoint(Url);
-        return baseUrl is not null && await IsHealthyAsync(baseUrl, ct);
+        var healthy = baseUrl is not null && await IsHealthyAsync(baseUrl, ct);
+        if (!healthy && IsAutoMode)
+        {
+            // A detected endpoint that stopped answering must be found
+            // again on the next call, not trusted for the rest of the process.
+            lock (DetectionGate) _detectedUrl = null;
+        }
+        return healthy;
     }
 
     private static bool IsConfigured =>
@@ -267,7 +277,10 @@ public class FlareSolverrSolver : IChallengeSolver
             // Unreachable candidate: cache the negative answer briefly.
         }
 
-        Health[baseUrl] = (ok, Clock() + HealthCacheWindow);
+        // A negative answer is only cached for the shorter detection
+        // window. The old 45 second cache hid a solver that started after
+        // the first sweep until the cache aged out.
+        Health[baseUrl] = (ok, Clock() + (ok ? HealthCacheWindow : NegativeCacheWindow));
         return ok;
     }
 
@@ -348,9 +361,17 @@ public class FlareSolverrSolver : IChallengeSolver
             || configuredUrl.Equals("off", StringComparison.OrdinalIgnoreCase))
             return new ChallengeProbeResult(false, "Solver is off: Lucida stays unavailable.");
 
-        var endpoint = configuredUrl.Equals("auto", StringComparison.OrdinalIgnoreCase)
+        var auto = configuredUrl.Equals("auto", StringComparison.OrdinalIgnoreCase);
+        var endpoint = auto
             ? await SweepAsync(http, ct, force: true)
             : NormalizeEndpoint(configuredUrl);
+
+        if (endpoint is not null && auto)
+        {
+            // A green manual test is also a detection result. Reuse it
+            // immediately instead of waiting for the next sweep.
+            lock (DetectionGate) _detectedUrl = endpoint;
+        }
 
         if (endpoint is null)
         {

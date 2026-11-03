@@ -200,6 +200,9 @@ public class PageRefactorUiTests
         var cut = _ctx.Render<Plugins>();
         cut.WaitForAssertion(() =>
             Assert.That(cut.Markup, Does.Contain("First Plugin")), TimeSpan.FromSeconds(3));
+        cut.FindAll("button")
+            .Single(button => button.TextContent.Contains("Routing and tools"))
+            .Click();
 
         var order = cut.Find(".order-row");
         Assert.That(order.QuerySelector(".btn-group"), Is.Not.Null,
