@@ -201,7 +201,9 @@ else
         <div>
             <span class="eyebrow">Overview</span>
             <h1>Dashboard</h1>
-            <p>Your music, the queue and everything that needs a decision.</p>
+            <p>@(IsSimple
+                ? "Your music and the things that need a quick fix."
+                : "Your music, the queue and everything that needs a decision.")</p>
         </div>
         <div class="topbar-actions dashboard-actions">
             <span class="dashboard-live" title="Refreshes every 5 seconds">
@@ -256,7 +258,7 @@ else
                         <Icon Name="chevron-right" Size="15" Class="attention-arrow" />
                     </a>
                 }
-                @if (dedupCount > 0)
+                @if (!IsSimple && dedupCount > 0)
                 {
                     <a class="attention-item warning" href="/attention?kind=dedup">
                         <span class="attention-count">@dedupCount</span>
@@ -267,7 +269,7 @@ else
                         <Icon Name="chevron-right" Size="15" Class="attention-arrow" />
                     </a>
                 }
-                @if (reviewCount > 0)
+                @if (!IsSimple && reviewCount > 0)
                 {
                     <a class="attention-item warning" href="/attention?kind=review">
                         <span class="attention-count">@reviewCount</span>
@@ -278,7 +280,7 @@ else
                         <Icon Name="chevron-right" Size="15" Class="attention-arrow" />
                     </a>
                 }
-                @if (archiveIssueCount > 0)
+                @if (!IsSimple && archiveIssueCount > 0)
                 {
                     <a class="attention-item warning" href="/attention?kind=archive">
                         <span class="attention-count">@archiveIssueCount</span>
@@ -300,7 +302,7 @@ else
                         <Icon Name="chevron-right" Size="15" Class="attention-arrow" />
                     </a>
                 }
-                @if (failedJobs > 0)
+                @if (!IsSimple && failedJobs > 0)
                 {
                     <a class="attention-item danger" href="/sync-jobs">
                         <span class="attention-count">@failedJobs</span>
@@ -322,7 +324,7 @@ else
                         <Icon Name="chevron-right" Size="15" Class="attention-arrow" />
                     </a>
                 }
-                @if (errorCount > 0)
+                @if (!IsSimple && errorCount > 0)
                 {
                     <a class="attention-item neutral" href="/logs">
                         <span class="attention-count">@errorCount</span>
@@ -334,7 +336,7 @@ else
                     </a>
                 }
             </div>
-            @if (authIssues.Count > 0)
+            @if (!IsSimple && authIssues.Count > 0)
             {
                 <div class="attention-detail">
                     <span class="eyebrow">Plugin logins</span>
@@ -367,7 +369,7 @@ else
         </div>
     }
 
-    @if (recentErrors.Count > 0)
+    @if (!IsSimple && recentErrors.Count > 0)
     {
         <section class="panel-card dashboard-errors">
             <div class="panel-header">
@@ -396,12 +398,15 @@ else
         <StatCard IconName="download" Label="Downloaded" Value="@downloadedCount.ToString()"
                   Caption="Ready to play" Href="/downloads" />
         <StatCard IconName="hard-drive" Label="Library size" Value="@librarySizeText"
-                  Caption="@($"{libraryFileCount} file{(libraryFileCount == 1 ? "" : "s")}")" Href="/library" />
+                  Caption="@($"{libraryFileCount} file{(libraryFileCount == 1 ? "" : "s")}")"
+                  Href="@(IsSimple ? null : "/library")" />
         <StatCard IconName="alert" Label="Needs attention" Value="@attentionTotal.ToString()"
                   Caption="@(attentionTotal == 0 ? "Nothing waiting" : "Open issues across the app")"
                   Href="/attention" Tone="@(attentionTotal > 0 ? "danger" : "success")" />
     </section>
 
+    @if (!IsSimple)
+    {
     <section class="content-grid two dashboard-grid">
         <div class="panel-card dashboard-activity">
             <div class="panel-header">
@@ -529,6 +534,7 @@ else
             </div>
         </div>
     </section>
+    }
 
     <section class="panel-card dashboard-playlists-section">
         <div class="panel-header">

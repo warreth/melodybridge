@@ -64,7 +64,11 @@ public class SyncJobsPageTests
 
         _ctx.Services.AddSingleton<ISyncJobRunner>(_jobRunner.Object);
         _ctx.Services.AddSingleton<IDbContextFactory<MelodyBridgeDbContext>>(dbFactory);
-        _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Services.SettingsStore(dbFactory));
+        var settingsStore = new MelodyBridge.Infrastructure.Services.SettingsStore(dbFactory);
+        _ctx.Services.AddSingleton(settingsStore);
+        _ctx.Services.AddSingleton(new MelodyBridge.Server.Services.InstallState(DatabaseExistedAtStartup: true));
+        _ctx.Services.AddSingleton(new MelodyBridge.Server.Services.UiModeService(
+            settingsStore, new MelodyBridge.Server.Services.InstallState(DatabaseExistedAtStartup: true)));
         _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Services.SyncRuleProfileStore(dbFactory));
         _ctx.Services.AddSingleton(new MelodyBridge.Server.Services.NotificationService());
         _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Services.MediaServerProfileStore(
@@ -75,6 +79,34 @@ public class SyncJobsPageTests
 
     [TearDown]
     public void TearDown() => _ctx.Dispose();
+
+    [Test]
+    public void SimpleMode_KeepsTheJobListAndHidesRuleProfiles()
+    {
+        using (var db = _dbFactory.CreateDbContext())
+        {
+            db.DownloaderSettings.Add(new DownloaderSettingEntity
+            {
+                Key = MelodyBridge.Server.Services.UiModeService.SettingKey,
+                Value = MelodyBridge.Server.Services.UiModeService.Simple,
+            });
+            db.SaveChanges();
+        }
+        var settings = new MelodyBridge.Infrastructure.Services.SettingsStore(_dbFactory);
+        _ctx.Services.AddSingleton(new MelodyBridge.Server.Services.InstallState(DatabaseExistedAtStartup: true));
+        _ctx.Services.AddSingleton(new MelodyBridge.Server.Services.UiModeService(
+            settings, new MelodyBridge.Server.Services.InstallState(DatabaseExistedAtStartup: true)));
+
+        var cut = _ctx.Render<SyncJobs>();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.Markup, Does.Contain("Weekly Sync"));
+            Assert.That(cut.FindAll("nav.sync-tabs"), Is.Empty,
+                "simple mode has no rule-profile tab");
+            Assert.That(cut.Markup, Does.Not.Contain("Rule profiles"));
+        }, TimeSpan.FromSeconds(5));
+    }
 
     [Test]
     public void SyncJobs_CardPill_FlagsACompletedRunThatResolvedNothing()

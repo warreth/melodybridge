@@ -225,13 +225,12 @@ h1:focus { outline: none; }
 }
 
 .nav-section-header {
-    font-size: 0.75rem;
+    font-size: 0.72rem;
     font-weight: 600;
     color: var(--muted);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
+    letter-spacing: 0;
     padding: 0 0.75rem;
-    margin-bottom: 0.5rem;
+    margin-bottom: 0.4rem;
 }
 
 .app-nav .nav-link {
@@ -243,8 +242,8 @@ h1:focus { outline: none; }
     border-radius: 8px;
     color: var(--muted);
     text-decoration: none;
-    font-size: .92rem;
-    font-weight: 650;
+    font-size: .9rem;
+    font-weight: 500;
 }
 
 .app-nav .nav-link span {
@@ -325,9 +324,8 @@ h1:focus { outline: none; }
 .eyebrow {
     display: block;
     color: var(--muted-2);
-    text-transform: uppercase;
-    letter-spacing: .08em;
-    font-size: 11px;
+    letter-spacing: .02em;
+    font-size: 11.5px;
     font-weight: 600;
     margin-bottom: .35rem;
 }
@@ -428,7 +426,7 @@ h1:focus { outline: none; }
 .about-card p { color: var(--muted); margin-bottom: 1rem; }
 .github-link { width: fit-content; gap: .5rem; }
 .stat-card label { display: block; color: var(--muted); font-size: .8rem; line-height: 1.3; }
-.stat-card strong { display: block; margin: .25rem 0 .15rem; line-height: 1.2; font-size: 1.625rem; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+.stat-card strong { display: block; margin: .25rem 0 .15rem; line-height: 1.2; font-size: 1.625rem; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
 .stat-card small { display: block; color: var(--muted-2); font-size: .78rem; line-height: 1.4; margin-top: .1rem; }
 
 .btn-modern,
@@ -970,7 +968,9 @@ select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-s
 .log-entry small { font-size: .78rem; }
 .job-meta {
     display: flex;
-    gap: 1rem;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: .25rem .75rem;
     margin-top: .35rem;
 }
 /* -- List layouts shared by Playlists and Sync jobs ----------------

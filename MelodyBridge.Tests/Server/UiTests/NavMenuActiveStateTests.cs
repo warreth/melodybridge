@@ -100,14 +100,15 @@ public class NavMenuActiveStateTests
         nav.WaitForAssertion(() =>
         {
             Assert.That(nav.FindAll("a[href='/library']"), Is.Empty);
-            Assert.That(nav.FindAll("a[href='/sync-jobs']"), Is.Empty);
+            Assert.That(nav.FindAll("a[href='/sync-jobs']"), Has.Count.EqualTo(1),
+                "simple mode keeps the basic sync jobs page");
             Assert.That(nav.FindAll("a[href='/advanced']"), Is.Empty);
             Assert.That(nav.FindAll("a[href='/logs']"), Is.Empty);
             Assert.That(nav.FindAll("a[href='/playlists']"), Has.Count.EqualTo(1));
-            Assert.That(nav.Find("button.nav-mode-toggle").TextContent, Does.Contain("Advanced mode"));
+            Assert.That(nav.Find("button.nav-mode-switch").GetAttribute("aria-checked"), Is.EqualTo("true"));
         }, TimeSpan.FromSeconds(3));
 
-        nav.Find("button.nav-mode-toggle").Click();
+        nav.Find("button.nav-mode-switch").Click();
 
         nav.WaitForAssertion(() =>
         {
@@ -115,7 +116,7 @@ public class NavMenuActiveStateTests
             Assert.That(nav.FindAll("a[href='/sync-jobs']"), Has.Count.EqualTo(1));
             Assert.That(nav.FindAll("a[href='/advanced']"), Has.Count.EqualTo(1));
             Assert.That(nav.FindAll("a[href='/logs']"), Has.Count.EqualTo(1));
-            Assert.That(nav.Find("button.nav-mode-toggle").TextContent, Does.Contain("Simple mode"));
+            Assert.That(nav.Find("button.nav-mode-switch").GetAttribute("aria-checked"), Is.EqualTo("false"));
         }, TimeSpan.FromSeconds(3));
     }
 

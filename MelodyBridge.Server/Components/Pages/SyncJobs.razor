@@ -1,3 +1,4 @@
+@using Microsoft.Extensions.DependencyInjection
 @page "/sync-jobs"
 @using System.Text.Json
 @using MelodyBridge.Infrastructure.MediaServers
@@ -8,6 +9,7 @@
 @inject SyncRuleProfileStore RuleProfiles
 @inject SettingsStore Settings
 @inject MelodyBridge.Server.Services.NotificationService Notifications
+@inject IServiceProvider Services
 @implements IDisposable
 
 <PageTitle>Sync jobs - MelodyBridge</PageTitle>
@@ -42,16 +44,19 @@
     </div>
 </section>
 
-<nav class="sync-tabs" aria-label="Sync jobs sections">
-    <button class="sync-tab @(syncTab == "jobs" ? "on" : null)" @onclick='() => syncTab = "jobs"'
-            aria-pressed="@(syncTab == "jobs" ? "true" : "false")">
-        Jobs <span>@jobs.Count</span>
-    </button>
-    <button class="sync-tab @(syncTab == "profiles" ? "on" : null)" @onclick='() => syncTab = "profiles"'
-            aria-pressed="@(syncTab == "profiles" ? "true" : "false")">
-        Rule profiles <span>@ruleProfiles.Count</span>
-    </button>
-</nav>
+@if (!IsSimple)
+{
+    <nav class="sync-tabs" aria-label="Sync jobs sections">
+        <button class="sync-tab @(syncTab == "jobs" ? "on" : null)" @onclick='() => syncTab = "jobs"'
+                aria-pressed="@(syncTab == "jobs" ? "true" : "false")">
+            Jobs <span>@jobs.Count</span>
+        </button>
+        <button class="sync-tab @(syncTab == "profiles" ? "on" : null)" @onclick='() => syncTab = "profiles"'
+                aria-pressed="@(syncTab == "profiles" ? "true" : "false")">
+            Rule profiles <span>@ruleProfiles.Count</span>
+        </button>
+    </nav>
+}
 
 @if (syncTab == "jobs")
 {
@@ -71,34 +76,37 @@
             </label>
         </div>
         <div class="list-toolbar-actions">
-            <button class="btn-modern ghost small" @onclick="ToggleBulkMode"
-                    aria-pressed="@(bulkMode ? "true" : "false")">
-                <Icon Name="check" Size="14" /> @(bulkMode ? "Done selecting" : "Select jobs")
-            </button>
-            @if (syncJobsView == "cards")
+            @if (!IsSimple)
             {
-                <label class="card-size-control" title="Card size">
-                    <Icon Name="layout-grid" Size="14" />
-                    <select aria-label="Sync job card size" value="@syncJobsCardSize"
-                            @onchange="OnSyncJobsCardSizeChanged">
-                        <option value="small">Small</option>
-                        <option value="medium">Medium</option>
-                        <option value="large">Large</option>
-                    </select>
-                </label>
+                <button class="btn-modern ghost small" @onclick="ToggleBulkMode"
+                        aria-pressed="@(bulkMode ? "true" : "false")">
+                    <Icon Name="check" Size="14" /> @(bulkMode ? "Done selecting" : "Select jobs")
+                </button>
+                @if (syncJobsView == "cards")
+                {
+                    <label class="card-size-control" title="Card size">
+                        <Icon Name="layout-grid" Size="14" />
+                        <select aria-label="Sync job card size" value="@syncJobsCardSize"
+                                @onchange="OnSyncJobsCardSizeChanged">
+                            <option value="small">Small</option>
+                            <option value="medium">Medium</option>
+                            <option value="large">Large</option>
+                        </select>
+                    </label>
+                }
+                <div class="view-switch" role="group" aria-label="Sync job layout">
+                    <button class="view-chip @(syncJobsView == "cards" ? "on" : null)" title="Card view"
+                            aria-pressed="@(syncJobsView == "cards" ? "true" : "false")"
+                            @onclick='() => SetSyncJobsView("cards")'>
+                        <Icon Name="layout-grid" Size="15" /> <span>Cards</span>
+                    </button>
+                    <button class="view-chip @(syncJobsView == "rows" ? "on" : null)" title="Compact rows"
+                            aria-pressed="@(syncJobsView == "rows" ? "true" : "false")"
+                            @onclick='() => SetSyncJobsView("rows")'>
+                        <Icon Name="rows" Size="15" /> <span>Rows</span>
+                    </button>
+                </div>
             }
-            <div class="view-switch" role="group" aria-label="Sync job layout">
-                <button class="view-chip @(syncJobsView == "cards" ? "on" : null)" title="Card view"
-                        aria-pressed="@(syncJobsView == "cards" ? "true" : "false")"
-                        @onclick='() => SetSyncJobsView("cards")'>
-                    <Icon Name="layout-grid" Size="15" /> <span>Cards</span>
-                </button>
-                <button class="view-chip @(syncJobsView == "rows" ? "on" : null)" title="Compact rows"
-                        aria-pressed="@(syncJobsView == "rows" ? "true" : "false")"
-                        @onclick='() => SetSyncJobsView("rows")'>
-                    <Icon Name="rows" Size="15" /> <span>Rows</span>
-                </button>
-            </div>
         </div>
     </section>
 }
@@ -979,6 +987,8 @@ else
     /// walk is not free and the card re-renders often).</summary>
     private Dictionary<string, string> nextRunLabels = new();
     private bool isEditing;
+    private MelodyBridge.Server.Services.UiModeService? _mode;
+    private bool IsSimple;
 
     private SyncJob draft = new();
     private string sourceType = "playlist";
@@ -1010,6 +1020,14 @@ else
 
     protected override async Task OnInitializedAsync()
     {
+        _mode = Services.GetService<MelodyBridge.Server.Services.UiModeService>();
+        if (_mode is not null)
+        {
+            await _mode.EnsureLoadedAsync();
+            IsSimple = !_mode.IsAdvanced;
+            if (IsSimple) syncTab = "jobs";
+            _mode.Changed += OnModeChanged;
+        }
         defaultM3uFolder = await Settings.GetAsync("playlist_path", "/app/playlists");
         syncJobsView = await Settings.GetAsync("syncjobs_view", "cards");
         if (syncJobsView is not ("cards" or "rows")) syncJobsView = "cards";
@@ -1020,6 +1038,14 @@ else
         await LoadDataAsync();
         await ReloadProfiles();
     }
+
+    private void OnModeChanged() => _ = InvokeAsync(() =>
+    {
+        if (_mode is null) return;
+        IsSimple = !_mode.IsAdvanced;
+        if (IsSimple) syncTab = "jobs";
+        StateHasChanged();
+    });
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -2182,5 +2208,8 @@ else
         deleteJobId = null;
     }
 
-    public void Dispose() { }
+    public void Dispose()
+    {
+        if (_mode is not null) _mode.Changed -= OnModeChanged;
+    }
 }

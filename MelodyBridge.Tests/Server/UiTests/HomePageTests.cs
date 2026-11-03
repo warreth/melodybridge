@@ -197,6 +197,40 @@ public class HomePageTests
     }
 
     [Test]
+    public void SimpleMode_DashboardKeepsTheBasicStatsAndPlaylists()
+    {
+        using (var db = _dbFactory.CreateDbContext())
+        {
+            db.SyncJobs.RemoveRange(db.SyncJobs);
+            db.DownloaderSettings.Add(new DownloaderSettingEntity
+            {
+                Key = UiModeService.SettingKey,
+                Value = UiModeService.Simple,
+            });
+            db.SaveChanges();
+        }
+
+        var settings = new SettingsStore(_dbFactory);
+        _ctx.Services.AddSingleton(new InstallState(DatabaseExistedAtStartup: true));
+        _ctx.Services.AddSingleton(new UiModeService(
+            settings, new InstallState(DatabaseExistedAtStartup: true)));
+
+        var cut = _ctx.Render<Home>();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.Markup, Does.Contain("Library size"));
+            Assert.That(cut.Markup, Does.Contain("Playlists (1)"));
+            Assert.That(cut.Markup, Does.Not.Contain("Downloads and sync runs"),
+                "simple mode keeps the dashboard free of the activity feed");
+            Assert.That(cut.Markup, Does.Not.Contain("Accounts and servers"),
+                "simple mode hides the advanced connection panel");
+            Assert.That(cut.FindAll("a[href='/library']"), Is.Empty,
+                "simple mode does not link to the hidden library page");
+        }, TimeSpan.FromSeconds(5));
+    }
+
+    [Test]
     public void Intro_Skipped_WhenDatabaseAlreadyHasData()
     {
         // Setup seeds a playlist, a downloaded track and a job: the intro

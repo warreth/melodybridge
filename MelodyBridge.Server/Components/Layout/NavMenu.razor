@@ -29,13 +29,10 @@
             <NavLink class="nav-link" href="/library"><Icon Name="library" Class="nav-icon" /> Library</NavLink>
         }
     </div>
-    @if (_advanced)
-    {
-        <div class="nav-section">
-            <div class="nav-section-header">Publishing</div>
-            <NavLink class="nav-link" href="/sync-jobs"><Icon Name="refresh" Class="nav-icon" /> Sync jobs</NavLink>
-        </div>
-    }
+    <div class="nav-section">
+        <div class="nav-section-header">Publishing</div>
+        <NavLink class="nav-link" href="/sync-jobs"><Icon Name="refresh" Class="nav-icon" /> Sync jobs</NavLink>
+    </div>
     <div class="nav-section">
         <div class="nav-section-header">System</div>
         <NavLink class="nav-link" href="/settings"><Icon Name="sliders" Class="nav-icon" /> Settings</NavLink>
@@ -48,10 +45,16 @@
     @if (_mode is not null)
     {
         <div class="nav-section nav-mode-section">
-            <button type="button" class="nav-link nav-mode-toggle" @onclick="ToggleModeAsync"
-                    title="@(_advanced ? "Switch to the simpler interface" : "Show every tool and setting")">
-                <Icon Name="@(_advanced ? "eye" : "sliders")" Class="nav-icon" />
-                @(_advanced ? "Simple mode" : "Advanced mode")
+            <div class="nav-mode-copy">
+                <span class="nav-mode-title">Simple mode</span>
+                <small>@(_advanced ? "Off, all tools visible" : "On, only the basics")</small>
+            </div>
+            <button type="button" class="nav-mode-switch" role="switch"
+                    aria-checked="@(!_advanced ? "true" : "false")"
+                    aria-label="Simple mode"
+                    title="@(_advanced ? "Switch to the simpler interface" : "Show every tool and setting")"
+                    @onclick="ToggleModeAsync">
+                <span class="nav-mode-slider"></span>
             </button>
         </div>
     }

@@ -209,8 +209,8 @@
    louder than the numbers below, but still a compact set of rows. */
 .dashboard-attention {
     margin-top: 1rem;
-    border-color: color-mix(in srgb, var(--danger) 28%, var(--border));
-    background: color-mix(in srgb, var(--danger-soft) 55%, var(--surface));
+    border-color: var(--border);
+    background: var(--surface);
 }
 .dashboard-attention .panel-header { margin-bottom: .75rem; }
 .dashboard-attention h2 { font-size: 1.05rem; }
