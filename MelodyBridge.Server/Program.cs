@@ -71,6 +71,9 @@ builder.Services.AddSingleton(new MelodyBridge.Server.Services.NotificationServi
 builder.Services.AddScoped<MelodyBridge.Server.Services.AttentionActions>();
 builder.Services.AddScoped<MelodyBridge.Server.Services.IAttentionActions>(
     sp => sp.GetRequiredService<MelodyBridge.Server.Services.AttentionActions>());
+builder.Services.AddSingleton<MelodyBridge.Server.Services.AttentionRepairService>();
+builder.Services.AddSingleton<MelodyBridge.Server.Services.IAttentionRepairRunner>(
+    sp => sp.GetRequiredService<MelodyBridge.Server.Services.AttentionRepairService>());
 builder.Services.AddHostedService<MelodyBridge.Server.Services.ToastObserverService>();
 // Asks the media servers how they are in the background, so the dashboard
 // never has to wait for a server that does not answer.

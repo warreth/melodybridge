@@ -20,6 +20,7 @@ namespace MelodyBridge.Tests.Server.UiTests;
 public class AttentionPageTests
 {
     private Bunit.TestContext _ctx = null!;
+    private IDbContextFactory<MelodyBridgeDbContext> _factory = null!;
 
     [SetUp]
     public void Setup()
@@ -27,6 +28,7 @@ public class AttentionPageTests
         _ctx = new Bunit.TestContext();
         _ctx.JSInterop.Mode = JSRuntimeMode.Loose;
         var factory = TestHelpers.CreateInMemFactory();
+        _factory = factory;
         _ctx.Services.AddDownloadPages(factory);
         using var db = factory.CreateDbContext();
         db.Database.EnsureCreated();
@@ -66,6 +68,17 @@ public class AttentionPageTests
 
     [TearDown]
     public void TearDown() => _ctx.Dispose();
+
+    private static void ShowMetric(IRenderedComponent<Attention> cut, string label)
+    {
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.FindAll("button.attention-metric")
+                .Any(button => button.TextContent.Contains(label)), Is.True),
+            TimeSpan.FromSeconds(5));
+        cut.FindAll("button.attention-metric")
+            .Single(button => button.TextContent.Contains(label))
+            .Click();
+    }
 
     private sealed class SlowActions : IAttentionActions
     {
@@ -118,16 +131,22 @@ public class AttentionPageTests
     public void Page_ShowsGroupedFailuresAndPlaylistWarnings()
     {
         var cut = _ctx.Render<Attention>();
+        ShowMetric(cut, "failed");
 
         cut.WaitForAssertion(() =>
         {
             Assert.That(cut.Markup, Does.Contain("No source found"));
             Assert.That(cut.Markup, Does.Contain("Broken"));
             Assert.That(cut.Markup, Does.Contain("Broken Mix"));
-            Assert.That(cut.Markup, Does.Contain("Playlist syncs"));
-            Assert.That(cut.Markup, Does.Contain("Partial Mix"));
             Assert.That(cut.Markup, Does.Not.Contain(">Good<"), "a clean track is not in the queue");
             Assert.That(cut.FindAll("button").Any(b => b.TextContent.Contains("Fix all")), Is.True);
+        }, TimeSpan.FromSeconds(5));
+
+        ShowMetric(cut, "playlists");
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.Markup, Does.Contain("Playlist syncs"));
+            Assert.That(cut.Markup, Does.Contain("Partial Mix"));
         }, TimeSpan.FromSeconds(5));
     }
 
@@ -137,6 +156,7 @@ public class AttentionPageTests
         var actions = new SlowActions();
         _ctx.Services.AddSingleton<IAttentionActions>(actions);
         var cut = _ctx.Render<Attention>();
+        ShowMetric(cut, "failed");
         cut.WaitForAssertion(() => Assert.That(cut.Markup, Does.Contain("No source found")),
             TimeSpan.FromSeconds(5));
 
@@ -146,12 +166,12 @@ public class AttentionPageTests
             "the fake action must be the one the page invoked");
         Assert.That(actions.Reported.Task.Wait(TimeSpan.FromSeconds(2)), Is.True,
             "the fake must reach its progress report");
+        var repair = _ctx.Services.GetRequiredService<IAttentionRepairRunner>();
         cut.WaitForAssertion(() =>
         {
             Assert.That(cut.Markup, Does.Contain("Retrying downloads"));
-            Assert.That(cut.Instance.GetType()
-                .GetField("_progressDone", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
-                .GetValue(cut.Instance), Is.EqualTo(1));
+            Assert.That(repair.Current, Is.Not.Null);
+            Assert.That(repair.Current!.Processed, Is.EqualTo(1));
             Assert.That(cut.Markup, Does.Contain("1 of 1"));
             Assert.That(cut.FindAll("button").Any(button => button.TextContent.Contains("Stop")),
                 Is.True, "a running bulk action can be stopped");
@@ -161,20 +181,17 @@ public class AttentionPageTests
     }
 
     [Test]
-    public void Filter_Failed_HighlightsItsGroupButKeepsTheOthers()
+    public void Filter_Failed_ShowsOnlyThatCategory()
     {
         var cut = _ctx.Render<Attention>();
-        cut.WaitForAssertion(() => Assert.That(cut.Markup, Does.Contain("No source found")),
-            TimeSpan.FromSeconds(5));
-
-        cut.FindAll("button.attention-metric").Single(b => b.TextContent.Contains("failed")).Click();
+        ShowMetric(cut, "failed");
 
         cut.WaitForAssertion(() =>
         {
             Assert.That(cut.Markup, Does.Contain("No source found"));
-            Assert.That(cut.Markup, Does.Contain("Playlist syncs"),
-                "clicking a summary card navigates; it does not hide the other groups");
-            Assert.That(cut.FindAll(".attention-group.highlight"), Has.Count.EqualTo(1));
+            Assert.That(cut.Markup, Does.Not.Contain("Playlist syncs"),
+                "a filter shows one category, not the whole queue");
+            Assert.That(cut.FindAll("button.attention-metric.active"), Has.Count.EqualTo(1));
         }, TimeSpan.FromSeconds(3));
     }
 
@@ -191,13 +208,17 @@ public class AttentionPageTests
             Assert.That(cut.Markup, Does.Contain("Fix all 2"));
             Assert.That(cut.Markup, Does.Contain("retry 1 download"));
             Assert.That(cut.Markup, Does.Contain("re-sync 1 playlist"));
-            Assert.That(cut.Find("section[aria-labelledby='group-playlists'] .attention-group-actions button")
-                .TextContent, Does.Contain("Fix all 1"));
         }, TimeSpan.FromSeconds(5));
+
+        ShowMetric(cut, "playlists");
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Find("section[aria-labelledby='group-playlists'] .attention-group-actions button")
+                .TextContent, Does.Contain("Fix all 1")), TimeSpan.FromSeconds(3));
 
         cut.FindAll("button")
             .Single(button => button.TextContent.Contains("Review individually"))
             .Click();
+        ShowMetric(cut, "failed");
 
         cut.WaitForAssertion(() =>
         {
@@ -227,6 +248,7 @@ public class AttentionPageTests
         }
 
         var cut = _ctx.Render<Attention>();
+        ShowMetric(cut, "archives");
         cut.WaitForAssertion(() => Assert.That(cut.Markup, Does.Contain("Unclear")),
             TimeSpan.FromSeconds(5));
         cut.FindAll("button")
@@ -286,6 +308,7 @@ public class AttentionPageTests
         }
 
         var cut = _ctx.Render<Attention>();
+        ShowMetric(cut, "archives");
         cut.WaitForAssertion(() => Assert.That(cut.Markup, Does.Contain("Gone")),
             TimeSpan.FromSeconds(5));
         cut.FindAll("button")
@@ -309,9 +332,41 @@ public class AttentionPageTests
     }
 
     [Test]
+    public void SimpleMode_ShowsOneSummaryAndABigFixButton()
+    {
+        var factory = _factory;
+        using (var db = factory.CreateDbContext())
+        {
+            db.DownloaderSettings.Add(new DownloaderSettingEntity
+            {
+                Key = UiModeService.SettingKey,
+                Value = UiModeService.Simple,
+            });
+            db.SaveChanges();
+        }
+        var settings = new SettingsStore(factory);
+        _ctx.Services.AddSingleton(new InstallState(DatabaseExistedAtStartup: true));
+        _ctx.Services.AddSingleton(new UiModeService(
+            settings, new InstallState(DatabaseExistedAtStartup: true)));
+
+        var cut = _ctx.Render<Attention>();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.Markup, Does.Contain("Open Advanced mode"));
+            Assert.That(cut.Markup, Does.Contain("Fix all 2"));
+            Assert.That(cut.FindAll(".attention-summary"), Is.Empty,
+                "simple mode does not show the filter bar");
+            Assert.That(cut.FindAll(".attention-group"), Is.Empty,
+                "simple mode does not render the queue");
+        }, TimeSpan.FromSeconds(5));
+    }
+
+    [Test]
     public void SelectingAGroup_ShowsTheBulkBar()
     {
         var cut = _ctx.Render<Attention>();
+        ShowMetric(cut, "failed");
         cut.WaitForAssertion(() => Assert.That(cut.Markup, Does.Contain("No source found")),
             TimeSpan.FromSeconds(5));
 

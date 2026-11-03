@@ -55,6 +55,9 @@ public static class TestServices
         services.AddScoped<MelodyBridge.Server.Services.AttentionActions>();
         services.AddScoped<MelodyBridge.Server.Services.IAttentionActions>(
             sp => sp.GetRequiredService<MelodyBridge.Server.Services.AttentionActions>());
+        services.AddSingleton<MelodyBridge.Server.Services.AttentionRepairService>();
+        services.AddSingleton<MelodyBridge.Server.Services.IAttentionRepairRunner>(
+            sp => sp.GetRequiredService<MelodyBridge.Server.Services.AttentionRepairService>());
         // The Advanced page injects the rename pass; its own tests drive it
         // through a real SQLite file like the library maintenance does.
         services.AddSingleton(new FileNameRenamer(

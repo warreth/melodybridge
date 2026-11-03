@@ -1,39 +1,49 @@
 /* Needs attention: a health queue grouped by what the user has to do. */
 
 .attention-summary {
-    display: grid;
-    grid-template-columns: repeat(6, minmax(0, 1fr));
-    gap: .55rem;
+    display: flex;
+    align-items: stretch;
     margin-top: 1rem;
-}
-.attention-metric {
-    display: grid;
-    gap: .1rem;
-    padding: .65rem .7rem;
     border: 1px solid var(--border);
     border-radius: var(--radius);
     background: var(--surface);
+    overflow-x: auto;
+}
+.attention-metric {
+    display: flex;
+    align-items: baseline;
+    gap: .4rem;
+    flex: 1 1 0;
+    min-width: 112px;
+    padding: .62rem .8rem;
+    border: 0;
+    border-right: 1px solid var(--border);
+    border-radius: 0;
+    background: transparent;
     color: var(--text);
     text-align: left;
     cursor: pointer;
     font: inherit;
+    white-space: nowrap;
 }
-.attention-metric:hover { border-color: var(--border-strong); }
+.attention-metric:last-child { border-right: 0; }
+.attention-metric:hover { background: var(--surface-2); }
 .attention-metric strong {
-    font-size: 1.3rem;
+    font-size: 1.05rem;
     line-height: 1.15;
+    font-weight: 600;
     font-variant-numeric: tabular-nums;
 }
 .attention-metric span {
     color: var(--muted);
-    font-size: .72rem;
+    font-size: .76rem;
     line-height: 1.3;
 }
 .attention-metric.bad strong { color: var(--danger); }
 .attention-metric.warn strong { color: var(--warning); }
 .attention-metric.active {
-    border-color: var(--accent);
     background: var(--accent-soft);
+    box-shadow: inset 0 2px 0 var(--accent);
 }
 .attention-metric.active span { color: var(--accent-text); }
 
@@ -210,7 +220,8 @@
 }
 
 @media (max-width: 1100px) {
-    .attention-summary { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .attention-summary { display: flex; overflow-x: auto; }
+    .attention-metric { min-width: 104px; }
 }
 @media (max-width: 820px) {
     .attention-group-head { flex-direction: column; }
@@ -295,4 +306,95 @@
 }
 @media (max-width: 620px) {
     .attention-repair-actions { width: 100%; justify-content: flex-start; }
+}
+
+/* Simple mode: one calm summary card and one action. */
+.attention-simple {
+    display: grid;
+    gap: .85rem;
+    max-width: 760px;
+    margin-top: 1rem;
+    padding: 1.35rem;
+}
+.attention-simple-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+}
+.attention-simple-head h2 { margin: .1rem 0 0; font-size: 1.45rem; }
+.attention-simple-number {
+    color: var(--accent-text);
+    font-size: 2.6rem;
+    font-weight: 600;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+}
+.attention-simple > p {
+    margin: 0;
+    color: var(--muted);
+    max-width: 64ch;
+    line-height: 1.55;
+}
+.attention-simple-actions {
+    display: flex;
+    align-items: center;
+    gap: .6rem;
+    flex-wrap: wrap;
+    margin-top: .15rem;
+}
+.attention-simple-fix {
+    min-height: 44px;
+    padding-inline: 1.15rem;
+    font-size: .95rem;
+}
+.attention-simple-note {
+    padding-top: .75rem;
+    border-top: 1px solid var(--border);
+    color: var(--muted-2);
+    font-size: .78rem;
+}
+.attention-simple-icon {
+    width: 44px;
+    height: 44px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    background: var(--surface-2);
+    color: var(--muted);
+}
+.attention-simple-icon.ok {
+    background: color-mix(in srgb, var(--success) 16%, transparent);
+    color: var(--success);
+}
+.attention-pick {
+    display: flex;
+    align-items: center;
+    gap: .75rem;
+    margin-top: 1rem;
+    padding: .85rem 1rem;
+    color: var(--muted);
+}
+.attention-pick-icon {
+    width: 34px;
+    height: 34px;
+    display: grid;
+    place-items: center;
+    flex: 0 0 auto;
+    border-radius: 8px;
+    background: var(--surface-2);
+    color: var(--accent-text);
+}
+.attention-pick div { display: grid; gap: .1rem; }
+.attention-pick strong { color: var(--text); font-size: .88rem; }
+.attention-pick span { font-size: .8rem; line-height: 1.4; }
+.attention-eta { white-space: nowrap; }
+
+@media (max-width: 760px) {
+    .attention-summary { display: flex; overflow-x: auto; }
+    .attention-metric { min-width: 104px; }
+    .attention-simple { padding: 1rem; }
+    .attention-simple-head { flex-direction: column; gap: .25rem; }
+    .attention-simple-number { font-size: 2rem; }
+    .attention-eta { display: none; }
 }

@@ -2,7 +2,9 @@ using Bunit;
 using MelodyBridge.Application.Services;
 using MelodyBridge.Core;
 using MelodyBridge.Server.Components.Pages;
+using MelodyBridge.Server.Services;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 
 namespace MelodyBridge.Tests.Server.UiTests;
@@ -18,6 +20,16 @@ public class DownloadsPageTests
 {
     private Bunit.TestContext _ctx = null!;
     private StubCoordinator _coordinator = null!;
+    private StubRepairRunner _repair = null!;
+
+    private sealed class StubRepairRunner : IAttentionRepairRunner
+    {
+        public event Action? Changed { add { } remove { } }
+        public AttentionRepairRun? Current { get; set; }
+        public bool IsRunning => Current is { State: AttentionRepairState.Running };
+        public bool Start(AttentionRepairPlan plan) => false;
+        public void Stop() { }
+    }
 
     private sealed class StubCoordinator : IDownloadCoordinator
     {
@@ -48,6 +60,8 @@ public class DownloadsPageTests
         _ctx = new Bunit.TestContext();
         _coordinator = new StubCoordinator();
         _ctx.Services.AddSingleton<IDownloadCoordinator>(_coordinator);
+        _repair = new StubRepairRunner();
+        _ctx.Services.AddSingleton<IAttentionRepairRunner>(_repair);
     }
 
     [TearDown]
@@ -59,6 +73,25 @@ public class DownloadsPageTests
         manager.Setup(m => m.SnapshotProgress()).Returns(progress);
         _ctx.Services.AddSingleton(manager.Object);
         return _ctx.Render<Downloads>();
+    }
+
+    [Test]
+    public void RunningRepair_ShowsItsQueueAndEtaInTheRunList()
+    {
+        _repair.Current = new AttentionRepairRun(
+            10, 2, 0, 3, "Retrying downloads", AttentionRepairState.Running,
+            DateTime.UtcNow.AddSeconds(-30), null,
+            DateTime.UtcNow.AddMinutes(2), null, Array.Empty<string>());
+
+        var cut = RenderPage();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.Markup, Does.Contain("Needs attention repair"));
+            Assert.That(cut.Markup, Does.Contain("7 queued"));
+            Assert.That(cut.Markup, Does.Contain("ETA "));
+            Assert.That(cut.FindAll("a[href='/attention']"), Is.Not.Empty);
+        }, TimeSpan.FromSeconds(3));
     }
 
     [Test]

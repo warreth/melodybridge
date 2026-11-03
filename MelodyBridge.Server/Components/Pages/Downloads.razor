@@ -2,6 +2,7 @@
 @using MelodyBridge.Application.Services
 @inject IDownloadCoordinator Coordinator
 @inject IDownloadManager TrackDownloads
+@inject IAttentionRepairRunner Repair
 @implements IDisposable
 
 <PageTitle>Downloads - MelodyBridge</PageTitle>
@@ -26,7 +27,8 @@
     </div>
 </section>
 
-@if (runs.Count == 0 && activeTracks.Count == 0 && recentTracks.Count == 0)
+@if (runs.Count == 0 && activeTracks.Count == 0 && recentTracks.Count == 0
+    && repairRun is not { State: AttentionRepairState.Running })
 {
     <section class="panel-card downloads-empty">
         <EmptyState IconName="download" Title="No downloads yet">
@@ -48,8 +50,8 @@
 else
 {
     <section class="stat-grid">
-        <StatCard IconName="list-music" Label="Playlist runs" Value="@runs.Count.ToString()"
-                  Caption="@(runs.Count == 1 ? "run in progress" : "runs in progress")" />
+        <StatCard IconName="list-music" Label="Active runs" Value="@ActiveRunCount.ToString()"
+                  Caption="@(ActiveRunCount == 1 ? "run in progress" : "runs in progress")" />
         <StatCard IconName="download" Label="Downloading now" Value="@activeTracks.Count.ToString()"
                   Caption="@(activeTracks.Count == 1 ? "track being fetched" : "tracks being fetched")" />
         <StatCard IconName="check-circle" Label="Finished" Value="@recentDoneCount.ToString()"
@@ -58,17 +60,62 @@ else
                   Caption="In the last 30 minutes" />
     </section>
 
-    @if (runs.Count > 0)
+    @if (runs.Count > 0 || repairRun is { State: AttentionRepairState.Running })
     {
         <section class="downloads-section">
             <div class="panel-header">
                 <div>
-                    <span class="eyebrow">Playlists</span>
-                    <h2>Playlist runs</h2>
+                    <span class="eyebrow">Queue</span>
+                    <h2>Active runs</h2>
                 </div>
                 <StatusPill Variant="info" Pulse>Live</StatusPill>
             </div>
             <div class="downloads-run-list">
+                @if (repairRun is { State: AttentionRepairState.Running } repair)
+                {
+                    <article class="panel-card download-run repair-run">
+                        <div class="download-run-head">
+                            <div class="download-run-title">
+                                <strong>Needs attention repair</strong>
+                                <span class="download-run-meta">
+                                    <span>@repair.Processed of @repair.Total done</span>
+                                    @if (repair.Failed > 0)
+                                    {
+                                        <span class="download-run-failed">@repair.Failed failed</span>
+                                    }
+                                    @if (repair.Total - repair.Processed > 0)
+                                    {
+                                        <span>@(repair.Total - repair.Processed) queued</span>
+                                    }
+                                    @if (RepairEtaText(repair) is { Length: > 0 } eta)
+                                    {
+                                        <span>@eta</span>
+                                    }
+                                    else
+                                    {
+                                        <span>ETA calculating</span>
+                                    }
+                                </span>
+                            </div>
+                            <StatusPill Variant="info" Pulse>Running</StatusPill>
+                        </div>
+                        <div class="progress-track">
+                            <div class="progress-fill" style="width:@repair.Percent%"></div>
+                        </div>
+                        <div class="download-run-foot">
+                            <div class="download-run-current">
+                                <span class="eyebrow">Now</span>
+                                <span>@repair.Current</span>
+                            </div>
+                            <div class="flex-actions">
+                                <button class="btn-modern small ghost" @onclick="StopRepair">
+                                    <Icon Name="x" Size="14" /> Stop
+                                </button>
+                                <a class="btn-modern small ghost" href="/attention">Open attention</a>
+                            </div>
+                        </div>
+                    </article>
+                }
                 @foreach (var run in runs)
                 {
                     <article class="panel-card download-run">
@@ -223,6 +270,7 @@ else
 
 @code {
     private List<DownloadRun> runs = new();
+    private AttentionRepairRun? repairRun;
     private List<DownloadProgress> activeTracks = new();
     private List<DownloadProgress> recentTracks = new();
     private int recentDoneCount;
@@ -241,6 +289,7 @@ else
 
     private void Refresh()
     {
+        repairRun = Repair.Current;
         runs = Coordinator.Snapshot()
             .Where(run => run.State != DownloadRunState.Finished)
             .OrderByDescending(run => run.StartedAtUtc)
@@ -260,6 +309,19 @@ else
         recentFailedCount = progress.Count(entry => entry.Status == "failed");
     }
 
+    private void StopRepair()
+    {
+        Repair.Stop();
+        Refresh();
+    }
+
+    private static string RepairEtaText(AttentionRepairRun run)
+    {
+        if (run.State != AttentionRepairState.Running || run.EtaUtc is not { } eta)
+            return string.Empty;
+        return $"ETA {eta.ToLocalTime():HH:mm}";
+    }
+
     private void Pause(string playlistId)
     {
         Coordinator.Pause(playlistId);
@@ -277,6 +339,9 @@ else
         Coordinator.Cancel(playlistId);
         Refresh();
     }
+
+    private int ActiveRunCount
+        => runs.Count + (repairRun is { State: AttentionRepairState.Running } ? 1 : 0);
 
     private static bool IsActive(DownloadProgress track)
         => track.Status is "searching" or "downloading";

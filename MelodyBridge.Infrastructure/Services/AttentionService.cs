@@ -248,7 +248,13 @@ public sealed class AttentionService
                 && (track.DownloadStatus == "failed"
                     || track.DownloadStatus == "needs-review"
                     || (track.DownloadStatus == "downloaded"
-                        && (track.ReviewKind != null || track.Warning != null))))
+                        && (track.ReviewKind != null
+                            || (track.Warning != null
+                                && (track.Warning.Contains("archive copy failed")
+                                    || track.Warning.Contains("already owns the archive file")
+                                    || track.Warning.Contains("file missing on disk")
+                                    || track.Warning.Contains("the file lived in the archive folder")
+                                    || track.Warning.Contains("could not verify the download")))))))
             .Join(db.Playlists.AsNoTracking(),
                 track => track.PlaylistEntityId,
                 playlist => playlist.Id,
@@ -305,13 +311,16 @@ public sealed class AttentionService
                 row.SourcePluginId));
         }
 
+        var byKind = tracks
+            .GroupBy(track => track.Kind, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.ToList(), StringComparer.Ordinal);
         var groups = AttentionKinds.Order
+            .Where(kind => byKind.ContainsKey(kind))
             .Select(kind => new AttentionGroup(
                 kind,
                 AttentionKinds.Label(kind),
                 AttentionKinds.Description(kind),
-                tracks.Where(track => track.Kind == kind).ToList()))
-            .Where(group => group.Tracks.Count > 0)
+                byKind[kind]))
             .ToList();
 
         var playlists = await db.Playlists.AsNoTracking()
