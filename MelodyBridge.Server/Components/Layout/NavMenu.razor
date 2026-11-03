@@ -8,6 +8,22 @@
    palette. Dashboard needs All so "/" only lights up on an exact
    match, not on every child route. *@
 <nav class="app-nav">
+    @if (_mode is not null)
+    {
+        <button type="button" class="nav-section nav-mode-section" role="switch"
+                aria-checked="@(!_advanced ? "true" : "false")"
+                aria-label="Simple mode"
+                title="@(_advanced ? "Switch to the simpler interface" : "Show every tool and setting")"
+                @onclick="ToggleModeAsync">
+            <span class="nav-mode-copy">
+                <span class="nav-mode-title">Simple mode</span>
+                <small>@(_advanced ? "Off, all tools visible" : "On, only the basics")</small>
+            </span>
+            <span class="nav-mode-switch" aria-hidden="true">
+                <span class="nav-mode-slider"></span>
+            </span>
+        </button>
+    }
     <div class="nav-section">
         <NavLink class="nav-link" href="" Match="NavLinkMatch.All"><Icon Name="home" Class="nav-icon" /> Dashboard</NavLink>
     </div>
@@ -42,22 +58,7 @@
             <NavLink class="nav-link" href="/logs"><Icon Name="terminal" Class="nav-icon" /> Logs</NavLink>
         }
     </div>
-    @if (_mode is not null)
-    {
-        <button type="button" class="nav-section nav-mode-section" role="switch"
-                aria-checked="@(!_advanced ? "true" : "false")"
-                aria-label="Simple mode"
-                title="@(_advanced ? "Switch to the simpler interface" : "Show every tool and setting")"
-                @onclick="ToggleModeAsync">
-            <span class="nav-mode-copy">
-                <span class="nav-mode-title">Simple mode</span>
-                <small>@(_advanced ? "Off, all tools visible" : "On, only the basics")</small>
-            </span>
-            <span class="nav-mode-switch" aria-hidden="true">
-                <span class="nav-mode-slider"></span>
-            </span>
-        </button>
-    }
+
 </nav>
 
 @code {

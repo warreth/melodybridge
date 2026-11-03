@@ -217,6 +217,9 @@ h1:focus { outline: none; }
     top: 0;
     height: 100vh;
     min-width: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
     padding: 1rem;
     background: var(--surface);
     border-right: 1px solid var(--border);
@@ -265,12 +268,15 @@ h1:focus { outline: none; }
 
 .app-nav {
     display: flex;
+    flex: 1 1 auto;
     flex-direction: column;
+    min-height: 0;
+    overflow-y: auto;
     gap: .25rem;
 }
 
 .nav-section {
-    margin-bottom: 1rem;
+    margin-bottom: .65rem;
 }
 
 .nav-section-header {
@@ -279,15 +285,15 @@ h1:focus { outline: none; }
     color: var(--muted);
     letter-spacing: 0;
     padding: 0 0.75rem;
-    margin-bottom: 0.4rem;
+    margin-bottom: 0.3rem;
 }
 
 .app-nav .nav-link {
-    min-height: 40px;
+    min-height: 36px;
     display: flex;
     gap: .65rem;
     align-items: center;
-    padding: .55rem .65rem;
+    padding: .45rem .65rem;
     border-radius: 8px;
     color: var(--muted);
     text-decoration: none;
@@ -324,10 +330,8 @@ h1:focus { outline: none; }
 }
 
 .sidebar-footer {
-    position: absolute;
-    left: 1rem;
-    right: 1rem;
-    bottom: 1rem;
+    position: static;
+    margin-top: auto;
     display: flex;
     gap: .65rem;
     align-items: center;
@@ -1690,8 +1694,10 @@ td.file-path {
         position: relative;
         height: auto;
         display: flex;
+        flex-direction: row;
         flex-wrap: wrap;
         align-items: center;
+        overflow: visible;
         gap: .35rem .75rem;
         padding: .75rem 1rem;
         border-right: 0;
@@ -1709,9 +1715,10 @@ td.file-path {
         flex: 1 1 100%;
         order: 3;
         min-width: 0;
+        overflow-y: visible;
         padding-bottom: .1rem;
     }
-    .nav-section { display: contents; margin: 0; }
+    .nav-section:not(.nav-mode-section) { display: contents; margin: 0; }
     .nav-section-header { display: none; }
     .app-nav .nav-link { flex: 0 0 auto; white-space: nowrap; min-height: 34px; padding: .4rem .65rem; font-size: .85rem; }
     .sidebar-footer { position: static; margin: 0 0 0 auto; padding: 0; border: 0; background: none; order: 2; }
