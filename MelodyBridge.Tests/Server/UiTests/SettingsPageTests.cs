@@ -78,7 +78,7 @@ public class SettingsPageTests
     public async Task InterfaceMode_FollowsASidebarSwitch()
     {
         var cut = _ctx.Render<Settings>();
-        await cut.InvokeAsync(() => cut.Find("button[data-tab='about']").Click());
+        await cut.InvokeAsync(() => cut.Find("button[data-tab='appearance']").Click());
         var mode = _ctx.Services.GetRequiredService<MelodyBridge.Server.Services.UiModeService>();
 
         await mode.SetAsync(advanced: false);
@@ -96,7 +96,7 @@ public class SettingsPageTests
     public async Task InterfaceMode_CanSwitchToSimple()
     {
         var cut = _ctx.Render<Settings>();
-        await cut.InvokeAsync(() => cut.Find("button[data-tab='about']").Click());
+        await cut.InvokeAsync(() => cut.Find("button[data-tab='appearance']").Click());
 
         var mode = cut.Find(".theme-choice[aria-label='Interface mode']");
         var simple = mode.QuerySelectorAll(".theme-choice-option")
@@ -144,7 +144,7 @@ public class SettingsPageTests
     }
 
     [Test]
-    public async Task SettingsSearch_FindsThemeAndOpensAbout()
+    public async Task SettingsSearch_FindsThemeAndOpensAppearance()
     {
         var cut = _ctx.Render<Settings>();
 
@@ -162,7 +162,7 @@ public class SettingsPageTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(cut.Find("button[data-tab='about']").GetAttribute("class"), Does.Contain("active"));
+            Assert.That(cut.Find("button[data-tab='appearance']").GetAttribute("class"), Does.Contain("active"));
             Assert.That(cut.Markup, Does.Contain("Theme and color"));
             Assert.That(cut.Find(".settings-search-input").GetAttribute("value"), Is.Empty,
                 "the search clears after a jump");
@@ -185,7 +185,7 @@ public class SettingsPageTests
     {
         _ctx.JSInterop.Setup<string>("melody.setTheme", _ => true).SetResult("dark");
         var cut = _ctx.Render<Settings>();
-        await cut.InvokeAsync(() => cut.Find("button[data-tab='about']").Click());
+        await cut.InvokeAsync(() => cut.Find("button[data-tab='appearance']").Click());
 
         var options = cut.FindAll(".theme-choice[aria-label='Theme'] .theme-choice-option");
         Assert.That(options.Select(option => option.TextContent.Trim()),
@@ -943,33 +943,33 @@ public class SettingsPageTests
     }
 
     [Test]
-    public void Settings_AboutTab_ShowsAccentPickerWithAllPalettes()
+    public void Settings_AppearanceTab_ShowsAccentPickerWithAllPalettes()
     {
         var cut = _ctx.Render<Settings>();
-        cut.FindAll("button.tab-link").First(b => b.TextContent.Trim() == "About").Click();
+        cut.FindAll("button.tab-link").First(b => b.TextContent.Trim() == "Appearance").Click();
 
         var group = cut.Find(".accent-picker");
         Assert.That(group.GetAttribute("role"), Is.EqualTo("radiogroup"),
             "the picker announces itself as a radio group");
 
         var swatches = cut.FindAll("button.accent-swatch");
-        Assert.That(swatches.Count, Is.EqualTo(5),
-            "all five palettes are offered");
+        Assert.That(swatches.Count, Is.EqualTo(9),
+            "all nine palettes are offered");
         Assert.That(
             swatches.Select(s => s.GetAttribute("title").ToLowerInvariant()),
-            Is.EquivalentTo(new[] { "teal", "blue", "violet", "rose", "amber" }),
+            Is.EquivalentTo(new[] { "teal", "cyan", "blue", "green", "violet", "rose", "orange", "amber", "slate" }),
             "the swatches carry their palette names");
     }
 
     [Test]
-    public void Settings_AboutTab_MarksStoredAccentAsActive()
+    public void Settings_AppearanceTab_MarksStoredAccentAsActive()
     {
         // The browser reports violet as the stored accent; the swatch must
         // reflect it instead of the default teal.
         _ctx.JSInterop.Setup<string>("melody.getAccent").SetResult("violet");
 
         var cut = _ctx.Render<Settings>();
-        cut.FindAll("button.tab-link").First(b => b.TextContent.Trim() == "About").Click();
+        cut.FindAll("button.tab-link").First(b => b.TextContent.Trim() == "Appearance").Click();
 
         cut.WaitForAssertion(() =>
         {
@@ -982,12 +982,12 @@ public class SettingsPageTests
     }
 
     [Test]
-    public void Settings_DirectAboutLoad_ShowsStoredThemeAndAccent()
+    public void Settings_DirectAppearanceLoad_ShowsStoredThemeAndAccent()
     {
         _ctx.JSInterop.Setup<string>("melody.getAccent").SetResult("violet");
         _ctx.JSInterop.Setup<string>("melody.getThemePreference").SetResult("dark");
         _ctx.Services.GetRequiredService<NavigationManager>()
-            .NavigateTo("/settings#about");
+            .NavigateTo("/settings#appearance");
 
         var cut = _ctx.Render<Settings>();
 
@@ -995,7 +995,7 @@ public class SettingsPageTests
         {
             var theme = cut.FindAll(".theme-choice[aria-label='Theme'] .theme-choice-option.active").Single();
             Assert.That(theme.TextContent.Trim(), Is.EqualTo("Dark"),
-                "a direct #about request still shows the stored theme");
+                "a direct #appearance request still shows the stored theme");
             var accent = cut.FindAll("button.accent-swatch.active").Single();
             Assert.That(accent.GetAttribute("title"), Is.EqualTo("Violet"),
                 "and the stored accent");
@@ -1003,11 +1003,11 @@ public class SettingsPageTests
     }
 
     [Test]
-    public void Settings_AboutTab_ClickingSwatchCallsSetAccentAndMovesActive()
+    public void Settings_AppearanceTab_ClickingSwatchCallsSetAccentAndMovesActive()
     {
         var setAccent = _ctx.JSInterop.SetupVoid("melody.setAccent", "rose");
         var cut = _ctx.Render<Settings>();
-        cut.FindAll("button.tab-link").First(b => b.TextContent.Trim() == "About").Click();
+        cut.FindAll("button.tab-link").First(b => b.TextContent.Trim() == "Appearance").Click();
 
         cut.FindAll("button.accent-swatch").First(b => b.GetAttribute("title") == "Rose").Click();
 

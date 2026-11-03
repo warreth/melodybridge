@@ -917,6 +917,82 @@ else if (activeTab == "notifications")
         </div>
     </section>
 }
+else if (activeTab == "appearance")
+{
+    <section class="settings-card">
+        <div class="settings-head">
+            <div>
+                <span class="eyebrow">Appearance</span>
+                <h2>Theme and color</h2>
+            </div>
+        </div>
+        <div class="settings-section">
+            <p class="panel-description">
+                Choose a theme or let MelodyBridge follow your device. Saved in this browser only.
+            </p>
+            <div class="theme-choice" role="radiogroup" aria-label="Theme">
+                @foreach (var mode in ThemeModes)
+                {
+                    var active = _themePreference == mode.Id;
+                    <button type="button" class="theme-choice-option @(active ? "active" : "")"
+                            role="radio" aria-checked="@(active ? "true" : "false")"
+                            @onclick="() => PickTheme(mode.Id)">
+                        <Icon Name="@mode.Icon" Size="16" />
+                        <span>@mode.Label</span>
+                    </button>
+                }
+            </div>
+            <p class="panel-description">
+                Colors the active tab, buttons and highlights across the whole app, the guided tour included.
+            </p>
+            <div class="accent-picker" role="radiogroup" aria-label="Accent color">
+                @foreach (var accent in AccentOptions)
+                {
+                    var active = accent == _activeAccent;
+                    <button type="button"
+                            class="accent-swatch accent-@(accent) @(active ? "active" : "")"
+                            role="radio"
+                            aria-checked="@(active ? "true" : "false")"
+                            title="@AccentLabel(accent)"
+                            @onclick="() => PickAccent(accent)">
+                        <span class="accent-dot" aria-hidden="true"></span>
+                        <span>@AccentLabel(accent)</span>
+                    </button>
+                }
+            </div>
+        </div>
+    </section>
+
+    @if (_mode is not null)
+    {
+        <section class="settings-card">
+            <div class="settings-head">
+                <div>
+                    <span class="eyebrow">Interface</span>
+                    <h2>Simple or advanced</h2>
+                </div>
+            </div>
+            <div class="settings-section">
+                <p class="panel-description">
+                    Simple keeps the sidebar focused on the everyday tools. Advanced shows the library, diagnostics and every setting. You can switch any time from the sidebar too.
+                </p>
+                <div class="theme-choice" role="radiogroup" aria-label="Interface mode">
+                    <button type="button" class="theme-choice-option @(!_mode.IsAdvanced ? "active" : "")"
+                            role="radio" aria-checked="@(!_mode.IsAdvanced ? "true" : "false")"
+                            @onclick="() => SetModeAsync(false)">
+                        <Icon Name="eye" Size="16" /><span>Simple</span>
+                    </button>
+                    <button type="button" class="theme-choice-option @(_mode.IsAdvanced ? "active" : "")"
+                            role="radio" aria-checked="@(_mode.IsAdvanced ? "true" : "false")"
+                            @onclick="() => SetModeAsync(true)">
+                        <Icon Name="sliders" Size="16" /><span>Advanced</span>
+                    </button>
+                </div>
+            </div>
+        </section>
+    }
+}
+
 else if (activeTab == "about")
 {
     <section class="settings-card about-card">
@@ -967,82 +1043,6 @@ else if (activeTab == "about")
             <div class="flex-actions">
                 <button class="btn-modern ghost" @onclick="RestartTour">Show the guided tour again</button>
                 <button class="btn-modern ghost" @onclick="RestartChecklist">Show the setup checklist again</button>
-            </div>
-        </div>
-    </section>
-
-    @if (_mode is not null)
-    {
-        <section class="settings-card about-card">
-            <div class="settings-head">
-                <div>
-                    <span class="eyebrow">Interface</span>
-                    <h2>Simple or advanced</h2>
-                </div>
-            </div>
-            <div class="settings-section">
-                <p class="panel-description">
-                    Simple keeps the sidebar focused on playlists and downloads.
-                    Advanced shows the library, sync jobs, diagnostics and every setting.
-                    You can switch any time from the sidebar too.
-                </p>
-                <div class="theme-choice" role="radiogroup" aria-label="Interface mode">
-                    <button type="button" class="theme-choice-option @(!_mode.IsAdvanced ? "active" : "")"
-                            role="radio" aria-checked="@(!_mode.IsAdvanced ? "true" : "false")"
-                            @onclick="() => SetModeAsync(false)">
-                        <Icon Name="eye" Size="16" /><span>Simple</span>
-                    </button>
-                    <button type="button" class="theme-choice-option @(_mode.IsAdvanced ? "active" : "")"
-                            role="radio" aria-checked="@(_mode.IsAdvanced ? "true" : "false")"
-                            @onclick="() => SetModeAsync(true)">
-                        <Icon Name="sliders" Size="16" /><span>Advanced</span>
-                    </button>
-                </div>
-            </div>
-        </section>
-    }
-
-    <section class="settings-card about-card">
-        <div class="settings-head">
-            <div>
-                <span class="eyebrow">Appearance</span>
-                <h2>Theme and color</h2>
-            </div>
-        </div>
-        <div class="settings-section">
-            <p class="panel-description">
-                Choose a theme or let MelodyBridge follow your device. Saved in
-                this browser only.
-            </p>
-            <div class="theme-choice" role="radiogroup" aria-label="Theme">
-                @foreach (var mode in ThemeModes)
-                {
-                    var active = _themePreference == mode.Id;
-                    <button type="button" class="theme-choice-option @(active ? "active" : "")"
-                            role="radio" aria-checked="@(active ? "true" : "false")"
-                            @onclick="() => PickTheme(mode.Id)">
-                        <Icon Name="@mode.Icon" Size="16" />
-                        <span>@mode.Label</span>
-                    </button>
-                }
-            </div>
-            <p class="panel-description">
-                Colors the active tab, buttons and highlights across the whole
-                app, the guided tour included.
-            </p>
-            <div class="accent-picker" role="radiogroup" aria-label="Accent color">
-                @foreach (var accent in AccentOptions)
-                {
-                    var active = accent == _activeAccent;
-                    <button type="button"
-                            class="accent-swatch accent-@(accent) @(active ? "active" : "")"
-                            role="radio"
-                            aria-checked="@(active ? "true" : "false")"
-                            title="@(char.ToUpperInvariant(accent[0]) + accent[1..])"
-                            @onclick="() => PickAccent(accent)">
-                        <span class="visually-hidden">@(char.ToUpperInvariant(accent[0]) + accent[1..])</span>
-                    </button>
-                }
             </div>
         </div>
     </section>
@@ -1213,6 +1213,7 @@ else if (activeTab == "about")
         ("quality", "Quality"),
         ("network", "Network"),
         ("notifications", "Notifications"),
+        ("appearance", "Appearance"),
         ("about", "About"),
     ];
 
@@ -1221,7 +1222,11 @@ else if (activeTab == "about")
         [.. Tabs.Select(t => new TabStrip.Tab(t.Id, t.Label))];
 
     // Accent palette ids, matching the app.css palettes and app.js ACCENTS.
-    private static readonly string[] AccentOptions = ["teal", "blue", "violet", "rose", "amber"];
+    private static readonly string[] AccentOptions =
+        ["teal", "cyan", "blue", "green", "violet", "rose", "orange", "amber", "slate"];
+
+    private static string AccentLabel(string accent)
+        => char.ToUpperInvariant(accent[0]) + accent[1..];
     private string _activeAccent = "teal";
 
     private static readonly (string Id, string Label, string Icon)[] ThemeModes =
@@ -1264,8 +1269,9 @@ else if (activeTab == "about")
         new("FlareSolverr", "network", "Cloudflare solver for Lucida", "flaresolverr cloudflare lucida solver"),
         new("Notifications", "notifications", "Toast rules for downloads and failures", "toast notification download failure"),
         new("ntfy push", "notifications", "Topic, server and token for phone alerts", "ntfy push phone alert topic token"),
-        new("Theme", "about", "Light, Dark or Auto", "theme dark light auto appearance"),
-        new("Accent color", "about", "Teal, blue, violet, rose or amber", "accent color theme"),
+        new("Theme", "appearance", "Light, Dark or Auto", "theme dark light auto appearance"),
+        new("Accent color", "appearance", "Teal, cyan, blue, green, violet, rose, orange, amber or slate", "accent color theme"),
+        new("Interface mode", "appearance", "Simple or advanced navigation", "simple advanced interface mode sidebar"),
         new("Export logs", "about", "Download the recent log buffer", "logs export diagnostics"),
         new("Database backup", "about", "Export or import the SQLite database", "database backup export import restore"),
         new("Update check", "about", "Release channel and version", "update version release beta"),

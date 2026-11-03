@@ -71,46 +71,69 @@
    palette regardless of which accent is active. */
 .accent-picker {
     display: flex;
-    gap: .75rem;
+    gap: .5rem;
     flex-wrap: wrap;
 }
 
 .accent-swatch {
-    width: 34px;
-    height: 34px;
-    border-radius: 50%;
-    border: 2px solid var(--border-strong);
+    display: inline-flex;
+    align-items: center;
+    gap: .45rem;
+    padding: .38rem .65rem .38rem .45rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface-2);
+    color: var(--text);
+    font: inherit;
+    font-size: .8rem;
     cursor: pointer;
-    position: relative;
+    transition: border-color .12s ease, background-color .12s ease;
+}
+
+.accent-dot {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
     background: var(--swatch);
-    transition: transform .12s ease, border-color .12s ease;
+    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .08);
 }
 
 .accent-swatch:hover {
-    transform: scale(1.12);
+    border-color: var(--border-strong);
+    background: var(--surface);
 }
 
 .accent-swatch:focus-visible {
     outline: 2px solid var(--text);
-    outline-offset: 3px;
+    outline-offset: 2px;
 }
 
 .accent-swatch.active {
     border-color: var(--swatch);
-    box-shadow: 0 0 0 3px var(--surface-2), 0 0 0 5px var(--swatch);
+    box-shadow: inset 0 0 0 1px var(--swatch);
 }
+
+.accent-swatch.active span:last-child { font-weight: 600; }
 
 /* Fixed legend: the strong color of each palette in both modes. */
 .accent-teal { --swatch: #2dd4bf; }
+.accent-cyan { --swatch: #06b6d4; }
 .accent-blue { --swatch: #3b82f6; }
+.accent-green { --swatch: #22c55e; }
 .accent-violet { --swatch: #a855f7; }
 .accent-rose { --swatch: #f43f5e; }
+.accent-orange { --swatch: #f97316; }
 .accent-amber { --swatch: #f59e0b; }
+.accent-slate { --swatch: #94a3b8; }
 :root[data-theme="light"] .accent-teal { --swatch: #0f766e; }
+:root[data-theme="light"] .accent-cyan { --swatch: #0e7490; }
 :root[data-theme="light"] .accent-blue { --swatch: #2563eb; }
+:root[data-theme="light"] .accent-green { --swatch: #15803d; }
 :root[data-theme="light"] .accent-violet { --swatch: #7c3aed; }
 :root[data-theme="light"] .accent-rose { --swatch: #e11d48; }
+:root[data-theme="light"] .accent-orange { --swatch: #c2410c; }
 :root[data-theme="light"] .accent-amber { --swatch: #b45309; }
+:root[data-theme="light"] .accent-slate { --swatch: #475569; }
 
 /* The redirect URI and its Copy button share one row; the URI wraps
    inside its own space instead of pushing the button around. */

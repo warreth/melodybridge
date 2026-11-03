@@ -7,7 +7,7 @@ window.melody = (() => {
     const THEME_KEY = 'mb-theme';
     const ACCENT_KEY = 'mb-accent';
     // Palettes shipped in app.css; anything else falls back to teal.
-    const ACCENTS = ['teal', 'blue', 'violet', 'rose', 'amber'];
+    const ACCENTS = ['teal', 'cyan', 'blue', 'green', 'violet', 'rose', 'orange', 'amber', 'slate'];
     const THEME_MODES = ['auto', 'light', 'dark'];
 
     // The browser's own preference. Light stays the fallback when the

@@ -169,7 +169,8 @@ public class PageRefactorUiTests
         var tabs = cut.FindAll("button.tab-link").Select(b => b.TextContent.Trim()).ToList();
         Assert.That(tabs, Is.EqualTo(new[]
         {
-            "Accounts", "Media servers", "Default paths", "Quality", "Network", "Notifications", "About",
+            "Accounts", "Media servers", "Default paths", "Quality", "Network", "Notifications",
+            "Appearance", "About",
         }), "the tabs keep their labels and order");
 
         cut.FindAll("button.tab-link").Single(b => b.TextContent.Trim() == "Network").Click();
