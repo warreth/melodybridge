@@ -10,6 +10,16 @@ using UserPlaylist = MelodyBridge.Core.UserPlaylist;
 namespace MelodyBridge.Infrastructure.Accounts;
 
 /// <summary>
+/// The account's storefront could not be resolved. This is not a reason to
+/// fall back to the public US catalog: the caller must retry or ask for a
+/// link that names a storefront.
+/// </summary>
+public sealed class AppleMusicStorefrontException : InvalidOperationException
+{
+    public AppleMusicStorefrontException(string message) : base(message) { }
+}
+
+/// <summary>
 /// The unofficial Apple Music account connection: the user's own
 /// media-user-token cookie from a logged-in music.apple.com session drives
 /// the library API. Public and shared playlist links keep working without
@@ -131,7 +141,7 @@ public class AppleMusicAccountProvider : IAccountSourceProvider
         var token = await RequireTokenAsync(ct);
         var storefront = await GetStorefrontAsync(token, ct);
         if (string.IsNullOrWhiteSpace(storefront))
-            throw new InvalidOperationException(
+            throw new AppleMusicStorefrontException(
                 "Apple Music could not determine the account storefront. "
                 + "Try again, or paste a playlist link that includes a storefront.");
         var result = new List<UserPlaylist>();
@@ -200,7 +210,7 @@ public class AppleMusicAccountProvider : IAccountSourceProvider
                     ? reference.Storefront
                     : await GetStorefrontAsync(token, ct);
                 if (string.IsNullOrWhiteSpace(storefront))
-                    throw new InvalidOperationException(
+                    throw new AppleMusicStorefrontException(
                         "Apple Music could not determine the account storefront. "
                         + "Try again, or paste a link that includes a storefront.");
 

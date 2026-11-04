@@ -91,6 +91,13 @@ internal sealed class PlaylistSnapshots
                     "Account fetch for '{Source}' through {Account} returned nothing; trying the next path",
                     sourceIdentifier, account.Name);
             }
+            catch (AppleMusicStorefrontException)
+            {
+                // A storefront-less Apple link cannot be safely answered by
+                // the public US catalog. Surface the account's clear error
+                // instead of silently importing the wrong country edition.
+                throw;
+            }
             catch (Exception ex)
             {
                 _logger.LogInformation(

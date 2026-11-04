@@ -1,8 +1,11 @@
 using System.Net;
 using System.Text;
+using MelodyBridge.Application.Services;
+using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.Accounts;
 using MelodyBridge.Infrastructure.AppleMusic;
 using MelodyBridge.Infrastructure.Data;
+using MelodyBridge.Infrastructure.Services;
 using MelodyBridge.Tests.Infrastructure;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -15,6 +18,7 @@ public class AppleMusicAccountProviderTests
     private TestSqliteFactory _factory = null!;
     private AccountTokenStore _tokens = null!;
     private ScriptedHandler _handler = null!;
+    private AppleMusicApiClient _api = null!;
     private AppleMusicAccountProvider _provider = null!;
 
     [SetUp]
@@ -30,7 +34,7 @@ public class AppleMusicAccountProviderTests
             .On("/assets/index", AppleMusicTestData.Bundle)
             .On("/", AppleMusicTestData.HomeHtml);
         var tokenProvider = AppleMusicTestData.TokenProvider(_handler);
-        var api = new AppleMusicApiClient(
+        _api = new AppleMusicApiClient(
             new HttpClient(_handler), tokenProvider,
             NullLogger<AppleMusicApiClient>.Instance)
         {
@@ -38,7 +42,7 @@ public class AppleMusicAccountProviderTests
             RetryBaseDelay = TimeSpan.Zero,
         };
         _provider = new AppleMusicAccountProvider(
-            _tokens, api, NullLogger<AppleMusicAccountProvider>.Instance);
+            _tokens, _api, NullLogger<AppleMusicAccountProvider>.Instance);
     }
 
     [TearDown]
@@ -249,7 +253,7 @@ public class AppleMusicAccountProviderTests
             next: null,
             ("p.one", "pl.one", "Shared List", "Owner", 3, true)));
 
-        var ex = Assert.ThrowsAsync<InvalidOperationException>(
+        var ex = Assert.ThrowsAsync<AppleMusicStorefrontException>(
             () => _provider.GetUserPlaylistsAsync());
 
         Assert.That(ex!.Message, Does.Contain("storefront"),
@@ -290,12 +294,39 @@ public class AppleMusicAccountProviderTests
                 Content = new StringContent("{}", Encoding.UTF8, "application/json"),
             });
 
-        var ex = Assert.ThrowsAsync<InvalidOperationException>(() =>
+        var ex = Assert.ThrowsAsync<AppleMusicStorefrontException>(() =>
             _provider.TryGetPlaylistViaAccountAsync("https://music.apple.com/playlist/pl.test"));
 
         Assert.That(ex!.Message, Does.Contain("storefront"));
         Assert.That(_handler.Requests.Any(r => r.Url.Contains("/v1/catalog/us/")), Is.False,
             "a failed lookup must not silently fall back to the us catalog");
+    }
+
+    [Test]
+    public async Task Store_UnknownStorefront_DoesNotFallBackToThePublicUsCatalog()
+    {
+        await ConnectAsync();
+        _handler.On("/v1/me/storefront",
+            _ => new HttpResponseMessage(HttpStatusCode.InternalServerError)
+            {
+                Content = new StringContent("{}", Encoding.UTF8, "application/json"),
+            });
+
+        var source = new AppleMusicSourceProvider(
+            _api, NullLogger<AppleMusicSourceProvider>.Instance, new HttpClient(_handler));
+        var store = new PlaylistStore(
+            _factory,
+            new ISourceProvider[] { source },
+            new DownloadManager(new EmptyDownloaderRegistry(), NullLogger<DownloadManager>.Instance),
+            NullLogger<PlaylistStore>.Instance,
+            accountProviders: new IAccountSourceProvider[] { _provider });
+
+        var ex = Assert.ThrowsAsync<AppleMusicStorefrontException>(() =>
+            store.AddOrRefreshAsync("https://music.apple.com/playlist/pl.test"));
+
+        Assert.That(ex!.Message, Does.Contain("storefront"));
+        Assert.That(_handler.Requests.Any(r => r.Url.Contains("/v1/catalog/us/")), Is.False,
+            "the public us fallback must not run for an unknown storefront");
     }
 
     [Test]
