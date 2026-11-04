@@ -15,14 +15,19 @@ and pick a result. It is a jump list, not a live filter of every field.
 
 ### Accounts
 
-Connect Spotify and YouTube here. Both logins only ask for read access, so they
-can never change anything on your account. One **Spotify web session** card
-holds a single `sp_dc` cookie for two jobs: the public page fallback and free
-account imports. Paste the cookie and press **Save for public fallback** when
-you only want the safer scraping fallback. Tick the acknowledgement and press
-**Enable account imports** to test the unofficial route. The full walkthrough,
-including the redirect URLs, the cookie route and the file imports, lives in
-[Accounts and imports](/accounts).
+Connect Spotify, YouTube and Apple Music here. The Spotify and YouTube logins
+only ask for read access, so they can never change anything on your account.
+One **Spotify web session** card holds a single `sp_dc` cookie for two jobs: the
+public page fallback and free account imports. Paste the cookie and press
+**Save for public fallback** when you only want the safer scraping fallback.
+Tick the acknowledgement and press **Enable account imports** to test the
+unofficial route.
+
+The **Apple Music** web session card takes a `media-user-token` cookie from a
+logged-in music.apple.com browser. Public and shared playlist links need no
+cookie; connect it for unshared library playlists and saved songs. The full
+walkthrough, including the redirect URLs, both cookie routes and the file
+imports, lives in [Accounts and imports](/accounts).
 
 ### Media servers
 
@@ -142,7 +147,8 @@ track marked failed, and the next run retries it.
   for real, so a healthy HTTP port that cannot finish a challenge is reported
   honestly. More in [Lucida and FlareSolverr](/lucida).
 - The Spotify fallback cookie lives on the **Accounts** tab with the web session
-  card. One cookie covers public scraping and free-account imports.
+  card. One cookie covers public scraping and free-account imports. The Apple
+  Music web session is a separate card in the same tab.
 
 ### Notifications
 
@@ -224,7 +230,8 @@ total number of open attention items. The activity panel shows live download
 runs and the last sync runs with how many tracks each resolved. The connections
 panel groups accounts, media servers and Cloudflare. A Spotify **web session**
 row appears when the fallback cookie or free-account import is connected, even
-when no official OAuth account is linked.
+when no official OAuth account is linked. An **Apple Music** row appears when
+the Apple web session is connected.
 
 The playlist section shows compact cards with a progress bar and an attention
 count per playlist. On a fresh install, the setup checklist includes a
@@ -707,7 +714,8 @@ and lets you retry a whole group, find a hardlink, or rebuild archive copies
 without opening each playlist.
 
 One more place to look: the **Connections** panel on the dashboard shows the
-state of Spotify, YouTube, your media servers and FlareSolverr at a glance. A
+state of Spotify, YouTube, Apple Music, your media servers and FlareSolverr at
+a glance. A
 media server profile that exists but is not usable says **not configured**, not
 ready. A connected server names the account and host it reached, and a server
 that did not answer says **unreachable** with the reason. While a server is

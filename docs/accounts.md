@@ -1,9 +1,9 @@
 # Accounts and imports
 
-Public links cover a lot, but your private playlists, collaborative playlists
-and liked songs need a login. MelodyBridge has three ways in: an official
-Spotify login, an official YouTube login, and an unofficial Spotify web session
-for free accounts.
+Public links cover a lot, but your private playlists and saved songs need a
+login. MelodyBridge has four ways in: an official Spotify login, an official
+YouTube login, an unofficial Spotify web session for free accounts, and an
+unofficial Apple Music web session.
 
 Two design rules keep the official connections safe:
 
@@ -14,9 +14,14 @@ Two design rules keep the official connections safe:
   Google's own auth libraries. MelodyBridge never drives a browser, embeds a
   login page or reads cookies out of your browser.
 
+The web sessions are manual by design: the Spotify and Apple Music connections
+use a cookie you copy from your own logged-in browser. No password is ever
+asked for or stored.
+
 Public fetching stays independent: when no account is connected, or an account
 call fails for any reason, MelodyBridge falls back to the same page scraping and
-yt-dlp it always uses.
+yt-dlp it always uses. This includes Apple Music, where a public or shared link
+never needs the cookie.
 
 ## Import without Premium
 
@@ -51,10 +56,11 @@ button. Import several playlists in one pass; when it finishes, a summary lists
 each saved playlist with an **Edit playlist** link. Open the ones you want to
 review instead of landing on the first import.
 
-Each provider has its own redirect URI, differing only in a `?provider=` marker
-that tells the callback which login to finish. Copy the exact URL from the
-Settings page, query string included, because both platforms match it
-character for character.
+Each OAuth provider has its own redirect URI, differing only in a `?provider=`
+marker that tells the callback which login to finish. Copy the exact URL from
+the Settings page, query string included, because both platforms match it
+character for character. The Apple Music web session has no redirect URI:
+there is no login callback, only the cookie you paste.
 
 ::: warning Spotify rejects localhost
 Since April 2025 Spotify refuses `localhost` redirect URIs. When you browse the
@@ -126,6 +132,43 @@ What you get, and what to know:
 - The cookie stops working when you log out of Spotify in that browser. Paste a
   fresh one any time.
 
+
+## Apple Music
+
+Most Apple Music playlists need no account. Open the playlist in Apple Music,
+press **Share**, and paste the link on the Playlists page. A shared link is
+unlisted: anyone with the link can read it, but it does not appear on your
+profile.
+
+For playlists you have not shared, and for the songs saved in your library,
+connect a web session:
+
+1. Log in at [music.apple.com](https://music.apple.com) in a desktop browser.
+2. Open developer tools (F12), then **Application** or **Storage**, then
+   **Cookies** for `music.apple.com`.
+3. Copy the value of `media-user-token`, paste it in Settings, Accounts, Apple
+   Music, tick the acknowledgement and press **Save and test**.
+
+What you get:
+
+- Every playlist in your library, including private ones.
+- **Library songs**: every song saved to your library. Apple has no endpoint
+  that lists favorite songs, so these are not the same as favorites, and
+  MelodyBridge does not mark them as favorites on your media server. If Apple
+  shows a Favorite Songs playlist in your library, share it and import the link.
+- Public and shared links keep working without the cookie.
+
+What to know:
+
+- The cookie is a live credential. MelodyBridge stores it in this server's
+  database in plain text, next to your media-server passwords. Apple can
+  invalidate it at any time, so paste a fresh one when imports stop.
+- The library endpoints need an active Apple Music subscription.
+- Copying the cookie needs a desktop browser. There is no phone-only flow.
+- Apple does not document this web API. The public playlist path and the cookie
+  path can break when Apple changes the web player. The public page fallback
+  keeps shared links working through many of those changes.
+
 ## YouTube
 
 1. In the Google Cloud Console, enable the YouTube Data API v3
@@ -143,10 +186,11 @@ setup.
 
 ## Liked songs become favorites
 
-Tracks imported from your liked songs are flagged, and every sync job marks them
-as favorites on the target: per user in Jellyfin, a top rating on the Plex
-token-holder's account, and a star on the Subsonic side. See
-[Publishing playlists](/publishing).
+Tracks imported from Spotify or YouTube liked songs are flagged, and every sync
+job marks them as favorites on the target: per user in Jellyfin, a top rating
+on the Plex token-holder's account, and a star on the Subsonic side. Apple
+Music library songs are not favorites, so they are imported without that flag.
+See [Publishing playlists](/publishing).
 
 ## Why the unofficial route is opt-in
 
@@ -155,7 +199,8 @@ they open Spotify in an embedded web view, ask for your username and password,
 scrape the session cookies and trade them for a web-player token through an
 undocumented endpoint.
 
-MelodyBridge does not do that. It never shows a Spotify login form, never asks
-for a password and never reads cookies out of your browser. The web session
-above is the manual, opt-in version: you copy one cookie yourself, you are told
-what it costs you, and the official OAuth connection stays the supported path.
+MelodyBridge does not do that. It never shows a Spotify or Apple login form,
+never asks for a password and never reads cookies out of your browser. The web
+sessions above are the manual, opt-in version: you copy one cookie yourself,
+you are told what it costs you, and the official OAuth connections stay the
+supported path.
