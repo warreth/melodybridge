@@ -28,7 +28,7 @@
             <h1>Playlists</h1>
             <HelpTip Path="quickstart" Text="Public links need no account. Add one, download it on its page, then publish it with a sync job." />
         </div>
-        <p>Save a public playlist from Spotify, YouTube, Apple Music, Deezer, SoundCloud or ListenBrainz, or import from an account or export file.</p>
+        <p>Save a public playlist from Spotify, YouTube, Apple Music, Tidal, Qobuz, Deezer, SoundCloud or ListenBrainz, or import from an account or export file.</p>
     </div>
     <div class="topbar-actions">
         <button class="btn-modern ghost" @onclick="ShowAccountPanel">Import</button>
@@ -391,14 +391,31 @@ else
             </div>
             <div class="wizard-body">
                 <div class="hint-box">
-                    Public Spotify, YouTube, Apple Music, Deezer, SoundCloud and
-                    ListenBrainz playlists need no account. Quality defaults to
-                    <strong>@savedDefaultQualityLabel</strong>; change the default in Settings.
+                    Paste a public playlist link from Spotify, YouTube, Apple Music,
+                    Tidal, Qobuz, Deezer, SoundCloud or ListenBrainz. Most need no
+                    account; Qobuz uses the token on its Plugins card. Quality defaults
+                    to <strong>@savedDefaultQualityLabel</strong>.
                 </div>
                 <div class="form-grid sync-split">
+                    <div class="wide source-picker">
+                        <span class="field-label">Source</span>
+                        <div class="source-strip" role="group" aria-label="Supported playlist sources">
+                            @foreach (var source in SourceHints)
+                            {
+                                <button type="button"
+                                        class="source-chip @(selectedSourceHint == source.Name ? "active" : null)"
+                                        title="@source.Example"
+                                        @onclick="() => UseSourceExample(source)">
+                                    <BrandIcon Name="@source.Icon" Size="14" />
+                                    <span>@source.Name</span>
+                                </button>
+                            }
+                        </div>
+                    </div>
                     <label class="wide">
                         Playlist link
-                        <input @bind="newUrl" placeholder="https://open.spotify.com/playlist/… or an Apple Music playlist link" />
+                        <input @ref="newUrlInput" @bind="newUrl" placeholder="@newUrlPlaceholder" />
+                        <small class="text-muted">The source is detected from the link.</small>
                     </label>
                     <label class="wide">
                         Download folder (optional)
@@ -951,7 +968,24 @@ else
     private bool showAccountPanel;
 
     private string newUrl = string.Empty;
+    private string newUrlPlaceholder = "https://open.spotify.com/playlist/…";
+    private string? selectedSourceHint;
+    private ElementReference newUrlInput;
     private string newTargetDirectory = string.Empty;
+
+    private sealed record SourceHint(string Name, string Icon, string Example);
+
+    private static readonly SourceHint[] SourceHints =
+    [
+        new("Spotify", "spotify", "https://open.spotify.com/playlist/…"),
+        new("YouTube", "youtube", "https://www.youtube.com/playlist?list=…"),
+        new("Apple Music", "applemusic", "https://music.apple.com/us/playlist/…"),
+        new("Tidal", "tidal", "https://tidal.com/browse/playlist/…"),
+        new("Qobuz", "qobuz", "https://play.qobuz.com/playlist/…"),
+        new("Deezer", "deezer", "https://www.deezer.com/playlist/…"),
+        new("SoundCloud", "soundcloud", "https://soundcloud.com/…/sets/…"),
+        new("ListenBrainz", "listenbrainz", "https://listenbrainz.org/playlist/…"),
+    ];
     /// <summary>Card grid or compact rows, kept in settings across visits.</summary>
     private string playlistsView = "cards";
     /// <summary>Small, medium or large cards, kept in settings.</summary>
@@ -1795,6 +1829,13 @@ else
     }
 
     private void HideAddForm() => showAddForm = false;
+
+    private async Task UseSourceExample(SourceHint source)
+    {
+        selectedSourceHint = source.Name;
+        newUrlPlaceholder = source.Example;
+        await newUrlInput.FocusAsync();
+    }
 
     private void CloseAddForm(EventArgs e) => showAddForm = false;
 

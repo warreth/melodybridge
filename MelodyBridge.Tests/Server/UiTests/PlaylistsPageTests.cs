@@ -77,6 +77,24 @@ public class PlaylistsPageTests
     }
 
     [Test]
+    public void AddPlaylist_ShowsTheNewSourceHints()
+    {
+        var cut = _ctx.Render<Playlists>();
+        cut.FindAll("button").First(b => b.TextContent.Contains("Add playlist")).Click();
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.Markup, Does.Contain("source-chip"));
+            Assert.That(cut.Markup, Does.Contain("Tidal"));
+            Assert.That(cut.Markup, Does.Contain("Qobuz"));
+        }, TimeSpan.FromSeconds(3));
+
+        cut.FindAll(".source-chip").Single(b => b.TextContent.Contains("Tidal")).Click();
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Find("input[placeholder*='tidal.com/browse/playlist']"), Is.Not.Null),
+            TimeSpan.FromSeconds(3));
+    }
+
+    [Test]
     public void Playlists_AppleCard_ShowsTheDisplayName()
     {
         SeedOnePlaylist("Apple Mix", 4, Platform.AppleMusic);

@@ -405,6 +405,16 @@ public static class ServiceCollectionExtensions
                 sp.GetRequiredService<AppleMusicApiClient>(),
                 sp.GetRequiredService<ILogger<AppleMusicSourceProvider>>(),
                 sp.GetRequiredService<IHttpClientFactory>().CreateClient("applemusic-page")));
+        services.AddSingleton<ISourceProvider>(sp =>
+            new TidalSourceProvider(
+                sp.GetRequiredService<TidalPublicCatalog>(),
+                sp.GetRequiredService<IPluginConfig>(),
+                sp.GetRequiredService<ILogger<TidalSourceProvider>>()));
+        services.AddSingleton<ISourceProvider>(sp =>
+            new QobuzSourceProvider(
+                sp.GetRequiredService<QobuzClient>(),
+                sp.GetRequiredService<QobuzSession>(),
+                sp.GetRequiredService<ILogger<QobuzSourceProvider>>()));
         // Public playlist sources: Deezer, SoundCloud sets and
         // ListenBrainz need no account.
         services.AddSingleton<ISourceProvider>(sp =>

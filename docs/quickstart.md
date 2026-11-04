@@ -41,7 +41,7 @@ switch at the top of the sidebar or from Settings, Appearance.
 <div class="steps">
 <div class="step" data-step="1">
 <strong>Add a playlist</strong>
-<p>Open <b>Playlists</b> and paste a public Spotify, YouTube, Apple Music, Deezer, SoundCloud or ListenBrainz playlist link. Press <b>Fetch &amp; save</b>; MelodyBridge stores the track list in its local database.</p>
+<p>Open <b>Playlists</b> and paste a public Spotify, YouTube, Apple Music, Tidal, Qobuz, Deezer, SoundCloud or ListenBrainz playlist link. Press <b>Fetch &amp; save</b>; MelodyBridge stores the track list in its local database.</p>
 </div>
 <div class="step" data-step="2">
 <strong>Download the music</strong>

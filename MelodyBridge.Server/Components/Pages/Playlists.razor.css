@@ -154,3 +154,33 @@
 @media (max-width: 720px) {
     .publish-columns { grid-template-columns: minmax(0, 1fr); gap: 1rem; }
 }
+
+/* Source chips above the URL field: the user can see which services are
+   supported and tap one to load an example into the field. The actual
+   routing still comes from the URL, so a pasted link does not need a
+   preselection. */
+.source-picker { display: grid; gap: .45rem; }
+.source-strip { display: flex; flex-wrap: wrap; gap: .4rem; }
+.source-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: .4rem;
+    min-height: 32px;
+    padding: .3rem .65rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--surface-2);
+    color: var(--muted);
+    font-size: .78rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: border-color .15s ease, background-color .15s ease, color .15s ease;
+}
+.source-chip:hover { border-color: var(--border-strong); color: var(--text); }
+.source-chip.active {
+    border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+    background: color-mix(in srgb, var(--accent) 9%, var(--surface-2));
+    color: var(--text);
+}
+.source-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.source-chip .brand-icon { flex: 0 0 auto; }

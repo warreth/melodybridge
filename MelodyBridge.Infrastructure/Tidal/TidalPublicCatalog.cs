@@ -28,6 +28,8 @@ public class TidalPublicCatalog
         RateLimited,
         /// <summary>The API or the token endpoint did not answer.</summary>
         Unreachable,
+        /// <summary>The playlist does not exist or is not public.</summary>
+        NotFound,
     }
 
     public record SearchResult(
@@ -50,10 +52,29 @@ public class TidalPublicCatalog
         string? Isrc,
         bool StreamReady,
         string? AudioQuality,
-        IReadOnlyList<string> Tags)
+        IReadOnlyList<string> Tags,
+        string? Album = null,
+        string? AlbumArtist = null,
+        string? CoverUrl = null)
     {
         public string SourceUrl => $"https://tidal.com/browse/track/{Id}";
     }
+
+    /// <summary>One public Tidal playlist and its tracks.</summary>
+    public record TidalPlaylist(
+        string Id,
+        string Title,
+        string? Description,
+        string? Owner,
+        string? CoverUrl,
+        int TrackCount,
+        TimeSpan? Duration);
+
+    public record TidalPlaylistResult(
+        TidalPlaylist? Playlist,
+        IReadOnlyList<TidalPublicTrack> Tracks,
+        SearchStatus Status,
+        string? Message = null);
 
     private sealed record CachedSearch(DateTimeOffset ExpiresAt, SearchResult Result);
 
@@ -100,6 +121,118 @@ public class TidalPublicCatalog
             + $"&countryCode={Uri.EscapeDataString(NormalizeCountry(countryCode))}";
         return SearchCachedAsync(
             $"text:{text}:{NormalizeCountry(countryCode)}:{Math.Clamp(limit, 1, 50)}", url, ct);
+    }
+
+    /// <summary>
+    /// Reads one public playlist and all its track pages. The same public
+    /// token the search uses is enough; no Tidal account is involved.
+    /// </summary>
+    public async Task<TidalPlaylistResult> GetPlaylistAsync(
+        string playlistId, string countryCode, CancellationToken ct = default)
+    {
+        var id = playlistId.Trim();
+        if (id.Length == 0)
+            return new TidalPlaylistResult(null, Array.Empty<TidalPublicTrack>(),
+                SearchStatus.NotFound, "No Tidal playlist id was given.");
+
+        var country = NormalizeCountry(countryCode);
+        var token = await TokenAsync(false, ct);
+        if (token is null)
+            return new TidalPlaylistResult(null, Array.Empty<TidalPublicTrack>(),
+                SearchStatus.Unreachable, "The Tidal token endpoint did not answer.");
+
+        try
+        {
+            var metadataUrl = $"{ApiBase}/playlists/{Uri.EscapeDataString(id)}"
+                              + $"?countryCode={Uri.EscapeDataString(country)}";
+            var response = await SendAsync(metadataUrl, token, ct);
+            if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+            {
+                response.Dispose();
+                token = await TokenAsync(true, ct);
+                if (token is null)
+                    return new TidalPlaylistResult(null, Array.Empty<TidalPublicTrack>(),
+                        SearchStatus.Rejected, "Tidal rejected the public token.");
+                response = await SendAsync(metadataUrl, token, ct);
+            }
+
+            using (response)
+            {
+                if (response.StatusCode == HttpStatusCode.NotFound)
+                    return new TidalPlaylistResult(null, Array.Empty<TidalPublicTrack>(),
+                        SearchStatus.NotFound, "Tidal did not find that public playlist.");
+                if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+                    return new TidalPlaylistResult(null, Array.Empty<TidalPublicTrack>(),
+                        SearchStatus.Rejected, "Tidal rejected the public token.");
+                if (response.StatusCode == HttpStatusCode.TooManyRequests)
+                    return new TidalPlaylistResult(null, Array.Empty<TidalPublicTrack>(),
+                        SearchStatus.RateLimited, "Tidal rate limited the playlist request.");
+                if (!response.IsSuccessStatusCode)
+                    return new TidalPlaylistResult(null, Array.Empty<TidalPublicTrack>(),
+                        SearchStatus.Unreachable,
+                        $"The Tidal API answered HTTP {(int)response.StatusCode}.");
+
+                using var metadataDoc = JsonDocument.Parse(
+                    await response.Content.ReadAsStreamAsync(ct));
+                var root = metadataDoc.RootElement;
+                var title = GetString(root, "title") ?? "Tidal playlist";
+                var owner = root.TryGetProperty("creator", out var creator)
+                    ? GetString(creator, "name")
+                    : null;
+                var cover = ImageUrl(GetString(root, "squareImage")
+                                    ?? GetString(root, "image"));
+                var trackCount = GetInt(root, "numberOfTracks") ?? 0;
+                var duration = GetDouble(root, "duration") is { } seconds
+                    ? TimeSpan.FromSeconds(seconds)
+                    : (TimeSpan?)null;
+
+                var tracks = new List<TidalPublicTrack>();
+                var offset = 0;
+                var total = trackCount;
+                while (offset < 20_000)
+                {
+                    var tracksUrl = $"{ApiBase}/playlists/{Uri.EscapeDataString(id)}/tracks"
+                                    + $"?countryCode={Uri.EscapeDataString(country)}"
+                                    + $"&limit=50&offset={offset}";
+                    using var pageResponse = await SendAsync(tracksUrl, token, ct);
+                    if (!pageResponse.IsSuccessStatusCode)
+                    {
+                        if (pageResponse.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+                            return new TidalPlaylistResult(null, Array.Empty<TidalPublicTrack>(),
+                                SearchStatus.Rejected, "Tidal rejected the playlist track request.");
+                        if (pageResponse.StatusCode == HttpStatusCode.TooManyRequests)
+                            return new TidalPlaylistResult(null, Array.Empty<TidalPublicTrack>(),
+                                SearchStatus.RateLimited, "Tidal rate limited the playlist tracks.");
+                        return new TidalPlaylistResult(null, Array.Empty<TidalPublicTrack>(),
+                            SearchStatus.Unreachable,
+                            $"The Tidal API answered HTTP {(int)pageResponse.StatusCode} for the tracks.");
+                    }
+
+                    using var pageDoc = JsonDocument.Parse(
+                        await pageResponse.Content.ReadAsStreamAsync(ct));
+                    var page = ParseTracks(pageDoc.RootElement);
+                    tracks.AddRange(page);
+                    total = GetInt(pageDoc.RootElement, "totalNumberOfItems") ?? total;
+                    if (page.Count == 0 || offset + page.Count >= total) break;
+                    offset += page.Count;
+                }
+
+                var playlist = new TidalPlaylist(
+                    id, title, GetString(root, "description"), owner, cover,
+                    total > 0 ? total : tracks.Count, duration);
+                return new TidalPlaylistResult(playlist, tracks, SearchStatus.Ok);
+            }
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Tidal playlist fetch failed");
+            return new TidalPlaylistResult(null, Array.Empty<TidalPublicTrack>(),
+                SearchStatus.Unreachable, "The Tidal API did not answer.");
+        }
     }
 
     private async Task<SearchResult> SearchCachedAsync(string key, string url, CancellationToken ct)
@@ -271,6 +404,11 @@ public class TidalPublicCatalog
             var streamReady = !item.TryGetProperty("streamReady", out var ready)
                 || ready.ValueKind != JsonValueKind.False;
 
+            var album = item.TryGetProperty("album", out var albumElement)
+                && albumElement.ValueKind == JsonValueKind.Object
+                ? albumElement
+                : (JsonElement?)null;
+
             tracks.Add(new TidalPublicTrack(
                 Id: id,
                 Title: title!,
@@ -279,7 +417,12 @@ public class TidalPublicCatalog
                 Isrc: GetString(item, "isrc"),
                 StreamReady: streamReady,
                 AudioQuality: GetString(item, "audioQuality"),
-                Tags: GetTags(item)));
+                Tags: GetTags(item),
+                Album: album is { } albumValue ? GetString(albumValue, "title") : null,
+                AlbumArtist: GetArtist(item),
+                CoverUrl: album is { } coverValue
+                    ? ImageUrl(GetString(coverValue, "cover"))
+                    : null));
         }
         return tracks;
     }
@@ -316,6 +459,27 @@ public class TidalPublicCatalog
                 result.Add(value);
         return result;
     }
+
+    private static int? GetInt(JsonElement element, string property)
+        => element.ValueKind == JsonValueKind.Object
+           && element.TryGetProperty(property, out var value)
+           && value.ValueKind == JsonValueKind.Number
+           && value.TryGetInt32(out var number)
+            ? number
+            : null;
+
+    private static double? GetDouble(JsonElement element, string property)
+        => element.ValueKind == JsonValueKind.Object
+           && element.TryGetProperty(property, out var value)
+           && value.ValueKind == JsonValueKind.Number
+           && value.TryGetDouble(out var number)
+            ? number
+            : null;
+
+    private static string? ImageUrl(string? imageId)
+        => string.IsNullOrWhiteSpace(imageId)
+            ? null
+            : $"https://resources.tidal.com/images/{imageId.Replace('-', '/')}/640x640.jpg";
 
     private static string? GetString(JsonElement element, string property)
         => element.ValueKind == JsonValueKind.Object

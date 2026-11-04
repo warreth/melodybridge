@@ -64,7 +64,10 @@ public class QobuzClient
         int? MaximumBitDepth,
         bool HiresStreamable,
         int? MaximumSamplingRate = null,
-        string? AlbumId = null);
+        string? AlbumId = null,
+        string? Album = null,
+        string? AlbumArtist = null,
+        string? CoverUrl = null);
 
     /// <summary>The account behind a token.</summary>
     public record QobuzAccount(string Token, string? Label, bool CanDownload);
@@ -119,6 +122,9 @@ public class QobuzClient
 
         /// <summary>The API did not answer or returned a server error.</summary>
         Unreachable,
+
+        /// <summary>The playlist does not exist or is not public.</summary>
+        NotFound,
     }
 
     /// <summary>The tracks plus the reason a search produced none.</summary>
@@ -132,6 +138,22 @@ public class QobuzClient
         public static QobuzSearchResult Ok(IReadOnlyList<QobuzTrack> tracks) =>
             new(tracks, QobuzSearchStatus.Ok);
     }
+
+    /// <summary>One public Qobuz playlist and its tracks.</summary>
+    public record QobuzPlaylist(
+        long Id,
+        string Title,
+        string? Description,
+        string? Owner,
+        string? CoverUrl,
+        int TrackCount,
+        TimeSpan? Duration,
+        IReadOnlyList<QobuzTrack> Tracks);
+
+    public record QobuzPlaylistResult(
+        QobuzPlaylist? Playlist,
+        QobuzSearchStatus Status,
+        string? Message = null);
 
     // ── Bundle (app id, private key) ─────────────────────────────────────
 
@@ -426,6 +448,187 @@ public class QobuzClient
                 "The Qobuz API did not answer");
         }
     }
+
+    /// <summary>
+    /// Reads one public Qobuz playlist. Qobuz requires the same user token
+    /// the plugin already uses; there is no anonymous playlist endpoint.
+    /// </summary>
+    public async Task<QobuzPlaylistResult> GetPlaylistAsync(
+        long playlistId, string token, CancellationToken ct = default)
+    {
+        if (playlistId <= 0)
+            return new QobuzPlaylistResult(null, QobuzSearchStatus.NotFound,
+                "No Qobuz playlist id was given.");
+        if (string.IsNullOrWhiteSpace(token))
+            return new QobuzPlaylistResult(null, QobuzSearchStatus.Rejected,
+                "Qobuz playlist import needs the Qobuz token from Plugins.");
+
+        var bundle = await GetBundleAsync(ct);
+        if (bundle is null)
+            return new QobuzPlaylistResult(null, QobuzSearchStatus.Unreachable,
+                "The Qobuz web player could not be reached.");
+
+        try
+        {
+            var tracks = new List<QobuzTrack>();
+            var offset = 0;
+            var total = 0;
+            string? title = null;
+            string? description = null;
+            string? owner = null;
+            string? cover = null;
+            double? duration = null;
+
+            while (offset < 20_000)
+            {
+                var url = $"{Base}playlist/get?playlist_id={playlistId}"
+                          + $"&app_id={Uri.EscapeDataString(bundle.AppId)}"
+                          + $"&limit=500&offset={offset}&extra=tracks";
+                using var request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.Add("X-App-Id", bundle.AppId);
+                request.Headers.Add("X-User-Auth-Token", token);
+
+                using var response = await _http.SendAsync(request, ct);
+                if (!response.IsSuccessStatusCode)
+                {
+                    var body = await ReadBodyAsync(response, ct);
+                    if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+                        return new QobuzPlaylistResult(null, QobuzSearchStatus.NotFound,
+                            "Qobuz did not find that playlist. It must be public.");
+                    var failure = ClassifySearchFailure((int)response.StatusCode, body);
+                    return new QobuzPlaylistResult(null, failure.Status, failure.Message);
+                }
+
+                using var doc = JsonDocument.Parse(await ReadBodyAsync(response, ct));
+                var root = doc.RootElement;
+                title ??= GetString(root, "name");
+                description ??= GetString(root, "description");
+                duration ??= GetDouble(root, "duration");
+                cover ??= GetString(root, "images300")
+                         ?? GetString(root, "image")
+                         ?? GetString(root, "images150");
+                if (owner is null && root.TryGetProperty("owner", out var ownerElement))
+                    owner = GetString(ownerElement, "display_name")
+                            ?? GetString(ownerElement, "name");
+                total = GetInt(root, "tracks_count") ?? total;
+
+                if (!root.TryGetProperty("tracks", out var tracksElement)
+                    || tracksElement.ValueKind != JsonValueKind.Object)
+                    break;
+                total = GetInt(tracksElement, "total") ?? total;
+                if (!tracksElement.TryGetProperty("items", out var items)
+                    || items.ValueKind != JsonValueKind.Array)
+                    break;
+
+                var page = items.EnumerateArray()
+                    .Select(ParsePlaylistTrack)
+                    .Where(track => track is not null)
+                    .Select(track => track!)
+                    .ToList();
+                tracks.AddRange(page);
+                if (page.Count == 0 || (total > 0 && offset + page.Count >= total))
+                    break;
+                offset += page.Count;
+            }
+
+            var playlist = new QobuzPlaylist(
+                playlistId,
+                title ?? "Qobuz playlist",
+                description,
+                owner,
+                cover,
+                total > 0 ? total : tracks.Count,
+                duration is { } seconds ? TimeSpan.FromSeconds(seconds) : null,
+                tracks);
+            return new QobuzPlaylistResult(playlist, QobuzSearchStatus.Ok);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Qobuz playlist fetch failed");
+            return new QobuzPlaylistResult(null, QobuzSearchStatus.Unreachable,
+                "The Qobuz API did not answer.");
+        }
+    }
+
+    private static QobuzTrack? ParsePlaylistTrack(JsonElement item)
+    {
+        if (item.ValueKind != JsonValueKind.Object
+            || !item.TryGetProperty("id", out var idElement)
+            || !idElement.TryGetInt64(out var id))
+            return null;
+
+        var duration = item.TryGetProperty("duration", out var durationElement)
+                       && durationElement.ValueKind == JsonValueKind.Number
+            ? TimeSpan.FromSeconds(durationElement.GetDouble())
+            : (TimeSpan?)null;
+        var artist = item.TryGetProperty("performer", out var performer)
+                     && performer.ValueKind == JsonValueKind.Object
+            ? GetString(performer, "name")
+            : GetString(item, "artist");
+        var album = item.TryGetProperty("album", out var albumElement)
+                    && albumElement.ValueKind == JsonValueKind.Object
+            ? albumElement
+            : (JsonElement?)null;
+        var albumId = album is { } albumValue ? GetString(albumValue, "id") : null;
+        var albumName = album is { } albumTitle ? GetString(albumTitle, "title") : null;
+        var cover = album is { } albumCover ? ParseCover(albumCover) : null;
+
+        return new QobuzTrack(
+            id,
+            GetString(item, "title") ?? "",
+            artist,
+            duration,
+            GetString(item, "isrc"),
+            GetInt(item, "maximum_bit_depth"),
+            item.TryGetProperty("hires_streamable", out var hires)
+            && hires.ValueKind == JsonValueKind.True,
+            ParseSampleRate(item),
+            albumId,
+            albumName,
+            GetString(item, "album_artist") ?? artist,
+            cover);
+    }
+
+    private static int? ParseSampleRate(JsonElement item)
+    {
+        if (!item.TryGetProperty("maximum_sampling_rate", out var rate)
+            || rate.ValueKind != JsonValueKind.Number)
+            return null;
+        var value = rate.GetDouble();
+        return value > 0
+            ? (int)Math.Round(value < 1000 ? value * 1000 : value)
+            : null;
+    }
+
+    private static string? ParseCover(JsonElement album)
+    {
+        if (!album.TryGetProperty("image", out var image)
+            || image.ValueKind != JsonValueKind.Object)
+            return null;
+        return GetString(image, "large")
+               ?? GetString(image, "medium")
+               ?? GetString(image, "thumbnail");
+    }
+
+    private static int? GetInt(JsonElement element, string property)
+        => element.ValueKind == JsonValueKind.Object
+           && element.TryGetProperty(property, out var value)
+           && value.ValueKind == JsonValueKind.Number
+           && value.TryGetInt32(out var number)
+            ? number
+            : null;
+
+    private static double? GetDouble(JsonElement element, string property)
+        => element.ValueKind == JsonValueKind.Object
+           && element.TryGetProperty(property, out var value)
+           && value.ValueKind == JsonValueKind.Number
+           && value.TryGetDouble(out var number)
+            ? number
+            : null;
 
     /// <summary>
     /// Reads Qobuz's error body. USER_BLOCKED is the account being banned
