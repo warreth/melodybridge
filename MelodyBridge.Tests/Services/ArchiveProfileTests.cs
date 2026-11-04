@@ -283,6 +283,42 @@ public class ArchiveProfileTests
     }
 
     [Test]
+    public async Task Backfill_UnselectedProfile_KeepsEveryRowAndReportsNoFailures()
+    {
+        var opus = await AddProfileAsync("Opus", "archive-opus", "opus:128");
+        var mp3 = await AddProfileAsync("MP3", "archive-mp3", "mp3:192");
+        await using (var db = _factory.CreateDbContext())
+        {
+            var track = await db.Tracks.SingleAsync(t => t.Id == 1);
+            await _copies.ArchiveExtraCopiesAsync(track, db, save: true);
+        }
+        await using (var db = _factory.CreateDbContext())
+        {
+            db.Playlists.Single(p => p.Id == "p1").ArchiveProfileIds =
+                PlaylistArchiveSelection.Serialize(new[] { opus.Id });
+            await db.SaveChangesAsync();
+        }
+
+        ArchiveCopyService.BackfillProgress? last = null;
+        await _copies.BuildMissingAsync(
+            mp3.Id, new InlineProgress<ArchiveCopyService.BackfillProgress>(value => last = value));
+
+        Assert.That(last, Is.Not.Null);
+        Assert.Multiple(() =>
+        {
+            Assert.That(last!.Failed, Is.Zero,
+                "a playlist that does not select the profile is not a failure");
+            Assert.That(last.Done, Is.EqualTo(1));
+        });
+        await using (var db = _factory.CreateDbContext())
+        {
+            var ids = await db.TrackArchiveCopies.Select(c => c.ProfileId).ToListAsync();
+            Assert.That(ids, Is.EquivalentTo(new[] { opus.Id, mp3.Id }),
+                "backfilling an unselected profile must not touch any row");
+        }
+    }
+
+    [Test]
     public async Task ExtraCopies_EmptySelection_WritesNothing()
     {
         await AddProfileAsync("Opus", "archive-opus", "opus:128");
@@ -470,5 +506,14 @@ public class ArchiveProfileTests
             "different extensions can share a folder");
         Assert.That(ArchiveCopier.ExtensionsMayCollide("auto", "flac"), Is.True,
             "Auto keeps the primary extension and can collide");
+    }
+
+    private sealed class InlineProgress<T> : IProgress<T>
+    {
+        private readonly Action<T> _report;
+
+        public InlineProgress(Action<T> report) => _report = report;
+
+        public void Report(T value) => _report(value);
     }
 }

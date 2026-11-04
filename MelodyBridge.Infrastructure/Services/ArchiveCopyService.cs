@@ -35,16 +35,18 @@ public sealed class ArchiveCopyService
         int Total, int Done, int Failed, string? Current, bool Running, string? Message);
 
     /// <summary>
-    /// Ensures every enabled profile has a copy for this track. The caller
+    /// Ensures every selected profile has a copy for this track. The caller
     /// passes its own context so the track warning and copy rows persist in
     /// the same SaveChanges as the download; a backfill saves explicitly.
+    /// Returns false when the playlist does not use the requested profile, so
+    /// a one-profile backfill can tell "not selected" from "written".
     /// </summary>
-    public async Task ArchiveExtraCopiesAsync(
+    public async Task<bool> ArchiveExtraCopiesAsync(
         TrackEntity track, MelodyBridgeDbContext db, bool save,
         string? onlyProfileId = null, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(track.CurrentPath) || !File.Exists(track.CurrentPath))
-            return;
+            return false;
 
         var playlist = track.PlaylistEntityId is { Length: > 0 } playlistId
             ? await db.Playlists.AsNoTracking().FirstOrDefaultAsync(p => p.Id == playlistId, ct)
@@ -52,10 +54,22 @@ public sealed class ArchiveCopyService
         var selection = PlaylistArchiveSelection.Parse(playlist?.ArchiveProfileIds);
         if (selection is null && playlist is { ArchiveEnabled: false })
         {
+            // A one-profile backfill only owns that profile's row, and this
+            // playlist writes no archive copies at all.
+            if (onlyProfileId is not null)
+                return false;
             await ClearRowsAsync(track.Id, db, ct);
             if (save) await db.SaveChangesAsync(ct);
-            return;
+            return true;
         }
+
+        // A one-profile backfill for a profile this playlist does not use
+        // must be a no-op. Otherwise the empty profile list below would be
+        // mistaken for "no profiles at all" and wipe the selected rows.
+        if (onlyProfileId is not null
+            && selection is not null
+            && !selection.Contains(onlyProfileId, StringComparer.Ordinal))
+            return false;
 
         var profiles = await db.ArchiveProfiles.AsNoTracking()
             .Where(profile => profile.Enabled
@@ -90,10 +104,15 @@ public sealed class ArchiveCopyService
 
         if (profiles.Count == 0)
         {
-            // A deleted profile must not leave dead rows behind.
-            db.TrackArchiveCopies.RemoveRange(existingRows);
+            // A deleted profile must not leave dead rows behind. A
+            // one-profile backfill only touches that profile's row.
+            var stale = onlyProfileId is null
+                ? existingRows
+                : existingRows.Where(row => string.Equals(
+                    row.ProfileId, onlyProfileId, StringComparison.OrdinalIgnoreCase)).ToList();
+            db.TrackArchiveCopies.RemoveRange(stale);
             if (save) await db.SaveChangesAsync(ct);
-            return;
+            return true;
         }
 
         var playlistFolders = await _settings.GetBoolAsync("playlist_folders", true, ct);
@@ -179,6 +198,7 @@ public sealed class ArchiveCopyService
         }
 
         if (save) await db.SaveChangesAsync(ct);
+        return true;
     }
 
     /// <summary>Removes extra copy rows and, when asked, their files.</summary>
@@ -314,10 +334,14 @@ public sealed class ArchiveCopyService
                     continue;
                 }
 
-                await ArchiveExtraCopiesAsync(track, db, save: true, profileId, ct);
-                var copy = await db.TrackArchiveCopies.AsNoTracking()
-                    .FirstOrDefaultAsync(c => c.TrackId == id && c.ProfileId == profileId, ct);
-                if (copy?.Warning is { Length: > 0 } || copy is null) failed++;
+                var applied = await ArchiveExtraCopiesAsync(
+                    track, db, save: true, profileId, ct);
+                if (applied)
+                {
+                    var copy = await db.TrackArchiveCopies.AsNoTracking()
+                        .FirstOrDefaultAsync(c => c.TrackId == id && c.ProfileId == profileId, ct);
+                    if (copy?.Warning is { Length: > 0 } || copy is null) failed++;
+                }
             }
             catch (OperationCanceledException)
             {
