@@ -628,10 +628,11 @@ else if (activeTab == "paths")
                 </div>
             </div>
             <div class="hint-box">
-                Every track is fetched once. The default profile is the copy
-                playlists can override; extra profiles add more local copies in
-                their own formats, for example Opus 128 and MP3 160. A profile
-                only costs disk space and ffmpeg CPU, never another download.
+                Every track is fetched once. Playlists choose the default
+                archive and any extra profiles they want; each selected profile
+                adds one local copy in its own format, for example Opus 128 and
+                MP3 160. A profile only costs disk space and ffmpeg CPU, never
+                another download.
             </div>
             <div class="archive-profiles">
                 <div class="archive-profiles-head">
@@ -639,9 +640,9 @@ else if (activeTab == "paths")
                         <span class="eyebrow">Profiles</span>
                         <h3>Archive profiles</h3>
                         <p>
-                            The default is the archive every playlist uses unless
-                            it overrides the folder. Extra profiles add one copy
-                            each, in their own folder and format.
+                            Playlists choose from the default archive and these
+                            named profiles. Each selected profile adds one copy in
+                            its own folder and format.
                         </p>
                     </div>
                     <button class="btn-modern small secondary" @onclick="OpenNewArchiveProfile">

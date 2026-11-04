@@ -166,6 +166,146 @@ public class ArchiveProfileTests
     }
 
     [Test]
+    public async Task ExtraCopies_FollowThePlaylistSelection()
+    {
+        var opus = await AddProfileAsync("Opus", "archive-opus", "opus:128");
+        await AddProfileAsync("MP3", "archive-mp3", "mp3:192");
+        await using (var db = _factory.CreateDbContext())
+        {
+            db.Playlists.Single(p => p.Id == "p1").ArchiveProfileIds =
+                PlaylistArchiveSelection.Serialize(new[] { opus.Id });
+            await db.SaveChangesAsync();
+        }
+
+        await using (var db = _factory.CreateDbContext())
+        {
+            var track = await db.Tracks.SingleAsync(t => t.Id == 1);
+            await _copies.ArchiveExtraCopiesAsync(track, db, save: true);
+        }
+
+        await using (var db = _factory.CreateDbContext())
+        {
+            var copies = await db.TrackArchiveCopies.ToListAsync();
+            Assert.That(copies, Has.Count.EqualTo(1));
+            Assert.That(copies[0].ProfileId, Is.EqualTo(opus.Id));
+        }
+        Assert.That(Directory.GetFiles(Path.Combine(_root, "archive-opus")), Has.Length.EqualTo(1),
+            "the selected profile wrote one copy");
+        Assert.That(Directory.GetFiles(Path.Combine(_root, "archive-mp3")), Is.Empty,
+            "the unselected profile wrote nothing");
+    }
+
+    [Test]
+    public async Task ExtraCopies_MultipleSelectedProfiles_WriteThoseCopies()
+    {
+        var opus = await AddProfileAsync("Opus", "archive-opus", "opus:128");
+        var flac = await AddProfileAsync("FLAC", "archive-flac", "flac");
+        await AddProfileAsync("MP3", "archive-mp3", "mp3:192");
+        await using (var db = _factory.CreateDbContext())
+        {
+            db.Playlists.Single(p => p.Id == "p1").ArchiveProfileIds =
+                PlaylistArchiveSelection.Serialize(new[] { opus.Id, flac.Id });
+            await db.SaveChangesAsync();
+        }
+
+        await using (var db = _factory.CreateDbContext())
+        {
+            var track = await db.Tracks.SingleAsync(t => t.Id == 1);
+            await _copies.ArchiveExtraCopiesAsync(track, db, save: true);
+        }
+
+        await using (var db = _factory.CreateDbContext())
+        {
+            var ids = await db.TrackArchiveCopies.Select(c => c.ProfileId).ToListAsync();
+            Assert.That(ids, Is.EquivalentTo(new[] { opus.Id, flac.Id }));
+        }
+        Assert.That(Directory.GetFiles(Path.Combine(_root, "archive-mp3")), Is.Empty,
+            "the unselected profile wrote nothing");
+    }
+
+    [Test]
+    public async Task ExtraCopies_DeselectedProfile_RemovesItsRowButKeepsTheFile()
+    {
+        var opus = await AddProfileAsync("Opus", "archive-opus", "opus:128");
+        var mp3 = await AddProfileAsync("MP3", "archive-mp3", "mp3:192");
+        await using (var db = _factory.CreateDbContext())
+        {
+            var track = await db.Tracks.SingleAsync(t => t.Id == 1);
+            await _copies.ArchiveExtraCopiesAsync(track, db, save: true);
+        }
+        var mp3File = Directory.GetFiles(Path.Combine(_root, "archive-mp3")).Single();
+
+        await using (var db = _factory.CreateDbContext())
+        {
+            db.Playlists.Single(p => p.Id == "p1").ArchiveProfileIds =
+                PlaylistArchiveSelection.Serialize(new[] { opus.Id });
+            await db.SaveChangesAsync();
+        }
+        await using (var db = _factory.CreateDbContext())
+        {
+            var track = await db.Tracks.SingleAsync(t => t.Id == 1);
+            await _copies.ArchiveExtraCopiesAsync(track, db, save: true);
+        }
+
+        await using (var db = _factory.CreateDbContext())
+        {
+            var ids = await db.TrackArchiveCopies.Select(c => c.ProfileId).ToListAsync();
+            Assert.That(ids, Is.EquivalentTo(new[] { opus.Id }));
+        }
+        Assert.That(File.Exists(mp3File), Is.True,
+            "deselecting a profile keeps the existing archive file");
+    }
+
+    [Test]
+    public async Task ExtraCopies_BackfillOneProfile_KeepsTheOtherRows()
+    {
+        var opus = await AddProfileAsync("Opus", "archive-opus", "opus:128");
+        var mp3 = await AddProfileAsync("MP3", "archive-mp3", "mp3:192");
+        await using (var db = _factory.CreateDbContext())
+        {
+            var track = await db.Tracks.SingleAsync(t => t.Id == 1);
+            await _copies.ArchiveExtraCopiesAsync(track, db, save: true);
+        }
+
+        await using (var db = _factory.CreateDbContext())
+        {
+            var track = await db.Tracks.SingleAsync(t => t.Id == 1);
+            await _copies.ArchiveExtraCopiesAsync(
+                track, db, save: true, onlyProfileId: opus.Id);
+        }
+
+        await using (var db = _factory.CreateDbContext())
+        {
+            var ids = await db.TrackArchiveCopies.Select(c => c.ProfileId).ToListAsync();
+            Assert.That(ids, Is.EquivalentTo(new[] { opus.Id, mp3.Id }),
+                "a one-profile backfill must not drop the other profile's row");
+        }
+    }
+
+    [Test]
+    public async Task ExtraCopies_EmptySelection_WritesNothing()
+    {
+        await AddProfileAsync("Opus", "archive-opus", "opus:128");
+        await using (var db = _factory.CreateDbContext())
+        {
+            db.Playlists.Single(p => p.Id == "p1").ArchiveProfileIds =
+                PlaylistArchiveSelection.Serialize(Array.Empty<string>());
+            await db.SaveChangesAsync();
+        }
+
+        await using (var db = _factory.CreateDbContext())
+        {
+            var track = await db.Tracks.SingleAsync(t => t.Id == 1);
+            await _copies.ArchiveExtraCopiesAsync(track, db, save: true);
+        }
+
+        await using (var db = _factory.CreateDbContext())
+        {
+            Assert.That(await db.TrackArchiveCopies.CountAsync(), Is.Zero);
+        }
+    }
+
+    [Test]
     public async Task ExtraCopies_AreReusedWhenTheProfileIsReEnabled()
     {
         var profile = await AddProfileAsync("Copy A", "archive-a");

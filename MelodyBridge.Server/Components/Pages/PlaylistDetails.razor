@@ -8,6 +8,7 @@
 @inject NavigationManager Navigation
 @inject Application.Services.DownloadCoordinator Coordinator
 @inject SettingsStore Settings
+@inject ArchiveProfileStore ArchiveProfiles
 @inject MelodyBridge.Server.Services.NotificationService Notifications
 @inject IJSRuntime JS
 @implements IDisposable
@@ -168,6 +169,8 @@ else
             </div>
         </div>
 
+        <div class="playlist-settings-columns">
+        <div class="playlist-settings-column">
         <div class="settings-section">
             <span class="eyebrow">Basics</span>
             <div class="form-grid">
@@ -192,7 +195,7 @@ else
 
         <div class="settings-section">
             <span class="eyebrow">Quality</span>
-            <div class="form-grid">
+            <div class="form-grid single">
                 <div class="quality-field">
                     <QualityPicker @bind-Value="editQuality" @bind-Value:after="SaveNow" />
                 </div>
@@ -223,81 +226,60 @@ else
             </div>
         </div>
 
+        </div>
+        <div class="playlist-settings-column">
         <div class="settings-section archive-section">
-            <span class="eyebrow">Archive copy</span>
-            <div class="toggle-with-help">
-                <label class="toggle-switch wide">
-                    <input type="checkbox" @bind="editArchiveEnabled" @bind:after="SaveNow" />
-                    <span class="toggle-slider"></span>
-                    <span>Keep archive copies of every download</span>
-                </label>
-                <HelpTip Path="concepts#archive-copies" Text="The default archive plus every extra archive profile. Off means this playlist keeps no archive copies." />
+            <div class="section-line">
+                <span class="eyebrow">Archive copies</span>
+                <a href="/settings#paths">Manage profiles</a>
             </div>
-            <div class="archive-summary">
-                <Icon Name="archive" Size="15" />
-                <span>
-                    @if (editArchiveEnabled)
-                    {
-                        <text>@(HasArchiveTarget ? $"Default archive: {ArchiveFormatLabel(resolvedDefaultArchiveFormat)}" : "No default archive path in Settings.")</text>
-                    }
-                    else
-                    {
-                        <text>No archive copies for this playlist.</text>
-                    }
-                    <span aria-hidden="true" class="archive-summary-sep">·</span>
-                    <a href="/settings#paths">Manage profiles</a>
-                </span>
+            <p class="settings-hint">
+                Choose the destinations that get a copy after each download.
+                Nothing selected means no archive copies.
+            </p>
+            <div class="archive-choice-list">
+                @if (!string.IsNullOrWhiteSpace(resolvedDefaultArchivePath))
+                {
+                    <label class="archive-choice">
+                        <input type="checkbox"
+                               checked="@selectedArchiveProfileIds.Contains(PlaylistArchiveSelection.DefaultId)"
+                               @onchange="e => ToggleArchiveDestination(PlaylistArchiveSelection.DefaultId, (bool)e.Value!)" />
+                        <span class="archive-choice-copy">
+                            <strong>Default archive</strong>
+                            <small>@resolvedDefaultArchivePath</small>
+                        </span>
+                        <span class="archive-choice-format">@ArchiveFormatLabel(resolvedDefaultArchiveFormat)</span>
+                    </label>
+                }
+                @foreach (var profile in archiveProfiles)
+                {
+                    <label class="archive-choice">
+                        <input type="checkbox"
+                               checked="@selectedArchiveProfileIds.Contains(profile.Id)"
+                               @onchange="e => ToggleArchiveDestination(profile.Id, (bool)e.Value!)" />
+                        <span class="archive-choice-copy">
+                            <strong>@profile.Name</strong>
+                            <small>@profile.RootPath</small>
+                        </span>
+                        <span class="archive-choice-format">@ArchiveFormatLabel(profile.Format)</span>
+                    </label>
+                }
             </div>
-            @if (editArchiveEnabled)
+            @if (archiveProfiles.Count == 0 && string.IsNullOrWhiteSpace(resolvedDefaultArchivePath))
             {
-                <details class="settings-details">
-                    <summary>Per-playlist archive overrides</summary>
-                    <div class="form-grid">
-                        <label>
-                            Archive folder
-                            <span class="path-field">
-                                <input value="@editArchiveDirectory" @oninput="OnArchiveFolderInput"
-                                       placeholder="@archiveFolderPlaceholder" />
-                                @if (playlistFolders && string.IsNullOrWhiteSpace(editArchiveDirectory))
-                                {
-                                    <span class="path-suffix" title="Added to the archive path">{playlist name}</span>
-                                }
-                                <FolderBrowseButton Value="@editArchiveDirectory" ValueChanged="@SetArchiveDirectory" Label="the playlist archive folder" />
-                            </span>
-                            <small class="text-muted">@archiveFolderHint</small>
-                        </label>
-                        @if (HasArchiveTarget)
-                        {
-                            <label>
-                                Archive format
-                                <select value="@editArchiveFormatChoice" @onchange="OnArchiveFormatChanged">
-                                    <option value="default">App default (@ArchiveFormatLabel(resolvedDefaultArchiveFormat))</option>
-                                    <option value="auto">Copy the downloaded file as-is</option>
-                                    <option value="opus">Opus: small and efficient (128k)</option>
-                                    <option value="flac">FLAC: lossless (level 5)</option>
-                                    <option value="mp3">MP3: widely compatible (256k)</option>
-                                    <option value="aac">AAC: small and modern (192k)</option>
-                                    <option value="custom">Custom container...</option>
-                                </select>
-                                <small class="text-muted">The override applies to the default archive; extra profiles always use their own folder and format.</small>
-                            </label>
-                            @if (editArchiveFormatChoice == "custom")
-                            {
-                                <label>
-                                    Custom archive container
-                                    <input value="@editArchiveCustomFormat" @oninput="OnArchiveCustomFormatInput"
-                                           placeholder="ogg" />
-                                </label>
-                            }
-                        }
-                    </div>
-                </details>
+                <div class="archive-empty">
+                    No archive profiles yet. <a href="/settings#paths">Create one in Settings</a>.
+                </div>
+            }
+            else if (!HasArchiveTarget)
+            {
+                <div class="archive-empty">No archive copies for this playlist.</div>
             }
         </div>
 
         <div class="settings-section">
             <span class="eyebrow">Sync</span>
-            <div class="form-grid">
+            <div class="form-grid single">
                 @if (!playlist.IsManualImport)
                 {
                     <SchedulePicker Label="Auto-sync schedule" @bind-Value="editSchedule" @bind-Value:after="SaveNow" />
@@ -325,6 +307,8 @@ else
             {
                 <span class="text-muted">Imported snapshot: re-import the file to update the track list.</span>
             }
+        </div>
+        </div>
         </div>
     </section>
 
@@ -367,7 +351,7 @@ else
             <TrackTable Tracks="@TrackRows"
                         ResetKey="@playlist?.Id"
                         ShowFilenameColumn="@showFilenameColumn"
-                        ShowArchiveState="@(editArchiveEnabled && HasArchiveTarget)"
+                        ShowArchiveState="@HasArchiveTarget"
                         ArchiveStates="@archiveStates"
                         Busy="@busy"
                         OnVisibleTracksChanged="OnVisibleTracksChanged"
@@ -414,8 +398,8 @@ else
                     @if (!HasArchiveTarget)
                     {
                         <div class="hint-box">
-                            This playlist has no archive folder. Turn the archive copy on and
-                            set a folder in the settings on the left, then try again.
+                            This playlist has no archive destination selected. Choose an
+                            archive profile in the setup section above, then try again.
                         </div>
                     }
                 </div>
@@ -508,13 +492,11 @@ else
     private string editName = string.Empty;
     private string editTargetDirectory = string.Empty;
     private string editQuality = "auto";
-    private string editArchiveDirectory = string.Empty;
-    private string editArchiveFormat = "default";
-    /// <summary>The select value: default, a named preset or custom.</summary>
-    private string editArchiveFormatChoice = "default";
-    /// <summary>The container typed for a custom archive format.</summary>
-    private string editArchiveCustomFormat = "";
-    private bool editArchiveEnabled = true;
+    private List<ArchiveProfileEntity> archiveProfiles = new();
+    /// <summary>Archive destinations selected for this playlist. The set
+    /// includes <see cref="PlaylistArchiveSelection.DefaultId"/> when the
+    /// global default archive is selected.</summary>
+    private readonly HashSet<string> selectedArchiveProfileIds = new(StringComparer.Ordinal);
     private ScanSchedule editSchedule = ScanSchedule.Manual;
     private PlaylistSyncMode editSyncMode = PlaylistSyncMode.Additive;
     /// <summary>Opt-in: download new tracks right after an auto-sync refresh.</summary>
@@ -531,7 +513,7 @@ else
     /// <summary>True once the first Load finished: before it, nothing saves.</summary>
     private bool formReady;
     /// <summary>Snapshot of the last values known to be persisted; rollback source.</summary>
-    private (string name, string dir, string quality, string archiveDir, string archiveFormat, ScanSchedule schedule, PlaylistSyncMode mode, bool autoDownload, bool strict, bool allowContainerChange, bool archiveEnabled) persisted;
+    private (string name, string dir, string quality, string archiveSelection, ScanSchedule schedule, PlaylistSyncMode mode, bool autoDownload, bool strict, bool allowContainerChange) persisted;
     /// <summary>Debounce timer for text inputs; a fresh keystroke cancels it.</summary>
     private CancellationTokenSource? debounceCts;
     private CancellationTokenSource? savedPillCts;
@@ -698,12 +680,24 @@ else
                     ? storedDir
                     : string.Empty;
             editQuality = PlaylistStore.IsValidFormat(playlist.PreferredFormat) ? playlist.PreferredFormat : "auto";
-            editArchiveDirectory = playlist.ArchiveDirectory is { } storedArchive
-                && !PlaylistStore.PathsEqual(storedArchive, resolvedDefaultArchivePath)
-                    ? storedArchive
-                    : string.Empty;
-            SetArchiveFormatState(playlist.ArchiveFormat);
-            editArchiveEnabled = playlist.ArchiveEnabled;
+            archiveProfiles = (await ArchiveProfiles.GetAllAsync())
+                .Where(profile => profile.Enabled)
+                .ToList();
+            var visibleArchiveIds = archiveProfiles.Select(profile => profile.Id).ToList();
+            if (!string.IsNullOrWhiteSpace(resolvedDefaultArchivePath))
+                visibleArchiveIds.Add(PlaylistArchiveSelection.DefaultId);
+            var storedSelection = PlaylistArchiveSelection.Parse(playlist.ArchiveProfileIds);
+            selectedArchiveProfileIds.Clear();
+            if (storedSelection is null)
+            {
+                if (playlist.ArchiveEnabled)
+                    foreach (var id in visibleArchiveIds) selectedArchiveProfileIds.Add(id);
+            }
+            else
+            {
+                foreach (var id in storedSelection.Where(id => visibleArchiveIds.Contains(id, StringComparer.Ordinal)))
+                    selectedArchiveProfileIds.Add(id);
+            }
             editSchedule = playlist.ScheduleCron is { Length: > 0 }
                 ? ScanSchedule.Parse(playlist.ScheduleCron)
                 : playlist.AutoSyncEnabled
@@ -717,7 +711,7 @@ else
             ApplyCounts();
             filteredCache = null;
         }
-        persisted = (editName, editTargetDirectory, editQuality, editArchiveDirectory, editArchiveFormat, editSchedule, editSyncMode, editAutoDownload, editStrictQuality, editAllowContainerChange, editArchiveEnabled);
+        persisted = (editName, editTargetDirectory, editQuality, ArchiveSelectionKey(), editSchedule, editSyncMode, editAutoDownload, editStrictQuality, editAllowContainerChange);
         formReady = true;
         observedRun = Coordinator.RunFor(PlaylistId);
         observedVersion = Store.DataVersion;
@@ -885,64 +879,29 @@ else
         MarkDirty();
     }
 
-    private void OnArchiveFolderInput(ChangeEventArgs e)
-    {
-        editArchiveDirectory = e.Value?.ToString() ?? string.Empty;
-        MarkDirty();
-    }
-
     private void SetTargetDirectory(string value)
     {
         editTargetDirectory = value;
         MarkDirty();
     }
 
-    private void SetArchiveDirectory(string value)
+    /// <summary>Adds or removes one archive destination and saves at once.</summary>
+    private Task ToggleArchiveDestination(string id, bool selected)
     {
-        editArchiveDirectory = value;
-        MarkDirty();
-    }
-
-    /// <summary>Archive format select: saves right away like the quality picker.</summary>
-    private Task OnArchiveFormatChanged(ChangeEventArgs e)
-    {
-        editArchiveFormatChoice = e.Value?.ToString() ?? "default";
-        if (editArchiveFormatChoice == "custom")
-        {
-            editArchiveFormat = editArchiveCustomFormat.Length == 0
-                ? "" : ArchiveCopier.NormalizeFormat(editArchiveCustomFormat);
-        }
-        else
-        {
-            editArchiveFormat = editArchiveFormatChoice;
-            editArchiveCustomFormat = "";
-        }
+        if (selected) selectedArchiveProfileIds.Add(id);
+        else selectedArchiveProfileIds.Remove(id);
         return SaveNow();
     }
 
-    private void OnArchiveCustomFormatInput(ChangeEventArgs e)
-    {
-        editArchiveCustomFormat = (e.Value?.ToString() ?? "")
-            .Trim().TrimStart('.').ToLowerInvariant();
-        editArchiveFormat = editArchiveCustomFormat.Length == 0
-            ? "" : ArchiveCopier.NormalizeFormat(editArchiveCustomFormat);
-        MarkDirty();
-    }
+    private string ArchiveSelectionKey()
+        => string.Join("|", selectedArchiveProfileIds.OrderBy(id => id, StringComparer.Ordinal));
 
-    /// <summary>Maps a stored format to the select and its optional text field.</summary>
-    private void SetArchiveFormatState(string? stored)
+    private void RestoreArchiveSelection(string key)
     {
-        editArchiveFormat = string.IsNullOrWhiteSpace(stored) ? "default" : stored.Trim();
-        if (editArchiveFormat == "default" || ArchiveCopier.IsPresetFormat(editArchiveFormat))
-        {
-            editArchiveFormatChoice = editArchiveFormat;
-            editArchiveCustomFormat = "";
-        }
-        else
-        {
-            editArchiveFormatChoice = "custom";
-            editArchiveCustomFormat = ArchiveCopier.NormalizeFormat(editArchiveFormat);
-        }
+        selectedArchiveProfileIds.Clear();
+        if (key.Length == 0) return;
+        foreach (var id in key.Split('|', StringSplitOptions.RemoveEmptyEntries))
+            selectedArchiveProfileIds.Add(id);
     }
 
     private void OnSyncModeChanged(ChangeEventArgs e)
@@ -997,14 +956,19 @@ else
             // Empty strings clear the overrides (the defaults take over);
             // the store keeps stored values when a parameter is null.
             var target = editTargetDirectory.Trim();
-            var archiveDir = editArchiveDirectory.Trim();
+            // Only an actual archive-selection change writes the new model
+            // and clears the old per-playlist folder/format overrides. A
+            // name or quality edit leaves a legacy row untouched.
+            var archiveChanged = ArchiveSelectionKey() != persisted.archiveSelection;
             await Store.UpdateScheduleAsync(PlaylistId, editName, editSchedule, target, editSyncMode,
-                editQuality, archiveDir, editArchiveFormat, editAutoDownload,
-                editStrictQuality, editAllowContainerChange, editArchiveEnabled);
+                editQuality, autoDownload: editAutoDownload,
+                strictQuality: editStrictQuality,
+                allowContainerChange: editAllowContainerChange,
+                archiveProfileIds: archiveChanged ? selectedArchiveProfileIds.ToList() : null);
             // The header, the meta line and the page title read playlist.Name;
             // a rename must show up without a reload.
             if (playlist is not null) playlist.Name = editName;
-            persisted = (editName, editTargetDirectory, editQuality, editArchiveDirectory, editArchiveFormat, editSchedule, editSyncMode, editAutoDownload, editStrictQuality, editAllowContainerChange, editArchiveEnabled);
+            persisted = (editName, editTargetDirectory, editQuality, ArchiveSelectionKey(), editSchedule, editSyncMode, editAutoDownload, editStrictQuality, editAllowContainerChange);
             saveState = SaveState.Saved;
             ScheduleSavedPillReset();
         }
@@ -1014,14 +978,12 @@ else
             editName = persisted.name;
             editTargetDirectory = persisted.dir;
             editQuality = persisted.quality;
-            editArchiveDirectory = persisted.archiveDir;
-            SetArchiveFormatState(persisted.archiveFormat);
+            RestoreArchiveSelection(persisted.archiveSelection);
             editSchedule = persisted.schedule;
             editSyncMode = persisted.mode;
             editAutoDownload = persisted.autoDownload;
             editStrictQuality = persisted.strict;
             editAllowContainerChange = persisted.allowContainerChange;
-            editArchiveEnabled = persisted.archiveEnabled;
             saveState = SaveState.Failed;
         }
         finally
@@ -1752,40 +1714,36 @@ else
         ? $"Leave empty to use the music path plus this playlist's own folder ({resolvedDefaultPlaylistPath}). A folder typed here is used as it is."
         : $"Leave empty to drop this playlist's files directly in the music path ({resolvedDefaultMusicPath}). A folder typed here is used as it is.";
 
-    /// <summary>The archive folder an empty archive folder field resolves to.</summary>
-    private string resolvedDefaultArchiveFolder
-        => PlaylistStore.EffectiveArchiveFolder(null, resolvedDefaultArchivePath, editName, playlistFolders);
-
-    private string archiveFolderPlaceholder
-        => string.IsNullOrWhiteSpace(resolvedDefaultArchivePath)
-            ? "/archive-music" : resolvedDefaultArchivePath;
-
-    private string archiveFolderHint
-    {
-        get
-        {
-            if (string.IsNullOrWhiteSpace(resolvedDefaultArchivePath))
-                return "Leave empty for no archive copy.";
-            return playlistFolders
-                ? $"Leave empty to use the archive path plus this playlist's own folder ({resolvedDefaultArchiveFolder})."
-                : $"Leave empty to drop archive copies directly in the archive path ({resolvedDefaultArchivePath}).";
-        }
-    }
-
-    /// <summary>True when an archive folder exists: the playlist's own or the app default.</summary>
+    /// <summary>True when at least one selected archive destination exists.</summary>
     private bool HasArchiveTarget
-        => !string.IsNullOrWhiteSpace(editArchiveDirectory) || !string.IsNullOrWhiteSpace(resolvedDefaultArchivePath);
+        => (selectedArchiveProfileIds.Contains(PlaylistArchiveSelection.DefaultId)
+            && !string.IsNullOrWhiteSpace(resolvedDefaultArchivePath))
+           || archiveProfiles.Any(profile =>
+               selectedArchiveProfileIds.Contains(profile.Id)
+               && !string.IsNullOrWhiteSpace(profile.RootPath));
 
-    /// <summary>The archive format select shows what "app default" currently means.</summary>
-    private static string ArchiveFormatLabel(string? format) => format?.Trim().ToLowerInvariant() switch
+    /// <summary>The archive destination's format, in a small readable label.</summary>
+    private static string ArchiveFormatLabel(string? format)
     {
-        "opus" => "Opus",
-        "flac" => "FLAC",
-        "mp3" => "MP3",
-        "aac" => "AAC",
-        var custom when !string.IsNullOrWhiteSpace(custom) => custom.ToUpperInvariant(),
-        _ => "copy the file as-is",
-    };
+        var value = format?.Trim().ToLowerInvariant();
+        if (string.IsNullOrWhiteSpace(value) || value == "auto")
+            return "Copy as-is";
+
+        var spec = ArchiveCopier.ParseFormat(value);
+        var container = spec.Container switch
+        {
+            "opus" => "Opus",
+            "flac" => "FLAC",
+            "mp3" => "MP3",
+            "aac" => "AAC",
+            "m4a" => "M4A",
+            _ => spec.Container.ToUpperInvariant(),
+        };
+        var codec = string.Equals(spec.Codec, "alac", StringComparison.OrdinalIgnoreCase)
+            ? " ALAC" : string.Empty;
+        var bitrate = spec.BitrateKbps is { } kbps ? $" {kbps} kbps" : string.Empty;
+        return container + codec + bitrate;
+    }
 
     /// <summary>
     /// Live queue label for a track while this playlist has an active run:

@@ -248,8 +248,9 @@ public partial class PlaylistStore
         string? preferredFormat = null, string? archiveDirectory = null,
         string? archiveFormat = null, bool? autoDownload = null,
         bool? strictQuality = null, bool? allowContainerChange = null,
-        bool? archiveEnabled = null, CancellationToken ct = default)
-        => _queries.UpdateScheduleAsync(playlistId, name, schedule, targetDirectory, syncMode, preferredFormat, archiveDirectory, archiveFormat, autoDownload, strictQuality, allowContainerChange, archiveEnabled, ct);
+        bool? archiveEnabled = null, IReadOnlyList<string>? archiveProfileIds = null,
+        CancellationToken ct = default)
+        => _queries.UpdateScheduleAsync(playlistId, name, schedule, targetDirectory, syncMode, preferredFormat, archiveDirectory, archiveFormat, autoDownload, strictQuality, allowContainerChange, archiveEnabled, archiveProfileIds, ct);
 
     public Task<List<PlaylistEntity>> GetDueForAutoSyncAsync(CancellationToken ct = default)
         => _queries.GetDueForAutoSyncAsync(ct);

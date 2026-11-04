@@ -49,7 +49,8 @@ public sealed class ArchiveCopyService
         var playlist = track.PlaylistEntityId is { Length: > 0 } playlistId
             ? await db.Playlists.AsNoTracking().FirstOrDefaultAsync(p => p.Id == playlistId, ct)
             : null;
-        if (playlist is { ArchiveEnabled: false })
+        var selection = PlaylistArchiveSelection.Parse(playlist?.ArchiveProfileIds);
+        if (selection is null && playlist is { ArchiveEnabled: false })
         {
             await ClearRowsAsync(track.Id, db, ct);
             if (save) await db.SaveChangesAsync(ct);
@@ -62,9 +63,30 @@ public sealed class ArchiveCopyService
             .OrderBy(profile => profile.Priority)
             .ThenBy(profile => profile.Name)
             .ToListAsync(ct);
+        if (selection is not null)
+            profiles = profiles
+                .Where(profile => selection.Contains(profile.Id, StringComparer.Ordinal))
+                .ToList();
         var existingRows = await db.TrackArchiveCopies
             .Where(copy => copy.TrackId == track.Id)
             .ToListAsync(ct);
+
+        // An explicit playlist selection owns the profile rows. Drop rows
+        // for profiles that are no longer selected, but keep their files:
+        // changing the configuration must not delete a library.
+        if (selection is not null && onlyProfileId is null)
+        {
+            var allowed = profiles.Select(profile => profile.Id)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var stale = existingRows
+                .Where(row => !allowed.Contains(row.ProfileId))
+                .ToList();
+            if (stale.Count > 0)
+            {
+                db.TrackArchiveCopies.RemoveRange(stale);
+                existingRows.RemoveAll(row => !allowed.Contains(row.ProfileId));
+            }
+        }
 
         if (profiles.Count == 0)
         {

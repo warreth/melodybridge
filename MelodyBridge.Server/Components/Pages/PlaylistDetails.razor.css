@@ -180,3 +180,93 @@
     .playlist-settings-card .settings-head { flex-direction: column; }
     .playlist-status-strip { justify-content: flex-start; }
 }
+
+/* Playlist setup: one calm surface split into two columns. The left side
+   answers "what lands here", the right side answers "what else happens
+   after a download". Phones stack the same order. */
+.playlist-settings-columns {
+    display: grid;
+    grid-template-columns: minmax(0, 1.05fr) minmax(0, .95fr);
+    gap: 1.5rem;
+    align-items: start;
+}
+.playlist-settings-column { display: grid; gap: 1rem; }
+.playlist-settings-column + .playlist-settings-column {
+    border-left: 1px solid var(--border);
+    padding-left: 1.5rem;
+}
+
+.section-line {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: .75rem;
+}
+.section-line a {
+    color: var(--accent-text);
+    font-size: .78rem;
+    font-weight: 600;
+    text-decoration: none;
+    white-space: nowrap;
+}
+.section-line a:hover { text-decoration: underline; }
+.settings-hint {
+    margin: 0;
+    color: var(--muted);
+    font-size: .82rem;
+    line-height: 1.45;
+}
+
+/* Archive destinations are a short checklist, not a form. Each row carries
+   the name, the folder and the format so the choice is obvious without
+   opening another editor. */
+.archive-choice-list { display: grid; gap: .45rem; }
+.archive-choice {
+    display: flex;
+    align-items: center;
+    gap: .7rem;
+    padding: .65rem .7rem;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface-2);
+    cursor: pointer;
+    transition: border-color .15s ease, background-color .15s ease;
+}
+.archive-choice:hover { border-color: var(--border-strong); }
+.archive-choice:has(input:checked) {
+    border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+    background: color-mix(in srgb, var(--accent) 7%, var(--surface-2));
+}
+.archive-choice input {
+    width: 16px;
+    height: 16px;
+    min-height: 0;
+    flex: 0 0 auto;
+    accent-color: var(--accent-strong);
+}
+.archive-choice-copy { display: grid; gap: .1rem; min-width: 0; }
+.archive-choice-copy strong { font-size: .86rem; }
+.archive-choice-copy small {
+    color: var(--muted);
+    font-size: .76rem;
+    overflow-wrap: anywhere;
+}
+.archive-choice-format {
+    margin-left: auto;
+    color: var(--muted);
+    font-size: .72rem;
+    white-space: nowrap;
+}
+.archive-empty { color: var(--muted); font-size: .82rem; line-height: 1.45; }
+.archive-empty a { color: var(--accent-text); font-weight: 600; text-decoration: none; }
+.archive-empty a:hover { text-decoration: underline; }
+
+@media (max-width: 1180px) {
+    .playlist-settings-columns { grid-template-columns: 1fr; gap: 1rem; }
+    .playlist-settings-column + .playlist-settings-column {
+        border-left: 0;
+        border-top: 1px solid var(--border);
+        padding-left: 0;
+        padding-top: 1rem;
+    }
+}

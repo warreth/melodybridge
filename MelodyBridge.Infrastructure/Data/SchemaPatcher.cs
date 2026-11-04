@@ -66,6 +66,9 @@ public static class SchemaPatcher
         // Per-playlist archive switch: off skips the copy even when the
         // app-wide archive path is set.
         ("Playlists", "ArchiveEnabled", "INTEGER NOT NULL DEFAULT 1"),
+        // The archive destinations selected on the playlist page. Null is
+        // the legacy "all enabled destinations" behaviour.
+        ("Playlists", "ArchiveProfileIds", "TEXT NULL"),
         // Sync jobs select a media server profile instead of carrying
         // raw credentials; legacy inline values still work.
         ("SyncJobs", "MediaServerProfileId", "TEXT NULL"),

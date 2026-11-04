@@ -35,13 +35,14 @@ The short version of the pipeline:
 
 ## Playlists are snapshots
 
-When you add a public Spotify, YouTube, Apple Music, Deezer, SoundCloud or
-ListenBrainz link, MelodyBridge reads the playlist (page scraping or the public
-API for Spotify, yt-dlp for YouTube and SoundCloud, the public Apple Music API
-with a page fallback, and the public Deezer and ListenBrainz APIs for those)
-and saves the whole track list locally. No API key or account is needed for
-public playlists. You also get the cover art, the track count and each track's
-duration.
+When you add a public Spotify, YouTube, Apple Music, Tidal, Qobuz, Deezer,
+SoundCloud or ListenBrainz link, MelodyBridge reads the playlist (page scraping
+or the public API for Spotify, yt-dlp for YouTube and SoundCloud, the public
+Apple Music API with a page fallback, Tidal's public catalogue token, Qobuz's
+token-backed API, and the public Deezer and ListenBrainz APIs for those) and
+saves the whole track list locally. Most public playlists need no account;
+Qobuz playlists use the Qobuz token from the plugin. You also get the cover art,
+the track count and each track's duration.
 
 From then on the local snapshot is what the app works from. Pressing
 **Refresh**, or letting the **Auto-sync schedule** fire, fetches the source
@@ -328,7 +329,7 @@ and Opus files stay near full band even at low bitrates, so a dark mix or an
 Opus file is never called inflated and never gets a quality hint. Only a steep
 codec corner, well below what the declared bitrate needs, counts.
 
-<img src="/screens/playlist-details.webp" alt="Playlist details page with a hint box counting two open quality decisions" width="800">
+<img src="/screens/playlist-details.webp" alt="Playlist details page with the setup panel and its archive destination checklist" width="800">
 
 <img src="/screens/playlist-tracks.webp" alt="Track rows with a length review and a spectrum review, each offering Keep and Retry" width="800">
 
@@ -445,14 +446,11 @@ AAC files. Or keep two archives, one Opus 128 and one MP3 160, so every player
 has a compatible copy.
 
 The first copy is the **default archive** you set under **Settings, Default
-paths** and can override per playlist. Below it, **Archive profiles** add more
-destinations. Each profile has a name, folder, container and bitrate, and every
-enabled profile gets a copy of every downloaded track. The default is edited in
-its own row; the extra profiles also have an enable toggle, a **Build missing**
-button and a delete action. The main file is still fetched once; each archive is
-a local ffmpeg conversion, so three copies do not mean three downloads. A
-playlist's archive switch turns all copies off for that playlist, and its folder
-and format overrides apply to the default archive only.
+paths**. Below it, **Archive profiles** add more destinations. Each profile has
+a name, folder, container and bitrate. The playlist page selects the default
+archive and any named profiles as one checklist, so a playlist can write no
+copies, one copy, or several. The main file is still fetched once; each archive
+is a local ffmpeg conversion, so three copies do not mean three downloads.
 
 Archive folders are never mistaken for a track's main file: a library scan skips
 every configured archive root, and the dedup linker ignores files that live in

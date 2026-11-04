@@ -374,7 +374,7 @@ public interface ISourceProvider
 }
 ```
 
-Implement this to support a new playlist platform. `PlaylistStore` picks the provider whose `CanHandle` accepts the URL. Built-in: `SpotifySourceProvider`, `YouTubeSourceProvider`, `AppleMusicSourceProvider`, `DeezerSourceProvider`, `SoundCloudSourceProvider` and `ListenBrainzSourceProvider` (all registered in `AddMelodyBridge`). The Apple Music provider has a public API path with a page-scrape fallback, and an optional account provider for library playlists.
+Implement this to support a new playlist platform. `PlaylistStore` picks the provider whose `CanHandle` accepts the URL. Built-in: `SpotifySourceProvider`, `YouTubeSourceProvider`, `AppleMusicSourceProvider`, `TidalSourceProvider`, `QobuzSourceProvider`, `DeezerSourceProvider`, `SoundCloudSourceProvider` and `ListenBrainzSourceProvider` (all registered in `AddMelodyBridge`). The Apple Music provider has a public API path with a page-scrape fallback, and an optional account provider for library playlists.
 
 ### `IMediaServerSync`: media server targets
 
@@ -535,13 +535,16 @@ playlist, so every playlist owns its folder, liked songs included. The
 `playlist_folders` setting (Default paths, on by default) turns the per-playlist
 subfolder off: the root itself is then the folder, and every caller reads the
 setting through `SettingsStore`.
-`ResolveArchiveFolder` applies the same rule under the archive path, and the
-playlist row carries an `ArchiveEnabled` switch that skips every copy entirely
-when off. The default archive keeps its path and size on the track row
-(`ArchivePath`, `ArchiveSizeBytes`); each extra profile stores one
-`TrackArchiveCopies` row per track with its own path, size and warning. The
-default is the only one with a legacy column, so existing readers and the
-one-copy flow keep working while `ArchiveCopyService` adds the profiles.
+`ResolveArchiveFolder` applies the same rule under the archive path. The
+playlist row carries `ArchiveProfileIds`, a JSON list of the selected archive
+destinations; `PlaylistArchiveSelection` owns its parsing and the
+`__default__` sentinel. A null list is a legacy row (default archive plus every
+enabled profile) and an empty list means no archive copies. The default archive
+keeps its path and size on the track row (`ArchivePath`, `ArchiveSizeBytes`);
+each named profile stores one `TrackArchiveCopies` row per track with its own
+path, size and warning. `ArchiveEnabled`, `ArchiveDirectory` and
+`ArchiveFormat` stay as legacy columns for old rows; saving a profile selection
+clears them and owns the archive behaviour from then on.
 Archive roots from `ArchiveProfiles` join the default path and every playlist
 override in `TrackLinker`, `LibraryScanner`, `LibraryReconciler`,
 `FileNameRenamer` and the Library footprint. A profile copy follows the primary

@@ -93,6 +93,88 @@ public class TrackLinkerArchiveSizeTests
     }
 
     [Test]
+    public async Task ExplicitDefaultSelection_WritesTheDefaultArchive()
+    {
+        var archiveDir = Path.Combine(_dir, "archive-selected");
+        await _settings.SetAsync("archive_path", archiveDir);
+        var primary = Path.Combine(_dir, "song-selected.mp3");
+        await File.WriteAllBytesAsync(primary, new byte[64]);
+
+        await using (var db = _factory.CreateDbContext())
+        {
+            db.Playlists.Add(new PlaylistEntity
+            {
+                Id = "pl-selected",
+                Name = "Selected",
+                SourceUrl = "https://example.com/selected",
+                ArchiveProfileIds = PlaylistArchiveSelection.Serialize(
+                    new[] { PlaylistArchiveSelection.DefaultId }),
+                Tracks = new List<TrackEntity>
+                {
+                    new()
+                    {
+                        MelodyId = "melody-selected",
+                        Title = "Song",
+                        Position = 0,
+                        DownloadStatus = "downloaded",
+                        CurrentPath = primary,
+                        PlaylistEntityId = "pl-selected",
+                    },
+                },
+            });
+            await db.SaveChangesAsync();
+        }
+
+        await using (var db = _factory.CreateDbContext())
+        {
+            var row = await db.Tracks.SingleAsync(t => t.MelodyId == "melody-selected");
+            var outcome = await _linker.ArchiveDownloadedTrackAsync(row, db, default);
+            Assert.That(outcome, Is.EqualTo(ArchiveOutcome.Written));
+            Assert.That(row.ArchivePath, Is.Not.Null.And.Not.Empty);
+        }
+    }
+
+    [Test]
+    public async Task SelectionWithoutTheDefault_SkipsTheDefaultArchive()
+    {
+        await _settings.SetAsync("archive_path", Path.Combine(_dir, "archive-unselected"));
+        var primary = Path.Combine(_dir, "song-unselected.mp3");
+        await File.WriteAllBytesAsync(primary, new byte[64]);
+
+        await using (var db = _factory.CreateDbContext())
+        {
+            db.Playlists.Add(new PlaylistEntity
+            {
+                Id = "pl-unselected",
+                Name = "Unselected",
+                SourceUrl = "https://example.com/unselected",
+                ArchiveProfileIds = PlaylistArchiveSelection.Serialize(new[] { "p-opus" }),
+                Tracks = new List<TrackEntity>
+                {
+                    new()
+                    {
+                        MelodyId = "melody-unselected",
+                        Title = "Song",
+                        Position = 0,
+                        DownloadStatus = "downloaded",
+                        CurrentPath = primary,
+                        PlaylistEntityId = "pl-unselected",
+                    },
+                },
+            });
+            await db.SaveChangesAsync();
+        }
+
+        await using (var db = _factory.CreateDbContext())
+        {
+            var row = await db.Tracks.SingleAsync(t => t.MelodyId == "melody-unselected");
+            var outcome = await _linker.ArchiveDownloadedTrackAsync(row, db, default);
+            Assert.That(outcome, Is.EqualTo(ArchiveOutcome.Skipped));
+            Assert.That(row.ArchivePath, Is.Null);
+        }
+    }
+
+    [Test]
     public async Task WithoutAnArchiveTarget_NoSizeIsRemembered()
     {
         var primary = Path.Combine(_dir, "song.mp3");

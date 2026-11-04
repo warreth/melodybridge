@@ -56,6 +56,7 @@ public class LibraryReconciler
                 TargetDirectory = p.TargetDirectory,
                 ArchiveDirectory = p.ArchiveDirectory,
                 ArchiveEnabled = p.ArchiveEnabled,
+                ArchiveProfileIds = p.ArchiveProfileIds,
                 PreferredFormat = p.PreferredFormat,
                 Tracks = p.Tracks.Select(t => new TrackEntity
                 {
@@ -333,14 +334,21 @@ public class LibraryReconciler
         var layout = new Dictionary<string, PlaylistLayout>(StringComparer.Ordinal);
         foreach (var playlist in playlists)
         {
+            var selection = PlaylistArchiveSelection.Parse(playlist.ArchiveProfileIds);
+            var defaultSelected = selection is null
+                ? playlist.ArchiveEnabled
+                : selection.Contains(PlaylistArchiveSelection.DefaultId, StringComparer.Ordinal);
+            var legacyArchiveDirectory = selection is null ? playlist.ArchiveDirectory : null;
             layout[playlist.Id] = new PlaylistLayout(
                 Base: FirstNonEmpty(playlist.TargetDirectory, musicPath),
                 Folder: PlaylistRules.ResolvePlaylistFolder(
                     playlist.TargetDirectory, musicPath, playlist.Name, playlistFolders),
-                ArchiveBase: FirstNonEmpty(playlist.ArchiveDirectory, archivePath),
-                ArchiveFolder: playlist.ArchiveEnabled
+                ArchiveBase: defaultSelected
+                    ? FirstNonEmpty(legacyArchiveDirectory, archivePath)
+                    : string.Empty,
+                ArchiveFolder: defaultSelected
                     ? PlaylistRules.ResolveArchiveFolder(
-                        playlist.ArchiveDirectory, archivePath, playlist.Name, playlistFolders)
+                        legacyArchiveDirectory, archivePath, playlist.Name, playlistFolders)
                     : string.Empty);
         }
 

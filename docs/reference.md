@@ -70,31 +70,31 @@ M3U folder or a media server target to several jobs at once.
   in the quick or advanced editor when a job should land elsewhere. A rule
   profile can set the folder and file name for every linked job.
 - **Default archive**: the first archive profile, marked **default**, edited
-  from its own row. Leave the path empty for no default archive. Per-playlist
-  values override the default, and the playlist page shows what the app default
-  currently does. The format picker offers Auto, Opus, FLAC, MP3 and AAC, plus
-  Custom for another container ffmpeg can write (for example ogg, wav or m4a).
+  from its own row. Leave the path empty for no default archive. Playlists
+  choose archive destinations by profile; they no longer carry their own
+  folder or format override. The format picker offers Auto, Opus, FLAC, MP3 and
+  AAC, plus Custom for another container ffmpeg can write (for example ogg,
+  wav or m4a).
   Add a bitrate after a colon for lossy presets (`mp3:160`, `opus:192`) or a
   codec (`m4a:alac`). A format ffmpeg cannot write leaves a warning on the
   track. Each playlist gets its own folder under the archive path while the
   sort toggle is on. Saving a new default path moves the existing default
   copies along with it.
 
-<img src="/screens/settings-archives.webp" alt="Archive profiles with the default row and one extra copy, each with its folder and format" width="800">
+<img src="/screens/settings-archives.webp" alt="Archive profiles with the default row and two extra copies, each with its folder and format" width="800">
 
 - **Extra archive profiles** sit below the default row. Add as many as you
-  need, each with a name, folder, container and bitrate. Every enabled profile
-  gets a copy of every downloaded track, so one library can keep an Opus 128
-  copy and an MP3 160 copy next to the default. The default row has its own
-  editor and only the default supports playlist overrides. Extra profiles have
-  their own enable toggle, **Build missing** button and delete action. **Build
+  need, each with a name, folder, container and bitrate. A playlist selects
+  which destinations it writes, so one library can keep an Opus 128 copy and an
+  MP3 160 copy next to the default. Extra profiles have their own enable
+  toggle, **Build missing** button and delete action. **Build
   missing** scans the existing library and creates the copies that profile
   does not have yet; a progress bar stays in the section while it runs. The
   default has no bulk backfill: recreate one copy at a time from the track row
   or the Needs attention page. Disabling a profile keeps its files on disk.
-  Deleting one removes the profile and its copy rows, not the files. Playlist
-  archive switches turn every copy off for that playlist; per-playlist folder
-  and format overrides apply to the default only.
+  Deleting one removes the profile and its copy rows, not the files. The
+  playlist page selects the default archive and any named profiles as one
+  checklist, so a playlist can write no copies or several.
 
 The path fields have a folder button that opens a server-side picker with
 shortcuts to the music, playlist, archive and scan folders. You can still type a
@@ -276,8 +276,9 @@ schedule and one set of targets. See
 
 Open a playlist card and one compact setup panel holds everything specific to
 it. The header keeps the live counts (tracks, downloaded, failed, attention)
-next to the save state, so the page does not need a second status card. Rare
-archive overrides sit behind one disclosure:
+next to the save state, so the page does not need a second status card. The
+panel splits into a downloads column and an automation column, with the archive
+destinations as one checklist:
 
 | Option | Notes |
 |---|---|
@@ -286,7 +287,7 @@ archive overrides sit behind one disclosure:
 | Audio quality | One of the presets above, or advanced filters |
 | Strict quality | Shown when a quality preset is selected. On: only the exact quality is accepted. Off: the download steps down to the best lower quality the enabled plugins declare. See [strict quality](/concepts#strict-quality) |
 | Allow container changes | Shown when strict is off: whether a fallback step may leave the chosen container |
-| Archive copy | The switch turns every archive copy on or off for this playlist: the default and all extra profiles. When it is off no copy is made, even when an archive path is set. **Manage profiles** opens the archive settings. The optional overrides apply to the default archive only; extra profiles always use their own folder and format |
+| Archive destinations | A checklist of the default archive and every enabled profile. Select as many as this playlist should write. Nothing selected means no archive copies. **Manage profiles** opens the archive settings; the folder and format belong to the profile, not the playlist |
 | Auto-sync schedule | Manual, hourly, daily, weekly, monthly or cron. A refresh that fails is retried at the next interval, not on every check, so a broken source cannot hammer itself |
 | Download new tracks after auto-sync | Off by default. After a successful auto-sync refresh, a download run starts when there is pending work; failed tracks are retried every interval. Hidden for file imports |
 | Sync mode | Additive keeps removed tracks as history, Mirror matches the source |
@@ -308,7 +309,7 @@ quickly. Every column header sorts the list; click it again to reverse the
 order. Next to the status pill sits a small archive check:
 a green check when this track's archive copy is on disk, a quiet dash when the
 track has no copy yet, and a warning when the recorded copy has vanished. With
-no archive path configured for the playlist the check stays away. Click the
+no archive destination selected for the playlist the check stays away. Click the
 check to open the archive dialog: it shows the copy's state, repeats any
 archive failure in full, and offers **Create archive copy** or **Recreate
 archive copy**, which rebuilds the file from the current download. A failed

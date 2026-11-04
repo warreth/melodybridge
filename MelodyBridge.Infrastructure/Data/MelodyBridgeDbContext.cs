@@ -333,6 +333,12 @@ public class PlaylistEntity
     /// </summary>
     public bool ArchiveEnabled { get; set; } = true;
     /// <summary>
+    /// JSON list of archive destination ids chosen for this playlist.
+    /// Null keeps the legacy behaviour (default archive plus every enabled
+    /// profile); an empty list means no archive copies.
+    /// </summary>
+    public string? ArchiveProfileIds { get; set; }
+    /// <summary>
     /// Audio format this playlist downloads as:
     /// "auto" | "mp3" | "flac" | "opus" | "aac",
     /// optionally with a bitrate range suffix, e.g. "mp3:192-320".

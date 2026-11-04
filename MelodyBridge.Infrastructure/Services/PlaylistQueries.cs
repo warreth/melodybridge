@@ -352,6 +352,7 @@ internal sealed class PlaylistQueries
                 StrictQuality = p.StrictQuality,
                 AllowContainerChange = p.AllowContainerChange,
                 ArchiveEnabled = p.ArchiveEnabled,
+                ArchiveProfileIds = p.ArchiveProfileIds,
                 LastAttemptAt = p.LastAttemptAt,
                 IsPinned = p.IsPinned,
                 Tracks = p.Tracks
@@ -466,7 +467,8 @@ internal sealed class PlaylistQueries
         string? preferredFormat = null, string? archiveDirectory = null,
         string? archiveFormat = null, bool? autoDownload = null,
         bool? strictQuality = null, bool? allowContainerChange = null,
-        bool? archiveEnabled = null, CancellationToken ct = default)
+        bool? archiveEnabled = null, IReadOnlyList<string>? archiveProfileIds = null,
+        CancellationToken ct = default)
     {
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var entity = await db.Playlists.FindAsync(new object[] { playlistId }, ct)
@@ -497,6 +499,16 @@ internal sealed class PlaylistQueries
         // Per-playlist archive switch: null leaves the stored value.
         if (archiveEnabled is { } archiveOn)
             entity.ArchiveEnabled = archiveOn;
+        // An explicit profile selection owns the archive destinations from
+        // now on. The old per-playlist folder/format overrides and the
+        // master switch are no longer edited by the UI.
+        if (archiveProfileIds is not null)
+        {
+            entity.ArchiveProfileIds = PlaylistArchiveSelection.Serialize(archiveProfileIds);
+            entity.ArchiveDirectory = null;
+            entity.ArchiveFormat = null;
+            entity.ArchiveEnabled = true;
+        }
         // Auto-download toggle: null leaves the stored value, so callers
         // that only touch the schedule never reset it.
         if (autoDownload is { } ad)
