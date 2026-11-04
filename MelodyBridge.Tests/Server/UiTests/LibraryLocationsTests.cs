@@ -132,6 +132,8 @@ public class LibraryLocationsTests
     {
         var cut = _ctx.Render<Library>();
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Add location").Click();
+        cut.WaitForAssertion(() => Assert.That(cut.Markup, Does.Contain("Add scan location")),
+            TimeSpan.FromSeconds(5));
 
         // A real directory: saving refuses paths the app cannot see.
         var dir = Path.Combine(Path.GetTempPath(), $"mb-loc-{Guid.NewGuid():N}");

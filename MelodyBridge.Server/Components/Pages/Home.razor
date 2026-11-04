@@ -1,5 +1,6 @@
 @page "/"
 @using MelodyBridge.Application.Services
+@using MelodyBridge.Infrastructure.Accounts
 @inject IDbContextFactory<MelodyBridgeDbContext> DbFactory
 @inject IDownloaderRegistry DownloaderRegistry
 @inject MelodyBridge.Infrastructure.Services.PluginAuthMonitor AuthMonitor
@@ -54,7 +55,7 @@ else if (showIntro)
             <h1>@(IsSimple
                 ? "Two steps, from playlist link to your own music library."
                 : "Three steps, from playlist link to your own music library.")</h1>
-            <p>MelodyBridge saves a playlist from Spotify, YouTube, Deezer, SoundCloud or
+            <p>MelodyBridge saves a playlist from Spotify, YouTube, Apple Music, Deezer, SoundCloud or
                 ListenBrainz locally and downloads the music through a plugin waterfall.
                 @(IsSimple
                     ? "Publishing to a media server is optional; switch to Advanced mode when you need it. "
@@ -501,6 +502,11 @@ else
                                    PillVariant="@(youtubeConnected ? "connected" : "guest")"
                                    PillText="@(youtubeConnected ? "connected" : "guest")"
                                    Enabled="youtubeConnected" />
+                    <ConnectionRow IconName="applemusic" Title="Apple Music"
+                                   Detail="@(appleConnected ? "web session connected" : "public playlists only")"
+                                   PillVariant="@(appleConnected ? "connected" : "guest")"
+                                   PillText="@(appleConnected ? "connected" : "guest")"
+                                   Enabled="appleConnected" />
                 </div>
                 <div class="connection-group">
                     <span class="connection-group-label">Media servers</span>
@@ -629,6 +635,7 @@ else
     private bool spotifyConnected;
     private bool spotifyWebConnected;
     private bool youtubeConnected;
+    private bool appleConnected;
     private DownloadActivitySummary downloadSummary =
         DownloadActivitySummary.From(Array.Empty<DownloadRun>());
     private List<DownloadRun> activeRuns = new();
@@ -1018,6 +1025,8 @@ else
             var spotifyWebTask = Services.GetService<SpotifyUnofficialAccountProvider>()?
                 .IsConnectedAsync() ?? Task.FromResult(false);
             var youtubeTask = YouTubeAccount.IsConnectedAsync();
+            var appleTask = Services.GetService<AppleMusicAccountProvider>()?
+                .IsConnectedAsync() ?? Task.FromResult(false);
             var mediaTask = MediaProbe.CurrentAsync();
             flareSolverrUrl = FlareSolverrSolver.Url ?? string.Empty;
 
@@ -1052,10 +1061,11 @@ else
                     x.ResolvedTracks, x.TotalTracks))
                 .ToList();
 
-            await Task.WhenAll(spotifyTask, spotifyWebTask, youtubeTask, mediaTask);
+            await Task.WhenAll(spotifyTask, spotifyWebTask, youtubeTask, appleTask, mediaTask);
             spotifyConnected = await spotifyTask;
             spotifyWebConnected = await spotifyWebTask;
             youtubeConnected = await youtubeTask;
+            appleConnected = await appleTask;
             mediaServers = await mediaTask;
         }
 

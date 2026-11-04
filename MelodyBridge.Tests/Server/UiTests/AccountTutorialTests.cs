@@ -69,10 +69,11 @@ public class AccountTutorialTests
         var cut = _ctx.Render<Settings>();
 
         var ordered = cut.FindAll("ol");
-        Assert.That(ordered.Count, Is.EqualTo(3),
-            "Spotify, the unofficial cookie route and YouTube each get a numbered step list");
+        Assert.That(ordered.Count, Is.EqualTo(4),
+            "Spotify, the Spotify web session, YouTube and Apple Music each get a numbered step list");
 
-        var spotifySteps = ordered[0].QuerySelectorAll("li");
+        var spotifySteps = ordered.Single(o => o.TextContent.Contains("developer.spotify.com/dashboard"))
+            .QuerySelectorAll("li");
         Assert.That(spotifySteps.Count, Is.EqualTo(3), "three Spotify steps");
         Assert.That(spotifySteps[0].TextContent, Does.Contain("developer.spotify.com/dashboard"));
         Assert.That(spotifySteps[1].TextContent, Does.Contain("redirect URI"),
@@ -80,7 +81,8 @@ public class AccountTutorialTests
         Assert.That(spotifySteps[2].TextContent, Does.Contain("Client ID"),
             "step 3 says to paste the Client ID and connect");
 
-        var cookieSteps = ordered[1].QuerySelectorAll("li");
+        var cookieSteps = ordered.Single(o => o.TextContent.Contains("open.spotify.com"))
+            .QuerySelectorAll("li");
         Assert.That(cookieSteps.Count, Is.EqualTo(3),
             "three cookie steps; the expiry note waits for advanced mode");
         Assert.That(cookieSteps[0].TextContent, Does.Contain("open.spotify.com"),
@@ -91,11 +93,19 @@ public class AccountTutorialTests
             "the expiry explanation stays out of the everyday view");
         Assert.That(cut.Markup, Does.Not.Contain("TOTP secrets URL"));
 
-        var youtubeSteps = ordered[2].QuerySelectorAll("li");
+        var youtubeSteps = ordered.Single(o => o.TextContent.Contains("console.cloud.google.com"))
+            .QuerySelectorAll("li");
         Assert.That(youtubeSteps.Count, Is.EqualTo(3), "three YouTube steps");
         Assert.That(youtubeSteps[0].TextContent, Does.Contain("console.cloud.google.com"));
         Assert.That(youtubeSteps[0].TextContent, Does.Contain("YouTube Data API"),
             "the YouTube step names the API to enable");
+
+        var appleSteps = ordered.Single(o => o.TextContent.Contains("music.apple.com"))
+            .QuerySelectorAll("li");
+        Assert.That(appleSteps.Count, Is.EqualTo(3), "three Apple Music cookie steps");
+        Assert.That(appleSteps[0].TextContent, Does.Contain("music.apple.com"));
+        Assert.That(appleSteps[2].TextContent, Does.Contain("media-user-token"),
+            "the step names the cookie to copy");
     }
 
     [Test]
@@ -114,7 +124,9 @@ public class AccountTutorialTests
 
         var cut = _ctx.Render<Settings>();
 
-        var cookieSteps = cut.FindAll("ol")[1].QuerySelectorAll("li");
+        var cookieSteps = cut.FindAll("ol")
+            .Single(o => o.TextContent.Contains("open.spotify.com"))
+            .QuerySelectorAll("li");
         Assert.Multiple(() =>
         {
             Assert.That(cookieSteps.Count, Is.EqualTo(4),

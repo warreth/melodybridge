@@ -181,8 +181,8 @@ public class PlaylistsPageTests
 
         Assert.That(cut.Markup, Does.Contain("Spotify Premium"),
             "the account route must say it needs Premium");
-        Assert.That(cut.Markup, Does.Contain("works on a free account"),
-            "the unofficial route must say it works without Premium");
+        Assert.That(cut.Markup, Does.Contain("are unofficial"),
+            "the unofficial routes must say they can break");
 
         cut.Find("button[data-tab='files']").Click();
         cut.WaitForAssertion(() => Assert.That(cut.Markup, Does.Contain("exportify.net"),

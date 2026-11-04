@@ -1,6 +1,7 @@
 @page "/playlists"
 
 @using MelodyBridge.Infrastructure.Accounts
+@using MelodyBridge.Infrastructure.AppleMusic
 @using MelodyBridge.Core
 @using MelodyBridge.Infrastructure.Data
 @using MelodyBridge.Infrastructure.Services
@@ -10,6 +11,7 @@
 @inject SpotifyAccountProvider SpotifyAccount
 @inject SpotifyUnofficialAccountProvider SpotifyWeb
 @inject YouTubeAccountProvider YouTubeAccount
+@inject AppleMusicAccountProvider AppleMusic
 @inject Application.Services.IDownloadCoordinator Coordinator
 @inject IDbContextFactory<MelodyBridgeDbContext> DbFactory
 @inject MediaServerProfileStore ServerProfiles
@@ -26,7 +28,7 @@
             <h1>Playlists</h1>
             <HelpTip Path="quickstart" Text="Public links need no account. Add one, download it on its page, then publish it with a sync job." />
         </div>
-        <p>Save a public playlist from Spotify, YouTube, Deezer, SoundCloud or ListenBrainz, or import from an account or export file.</p>
+        <p>Save a public playlist from Spotify, YouTube, Apple Music, Deezer, SoundCloud or ListenBrainz, or import from an account or export file.</p>
     </div>
     <div class="topbar-actions">
         <button class="btn-modern ghost" @onclick="ShowAccountPanel">Import</button>
@@ -389,14 +391,14 @@ else
             </div>
             <div class="wizard-body">
                 <div class="hint-box">
-                    Public Spotify, YouTube, Deezer, SoundCloud and ListenBrainz
-                    playlists need no account. Quality defaults to
+                    Public Spotify, YouTube, Apple Music, Deezer, SoundCloud and
+                    ListenBrainz playlists need no account. Quality defaults to
                     <strong>@savedDefaultQualityLabel</strong>; change the default in Settings.
                 </div>
                 <div class="form-grid sync-split">
                     <label class="wide">
                         Playlist link
-                        <input @bind="newUrl" placeholder="https://open.spotify.com/playlist/…" />
+                        <input @bind="newUrl" placeholder="https://open.spotify.com/playlist/… or an Apple Music playlist link" />
                     </label>
                     <label class="wide">
                         Download folder (optional)
@@ -472,7 +474,7 @@ else
                     <span class="eyebrow">Import</span>
                     <div class="title-with-help">
                         <h2>Import your music</h2>
-                        <HelpTip Path="accounts" Text="Account imports through your own Spotify app need Premium. Without it, use the unofficial web session or import a file." />
+                        <HelpTip Path="accounts" Text="Spotify needs a developer app and Premium. The web sessions for Spotify and Apple Music are unofficial cookies. Public and shared links need neither." />
                     </div>
                 </div>
                 <button class="icon-button" @onclick="HideAccountPanel"><Icon Name="x" Size="18" /></button>
@@ -483,7 +485,7 @@ else
 
                 @if (importTab == "accounts")
                 {
-                    <div class="account-grid">
+                    <div class="account-grid import-account-grid">
                         @foreach (var entry in accountPanels)
                         {
                             <div class="account-card">
@@ -509,7 +511,9 @@ else
                                 {
                                     <div class="flex-actions">
                                         <button class="btn-modern secondary" @onclick="() => ImportLiked(entry.Name)" disabled="@busy">
-                                            @(LikedAlreadySaved(entry.Name) ? "Update liked songs" : "Import liked songs")
+                                            @(LikedAlreadySaved(entry.Name)
+                                                ? $"Update {entry.LikedLabel}"
+                                                : $"Import {entry.LikedLabel}")
                                         </button>
                                         <button class="btn-modern secondary" @onclick="() => LoadAccountPlaylists(entry.Name)" disabled="@busy">
                                             Show my playlists
@@ -518,13 +522,20 @@ else
                                     @if (entry.Unofficial)
                                     {
                                         <p class="account-note">
-                                            Runs on your Spotify web session, not the official API.
+                                            Runs on your web session, not the official API.
+                                            @if (entry.Name == AppleMusicAccountProvider.ProviderName)
+                                            {
+                                                <text>
+                                                    Library songs are every song saved to your
+                                                    library, not Apple's favorite songs.
+                                                </text>
+                                            }
                                             @if (advancedMode)
                                             {
                                                 <text>
-                                                    It can break when Spotify changes things, and the
-                                                    cookie is a live credential of your account: a
-                                                    burner account is safest.
+                                                    It can break when the service changes things,
+                                                    and the cookie is a live credential of your
+                                                    account: a burner account is safest.
                                                 </text>
                                             }
                                         </p>
@@ -533,9 +544,9 @@ else
                                 else if (entry.Unofficial)
                                 {
                                     <p class="account-note">
-                                        Not connected. <a href="/settings#accounts">Paste your Spotify
-                                        session cookie in Settings</a> to import without a Premium
-                                        developer app.
+                                        Not connected. <a href="/settings#accounts">Paste your
+                                        session cookie in Settings</a> to import private playlists
+                                        and saved songs, or paste a shared playlist link.
                                     </p>
                                 }
                                 else
@@ -549,11 +560,11 @@ else
                         }
                     </div>
                     <p class="account-note">
-                        Account imports use Spotify's official API and need
-                        <strong>Spotify Premium</strong>: Spotify requires it from the owner of
-                        the developer app. The <em>unofficial</em> card runs on your own web
-                        session instead, which works on a free account. The <em>Files</em> tab
-                        needs neither.
+                        Spotify's official login needs a developer app and
+                        <strong>Spotify Premium</strong>. The Spotify and Apple Music web
+                        sessions are unofficial, can break, and use a cookie from your own
+                        browser. Public and shared links need none of this. The
+                        <em>Files</em> tab needs neither.
                     </p>
 
                     @if (accountPlaylists is not null)
@@ -596,7 +607,7 @@ else
                                             </td>
                                             <td><strong>@pl.Name</strong></td>
                                             <td class="text-muted col-owner">@(pl.Owner ?? "-")</td>
-                                            <td class="text-muted col-tracks">@pl.TrackCount</td>
+                                            <td class="text-muted col-tracks">@(pl.TrackCount > 0 ? pl.TrackCount.ToString() : "-")</td>
                                             <td>
                                                 @if (saved)
                                                 {
@@ -988,10 +999,14 @@ else
     private string importTab = "accounts";
     /// <summary>Advanced mode reveals the longer unofficial-cookie risk note.</summary>
     private bool advancedMode;
-    private List<(string Name, bool Connected, bool Unofficial)> accountPanels = new();
+    private sealed record AccountPanel(
+        string Name, bool Connected, bool Unofficial, string LikedLabel);
+
+    private List<AccountPanel> accountPanels = new();
     private HashSet<string> savedAccountIds = new();
     private HashSet<string> savedSpotifyIds = new();
     private HashSet<string> savedYouTubeIds = new();
+    private HashSet<string> savedAppleIds = new();
 
     private Timer? refreshTimer;
     /// <summary>The store stamp the badge refresh last saw, so an idle tick skips its query.</summary>
@@ -1799,17 +1814,23 @@ else
 
     private async Task LoadAccountStatusAsync()
     {
-        accountPanels = new List<(string, bool, bool)>
+        accountPanels = new List<AccountPanel>
         {
-            (SpotifyAccountProvider.ProviderName, await SpotifyAccount.IsConnectedAsync(), false),
-            (SpotifyUnofficialAccountProvider.ProviderName, await SpotifyWeb.IsConnectedAsync(), true),
-            (YouTubeAccountProvider.ProviderName, await YouTubeAccount.IsConnectedAsync(), false),
+            new(SpotifyAccountProvider.ProviderName,
+                await SpotifyAccount.IsConnectedAsync(), false, "liked songs"),
+            new(YouTubeAccountProvider.ProviderName,
+                await YouTubeAccount.IsConnectedAsync(), false, "liked songs"),
+            new(SpotifyUnofficialAccountProvider.ProviderName,
+                await SpotifyWeb.IsConnectedAsync(), true, "liked songs"),
+            new(AppleMusicAccountProvider.ProviderName,
+                await AppleMusic.IsConnectedAsync(), true, "library songs"),
         };
         // One lookup per platform: liked songs are saved under their own
-        // external id ("spotify-liked", "LL"), so the import button can
-        // say Update instead of Import when they are already here.
+        // external id ("spotify-liked", "LL", "library-songs"), so the
+        // import button can say Update instead of Import when they are here.
         savedSpotifyIds = await Store.GetSavedExternalIdsAsync(Platform.Spotify);
         savedYouTubeIds = await Store.GetSavedExternalIdsAsync(Platform.YouTubeMusic);
+        savedAppleIds = await Store.GetSavedExternalIdsAsync(Platform.AppleMusic);
         StateHasChanged();
     }
 
@@ -1824,16 +1845,14 @@ else
             {
                 SpotifyAccountProvider.ProviderName => (IAccountSourceProvider)SpotifyAccount,
                 SpotifyUnofficialAccountProvider.ProviderName => SpotifyWeb,
+                AppleMusicAccountProvider.ProviderName => AppleMusic,
                 _ => YouTubeAccount,
             };
             accountPlaylists = OrderImportList(await account.GetUserPlaylistsAsync()).ToList();
             accountListProvider = providerName;
             // Already-saved playlists get their pill and an Update label;
             // the same platform + external id pair a re-import updates.
-            savedAccountIds = await Store.GetSavedExternalIdsAsync(
-                providerName == YouTubeAccountProvider.ProviderName
-                    ? Platform.YouTubeMusic
-                    : Platform.Spotify);
+            savedAccountIds = await Store.GetSavedExternalIdsAsync(PlatformFor(providerName));
         }
         catch (Exception ex)
         {
@@ -1891,11 +1910,20 @@ else
     }
 
     /// <summary>The public URL for one account playlist, shared by batch
-    /// import so Spotify and YouTube never drift apart.</summary>
+    /// import so the providers never drift apart.</summary>
     public static string AccountSourceUrl(string accountProvider, string playlistId)
         => accountProvider == YouTubeAccountProvider.ProviderName
             ? $"https://www.youtube.com/playlist?list={playlistId}"
-            : $"https://open.spotify.com/playlist/{playlistId}";
+            : accountProvider == AppleMusicAccountProvider.ProviderName
+                ? AppleMusicAccountProvider.SourceUrlFor(playlistId)
+                : $"https://open.spotify.com/playlist/{playlistId}";
+
+    private static Platform PlatformFor(string accountProvider)
+        => accountProvider == YouTubeAccountProvider.ProviderName
+            ? Platform.YouTubeMusic
+            : accountProvider == AppleMusicAccountProvider.ProviderName
+                ? Platform.AppleMusic
+                : Platform.Spotify;
 
     /// <summary>
     /// Import every ticked account playlist in one pass. Each result keeps
@@ -1933,9 +1961,7 @@ else
             }
 
             savedAccountIds = await Store.GetSavedExternalIdsAsync(
-                accountListProvider == YouTubeAccountProvider.ProviderName
-                    ? Platform.YouTubeMusic
-                    : Platform.Spotify);
+                PlatformFor(accountListProvider));
             accountSelection.Clear();
             await Load(showSkeleton: false);
 
@@ -1975,6 +2001,8 @@ else
             SpotifyAccountProvider.ProviderName => savedSpotifyIds.Contains("spotify-liked"),
             SpotifyUnofficialAccountProvider.ProviderName =>
                 savedSpotifyIds.Contains(SpotifyUnofficialAccountProvider.LikedId),
+            AppleMusicAccountProvider.ProviderName =>
+                savedAppleIds.Contains(AppleMusicAccountProvider.LikedId),
             _ => savedYouTubeIds.Contains("LL"),
         };
 

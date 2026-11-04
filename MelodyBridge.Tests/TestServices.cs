@@ -82,6 +82,17 @@ public static class TestServices
         services.AddSingleton(new MelodyBridge.Infrastructure.Accounts.SpotifyUnofficialAccountProvider(
             accountTokens,
             NullLogger<MelodyBridge.Infrastructure.Accounts.SpotifyUnofficialAccountProvider>.Instance));
+        var appleTokens = new MelodyBridge.Infrastructure.AppleMusic.AppleMusicWebTokenProvider(
+            new HttpClient(),
+            NullLogger<MelodyBridge.Infrastructure.AppleMusic.AppleMusicWebTokenProvider>.Instance);
+        var appleApi = new MelodyBridge.Infrastructure.AppleMusic.AppleMusicApiClient(
+            new HttpClient(),
+            appleTokens,
+            NullLogger<MelodyBridge.Infrastructure.AppleMusic.AppleMusicApiClient>.Instance);
+        services.AddSingleton(new MelodyBridge.Infrastructure.Accounts.AppleMusicAccountProvider(
+            accountTokens,
+            appleApi,
+            NullLogger<MelodyBridge.Infrastructure.Accounts.AppleMusicAccountProvider>.Instance));
         // The Advanced page injects the ntfy notifier; tests that exercise
         // sending replace it with a recording subclass.
         services.AddSingleton(sp => new MelodyBridge.Server.Services.NtfyNotifier(

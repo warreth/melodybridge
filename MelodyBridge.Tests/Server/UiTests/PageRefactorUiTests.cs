@@ -164,7 +164,7 @@ public class PageRefactorUiTests
     {
         var cut = _ctx.Render<Settings>();
         cut.WaitForAssertion(() =>
-            Assert.That(cut.Markup, Does.Contain("Spotify &amp; YouTube")), TimeSpan.FromSeconds(3));
+            Assert.That(cut.Markup, Does.Contain("Official logins")), TimeSpan.FromSeconds(3));
 
         var tabs = cut.FindAll("button.tab-link").Select(b => b.TextContent.Trim()).ToList();
         Assert.That(tabs, Is.EqualTo(new[]
@@ -316,7 +316,7 @@ public class PageRefactorUiTests
         // The media server rows arrive with the probe's first answer, one
         // render after the account rows.
         cut.WaitForAssertion(() => Assert.That(cut.FindAll(".connection-row").Count(),
-            Is.EqualTo(6), "all six connections render"), TimeSpan.FromSeconds(5));
+            Is.EqualTo(7), "all seven connections render"), TimeSpan.FromSeconds(5));
         var rows = cut.FindAll(".connection-row");
         Assert.That(rows.First().QuerySelector("svg.brand-icon"), Is.Not.Null,
             "the Spotify row leads with its brand mark");

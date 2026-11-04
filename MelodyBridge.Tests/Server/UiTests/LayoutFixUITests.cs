@@ -232,8 +232,8 @@ public class LayoutFixUITests
             Assert.That(cut.Markup, Does.Contain("Connections")), TimeSpan.FromSeconds(3));
 
         var rows = cut.FindAll(".connection-row");
-        Assert.That(rows.Count, Is.EqualTo(6),
-            "Spotify, YouTube, Jellyfin, Plex, Navidrome and FlareSolverr each get their own row");
+        Assert.That(rows.Count, Is.EqualTo(7),
+            "Spotify, YouTube, Apple Music, Jellyfin, Plex, Navidrome and FlareSolverr each get their own row");
         foreach (var row in rows)
         {
             var status = row.QuerySelector(".pill");

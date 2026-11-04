@@ -570,6 +570,10 @@ a:focus-visible {
     50% { opacity: .35; transform: scale(.8); }
 }
 .account-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1rem; }
+/* Four provider cards in the import modal read better as a 2x2 block than
+   a three-up row with one card stranded below it. */
+.import-account-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 760px) { .import-account-grid { grid-template-columns: 1fr; } }
 .account-card { display: flex; flex-direction: column; gap: .6rem; padding: 1rem; border: 1px solid var(--border); border-radius: var(--radius); }
 .account-card .pill { align-self: flex-start; }
 .account-card label { margin: 0; }

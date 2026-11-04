@@ -58,6 +58,18 @@ public class PlaylistsLiveUITests
             _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Accounts.SpotifyUnofficialAccountProvider(
                 tokenStore, Microsoft.Extensions.Logging.Abstractions.NullLogger<
                     MelodyBridge.Infrastructure.Accounts.SpotifyUnofficialAccountProvider>.Instance));
+            var appleTokens = new MelodyBridge.Infrastructure.AppleMusic.AppleMusicWebTokenProvider(
+                new HttpClient(),
+                Microsoft.Extensions.Logging.Abstractions.NullLogger<
+                    MelodyBridge.Infrastructure.AppleMusic.AppleMusicWebTokenProvider>.Instance);
+            var appleApi = new MelodyBridge.Infrastructure.AppleMusic.AppleMusicApiClient(
+                new HttpClient(), appleTokens,
+                Microsoft.Extensions.Logging.Abstractions.NullLogger<
+                    MelodyBridge.Infrastructure.AppleMusic.AppleMusicApiClient>.Instance);
+            _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Accounts.AppleMusicAccountProvider(
+                tokenStore, appleApi,
+                Microsoft.Extensions.Logging.Abstractions.NullLogger<
+                    MelodyBridge.Infrastructure.Accounts.AppleMusicAccountProvider>.Instance));
             var store = new PlaylistStore(factory, providers, downloadManager, NullLogger<PlaylistStore>.Instance);
         _ctx.Services.AddSingleton(store);
         // The coordinator resolves the store and db factory from the

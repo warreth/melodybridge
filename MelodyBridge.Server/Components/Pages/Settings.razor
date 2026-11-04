@@ -12,6 +12,7 @@
 @inject SpotifyAccountProvider SpotifyAccount
 @inject SpotifyUnofficialAccountProvider SpotifyWeb
 @inject YouTubeAccountProvider YouTubeAccount
+@inject AppleMusicAccountProvider AppleMusic
 @inject MediaServerProfileStore ServerProfiles
 @inject LibraryPathMover PathMover
 @inject SettingsStore TourReset
@@ -85,18 +86,19 @@
         <div class="settings-head">
             <div><span class="eyebrow">Accounts</span>
                 <div class="title-with-help">
-                    <h2>Spotify &amp; YouTube</h2>
-                    <HelpTip Path="accounts" Text="Both are read-only. For private playlists or liked songs, use the unofficial session or import a file." />
+                    <h2>Accounts</h2>
+                    <HelpTip Path="accounts" Text="All are read-only. Public and shared links need no account; private playlists and saved songs use a web session or a file import." />
                 </div>
             </div>
         </div>
         <div class="settings-section">
             <div class="hint-box">
-                Connect an account to import private playlists and liked songs.
-                Public links work without one. MelodyBridge only asks for read
-                access and never changes anything on your account.
+                Connect an account to import private playlists and saved songs.
+                Public and shared links work without one. MelodyBridge only asks
+                for read access and never changes anything on your account.
             </div>
 
+            <span class="eyebrow">Official logins</span>
             <div class="account-grid">
                 <div class="account-card">
                     <div class="account-head">
@@ -159,6 +161,75 @@
                     }
                 </div>
 
+                <div class="account-card">
+                    <div class="account-head">
+                        <strong>YouTube</strong>
+                        <StatusPill Variant="@(_youtubeConnected ? "connected" : "neutral")">
+                            @(_youtubeConnected ? "connected" : "not connected")
+                        </StatusPill>
+                        @if (_youtubeConnected)
+                        {
+                            <button class="btn-modern subtle small" @onclick="() => Logout(YouTubeAccount)">Disconnect</button>
+                        }
+                    </div>
+                    @if (_youtubeConnected)
+                    {
+                        <p class="account-note">
+                            Private playlists and liked songs import through this
+                            login. Disconnect to revoke it.
+                        </p>
+                    }
+                    else
+                    {
+                        <details class="oauth-steps">
+                            <summary>How to create a YouTube app</summary>
+                            <ol>
+                                <li>
+                                    Open <a href="https://console.cloud.google.com" target="_blank" rel="noopener">console.cloud.google.com</a>,
+                                    create a project, enable the <em>YouTube Data API v3</em>
+                                    (APIs &amp; Services, Library), then create OAuth credentials of type
+                                    <em>Web application</em> (APIs &amp; Services, Credentials).
+                                </li>
+                                <li>
+                                    Add this exact redirect URI to the OAuth client:
+                                    <div class="hint-box redirect-row">
+                                        <code>@YouTubeRedirectUrl</code>
+                                        <button class="btn-modern ghost small" type="button" @onclick="CopyYouTubeRedirect">Copy</button>
+                                    </div>
+                                    @if (copyHintFor == "youtube")
+                                    {
+                                        <small class="text-muted">@copyHint</small>
+                                    }
+                                </li>
+                                <li>Paste the client ID and secret here and click Connect.</li>
+                            </ol>
+                        </details>
+                        <p class="account-note">
+                            Before the first login, open the OAuth consent screen
+                            (APIs &amp; Services, OAuth consent screen) and add your own Google
+                            account as a <em>Test user</em>: unverified personal apps only work
+                            for their test users. You will see an "unverified app" warning: that
+                            is expected for a self-hosted personal app; choose
+                            <em>Continue to project</em>.
+                        </p>
+                        <div class="account-connect">
+                            <label>
+                                Client ID (Google Cloud Console, OAuth Web application)
+                                <input @bind="youtubeClientId" @bind:after="MarkDirty" placeholder="OAuth client ID" />
+                            </label>
+                            <label>
+                                Client secret
+                                <input @bind="youtubeClientSecret" @bind:after="MarkDirty" type="password" placeholder="OAuth client secret" />
+                            </label>
+                            <button class="btn-modern primary" @onclick="ConnectYouTube">Connect YouTube</button>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+        <div class="settings-section">
+            <span class="eyebrow">Web sessions</span>
+            <div class="account-grid">
                 <div class="account-card">
                     <div class="account-head">
                         <strong>Spotify web session</strong>
@@ -268,70 +339,91 @@
                         }
                     </div>
                 </div>
-
                 <div class="account-card">
                     <div class="account-head">
-                        <strong>YouTube</strong>
-                        <StatusPill Variant="@(_youtubeConnected ? "connected" : "neutral")">
-                            @(_youtubeConnected ? "connected" : "not connected")
-                        </StatusPill>
-                        @if (_youtubeConnected)
+                        <strong>Apple Music</strong>
+                        <span class="account-badges">
+                            @if (_appleConnected)
+                            {
+                                <StatusPill Variant="warn">unofficial</StatusPill>
+                            }
+                            <StatusPill Variant="@(_appleConnected ? "connected" : _appleHasCookie ? "ok" : "neutral")">
+                                @(_appleConnected ? "connected" : _appleHasCookie ? "cookie saved" : "not connected")
+                            </StatusPill>
+                        </span>
+                        @if (_appleConnected || _appleHasCookie)
                         {
-                            <button class="btn-modern subtle small" @onclick="() => Logout(YouTubeAccount)">Disconnect</button>
+                            <button class="btn-modern subtle small" @onclick="DisconnectApple">Remove cookie</button>
                         }
                     </div>
-                    @if (_youtubeConnected)
+                    <p class="account-note">
+                        Most Apple Music playlists need no cookie: press Share in
+                        Apple Music and paste the link on the Playlists page.
+                        Connect a web session only for playlists you have not
+                        shared, and to import your saved songs.
+                    </p>
+                    @if (advancedMode)
                     {
                         <p class="account-note">
-                            Private playlists and liked songs import through this
-                            login. Disconnect to revoke it.
+                            The <code>media-user-token</code> value is a live credential
+                            of your Apple Account. It is stored in this server's database
+                            in plain text, and Apple can invalidate it at any time.
+                            MelodyBridge never asks for your Apple ID or password.
                         </p>
                     }
-                    else
-                    {
+                    <div class="account-connect">
+                        <label>
+                            Apple Music web cookie (media-user-token value)
+                            <input @bind="appleCookie" type="password"
+                                   placeholder="@(_appleHasCookie ? "Saved. Paste a new value to replace it." : "media-user-token value")" />
+                        </label>
+                        @if (!_appleConnected)
+                        {
+                            <label class="toggle-switch wide">
+                                <input type="checkbox" @bind="appleAcknowledged" />
+                                <span class="toggle-slider"></span>
+                                <span>I understand this is an unofficial session and may stop working</span>
+                            </label>
+                        }
                         <details class="oauth-steps">
-                            <summary>How to create a YouTube app</summary>
+                            <summary>Where to find the cookie</summary>
                             <ol>
                                 <li>
-                                    Open <a href="https://console.cloud.google.com" target="_blank" rel="noopener">console.cloud.google.com</a>,
-                                    create a project, enable the <em>YouTube Data API v3</em>
-                                    (APIs &amp; Services, Library), then create OAuth credentials of type
-                                    <em>Web application</em> (APIs &amp; Services, Credentials).
+                                    Log in at
+                                    <a href="https://music.apple.com" target="_blank" rel="noopener">music.apple.com</a>
+                                    in a desktop browser.
                                 </li>
                                 <li>
-                                    Add this exact redirect URI to the OAuth client:
-                                    <div class="hint-box redirect-row">
-                                        <code>@YouTubeRedirectUrl</code>
-                                        <button class="btn-modern ghost small" type="button" @onclick="CopyYouTubeRedirect">Copy</button>
-                                    </div>
-                                    @if (copyHintFor == "youtube")
-                                    {
-                                        <small class="text-muted">@copyHint</small>
-                                    }
+                                    Open developer tools (F12), then Application or Storage,
+                                    then Cookies for <code>music.apple.com</code>.
                                 </li>
-                                <li>Paste the client ID and secret here and click Connect.</li>
+                                <li>
+                                    Copy the value of <code>media-user-token</code> and paste
+                                    it above. A cookies.txt export works too.
+                                </li>
                             </ol>
                         </details>
-                        <p class="account-note">
-                            Before the first login, open the OAuth consent screen
-                            (APIs &amp; Services, OAuth consent screen) and add your own Google
-                            account as a <em>Test user</em>: unverified personal apps only work
-                            for their test users. You will see an "unverified app" warning: that
-                            is expected for a self-hosted personal app; choose
-                            <em>Continue to project</em>.
-                        </p>
-                        <div class="account-connect">
-                            <label>
-                                Client ID (Google Cloud Console, OAuth Web application)
-                                <input @bind="youtubeClientId" @bind:after="MarkDirty" placeholder="OAuth client ID" />
-                            </label>
-                            <label>
-                                Client secret
-                                <input @bind="youtubeClientSecret" @bind:after="MarkDirty" type="password" placeholder="OAuth client secret" />
-                            </label>
-                            <button class="btn-modern primary" @onclick="ConnectYouTube">Connect YouTube</button>
+                        <div class="flex-actions">
+                            <button class="btn-modern primary" @onclick="SaveAndTestApple"
+                                    disabled="@(!appleAcknowledged || savingApple)">
+                                @(savingApple ? "Testing…" : "Save and test")
+                            </button>
+                            @if (_appleConnected)
+                            {
+                                <button class="btn-modern ghost" @onclick="TestApple" disabled="@testingApple">
+                                    @(testingApple ? "Testing…" : "Test session")
+                                </button>
+                            }
                         </div>
-                    }
+                        @if (!string.IsNullOrWhiteSpace(appleMessage))
+                        {
+                            <div class="result-box ok">@appleMessage</div>
+                        }
+                        @if (appleError is not null)
+                        {
+                            <div class="result-box error">@appleError</div>
+                        }
+                    </div>
                 </div>
             </div>
         </div>
@@ -1541,6 +1633,9 @@ else if (activeTab == "about")
         _spotifyWebConnected = await SpotifyWeb.IsConnectedAsync();
         if (_spotifyWebConnected) _spotifyWebHasCookie = true;
         spotifyWebAcknowledged = _spotifyWebConnected;
+        _appleConnected = await AppleMusic.IsConnectedAsync();
+        if (_appleConnected) _appleHasCookie = true;
+        appleAcknowledged = _appleConnected;
         advancedMode = await TourReset.GetBoolAsync(AdvancedMode.SettingKey, false);
         updateCheckEnabled = await TourReset.GetBoolAsync(UpdateService.EnabledKey, true);
         spotifyWebSecretsUrl = await SpotifyWeb.GetSettingAsync("secrets_url") ?? string.Empty;
@@ -1661,6 +1756,17 @@ else if (activeTab == "about")
     private string spotifyWebMessage = string.Empty;
     private string? spotifyWebError;
 
+    // ── Apple Music web session ─────────────────────────────────────────
+
+    private bool _appleConnected;
+    private bool _appleHasCookie;
+    private string appleCookie = string.Empty;
+    private bool appleAcknowledged;
+    private bool savingApple;
+    private bool testingApple;
+    private string appleMessage = string.Empty;
+    private string? appleError;
+
     /// <summary>
     /// Stores the pasted session cookie, turns the connection on and proves
     /// it works before the user leaves the page: a silent enable that fails
@@ -1741,6 +1847,80 @@ else if (activeTab == "about")
         spotifyWebMessage = string.Empty;
         spotifyWebError = null;
         Notifications.Info("Spotify web session removed; the cookie was deleted");
+    }
+
+    // ── Apple Music web session ─────────────────────────────────────────
+
+    /// <summary>
+    /// Stores the pasted Apple Music cookie and proves it works before the
+    /// card claims a connection. A failing test disables imports but keeps
+    /// the value so the user can correct it without pasting again.
+    /// </summary>
+    private async Task SaveAndTestApple()
+    {
+        appleError = null;
+        appleMessage = string.Empty;
+        savingApple = true;
+        try
+        {
+            var cookie = NormalizeAppleCookie(appleCookie);
+            if (cookie.Length == 0)
+                throw new InvalidOperationException("Paste the media-user-token cookie value first.");
+
+            await AppleMusic.SaveSettingAsync(AppleMusicAccountProvider.TokenKey, cookie);
+            await AppleMusic.SetEnabledAsync(true);
+            _appleHasCookie = true;
+
+            appleMessage = await AppleMusic.TestAsync();
+            _appleConnected = true;
+            _appleHasCookie = true;
+            appleAcknowledged = true;
+            appleCookie = string.Empty; // never echo the secret back into the page
+            Notifications.Success(appleMessage);
+        }
+        catch (Exception ex)
+        {
+            await AppleMusic.SetEnabledAsync(false);
+            _appleConnected = false;
+            appleError = ex.Message;
+        }
+        finally
+        {
+            savingApple = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task TestApple()
+    {
+        appleError = null;
+        appleMessage = string.Empty;
+        testingApple = true;
+        try
+        {
+            appleMessage = await AppleMusic.TestAsync();
+        }
+        catch (Exception ex)
+        {
+            appleError = ex.Message;
+        }
+        finally
+        {
+            testingApple = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task DisconnectApple()
+    {
+        await AppleMusic.LogoutAsync();
+        _appleConnected = false;
+        _appleHasCookie = false;
+        appleAcknowledged = false;
+        appleCookie = string.Empty;
+        appleMessage = string.Empty;
+        appleError = null;
+        Notifications.Info("Apple Music web session removed; the cookie was deleted");
     }
 
     /// <summary>
@@ -1832,6 +2012,41 @@ else if (activeTab == "about")
         return value.Trim('"');
     }
 
+    /// <summary>
+    /// Accepts a bare media-user-token value, a cookie header, or a Netscape
+    /// cookies.txt export. Only the value is stored, never the surrounding
+    /// file.
+    /// </summary>
+    internal static string NormalizeAppleCookie(string? pasted)
+    {
+        var value = (pasted ?? string.Empty).Trim();
+        if (value.Length == 0) return string.Empty;
+
+        foreach (var line in value.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var trimmed = line.Trim();
+            if (trimmed.StartsWith("#HttpOnly_", StringComparison.OrdinalIgnoreCase))
+                trimmed = trimmed["#HttpOnly_".Length..];
+            else if (trimmed.Length == 0 || trimmed.StartsWith('#'))
+                continue;
+            var parts = trimmed.Split('\t');
+            if (parts.Length >= 7
+                && parts[5].Trim().Equals("media-user-token", StringComparison.OrdinalIgnoreCase))
+                return parts[6].Trim().Trim('"');
+        }
+
+        var marker = value.IndexOf("media-user-token=", StringComparison.OrdinalIgnoreCase);
+        if (marker >= 0)
+        {
+            var rest = value[(marker + "media-user-token=".Length)..];
+            var end = rest.IndexOfAny([';', '\n', '\r']);
+            if (end >= 0) rest = rest[..end];
+            return rest.Trim().Trim('"');
+        }
+
+        return value.Trim('"');
+    }
+
     private async Task ConnectYouTube()
     {
         if (youtubeClientId.Trim().Length == 0 || youtubeClientSecret.Trim().Length == 0)
@@ -1850,6 +2065,7 @@ else if (activeTab == "about")
         _spotifyConnected = await SpotifyAccount.IsConnectedAsync();
         _spotifyWebConnected = await SpotifyWeb.IsConnectedAsync();
         _youtubeConnected = await YouTubeAccount.IsConnectedAsync();
+        _appleConnected = await AppleMusic.IsConnectedAsync();
         Notifications.Info("Account disconnected");
     }
 
