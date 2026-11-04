@@ -238,7 +238,22 @@ else
                 Nothing selected means no archive copies.
             </p>
             <div class="archive-choice-list">
-                @if (!string.IsNullOrWhiteSpace(resolvedDefaultArchivePath))
+                @if (LegacyArchiveAvailable)
+                {
+                    <label class="archive-choice">
+                        <input type="checkbox"
+                               checked="@selectedArchiveProfileIds.Contains(PlaylistArchiveSelection.LegacyId)"
+                               @onchange="e => ToggleArchiveDestination(PlaylistArchiveSelection.LegacyId, (bool)e.Value!)" />
+                        <span class="archive-choice-copy">
+                            <strong>Old playlist archive</strong>
+                            <small>@LegacyArchiveFolder</small>
+                        </span>
+                        <span class="archive-choice-format">@ArchiveFormatLabel(LegacyArchiveFormat)</span>
+                    </label>
+                }
+                @if (!string.IsNullOrWhiteSpace(resolvedDefaultArchivePath)
+                     && (!LegacyArchiveAvailable
+                         || !selectedArchiveProfileIds.Contains(PlaylistArchiveSelection.LegacyId)))
                 {
                     <label class="archive-choice">
                         <input type="checkbox"
@@ -265,7 +280,9 @@ else
                     </label>
                 }
             </div>
-            @if (archiveProfiles.Count == 0 && string.IsNullOrWhiteSpace(resolvedDefaultArchivePath))
+            @if (archiveProfiles.Count == 0
+                 && string.IsNullOrWhiteSpace(resolvedDefaultArchivePath)
+                 && !LegacyArchiveAvailable)
             {
                 <div class="archive-empty">
                     No archive profiles yet. <a href="/settings#paths">Create one in Settings</a>.
@@ -351,7 +368,7 @@ else
             <TrackTable Tracks="@TrackRows"
                         ResetKey="@playlist?.Id"
                         ShowFilenameColumn="@showFilenameColumn"
-                        ShowArchiveState="@HasArchiveTarget"
+                        ShowArchiveState="@HasDefaultArchiveTarget"
                         ArchiveStates="@archiveStates"
                         Busy="@busy"
                         OnVisibleTracksChanged="OnVisibleTracksChanged"
@@ -395,11 +412,11 @@ else
                             @archive.Warning
                         </div>
                     }
-                    @if (!HasArchiveTarget)
+                    @if (!HasDefaultArchiveTarget)
                     {
                         <div class="hint-box">
-                            This playlist has no archive destination selected. Choose an
-                            archive profile in the setup section above, then try again.
+                            This playlist has no default archive selected. Named profiles
+                            write their own copies; rebuild missing ones from Settings.
                         </div>
                     }
                 </div>
@@ -407,7 +424,7 @@ else
                     <button class="btn-modern secondary" @onclick="CloseArchiveDialog">Close</button>
                     <span></span>
                     <button class="btn-modern primary" @onclick="RetryArchive"
-                            disabled="@(busy || !HasArchiveTarget)">
+                            disabled="@(busy || !HasDefaultArchiveTarget)">
                         <Icon Name="archive" Size="14" /> @ArchiveDialogAction(archive)
                     </button>
                 </div>
@@ -683,15 +700,25 @@ else
             archiveProfiles = (await ArchiveProfiles.GetAllAsync())
                 .Where(profile => profile.Enabled)
                 .ToList();
-            var visibleArchiveIds = archiveProfiles.Select(profile => profile.Id).ToList();
-            if (!string.IsNullOrWhiteSpace(resolvedDefaultArchivePath))
-                visibleArchiveIds.Add(PlaylistArchiveSelection.DefaultId);
             var storedSelection = PlaylistArchiveSelection.Parse(playlist.ArchiveProfileIds);
+            var visibleArchiveIds = archiveProfiles.Select(profile => profile.Id).ToList();
+            if (LegacyArchiveAvailable)
+                visibleArchiveIds.Add(PlaylistArchiveSelection.LegacyId);
+            if (!LegacyArchiveAvailable && !string.IsNullOrWhiteSpace(resolvedDefaultArchivePath))
+                visibleArchiveIds.Add(PlaylistArchiveSelection.DefaultId);
+            else if (!string.IsNullOrWhiteSpace(resolvedDefaultArchivePath)
+                     && storedSelection?.Contains(PlaylistArchiveSelection.DefaultId,
+                         StringComparer.Ordinal) == true)
+                visibleArchiveIds.Add(PlaylistArchiveSelection.DefaultId);
+
             selectedArchiveProfileIds.Clear();
             if (storedSelection is null)
             {
                 if (playlist.ArchiveEnabled)
-                    foreach (var id in visibleArchiveIds) selectedArchiveProfileIds.Add(id);
+                {
+                    foreach (var id in visibleArchiveIds)
+                        selectedArchiveProfileIds.Add(id);
+                }
             }
             else
             {
@@ -968,6 +995,13 @@ else
             // The header, the meta line and the page title read playlist.Name;
             // a rename must show up without a reload.
             if (playlist is not null) playlist.Name = editName;
+            if (playlist is not null && archiveChanged
+                && !selectedArchiveProfileIds.Contains(PlaylistArchiveSelection.LegacyId))
+            {
+                // The save cleared the legacy columns in the database.
+                playlist.ArchiveDirectory = null;
+                playlist.ArchiveFormat = null;
+            }
             persisted = (editName, editTargetDirectory, editQuality, ArchiveSelectionKey(), editSchedule, editSyncMode, editAutoDownload, editStrictQuality, editAllowContainerChange);
             saveState = SaveState.Saved;
             ScheduleSavedPillReset();
@@ -1714,10 +1748,36 @@ else
         ? $"Leave empty to use the music path plus this playlist's own folder ({resolvedDefaultPlaylistPath}). A folder typed here is used as it is."
         : $"Leave empty to drop this playlist's files directly in the music path ({resolvedDefaultMusicPath}). A folder typed here is used as it is.";
 
+    /// <summary>True when this playlist still carries a manual archive override
+    /// from before the profile checklist.</summary>
+    private bool LegacyArchiveAvailable
+        => playlist is not null
+           && (!string.IsNullOrWhiteSpace(playlist.ArchiveDirectory)
+               || !string.IsNullOrWhiteSpace(playlist.ArchiveFormat));
+
+    private string LegacyArchiveFolder
+        => !string.IsNullOrWhiteSpace(playlist?.ArchiveDirectory)
+            ? playlist!.ArchiveDirectory!
+            : resolvedDefaultArchivePath;
+
+    private string LegacyArchiveFormat
+        => !string.IsNullOrWhiteSpace(playlist?.ArchiveFormat)
+            ? playlist!.ArchiveFormat!
+            : resolvedDefaultArchiveFormat;
+
+    /// <summary>True when the default archive copy is selected. Named profiles
+    /// have their own rows on the track, so the track-table check only
+    /// describes the default archive.</summary>
+    private bool HasDefaultArchiveTarget
+        => (selectedArchiveProfileIds.Contains(PlaylistArchiveSelection.LegacyId)
+            && LegacyArchiveAvailable
+            && !string.IsNullOrWhiteSpace(LegacyArchiveFolder))
+           || (selectedArchiveProfileIds.Contains(PlaylistArchiveSelection.DefaultId)
+               && !string.IsNullOrWhiteSpace(resolvedDefaultArchivePath));
+
     /// <summary>True when at least one selected archive destination exists.</summary>
     private bool HasArchiveTarget
-        => (selectedArchiveProfileIds.Contains(PlaylistArchiveSelection.DefaultId)
-            && !string.IsNullOrWhiteSpace(resolvedDefaultArchivePath))
+        => HasDefaultArchiveTarget
            || archiveProfiles.Any(profile =>
                selectedArchiveProfileIds.Contains(profile.Id)
                && !string.IsNullOrWhiteSpace(profile.RootPath));

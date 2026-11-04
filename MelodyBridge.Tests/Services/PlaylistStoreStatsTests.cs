@@ -316,6 +316,41 @@ public class PlaylistStoreStatsTests
     }
 
     [Test]
+    public async Task UpdateScheduleAsync_ArchiveProfiles_KeepAStillSelectedLegacyOverride()
+    {
+        var dbPath = NewDbPath();
+        try
+        {
+            var factory = await NewDbFactory(dbPath);
+            var store = NewStore(factory, new StubSourceProvider());
+            var (playlist, _) = await store.AddOrRefreshDetailedAsync("stub:playlist");
+
+            await store.UpdateScheduleAsync(playlist.Id, null, ScanSchedule.Manual,
+                archiveDirectory: "/tmp/legacy-archive", archiveFormat: "flac",
+                archiveProfileIds: new[]
+                {
+                    PlaylistArchiveSelection.LegacyId,
+                    "p-opus",
+                });
+
+            await using var db = factory.CreateDbContext();
+            var stored = await db.Playlists.AsNoTracking().SingleAsync(p => p.Id == playlist.Id);
+            Assert.Multiple(() =>
+            {
+                Assert.That(stored.ArchiveDirectory, Is.EqualTo("/tmp/legacy-archive"));
+                Assert.That(stored.ArchiveFormat, Is.EqualTo("flac"));
+                Assert.That(stored.ArchiveProfileIds,
+                    Does.Contain(PlaylistArchiveSelection.LegacyId));
+                Assert.That(stored.ArchiveProfileIds, Does.Contain("p-opus"));
+            });
+        }
+        finally
+        {
+            File.Delete(dbPath);
+        }
+    }
+
+    [Test]
     public async Task UpdateScheduleAsync_PersistsTheAutoDownloadToggle()
     {
         var dbPath = NewDbPath();

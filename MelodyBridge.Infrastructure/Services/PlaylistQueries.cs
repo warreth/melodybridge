@@ -504,9 +504,14 @@ internal sealed class PlaylistQueries
         // master switch are no longer edited by the UI.
         if (archiveProfileIds is not null)
         {
+            var keepLegacy = archiveProfileIds.Contains(
+                PlaylistArchiveSelection.LegacyId, StringComparer.Ordinal);
             entity.ArchiveProfileIds = PlaylistArchiveSelection.Serialize(archiveProfileIds);
-            entity.ArchiveDirectory = null;
-            entity.ArchiveFormat = null;
+            if (!keepLegacy)
+            {
+                entity.ArchiveDirectory = null;
+                entity.ArchiveFormat = null;
+            }
             entity.ArchiveEnabled = true;
         }
         // Auto-download toggle: null leaves the stored value, so callers

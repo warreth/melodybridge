@@ -211,6 +211,95 @@ public class ArchiveCopyUiTests
     }
 
     [Test]
+    public void ArchiveProfiles_LegacyOverride_IsVisibleAndCanBeDeselected()
+    {
+        using (var db = _factory.CreateDbContext())
+        {
+            var playlist = db.Playlists.Find("pl-1")!;
+            playlist.ArchiveDirectory = "/legacy-archive";
+            playlist.ArchiveFormat = "flac";
+            db.SaveChanges();
+        }
+
+        var cut = RenderPage();
+        var legacy = cut.FindAll(".archive-choice")
+            .Single(choice => choice.TextContent.Contains("Old playlist archive"));
+        Assert.Multiple(() =>
+        {
+            Assert.That(legacy.TextContent, Does.Contain("/legacy-archive"));
+            Assert.That(legacy.TextContent, Does.Contain("FLAC"));
+            Assert.That(legacy.QuerySelector("input[type='checkbox']")!.HasAttribute("checked"),
+                Is.True, "the old override is the effective default until it is cleared");
+        });
+
+        legacy.QuerySelector("input[type='checkbox']")!.Change(false);
+
+        cut.WaitForAssertion(() =>
+        {
+            using var db = _factory.CreateDbContext();
+            var stored = db.Playlists.AsNoTracking().Single(p => p.Id == "pl-1");
+            Assert.Multiple(() =>
+            {
+                Assert.That(stored.ArchiveDirectory, Is.Null);
+                Assert.That(stored.ArchiveFormat, Is.Null);
+                Assert.That(stored.ArchiveProfileIds, Is.EqualTo("[]"));
+            });
+        }, TimeSpan.FromSeconds(3));
+    }
+
+    [Test]
+    public void ArchiveProfiles_LegacyOverride_WinsOverTheGlobalDefault()
+    {
+        SeedDefaultArchive("/archive-global", "opus:128");
+        using (var db = _factory.CreateDbContext())
+        {
+            var playlist = db.Playlists.Find("pl-1")!;
+            playlist.ArchiveDirectory = "/legacy-archive";
+            playlist.ArchiveFormat = "flac";
+            db.SaveChanges();
+        }
+
+        var cut = RenderPage();
+
+        var choices = cut.FindAll(".archive-choice");
+        Assert.Multiple(() =>
+        {
+            Assert.That(choices, Has.Count.EqualTo(1),
+                "the legacy row replaces the global default until the checklist changes");
+            Assert.That(choices[0].TextContent, Does.Contain("Old playlist archive"));
+            Assert.That(choices[0].TextContent, Does.Contain("/legacy-archive"));
+            Assert.That(choices[0].TextContent, Does.Contain("FLAC"));
+            Assert.That(choices[0].TextContent, Does.Not.Contain("/archive-global"));
+            Assert.That(choices[0].QuerySelector("input[type='checkbox']")!.HasAttribute("checked"),
+                Is.True);
+        });
+        Assert.That(cut.Markup, Does.Contain("No archive copy for this track yet"),
+            "the legacy archive still owns the track row's archive check");
+    }
+
+    [Test]
+    public void ArchiveProfiles_NamedOnly_HidesTheDefaultArchiveCheck()
+    {
+        var profile = SeedProfile("Opus mirror", "/archive-opus", "opus:128");
+        using (var db = _factory.CreateDbContext())
+        {
+            db.Playlists.Find("pl-1")!.ArchiveProfileIds =
+                PlaylistArchiveSelection.Serialize(new[] { profile.Id });
+            db.SaveChanges();
+        }
+
+        var cut = RenderPage();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(cut.Markup, Does.Not.Contain("No archive copy for this track yet"),
+                "the row check describes the default archive, not a named profile copy");
+            Assert.That(cut.Markup, Does.Not.Contain("No archive copies for this playlist."),
+                "the named profile is still a destination");
+        });
+    }
+
+    [Test]
     public void ArchiveProfiles_NoDestinations_ShowsTheSetupHint()
     {
         var cut = RenderPage();

@@ -449,8 +449,11 @@ The first copy is the **default archive** you set under **Settings, Default
 paths**. Below it, **Archive profiles** add more destinations. Each profile has
 a name, folder, container and bitrate. The playlist page selects the default
 archive and any named profiles as one checklist, so a playlist can write no
-copies, one copy, or several. The main file is still fetched once; each archive
-is a local ffmpeg conversion, so three copies do not mean three downloads.
+copies, one copy, or several. A playlist from an older version keeps its
+previous folder and format as an **Old playlist archive** row until you save a
+new selection, so an upgrade does not silently move its copies. The main file
+is still fetched once; each archive is a local ffmpeg conversion, so three
+copies do not mean three downloads.
 
 Archive folders are never mistaken for a track's main file: a library scan skips
 every configured archive root, and the dedup linker ignores files that live in
@@ -458,8 +461,9 @@ one. Downloading a track again replaces the files the row points at. A format
 change can leave the previous copy under its old name, and removing a playlist
 or track with the keep-files option leaves the copies on disk; neither is
 deleted automatically. **Build missing** fills the extra-profile copies that a
-newly added profile did not have yet, one track at a time. The default copy is
-rebuilt per track from its row action.
+newly added profile did not have yet, one track at a time, for the playlists
+that select that profile. The default copy is rebuilt per track from its row
+action.
 
 | Format | Result |
 |---|---|

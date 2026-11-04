@@ -537,14 +537,16 @@ subfolder off: the root itself is then the folder, and every caller reads the
 setting through `SettingsStore`.
 `ResolveArchiveFolder` applies the same rule under the archive path. The
 playlist row carries `ArchiveProfileIds`, a JSON list of the selected archive
-destinations; `PlaylistArchiveSelection` owns its parsing and the
-`__default__` sentinel. A null list is a legacy row (default archive plus every
-enabled profile) and an empty list means no archive copies. The default archive
-keeps its path and size on the track row (`ArchivePath`, `ArchiveSizeBytes`);
-each named profile stores one `TrackArchiveCopies` row per track with its own
-path, size and warning. `ArchiveEnabled`, `ArchiveDirectory` and
-`ArchiveFormat` stay as legacy columns for old rows; saving a profile selection
-clears them and owns the archive behaviour from then on.
+destinations; `PlaylistArchiveSelection` owns its parsing plus the
+`__default__` and `__legacy__` sentinels. A null list is a legacy row: with
+`ArchiveEnabled` off it writes no copies, otherwise it uses its old default
+archive plus every enabled profile. An empty list means no archive copies.
+`__legacy__` keeps the row's old `ArchiveDirectory` and `ArchiveFormat` in use
+until the checklist stops selecting it. Saving a selection without that
+sentinel clears the legacy columns and owns the archive behaviour from then on.
+The default archive keeps its path and size on the track row (`ArchivePath`,
+`ArchiveSizeBytes`); each named profile stores one `TrackArchiveCopies` row per
+track with its own path, size and warning.
 Archive roots from `ArchiveProfiles` join the default path and every playlist
 override in `TrackLinker`, `LibraryScanner`, `LibraryReconciler`,
 `FileNameRenamer` and the Library footprint. A profile copy follows the primary

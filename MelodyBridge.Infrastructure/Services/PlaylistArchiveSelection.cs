@@ -12,6 +12,10 @@ public static class PlaylistArchiveSelection
 {
     public const string DefaultId = "__default__";
 
+    /// <summary>A legacy per-playlist archive override. Kept selectable until
+    /// the playlist is migrated to named profiles.</summary>
+    public const string LegacyId = "__legacy__";
+
     private static readonly JsonSerializerOptions JsonOptions =
         new(JsonSerializerDefaults.Web);
 

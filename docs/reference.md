@@ -71,10 +71,11 @@ M3U folder or a media server target to several jobs at once.
   profile can set the folder and file name for every linked job.
 - **Default archive**: the first archive profile, marked **default**, edited
   from its own row. Leave the path empty for no default archive. Playlists
-  choose archive destinations by profile; they no longer carry their own
-  folder or format override. The format picker offers Auto, Opus, FLAC, MP3 and
-  AAC, plus Custom for another container ffmpeg can write (for example ogg,
-  wav or m4a).
+  choose archive destinations by profile. A playlist from before that checklist
+  keeps its old folder and format as an **Old playlist archive** row until you
+  save a new selection on the playlist page. The format picker offers Auto,
+  Opus, FLAC, MP3 and AAC, plus Custom for another container ffmpeg can write
+  (for example ogg, wav or m4a).
   Add a bitrate after a colon for lossy presets (`mp3:160`, `opus:192`) or a
   codec (`m4a:alac`). A format ffmpeg cannot write leaves a warning on the
   track. Each playlist gets its own folder under the archive path while the
@@ -87,11 +88,12 @@ M3U folder or a media server target to several jobs at once.
   need, each with a name, folder, container and bitrate. A playlist selects
   which destinations it writes, so one library can keep an Opus 128 copy and an
   MP3 160 copy next to the default. Extra profiles have their own enable
-  toggle, **Build missing** button and delete action. **Build
-  missing** scans the existing library and creates the copies that profile
-  does not have yet; a progress bar stays in the section while it runs. The
-  default has no bulk backfill: recreate one copy at a time from the track row
-  or the Needs attention page. Disabling a profile keeps its files on disk.
+  toggle, **Build missing** button and delete action. **Build missing** scans
+  the existing library and creates the copies that profile does not have yet
+  for the playlists that select it; a progress bar stays in the section while
+  it runs. The default has no bulk backfill: recreate one copy at a time from
+  the track row or the Needs attention page. Disabling a profile keeps its
+  files on disk.
   Deleting one removes the profile and its copy rows, not the files. The
   playlist page selects the default archive and any named profiles as one
   checklist, so a playlist can write no copies or several.

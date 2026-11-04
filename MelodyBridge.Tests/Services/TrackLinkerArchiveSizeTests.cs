@@ -135,6 +135,50 @@ public class TrackLinkerArchiveSizeTests
     }
 
     [Test]
+    public async Task LegacySelection_KeepsWritingToTheOldFolder()
+    {
+        await _settings.SetAsync("archive_path", Path.Combine(_dir, "archive-global"));
+        var legacyDir = Path.Combine(_dir, "archive-legacy");
+        var primary = Path.Combine(_dir, "song-legacy.mp3");
+        await File.WriteAllBytesAsync(primary, new byte[64]);
+
+        await using (var db = _factory.CreateDbContext())
+        {
+            db.Playlists.Add(new PlaylistEntity
+            {
+                Id = "pl-legacy",
+                Name = "Legacy",
+                SourceUrl = "https://example.com/legacy",
+                ArchiveDirectory = legacyDir,
+                ArchiveFormat = "auto",
+                ArchiveProfileIds = PlaylistArchiveSelection.Serialize(
+                    new[] { PlaylistArchiveSelection.LegacyId }),
+                Tracks = new List<TrackEntity>
+                {
+                    new()
+                    {
+                        MelodyId = "melody-legacy",
+                        Title = "Song",
+                        Position = 0,
+                        DownloadStatus = "downloaded",
+                        CurrentPath = primary,
+                        PlaylistEntityId = "pl-legacy",
+                    },
+                },
+            });
+            await db.SaveChangesAsync();
+        }
+
+        await using (var db = _factory.CreateDbContext())
+        {
+            var row = await db.Tracks.SingleAsync(t => t.MelodyId == "melody-legacy");
+            var outcome = await _linker.ArchiveDownloadedTrackAsync(row, db, default);
+            Assert.That(outcome, Is.EqualTo(ArchiveOutcome.Written));
+            Assert.That(row.ArchivePath, Does.StartWith(legacyDir));
+        }
+    }
+
+    [Test]
     public async Task SelectionWithoutTheDefault_SkipsTheDefaultArchive()
     {
         await _settings.SetAsync("archive_path", Path.Combine(_dir, "archive-unselected"));

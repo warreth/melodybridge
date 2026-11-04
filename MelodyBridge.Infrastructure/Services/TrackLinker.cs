@@ -722,19 +722,26 @@ public sealed class TrackLinker
         var selection = PlaylistArchiveSelection.Parse(playlist?.ArchiveProfileIds);
         if (selection is null && playlist is { ArchiveEnabled: false })
             return new ArchiveTarget(false, null, null);
-        if (selection is not null
-            && !selection.Contains(PlaylistArchiveSelection.DefaultId, StringComparer.Ordinal))
+
+        var legacySelected = selection is null
+            ? playlist is not null
+            : selection.Contains(PlaylistArchiveSelection.LegacyId, StringComparer.Ordinal);
+        var defaultSelected = selection is null
+            ? playlist is not null
+            : selection.Contains(PlaylistArchiveSelection.DefaultId, StringComparer.Ordinal);
+        if (selection is not null && !legacySelected && !defaultSelected)
             return new ArchiveTarget(false, null, null);
 
         var globalPath = await _settings.GetAsync("archive_path", "", ct);
         var playlistFolders = await _settings.GetBoolAsync("playlist_folders", true, ct);
-        // An explicit selection uses the global default folder and format.
-        // Legacy rows keep their old per-playlist overrides until the user
-        // saves a selection on the playlist page.
+        // Legacy keeps its old folder and format. A selected default archive
+        // uses the app-wide folder and format. If both are selected, the
+        // legacy override wins, exactly as it did before the migration.
+        var useLegacy = legacySelected;
         var folder = PlaylistRules.ResolveArchiveFolder(
-            selection is null ? playlist?.ArchiveDirectory : null,
+            useLegacy ? playlist?.ArchiveDirectory : null,
             globalPath, playlist?.Name, playlistFolders);
-        var format = selection is null && !string.IsNullOrWhiteSpace(playlist?.ArchiveFormat)
+        var format = useLegacy && !string.IsNullOrWhiteSpace(playlist?.ArchiveFormat)
             ? playlist!.ArchiveFormat!
             : await _settings.GetAsync("archive_format", "auto", ct);
         return new ArchiveTarget(true, folder.Length == 0 ? null : folder, format);

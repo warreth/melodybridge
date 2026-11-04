@@ -335,18 +335,22 @@ public class LibraryReconciler
         foreach (var playlist in playlists)
         {
             var selection = PlaylistArchiveSelection.Parse(playlist.ArchiveProfileIds);
+            var legacySelected = selection is null
+                ? playlist.ArchiveEnabled
+                : selection.Contains(PlaylistArchiveSelection.LegacyId, StringComparer.Ordinal);
             var defaultSelected = selection is null
                 ? playlist.ArchiveEnabled
                 : selection.Contains(PlaylistArchiveSelection.DefaultId, StringComparer.Ordinal);
-            var legacyArchiveDirectory = selection is null ? playlist.ArchiveDirectory : null;
+            var archiveSelected = legacySelected || defaultSelected;
+            var legacyArchiveDirectory = legacySelected ? playlist.ArchiveDirectory : null;
             layout[playlist.Id] = new PlaylistLayout(
                 Base: FirstNonEmpty(playlist.TargetDirectory, musicPath),
                 Folder: PlaylistRules.ResolvePlaylistFolder(
                     playlist.TargetDirectory, musicPath, playlist.Name, playlistFolders),
-                ArchiveBase: defaultSelected
+                ArchiveBase: archiveSelected
                     ? FirstNonEmpty(legacyArchiveDirectory, archivePath)
                     : string.Empty,
-                ArchiveFolder: defaultSelected
+                ArchiveFolder: archiveSelected
                     ? PlaylistRules.ResolveArchiveFolder(
                         legacyArchiveDirectory, archivePath, playlist.Name, playlistFolders)
                     : string.Empty);
