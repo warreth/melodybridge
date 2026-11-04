@@ -34,7 +34,8 @@ public class TidalSourceProviderTests
             .On($"/playlists/{PlaylistId}/tracks", """
                 {"limit":50,"offset":0,"totalNumberOfItems":2,"items":[
                   {"id":11,"title":"One","duration":180,"isrc":"USAAA0000011",
-                   "streamReady":true,"artist":{"name":"Artist"},"album":{"title":"Album","cover":"cover-id"}},
+                   "streamReady":true,"artist":{"name":"Artist"},
+                   "album":{"title":"Album","cover":"cover-id","artist":{"name":"Album Artist"}}},
                   {"id":12,"title":"Two","duration":200,"isrc":"USAAA0000012",
                    "streamReady":true,"artist":{"name":"Artist"},"album":{"title":"Album","cover":"cover-id"}}
                 ]}
@@ -56,9 +57,39 @@ public class TidalSourceProviderTests
             Assert.That(playlist.Tracks, Has.Count.EqualTo(2));
             Assert.That(playlist.Tracks![0].Isrc, Is.EqualTo("USAAA0000011"));
             Assert.That(playlist.Tracks[0].Album, Is.EqualTo("Album"));
+            Assert.That(playlist.Tracks[0].AlbumArtist, Is.EqualTo("Album Artist"),
+                "the album's artist wins over the track artist on compilations");
             Assert.That(playlist.Tracks[0].CoverUrl, Does.Contain("resources.tidal.com"));
             Assert.That(playlist.Tracks[0].SourcePlatform, Is.EqualTo(MelodyBridge.Core.Platform.Tidal));
         });
+    }
+
+    [Test]
+    public async Task GetPlaylist_PagesAllTracks()
+    {
+        var handler = new ScriptedHandler()
+            .On("/token", """{"access_token":"token","expires_in":3600}""")
+            .On($"/playlists/{PlaylistId}/tracks?countryCode=US&limit=50&offset=0", """
+                {"limit":50,"offset":0,"totalNumberOfItems":3,"items":[
+                  {"id":11,"title":"One","duration":180,"artist":{"name":"Artist"}},
+                  {"id":12,"title":"Two","duration":200,"artist":{"name":"Artist"}}
+                ]}
+                """)
+            .On($"/playlists/{PlaylistId}/tracks?countryCode=US&limit=50&offset=2", """
+                {"limit":50,"offset":2,"totalNumberOfItems":3,"items":[
+                  {"id":13,"title":"Three","duration":220,"artist":{"name":"Artist"}}
+                ]}
+                """)
+            .On($"/playlists/{PlaylistId}", """
+                {"uuid":"5b648240-d0de-43d1-a09a-01f84ee1383e","title":"Paged","numberOfTracks":3,
+                 "creator":{"name":"Owner"}}
+                """);
+
+        var playlist = await NewProvider(handler).GetPlaylistAsync(
+            $"https://tidal.com/browse/playlist/{PlaylistId}");
+
+        Assert.That(playlist.Tracks!.Select(t => t.Title),
+            Is.EqualTo(new[] { "One", "Two", "Three" }));
     }
 
     [Test]

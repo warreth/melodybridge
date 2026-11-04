@@ -419,12 +419,34 @@ public class TidalPublicCatalog
                 AudioQuality: GetString(item, "audioQuality"),
                 Tags: GetTags(item),
                 Album: album is { } albumValue ? GetString(albumValue, "title") : null,
-                AlbumArtist: GetArtist(item),
+                AlbumArtist: GetAlbumArtist(album, item),
                 CoverUrl: album is { } coverValue
                     ? ImageUrl(GetString(coverValue, "cover"))
                     : null));
         }
         return tracks;
+    }
+
+    private static string GetAlbumArtist(JsonElement? album, JsonElement item)
+    {
+        if (album is { } value)
+        {
+            if (value.TryGetProperty("artist", out var artist))
+            {
+                var name = GetString(artist, "name");
+                if (!string.IsNullOrWhiteSpace(name)) return name!;
+            }
+            if (value.TryGetProperty("artists", out var artists)
+                && artists.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var entry in artists.EnumerateArray())
+                {
+                    var name = GetString(entry, "name");
+                    if (!string.IsNullOrWhiteSpace(name)) return name!;
+                }
+            }
+        }
+        return GetArtist(item);
     }
 
     private static string GetArtist(JsonElement item)
