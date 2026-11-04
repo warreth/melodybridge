@@ -130,6 +130,10 @@ public class AppleMusicAccountProvider : IAccountSourceProvider
     {
         var token = await RequireTokenAsync(ct);
         var storefront = await GetStorefrontAsync(token, ct);
+        if (string.IsNullOrWhiteSpace(storefront))
+            throw new InvalidOperationException(
+                "Apple Music could not determine the account storefront. "
+                + "Try again, or paste a playlist link that includes a storefront.");
         var result = new List<UserPlaylist>();
         var offset = 0;
 
@@ -178,16 +182,32 @@ public class AppleMusicAccountProvider : IAccountSourceProvider
                 : null;
             var playlistId = reference?.Id ?? sourceIdentifier.Trim();
             var isLibrary = playlistId.StartsWith("p.", StringComparison.Ordinal);
-            var storefront = reference is { StorefrontFromUrl: true }
-                ? reference.Storefront
-                : await GetStorefrontAsync(token, ct);
 
-            var path = isLibrary
-                ? $"/v1/me/library/playlists/{playlistId}?include=tracks&limit[tracks]={PageSize}"
-                : $"/v1/catalog/{storefront}/playlists/{playlistId}?include=tracks&limit[tracks]=300";
-            var canonical = isLibrary
-                ? AppleMusicUrls.LibrarySourceUrl(playlistId)
-                : AppleMusicUrls.CanonicalUrl(storefront, playlistId);
+            string path;
+            string canonical;
+            string? storefront = null;
+            if (isLibrary)
+            {
+                // The library endpoint is storefront-independent. Do not let
+                // a failed /me/storefront call break a library playlist.
+                path = $"/v1/me/library/playlists/{playlistId}"
+                       + $"?include=tracks&limit[tracks]={PageSize}";
+                canonical = AppleMusicUrls.LibrarySourceUrl(playlistId);
+            }
+            else
+            {
+                storefront = reference is { StorefrontFromUrl: true }
+                    ? reference.Storefront
+                    : await GetStorefrontAsync(token, ct);
+                if (string.IsNullOrWhiteSpace(storefront))
+                    throw new InvalidOperationException(
+                        "Apple Music could not determine the account storefront. "
+                        + "Try again, or paste a link that includes a storefront.");
+
+                path = $"/v1/catalog/{storefront}/playlists/{playlistId}"
+                       + "?include=tracks&limit[tracks]=300";
+                canonical = AppleMusicUrls.CanonicalUrl(storefront, playlistId);
+            }
 
             using var first = await _api.GetAsync(path, token, ct);
             var playlist = AppleMusicMapper.MapPlaylist(
@@ -286,7 +306,7 @@ public class AppleMusicAccountProvider : IAccountSourceProvider
         };
     }
 
-    private async Task<string> GetStorefrontAsync(string token, CancellationToken ct)
+    private async Task<string?> GetStorefrontAsync(string token, CancellationToken ct)
     {
         if (!string.IsNullOrWhiteSpace(_storefront)) return _storefront;
 
@@ -299,16 +319,17 @@ public class AppleMusicAccountProvider : IAccountSourceProvider
                 return _storefront = storefront;
         }
         catch (Exception ex) when (ex is AppleMusicApiException or AppleMusicTokenException
-                                   or HttpRequestException or JsonException)
+                                   or HttpRequestException or JsonException
+                                   || ex is TaskCanceledException && !ct.IsCancellationRequested)
         {
+            // A null storefront is not cached: the next catalog fetch retries
+            // instead of baking the wrong country into an import URL.
             _logger.LogInformation(
-                "Apple Music storefront lookup failed ({Message}); using {Storefront}",
-                ex.Message, AppleMusicUrls.DefaultStorefront);
+                "Apple Music storefront lookup failed ({Message}); the next catalog fetch will retry",
+                ex.Message);
         }
 
-        // Do not cache a fallback: a later call may reach Apple and get the
-        // real storefront.
-        return AppleMusicUrls.DefaultStorefront;
+        return null;
     }
 
     private async Task<string> RequireTokenAsync(CancellationToken ct)

@@ -140,7 +140,6 @@ public class AppleMusicAccountProviderTests
     public async Task TryGetPlaylist_ViaLibrary_MapsTheCatalogIdAndTracks()
     {
         await ConnectAsync();
-        _handler.On("/v1/me/storefront", """{"data":[{"id":"gb","type":"storefronts"}]}""");
         _handler.On("/v1/me/library/playlists/p.one",
             AppleMusicTestData.LibraryPlaylistJson("p.one"));
 
@@ -157,6 +156,8 @@ public class AppleMusicAccountProviderTests
             Assert.That(playlist.Tracks[0].PlatformSongID!.ID, Is.EqualTo("22"));
             Assert.That(playlist.Tracks[0].Isrc, Is.EqualTo("USBBB0000001"));
         });
+        Assert.That(_handler.Requests.Any(r => r.Url.Contains("/v1/me/storefront")), Is.False,
+            "a library playlist does not need the storefront");
     }
 
     [Test]
@@ -233,6 +234,68 @@ public class AppleMusicAccountProviderTests
         Assert.That(_handler.Requests.Count(r =>
                 r.Url.Contains("/v1/me/library/playlists?limit=100&offset=")), Is.EqualTo(2),
             "the second page is requested through the next offset");
+    }
+
+    [Test]
+    public async Task GetUserPlaylists_StorefrontFailure_FailsInsteadOfUsingUs()
+    {
+        await ConnectAsync();
+        _handler.On("/v1/me/storefront",
+            _ => new HttpResponseMessage(HttpStatusCode.InternalServerError)
+            {
+                Content = new StringContent("{}", Encoding.UTF8, "application/json"),
+            });
+        _handler.On("/v1/me/library/playlists", AppleMusicTestData.LibraryPlaylistsJson(
+            next: null,
+            ("p.one", "pl.one", "Shared List", "Owner", 3, true)));
+
+        var ex = Assert.ThrowsAsync<InvalidOperationException>(
+            () => _provider.GetUserPlaylistsAsync());
+
+        Assert.That(ex!.Message, Does.Contain("storefront"),
+            "a failed lookup fails the listing instead of turning into us");
+    }
+
+    [Test]
+    public async Task GetLikedPlaylist_PagesThroughNextAndTotal()
+    {
+        await ConnectAsync();
+        _handler.On("/v1/me/library/songs?limit=100&offset=0",
+            """
+            {"data":[{"id":"i.one","type":"library-songs","attributes":{"name":"One","artistName":"Artist","playParams":{"catalogId":"31"}}}],
+             "meta":{"total":2},
+             "next":"/v1/me/library/songs?limit=100&offset=1"}
+            """);
+        _handler.On("/v1/me/library/songs?limit=100&offset=1",
+            """
+            {"data":[{"id":"i.two","type":"library-songs","attributes":{"name":"Two","artistName":"Artist","playParams":{"catalogId":"32"}}}],
+             "meta":{"total":2}}
+            """);
+
+        var playlist = await _provider.GetLikedPlaylistAsync();
+
+        Assert.That(playlist.Tracks!.Select(t => t.Title), Is.EqualTo(new[] { "One", "Two" }));
+        Assert.That(_handler.Requests.Count(r =>
+                r.Url.Contains("/v1/me/library/songs?limit=100&offset=")), Is.EqualTo(2),
+            "a short first page still follows the next offset");
+    }
+
+    [Test]
+    public async Task TryGetPlaylist_UnknownStorefront_FailsInsteadOfUsingUs()
+    {
+        await ConnectAsync();
+        _handler.On("/v1/me/storefront",
+            _ => new HttpResponseMessage(HttpStatusCode.InternalServerError)
+            {
+                Content = new StringContent("{}", Encoding.UTF8, "application/json"),
+            });
+
+        var ex = Assert.ThrowsAsync<InvalidOperationException>(() =>
+            _provider.TryGetPlaylistViaAccountAsync("https://music.apple.com/playlist/pl.test"));
+
+        Assert.That(ex!.Message, Does.Contain("storefront"));
+        Assert.That(_handler.Requests.Any(r => r.Url.Contains("/v1/catalog/us/")), Is.False,
+            "a failed lookup must not silently fall back to the us catalog");
     }
 
     [Test]

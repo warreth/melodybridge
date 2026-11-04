@@ -72,9 +72,9 @@ public class AppleMusicUrlsTests
             Is.EqualTo("applemusic:library:p.abc"));
 
     [Test]
-    public void SourceUrlFor_CatalogId_UsesThePublicUrl()
+    public void SourceUrlFor_CatalogId_WithoutAStorefront_StaysStorefrontLess()
         => Assert.That(AppleMusicAccountProvider.SourceUrlFor("pl.abc"),
-            Is.EqualTo("https://music.apple.com/us/playlist/pl.abc"));
+            Is.EqualTo("https://music.apple.com/playlist/pl.abc"));
 
     [Test]
     public void SourceUrlFor_CatalogId_KeepsAKnownStorefront()

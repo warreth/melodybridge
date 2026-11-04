@@ -119,9 +119,15 @@ public static partial class AppleMusicUrls
     public static string? ExtractPlaylistId(string? input)
         => TryParse(input, out var reference) ? reference.Id : null;
 
-    /// <summary>The canonical public URL for a catalog or shared playlist.</summary>
-    public static string CanonicalUrl(string storefront, string playlistId)
-        => $"https://music.apple.com/{(string.IsNullOrWhiteSpace(storefront) ? DefaultStorefront : storefront)}/playlist/{playlistId}";
+    /// <summary>
+    /// The canonical public URL for a catalog or shared playlist. An unknown
+    /// storefront stays out of the URL, so an account fetch can resolve it
+    /// later instead of silently using us.
+    /// </summary>
+    public static string CanonicalUrl(string? storefront, string playlistId)
+        => string.IsNullOrWhiteSpace(storefront)
+            ? $"https://music.apple.com/playlist/{playlistId}"
+            : $"https://music.apple.com/{storefront}/playlist/{playlistId}";
 
     /// <summary>The source marker for a library-only playlist.</summary>
     public static string LibrarySourceUrl(string libraryId)
@@ -131,9 +137,11 @@ public static partial class AppleMusicUrls
     /// The source URL a batch import should store for one library playlist.
     /// A playlist that Apple also exposes in the catalog uses the public id,
     /// so importing it by link and by account updates one row instead of two.
+    /// A null storefront stays out of the URL so the account fetch can
+    /// resolve it without guessing.
     /// </summary>
     public static string SourceUrlFor(string playlistId, string? storefront = null)
         => playlistId.StartsWith("p.", StringComparison.Ordinal)
             ? LibrarySourceUrl(playlistId)
-            : CanonicalUrl(storefront ?? DefaultStorefront, playlistId);
+            : CanonicalUrl(storefront, playlistId);
 }

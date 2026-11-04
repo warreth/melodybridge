@@ -1215,7 +1215,7 @@ public class PlaylistsPageTests
                 Is.EqualTo("https://www.youtube.com/playlist?list=xyz"));
             Assert.That(Playlists.AccountSourceUrl(
                     MelodyBridge.Infrastructure.Accounts.AppleMusicAccountProvider.ProviderName, "pl.abc"),
-                Is.EqualTo("https://music.apple.com/us/playlist/pl.abc"));
+                Is.EqualTo("https://music.apple.com/playlist/pl.abc"));
             Assert.That(Playlists.AccountSourceUrl(
                     MelodyBridge.Infrastructure.Accounts.AppleMusicAccountProvider.ProviderName,
                     "pl.abc", "gb"),
