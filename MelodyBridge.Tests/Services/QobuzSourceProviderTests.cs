@@ -50,6 +50,41 @@ public class QobuzSourceProviderTests
     }
 
     [Test]
+    public async Task GetPlaylist_PagesAllTracks()
+    {
+        var handler = new ScriptedHandler()
+            .On("/login", """<html><script src="/resources/1.0.0-a000/bundle.js"></script></html>""")
+            .On("/resources/1.0.0-a000/bundle.js", """
+                production:{api:{appId:"798273057",appSecret:"0123456789abcdef0123456789abcdef"}}
+                privateKey:"abcdef"
+                """)
+            .On("/playlist/get?playlist_id=52330829&app_id=798273057&limit=500&offset=0&extra=tracks", """
+                {"id":52330829,"name":"Paged","tracks_count":2,
+                 "tracks":{"total":2,"items":[{"id":11,"title":"One","performer":{"name":"Artist"}}]}}
+                """)
+            .On("/playlist/get?playlist_id=52330829&app_id=798273057&limit=500&offset=1&extra=tracks", """
+                {"id":52330829,"name":"Paged","tracks_count":2,
+                 "tracks":{"total":2,"items":[{"id":12,"title":"Two","performer":{"name":"Artist"}}]}}
+                """);
+
+        var playlist = await NewProvider(handler, "token").GetPlaylistAsync(
+            "https://play.qobuz.com/playlist/52330829");
+
+        Assert.That(playlist.Tracks!.Select(t => t.Title),
+            Is.EqualTo(new[] { "One", "Two" }));
+    }
+
+    [Test]
+    public void GetPlaylist_RejectedToken_SaysToPasteAFreshOne()
+    {
+        var handler = QobuzHandler(playlistStatus: System.Net.HttpStatusCode.Unauthorized);
+        var ex = Assert.ThrowsAsync<InvalidOperationException>(() =>
+            NewProvider(handler, "bad-token").GetPlaylistAsync(
+                "https://play.qobuz.com/playlist/52330829"));
+        Assert.That(ex!.Message, Does.Contain("rejected the token"));
+    }
+
+    [Test]
     public void GetPlaylist_WithoutAToken_ExplainsWhereToAddIt()
     {
         var provider = NewProvider(new ScriptedHandler(), token: null);
