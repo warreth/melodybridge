@@ -328,6 +328,13 @@ public class AppleMusicAccountProvider : IAccountSourceProvider
             if (!string.IsNullOrWhiteSpace(storefront))
                 return _storefront = storefront;
         }
+        catch (AppleMusicApiException ex) when (
+            ex.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+        {
+            // An expired or rejected session is not a storefront problem.
+            // Let the caller show the existing "paste a fresh cookie" error.
+            throw;
+        }
         catch (Exception ex) when (ex is AppleMusicApiException or AppleMusicTokenException
                                    or HttpRequestException or JsonException
                                    || ex is TaskCanceledException && !ct.IsCancellationRequested)

@@ -241,6 +241,44 @@ public class AppleMusicAccountProviderTests
     }
 
     [Test]
+    public async Task GetUserPlaylists_StorefrontRejected_KeepsTheFreshCookieMessage()
+    {
+        await ConnectAsync();
+        _handler.On("/v1/me/storefront",
+            _ => new HttpResponseMessage(HttpStatusCode.Forbidden)
+            {
+                Content = new StringContent(
+                    """{"errors":[{"detail":"Invalid authentication"}]}""",
+                    Encoding.UTF8, "application/json"),
+            });
+
+        var ex = Assert.ThrowsAsync<AppleMusicApiException>(
+            () => _provider.GetUserPlaylistsAsync());
+
+        Assert.That(ex!.Message, Does.Contain("fresh media-user-token"));
+        Assert.That(ex.Message, Does.Not.Contain("storefront"));
+    }
+
+    [Test]
+    public async Task TryGetPlaylist_StorefrontRejected_ReturnsNullForThePublicPath()
+    {
+        await ConnectAsync();
+        _handler.On("/v1/me/storefront",
+            _ => new HttpResponseMessage(HttpStatusCode.Forbidden)
+            {
+                Content = new StringContent(
+                    """{"errors":[{"detail":"Invalid authentication"}]}""",
+                    Encoding.UTF8, "application/json"),
+            });
+
+        var playlist = await _provider.TryGetPlaylistViaAccountAsync(
+            "https://music.apple.com/playlist/pl.test");
+
+        Assert.That(playlist, Is.Null,
+            "a dead session falls back instead of claiming a storefront problem");
+    }
+
+    [Test]
     public async Task GetUserPlaylists_StorefrontFailure_FailsInsteadOfUsingUs()
     {
         await ConnectAsync();
