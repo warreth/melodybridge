@@ -398,7 +398,7 @@ else
                 </div>
                 <div class="form-grid sync-split">
                     <div class="wide source-picker">
-                        <span class="field-label">Source</span>
+                        <span class="field-label">Source examples</span>
                         <div class="source-strip" role="group" aria-label="Supported playlist sources">
                             @foreach (var source in SourceHints)
                             {
@@ -414,8 +414,9 @@ else
                     </div>
                     <label class="wide">
                         Playlist link
-                        <input @ref="newUrlInput" @bind="newUrl" placeholder="@newUrlPlaceholder" />
-                        <small class="text-muted">The source is detected from the link.</small>
+                        <input @ref="newUrlInput" @bind="newUrl" @bind:event="oninput"
+                               @bind:after="ClearSourceHint" placeholder="@newUrlPlaceholder" />
+                        <small class="text-muted">Pick an example, or paste any supported link. The source is detected from the link.</small>
                     </label>
                     <label class="wide">
                         Download folder (optional)
@@ -1835,6 +1836,12 @@ else
         selectedSourceHint = source.Name;
         newUrlPlaceholder = source.Example;
         await newUrlInput.FocusAsync();
+    }
+
+    private void ClearSourceHint()
+    {
+        // The active chip describes the chosen example, not the pasted URL.
+        selectedSourceHint = null;
     }
 
     private void CloseAddForm(EventArgs e) => showAddForm = false;

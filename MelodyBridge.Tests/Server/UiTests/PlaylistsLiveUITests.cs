@@ -110,7 +110,7 @@ public class PlaylistsLiveUITests
 
         // Type a real public playlist URL and submit.
         var urlInput = cut.Find("input[placeholder^='https://open.spotify.com']");
-        urlInput.Change("https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M");
+        urlInput.Input("https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M");
 
         var submit = cut.FindAll("button").Single(b => b.TextContent.Trim() == "Fetch & save");
         submit.Click();

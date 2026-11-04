@@ -84,13 +84,23 @@ public class PlaylistsPageTests
         cut.WaitForAssertion(() =>
         {
             Assert.That(cut.Markup, Does.Contain("source-chip"));
+            Assert.That(cut.Markup, Does.Contain("Source examples"));
             Assert.That(cut.Markup, Does.Contain("Tidal"));
             Assert.That(cut.Markup, Does.Contain("Qobuz"));
         }, TimeSpan.FromSeconds(3));
 
         cut.FindAll(".source-chip").Single(b => b.TextContent.Contains("Tidal")).Click();
         cut.WaitForAssertion(() =>
-            Assert.That(cut.Find("input[placeholder*='tidal.com/browse/playlist']"), Is.Not.Null),
+        {
+            Assert.That(cut.Find("input[placeholder*='tidal.com/browse/playlist']"), Is.Not.Null);
+            Assert.That(cut.FindAll(".source-chip.active"), Has.Count.EqualTo(1));
+        }, TimeSpan.FromSeconds(3));
+
+        cut.Find("input[placeholder*='tidal.com/browse/playlist']")
+            .Input("https://tidal.com/browse/playlist/5b648240-d0de-43d1-a09a-01f84ee1383e");
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.FindAll(".source-chip.active"), Is.Empty,
+                "the chip describes an example, not the URL in the field"),
             TimeSpan.FromSeconds(3));
     }
 
@@ -299,7 +309,7 @@ public class PlaylistsPageTests
             Assert.That(cut.Markup, Does.Contain("Auto-sync schedule")), TimeSpan.FromSeconds(3));
 
         cut.Find("input[placeholder^='https://open.spotify.com']")
-            .Change("https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M");
+            .Input("https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M");
         var schedule = cut.FindAll("select")
             .Single(s => s.QuerySelectorAll("option").Any(o => o.TextContent == "Cron"));
         schedule.Change("Cron");
