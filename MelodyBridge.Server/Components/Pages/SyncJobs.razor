@@ -546,7 +546,7 @@ else
                                     <option value="">Select a source...</option>
                                     @foreach (var src in sources)
                                     {
-                                        <option value="@src.Id">@src.Name (@(src.IsManualImport ? "Imported" : PlatformName(src.SourcePlatform)))</option>
+                                        <option value="@src.Id">@src.Name (@(src.IsManualImport ? "Imported" : PlatformNames.Display(src.SourcePlatform)))</option>
                                     }
                                 </select>
                             </label>
@@ -2092,19 +2092,6 @@ else
         }
         finally { saving = false; }
     }
-
-    private static string PlatformName(Platform platform) => platform switch
-    {
-        Platform.Spotify => "Spotify",
-        Platform.YouTubeMusic => "YouTube Music",
-        Platform.AppleMusic => "Apple Music",
-        Platform.Tidal => "Tidal",
-        Platform.AmazonMusic => "Amazon Music",
-        Platform.Qobuz => "Qobuz",
-        Platform.Soundcloud => "SoundCloud",
-        Platform.Deezer => "Deezer",
-        _ => "Unknown",
-    };
 
     /// <summary>
     /// The next fire the scheduler will act on, or null for a manual job.

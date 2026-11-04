@@ -195,7 +195,7 @@ else if (playlistsView == "rows")
                             @playlist.Name
                         </strong>
                         <small>
-                            @(playlist.IsManualImport ? "Imported" : playlist.SourcePlatform.ToString())
+                            @(playlist.IsManualImport ? "Imported" : PlatformNames.Display(playlist.SourcePlatform))
                             · @playlist.TrackCount track@(playlist.TrackCount == 1 ? "" : "s")
                             @if (!string.IsNullOrEmpty(playlist.Owner))
                             {
@@ -314,7 +314,7 @@ else
                                 <Icon Name="pin" Size="12" Class="pin-mark" />
                                 <span class="visually-hidden">Pinned: </span>
                             }
-                            @(playlist.IsManualImport ? "Imported" : playlist.SourcePlatform.ToString())
+                            @(playlist.IsManualImport ? "Imported" : PlatformNames.Display(playlist.SourcePlatform))
                         </span>
                         <h2>
                             <a href="@(selectionMode ? null : $"/playlists/{playlist.Id}")"
@@ -753,7 +753,7 @@ else
                                         <span class="publish-option-body">
                                             <strong>@playlist.Name</strong>
                                             <small>
-                                                @(playlist.IsManualImport ? "Imported" : playlist.SourcePlatform.ToString())
+                                                @(playlist.IsManualImport ? "Imported" : PlatformNames.Display(playlist.SourcePlatform))
                                                 · @playlist.TrackCount track@(playlist.TrackCount == 1 ? "" : "s")
                                                 @if (!string.IsNullOrEmpty(playlist.Owner))
                                                 {
@@ -1911,11 +1911,12 @@ else
 
     /// <summary>The public URL for one account playlist, shared by batch
     /// import so the providers never drift apart.</summary>
-    public static string AccountSourceUrl(string accountProvider, string playlistId)
+    public static string AccountSourceUrl(
+        string accountProvider, string playlistId, string? storefront = null)
         => accountProvider == YouTubeAccountProvider.ProviderName
             ? $"https://www.youtube.com/playlist?list={playlistId}"
             : accountProvider == AppleMusicAccountProvider.ProviderName
-                ? AppleMusicAccountProvider.SourceUrlFor(playlistId)
+                ? AppleMusicAccountProvider.SourceUrlFor(playlistId, storefront)
                 : $"https://open.spotify.com/playlist/{playlistId}";
 
     private static Platform PlatformFor(string accountProvider)
@@ -1947,7 +1948,8 @@ else
                 // Both Spotify connections can import through the plain add
                 // flow: the store prefers the account when one is connected,
                 // and private playlists then work too.
-                var url = AccountSourceUrl(accountListProvider, playlist.Id);
+                var url = AccountSourceUrl(
+                    accountListProvider, playlist.Id, playlist.Storefront);
                 try
                 {
                     var (added, newlySaved) = await Store.AddOrRefreshDetailedAsync(url, TargetOrNull());

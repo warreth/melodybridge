@@ -590,7 +590,7 @@ else
                         </a>
                         <div class="dashboard-playlist-copy">
                             <div class="dashboard-playlist-top">
-                                <span class="eyebrow">@(playlist.IsManualImport ? "Imported" : playlist.SourcePlatform.ToString())</span>
+                                <span class="eyebrow">@(playlist.IsManualImport ? "Imported" : PlatformNames.Display(playlist.SourcePlatform))</span>
                                 @if (stats.attention > 0)
                                 {
                                     <StatusPill Variant="err">@stats.attention</StatusPill>

@@ -1634,7 +1634,8 @@ else if (activeTab == "about")
         if (_spotifyWebConnected) _spotifyWebHasCookie = true;
         spotifyWebAcknowledged = _spotifyWebConnected;
         _appleConnected = await AppleMusic.IsConnectedAsync();
-        if (_appleConnected) _appleHasCookie = true;
+        var appleToken = await AppleMusic.GetSettingAsync(AppleMusicAccountProvider.TokenKey);
+        _appleHasCookie = _appleConnected || !string.IsNullOrWhiteSpace(appleToken);
         appleAcknowledged = _appleConnected;
         advancedMode = await TourReset.GetBoolAsync(AdvancedMode.SettingKey, false);
         updateCheckEnabled = await TourReset.GetBoolAsync(UpdateService.EnabledKey, true);
@@ -1864,8 +1865,22 @@ else if (activeTab == "about")
         try
         {
             var cookie = NormalizeAppleCookie(appleCookie);
+            var hadStoredCookie = _appleHasCookie;
             if (cookie.Length == 0)
-                throw new InvalidOperationException("Paste the media-user-token cookie value first.");
+            {
+                if (!hadStoredCookie)
+                    throw new InvalidOperationException("Paste the media-user-token cookie value first.");
+
+                // The input is cleared after a successful save. Pressing the
+                // button again should test the saved session, not disable it.
+                await AppleMusic.SetEnabledAsync(true);
+                appleMessage = await AppleMusic.TestAsync();
+                _appleConnected = true;
+                _appleHasCookie = true;
+                appleAcknowledged = true;
+                Notifications.Success(appleMessage);
+                return;
+            }
 
             await AppleMusic.SaveSettingAsync(AppleMusicAccountProvider.TokenKey, cookie);
             await AppleMusic.SetEnabledAsync(true);
@@ -1880,7 +1895,8 @@ else if (activeTab == "about")
         }
         catch (Exception ex)
         {
-            await AppleMusic.SetEnabledAsync(false);
+            if (_appleHasCookie)
+                await AppleMusic.SetEnabledAsync(false);
             _appleConnected = false;
             appleError = ex.Message;
         }

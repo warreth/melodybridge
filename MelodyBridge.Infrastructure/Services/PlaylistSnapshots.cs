@@ -82,8 +82,7 @@ internal sealed class PlaylistSnapshots
                         await youtube.TryGetPlaylistViaAccountAsync(
                             YouTubeSourceProvider.GetPlaylistId(sourceIdentifier), ct),
                     Platform.AppleMusic when account is AppleMusicAccountProvider apple =>
-                        await apple.TryGetPlaylistViaAccountAsync(
-                            AppleMusicUrls.ExtractPlaylistId(sourceIdentifier) ?? sourceIdentifier, ct),
+                        await apple.TryGetPlaylistViaAccountAsync(sourceIdentifier, ct),
                     _ => null,
                 };
                 if (viaAccount is not null) return viaAccount;

@@ -73,6 +73,7 @@ public class AppleMusicAccountProviderTests
     public async Task GetUserPlaylists_MapsGlobalIdAndLibraryId()
     {
         await ConnectAsync();
+        _handler.On("/v1/me/storefront", """{"data":[{"id":"gb","type":"storefronts"}]}""");
         _handler.On("/v1/me/library/playlists", AppleMusicTestData.LibraryPlaylistsJson(
             next: null,
             ("p.one", "pl.one", "Shared List", "Owner", 3, true),
@@ -87,6 +88,8 @@ public class AppleMusicAccountProviderTests
                 "a catalog-linked playlist keeps the public id for dedup");
             Assert.That(playlists[0].Name, Is.EqualTo("Shared List"));
             Assert.That(playlists[0].IsOwned, Is.True);
+            Assert.That(playlists[0].Storefront, Is.EqualTo("gb"),
+                "the account storefront travels with the playlist");
             Assert.That(playlists[1].Id, Is.EqualTo("p.two"));
             Assert.That(playlists[1].TrackCount, Is.EqualTo(0));
             Assert.That(playlists[1].IsOwned, Is.False);
@@ -137,6 +140,7 @@ public class AppleMusicAccountProviderTests
     public async Task TryGetPlaylist_ViaLibrary_MapsTheCatalogIdAndTracks()
     {
         await ConnectAsync();
+        _handler.On("/v1/me/storefront", """{"data":[{"id":"gb","type":"storefronts"}]}""");
         _handler.On("/v1/me/library/playlists/p.one",
             AppleMusicTestData.LibraryPlaylistJson("p.one"));
 
@@ -185,6 +189,50 @@ public class AppleMusicAccountProviderTests
 
         var ex = Assert.ThrowsAsync<AppleMusicApiException>(() => _provider.TestAsync());
         Assert.That(ex!.Message, Does.Contain("fresh media-user-token"));
+    }
+
+    [Test]
+    public async Task TryGetPlaylist_NonUsLink_PreservesTheLinkStorefront()
+    {
+        await ConnectAsync();
+        _handler.On("/v1/me/storefront", """{"data":[{"id":"us","type":"storefronts"}]}""");
+        _handler.On("/v1/catalog/gb/playlists/pl.gb",
+            AppleMusicTestData.PlaylistApiJson(
+                "pl.gb", null, ("11", "One", "Artist", "USAAA0000011")));
+
+        var playlist = await _provider.TryGetPlaylistViaAccountAsync(
+            "https://music.apple.com/gb/playlist/name/pl.gb");
+
+        Assert.That(playlist, Is.Not.Null);
+        Assert.That(playlist!.SourceUrl, Does.Contain("/gb/playlist/pl.gb"));
+        Assert.That(_handler.Requests.Any(r =>
+                r.Url.Contains("/v1/catalog/gb/playlists/pl.gb")), Is.True,
+            "the gb link is fetched from the gb catalog, not the account's us catalog");
+    }
+
+    [Test]
+    public async Task GetUserPlaylists_PagesThroughNextAndTotal()
+    {
+        await ConnectAsync();
+        _handler.On("/v1/me/storefront", """{"data":[{"id":"gb","type":"storefronts"}]}""");
+        _handler.On("/v1/me/library/playlists?limit=100&offset=0",
+            """
+            {"data":[{"id":"p.one","type":"library-playlists","attributes":{"name":"One","curatorName":"Owner"}}],
+             "meta":{"total":2},
+             "next":"/v1/me/library/playlists?limit=100&offset=1"}
+            """);
+        _handler.On("/v1/me/library/playlists?limit=100&offset=1",
+            """
+            {"data":[{"id":"p.two","type":"library-playlists","attributes":{"name":"Two","curatorName":"Owner"}}],
+             "meta":{"total":2}}
+            """);
+
+        var playlists = await _provider.GetUserPlaylistsAsync();
+
+        Assert.That(playlists.Select(p => p.Name), Is.EqualTo(new[] { "One", "Two" }));
+        Assert.That(_handler.Requests.Count(r =>
+                r.Url.Contains("/v1/me/library/playlists?limit=100&offset=")), Is.EqualTo(2),
+            "the second page is requested through the next offset");
     }
 
     [Test]

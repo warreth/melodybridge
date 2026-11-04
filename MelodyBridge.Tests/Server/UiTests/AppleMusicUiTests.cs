@@ -1,5 +1,6 @@
 using Bunit;
 using MelodyBridge.Infrastructure.Accounts;
+using MelodyBridge.Infrastructure.AppleMusic;
 using MelodyBridge.Infrastructure.Data;
 using MelodyBridge.Server.Components.Pages;
 using Microsoft.EntityFrameworkCore;
@@ -20,12 +21,14 @@ namespace MelodyBridge.Tests.Server.UiTests;
 public class AppleMusicUiTests
 {
     private Bunit.TestContext _ctx = null!;
+    private IDbContextFactory<MelodyBridgeDbContext> _factory = null!;
 
     [SetUp]
     public void Setup()
     {
         _ctx = new Bunit.TestContext();
         var factory = TestHelpers.CreateInMemFactory();
+        _factory = factory;
         _ctx.Services.AddSingleton<IDbContextFactory<MelodyBridgeDbContext>>(factory);
         _ctx.Services.AddSingleton<Microsoft.Extensions.Configuration.IConfiguration>(
             new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build());
@@ -85,6 +88,68 @@ public class AppleMusicUiTests
             Assert.That(save, Is.Not.Null);
             Assert.That(save!.HasAttribute("disabled"), Is.False);
         }, TimeSpan.FromSeconds(3));
+    }
+
+    [Test]
+    public async Task Settings_DisabledSavedCookie_StillOffersRemoval()
+    {
+        var apple = _ctx.Services.GetRequiredService<AppleMusicAccountProvider>();
+        await apple.SaveSettingAsync(AppleMusicAccountProvider.TokenKey, "saved-token");
+        await apple.SetEnabledAsync(false);
+
+        var cut = _ctx.Render<Settings>();
+        cut.WaitForAssertion(() =>
+        {
+            var card = cut.FindAll(".account-card")
+                .Single(c => c.TextContent.Contains("Apple Music"));
+            Assert.Multiple(() =>
+            {
+                Assert.That(card.TextContent, Does.Contain("cookie saved"));
+                Assert.That(card.TextContent, Does.Contain("Remove cookie"));
+            });
+        }, TimeSpan.FromSeconds(3));
+    }
+
+    [Test]
+    public async Task EmptySaveAndTest_UsesTheSavedSessionInsteadOfDisablingIt()
+    {
+        var tokens = new AccountTokenStore(_factory, NullLogger<AccountTokenStore>.Instance);
+        var mock = new Mock<AppleMusicAccountProvider>(
+            tokens, DummyAppleApi(), NullLogger<AppleMusicAccountProvider>.Instance)
+        {
+            CallBase = true,
+        };
+        mock.Setup(p => p.IsConnectedAsync(It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        mock.Setup(p => p.GetSettingAsync(
+                AppleMusicAccountProvider.TokenKey, It.IsAny<CancellationToken>()))
+            .ReturnsAsync("saved-token");
+        mock.Setup(p => p.SetEnabledAsync(true, It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+        mock.Setup(p => p.TestAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync("Session works.");
+        _ctx.Services.AddSingleton(mock.Object);
+
+        var cut = _ctx.Render<Settings>();
+        cut.WaitForAssertion(() => Assert.That(cut.Markup, Does.Contain("Test session")),
+            TimeSpan.FromSeconds(3));
+
+        cut.FindAll(".account-card")
+            .Single(c => c.TextContent.Contains("Apple Music"))
+            .QuerySelectorAll("button")
+            .Single(b => b.TextContent.Contains("Save and test"))
+            .Click();
+
+        cut.WaitForAssertion(() => Assert.That(cut.Markup, Does.Contain("Session works.")),
+            TimeSpan.FromSeconds(3));
+        mock.Verify(p => p.SetEnabledAsync(false, It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    private static AppleMusicApiClient DummyAppleApi()
+    {
+        var tokens = new AppleMusicWebTokenProvider(
+            new HttpClient(), NullLogger<AppleMusicWebTokenProvider>.Instance);
+        return new AppleMusicApiClient(
+            new HttpClient(), tokens, NullLogger<AppleMusicApiClient>.Instance);
     }
 
     [Test]

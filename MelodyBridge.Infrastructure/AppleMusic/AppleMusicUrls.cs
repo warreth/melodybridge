@@ -11,7 +11,8 @@ public sealed record AppleMusicPlaylistRef(
     string Id,
     string Storefront,
     bool IsLibrary = false,
-    bool IsLibrarySongs = false)
+    bool IsLibrarySongs = false,
+    bool StorefrontFromUrl = false)
 {
     /// <summary>True when this reference cannot be fetched without an account.</summary>
     public bool NeedsAccount => IsLibrary || IsLibrarySongs;
@@ -109,7 +110,8 @@ public static partial class AppleMusicUrls
         var storefront = match.Groups["sf"].Success
             ? match.Groups["sf"].Value.ToLowerInvariant()
             : DefaultStorefront;
-        reference = new AppleMusicPlaylistRef(match.Groups["id"].Value, storefront);
+        reference = new AppleMusicPlaylistRef(
+            match.Groups["id"].Value, storefront, StorefrontFromUrl: match.Groups["sf"].Success);
         return true;
     }
 
@@ -130,8 +132,8 @@ public static partial class AppleMusicUrls
     /// A playlist that Apple also exposes in the catalog uses the public id,
     /// so importing it by link and by account updates one row instead of two.
     /// </summary>
-    public static string SourceUrlFor(string playlistId)
+    public static string SourceUrlFor(string playlistId, string? storefront = null)
         => playlistId.StartsWith("p.", StringComparison.Ordinal)
             ? LibrarySourceUrl(playlistId)
-            : CanonicalUrl(DefaultStorefront, playlistId);
+            : CanonicalUrl(storefront ?? DefaultStorefront, playlistId);
 }

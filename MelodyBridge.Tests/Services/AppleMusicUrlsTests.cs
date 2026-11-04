@@ -25,7 +25,11 @@ public class AppleMusicUrlsTests
     [TestCase("https://music.apple.com/us/playlist/pl.test", "us")]
     public void Parse_Storefront_ComesFromTheUrlOrDefaultsToUs(string input, string expected)
     {
-        Assert.That(AppleMusicUrls.Parse(input).Storefront, Is.EqualTo(expected));
+        var reference = AppleMusicUrls.Parse(input);
+        Assert.That(reference.Storefront, Is.EqualTo(expected));
+        Assert.That(reference.StorefrontFromUrl,
+            Is.EqualTo(input.Contains("/us/", StringComparison.Ordinal)
+                       || input.Contains("/gb/", StringComparison.Ordinal)));
     }
 
     [Test]
@@ -71,4 +75,9 @@ public class AppleMusicUrlsTests
     public void SourceUrlFor_CatalogId_UsesThePublicUrl()
         => Assert.That(AppleMusicAccountProvider.SourceUrlFor("pl.abc"),
             Is.EqualTo("https://music.apple.com/us/playlist/pl.abc"));
+
+    [Test]
+    public void SourceUrlFor_CatalogId_KeepsAKnownStorefront()
+        => Assert.That(AppleMusicAccountProvider.SourceUrlFor("pl.abc", "gb"),
+            Is.EqualTo("https://music.apple.com/gb/playlist/pl.abc"));
 }

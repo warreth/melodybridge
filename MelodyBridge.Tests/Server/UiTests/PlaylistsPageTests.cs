@@ -77,6 +77,21 @@ public class PlaylistsPageTests
     }
 
     [Test]
+    public void Playlists_AppleCard_ShowsTheDisplayName()
+    {
+        SeedOnePlaylist("Apple Mix", 4, Platform.AppleMusic);
+
+        var cut = _ctx.Render<Playlists>();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.Markup, Does.Contain("Apple Mix"));
+            Assert.That(cut.Markup, Does.Contain("Apple Music"));
+            Assert.That(cut.Markup, Does.Not.Contain("AppleMusic"));
+        }, TimeSpan.FromSeconds(3));
+    }
+
+    [Test]
     public void Playlists_WithSavedPlaylist_CardLinksToDetails()
     {
         SeedOnePlaylist("Another Mix", 3, Platform.Spotify);
@@ -1198,6 +1213,16 @@ public class PlaylistsPageTests
             Assert.That(Playlists.AccountSourceUrl(
                     MelodyBridge.Infrastructure.Accounts.YouTubeAccountProvider.ProviderName, "xyz"),
                 Is.EqualTo("https://www.youtube.com/playlist?list=xyz"));
+            Assert.That(Playlists.AccountSourceUrl(
+                    MelodyBridge.Infrastructure.Accounts.AppleMusicAccountProvider.ProviderName, "pl.abc"),
+                Is.EqualTo("https://music.apple.com/us/playlist/pl.abc"));
+            Assert.That(Playlists.AccountSourceUrl(
+                    MelodyBridge.Infrastructure.Accounts.AppleMusicAccountProvider.ProviderName,
+                    "pl.abc", "gb"),
+                Is.EqualTo("https://music.apple.com/gb/playlist/pl.abc"));
+            Assert.That(Playlists.AccountSourceUrl(
+                    MelodyBridge.Infrastructure.Accounts.AppleMusicAccountProvider.ProviderName, "p.abc"),
+                Is.EqualTo("applemusic:library:p.abc"));
         });
     }
 

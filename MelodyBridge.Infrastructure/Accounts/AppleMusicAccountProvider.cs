@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text.Json;
 using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.AppleMusic;
 using Microsoft.Extensions.Logging;
@@ -37,6 +38,7 @@ public class AppleMusicAccountProvider : IAccountSourceProvider
     private readonly AccountTokenStore _settings;
     private readonly AppleMusicApiClient _api;
     private readonly ILogger<AppleMusicAccountProvider> _logger;
+    private string? _storefront;
 
     public string Name => ProviderName;
 
@@ -51,7 +53,8 @@ public class AppleMusicAccountProvider : IAccountSourceProvider
     }
 
     /// <summary>The source URL a batch import should store for one playlist.</summary>
-    public static string SourceUrlFor(string playlistId) => AppleMusicUrls.SourceUrlFor(playlistId);
+    public static string SourceUrlFor(string playlistId, string? storefront = null)
+        => AppleMusicUrls.SourceUrlFor(playlistId, storefront);
 
     /// <summary>The source marker for one library-only playlist.</summary>
     public static string LibrarySourceUrl(string libraryId)
@@ -80,15 +83,24 @@ public class AppleMusicAccountProvider : IAccountSourceProvider
             + "in the account settings.");
 
     /// <summary>Disables the connection and drops the stored cookie.</summary>
-    public virtual Task LogoutAsync(CancellationToken ct = default)
-        => _settings.ClearAsync(ProviderName, ct);
+    public virtual async Task LogoutAsync(CancellationToken ct = default)
+    {
+        _storefront = null;
+        await _settings.ClearAsync(ProviderName, ct);
+    }
 
     public virtual Task<string?> GetSettingAsync(string key, CancellationToken ct = default)
         => _settings.GetSettingAsync(ProviderName, key, ct);
 
     public virtual Task SaveSettingAsync(
         string key, string value, CancellationToken ct = default)
-        => _settings.SaveSettingAsync(ProviderName, key, value, ct);
+    {
+        // A new session may belong to another storefront; do not keep the
+        // previous account's answer.
+        if (key.Equals(TokenKey, StringComparison.OrdinalIgnoreCase))
+            _storefront = null;
+        return _settings.SaveSettingAsync(ProviderName, key, value, ct);
+    }
 
     /// <summary>Enables or disables imports without destroying the saved cookie.</summary>
     public virtual Task SetEnabledAsync(bool enabled, CancellationToken ct = default)
@@ -117,6 +129,7 @@ public class AppleMusicAccountProvider : IAccountSourceProvider
         CancellationToken ct = default)
     {
         var token = await RequireTokenAsync(ct);
+        var storefront = await GetStorefrontAsync(token, ct);
         var result = new List<UserPlaylist>();
         var offset = 0;
 
@@ -130,13 +143,15 @@ public class AppleMusicAccountProvider : IAccountSourceProvider
             foreach (var item in data)
             {
                 if (AppleMusicMapper.MapUserPlaylist(item) is { } playlist)
-                    result.Add(playlist);
+                    result.Add(playlist with { Storefront = storefront });
             }
 
             offset += data.Count;
             var total = AppleMusicMapper.Total(document.RootElement);
             if (total is { } reported && offset >= reported) break;
-            if (data.Count < PageSize) break;
+            if (string.IsNullOrWhiteSpace(AppleMusicMapper.NextLink(document.RootElement))
+                && total is null)
+                break;
         }
 
         _logger.LogInformation("Apple Music library listed {Count} playlists", result.Count);
@@ -144,22 +159,28 @@ public class AppleMusicAccountProvider : IAccountSourceProvider
     }
 
     /// <summary>
-    /// Fetches any playlist id through the connected account. Returns null
+    /// Fetches a playlist through the connected account. The input may be a
+    /// full link, so a storefront in that link is preserved instead of
+    /// silently falling back to the account's own storefront. Returns null
     /// when the account is off or Apple does not hand the playlist over, so
     /// the public fetcher can still try.
     /// </summary>
     public virtual async Task<Playlist?> TryGetPlaylistViaAccountAsync(
-        string playlistId, CancellationToken ct = default)
+        string sourceIdentifier, CancellationToken ct = default)
     {
         if (!await IsConnectedAsync(ct)) return null;
 
         try
         {
             var token = await RequireTokenAsync(ct);
+            var reference = AppleMusicUrls.TryParse(sourceIdentifier, out var parsed)
+                ? parsed
+                : null;
+            var playlistId = reference?.Id ?? sourceIdentifier.Trim();
             var isLibrary = playlistId.StartsWith("p.", StringComparison.Ordinal);
-            var storefront = AppleMusicUrls.TryParse(playlistId, out var reference)
+            var storefront = reference is { StorefrontFromUrl: true }
                 ? reference.Storefront
-                : AppleMusicUrls.DefaultStorefront;
+                : await GetStorefrontAsync(token, ct);
 
             var path = isLibrary
                 ? $"/v1/me/library/playlists/{playlistId}?include=tracks&limit[tracks]={PageSize}"
@@ -202,14 +223,14 @@ public class AppleMusicAccountProvider : IAccountSourceProvider
             // session: the public path may still work.
             _logger.LogInformation(
                 "Apple Music account fetch for {PlaylistId} did not work ({Message}); trying the public path",
-                playlistId, ex.Message);
+                sourceIdentifier, ex.Message);
             return null;
         }
         catch (Exception ex) when (ex is AppleMusicTokenException or HttpRequestException)
         {
             _logger.LogInformation(
                 "Apple Music account fetch for {PlaylistId} failed ({Message}); trying the public path",
-                playlistId, ex.Message);
+                sourceIdentifier, ex.Message);
             return null;
         }
     }
@@ -237,7 +258,9 @@ public class AppleMusicAccountProvider : IAccountSourceProvider
             offset += data.Count;
             var total = AppleMusicMapper.Total(document.RootElement);
             if (total is { } reported && offset >= reported) break;
-            if (data.Count < PageSize) break;
+            if (string.IsNullOrWhiteSpace(AppleMusicMapper.NextLink(document.RootElement))
+                && total is null)
+                break;
             if (tracks.Count >= MaxItems)
             {
                 truncated = true;
@@ -261,6 +284,31 @@ public class AppleMusicAccountProvider : IAccountSourceProvider
             Duration = SumDurations(tracks),
             Warning = truncated ? $"library truncated at {MaxItems} songs" : null,
         };
+    }
+
+    private async Task<string> GetStorefrontAsync(string token, CancellationToken ct)
+    {
+        if (!string.IsNullOrWhiteSpace(_storefront)) return _storefront;
+
+        try
+        {
+            using var document = await _api.GetAsync("/v1/me/storefront", token, ct);
+            var data = AppleMusicMapper.DataArray(document.RootElement);
+            var storefront = data.Count > 0 ? AppleMusicMapper.String(data[0], "id") : null;
+            if (!string.IsNullOrWhiteSpace(storefront))
+                return _storefront = storefront;
+        }
+        catch (Exception ex) when (ex is AppleMusicApiException or AppleMusicTokenException
+                                   or HttpRequestException or JsonException)
+        {
+            _logger.LogInformation(
+                "Apple Music storefront lookup failed ({Message}); using {Storefront}",
+                ex.Message, AppleMusicUrls.DefaultStorefront);
+        }
+
+        // Do not cache a fallback: a later call may reach Apple and get the
+        // real storefront.
+        return AppleMusicUrls.DefaultStorefront;
     }
 
     private async Task<string> RequireTokenAsync(CancellationToken ct)

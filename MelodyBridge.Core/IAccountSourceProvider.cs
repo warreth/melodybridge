@@ -55,7 +55,10 @@ public record UserPlaylist(
     /// <summary>True when the playlist belongs to the connected account
     /// (created by it), false for followed or collaborative ones. The
     /// import list shows own playlists first.</summary>
-    bool IsOwned = false);
+    bool IsOwned = false,
+    /// <summary>The account's Apple Music storefront, when the provider
+    /// knows one. Other providers leave this null.</summary>
+    string? Storefront = null);
 
 /// <summary>
 /// Minimal OAuth token pair an account provider needs. Providers refresh
