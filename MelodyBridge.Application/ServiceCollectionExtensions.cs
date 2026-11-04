@@ -1,6 +1,7 @@
 using MelodyBridge.Application.Services;
 using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.Accounts;
+using MelodyBridge.Infrastructure.AppleMusic;
 using MelodyBridge.Infrastructure.Cloudflare;
 using MelodyBridge.Infrastructure.Deezer;
 using MelodyBridge.Infrastructure.Downloaders;
@@ -363,9 +364,47 @@ public static class ServiceCollectionExtensions
         services.AddSingleton(sp => new YtDlpUpdater(
             sp.GetRequiredService<ILogger<YtDlpUpdater>>()));
 
+        // Apple Music: the public web player ships a developer token that
+        // public and shared playlists use. The token page and bundle are
+        // large, so that client gets its own longer timeout; API calls stay
+        // short.
+        services.AddHttpClient("applemusic-web", c =>
+        {
+            c.DefaultRequestHeaders.UserAgent.ParseAdd(
+                "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36");
+            c.Timeout = TimeSpan.FromSeconds(90);
+        }).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+        {
+            AutomaticDecompression = System.Net.DecompressionMethods.All,
+        });
+        services.AddHttpClient("applemusic", c =>
+        {
+            c.DefaultRequestHeaders.UserAgent.ParseAdd(
+                "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36");
+            c.Timeout = TimeSpan.FromSeconds(30);
+        });
+        services.AddHttpClient("applemusic-page", c =>
+        {
+            c.DefaultRequestHeaders.UserAgent.ParseAdd(
+                "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36");
+            c.Timeout = TimeSpan.FromSeconds(40);
+        });
+        services.AddSingleton(sp => new AppleMusicWebTokenProvider(
+            sp.GetRequiredService<IHttpClientFactory>().CreateClient("applemusic-web"),
+            sp.GetRequiredService<ILogger<AppleMusicWebTokenProvider>>()));
+        services.AddSingleton(sp => new AppleMusicApiClient(
+            sp.GetRequiredService<IHttpClientFactory>().CreateClient("applemusic"),
+            sp.GetRequiredService<AppleMusicWebTokenProvider>(),
+            sp.GetRequiredService<ILogger<AppleMusicApiClient>>()));
+
         // Source providers (playlists)
         services.AddSingleton<ISourceProvider, YouTubeSourceProvider>();
         services.AddSingleton<ISourceProvider, SpotifySourceProvider>();
+        services.AddSingleton<ISourceProvider>(sp =>
+            new AppleMusicSourceProvider(
+                sp.GetRequiredService<AppleMusicApiClient>(),
+                sp.GetRequiredService<ILogger<AppleMusicSourceProvider>>(),
+                sp.GetRequiredService<IHttpClientFactory>().CreateClient("applemusic-page")));
         // Public playlist sources: Deezer, SoundCloud sets and
         // ListenBrainz need no account.
         services.AddSingleton<ISourceProvider>(sp =>
@@ -418,6 +457,11 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IAccountSourceProvider>(sp => sp.GetRequiredService<SpotifyAccountProvider>());
         services.AddSingleton<IAccountSourceProvider>(sp => sp.GetRequiredService<SpotifyUnofficialAccountProvider>());
         services.AddSingleton<IAccountSourceProvider>(sp => sp.GetRequiredService<YouTubeAccountProvider>());
+        services.AddSingleton(sp => new AppleMusicAccountProvider(
+            sp.GetRequiredService<AccountTokenStore>(),
+            sp.GetRequiredService<AppleMusicApiClient>(),
+            sp.GetRequiredService<ILogger<AppleMusicAccountProvider>>()));
+        services.AddSingleton<IAccountSourceProvider>(sp => sp.GetRequiredService<AppleMusicAccountProvider>());
         services.AddScoped<PlaylistStore>();
         services.AddScoped<FolderBrowser>();
         services.AddSingleton<ArchiveProfileStore>();

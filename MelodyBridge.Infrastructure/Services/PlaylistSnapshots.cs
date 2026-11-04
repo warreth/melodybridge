@@ -1,5 +1,6 @@
 using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.Accounts;
+using MelodyBridge.Infrastructure.AppleMusic;
 using MelodyBridge.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -80,6 +81,9 @@ internal sealed class PlaylistSnapshots
                     Platform.YouTubeMusic when account is YouTubeAccountProvider youtube =>
                         await youtube.TryGetPlaylistViaAccountAsync(
                             YouTubeSourceProvider.GetPlaylistId(sourceIdentifier), ct),
+                    Platform.AppleMusic when account is AppleMusicAccountProvider apple =>
+                        await apple.TryGetPlaylistViaAccountAsync(
+                            AppleMusicUrls.ExtractPlaylistId(sourceIdentifier) ?? sourceIdentifier, ct),
                     _ => null,
                 };
                 if (viaAccount is not null) return viaAccount;
@@ -125,9 +129,31 @@ internal sealed class PlaylistSnapshots
                 SpotifyAccountProvider.ProviderName => Platform.Spotify,
                 SpotifyUnofficialAccountProvider.ProviderName => Platform.Spotify,
                 YouTubeAccountProvider.ProviderName => Platform.YouTubeMusic,
+                AppleMusicAccountProvider.ProviderName => Platform.AppleMusic,
                 _ => throw new InvalidOperationException($"Unknown account '{likedAccount.Name}'."),
             };
             return await SaveSnapshotAsync(likedPlatform, liked, sourceUrl, targetDirectory, ct);
+        }
+
+        // Apple Music library playlists have no public URL. The account
+        // picker stores a marker, and the account provider is the only path
+        // that can fetch it.
+        if (sourceUrl.StartsWith(AppleMusicUrls.LibraryPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            var account = _accountProviders
+                .OfType<AppleMusicAccountProvider>()
+                .FirstOrDefault()
+                ?? throw new InvalidOperationException(
+                    "An Apple Music library playlist needs the Apple Music web session.");
+            var libraryId = sourceUrl[AppleMusicUrls.LibraryPrefix.Length..].Trim();
+            if (libraryId.Length == 0)
+                throw new InvalidOperationException("The Apple Music library playlist id is empty.");
+            var libraryPlaylist = await account.TryGetPlaylistViaAccountAsync(libraryId, ct)
+                ?? throw new InvalidOperationException(
+                    "Apple Music did not hand over that library playlist. "
+                    + "Reconnect the web session or paste a shared link instead.");
+            return await SaveSnapshotAsync(
+                Platform.AppleMusic, libraryPlaylist, sourceUrl, targetDirectory, ct);
         }
 
         var provider = ResolveProvider(sourceUrl)
@@ -157,6 +183,7 @@ internal sealed class PlaylistSnapshots
                 SpotifyAccountProvider.ProviderName => Platform.Spotify,
                 SpotifyUnofficialAccountProvider.ProviderName => Platform.Spotify,
                 YouTubeAccountProvider.ProviderName => Platform.YouTubeMusic,
+                AppleMusicAccountProvider.ProviderName => Platform.AppleMusic,
                 _ => throw new InvalidOperationException($"Unknown account '{providerName}'."),
             },
             sourceUrl: playlist.SourceUrl,
@@ -557,6 +584,9 @@ internal sealed class PlaylistSnapshots
         if (source.Equals(SpotifyUnofficialAccountProvider.LikedSourceUrl, StringComparison.OrdinalIgnoreCase))
             return _accountProviders.FirstOrDefault(a => string.Equals(
                 a.Name, SpotifyUnofficialAccountProvider.ProviderName, StringComparison.OrdinalIgnoreCase));
+        if (source.Equals(AppleMusicAccountProvider.LikedSourceUrl, StringComparison.OrdinalIgnoreCase))
+            return _accountProviders.FirstOrDefault(a => string.Equals(
+                a.Name, AppleMusicAccountProvider.ProviderName, StringComparison.OrdinalIgnoreCase));
         // "LL" is the raw likes list id older rows stored as the source.
         if (source.Equals(YouTubeAccountProvider.LikedSourceUrl, StringComparison.OrdinalIgnoreCase)
             || source.Equals("LL", StringComparison.OrdinalIgnoreCase))

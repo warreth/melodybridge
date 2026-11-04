@@ -65,6 +65,7 @@ public static class LogAreas
         ("SourceProvider", "Sources"),
         ("Spotify", "Sources"),
         ("YouTube", "Sources"),
+        ("AppleMusic", "Sources"),
         ("AccountToken", "Sources"),
         ("Account", "Sources"),
         ("AuthCallback", "Sources"),
