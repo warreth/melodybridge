@@ -1272,7 +1272,7 @@
     private static string? AvailabilityHint(IDownloader plugin) => plugin.Id switch
     {
         "ytdlp" or "soundcloud" => "yt-dlp is not installed",
-        "monochrome" => "The Monochrome API did not answer",
+        "monochrome" => "The Monochrome API is offline. Set a working mirror under Manage.",
         "slskd" => "Set the slskd URL and API key below",
         "qobuz" => "Add your Qobuz token below, or log in with qobuz-dlp",
         "deemix" => "Add your Deezer ARL below",

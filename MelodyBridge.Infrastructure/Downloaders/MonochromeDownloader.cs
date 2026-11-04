@@ -1,4 +1,3 @@
-using System.Text.Json;
 using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.Audio;
 using MelodyBridge.Infrastructure.Files;
@@ -18,7 +17,6 @@ namespace MelodyBridge.Infrastructure.Downloaders;
 /// API shape (their "tracks" provider, live-probed):
 ///   /search/tracks?q={query}&limit={n} → {"tracks":[track objects]}
 ///   /track/{id}                        → audio bytes (FLAC)
-///   /health                            → 200 when the API is up
 ///
 /// Track objects carry: id/trackId (snowflake), title, artistNames[],
 /// duration (milliseconds), isrc and playable.
@@ -64,13 +62,13 @@ public class MonochromeDownloader : IDownloader, IPluginAvailabilityRefresh
     private readonly ILogger<MonochromeDownloader> _logger;
 
     // Availability probe cache: the waterfall asks per track and the
-    // Plugins page re-checks on a timer; the TTL keeps /health from being
-    // hammered.
+    // Plugins page re-checks on a timer; the TTL keeps the catalogue probe
+    // from being hammered while the service is down.
     private readonly AvailabilityCache _availability = new();
 
     /// <summary>Per-request deadlines so one hanging API call cannot stall the waterfall.</summary>
     private static readonly TimeSpan StreamRequestTimeout = TimeSpan.FromMinutes(8);
-    private static readonly TimeSpan HealthTimeout = TimeSpan.FromSeconds(15);
+    private static readonly TimeSpan ProbeTimeout = TimeSpan.FromSeconds(15);
 
     public MonochromeDownloader(HttpClient http, IPluginConfig config, ILogger<MonochromeDownloader> logger)
     {
@@ -89,9 +87,9 @@ public class MonochromeDownloader : IDownloader, IPluginAvailabilityRefresh
         try
         {
             using var probe = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            probe.CancelAfter(HealthTimeout);
-            // The old /health endpoint can hang even when the catalogue
-            // itself answers. Probe the endpoint downloads actually use.
+            probe.CancelAfter(ProbeTimeout);
+            // Probe the endpoint downloads actually use instead of a
+            // separate health route that can hang on its own.
             var url = await MonochromeApi.BaseUrlAsync(_config, Id, ct)
                 + "/search/tracks?q=monochrome&limit=1";
             using var resp = await _http.GetAsync(url, probe.Token);
@@ -110,14 +108,14 @@ public class MonochromeDownloader : IDownloader, IPluginAvailabilityRefresh
         }
         catch (OperationCanceledException)
         {
-            LastUnavailableReason = "The Monochrome API did not answer within 15 seconds";
+            LastUnavailableReason = "The Monochrome API is offline or blocked this server (no answer within 15 seconds)";
             _logger.LogDebug("Monochrome search probe timed out");
             _availability.Store(false);
             return false;
         }
         catch (Exception ex)
         {
-            LastUnavailableReason = "The Monochrome API did not answer";
+            LastUnavailableReason = "The Monochrome API is unreachable";
             _logger.LogDebug(ex, "Monochrome search probe failed");
             _availability.Store(false);
             return false;

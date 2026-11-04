@@ -58,7 +58,7 @@ public class MonochromeLiveTests
             Assert.Ignore("the Monochrome API is unavailable this run: "
                 + _downloader.LastUnavailableReason);
         Assert.That(available, Is.True,
-            "tracks.monochrome.st must answer /health for this test");
+            "tracks.monochrome.st must answer the catalogue probe for this test");
     }
 
     [Test]
@@ -128,6 +128,8 @@ public class MonochromeLiveTests
             || message.Contains("503")
             || message.Contains("prematurely", StringComparison.OrdinalIgnoreCase)
             || message.Contains("ResponseEnded", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("offline", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("unreachable", StringComparison.OrdinalIgnoreCase)
             || message.Contains("timed out", StringComparison.OrdinalIgnoreCase))
             Assert.Ignore("the Monochrome API did not complete this run: " + message);
     }
@@ -139,6 +141,8 @@ public class MonochromeLiveTests
                || message.Contains("502")
                || message.Contains("503")
                || message.Contains("did not answer", StringComparison.OrdinalIgnoreCase)
+               || message.Contains("offline", StringComparison.OrdinalIgnoreCase)
+               || message.Contains("unreachable", StringComparison.OrdinalIgnoreCase)
                || message.Contains("timed out", StringComparison.OrdinalIgnoreCase));
 
     private static async Task<string> FfprobeAsync(string arguments, string file)
