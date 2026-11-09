@@ -99,6 +99,10 @@ public class LibraryLocationsTests
     {
         var cut = _ctx.Render<Library>();
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Add location").Click();
+        // The page initializes asynchronously; under load the modal can
+        // land a moment after the click.
+        cut.WaitForAssertion(() => Assert.That(cut.Markup, Does.Contain("Add scan location")),
+            TimeSpan.FromSeconds(5));
 
         // The shared MountWarning component, same text on every screen.
         Assert.That(cut.Markup, Does.Contain("mount-warning"),
