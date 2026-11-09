@@ -182,6 +182,26 @@ public class PlaylistDetailsQualityTests
     }
 
     [Test]
+    public void HeaderEyebrow_UsesTheDisplayName()
+    {
+        using (var db = new TestSqliteFactory(_dbPath).CreateDbContext())
+        {
+            db.Playlists.Find("pl-1")!.SourcePlatform = Platform.AppleMusic;
+            db.SaveChanges();
+        }
+
+        var cut = _ctx.Render<PlaylistDetails>(p => p.Add(p => p.PlaylistId, "pl-1"));
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.Markup, Does.Contain("Apple Music playlist"),
+                "the header reads the display name, not the enum member");
+            Assert.That(cut.Markup, Does.Not.Contain("AppleMusic playlist"),
+                "source platforms render with their human name");
+        }, TimeSpan.FromSeconds(3));
+    }
+
+    [Test]
     public void TrackTable_ShowsFileSizeColumn()
     {
         var cut = _ctx.Render<PlaylistDetails>(p => p.Add(p => p.PlaylistId, "pl-1"));

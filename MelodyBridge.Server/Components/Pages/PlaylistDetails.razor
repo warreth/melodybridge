@@ -584,7 +584,7 @@ else
     /// <summary>Header label: imports are snapshots, everything else names its platform.</summary>
     private string HeaderEyebrow => playlist!.IsManualImport
         ? "Imported"
-        : $"{playlist.SourcePlatform} playlist";
+        : $"{PlatformNames.Display(playlist.SourcePlatform)} playlist";
 
     /// <summary>The Pause/Cancel pair replaces Download missing while a run is live.</summary>
     private bool DownloadGroupVisible => run is { State: not Application.Services.DownloadRunState.Finished };
