@@ -444,7 +444,9 @@ public partial class SpotifySourceProvider : ISourceProvider
         var cover = TryGetCoverArtUrl(entity);
 
         var tracks = new List<Track>();
-        if (entity.TryGetProperty("trackList", out var trackList) && trackList.ValueKind == JsonValueKind.Array)
+        if (entity.ValueKind == JsonValueKind.Object
+            && entity.TryGetProperty("trackList", out var trackList)
+            && trackList.ValueKind == JsonValueKind.Array)
         {
             foreach (var item in trackList.EnumerateArray())
             {
@@ -455,7 +457,10 @@ public partial class SpotifySourceProvider : ISourceProvider
                     continue;
 
                 var artist = NormalizeArtists(GetString(item, "subtitle"));
-                var durationMs = item.TryGetProperty("duration", out var durationProp) && durationProp.TryGetInt32(out var ms)
+                var durationMs = item.ValueKind == JsonValueKind.Object
+                    && item.TryGetProperty("duration", out var durationProp)
+                    && durationProp.ValueKind == JsonValueKind.Number
+                    && durationProp.TryGetInt32(out var ms)
                     ? ms
                     : 0;
 
@@ -571,19 +576,28 @@ public partial class SpotifySourceProvider : ISourceProvider
     private static bool TryGetEntity(JsonElement root, out JsonElement entity)
     {
         entity = default;
-        return root.TryGetProperty("props", out var props)
-               && props.TryGetProperty("pageProps", out var pageProps)
-               && pageProps.TryGetProperty("state", out var state)
-               && state.TryGetProperty("data", out var data)
-               && data.TryGetProperty("entity", out entity)
-               && entity.ValueKind == JsonValueKind.Object;
+        return root.ValueKind == JsonValueKind.Object
+               && TryGetObject(root, "props", out var props)
+               && TryGetObject(props, "pageProps", out var pageProps)
+               && TryGetObject(pageProps, "state", out var state)
+               && TryGetObject(state, "data", out var data)
+               && TryGetObject(data, "entity", out entity);
+    }
+
+    private static bool TryGetObject(JsonElement parent, string name, out JsonElement child)
+    {
+        child = default;
+        return parent.ValueKind == JsonValueKind.Object
+               && parent.TryGetProperty(name, out child)
+               && child.ValueKind == JsonValueKind.Object;
     }
 
     private static string? TryGetCoverArtUrl(JsonElement entity)
     {
-        if (!entity.TryGetProperty("coverArt", out var coverArt) ||
-            !coverArt.TryGetProperty("sources", out var sources) ||
-            sources.ValueKind != JsonValueKind.Array)
+        if (entity.ValueKind != JsonValueKind.Object
+            || !TryGetObject(entity, "coverArt", out var coverArt)
+            || !coverArt.TryGetProperty("sources", out var sources)
+            || sources.ValueKind != JsonValueKind.Array)
         {
             return null;
         }
@@ -609,8 +623,12 @@ public partial class SpotifySourceProvider : ISourceProvider
 
     private static string? GetString(JsonElement element, string name)
     {
-        if (!element.TryGetProperty(name, out var property) || property.ValueKind == JsonValueKind.Null)
+        if (element.ValueKind != JsonValueKind.Object
+            || !element.TryGetProperty(name, out var property)
+            || property.ValueKind == JsonValueKind.Null)
+        {
             return null;
+        }
 
         return property.ValueKind == JsonValueKind.String ? property.GetString() : property.ToString();
     }

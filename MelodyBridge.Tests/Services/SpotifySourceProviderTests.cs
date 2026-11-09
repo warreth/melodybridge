@@ -105,6 +105,57 @@ public class SpotifySourceProviderTests
     }
 
     [Test]
+    public void ParseEmbedPlaylistHtml_NullCoverArtAndFields_StillParsesTracks()
+    {
+        // Spotify ships "coverArt": null for playlists without artwork, and
+        // a track entry can carry nulls too. Neither may abort the parse.
+        var html = """
+            <!DOCTYPE html><html><body>
+            <script id="__NEXT_DATA__" type="application/json">{
+              "props": {"pageProps": {"state": {"data": {"entity": {
+                "name": "No Artwork",
+                "coverArt": null,
+                "trackList": [
+                  {"uri": "spotify:track:0JGlKik7pi4Rwuzqpjohtj", "title": "First", "subtitle": null, "duration": null},
+                  {"title": null}
+                ]
+              }}}}}
+            }</script>
+            </body></html>
+            """;
+
+        var playlist = SpotifySourceProvider.ParseEmbedPlaylistHtml(html, PlaylistId, PlaylistUrl);
+
+        Assert.That(playlist, Is.Not.Null);
+        Assert.Multiple(() =>
+        {
+            Assert.That(playlist!.Name, Is.EqualTo("No Artwork"));
+            Assert.That(playlist.CoverImageUrl, Is.Null,
+                "a null coverArt is no artwork, not a crash");
+            Assert.That(playlist.Tracks, Has.Count.EqualTo(1),
+                "the entry without a title is skipped");
+            Assert.That(playlist.Tracks![0].Title, Is.EqualTo("First"));
+            Assert.That(playlist.Tracks[0].Artist, Is.EqualTo("Unknown"));
+            Assert.That(playlist.Tracks[0].Duration, Is.Null);
+        });
+    }
+
+    [Test]
+    public void ParseEmbedPlaylistHtml_NullEntity_ReturnsNull()
+    {
+        var html = """
+            <!DOCTYPE html><html><body>
+            <script id="__NEXT_DATA__" type="application/json">{
+              "props": {"pageProps": {"state": {"data": {"entity": null}}}}
+            }</script>
+            </body></html>
+            """;
+
+        Assert.That(SpotifySourceProvider.ParseEmbedPlaylistHtml(html, PlaylistId, PlaylistUrl),
+            Is.Null, "a payload without an entity is not a playlist");
+    }
+
+    [Test]
     public void ParseVisiblePlaylistHtml_FallbackMarkup_ReturnsTracks()
     {
         var html = """
