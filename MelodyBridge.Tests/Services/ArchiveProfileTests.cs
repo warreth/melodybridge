@@ -65,14 +65,14 @@ public class ArchiveProfileTests
         try { Directory.Delete(_root, recursive: true); } catch { /* best effort */ }
     }
 
-    private async Task AddTrackAsync(string primary)
+    private async Task AddTrackAsync(string primary, int id = 1, string title = "Song")
     {
         await using var db = _factory.CreateDbContext();
         db.Tracks.Add(new TrackEntity
         {
-            Id = 1,
-            MelodyId = "mel-1",
-            Title = "Song",
+            Id = id,
+            MelodyId = $"mel-{id}",
+            Title = title,
             Artist = "Artist",
             CurrentPath = primary,
             DownloadStatus = "downloaded",
@@ -308,7 +308,9 @@ public class ArchiveProfileTests
         {
             Assert.That(last!.Failed, Is.Zero,
                 "a playlist that does not select the profile is not a failure");
-            Assert.That(last.Done, Is.EqualTo(1));
+            Assert.That(last.Total, Is.Zero,
+                "nothing is missing for a profile this playlist does not select");
+            Assert.That(last.Done, Is.Zero);
         });
         await using (var db = _factory.CreateDbContext())
         {
@@ -482,6 +484,151 @@ public class ArchiveProfileTests
         }
         Assert.That(File.Exists(Path.Combine(_root, "archive-a", "song.mp3")), Is.False,
             "the copy was never written while the playlist switch was off");
+    }
+
+    [Test]
+    public async Task Store_SaveAddsTheArchiveRootAsAScanLocation()
+    {
+        var profile = await AddProfileAsync("Opus", "archive-opus", "opus:128");
+
+        await using (var db = _factory.CreateDbContext())
+        {
+            var locations = await db.ScanLocations.ToListAsync();
+            Assert.That(locations, Has.Count.EqualTo(1),
+                "the new archive root registers itself in the Library");
+            Assert.That(locations[0].Path, Is.EqualTo(profile.RootPath));
+            Assert.That(locations[0].LiveMonitoring, Is.False,
+                "a bulk archive folder does not need live rescans");
+        }
+
+        await _profiles.SaveAsync(profile);
+        await using (var db = _factory.CreateDbContext())
+        {
+            Assert.That(await db.ScanLocations.CountAsync(), Is.EqualTo(1),
+                "saving the same root again does not duplicate the location");
+        }
+    }
+
+    [Test]
+    public async Task Store_MovingTheArchiveRootMovesItsScanLocation()
+    {
+        var profile = await AddProfileAsync("Opus", "archive-opus", "opus:128");
+        var newRoot = Path.Combine(_root, "archive-opus-2");
+        profile.RootPath = newRoot;
+
+        await _profiles.SaveAsync(profile);
+
+        await using var db = _factory.CreateDbContext();
+        var location = await db.ScanLocations.SingleAsync();
+        Assert.That(location.Path, Is.EqualTo(newRoot),
+            "the location follows the folder instead of leaving a ghost behind");
+    }
+
+    [Test]
+    public async Task Backfill_WritesEveryMissingCopyAndReportsProgress()
+    {
+        var profile = await AddProfileAsync("Auto", "archive-auto", "auto");
+        var second = Path.Combine(_root, "music", "second.mp3");
+        await File.WriteAllBytesAsync(second, TestAudio.MinimalMp3());
+        await AddTrackAsync(second, id: 2, title: "Second");
+
+        var reports = new List<ArchiveCopyService.BackfillProgress>();
+        await _copies.BuildMissingAsync(profile.Id,
+            new InlineProgress<ArchiveCopyService.BackfillProgress>(reports.Add));
+
+        Assert.That(Directory.GetFiles(Path.Combine(_root, "archive-auto")), Has.Length.EqualTo(2),
+            "both missing copies land on disk");
+        var last = reports.Last();
+        Assert.Multiple(() =>
+        {
+            Assert.That(last.Total, Is.EqualTo(2));
+            Assert.That(last.Done, Is.EqualTo(2));
+            Assert.That(last.Failed, Is.Zero);
+            Assert.That(last.Running, Is.False);
+        });
+    }
+
+    [Test]
+    public async Task StartupRegistration_AddsEveryConfiguredArchiveRoot()
+    {
+        var profileRoot = Path.Combine(_root, "archive-direct");
+        var globalRoot = profileRoot; // the same root twice must register once
+        var legacyRoot = Path.Combine(_root, "archive-legacy");
+        await using (var db = _factory.CreateDbContext())
+        {
+            db.ArchiveProfiles.Add(new ArchiveProfileEntity
+            {
+                Id = "direct",
+                Name = "Direct",
+                RootPath = profileRoot,
+                Format = "auto",
+                Enabled = true,
+            });
+            db.DownloaderSettings.Add(new DownloaderSettingEntity
+                { Key = "archive_path", Value = globalRoot });
+            db.Playlists.Single(p => p.Id == "p1").ArchiveDirectory = legacyRoot;
+            await db.SaveChangesAsync();
+        }
+
+        await using (var db = _factory.CreateDbContext())
+        {
+            await ScanLocations.EnsureConfiguredRootsAsync(db);
+            await db.SaveChangesAsync();
+        }
+
+        await using var check = _factory.CreateDbContext();
+        var paths = await check.ScanLocations.Select(location => location.Path).ToListAsync();
+        Assert.That(paths, Is.EquivalentTo(new[] { profileRoot, legacyRoot }),
+            "the startup pass covers the default, named and legacy roots once");
+    }
+
+    [Test]
+    public async Task Store_DeleteRemovesTheAutoScanLocation()
+    {
+        var profile = await AddProfileAsync("Opus", "archive-opus", "opus:128");
+
+        await _profiles.DeleteAsync(profile.Id);
+
+        await using var db = _factory.CreateDbContext();
+        Assert.That(await db.ScanLocations.CountAsync(), Is.Zero,
+            "a removed archive root must not keep scanning as a music folder");
+    }
+
+    [Test]
+    public async Task Store_DeleteKeepsASharedArchiveRoot()
+    {
+        var opus = await AddProfileAsync("Opus", "archive-shared", "opus:128");
+        await AddProfileAsync("MP3", "archive-shared", "mp3:192");
+
+        await _profiles.DeleteAsync(opus.Id);
+
+        await using var db = _factory.CreateDbContext();
+        Assert.That(await db.ScanLocations.CountAsync(), Is.EqualTo(1),
+            "the other profile still writes to this root");
+    }
+
+    [Test]
+    public async Task Backfill_SkipsCopiesThatAreAlreadyOnDisk()
+    {
+        var profile = await AddProfileAsync("Auto", "archive-auto", "auto");
+        await using (var db = _factory.CreateDbContext())
+        {
+            var track = await db.Tracks.SingleAsync(t => t.Id == 1);
+            await _copies.ArchiveExtraCopiesAsync(track, db, save: true);
+        }
+
+        ArchiveCopyService.BackfillProgress? last = null;
+        await _copies.BuildMissingAsync(profile.Id,
+            new InlineProgress<ArchiveCopyService.BackfillProgress>(value => last = value));
+
+        Assert.That(last, Is.Not.Null);
+        Assert.Multiple(() =>
+        {
+            Assert.That(last!.Total, Is.Zero, "the copy is already present");
+            Assert.That(last.Done, Is.Zero);
+            Assert.That(last.Failed, Is.Zero);
+            Assert.That(last.Message, Is.EqualTo("Every archive copy is present."));
+        });
     }
 
     [Test]

@@ -143,6 +143,12 @@ using (var scope = app.Services.CreateScope())
         .ExecuteUpdate(s => s.SetProperty(t => t.DownloadStatus, "pending"));
     if (stale > 0)
         app.Logger.LogInformation("Reset {Count} stale in-progress download claim(s) to pending", stale);
+
+    // Archive roots are folders the app writes to, so the Library lists
+    // them as scan locations. Doing it here also covers profiles that were
+    // configured before the automatic registration existed.
+    await ScanLocations.EnsureConfiguredRootsAsync(db);
+    await db.SaveChangesAsync();
 }
 
 // Reconcile playlist tracks with files on disk: relink what still

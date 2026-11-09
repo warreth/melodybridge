@@ -95,6 +95,39 @@ public class LibraryLocationsTests
     }
 
     [Test]
+    public async Task ArchiveProfileFolder_RegistersItselfAndShowsAsArchive()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"mb-archive-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        try
+        {
+            var store = _ctx.Services.GetRequiredService<ArchiveProfileStore>();
+            await store.SaveAsync(new ArchiveProfileEntity
+            {
+                Id = "",
+                Name = "Opus mirror",
+                RootPath = root,
+                Format = "opus:128",
+                Enabled = true,
+            });
+
+            var cut = _ctx.Render<Library>();
+
+            cut.WaitForAssertion(() =>
+            {
+                var card = cut.FindAll(".location-card")
+                    .Single(c => c.TextContent.Contains(root));
+                Assert.That(card.TextContent, Does.Contain("archive folder"),
+                    "the new archive root is listed and marked as a copy folder");
+            }, TimeSpan.FromSeconds(3));
+        }
+        finally
+        {
+            try { Directory.Delete(root, recursive: true); } catch { /* best effort */ }
+        }
+    }
+
+    [Test]
     public void AddLocationModal_ShowsDockerMountWarning()
     {
         var cut = _ctx.Render<Library>();

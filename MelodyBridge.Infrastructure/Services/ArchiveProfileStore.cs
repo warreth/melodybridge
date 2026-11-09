@@ -80,12 +80,47 @@ public sealed class ArchiveProfileStore
             throw new InvalidOperationException(
                 "Another archive profile already uses this folder and format.");
 
+        var previousRoot = row.RootPath;
         row.Name = name;
         row.RootPath = root;
         row.Format = format;
         row.Enabled = profile.Enabled;
+        await RegisterScanLocationAsync(db, row.Id, previousRoot, root, ct);
         await db.SaveChangesAsync(ct);
         return row;
+    }
+
+    /// <summary>
+    /// The Library page lists the folders the app writes to. A new archive
+    /// root becomes a scan location; an edited one takes its location
+    /// along, unless another profile or the default archive still uses the
+    /// old root.
+    /// </summary>
+    private static async Task RegisterScanLocationAsync(
+        MelodyBridgeDbContext db, string profileId, string previousRoot, string root,
+        CancellationToken ct)
+    {
+        var moved = previousRoot.Length > 0
+            && !string.Equals(
+                previousRoot, root,
+                OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
+                    ? StringComparison.OrdinalIgnoreCase
+                    : StringComparison.Ordinal);
+        if (!moved)
+        {
+            await ScanLocations.EnsureAsync(db, root, ct);
+            return;
+        }
+
+        var shared = await db.ArchiveProfiles.AsNoTracking()
+                .AnyAsync(other => other.Id != profileId && other.RootPath == previousRoot, ct)
+            || await db.DownloaderSettings.AsNoTracking()
+                .AnyAsync(setting => setting.Key == "archive_path"
+                    && setting.Value == previousRoot, ct);
+        if (shared)
+            await ScanLocations.EnsureAsync(db, root, ct);
+        else
+            await ScanLocations.ReplaceRootAsync(db, previousRoot, root, ct);
     }
 
     /// <summary>
@@ -102,6 +137,23 @@ public sealed class ArchiveProfileStore
             .Where(copy => copy.ProfileId == id)
             .ToListAsync(ct);
         db.TrackArchiveCopies.RemoveRange(copies);
+
+        // The auto-registered scan location must not outlive the archive
+        // root: without the profile its copies would look like main files
+        // and could be adopted by the scanner. A root another profile or
+        // the default archive still uses keeps its location.
+        var root = profile.RootPath;
+        var shared = await db.ArchiveProfiles.AsNoTracking().AnyAsync(
+                other => other.Id != id && other.RootPath == root, ct)
+            || await db.DownloaderSettings.AsNoTracking().AnyAsync(
+                setting => setting.Key == "archive_path" && setting.Value == root, ct);
+        if (!shared)
+        {
+            var locations = await db.ScanLocations.ToListAsync(ct);
+            db.ScanLocations.RemoveRange(locations.Where(location =>
+                string.Equals(location.Path, root, StringComparison.OrdinalIgnoreCase)));
+        }
+
         db.ArchiveProfiles.Remove(profile);
         await db.SaveChangesAsync(ct);
     }

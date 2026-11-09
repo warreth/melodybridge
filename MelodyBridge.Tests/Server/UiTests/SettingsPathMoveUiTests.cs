@@ -55,6 +55,67 @@ public class SettingsPathMoveUiTests
     }
 
     [Test]
+    public async Task SavingTheDefaultArchivePath_RegistersItAsAScanLocation()
+    {
+        var archiveDir = Path.Combine(_root, "archive-new");
+        Directory.CreateDirectory(archiveDir);
+
+        var cut = _ctx.Render<Settings>();
+        cut.FindAll("button.tab-link").First(b => b.TextContent == "Default paths").Click();
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("Default archive")), TimeSpan.FromSeconds(3));
+        cut.Find(".archive-profile-row.default button").Click();
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("Default archive path")), TimeSpan.FromSeconds(3));
+
+        cut.Find("input[placeholder='/archive-music']").Change(archiveDir);
+        await cut.InvokeAsync(() =>
+            cut.FindAll("button").First(b => b.TextContent.Trim() == "Save settings").Click());
+
+        cut.WaitForAssertion(() =>
+        {
+            using var db = new TestSqliteFactory(_dbPath).CreateDbContext();
+            Assert.That(db.ScanLocations.Any(location => location.Path == archiveDir), Is.True,
+                "the default archive folder is listed in the Library");
+        }, TimeSpan.FromSeconds(5));
+    }
+
+    [Test]
+    public async Task ClearingTheDefaultArchivePath_RemovesItsScanLocation()
+    {
+        var oldArchive = Path.Combine(_root, "archive-old");
+        Directory.CreateDirectory(oldArchive);
+        await using (var db = await new TestSqliteFactory(_dbPath).CreateDbContextAsync())
+        {
+            db.DownloaderSettings.Add(new DownloaderSettingEntity
+                { Key = "archive_path", Value = oldArchive });
+            db.DownloaderSettings.Add(new DownloaderSettingEntity
+                { Key = "archive_format", Value = "auto" });
+            db.ScanLocations.Add(new ScanLocationEntity { Path = oldArchive });
+            await db.SaveChangesAsync();
+        }
+
+        var cut = _ctx.Render<Settings>();
+        cut.FindAll("button.tab-link").First(b => b.TextContent == "Default paths").Click();
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("Default archive")), TimeSpan.FromSeconds(3));
+        cut.Find(".archive-profile-row.default button").Click();
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("Default archive path")), TimeSpan.FromSeconds(3));
+
+        cut.Find("input[placeholder='/archive-music']").Change("");
+        await cut.InvokeAsync(() =>
+            cut.FindAll("button").First(b => b.TextContent.Trim() == "Save settings").Click());
+
+        cut.WaitForAssertion(() =>
+        {
+            using var db = new TestSqliteFactory(_dbPath).CreateDbContext();
+            Assert.That(db.ScanLocations.Any(location => location.Path == oldArchive), Is.False,
+                "a cleared archive root stops being scanned as music");
+        }, TimeSpan.FromSeconds(5));
+    }
+
+    [Test]
     public async Task SavingANewMusicPath_MovesTheFilesAndTheRowsThatFollowIt()
     {
         var oldRoot = Path.Combine(_root, "music-old");

@@ -120,15 +120,49 @@ public sealed class LibraryPathMover
             }
         }
 
-        if (moveMusic)
+        if (moveMusic || moveArchive)
         {
-            foreach (var location in await db.ScanLocations.ToListAsync(ct))
+            var locations = await db.ScanLocations.ToListAsync(ct);
+            foreach (var location in locations)
             {
-                if (Rebased(location.Path, oldMusicPath!, newMusicPath) is { Changed: true } rebased)
+                if (moveMusic
+                    && Rebased(location.Path, oldMusicPath!, newMusicPath) is { Changed: true } music)
                 {
-                    location.Path = rebased.Value!;
-                    scanLocations++;
+                    if (music.Value is { Length: > 0 } value)
+                    {
+                        location.Path = value;
+                        scanLocations++;
+                    }
+                    else
+                    {
+                        db.ScanLocations.Remove(location);
+                    }
+                    continue;
                 }
+
+                if (moveArchive
+                    && Rebased(location.Path, oldArchivePath!, newArchivePath) is { Changed: true } archive)
+                {
+                    if (archive.Value is { Length: > 0 } value)
+                    {
+                        location.Path = value;
+                        scanLocations++;
+                    }
+                    else
+                    {
+                        db.ScanLocations.Remove(location);
+                    }
+                }
+            }
+
+            // A moved location can land on a path that already has one
+            // (for example after the new archive root was pre-registered).
+            // Keep the first and drop the duplicate; scanning twice is noise.
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var location in locations)
+            {
+                if (location.Path is { Length: > 0 } path && !seen.Add(path))
+                    db.ScanLocations.Remove(location);
             }
         }
 

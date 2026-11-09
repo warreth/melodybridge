@@ -729,14 +729,7 @@ else if (activeTab == "paths")
                             <strong>
                                 @(ArchiveBackfill.IsRunning ? "Building archive copies" : "Last archive pass")
                             </strong>
-                            <small>
-                                @ArchiveBackfill.Progress.Done of @ArchiveBackfill.Progress.Total
-                                @(ArchiveBackfill.Progress.Failed > 0 ? $", {ArchiveBackfill.Progress.Failed} failed" : "")
-                                @if (!string.IsNullOrWhiteSpace(ArchiveBackfill.Progress.Message))
-                                {
-                                    <span> · @ArchiveBackfill.Progress.Message</span>
-                                }
-                            </small>
+                            <small>@ArchiveBackfillSummary</small>
                         </div>
                         @if (ArchiveBackfill.IsRunning)
                         {
@@ -2175,6 +2168,13 @@ else if (activeTab == "about")
             var newArchivePath = archivePath;
             var move = await PathMover.MoveAsync(
                 savedMusicPath, newMusicPath, savedArchivePath, newArchivePath);
+            // After the mover has taken any existing archive location
+            // along, a new archive root without a location gets one. The
+            // mover runs first so the two cannot produce a duplicate.
+            if (archivePath.Length == 0 && savedArchivePath.Length > 0)
+                await ScanLocations.RemoveRootAsync(db, savedArchivePath);
+            await ScanLocations.EnsureAsync(db, archivePath);
+            await db.SaveChangesAsync();
             if (newMusicPath.Length > 0) savedMusicPath = newMusicPath;
             if (newArchivePath.Length > 0) savedArchivePath = newArchivePath;
             await LoadInitSettingsAsync(); // the default pill reads fresh rows
@@ -2910,4 +2910,29 @@ else if (activeTab == "about")
                 : Math.Clamp(100 * progress.Done / progress.Total, 0, 100);
         }
     }
+
+    private string ArchiveBackfillSummary
+    {
+        get
+        {
+            var progress = ArchiveBackfill.Progress;
+            var parts = new List<string>();
+            if (progress.Total > 0)
+            {
+                var text = $"{progress.Done} of {progress.Total}";
+                if (progress.Failed > 0) text += $", {progress.Failed} failed";
+                if (!string.IsNullOrWhiteSpace(progress.Current)) text += $" · {progress.Current}";
+                if (ArchiveBackfill.IsRunning && progress.Eta is { } eta)
+                    text += $" · ETA {EtaText(eta)}";
+                parts.Add(text);
+            }
+            if (!string.IsNullOrWhiteSpace(progress.Message)) parts.Add(progress.Message);
+            return string.Join(" · ", parts);
+        }
+    }
+
+    private static string EtaText(TimeSpan eta)
+        => eta.TotalHours >= 1
+            ? eta.ToString(@"h\:mm\:ss")
+            : eta.ToString(@"m\:ss");
 }

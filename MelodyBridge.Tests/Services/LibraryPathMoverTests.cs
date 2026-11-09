@@ -116,6 +116,7 @@ public class LibraryPathMoverTests
                     },
                 },
             });
+            db.ScanLocations.Add(new ScanLocationEntity { Path = oldArchive });
             await db.SaveChangesAsync();
         }
 
@@ -123,6 +124,7 @@ public class LibraryPathMoverTests
 
         var expected = Path.Combine(newArchive, "My Mix", "song.flac");
         Assert.That(result.Files, Is.EqualTo(1));
+        Assert.That(result.ScanLocations, Is.EqualTo(1));
         Assert.That(File.Exists(expected), Is.True);
         Assert.That(File.ReadAllText(expected), Is.EqualTo("archive bytes"));
         Assert.That(File.Exists(archive), Is.False);
@@ -130,6 +132,8 @@ public class LibraryPathMoverTests
 
         await using var check = await _factory.CreateDbContextAsync();
         Assert.That((await check.Tracks.AsNoTracking().SingleAsync()).ArchivePath, Is.EqualTo(expected));
+        Assert.That((await check.ScanLocations.AsNoTracking().SingleAsync()).Path, Is.EqualTo(newArchive),
+            "the archive scan location follows the root");
     }
 
     [Test]

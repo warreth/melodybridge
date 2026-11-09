@@ -461,9 +461,10 @@ one. Downloading a track again replaces the files the row points at. A format
 change can leave the previous copy under its old name, and removing a playlist
 or track with the keep-files option leaves the copies on disk; neither is
 deleted automatically. **Build missing** fills the extra-profile copies that a
-newly added profile did not have yet, one track at a time, for the playlists
-that select that profile. The default copy is rebuilt per track from its row
-action.
+newly added profile did not have yet, in the background, for the playlists
+that select that profile. It skips every copy that is already on disk, so a
+repeat pass is quick, and shows its progress on Settings and Needs attention.
+The default copy is rebuilt per track from its row action.
 
 | Format | Result |
 |---|---|

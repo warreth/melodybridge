@@ -2,6 +2,7 @@
 @using MelodyBridge.Application.Services
 @using MelodyBridge.Infrastructure.Services
 @inject AttentionService AttentionData
+@inject ArchiveBackfillService ArchiveBackfill
 @inject IAttentionActions Actions
 @inject IAttentionRepairRunner Repair
 @inject UiModeService Mode
@@ -31,6 +32,51 @@
         </a>
     </div>
 </section>
+
+@if (ArchiveBackfill.Progress is { Running: true } backfill)
+{
+    <div class="attention-progress" aria-live="polite">
+        <span class="spinner"></span>
+        <div>
+            <strong>Building archive copies</strong>
+            <small>
+                @(backfill.Total > 0
+                    ? $"{backfill.Done} of {backfill.Total}"
+                      + (backfill.Failed > 0 ? $", {backfill.Failed} failed" : "")
+                    : "Preparing…")
+                @if (!string.IsNullOrWhiteSpace(backfill.Current))
+                {
+                    <span> · @backfill.Current</span>
+                }
+            </small>
+        </div>
+        <div class="progress-track" aria-hidden="true">
+            <span style="width:@ArchiveBackfillPercent%"></span>
+        </div>
+        @if (backfill.Total > 0)
+        {
+            @if (backfill.Eta is { } eta)
+            {
+                <small class="attention-eta">ETA @EtaText(eta)</small>
+            }
+            else
+            {
+                <small class="attention-eta">ETA calculating</small>
+            }
+        }
+        <button class="btn-modern small ghost" @onclick="ArchiveBackfill.Stop">Stop</button>
+    </div>
+}
+else if (ArchiveBackfill.Progress is { Total: > 0, Failed: > 0 } lastPass)
+{
+    <div class="result-box error attention-result">
+        <strong>Last archive pass: @lastPass.Done of @lastPass.Total, @lastPass.Failed failed</strong>
+        @if (!string.IsNullOrWhiteSpace(lastPass.Message))
+        {
+            <span>@lastPass.Message</span>
+        }
+    </div>
+}
 
 @if (Repair.Current is { } repairRun)
 {
@@ -517,6 +563,7 @@ else
     private long _seenVersion = -1;
     private Timer? _timer;
     private bool _disposed;
+    private bool _archiveWasRunning;
     private CancellationTokenSource? _loadCts;
 
     private bool Busy => _busy || Repair.IsRunning;
@@ -618,6 +665,22 @@ else
         ? 0
         : Math.Clamp(100 * _progressDone / _progressTotal, 0, 100);
 
+    private int ArchiveBackfillPercent
+    {
+        get
+        {
+            var progress = ArchiveBackfill.Progress;
+            return progress.Total <= 0
+                ? 0
+                : Math.Clamp(100 * progress.Done / progress.Total, 0, 100);
+        }
+    }
+
+    private static string EtaText(TimeSpan eta)
+        => eta.TotalHours >= 1
+            ? eta.ToString(@"h\:mm\:ss")
+            : eta.ToString(@"m\:ss");
+
     protected override void OnParametersSet()
     {
         if (!string.IsNullOrWhiteSpace(QueryKind))
@@ -631,6 +694,8 @@ else
         IsSimple = !_mode.IsAdvanced;
         _mode.Changed += OnModeChanged;
         Repair.Changed += OnRepairChanged;
+        ArchiveBackfill.Changed += OnArchiveBackfillChanged;
+        _archiveWasRunning = ArchiveBackfill.IsRunning;
         selectedFilter = NormalizeFilter(QueryKind);
         await LoadAsync();
         _timer = new Timer(_ => _ = InvokeAsync(async () =>
@@ -679,6 +744,22 @@ else
         selected.Clear();
         StateHasChanged();
     }
+
+    private void OnArchiveBackfillChanged() => _ = InvokeAsync(async () =>
+    {
+        if (_disposed) return;
+        var running = ArchiveBackfill.IsRunning;
+        if (_archiveWasRunning && !running)
+        {
+            _archiveWasRunning = false;
+            await LoadAsync();
+        }
+        else
+        {
+            _archiveWasRunning = running;
+        }
+        StateHasChanged();
+    });
 
     private void OnRepairChanged() => _ = InvokeAsync(async () =>
     {
@@ -944,6 +1025,7 @@ else
         _disposed = true;
         _timer?.Dispose();
         Repair.Changed -= OnRepairChanged;
+        ArchiveBackfill.Changed -= OnArchiveBackfillChanged;
         if (_mode is not null) _mode.Changed -= OnModeChanged;
         _loadCts?.Cancel();
         _loadCts?.Dispose();

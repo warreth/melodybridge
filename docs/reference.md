@@ -90,13 +90,16 @@ M3U folder or a media server target to several jobs at once.
   MP3 160 copy next to the default. Extra profiles have their own enable
   toggle, **Build missing** button and delete action. **Build missing** scans
   the existing library and creates the copies that profile does not have yet
-  for the playlists that select it; a progress bar stays in the section while
-  it runs. The default has no bulk backfill: recreate one copy at a time from
-  the track row or the Needs attention page. Disabling a profile keeps its
-  files on disk.
-  Deleting one removes the profile and its copy rows, not the files. The
-  playlist page selects the default archive and any named profiles as one
-  checklist, so a playlist can write no copies or several.
+  for the playlists that select it; it runs in the background, shows its
+  progress and ETA here and on Needs attention, and only visits copies that are
+  actually missing. A copy that fails lands in the **Archive copies** group on
+  Needs attention. The default has no bulk backfill: recreate one copy at a
+  time from the track row or the Needs attention page. Disabling a profile
+  keeps its files on disk.
+  Deleting one removes the profile and its copy rows, not the files, and
+  drops the scan location it registered unless another profile still uses
+  that folder. The playlist page selects the default archive and any named
+  profiles as one checklist, so a playlist can write no copies or several.
 
 The path fields have a folder button that opens a server-side picker with
 shortcuts to the music, playlist, archive and scan folders. You can still type a
@@ -573,7 +576,7 @@ separately under **Third-party sources that search themselves**.
 
 The Library page covers music you already own. **Add location** points
 MelodyBridge at a folder; new playlists register their download folder here
-automatically.
+automatically, and so does every archive root you save.
 
 - Each location has its own schedule (manual, hourly, daily, weekly, monthly or
   cron) and an optional **Live monitoring** toggle that rescans when files

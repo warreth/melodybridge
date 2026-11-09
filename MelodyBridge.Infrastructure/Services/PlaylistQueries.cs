@@ -582,19 +582,8 @@ internal sealed class PlaylistQueries
     /// (case-insensitive, no duplicates). Manual defaults: live monitoring
     /// off (it spams rescans on big folders), no interval, no cron.
     /// </summary>
-    internal static async Task EnsureScanLocationAsync(MelodyBridgeDbContext db, string path, CancellationToken ct)
-    {
-        var exists = await db.ScanLocations
-            .AnyAsync(l => l.Path.ToLower() == path.ToLower(), ct);
-        if (!exists)
-            db.ScanLocations.Add(new ScanLocationEntity
-            {
-                Path = path,
-                LiveMonitoring = false,
-                ScheduleCron = null,
-                ScanIntervalHours = null,
-            });
-    }
+    internal static Task EnsureScanLocationAsync(MelodyBridgeDbContext db, string path, CancellationToken ct)
+        => ScanLocations.EnsureAsync(db, path, ct);
 
     /// <summary>
     /// Fills missing tags on already-downloaded files: the cover art from the

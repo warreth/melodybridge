@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+using System.Diagnostics;
 using MelodyBridge.Infrastructure.Audio;
 using MelodyBridge.Infrastructure.Data;
 using MelodyBridge.Infrastructure.Files;
@@ -32,7 +34,8 @@ public sealed class ArchiveCopyService
     }
 
     public sealed record BackfillProgress(
-        int Total, int Done, int Failed, string? Current, bool Running, string? Message);
+        int Total, int Done, int Failed, string? Current, bool Running, string? Message,
+        TimeSpan? Eta = null);
 
     /// <summary>
     /// Ensures every selected profile has a copy for this track. The caller
@@ -304,74 +307,204 @@ public sealed class ArchiveCopyService
             _logger.LogInformation("Moved {Count} extra archive copies to {Root}", moved, newFull);
     }
 
-    /// <summary>Builds every missing copy for one profile, one track at a time.</summary>
+    /// <summary>Builds every missing copy for one profile.</summary>
+    /// <remarks>
+    /// Only tracks that need work are visited: a copy that is already on
+    /// disk is skipped before any context is opened, and copies for
+    /// different files run in parallel. Two tracks that would write the
+    /// same archive file are serialized on that target, so the name check
+    /// and the write still see each other.
+    /// </remarks>
     public async Task BuildMissingAsync(
         string profileId,
         IProgress<BackfillProgress>? progress = null,
         CancellationToken ct = default)
     {
+        ArchiveProfileEntity? profile;
         await using (var db = await _dbFactory.CreateDbContextAsync(ct))
         {
-            var profile = await db.ArchiveProfiles.AsNoTracking()
+            profile = await db.ArchiveProfiles.AsNoTracking()
                 .FirstOrDefaultAsync(p => p.Id == profileId, ct);
-            if (profile is null) return;
         }
+        if (profile is null) return;
 
-        var ids = await TrackIdsAsync(ct);
+        var candidates = await MissingCandidatesAsync(profile, ct);
+        var total = candidates.Count;
         var done = 0;
         var failed = 0;
-        foreach (var id in ids)
+        var started = Stopwatch.StartNew();
+
+        void Report(string? current, bool running, string? message)
         {
-            ct.ThrowIfCancellationRequested();
-            try
+            var finished = Volatile.Read(ref done);
+            TimeSpan? eta = null;
+            if (running && finished > 0 && total > finished)
             {
-                await using var db = await _dbFactory.CreateDbContextAsync(ct);
-                var track = await db.Tracks.FirstOrDefaultAsync(t => t.Id == id, ct);
-                if (track is null || string.IsNullOrWhiteSpace(track.CurrentPath)
-                    || !File.Exists(track.CurrentPath))
-                {
-                    done++;
-                    continue;
-                }
-
-                var applied = await ArchiveExtraCopiesAsync(
-                    track, db, save: true, profileId, ct);
-                if (applied)
-                {
-                    var copy = await db.TrackArchiveCopies.AsNoTracking()
-                        .FirstOrDefaultAsync(c => c.TrackId == id && c.ProfileId == profileId, ct);
-                    if (copy?.Warning is { Length: > 0 } || copy is null) failed++;
-                }
+                var perItem = started.Elapsed.Ticks / (double)finished;
+                eta = TimeSpan.FromTicks((long)(perItem * (total - finished)));
             }
-            catch (OperationCanceledException)
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                failed++;
-                _logger.LogDebug(ex, "Archive backfill failed for track {Id}", id);
-            }
-
-            done++;
             progress?.Report(new BackfillProgress(
-                ids.Count, done, failed, null, true, null));
+                total, finished, Volatile.Read(ref failed), current, running, message, eta));
         }
 
-        progress?.Report(new BackfillProgress(
-            ids.Count, done, failed, null, false,
-            failed == 0 ? "Every archive copy is present." : $"{failed} copies need another try."));
+        if (total == 0)
+        {
+            Report(null, false, "Every archive copy is present.");
+            return;
+        }
+
+        Report(null, true, "Preparing…");
+        var lastUiReport = Stopwatch.GetTimestamp();
+        var gates = new ConcurrentDictionary<string, SemaphoreSlim>(StringComparer.OrdinalIgnoreCase);
+        // The same cap as downloads: it is the user's answer to "how much
+        // may this box do at once", and transcoding is the same kind of
+        // CPU work. A missing or unreadable row keeps the default.
+        var configured = await _settings.GetAsync(
+            "download_max_concurrent", DownloadThrottle.DefaultLimit.ToString(), ct);
+        var maxParallel = int.TryParse(configured, out var parsed)
+            ? Math.Clamp(parsed, 1, 8)
+            : DownloadThrottle.DefaultLimit;
+        await Parallel.ForEachAsync(candidates,
+            new ParallelOptions { MaxDegreeOfParallelism = maxParallel, CancellationToken = ct },
+            async (candidate, token) =>
+            {
+                var gate = gates.GetOrAdd(candidate.Target, _ => new SemaphoreSlim(1, 1));
+                await gate.WaitAsync(token);
+                try
+                {
+                    await using var db = await _dbFactory.CreateDbContextAsync(token);
+                    var track = await db.Tracks.FirstOrDefaultAsync(t => t.Id == candidate.Id, token);
+                    if (track is not null)
+                    {
+                        var applied = await ArchiveExtraCopiesAsync(
+                            track, db, save: true, profileId, token);
+                        if (applied)
+                        {
+                            var copy = await db.TrackArchiveCopies.AsNoTracking()
+                                .FirstOrDefaultAsync(c => c.TrackId == candidate.Id
+                                    && c.ProfileId == profileId, token);
+                            if (copy?.Warning is { Length: > 0 } || copy is null)
+                                Interlocked.Increment(ref failed);
+                        }
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    Interlocked.Increment(ref failed);
+                    _logger.LogDebug(ex, "Archive backfill failed for track {Id}", candidate.Id);
+                }
+                finally
+                {
+                    gate.Release();
+                }
+
+                var finished = Interlocked.Increment(ref done);
+                var now = Stopwatch.GetTimestamp();
+                if (finished == total
+                    || now - Volatile.Read(ref lastUiReport) >= Stopwatch.Frequency / 4)
+                {
+                    Volatile.Write(ref lastUiReport, now);
+                    Report(candidate.Title, true, null);
+                }
+            });
+
+        Report(null, false,
+            failed == 0 ? "Every archive copy is present." : $"{failed} copies need another try.");
     }
 
-    /// <summary>Tracks that have a primary file on disk.</summary>
-    private async Task<List<int>> TrackIdsAsync(CancellationToken ct)
+    private sealed record BackfillCandidate(int Id, string? Title, string Target);
+
+    private static bool IsPresent(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return false;
+        try
+        {
+            var info = new FileInfo(path);
+            return info.Exists && info.Length > 0;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Tracks whose primary file is on disk, whose playlist selects this
+    /// profile, and whose copy is not already there. Reading the primary
+    /// and copy paths once keeps a repeat pass cheap: nothing that is done
+    /// is opened in a context again.
+    /// </summary>
+    private async Task<List<BackfillCandidate>> MissingCandidatesAsync(
+        ArchiveProfileEntity profile, CancellationToken ct)
     {
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
-        return await db.Tracks.AsNoTracking()
+        var tracks = await db.Tracks.AsNoTracking()
             .Where(track => track.CurrentPath != null && track.CurrentPath != "")
+            .Select(track => new
+            {
+                track.Id,
+                track.Title,
+                track.CurrentPath,
+                track.PlaylistEntityId,
+            })
             .OrderBy(track => track.Id)
-            .Select(track => track.Id)
             .ToListAsync(ct);
+        if (tracks.Count == 0) return new List<BackfillCandidate>();
+
+        var playlistRows = await db.Playlists.AsNoTracking()
+            .Select(playlist => new
+            {
+                playlist.Id,
+                playlist.Name,
+                playlist.ArchiveProfileIds,
+                playlist.ArchiveEnabled,
+            })
+            .ToListAsync(ct);
+        var playlists = playlistRows.ToDictionary(playlist => playlist.Id, StringComparer.Ordinal);
+
+        var copyRows = await db.TrackArchiveCopies.AsNoTracking()
+            .Where(copy => copy.ProfileId == profile.Id)
+            .Select(copy => new { copy.TrackId, copy.Path, copy.Warning })
+            .ToListAsync(ct);
+        var copies = copyRows.ToDictionary(copy => copy.TrackId);
+
+        var playlistFolders = await _settings.GetBoolAsync("playlist_folders", true, ct);
+        var candidates = new List<BackfillCandidate>();
+        foreach (var track in tracks)
+        {
+            playlists.TryGetValue(track.PlaylistEntityId ?? "", out var playlist);
+            var selection = PlaylistArchiveSelection.Parse(playlist?.ArchiveProfileIds);
+            if (selection is null)
+            {
+                if (playlist is { ArchiveEnabled: false }) continue;
+            }
+            else if (!selection.Contains(profile.Id, StringComparer.Ordinal))
+            {
+                continue;
+            }
+
+            if (!File.Exists(track.CurrentPath)) continue;
+
+            var folder = PlaylistRules.ResolveArchiveFolder(
+                null, profile.RootPath, playlist?.Name, playlistFolders);
+            var target = ArchiveCopier.TargetPath(track.CurrentPath!, folder, profile.Format);
+            if (copies.TryGetValue(track.Id, out var copy)
+                && copy.Path is { Length: > 0 } existing
+                && PlaylistRules.PathEquals(existing, target)
+                && string.IsNullOrEmpty(copy.Warning)
+                && IsPresent(existing))
+            {
+                continue;
+            }
+
+            candidates.Add(new BackfillCandidate(track.Id, track.Title, target));
+        }
+
+        return candidates;
     }
 
     private static async Task ClearRowsAsync(
