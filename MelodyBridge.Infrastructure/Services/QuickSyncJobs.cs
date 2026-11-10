@@ -175,7 +175,12 @@ public static class QuickSyncJobs
                         var desired = SyncRuleProfileStore.ResolveOutputPath(profile, name);
                         var path = SafeFileNames.UniquePath(desired, usedM3uPaths);
                         usedM3uPaths.Add(SafeFileNames.PathKey(path));
-                        targets.Add(SyncRuleProfileStore.CreateTarget(profile, name, path));
+                        // Only a real collision pins a file name. Otherwise
+                        // the job keeps following the profile's pattern.
+                        var unique = !string.Equals(
+                            path, desired, StringComparison.OrdinalIgnoreCase);
+                        targets.Add(SyncRuleProfileStore.CreateTarget(
+                            profile, name, unique ? path : null));
                     }
                     else
                     {

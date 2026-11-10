@@ -326,6 +326,8 @@ public class QuickSyncJobsTests
             var file = targets.Single(t => t.Kind == OutputTargetType.M3uFile);
             Assert.That(file.RuleProfileId, Is.EqualTo("m3u"));
             Assert.That(file.M3uPath, Is.EqualTo(Path.Combine("/out", "Jazz.m3u8")));
+            Assert.That(file.M3uFileNameOverride, Is.Null,
+                "a job without a collision follows the profile pattern");
             var server = targets.Single(t => t.Kind == OutputTargetType.JellyfinApi);
             Assert.That(server.RuleProfileId, Is.EqualTo("jf"));
             Assert.That(server.ProfileId, Is.EqualTo("px1"));

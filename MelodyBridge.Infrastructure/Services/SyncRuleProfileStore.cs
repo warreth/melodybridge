@@ -230,7 +230,9 @@ public sealed class SyncRuleProfileStore
             return ResolveOutputPath(profile, jobName);
         var folder = string.IsNullOrWhiteSpace(profile.M3uOutputFolder)
             ? "/app/playlists" : profile.M3uOutputFolder.Trim();
-        return Path.Combine(folder.TrimEnd('/', '\\'), fileNameOverride);
+        var name = SafeFileNames.Sanitize(fileNameOverride, "playlist");
+        if (Path.GetExtension(name).Length == 0) name += ".m3u8";
+        return Path.Combine(folder.TrimEnd('/', '\\'), name);
     }
 
     /// <summary>The target a publish profile creates for one job. An M3U

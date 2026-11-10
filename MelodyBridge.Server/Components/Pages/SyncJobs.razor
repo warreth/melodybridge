@@ -1113,6 +1113,9 @@ else
     /// <summary>Wizard target state: the M3U switch, the ticked profiles and
     /// a legacy job's saved connection.</summary>
     private bool draftM3uEnabled;
+    /// <summary>Quick publish's per-job unique M3U file name, carried
+    /// through an edit so the job keeps its separate file.</summary>
+    private string? draftM3uFileNameOverride;
     private const string M3uPresetWidest = "widest";
     private const string M3uPresetCar = "car";
     private const string M3uPresetPlain = "plain";
@@ -1318,10 +1321,16 @@ else
     /// <summary>The publish profile name for a target, from the stored
     /// target, the live profile list, or the legacy job-level profile.</summary>
     private string? RuleProfileNameOf(SyncTarget target, SyncJobEntity job)
-        => target.RuleProfileName
-            ?? (!string.IsNullOrWhiteSpace(target.RuleProfileId)
-                ? ruleProfiles.FirstOrDefault(p => p.Id == target.RuleProfileId)?.Name
-                : RuleProfileOf(job)?.Name);
+    {
+        if (target.RuleProfileName is { Length: > 0 } stored) return stored;
+        if (!string.IsNullOrWhiteSpace(target.RuleProfileId))
+            return ruleProfiles.FirstOrDefault(p => p.Id == target.RuleProfileId)?.Name;
+        // The job-level profile only owns a legacy M3U target, never a
+        // legacy media server target.
+        return target.Kind == OutputTargetType.M3uFile
+            ? RuleProfileOf(job)?.Name
+            : null;
+    }
 
     /// <summary>One compact chip per target: M3U or a media server profile.</summary>
     private List<(string Icon, string Label)> TargetChipsOf(SyncJobEntity job)
@@ -1611,7 +1620,8 @@ else
 
     private string QuickOutputPath
         => QuickProfile is { } profile
-            ? SyncRuleProfileStore.ResolveOutputPath(profile, draft.Name)
+            ? SyncRuleProfileStore.ResolveM3uPath(
+                profile, draft.Name, draftM3uFileNameOverride)
             : draft.M3uOutputPath ?? "";
 
     private string QuickMappedPath
@@ -2097,6 +2107,7 @@ else
         // editor points at the profile button.
         draftM3uEnabled = M3uProfiles.Count > 0;
         draft.RuleProfileId = M3uProfiles.FirstOrDefault()?.Id ?? "";
+        draftM3uFileNameOverride = null;
         ApplyM3uPreset(M3uPresetWidest);
         selectedProfileIds = new List<string>();
         legacyTargets = new List<SyncTarget>();
@@ -2131,6 +2142,7 @@ else
             ApplyM3uPreset(M3uPresetWidest);
         draft.RuleProfileId = m3uTarget?.RuleProfileId ?? job.RuleProfileId ?? "";
         draft.M3uOutputPath ??= m3uTarget?.M3uPath;
+        draftM3uFileNameOverride = m3uTarget?.M3uFileNameOverride;
         legacyTargets = draft.Targets
             .Where(t => string.IsNullOrWhiteSpace(t.RuleProfileId))
             .ToList();
@@ -2284,7 +2296,14 @@ else
             // for the same destination replaces it.
             var targets = new List<SyncTarget>();
             if (m3uProfile is not null)
-                targets.Add(SyncRuleProfileStore.CreateTarget(m3uProfile, draft.Name));
+            {
+                var m3uPath = draftM3uFileNameOverride is { Length: > 0 }
+                    ? SyncRuleProfileStore.ResolveM3uPath(
+                        m3uProfile, draft.Name, draftM3uFileNameOverride)
+                    : null;
+                targets.Add(SyncRuleProfileStore.CreateTarget(
+                    m3uProfile, draft.Name, m3uPath));
+            }
             foreach (var profile in SelectedPublishProfiles)
             {
                 targets.Add(new SyncTarget(

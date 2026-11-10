@@ -178,6 +178,30 @@ public class SyncRuleProfileStoreTests
     }
 
     [Test]
+    public void ResolveM3uPath_SanitizesTheFileNameOverride()
+    {
+        var profile = new SyncRuleProfile
+        {
+            M3uOutputFolder = "/playlists",
+            M3uFileNamePattern = "{job}.m3u8",
+        };
+
+        var path = SyncRuleProfileStore.ResolveM3uPath(
+            profile, "Job", "../../outside.m3u8");
+        var noExtension = SyncRuleProfileStore.ResolveM3uPath(
+            profile, "Job", "outside");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(Path.GetDirectoryName(path), Is.EqualTo("/playlists"));
+            Assert.That(Path.GetFileName(path), Is.EqualTo(".._.._outside.m3u8"),
+                "the override cannot escape the profile folder");
+            Assert.That(Path.GetFileName(noExtension), Is.EqualTo("outside.m3u8"),
+                "a missing extension gets the M3U default");
+        });
+    }
+
+    [Test]
     public void TargetsOf_ExplicitEmptyList_IsNotALegacyTarget()
     {
         var entity = new SyncJobEntity

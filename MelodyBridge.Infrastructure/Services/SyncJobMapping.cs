@@ -128,12 +128,21 @@ public static class SyncJobMapping
 
         var kind = profile.Kind;
         var m3uPath = target.M3uPath;
+        var fileNameOverride = target.M3uFileNameOverride;
         if (kind == OutputTargetType.M3uFile)
         {
             // Quick publish stores a unique file name per job. The profile
-            // still owns the folder, so a folder edit reaches the job.
+            // still owns the folder, so a folder edit reaches the job. A
+            // row written before the override field existed still carries
+            // the numbered suffix in its stored path; recover it here.
+            if (string.IsNullOrWhiteSpace(fileNameOverride)
+                && target.M3uPath is { Length: > 0 } storedPath
+                && LooksLikeCollisionSuffix(Path.GetFileName(storedPath)))
+            {
+                fileNameOverride = Path.GetFileName(storedPath);
+            }
             m3uPath = SyncRuleProfileStore.ResolveM3uPath(
-                profile, entity.Name ?? "", target.M3uFileNameOverride);
+                profile, entity.Name ?? "", fileNameOverride);
         }
 
         return target with
@@ -153,8 +162,21 @@ public static class SyncJobMapping
             M3uCrlf = profile.M3uCrlf,
             M3uBackslashes = profile.M3uBackslashes,
             M3uBom = profile.M3uBom,
+            M3uFileNameOverride = fileNameOverride,
             AllowMetadataFallback = string.IsNullOrWhiteSpace(profile.SourceArchiveProfileId),
         };
+    }
+
+    /// <summary>True for the numbered suffix quick publish adds when two
+    /// playlist names sanitize to the same file, for example "Mix (2).m3u8".</summary>
+    private static bool LooksLikeCollisionSuffix(string? fileName)
+    {
+        if (string.IsNullOrWhiteSpace(fileName)) return false;
+        var stem = Path.GetFileNameWithoutExtension(fileName);
+        var open = stem.LastIndexOf(" (", StringComparison.Ordinal);
+        if (open < 0 || !stem.EndsWith(')')) return false;
+        var number = stem[(open + 2)..^1];
+        return int.TryParse(number, out var suffix) && suffix >= 2;
     }
 
     /// <summary>

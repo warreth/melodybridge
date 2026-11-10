@@ -160,6 +160,34 @@ public class SubsonicSyncTests
     }
 
     [Test]
+    public async Task SyncPlaylistAsync_ArchiveSource_TwoRelativePaths_RequireExactMatch()
+    {
+        var handler = new ScriptedHandler();
+        handler.On("/rest/search3", ScriptedHandler.Json(
+            """{"subsonic-response":{"status":"ok","searchResult3":{"song":[""" +
+            """{"id":"sg-primary","title":"song","artist":"Artist","path":"Artist/song.mp3"}]}}}"""));
+        handler.On("/rest/getPlaylists", ScriptedHandler.Json(
+            """{"subsonic-response":{"status":"ok","playlists":{"playlist":[]}}}"""));
+        handler.On("/rest/createPlaylist", ScriptedHandler.Json(
+            """{"subsonic-response":{"status":"ok","playlist":{"id":"pl-7","name":"Evening mix"}}}"""));
+
+        var sync = NewSync(handler);
+        await sync.SyncPlaylistAsync(
+            PlaylistOf(Track("song", "archive/Artist/song.flac", artist: "Artist")),
+            new PlaylistOutputOptions("/tmp/out.m3u", false, null,
+                AllowMetadataFallback: false));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(sync.LastReport!.ResolvedCount, Is.Zero,
+                "a relative primary path is not the relative archive path");
+            Assert.That(sync.LastReport.UnresolvedPaths, Has.Length.EqualTo(1));
+            Assert.That(handler.Requests.Any(r => r.Url.Contains("/rest/createPlaylist")),
+                Is.False, "no empty playlist is created");
+        });
+    }
+
+    [Test]
     public async Task SyncPlaylistAsync_NewPlaylist_CreatesWithNameAndSongIds()
     {
         var handler = StandardRoutes();

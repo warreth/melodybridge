@@ -2,6 +2,8 @@ using TestContext = Bunit.TestContext;
 using Bunit;
 using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.Data;
+using MelodyBridge.Infrastructure.Playlists;
+using MelodyBridge.Infrastructure.Services;
 using MelodyBridge.Server.Components.Pages;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -566,6 +568,55 @@ public class SyncJobsPageTests
     }
 
     [Test]
+    public async Task JobCard_LegacyServerTarget_DoesNotShowTheM3uProfileName()
+    {
+        var store = new SyncRuleProfileStore(_dbFactory);
+        await store.SaveAsync(new SyncRuleProfile
+        {
+            Id = "m3u", Name = "Living room M3U", Kind = OutputTargetType.M3uFile,
+            M3uOutputFolder = "/out", M3uFileNamePattern = "{job}.m3u8",
+        });
+        await new MediaServerProfileStore(new SettingsStore(_dbFactory)).SaveAsync(
+            new MediaServerProfile
+            {
+                Id = "jf", Name = "Home Jellyfin", Kind = "Jellyfin",
+                BaseUrl = "http://jf:8096", ApiKey = "key",
+            });
+        using (var db = _dbFactory.CreateDbContext())
+        {
+            db.SyncJobs.Add(new SyncJobEntity
+            {
+                Id = "j-legacy-chip",
+                Name = "Legacy chips",
+                Schedule = "Manual",
+                RuleProfileId = "m3u",
+                TargetsJson = System.Text.Json.JsonSerializer.Serialize(new object[]
+                {
+                    new { kind = "M3uFile", m3uPath = "/out/Legacy chips.m3u8" },
+                    new { kind = "JellyfinApi", profileId = "jf" },
+                }),
+                OutputTarget = "M3uFile",
+                M3uOutputPath = "/out/Legacy chips.m3u8",
+            });
+            db.SaveChanges();
+        }
+
+        var cut = _ctx.Render<SyncJobs>();
+
+        cut.WaitForAssertion(() =>
+        {
+            var chips = cut.FindAll(".target-chip")
+                .Select(chip => chip.TextContent.Trim())
+                .ToList();
+            Assert.That(chips, Has.Some.Contains("Living room M3U"));
+            Assert.That(chips, Has.Some.Contains("Home Jellyfin"));
+            Assert.That(chips.Any(chip => chip.Contains("Home Jellyfin")
+                && chip.Contains("Living room M3U")), Is.False,
+                "the legacy server target keeps its connection name");
+        }, TimeSpan.FromSeconds(3));
+    }
+
+    [Test]
     public async Task JobCard_TwoServerProfiles_ShowBothPublishProfileNames()
     {
         var store = new MelodyBridge.Infrastructure.Services.SyncRuleProfileStore(_dbFactory);
@@ -603,6 +654,116 @@ public class SyncJobsPageTests
             Assert.That(cut.Markup, Does.Contain("Jellyfin One"));
             Assert.That(cut.Markup, Does.Contain("Jellyfin Two"));
         }, TimeSpan.FromSeconds(3));
+    }
+
+    [Test]
+    public async Task EditQuickPublishedJob_KeepsItsUniqueM3uFile()
+    {
+        var dbPath = Path.Combine(Path.GetTempPath(), $"mb-syncjob-{Guid.NewGuid():N}.db");
+        var dir = Path.Combine(Path.GetTempPath(), $"mb-syncjob-{Guid.NewGuid():N}");
+        var playlistDir = Path.Combine(dir, "playlists");
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var options = new DbContextOptionsBuilder<MelodyBridgeDbContext>()
+                .UseSqlite($"Data Source={dbPath};Pooling=False").Options;
+            var sqliteFactory = new InMemFactory(options);
+            using (var db = sqliteFactory.CreateDbContext())
+            {
+                db.Database.EnsureCreated();
+                foreach (var (id, name) in new[] { ("p1", "AC/DC"), ("p2", "AC_DC") })
+                {
+                    var track = Path.Combine(dir, $"{id}.mp3");
+                    await System.IO.File.WriteAllTextAsync(track, "x");
+                    db.Playlists.Add(new PlaylistEntity
+                    {
+                        Id = id, Name = name, SourceUrl = $"stub:{id}",
+                        Tracks = new List<TrackEntity>
+                        {
+                            new()
+                            {
+                                MelodyId = $"mel-{id}", Title = name, Artist = "A",
+                                DownloadStatus = "downloaded", CurrentPath = track,
+                                Position = 0,
+                            },
+                        },
+                    });
+                }
+                db.SaveChanges();
+            }
+
+            var store = new SyncRuleProfileStore(sqliteFactory);
+            var profile = new SyncRuleProfile
+            {
+                Id = "m3u",
+                Name = "M3U",
+                Kind = OutputTargetType.M3uFile,
+                M3uOutputFolder = playlistDir,
+                M3uFileNamePattern = "{job}.m3u8",
+            };
+            await store.SaveAsync(profile);
+            var created = await QuickSyncJobs.CreateAsync(
+                sqliteFactory, store,
+                new[] { ("p1", "AC/DC"), ("p2", "AC_DC") },
+                new[] { profile.Id }, ScanSchedule.Manual);
+            Assert.That(created.Created, Has.Count.EqualTo(2));
+
+            _ctx.Services.AddSingleton<IDbContextFactory<MelodyBridgeDbContext>>(sqliteFactory);
+            _ctx.Services.AddSingleton(new SettingsStore(sqliteFactory));
+            _ctx.Services.AddSingleton(new MediaServerProfileStore(new SettingsStore(sqliteFactory)));
+            _ctx.Services.AddSingleton(store);
+            _ctx.Services.AddSingleton<ISyncJobRunner>(new SyncJobRunner(
+                sqliteFactory, new M3uGenerator(NullLogger<M3uGenerator>.Instance),
+                Array.Empty<IMediaServerSync>(), NullLogger<SyncJobRunner>.Instance));
+
+            var cut = _ctx.Render<SyncJobs>();
+            cut.WaitForAssertion(() =>
+            {
+                Assert.That(cut.Markup, Does.Contain("AC/DC"));
+                Assert.That(cut.Markup, Does.Contain("AC_DC"));
+            }, TimeSpan.FromSeconds(3));
+
+            // Edit the job that got the numbered suffix.
+            var card = cut.FindAll(".job-card").First(c => c.TextContent.Contains("AC_DC"));
+            card.QuerySelector("button.card-menu-trigger")!.Click();
+            cut.FindAll("button").First(b => b.TextContent.Trim() == "Edit").Click();
+            cut.WaitForAssertion(() =>
+                Assert.That(cut.FindAll(".job-quick-modal"), Is.Not.Empty),
+                TimeSpan.FromSeconds(3));
+            cut.FindAll("button").First(b => b.TextContent.Trim() == "Save changes").Click();
+            cut.WaitForAssertion(() =>
+                Assert.That(cut.FindAll(".job-quick-modal"), Is.Empty),
+                TimeSpan.FromSeconds(3));
+
+            using (var db = sqliteFactory.CreateDbContext())
+            {
+                var edited = db.SyncJobs.Single(j => j.Name == "AC_DC");
+                var target = SyncJobMapping.TargetsOf(edited)
+                    .Single(t => t.Kind == OutputTargetType.M3uFile);
+                Assert.That(target.M3uFileNameOverride, Is.EqualTo("AC_DC (2).m3u8"),
+                    "editing a quick job keeps its unique file name");
+            }
+
+            var profiles = await store.GetAllAsync();
+            var runner = new SyncJobRunner(
+                sqliteFactory, new M3uGenerator(NullLogger<M3uGenerator>.Instance),
+                Array.Empty<IMediaServerSync>(), NullLogger<SyncJobRunner>.Instance);
+            using (var db = sqliteFactory.CreateDbContext())
+            {
+                foreach (var entity in db.SyncJobs.ToList())
+                    await runner.RunJobAsync(SyncJobMapping.MapToDomain(entity, profiles));
+            }
+
+            var files = Directory.GetFiles(playlistDir, "*.m3u8");
+            Assert.That(files, Has.Length.EqualTo(2),
+                "both quick jobs keep their own file after the edit");
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+            foreach (var suffix in new[] { "", "-wal", "-shm" })
+                try { File.Delete(dbPath + suffix); } catch { /* best effort */ }
+        }
     }
 
     [Test]
