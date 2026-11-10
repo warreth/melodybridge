@@ -81,6 +81,12 @@ public static class SchemaPatcher
         ("SyncJobs", "TargetsJson", "TEXT NULL"),
         // Optional reusable M3U/rule profile per job.
         ("SyncJobs", "RuleProfileId", "TEXT NULL"),
+        // A rule profile became a publish profile: one destination per
+        // profile, optionally reading from an archive copy.
+        ("SyncRuleProfiles", "Kind", "TEXT NOT NULL DEFAULT 'M3uFile'"),
+        ("SyncRuleProfiles", "MediaServerProfileId", "TEXT NULL"),
+        ("SyncRuleProfiles", "PlaylistNamePattern", "TEXT NOT NULL DEFAULT '{{job}}'"),
+        ("SyncRuleProfiles", "SourceArchiveProfileId", "TEXT NULL"),
         // M3U entries relative to the output file instead of absolute paths.
         ("SyncJobs", "M3uRelativePaths", "INTEGER NOT NULL DEFAULT 0"),
         // Windows-style M3U text for players that need it.
@@ -105,6 +111,10 @@ public static class SchemaPatcher
             CREATE TABLE IF NOT EXISTS SyncRuleProfiles (
                 Id TEXT NOT NULL PRIMARY KEY,
                 Name TEXT NOT NULL DEFAULT '',
+                Kind TEXT NOT NULL DEFAULT 'M3uFile',
+                MediaServerProfileId TEXT NULL,
+                PlaylistNamePattern TEXT NOT NULL DEFAULT '{{job}}',
+                SourceArchiveProfileId TEXT NULL,
                 M3uOutputFolder TEXT NOT NULL DEFAULT '/app/playlists',
                 M3uFileNamePattern TEXT NOT NULL DEFAULT '{{job}}.m3u8',
                 M3uRelativePaths INTEGER NOT NULL DEFAULT 0,

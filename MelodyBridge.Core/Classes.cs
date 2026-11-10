@@ -67,7 +67,18 @@ public class SyncPlaylistJob
 public record SyncTarget(
     OutputTargetType Kind,
     string? ProfileId = null,
-    string? M3uPath = null);
+    string? M3uPath = null,
+    string? RuleProfileId = null,
+    string? RuleProfileName = null,
+    string? SourceArchiveProfileId = null,
+    string? PlaylistName = null,
+    Dictionary<string, string>? PathRemapRules = null,
+    Dictionary<string, string>? ExtensionRemapRules = null,
+    bool M3uRelativePaths = false,
+    bool M3uCrlf = false,
+    bool M3uBackslashes = false,
+    bool M3uBom = false,
+    bool AllowMetadataFallback = true);
 
 public class SyncJob
 {
@@ -118,6 +129,20 @@ public class SyncRuleProfile
 {
     public string Id { get; set; } = Guid.NewGuid().ToString();
     public string Name { get; set; } = string.Empty;
+    /// <summary>Destination kind this profile publishes to. A profile is
+    /// one target: an M3U file or one media server kind.</summary>
+    public OutputTargetType Kind { get; set; } = OutputTargetType.M3uFile;
+    /// <summary>Media server connection profile for a server kind. Null
+    /// falls back to the app default, like a legacy job does.</summary>
+    public string? MediaServerProfileId { get; set; }
+    /// <summary>Playlist name on a media server; {job} and {playlist}
+    /// expand to the job name.</summary>
+    public string PlaylistNamePattern { get; set; } = "{job}";
+    /// <summary>Optional archive copy to publish: null for the primary
+    /// file, "default" for Tracks.ArchivePath, or an archive profile id.
+    /// When set, the runner skips tracks without that copy and media
+    /// servers only resolve the exact archive path.</summary>
+    public string? SourceArchiveProfileId { get; set; }
     public string M3uOutputFolder { get; set; } = "/app/playlists";
     /// <summary>File name pattern; {job} and {playlist} expand to the job name.</summary>
     public string M3uFileNamePattern { get; set; } = "{job}.m3u8";
@@ -127,6 +152,13 @@ public class SyncRuleProfile
     public bool M3uBom { get; set; } = true;
     public Dictionary<string, string> PathRemapRules { get; set; } = new();
     public Dictionary<string, string> ExtensionRemapRules { get; set; } = new();
+}
+
+/// <summary>Source variants a publish profile can read from.</summary>
+public static class SyncSourceVariants
+{
+    /// <summary>The legacy single archive copy in Tracks.ArchivePath.</summary>
+    public const string DefaultArchive = "default";
 }
 
 public class DownloaderConfig

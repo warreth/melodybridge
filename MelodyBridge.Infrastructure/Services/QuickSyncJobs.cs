@@ -35,9 +35,9 @@ public sealed record QuickSyncOptions(
 /// <summary>
 /// The simplified path from a saved playlist to a publishing job: one
 /// job per playlist, named after the playlist, with the schedule and
-/// targets the user ticked. Path remaps and per-playlist edits stay on
-/// the full Sync jobs page; the jobs this creates open there like any
-/// other.
+/// publish profiles the user ticked. Path remaps and per-playlist edits
+/// stay on the full Sync jobs page; the jobs this creates open there like
+/// any other.
 /// </summary>
 public static class QuickSyncJobs
 {
@@ -66,26 +66,21 @@ public static class QuickSyncJobs
     }
 
     /// <summary>
-    /// Creates one job per distinct playlist id: the playlist as its
-    /// source, the requested schedule, and one target per ticked profile,
-    /// plus an M3U file when requested. The playlist ids and the profiles
-    /// are re-read here, so a playlist or profile deleted since the dialog
-    /// opened is reported instead of stored as a dangling target. Returns
-    /// the created jobs and every skipped playlist with its reason, in
-    /// playlist order.
+    /// Creates one job per distinct playlist id, with one target per
+    /// ticked publish profile. The playlist ids and the profiles are
+    /// re-read here, so a playlist or profile deleted since the dialog
+    /// opened is reported instead of stored as a dangling target.
     /// </summary>
     public static async Task<QuickSyncResult> CreateAsync(
         IDbContextFactory<MelodyBridgeDbContext> dbFactory,
-        MediaServerProfileStore profileStore,
+        SyncRuleProfileStore ruleProfileStore,
         IEnumerable<(string PlaylistId, string Name)> playlists,
-        IReadOnlyList<string> profileIds,
-        QuickSyncOptions? options = null,
-        SyncRuleProfileStore? ruleProfileStore = null,
+        IReadOnlyList<string> publishProfileIds,
+        ScanSchedule schedule,
         CancellationToken ct = default)
     {
         var created = new List<SyncJobEntity>();
         var skipped = new List<QuickSyncSkip>();
-        options ??= QuickSyncOptions.Default;
 
         await CreateGate.WaitAsync(ct);
         try
@@ -97,44 +92,28 @@ public static class QuickSyncJobs
                 .ToList();
             if (wanted.Count == 0) return new(created, skipped);
 
-            if (!options.M3uEnabled && profileIds.Count == 0)
+            if (publishProfileIds.Count == 0)
             {
                 foreach (var (_, name) in wanted)
                     skipped.Add(new(name, "no target was selected"));
                 return new(created, skipped);
             }
-            SyncRuleProfile? ruleProfile = null;
-            if (options.M3uEnabled && !string.IsNullOrWhiteSpace(options.RuleProfileId))
-            {
-                if (ruleProfileStore is not null)
-                    ruleProfile = await ruleProfileStore.FindAsync(options.RuleProfileId, ct);
-                if (ruleProfile is null)
-                {
-                    foreach (var (_, name) in wanted)
-                        skipped.Add(new(name, "the selected rule profile no longer exists"));
-                    return new(created, skipped);
-                }
-            }
-            if (options.M3uEnabled && ruleProfile is null
-                && string.IsNullOrWhiteSpace(options.M3uDirectory))
-            {
-                foreach (var (_, name) in wanted)
-                    skipped.Add(new(name, "the M3U output folder is not set"));
-                return new(created, skipped);
-            }
 
-            var existingProfiles = (await profileStore.GetAllAsync(ct))
-                .Where(p => profileIds.Contains(p.Id, StringComparer.Ordinal))
+            var profileOrder = publishProfileIds
+                .Select((id, index) => (id, index))
+                .ToDictionary(entry => entry.id, entry => entry.index, StringComparer.Ordinal);
+            var profiles = (await ruleProfileStore.GetAllAsync(ct))
+                .Where(profile => publishProfileIds.Contains(profile.Id, StringComparer.Ordinal))
+                .OrderBy(profile => profileOrder.GetValueOrDefault(profile.Id, int.MaxValue))
                 .ToList();
-            var missingProfile = existingProfiles.Count != profileIds.Count;
-            if (missingProfile)
+            if (profiles.Count != publishProfileIds.Count)
             {
                 foreach (var (_, name) in wanted)
-                    skipped.Add(new(name, "a selected media server profile no longer exists"));
+                    skipped.Add(new(name, "a selected publish profile no longer exists"));
                 return new(created, skipped);
             }
 
-            var (schedule, cron) = StoredSchedule(options.Schedule);
+            var (scheduleLabel, cron) = StoredSchedule(schedule);
 
             await using var db = await dbFactory.CreateDbContextAsync(ct);
             var wantedIds = wanted.Select(p => p.PlaylistId).ToList();
@@ -182,45 +161,43 @@ public static class QuickSyncJobs
                 {
                     Name = name,
                     SourceId = playlistId,
-                    Schedule = schedule,
+                    Schedule = scheduleLabel,
                     CronExpression = cron,
                     CreatedAt = DateTime.UtcNow,
                     LastRunStatus = "Pending",
                 };
+
                 var targets = new List<SyncTarget>();
-                if (options.M3uEnabled)
+                foreach (var profile in profiles)
                 {
-                    string m3uPath;
-                    if (ruleProfile is not null)
+                    if (profile.Kind == OutputTargetType.M3uFile)
                     {
-                        // A linked job follows the profile live. Keep a copy
-                        // of its format and rules on the row too, so deleting
-                        // the profile leaves the job with what it had.
-                        entity.RuleProfileId = ruleProfile.Id;
-                        entity.M3uRelativePaths = ruleProfile.M3uRelativePaths;
-                        entity.M3uCrlf = ruleProfile.M3uCrlf;
-                        entity.M3uBackslashes = ruleProfile.M3uBackslashes;
-                        entity.M3uBom = ruleProfile.M3uBom;
-                        entity.PathRemapRules = JsonSerializer.Serialize(ruleProfile.PathRemapRules);
-                        entity.ExtensionRemapRules = JsonSerializer.Serialize(ruleProfile.ExtensionRemapRules);
-                        m3uPath = SafeFileNames.UniquePath(
-                            SyncRuleProfileStore.ResolveOutputPath(ruleProfile, name), usedM3uPaths);
+                        var desired = SyncRuleProfileStore.ResolveOutputPath(profile, name);
+                        var path = SafeFileNames.UniquePath(desired, usedM3uPaths);
+                        usedM3uPaths.Add(SafeFileNames.PathKey(path));
+                        targets.Add(SyncRuleProfileStore.CreateTarget(profile, name, path));
                     }
                     else
                     {
-                        m3uPath = SafeFileNames.UniqueFile(
-                            options.M3uDirectory!, name, ".m3u8", usedM3uPaths);
-                        // Quick publish has no format step: use the widest text
-                        // defaults, and let the job's editor switch to Plain.
-                        entity.M3uCrlf = true;
-                        entity.M3uBom = true;
+                        targets.Add(SyncRuleProfileStore.CreateTarget(profile, name));
                     }
-                    usedM3uPaths.Add(SafeFileNames.PathKey(m3uPath));
-                    targets.Add(new SyncTarget(OutputTargetType.M3uFile, M3uPath: m3uPath));
                 }
-                targets.AddRange(existingProfiles.Select(p =>
-                    new SyncTarget(MediaServerKinds.OutputTargetFor(p.Kind), ProfileId: p.Id)));
+
                 SyncJobMapping.ApplyTargets(entity, targets);
+                var m3uProfile = profiles.FirstOrDefault(p => p.Kind == OutputTargetType.M3uFile);
+                if (m3uProfile is not null)
+                {
+                    // Keep the legacy columns in step with the first M3U
+                    // profile, so older readers see the same values.
+                    entity.RuleProfileId = m3uProfile.Id;
+                    entity.M3uRelativePaths = m3uProfile.M3uRelativePaths;
+                    entity.M3uCrlf = m3uProfile.M3uCrlf;
+                    entity.M3uBackslashes = m3uProfile.M3uBackslashes;
+                    entity.M3uBom = m3uProfile.M3uBom;
+                    entity.PathRemapRules = JsonSerializer.Serialize(m3uProfile.PathRemapRules);
+                    entity.ExtensionRemapRules = JsonSerializer.Serialize(m3uProfile.ExtensionRemapRules);
+                }
+
                 db.SyncJobs.Add(entity);
                 takenSet.Add(playlistId);
                 created.Add(entity);
@@ -234,6 +211,88 @@ public static class QuickSyncJobs
         }
 
         return new(created, skipped);
+    }
+
+    /// <summary>
+    /// Compatibility path for callers that still pass media server
+    /// profiles and the old M3U options. It resolves or creates the
+    /// matching publish profiles, then uses the same create path as the
+    /// profile-based dialog.
+    /// </summary>
+    public static async Task<QuickSyncResult> CreateAsync(
+        IDbContextFactory<MelodyBridgeDbContext> dbFactory,
+        MediaServerProfileStore profileStore,
+        IEnumerable<(string PlaylistId, string Name)> playlists,
+        IReadOnlyList<string> profileIds,
+        QuickSyncOptions? options = null,
+        SyncRuleProfileStore? ruleProfileStore = null,
+        CancellationToken ct = default)
+    {
+        options ??= QuickSyncOptions.Default;
+        var store = ruleProfileStore ?? new SyncRuleProfileStore(dbFactory);
+        var wanted = playlists.ToList();
+
+        var serverProfiles = (await profileStore.GetAllAsync(ct))
+            .Where(profile => profileIds.Contains(profile.Id, StringComparer.Ordinal))
+            .ToList();
+        if (serverProfiles.Count != profileIds.Count)
+        {
+            return new(Array.Empty<SyncJobEntity>(),
+                wanted.Select(p => new QuickSyncSkip(
+                    p.Name, "a selected media server profile no longer exists")).ToList());
+        }
+
+        var allProfiles = await store.EnsureDefaultsAsync(
+            options.M3uDirectory ?? "/app/playlists", serverProfiles, ct);
+        var publishIds = new List<string>();
+
+        if (options.M3uEnabled)
+        {
+            SyncRuleProfile? m3u = null;
+            if (!string.IsNullOrWhiteSpace(options.RuleProfileId))
+            {
+                m3u = await store.FindAsync(options.RuleProfileId, ct);
+                if (m3u is null)
+                {
+                    return new(Array.Empty<SyncJobEntity>(),
+                        wanted.Select(p => new QuickSyncSkip(
+                            p.Name, "the selected rule profile no longer exists")).ToList());
+                }
+            }
+            else if (!string.IsNullOrWhiteSpace(options.M3uDirectory))
+            {
+                m3u = new SyncRuleProfile
+                {
+                    Id = Guid.NewGuid().ToString(),
+                    Name = "Quick publish M3U",
+                    Kind = OutputTargetType.M3uFile,
+                    M3uOutputFolder = options.M3uDirectory!,
+                    M3uFileNamePattern = "{job}.m3u8",
+                    M3uCrlf = true,
+                    M3uBom = true,
+                };
+                await store.SaveAsync(m3u, ct);
+            }
+
+            if (m3u is null)
+            {
+                return new(Array.Empty<SyncJobEntity>(),
+                    wanted.Select(p => new QuickSyncSkip(
+                        p.Name, "the M3U output folder is not set")).ToList());
+            }
+            publishIds.Add(m3u.Id);
+        }
+
+        foreach (var server in serverProfiles)
+        {
+            var kind = MediaServerKinds.OutputTargetFor(server.Kind);
+            var profile = allProfiles.FirstOrDefault(p => p.Kind == kind
+                && string.Equals(p.MediaServerProfileId, server.Id, StringComparison.Ordinal));
+            if (profile is not null) publishIds.Add(profile.Id);
+        }
+
+        return await CreateAsync(
+            dbFactory, store, wanted, publishIds, options.Schedule, ct);
     }
 
     /// <summary>

@@ -139,35 +139,6 @@ public class SyncJobRunner : ISyncJobRunner
             }
             skippedTracks = totalTracks - matchedTracks.Count;
 
-            // Output path rules: the prefix map for mounts, the extension
-            // map for formats. Both travel on the options and are applied
-            // by the M3U generator and the media server clients; the job's
-            // own dictionaries are never mutated.
-            var remap = job.PathRemapRules;
-            var extensionRemap = job.ExtensionRemapRules.Count > 0 ? job.ExtensionRemapRules : null;
-
-            var playlist = new Playlist
-            {
-                Name = job.Name,
-                Tracks = matchedTracks.Select(t => new Track
-                {
-                    Title = t.Title,
-                    Duration = t.DurationMs is > 0
-                        ? TimeSpan.FromMilliseconds(t.DurationMs.Value)
-                        : null,
-                    Artist = t.Artist,
-                    SongID = !string.IsNullOrEmpty(t.MelodyId)
-                        ? new SongID(Platform.Unknown, t.MelodyId)
-                        : null,
-                    MediaType = Enum.TryParse<MediaType>(t.MediaType, true, out var mt)
-                        ? mt : MediaType.UNKNOWN,
-                    CurrentTrackLocation = !string.IsNullOrEmpty(t.CurrentPath)
-                        ? new FileLocation(t.CurrentPath)
-                        : null,
-                    IsLiked = t.IsLiked,
-                }).ToList()
-            };
-
             // One publication per target: a job may write the M3U and push
             // to several media servers in the same run. A job stored before
             // multi-target support has no list and falls back to its one
@@ -181,7 +152,11 @@ public class SyncJobRunner : ISyncJobRunner
                         job.OutputTarget == OutputTargetType.M3uFile ? job.M3uOutputPath : null),
                 };
 
-            resolvedTracks = playlist.Tracks?.Count ?? 0;
+            // Archive copies are loaded once for every target that publishes
+            // one. Primary targets pay nothing for this query.
+            var archiveCopies = await LoadArchiveCopiesAsync(db, matchedTracks, targets, ct);
+
+            resolvedTracks = matchedTracks.Count;
             var targetLabels = new List<string>();
 
             foreach (var target in targets)
@@ -189,8 +164,17 @@ public class SyncJobRunner : ISyncJobRunner
                 ct.ThrowIfCancellationRequested();
                 try
                 {
-                    var result = await PublishTargetAsync(target, job, playlist, searchPaths,
-                        remap.Count > 0 ? remap : null, extensionRemap, ct);
+                    var built = BuildPlaylist(job, matchedTracks, target, archiveCopies);
+                    var playlist = built.Playlist;
+                    warnings.AddRange(built.Warnings);
+                    if (playlist.Tracks.Count == 0 && matchedTracks.Count > 0)
+                    {
+                        errors.Add(
+                            $"{TargetLabel(target)}: no tracks have a {SourceVariantLabel(target)} copy");
+                        continue;
+                    }
+
+                    var result = await PublishTargetAsync(target, job, playlist, searchPaths, ct);
                     if (result.Label is not null) targetLabels.Add(result.Label);
                     warnings.AddRange(result.Warnings);
                     if (result.Error is not null) errors.Add(result.Error);
@@ -315,6 +299,7 @@ public class SyncJobRunner : ISyncJobRunner
         MelodyId = t.MelodyId,
         MediaType = t.MediaType,
         CurrentPath = t.CurrentPath,
+        ArchivePath = t.ArchivePath,
         IsLiked = t.IsLiked,
         DownloadStatus = t.DownloadStatus,
     };
@@ -400,6 +385,155 @@ public class SyncJobRunner : ISyncJobRunner
         }
     }
     /// <summary>
+    /// Loads the archive copies the targets ask for, keyed by track and
+    /// archive profile. The default archive lives in Tracks.ArchivePath,
+    /// so only named profiles need this query.
+    /// </summary>
+    private static async Task<Dictionary<(int TrackId, string ProfileId), string>>
+        LoadArchiveCopiesAsync(
+            MelodyBridgeDbContext db,
+            List<TrackEntity> tracks,
+            List<SyncTarget> targets,
+            CancellationToken ct)
+    {
+        var profileIds = targets
+            .Select(t => t.SourceArchiveProfileId)
+            .Where(id => !string.IsNullOrWhiteSpace(id)
+                && !string.Equals(id, SyncSourceVariants.DefaultArchive, StringComparison.Ordinal))
+            .Select(id => id!)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        if (profileIds.Count == 0 || tracks.Count == 0)
+            return new Dictionary<(int, string), string>();
+
+        var trackIds = tracks.Select(t => t.Id).ToList();
+        var rows = await db.TrackArchiveCopies.AsNoTracking()
+            .Where(copy => trackIds.Contains(copy.TrackId)
+                && profileIds.Contains(copy.ProfileId))
+            .Select(copy => new { copy.TrackId, copy.ProfileId, copy.Path })
+            .ToListAsync(ct);
+
+        return rows
+            .Where(row => !string.IsNullOrWhiteSpace(row.Path))
+            .ToDictionary(
+                row => (row.TrackId, row.ProfileId),
+                row => row.Path!);
+    }
+
+    /// <summary>
+    /// Builds the playlist for one target. The metadata is shared; only the
+    /// file location changes when the target publishes an archive copy.
+    /// Tracks without the requested copy are left out, never replaced by
+    /// the primary file.
+    /// </summary>
+    private static TargetPlaylist BuildPlaylist(
+        SyncJob job,
+        List<TrackEntity> tracks,
+        SyncTarget target,
+        Dictionary<(int TrackId, string ProfileId), string> archiveCopies)
+    {
+        var playlistTracks = new List<Track>();
+        var warnings = new List<string>();
+        foreach (var track in tracks)
+        {
+            var path = SourcePath(track, target, archiveCopies);
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                warnings.Add(
+                    $"{track.Title ?? track.CurrentPath ?? "track"}: no {SourceVariantLabel(target)} copy");
+                continue;
+            }
+
+            playlistTracks.Add(new Track
+            {
+                Title = track.Title,
+                Duration = track.DurationMs is > 0
+                    ? TimeSpan.FromMilliseconds(track.DurationMs.Value)
+                    : null,
+                Artist = track.Artist,
+                SongID = !string.IsNullOrEmpty(track.MelodyId)
+                    ? new SongID(Platform.Unknown, track.MelodyId)
+                    : null,
+                MediaType = Enum.TryParse<MediaType>(track.MediaType, true, out var mt)
+                    ? mt : MediaType.UNKNOWN,
+                CurrentTrackLocation = new FileLocation(path),
+                IsLiked = track.IsLiked,
+            });
+        }
+
+        return new TargetPlaylist(
+            new Playlist
+            {
+                Name = string.IsNullOrWhiteSpace(target.PlaylistName)
+                    ? job.Name : target.PlaylistName,
+                Tracks = playlistTracks,
+            },
+            warnings);
+    }
+
+    private sealed record TargetPlaylist(Playlist Playlist, List<string> Warnings);
+
+    /// <summary>The file a target publishes: primary, default archive or a
+    /// named archive copy.</summary>
+    private static string? SourcePath(
+        TrackEntity track,
+        SyncTarget target,
+        Dictionary<(int TrackId, string ProfileId), string> archiveCopies)
+    {
+        var variant = target.SourceArchiveProfileId;
+        if (string.IsNullOrWhiteSpace(variant)) return track.CurrentPath;
+        if (string.Equals(variant, SyncSourceVariants.DefaultArchive, StringComparison.Ordinal))
+            return track.ArchivePath;
+        return archiveCopies.TryGetValue((track.Id, variant), out var path) ? path : null;
+    }
+
+    private static string SourceVariantLabel(SyncTarget target)
+        => string.IsNullOrWhiteSpace(target.SourceArchiveProfileId)
+            ? "primary"
+            : string.Equals(target.SourceArchiveProfileId,
+                SyncSourceVariants.DefaultArchive, StringComparison.Ordinal)
+                ? "default archive"
+                : "archive";
+
+    /// <summary>A target with a publish profile owns its rules, even when
+    /// they are empty. A target without one keeps the job-level fallback
+    /// that direct callers and old rows rely on.</summary>
+    private static bool HasTargetProfile(SyncTarget target)
+        => !string.IsNullOrWhiteSpace(target.RuleProfileId);
+
+    private static Dictionary<string, string>? PathRemapFor(SyncTarget target, SyncJob job)
+    {
+        var rules = target.PathRemapRules ?? job.PathRemapRules;
+        return rules is { Count: > 0 } ? rules : null;
+    }
+
+    private static Dictionary<string, string>? ExtensionRemapFor(SyncTarget target, SyncJob job)
+    {
+        var rules = target.ExtensionRemapRules ?? job.ExtensionRemapRules;
+        return rules is { Count: > 0 } ? rules : null;
+    }
+
+    private static bool M3uRelativeFor(SyncTarget target, SyncJob job)
+        => HasTargetProfile(target)
+            ? target.M3uRelativePaths
+            : target.M3uRelativePaths || job.M3uRelativePaths;
+
+    private static bool M3uCrlfFor(SyncTarget target, SyncJob job)
+        => HasTargetProfile(target)
+            ? target.M3uCrlf
+            : target.M3uCrlf || job.M3uCrlf;
+
+    private static bool M3uBackslashesFor(SyncTarget target, SyncJob job)
+        => HasTargetProfile(target)
+            ? target.M3uBackslashes
+            : target.M3uBackslashes || job.M3uBackslashes;
+
+    private static bool M3uBomFor(SyncTarget target, SyncJob job)
+        => HasTargetProfile(target)
+            ? target.M3uBom
+            : target.M3uBom || job.M3uBom;
+
+    /// <summary>
     /// Publishes the playlist to one target. Returns what to record instead
     /// of touching the run's error list, so the caller can survive a target
     /// that throws and still publish the others.
@@ -407,17 +541,21 @@ public class SyncJobRunner : ISyncJobRunner
     private async Task<TargetRunResult> PublishTargetAsync(
         SyncTarget target, SyncJob job, Playlist playlist,
         IEnumerable<ScanLocation> searchPaths,
-        Dictionary<string, string>? remap,
-        Dictionary<string, string>? extensionRemap,
         CancellationToken ct)
     {
         if (target.Kind == OutputTargetType.M3uFile)
         {
             if (string.IsNullOrWhiteSpace(target.M3uPath))
                 return new TargetRunResult(null, Array.Empty<string>(), "M3U file: no output path configured");
-            var options = new PlaylistOutputOptions(target.M3uPath, job.M3uRelativePaths,
-                remap, ExtensionRemap: extensionRemap,
-                M3uText: new M3uTextOptions(job.M3uCrlf, job.M3uBackslashes, job.M3uBom));
+            var m3uPathRemap = PathRemapFor(target, job);
+            var m3uExtensionRemap = ExtensionRemapFor(target, job);
+            var options = new PlaylistOutputOptions(
+                target.M3uPath, M3uRelativeFor(target, job),
+                m3uPathRemap, ExtensionRemap: m3uExtensionRemap,
+                M3uText: new M3uTextOptions(
+                    M3uCrlfFor(target, job),
+                    M3uBackslashesFor(target, job),
+                    M3uBomFor(target, job)));
             await _m3uGenerator.GenerateM3uAsync(playlist, searchPaths, options, ct);
             return new TargetRunResult("M3U file", Array.Empty<string>(), null);
         }
@@ -479,8 +617,11 @@ public class SyncJobRunner : ISyncJobRunner
         var label = profileName is { Length: > 0 }
             ? $"{TargetLabel(target)} ({profileName})"
             : TargetLabel(target);
-        var serverOptions = new PlaylistOutputOptions("/playlists/" + job.Name + ".m3u",
-            false, remap, connection, extensionRemap);
+        var serverOptions = new PlaylistOutputOptions(
+            "/playlists/" + playlist.Name + ".m3u", false,
+            PathRemapFor(target, job), connection, ExtensionRemapFor(target, job),
+            AllowMetadataFallback: target.AllowMetadataFallback
+                && string.IsNullOrWhiteSpace(target.SourceArchiveProfileId));
         await server.SyncPlaylistAsync(playlist, serverOptions, ct);
 
         var warnings = server.LastReport?.UnresolvedPaths is { Length: > 0 } unresolved

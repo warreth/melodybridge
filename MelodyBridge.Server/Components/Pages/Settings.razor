@@ -436,17 +436,19 @@ else if (activeTab == "media-servers")
             <div>
                 <span class="eyebrow">Connections</span>
                 <div class="title-with-help">
-                    <h2>Media server profiles</h2>
-                    <HelpTip Path="reference#media-servers" Text="Profiles are shortcuts for sync jobs. Mark one as the app default so jobs without their own profile fall back to it." />
+                    <h2>Media server connections</h2>
+                    <HelpTip Path="reference#media-servers" Text="These profiles hold a server connection only. A publish profile on the Sync jobs page picks one and adds the playlist name, source variant and path rules." />
                 </div>
             </div>
-            <button class="btn-modern secondary small" @onclick="StartNewProfile">Add profile</button>
+            <button class="btn-modern secondary small" @onclick="StartNewProfile">Add connection</button>
         </div>
         <div class="settings-section">
             <div class="hint-box">
-                Named server profiles several sync jobs can share. Marking one
-                profile as the app default gives sync jobs that do not pick a
-                profile themselves a connection to fall back on.
+                A media server profile is one connection: URL and credentials.
+                Sync jobs publish through <a href="/sync-jobs">publish profiles</a>,
+                which pick a connection and add the playlist name, source variant
+                and path rules. Marking a connection as the app default gives
+                profiles without their own connection a fallback.
             </div>
             @if (migratedFromOldSettings)
             {
@@ -632,7 +634,9 @@ else if (activeTab == "paths")
                 archive and any extra profiles they want; each selected profile
                 adds one local copy in its own format, for example Opus 128 and
                 MP3 160. A profile only costs disk space and ffmpeg CPU, never
-                another download.
+                another download. A <a href="/sync-jobs">publish profile</a> can
+                publish one of these copies to a media server or an M3U file;
+                leave its source on Primary library when you do not need that.
             </div>
             <div class="archive-profiles">
                 <div class="archive-profiles-head">

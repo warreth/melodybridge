@@ -39,6 +39,10 @@ public class SyncRuleProfileStoreTests
         var profile = new SyncRuleProfile
         {
             Name = "Living room",
+            Kind = OutputTargetType.PlexApi,
+            MediaServerProfileId = "plex-1",
+            PlaylistNamePattern = "{job} (Plex)",
+            SourceArchiveProfileId = "archive-flac",
             M3uOutputFolder = "/srv/playlists",
             M3uFileNamePattern = "{job}.m3u8",
             M3uRelativePaths = true,
@@ -57,6 +61,10 @@ public class SyncRuleProfileStoreTests
         {
             Assert.That(loaded, Is.Not.Null);
             Assert.That(loaded!.Name, Is.EqualTo("Living room"));
+            Assert.That(loaded.Kind, Is.EqualTo(OutputTargetType.PlexApi));
+            Assert.That(loaded.MediaServerProfileId, Is.EqualTo("plex-1"));
+            Assert.That(loaded.PlaylistNamePattern, Is.EqualTo("{job} (Plex)"));
+            Assert.That(loaded.SourceArchiveProfileId, Is.EqualTo("archive-flac"));
             Assert.That(loaded.M3uOutputFolder, Is.EqualTo("/srv/playlists"));
             Assert.That(loaded.M3uRelativePaths, Is.True);
             Assert.That(loaded.M3uCrlf, Is.True);
@@ -65,6 +73,110 @@ public class SyncRuleProfileStoreTests
             Assert.That(loaded.ExtensionRemapRules[".flac"], Is.EqualTo(".mp3"));
             Assert.That(all.Select(p => p.Id), Does.Contain(profile.Id));
         });
+    }
+
+    [Test]
+    public async Task EnsureDefaults_CreatesOneM3uAndOneProfilePerServer()
+    {
+        var settings = new SettingsStore(_factory);
+        var servers = new MediaServerProfileStore(settings);
+        await servers.SaveAsync(new MediaServerProfile
+        {
+            Id = "jf", Name = "Jellyfin", Kind = "Jellyfin",
+            BaseUrl = "http://jf:8096", ApiKey = "key",
+        });
+        await servers.SaveAsync(new MediaServerProfile
+        {
+            Id = "px", Name = "Plex", Kind = "Plex",
+            BaseUrl = "http://px:32400", ApiKey = "key",
+        });
+
+        var first = await _store.EnsureDefaultsAsync(
+            "/playlists", await servers.GetAllAsync());
+        Assert.Multiple(() =>
+        {
+            Assert.That(first.Count(p => p.Kind == OutputTargetType.M3uFile),
+                Is.EqualTo(1), "one default M3U profile");
+            Assert.That(first.Count(p => p.Kind == OutputTargetType.JellyfinApi
+                && p.MediaServerProfileId == "jf"), Is.EqualTo(1));
+            Assert.That(first.Count(p => p.Kind == OutputTargetType.PlexApi
+                && p.MediaServerProfileId == "px"), Is.EqualTo(1));
+        });
+
+        var second = await _store.EnsureDefaultsAsync(
+            "/playlists", await servers.GetAllAsync());
+        Assert.That(second.Count, Is.EqualTo(first.Count),
+            "a second call adds nothing");
+    }
+
+    [Test]
+    public async Task EnsureDefaults_SeedsServerProfilesOnlyOnce_WhenSettingsAreAvailable()
+    {
+        var settings = new SettingsStore(_factory);
+        var store = new SyncRuleProfileStore(_factory, settings);
+        var servers = new MediaServerProfileStore(settings);
+        await servers.SaveAsync(new MediaServerProfile
+        {
+            Id = "jf", Name = "Jellyfin", Kind = "Jellyfin",
+            BaseUrl = "http://jf:8096", ApiKey = "key",
+        });
+
+        var first = await store.EnsureDefaultsAsync(
+            "/playlists", await servers.GetAllAsync());
+        var jellyfin = first.Single(p => p.MediaServerProfileId == "jf");
+        await store.DeleteAsync(jellyfin.Id);
+
+        await servers.SaveAsync(new MediaServerProfile
+        {
+            Id = "px", Name = "Plex", Kind = "Plex",
+            BaseUrl = "http://px:32400", ApiKey = "key",
+        });
+        var second = await store.EnsureDefaultsAsync(
+            "/playlists", await servers.GetAllAsync());
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(second.Any(p => p.MediaServerProfileId == "jf"), Is.False,
+                "a deleted server profile stays deleted");
+            Assert.That(second.Any(p => p.MediaServerProfileId == "px"), Is.False,
+                "a connection added after seeding does not get a profile automatically");
+        });
+    }
+
+    [Test]
+    public async Task Save_MediaServerProfile_DoesNotNeedAnM3uFolder()
+    {
+        var profile = new SyncRuleProfile
+        {
+            Id = "jf-profile",
+            Name = "Jellyfin",
+            Kind = OutputTargetType.JellyfinApi,
+            MediaServerProfileId = "jf",
+            M3uOutputFolder = "",
+        };
+
+        await _store.SaveAsync(profile);
+
+        var loaded = await _store.FindAsync("jf-profile");
+        Assert.Multiple(() =>
+        {
+            Assert.That(loaded!.Kind, Is.EqualTo(OutputTargetType.JellyfinApi));
+            Assert.That(loaded.MediaServerProfileId, Is.EqualTo("jf"));
+        });
+    }
+
+    [Test]
+    public void Save_M3uProfile_WithoutAFolder_Throws()
+    {
+        var profile = new SyncRuleProfile
+        {
+            Name = "M3U",
+            Kind = OutputTargetType.M3uFile,
+            M3uOutputFolder = "",
+        };
+
+        Assert.That(async () => await _store.SaveAsync(profile),
+            Throws.InvalidOperationException.With.Message.Contains("M3U output folder"));
     }
 
     [Test]
@@ -110,6 +222,108 @@ public class SyncRuleProfileStoreTests
                 "the job falls back to its own stored path");
             Assert.That(check.SyncRuleProfiles.Any(p => p.Id == profile.Id), Is.False);
         });
+    }
+
+    [Test]
+    public void MapToDomain_PerTargetProfiles_UseTheirOwnRules()
+    {
+        var m3u = new SyncRuleProfile
+        {
+            Id = "m3u",
+            Name = "M3U player",
+            Kind = OutputTargetType.M3uFile,
+            M3uOutputFolder = "/playlists",
+            M3uFileNamePattern = "{job}.m3u8",
+            PathRemapRules = new() { ["/music"] = "/player/music" },
+        };
+        var jellyfin = new SyncRuleProfile
+        {
+            Id = "jf",
+            Name = "Jellyfin FLAC",
+            Kind = OutputTargetType.JellyfinApi,
+            MediaServerProfileId = "jf-1",
+            PlaylistNamePattern = "{job} (FLAC)",
+            SourceArchiveProfileId = SyncSourceVariants.DefaultArchive,
+            PathRemapRules = new() { ["/music"] = "/jellyfin/music" },
+        };
+        var entity = new SyncJobEntity
+        {
+            Id = "j1",
+            Name = "Jazz",
+            TargetsJson = System.Text.Json.JsonSerializer.Serialize(new object[]
+            {
+                new { kind = "M3uFile", ruleProfileId = "m3u" },
+                new { kind = "JellyfinApi", ruleProfileId = "jf", profileId = "jf-1" },
+            }),
+            OutputTarget = "M3uFile",
+            Schedule = "Manual",
+        };
+
+        var job = SyncJobMapping.MapToDomain(entity, new[] { m3u, jellyfin });
+
+        Assert.Multiple(() =>
+        {
+            var file = job.Targets.Single(t => t.Kind == OutputTargetType.M3uFile);
+            Assert.That(file.M3uPath, Is.EqualTo(Path.Combine("/playlists", "Jazz.m3u8")));
+            Assert.That(file.PathRemapRules!["/music"], Is.EqualTo("/player/music"));
+
+            var server = job.Targets.Single(t => t.Kind == OutputTargetType.JellyfinApi);
+            Assert.That(server.ProfileId, Is.EqualTo("jf-1"));
+            Assert.That(server.PlaylistName, Is.EqualTo("Jazz (FLAC)"));
+            Assert.That(server.SourceArchiveProfileId,
+                Is.EqualTo(SyncSourceVariants.DefaultArchive));
+            Assert.That(server.PathRemapRules!["/music"], Is.EqualTo("/jellyfin/music"));
+            Assert.That(server.AllowMetadataFallback, Is.False,
+                "an archive source must not fall back to the primary item");
+        });
+    }
+
+    [Test]
+    public async Task Delete_RemovesTargetsThatUsedTheProfile()
+    {
+        var profile = new SyncRuleProfile
+        {
+            Id = "gone",
+            Name = "Gone",
+            Kind = OutputTargetType.JellyfinApi,
+        };
+        await _store.SaveAsync(profile);
+        using (var db = _factory.CreateDbContext())
+        {
+            db.SyncJobs.Add(new SyncJobEntity
+            {
+                Id = "j1",
+                Name = "Jazz",
+                TargetsJson = System.Text.Json.JsonSerializer.Serialize(new object[]
+                {
+                    new { kind = "M3uFile", m3uPath = "/out/jazz.m3u8" },
+                    new { kind = "JellyfinApi", ruleProfileId = "gone" },
+                }),
+                OutputTarget = "M3uFile",
+                Schedule = "Manual",
+            });
+            db.SaveChanges();
+        }
+
+        Assert.That(await _store.DeleteAsync(profile.Id), Is.True);
+
+        using var check = _factory.CreateDbContext();
+        var job = check.SyncJobs.Single(j => j.Id == "j1");
+        var targets = SyncJobMapping.TargetsOf(job);
+        Assert.Multiple(() =>
+        {
+            Assert.That(targets, Has.Count.EqualTo(1));
+            Assert.That(targets[0].Kind, Is.EqualTo(OutputTargetType.M3uFile));
+            Assert.That(targets[0].M3uPath, Is.EqualTo("/out/jazz.m3u8"));
+        });
+    }
+
+    [Test]
+    public void ResolvePlaylistName_ExpandsTheJobToken()
+    {
+        var profile = new SyncRuleProfile { PlaylistNamePattern = "{job} (FLAC)" };
+        Assert.That(SyncRuleProfileStore.ResolvePlaylistName(profile, "Jazz"),
+            Is.EqualTo("Jazz (FLAC)"));
     }
 
     [Test]

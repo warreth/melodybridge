@@ -287,6 +287,53 @@ public class QuickSyncJobsTests
     }
 
     [Test]
+    public async Task Create_WithPublishProfiles_UsesPerProfileRules()
+    {
+        await SeedPlaylistsAsync(("p1", "Jazz"));
+        await SeedProfileAsync("px1", "Home Jellyfin", "Jellyfin");
+        var rules = new SyncRuleProfileStore(_factory);
+        var m3u = new SyncRuleProfile
+        {
+            Id = "m3u",
+            Name = "M3U",
+            Kind = OutputTargetType.M3uFile,
+            M3uOutputFolder = "/out",
+            M3uFileNamePattern = "{job}.m3u8",
+        };
+        var jellyfin = new SyncRuleProfile
+        {
+            Id = "jf",
+            Name = "Jellyfin",
+            Kind = OutputTargetType.JellyfinApi,
+            MediaServerProfileId = "px1",
+            PlaylistNamePattern = "{job} (JF)",
+        };
+        await rules.SaveAsync(m3u);
+        await rules.SaveAsync(jellyfin);
+
+        var result = await QuickSyncJobs.CreateAsync(
+            _factory, rules, new[] { ("p1", "Jazz") },
+            new[] { m3u.Id, jellyfin.Id }, ScanSchedule.Manual);
+
+        Assert.That(result.Created, Has.Count.EqualTo(1));
+        await using var db = _factory.CreateDbContext();
+        var job = db.SyncJobs.Single();
+        var targets = SyncJobMapping.TargetsOf(job);
+        Assert.Multiple(() =>
+        {
+            Assert.That(job.RuleProfileId, Is.EqualTo("m3u"),
+                "the legacy mirror keeps the first M3U profile");
+            var file = targets.Single(t => t.Kind == OutputTargetType.M3uFile);
+            Assert.That(file.RuleProfileId, Is.EqualTo("m3u"));
+            Assert.That(file.M3uPath, Is.EqualTo(Path.Combine("/out", "Jazz.m3u8")));
+            var server = targets.Single(t => t.Kind == OutputTargetType.JellyfinApi);
+            Assert.That(server.RuleProfileId, Is.EqualTo("jf"));
+            Assert.That(server.ProfileId, Is.EqualTo("px1"));
+            Assert.That(server.PlaylistName, Is.EqualTo("Jazz (JF)"));
+        });
+    }
+
+    [Test]
     public async Task Create_WithRuleProfile_LinksTheJobAndUsesItsRules()
     {
         await SeedPlaylistsAsync(("p1", "Jazz Classics"));

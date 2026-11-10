@@ -469,7 +469,7 @@ public class SettingsPageTests
             Assert.That(cut.Markup, Does.Contain("No profiles yet"),
                 "a fresh database shows the empty state"), TimeSpan.FromSeconds(3));
 
-        cut.FindAll("button").First(b => b.TextContent.Trim() == "Add profile").Click();
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Add connection").Click();
 
         var name = cut.Find("input[placeholder='Living room Jellyfin']");
         name.Change("Main server");
@@ -497,7 +497,7 @@ public class SettingsPageTests
         var cut = _ctx.Render<Settings>();
         cut.FindAll("button.tab-link").First(b => b.TextContent == "Media servers").Click();
 
-        cut.FindAll("button").First(b => b.TextContent.Trim() == "Add profile").Click();
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Add connection").Click();
         cut.Find("input[placeholder='Living room Jellyfin']").Change("Main server");
         cut.Find("input[placeholder='http://jellyfin:8096']").Change("http://media:8096");
         cut.Find("input[placeholder='jellyfin user']").Change("mbadmin");
@@ -532,7 +532,7 @@ public class SettingsPageTests
         var cut = _ctx.Render<Settings>();
         cut.FindAll("button.tab-link").First(b => b.TextContent == "Media servers").Click();
 
-        cut.FindAll("button").First(b => b.TextContent.Trim() == "Add profile").Click();
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Add connection").Click();
         cut.Find("input[placeholder='Living room Jellyfin']").Change("Main server");
         cut.Find("input[placeholder='http://jellyfin:8096']").Change("http://media:8096");
 
@@ -924,7 +924,7 @@ public class SettingsPageTests
                 "the #quality fragment opens the quality tab");
             Assert.That(cut.Markup, Does.Contain("Space Saver"),
                 "the quality tab carries the preset dropdown");
-            Assert.That(cut.Markup, Does.Not.Contain("Media server profiles"),
+            Assert.That(cut.Markup, Does.Not.Contain("Media server connections"),
                 "and not the media servers tab");
         }, TimeSpan.FromSeconds(3));
     }

@@ -170,6 +170,166 @@ public class SyncJobRunnerTests
     }
 
     [Test]
+    public async Task RunJob_PerTargetProfiles_WriteTheirOwnRemaps()
+    {
+        var dbPath = NewDbPath();
+        var dir = Path.Combine(Path.GetTempPath(), $"mb-job-{Guid.NewGuid():N}");
+        var firstPath = Path.Combine(dir, "first.m3u8");
+        var secondPath = Path.Combine(dir, "second.m3u8");
+        try
+        {
+            var factory = await NewDbFactory(dbPath);
+            await SeedPlaylistAsync(factory, dir);
+            var runner = NewRunner(factory);
+            var job = new SyncJob
+            {
+                Id = "job-targets",
+                Name = "Job Playlist",
+                SourceId = "pl-job",
+                Targets = new List<SyncTarget>
+                {
+                    new(OutputTargetType.M3uFile, M3uPath: firstPath,
+                        RuleProfileId: "a",
+                        PathRemapRules: new() { [dir] = "/first" }),
+                    new(OutputTargetType.M3uFile, M3uPath: secondPath,
+                        RuleProfileId: "b",
+                        PathRemapRules: new() { [dir] = "/second" }),
+                },
+            };
+
+            var log = await runner.RunJobAsync(job);
+
+            var first = await System.IO.File.ReadAllLinesAsync(firstPath);
+            var second = await System.IO.File.ReadAllLinesAsync(secondPath);
+            Assert.Multiple(() =>
+            {
+                Assert.That(log.Status, Is.EqualTo(SyncStatus.Completed));
+                Assert.That(first.Count(l => l.StartsWith("/first")), Is.EqualTo(2));
+                Assert.That(second.Count(l => l.StartsWith("/second")), Is.EqualTo(2));
+            });
+        }
+        finally
+        {
+            TryDelete(dbPath);
+            try { Directory.Delete(dir, recursive: true); } catch { /* best effort */ }
+        }
+    }
+
+    [Test]
+    public async Task RunJob_ArchiveSource_WritesOnlyTracksWithThatCopy()
+    {
+        var dbPath = NewDbPath();
+        var dir = Path.Combine(Path.GetTempPath(), $"mb-job-{Guid.NewGuid():N}");
+        var archiveDir = Path.Combine(dir, "archive");
+        Directory.CreateDirectory(archiveDir);
+        var archiveA = Path.Combine(archiveDir, "a.flac");
+        await System.IO.File.WriteAllTextAsync(archiveA, "x");
+        var m3uPath = Path.Combine(dir, "archive.m3u8");
+        try
+        {
+            var factory = await NewDbFactory(dbPath);
+            await SeedPlaylistAsync(factory, dir);
+            await using (var db = await factory.CreateDbContextAsync())
+            {
+                var trackA = await db.Tracks.SingleAsync(t => t.MelodyId == "mel-a");
+                db.TrackArchiveCopies.Add(new TrackArchiveCopyEntity
+                {
+                    TrackId = trackA.Id,
+                    ProfileId = "flac",
+                    Path = archiveA,
+                });
+                await db.SaveChangesAsync();
+            }
+
+            var runner = NewRunner(factory);
+            var job = new SyncJob
+            {
+                Id = "job-archive",
+                Name = "Job Playlist",
+                SourceId = "pl-job",
+                Targets = new List<SyncTarget>
+                {
+                    new(OutputTargetType.M3uFile, M3uPath: m3uPath,
+                        RuleProfileId: "flac-profile",
+                        SourceArchiveProfileId: "flac",
+                        PathRemapRules: new() { [archiveDir] = "/archive" }),
+                },
+            };
+
+            var log = await runner.RunJobAsync(job);
+
+            var lines = await System.IO.File.ReadAllLinesAsync(m3uPath);
+            Assert.Multiple(() =>
+            {
+                Assert.That(log.Status, Is.EqualTo(SyncStatus.Completed));
+                Assert.That(lines.Count(l => l == "/archive/a.flac"), Is.EqualTo(1));
+                Assert.That(lines.Any(l => l.EndsWith("b.mp3")), Is.False,
+                    "the track without an archive copy is skipped, not replaced by the primary");
+                Assert.That(string.Join(" ", log.WarningDetails ?? new List<string>()),
+                    Does.Contain("no archive copy"));
+            });
+        }
+        finally
+        {
+            TryDelete(dbPath);
+            try { Directory.Delete(dir, recursive: true); } catch { /* best effort */ }
+        }
+    }
+
+    [Test]
+    public async Task RunJob_DefaultArchiveSource_ReadsTracksArchivePath()
+    {
+        var dbPath = NewDbPath();
+        var dir = Path.Combine(Path.GetTempPath(), $"mb-job-{Guid.NewGuid():N}");
+        var archiveDir = Path.Combine(dir, "default-archive");
+        Directory.CreateDirectory(archiveDir);
+        var archiveA = Path.Combine(archiveDir, "a.opus");
+        await System.IO.File.WriteAllTextAsync(archiveA, "x");
+        var m3uPath = Path.Combine(dir, "default.m3u8");
+        try
+        {
+            var factory = await NewDbFactory(dbPath);
+            await SeedPlaylistAsync(factory, dir);
+            await using (var db = await factory.CreateDbContextAsync())
+            {
+                var trackA = await db.Tracks.SingleAsync(t => t.MelodyId == "mel-a");
+                trackA.ArchivePath = archiveA;
+                await db.SaveChangesAsync();
+            }
+
+            var runner = NewRunner(factory);
+            var job = new SyncJob
+            {
+                Id = "job-default-archive",
+                Name = "Job Playlist",
+                SourceId = "pl-job",
+                Targets = new List<SyncTarget>
+                {
+                    new(OutputTargetType.M3uFile, M3uPath: m3uPath,
+                        RuleProfileId: "default-profile",
+                        SourceArchiveProfileId: SyncSourceVariants.DefaultArchive,
+                        PathRemapRules: new() { [archiveDir] = "/archive" }),
+                },
+            };
+
+            var log = await runner.RunJobAsync(job);
+
+            var lines = await System.IO.File.ReadAllLinesAsync(m3uPath);
+            Assert.Multiple(() =>
+            {
+                Assert.That(log.Status, Is.EqualTo(SyncStatus.Completed));
+                Assert.That(lines.Count(l => l == "/archive/a.opus"), Is.EqualTo(1));
+                Assert.That(lines.Any(l => l.EndsWith("b.mp3")), Is.False);
+            });
+        }
+        finally
+        {
+            TryDelete(dbPath);
+            try { Directory.Delete(dir, recursive: true); } catch { /* best effort */ }
+        }
+    }
+
+    [Test]
     public async Task RunJob_MultipleTargets_WritesTheM3uAndPushesEveryServer()
     {
         var dbPath = NewDbPath();

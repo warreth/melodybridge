@@ -336,7 +336,11 @@ public record PlaylistOutputOptions(
     Dictionary<string, string>? PathRemap,
     MediaServerConnection? MediaServerConnection = null,
     Dictionary<string, string>? ExtensionRemap = null,
-    M3uTextOptions? M3uText = null
+    M3uTextOptions? M3uText = null,
+    /// <summary>When false, a media server must resolve the exact path and
+    /// must not fall back to title or filename matching. Archive-source
+    /// targets use this so a missing copy never resolves the primary.</summary>
+    bool AllowMetadataFallback = true
 );
 
 /// <summary>

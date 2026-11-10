@@ -82,8 +82,8 @@ public class PlexSync : IMediaServerSync
             return;
         }
 
-        var sectionId = await FindMusicSectionAsync(baseUrl, apiKey, ct);
-        if (sectionId is null)
+        var sectionIds = await FindMusicSectionsAsync(baseUrl, apiKey, ct);
+        if (sectionIds.Count == 0)
         {
             _lastReport = new MediaServerSyncReport(0, Array.Empty<string>(), null,
                 "No music (artist-type) library section found on the Plex server.", Succeeded: false);
@@ -105,7 +105,9 @@ public class PlexSync : IMediaServerSync
                     continue;
                 }
 
-                var key = await ResolveRatingKeyAsync(baseUrl, apiKey, sectionId, lookupPath, track, ct);
+                var key = await ResolveRatingKeyAsync(
+                    baseUrl, apiKey, sectionIds, lookupPath, track,
+                    options.AllowMetadataFallback, ct);
                 if (key is null)
                 {
                     _logger.LogInformation("Could not resolve item for path {path}", lookupPath);
@@ -121,31 +123,53 @@ public class PlexSync : IMediaServerSync
         await RateAsync(baseUrl, apiKey, likedKeys, ct);
     }
 
-    private async Task<string?> FindMusicSectionAsync(string baseUrl, string apiKey, CancellationToken ct)
+    private async Task<List<string>> FindMusicSectionsAsync(
+        string baseUrl, string apiKey, CancellationToken ct)
     {
+        var sections = new List<string>();
         try
         {
             using var resp = await SendAsync(baseUrl, apiKey, "/library/sections", ct: ct);
-            if (!resp.IsSuccessStatusCode) return null;
+            if (!resp.IsSuccessStatusCode) return sections;
             using var doc = await JsonDocument.ParseAsync(await resp.Content.ReadAsStreamAsync(ct), cancellationToken: ct);
             var container = ContainerOf(doc);
-            if (container?.TryGetProperty("Directory", out var dirs) != true) return null;
+            if (container?.TryGetProperty("Directory", out var dirs) != true) return sections;
             foreach (var dir in dirs.EnumerateArray())
             {
-                if (dir.GetProperty("type").GetString() == "artist")
-                    return dir.GetProperty("key").GetString();
+                if (dir.GetProperty("type").GetString() == "artist"
+                    && dir.GetProperty("key").GetString() is { Length: > 0 } key)
+                {
+                    sections.Add(key);
+                }
             }
         }
         catch (Exception ex) { _logger.LogDebug(ex, "Plex sections lookup failed"); }
-        return null;
+        return sections;
     }
 
     /// <summary>
-    /// Resolves one local path to a Plex ratingKey by querying the music
-    /// section's tracks and matching the server-side file path.
+    /// Resolves one local path to a Plex ratingKey by querying every music
+    /// section's tracks and matching the server-side file path. A strict
+    /// lookup (archive source) only accepts the exact path, so a missing
+    /// archive copy can never resolve the primary file by filename.
     /// </summary>
     private async Task<string?> ResolveRatingKeyAsync(
-        string baseUrl, string apiKey, string sectionId, string lookupPath, Track track, CancellationToken ct)
+        string baseUrl, string apiKey, IReadOnlyList<string> sectionIds,
+        string lookupPath, Track track, bool allowMetadataFallback, CancellationToken ct)
+    {
+        foreach (var sectionId in sectionIds)
+        {
+            var key = await ResolveRatingKeyInSectionAsync(
+                baseUrl, apiKey, sectionId, lookupPath, track,
+                allowMetadataFallback, ct);
+            if (key is not null) return key;
+        }
+        return null;
+    }
+
+    private async Task<string?> ResolveRatingKeyInSectionAsync(
+        string baseUrl, string apiKey, string sectionId, string lookupPath, Track track,
+        bool allowMetadataFallback, CancellationToken ct)
     {
         var fileName = Path.GetFileName(lookupPath);
         var title = track.Title;
@@ -170,11 +194,16 @@ public class PlexSync : IMediaServerSync
                 var file = parts[0].GetProperty("file").GetString();
                 if (string.IsNullOrEmpty(file)) continue;
 
-                // Exact file match first; filename fallback.
+                // Exact file match first; filename fallback only when the
+                // target allows metadata matching.
                 if (string.Equals(file, lookupPath, StringComparison.OrdinalIgnoreCase))
                     return meta.GetProperty("ratingKey").GetString();
-                if (Path.GetFileName(file) is { } f && string.Equals(f, fileName, StringComparison.OrdinalIgnoreCase))
+                if (allowMetadataFallback
+                    && Path.GetFileName(file) is { } f
+                    && string.Equals(f, fileName, StringComparison.OrdinalIgnoreCase))
+                {
                     return meta.GetProperty("ratingKey").GetString();
+                }
             }
         }
         catch (Exception ex) { _logger.LogDebug(ex, "Plex track lookup failed for {path}", lookupPath); }

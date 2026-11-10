@@ -141,7 +141,9 @@ else if (showIntro)
                 <div>
                     <strong>Publish it</strong>
                     <p>Create a sync job that writes an M3U file or pushes the playlist to your
-                        Jellyfin, Plex or Subsonic server. Jobs can run automatically on a schedule.</p>
+                        Jellyfin, Plex or Subsonic server. Tick one publish profile per
+                        destination; each keeps its own path rules and playlist name. Jobs
+                        can run automatically on a schedule.</p>
                     <small>@(step3Done ? $"{jobsCount} job{(jobsCount == 1 ? "" : "s")} configured, last run {lastRunText}" : "No sync job yet")</small>
                 </div>
             </a>
@@ -155,6 +157,50 @@ else if (showIntro)
             </div>
         }
     </section>
+
+    @if (!IsSimple)
+    {
+    <section class="panel-card profile-guide">
+        <div class="panel-header">
+            <div>
+                <span class="eyebrow">Publishing</span>
+                <h2>Three kinds of profiles</h2>
+            </div>
+            <a class="btn-modern ghost small" href="/sync-jobs">Open publish profiles</a>
+        </div>
+        <p class="panel-description">
+            They sound alike, but each one answers a different question.
+        </p>
+        <div class="profile-explainer">
+            <div>
+                <strong>Media server connection</strong>
+                <p>One Jellyfin, Plex or Subsonic server: URL and credentials.
+                    Settings, Media servers.</p>
+            </div>
+            <div>
+                <strong>Archive profile</strong>
+                <p>One local second copy in its own folder and format. Playlists
+                    choose which copies to build. Settings, Default paths.</p>
+            </div>
+            <div>
+                <strong>Publish profile</strong>
+                <p>One destination for a sync job: an M3U file or a media server.
+                    It picks the connection, playlist name, source copy and path
+                    rules. A job can tick several.</p>
+            </div>
+        </div>
+    </section>
+    }
+    else
+    {
+    <section class="panel-card">
+        <div class="hint-box">
+            Publishing is optional. When you are ready, open Sync jobs and create
+            a publish profile for your M3U player or media server. A job can tick
+            several publish profiles, one per destination.
+        </div>
+    </section>
+    }
 
     @if (!IsSimple)
     {
@@ -872,7 +918,7 @@ else
             "Your music folders and scan locations live here. Add the paths that MelodyBridge may read; the scanner finds files that came from elsewhere.",
             "a[href='/library']"),
         new("4. Sync jobs",
-            "A sync job publishes a playlist as an M3U file or to Jellyfin, Plex or Navidrome. It can run on a schedule, and rule profiles keep the output paths and formats shared.",
+            "A sync job publishes a playlist as an M3U file or to Jellyfin, Plex or Navidrome. Tick one publish profile per destination: each keeps its own path rules, playlist name and optional archive source. Jobs can run on a schedule.",
             "a[href='/sync-jobs']"),
         new("5. Settings",
             "Connect Spotify or YouTube, add media servers, set the playlist output folder and choose the theme. Everything global lives here.",
@@ -890,10 +936,13 @@ else
         new("2. Downloads",
             "Open a playlist and press Download missing. The sources try in order until one delivers a file that passes the quality check.",
             "a[href='/downloads']"),
-        new("3. Sources",
+        new("3. Sync jobs",
+            "When you want a player or media server playlist, create a publish profile here. A job can tick several profiles, one per destination.",
+            "a[href='/sync-jobs']"),
+        new("4. Sources",
             "Most people never need to change this. The shipped sources work out of the box; open it only when a source needs a login.",
             "a[href='/plugins']"),
-        new("4. Settings",
+        new("5. Settings",
             "Set the music folder and choose a quality. Theme and account connections live here too.",
             "a[href='/settings']"),
         new("Next: the setup checklist",

@@ -104,6 +104,34 @@ public class SubsonicSyncTests
     }
 
     [Test]
+    public async Task SyncPlaylistAsync_ArchiveSource_RequiresTheExactPath()
+    {
+        var handler = new ScriptedHandler();
+        handler.On("/rest/search3", ScriptedHandler.Json(
+            """{"subsonic-response":{"status":"ok","searchResult3":{"song":[""" +
+            """{"id":"sg-primary","title":"song","artist":"Artist","path":"/media/artist/song.mp3"},""" +
+            """{"id":"sg-archive","title":"song","artist":"Artist","path":"/archive/artist/song.flac"}]}}}"""));
+        handler.On("/rest/getPlaylists", ScriptedHandler.Json(
+            """{"subsonic-response":{"status":"ok","playlists":{"playlist":[]}}}"""));
+        handler.On("/rest/createPlaylist", ScriptedHandler.Json(
+            """{"subsonic-response":{"status":"ok","playlist":{"id":"pl-7","name":"Evening mix"}}}"""));
+
+        var sync = NewSync(handler);
+        await sync.SyncPlaylistAsync(
+            PlaylistOf(Track("song", "/archive/artist/song.flac", artist: "Artist")),
+            new PlaylistOutputOptions("/tmp/out.m3u", false, null,
+                AllowMetadataFallback: false));
+
+        var create = handler.Requests.First(r => r.Url.Contains("/rest/createPlaylist"));
+        Assert.Multiple(() =>
+        {
+            Assert.That(create.Url, Does.Contain("songId=sg-archive"));
+            Assert.That(create.Url, Does.Not.Contain("sg-primary"),
+                "the primary song must not satisfy an archive target");
+        });
+    }
+
+    [Test]
     public async Task SyncPlaylistAsync_NewPlaylist_CreatesWithNameAndSongIds()
     {
         var handler = StandardRoutes();

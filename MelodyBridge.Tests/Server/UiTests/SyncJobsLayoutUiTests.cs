@@ -62,6 +62,7 @@ public class SyncJobsLayoutUiTests
         _ctx.Services.AddSingleton<IDbContextFactory<MelodyBridgeDbContext>>(dbFactory);
         _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Services.SettingsStore(dbFactory));
         _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Services.SyncRuleProfileStore(dbFactory));
+        _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Services.ArchiveProfileStore(dbFactory));
         _ctx.Services.AddSingleton(new MelodyBridge.Server.Services.NotificationService());
         _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Services.MediaServerProfileStore(
             new MelodyBridge.Infrastructure.Services.SettingsStore(dbFactory)));

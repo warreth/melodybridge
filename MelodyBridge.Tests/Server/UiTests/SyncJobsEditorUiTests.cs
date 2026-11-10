@@ -56,6 +56,8 @@ public class SyncJobsEditorUiTests
         _ctx.Services.AddSingleton<IDbContextFactory<MelodyBridgeDbContext>>(_dbFactory);
         _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Services.SettingsStore(_dbFactory));
         _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Services.SyncRuleProfileStore(_dbFactory));
+        _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Services.ArchiveProfileStore(_dbFactory));
+        _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Services.FolderBrowser(_dbFactory));
         _ctx.Services.AddSingleton(new MelodyBridge.Server.Services.NotificationService());
         _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Services.MediaServerProfileStore(
             new MelodyBridge.Infrastructure.Services.SettingsStore(_dbFactory)));
@@ -247,7 +249,7 @@ public class SyncJobsEditorUiTests
             .QuerySelector("input[type='checkbox']")!.Change(false);
         Save(cut);
 
-        Assert.That(cut.Markup, Does.Contain("Pick at least one target"));
+        Assert.That(cut.Markup, Does.Contain("Pick at least one publish profile"));
         Assert.That(cut.Markup, Does.Contain("Settings, Media servers"),
             "the empty profile list points at where a profile is created");
         Assert.That(cut.Markup, Does.Contain("href=\"/settings#media-servers\""));
@@ -432,6 +434,8 @@ public class SyncJobsEditorUiTests
         Assert.That(store.DeleteAsync("prof-dead").GetAwaiter().GetResult(), Is.True);
 
         var cut = _ctx.Render<SyncJobs>();
+        cut.WaitForAssertion(() => Assert.That(cut.Markup, Does.Contain("Stale profile")),
+            TimeSpan.FromSeconds(3));
         cut.Find("button.card-menu-trigger").Click();
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Edit").Click();
 
@@ -443,6 +447,11 @@ public class SyncJobsEditorUiTests
                 "the deleted profile has no row to tick");
         });
 
+        var profileSelect = cut.Find("select[aria-label='M3U publish profile']");
+        var defaultProfile = profileSelect.QuerySelectorAll("option")
+            .First(o => !string.IsNullOrWhiteSpace(o.GetAttribute("value")));
+        var m3uProfileId = defaultProfile.GetAttribute("value");
+        profileSelect.Change(m3uProfileId);
         TickProfile(cut, "Live");
         Save(cut);
 
@@ -456,61 +465,50 @@ public class SyncJobsEditorUiTests
             Assert.That(targets.Any(t => t.Kind == OutputTargetType.JellyfinApi
                 && t.ProfileId == "prof-live"), Is.True, "the replacement target is stored");
             Assert.That(targets.Any(t => t.Kind == OutputTargetType.M3uFile
-                && t.M3uPath == "/out/stale.m3u"), Is.True, "the other targets survive");
+                && t.RuleProfileId == m3uProfileId), Is.True,
+                "the other target survives through its profile");
         });
     }
 
     [Test]
-    public void Targets_M3uPath_PrefilledFromThePlaylistOutputFolderSetting()
+    public void Targets_M3uPath_ComesFromTheSelectedProfile()
     {
         new MelodyBridge.Infrastructure.Services.SettingsStore(_dbFactory)
             .SetAsync("playlist_path", "/srv/playlists").GetAwaiter().GetResult();
         SeedScanLocations("/music");
         SeedPlaylist("p1", "My List");
-        var cut = OpenEditor();
-        cut.FindAll("select")
-            .Single(s => s.QuerySelectorAll("option")
-                .Any(o => o.GetAttribute("value") == "p1"))
-            .Change("p1");
-        cut.Find("input[placeholder='e.g. My Summer Hits']").Input("My List");
-
-        var value = cut.Find("input[placeholder='/app/playlists/playlist.m3u8']").GetAttribute("value");
-        Assert.That(value, Is.EqualTo("/srv/playlists/My List.m3u8"),
-            "the Playlist output folder setting names the folder, the job name the file");
-    }
-
-    [Test]
-    public void Targets_M3uPath_PrefillAvoidsAnExistingJobPath()
-    {
-        new MelodyBridge.Infrastructure.Services.SettingsStore(_dbFactory)
-            .SetAsync("playlist_path", "/srv/playlists").GetAwaiter().GetResult();
-        SeedScanLocations("/music");
-        SeedPlaylist("p1", "My List");
-        using (var db = _dbFactory.CreateDbContext())
+        var store = new MelodyBridge.Infrastructure.Services.SyncRuleProfileStore(_dbFactory);
+        store.SaveAsync(new SyncRuleProfile
         {
-            db.SyncJobs.Add(new SyncJobEntity
-            {
-                Id = "job-existing",
-                Name = "Existing",
-                SourceId = "p1",
-                SearchLocationPaths = "[]",
-                OutputTarget = "M3uFile",
-                M3uOutputPath = "/srv/playlists/My List.m3u8",
-                Schedule = "Manual",
-            });
-            db.SaveChanges();
-        }
+            Id = "living",
+            Name = "Living room",
+            Kind = OutputTargetType.M3uFile,
+            M3uOutputFolder = "/srv/playlists",
+            M3uFileNamePattern = "{job}.m3u8",
+        }).GetAwaiter().GetResult();
+        store.SaveAsync(new SyncRuleProfile
+        {
+            Id = "car",
+            Name = "Car",
+            Kind = OutputTargetType.M3uFile,
+            M3uOutputFolder = "/car",
+            M3uFileNamePattern = "{job}.m3u8",
+        }).GetAwaiter().GetResult();
 
-        var cut = OpenEditor();
-        cut.FindAll("select")
-            .Single(s => s.QuerySelectorAll("option")
-                .Any(o => o.GetAttribute("value") == "p1"))
-            .Change("p1");
+        var cut = OpenEditorWithPlaylistSource();
         cut.Find("input[placeholder='e.g. My Summer Hits']").Input("My List");
 
-        var value = cut.Find("input[placeholder='/app/playlists/playlist.m3u8']").GetAttribute("value");
-        Assert.That(value, Is.EqualTo("/srv/playlists/My List (2).m3u8"),
-            "the prefill does not reuse a path another job already writes");
+        string OutputPath() => cut.FindAll("input[readonly]")
+            .First(i => i.GetAttribute("value")?.EndsWith(".m3u8") == true)
+            .GetAttribute("value")!;
+
+        cut.Find("select[aria-label='M3U publish profile']").Change("living");
+        Assert.That(OutputPath(), Is.EqualTo("/srv/playlists/My List.m3u8"),
+            "the chosen M3U profile owns the folder and the job name fills the file");
+
+        cut.Find("select[aria-label='M3U publish profile']").Change("car");
+        Assert.That(OutputPath(), Is.EqualTo("/car/My List.m3u8"),
+            "another profile brings its own folder and file name");
     }
 
     // -- C3: multiple remap rules -----------------------------------
@@ -525,10 +523,10 @@ public class SyncJobsEditorUiTests
     }
 
     [Test]
-    public void Rules_TwoPathRulesAndOneExtRule_SaveStoresDictionaries()
+    public void Rules_ProfileEditor_SavesTwoPathRulesAndOneExtRule()
     {
         var cut = OpenEditorWithPlaylistSource();
-        cut.Find("details.quick-advanced").SetAttribute("open", "open");
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Edit rules").Click();
 
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Add path rule").Click();
         cut.FindAll("input[placeholder='/music']")[0].Input("/from/one");
@@ -541,19 +539,19 @@ public class SyncJobsEditorUiTests
         cut.FindAll("input[placeholder='.flac']")[0].Input(".flac");
         cut.FindAll("input[placeholder='.mp3']")[0].Input(".opus");
 
-        Save(cut);
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Save profile").Click();
 
         using var db = _dbFactory.CreateDbContext();
-        var job = db.SyncJobs.AsNoTracking().Single();
+        var profile = db.SyncRuleProfiles.AsNoTracking().Single(p => p.Kind == "M3uFile");
         var paths = System.Text.Json.JsonSerializer
-            .Deserialize<Dictionary<string, string>>(job.PathRemapRules);
+            .Deserialize<Dictionary<string, string>>(profile.PathRemapRules);
         Assert.That(paths, Is.EqualTo(new Dictionary<string, string>
         {
             ["/from/one"] = "/to/one",
             ["/from/two"] = "/to/two",
         }));
         var exts = System.Text.Json.JsonSerializer
-            .Deserialize<Dictionary<string, string>>(job.ExtensionRemapRules);
+            .Deserialize<Dictionary<string, string>>(profile.ExtensionRemapRules);
         Assert.That(exts, Is.EqualTo(new Dictionary<string, string> { [".flac"] = ".opus" }));
     }
 
@@ -607,10 +605,9 @@ public class SyncJobsEditorUiTests
             .SaveAsync(profile).GetAwaiter().GetResult();
 
         var cut = OpenEditorWithPlaylistSource();
-        cut.Find("select[aria-label='Rule profile']").Change(profile.Id);
+        cut.Find("select[aria-label='M3U publish profile']").Change(profile.Id);
 
-        Assert.That(cut.Find("details.quick-advanced").TextContent,
-            Does.Contain("Path and extension rules come from Living room"));
+        Assert.That(cut.Markup, Does.Contain("Living room"));
         Assert.That(cut.Markup, Does.Not.Contain("Add path rule"),
             "a linked profile replaces the per-job remap editors");
     }

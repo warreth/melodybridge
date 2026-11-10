@@ -50,6 +50,22 @@
 .login-issue span { color: var(--muted); font-size: .78rem; line-height: 1.4; overflow-wrap: anywhere; }
 .login-issue .btn-modern { flex-shrink: 0; margin-left: auto; }
 
+/* First-run profile explainer: connection, archive and publish profiles. */
+.profile-guide { margin-top: 1rem; }
+.profile-explainer {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: .6rem;
+}
+.profile-explainer > div {
+    padding: .7rem .8rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface-2);
+}
+.profile-explainer strong { display: block; margin-bottom: .2rem; font-size: .86rem; }
+.profile-explainer p { margin: 0; color: var(--muted); font-size: .78rem; line-height: 1.45; }
+
 /* First-run lossless sources: direct links to the three token flows. */
 .lossless-setup { margin-top: 1rem; }
 .lossless-links {

@@ -492,18 +492,14 @@ public class PlaylistsPageTests
             .Single(o => o.TextContent.Contains("Jazz Classics"))
             .QuerySelector("input")!.Change(true);
         cut.FindAll(".publish-option")
-            .Single(o => o.TextContent.Contains("M3U file"))
+            .Single(o => o.TextContent.Contains("Living room"))
             .QuerySelector("input")!.Change(true);
 
         cut.WaitForAssertion(() =>
         {
-            Assert.That(cut.Markup, Does.Contain("M3U rule profile"));
-            Assert.That(cut.Find("select[aria-label='Rule profile for quick publish']")
-                .GetAttribute("value"), Is.EqualTo("rules-1"),
-                "the first profile is the ready default, not a hidden folder");
             Assert.That(cut.Markup, Does.Contain("Living room"));
-            Assert.That(cut.Markup, Does.Contain("One file per playlist through"),
-                "the M3U row names the selected profile");
+            Assert.That(cut.Markup, Does.Contain("/srv/playlists"),
+                "the M3U profile row names its folder");
         }, TimeSpan.FromSeconds(3));
 
         cut.FindAll("button").Single(b => b.TextContent.Contains("Create 1 sync job")).Click();
@@ -516,6 +512,7 @@ public class PlaylistsPageTests
                 "the created job follows the chosen profile");
             var file = MelodyBridge.Infrastructure.Services.SyncJobMapping
                 .TargetsOf(job).Single(t => t.Kind == OutputTargetType.M3uFile);
+            Assert.That(file.RuleProfileId, Is.EqualTo("rules-1"));
             Assert.That(file.M3uPath,
                 Is.EqualTo(Path.Combine("/srv/playlists", "Jazz Classics.m3u8")),
                 "the profile's folder and pattern name the file");
@@ -1267,20 +1264,22 @@ public class PlaylistsPageTests
 
         cut.WaitForAssertion(() =>
         {
-            Assert.That(cut.Markup, Does.Contain("M3U file"),
-                "the quick publish dialog offers an M3U target");
+            Assert.That(cut.Markup, Does.Contain("Default M3U"),
+                "the quick publish dialog offers the default M3U publish profile");
+            Assert.That(cut.Markup, Does.Contain("Home Jellyfin"),
+                "the media server publish profile is offered too");
             Assert.That(cut.Markup, Does.Contain("Schedule for every job"),
                 "one schedule applies to every created job");
-            Assert.That(cut.Find("a[href='/settings#media-servers']").TextContent,
-                Does.Contain("Add profile"),
-                "a missing profile can be created without hunting through Settings");
+            Assert.That(cut.Find("a[href='/sync-jobs']").TextContent,
+                Does.Contain("Manage profiles"),
+                "profiles can be managed without hunting through Settings");
         }, TimeSpan.FromSeconds(3));
 
         cut.FindAll(".publish-option")
             .Single(o => o.TextContent.Contains("Jazz Classics"))
             .QuerySelector("input")!.Change(true);
         cut.FindAll(".publish-option")
-            .Single(o => o.TextContent.Contains("M3U file"))
+            .Single(o => o.TextContent.Contains("Default M3U"))
             .QuerySelector("input")!.Change(true);
         cut.Find(".publish-schedule select").Change("Weekly");
         cut.FindAll("button").Single(b => b.TextContent.Contains("Create 1 sync job")).Click();

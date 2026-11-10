@@ -14,49 +14,67 @@ public static class SyncJobMapping
     /// <summary>The domain job for one stored row. A linked rule profile
     /// overrides the M3U path, text format and remap rules.</summary>
     public static SyncJob MapToDomain(SyncJobEntity entity, SyncRuleProfile? ruleProfile = null)
+        => MapToDomain(entity,
+            ruleProfile is null ? null : new[] { ruleProfile },
+            useSingleAsLegacy: true);
+
+    /// <summary>The domain job for one stored row, resolving every target's
+    /// own publish profile. A target without a profile keeps the legacy
+    /// job-level fallback, so old jobs run unchanged until edited.</summary>
+    public static SyncJob MapToDomain(
+        SyncJobEntity entity, IReadOnlyList<SyncRuleProfile>? ruleProfiles)
+        => MapToDomain(entity, ruleProfiles, useSingleAsLegacy: false);
+
+    private static SyncJob MapToDomain(
+        SyncJobEntity entity,
+        IReadOnlyList<SyncRuleProfile>? ruleProfiles,
+        bool useSingleAsLegacy)
     {
         List<string>? searchPaths = null;
         try { searchPaths = JsonSerializer.Deserialize<List<string>>(entity.SearchLocationPaths ?? "[]"); } catch { }
-        var remapRules = new Dictionary<string, string>();
-        try { remapRules = JsonSerializer.Deserialize<Dictionary<string, string>>(entity.PathRemapRules ?? "{}") ?? new(); } catch { }
-        var extRules = new Dictionary<string, string>();
-        try { extRules = JsonSerializer.Deserialize<Dictionary<string, string>>(entity.ExtensionRemapRules ?? "{}") ?? new(); } catch { }
 
-        var targets = TargetsOf(entity);
-        var m3uPath = entity.M3uOutputPath;
-        var relative = entity.M3uRelativePaths;
-        var crlf = entity.M3uCrlf;
-        var backslashes = entity.M3uBackslashes;
-        var bom = entity.M3uBom;
-        if (ruleProfile is not null)
-        {
-            m3uPath = SyncRuleProfileStore.ResolveOutputPath(ruleProfile, entity.Name);
-            targets = targets
-                .Select(t => t.Kind == OutputTargetType.M3uFile ? t with { M3uPath = m3uPath } : t)
-                .ToList();
-            relative = ruleProfile.M3uRelativePaths;
-            crlf = ruleProfile.M3uCrlf;
-            backslashes = ruleProfile.M3uBackslashes;
-            bom = ruleProfile.M3uBom;
-            remapRules = ruleProfile.PathRemapRules;
-            extRules = ruleProfile.ExtensionRemapRules;
-        }
+        var profiles = ruleProfiles?
+            .GroupBy(p => p.Id, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal)
+            ?? new Dictionary<string, SyncRuleProfile>(StringComparer.Ordinal);
+
+        SyncRuleProfile? legacyProfile = null;
+        if (!string.IsNullOrWhiteSpace(entity.RuleProfileId))
+            profiles.TryGetValue(entity.RuleProfileId, out legacyProfile);
+        // The single-profile overload is the legacy path: callers hand the
+        // job's profile directly without mirroring it onto the row. The
+        // list overload never guesses, so the editor can show a legacy
+        // target and ask for a profile instead of silently adopting one.
+        if (useSingleAsLegacy && legacyProfile is null && ruleProfiles is { Count: 1 })
+            legacyProfile = ruleProfiles[0];
+
+        var targets = TargetsOf(entity)
+            .Select(target => ResolveTarget(target, entity, profiles, legacyProfile))
+            .ToList();
+
+        // The job-level columns mirror the first M3U target, or the first
+        // target when the job has no M3U output. The runner reads the
+        // target itself; these stay for older readers and the preview.
+        var m3uTarget = targets.FirstOrDefault(t => t.Kind == OutputTargetType.M3uFile);
+        var first = m3uTarget ?? targets.FirstOrDefault();
+        var remapRules = first?.PathRemapRules ?? new Dictionary<string, string>();
+        var extRules = first?.ExtensionRemapRules ?? new Dictionary<string, string>();
 
         return new SyncJob
         {
             Id = entity.Id,
             Name = entity.Name ?? "",
             SourceId = entity.SourceId,
-            RuleProfileId = ruleProfile?.Id ?? entity.RuleProfileId,
-            RuleProfileName = ruleProfile?.Name,
+            RuleProfileId = legacyProfile?.Id ?? entity.RuleProfileId,
+            RuleProfileName = legacyProfile?.Name,
             SearchLocationPaths = searchPaths ?? new(),
             Targets = targets,
             OutputTarget = Enum.TryParse<OutputTargetType>(entity.OutputTarget, true, out var ot) ? ot : OutputTargetType.M3uFile,
-            M3uOutputPath = m3uPath,
-            M3uRelativePaths = relative,
-            M3uCrlf = crlf,
-            M3uBackslashes = backslashes,
-            M3uBom = bom,
+            M3uOutputPath = m3uTarget?.M3uPath,
+            M3uRelativePaths = m3uTarget?.M3uRelativePaths ?? false,
+            M3uCrlf = m3uTarget?.M3uCrlf ?? false,
+            M3uBackslashes = m3uTarget?.M3uBackslashes ?? false,
+            M3uBom = m3uTarget?.M3uBom ?? false,
             JellyfinServerUrl = entity.JellyfinServerUrl,
             JellyfinApiKey = entity.JellyfinApiKey,
             JellyfinUserId = entity.JellyfinUserId,
@@ -67,6 +85,69 @@ public static class SyncJobMapping
             CronExpression = entity.CronExpression,
             LastRunAt = entity.LastRunAt,
             LastRunSummary = entity.LastRunSummary,
+        };
+    }
+
+    /// <summary>
+    /// Resolves one stored target against its publish profile. A profile
+    /// wins over the target's stored kind and connection; the target keeps
+    /// the profile id so the UI can show which profile owns it.
+    /// </summary>
+    private static SyncTarget ResolveTarget(
+        SyncTarget target,
+        SyncJobEntity entity,
+        IReadOnlyDictionary<string, SyncRuleProfile> profiles,
+        SyncRuleProfile? legacyProfile)
+    {
+        SyncRuleProfile? profile = null;
+        if (!string.IsNullOrWhiteSpace(target.RuleProfileId))
+            profiles.TryGetValue(target.RuleProfileId, out profile);
+
+        // A legacy M3U target is still owned by the job-level profile.
+        if (profile is null && target.Kind == OutputTargetType.M3uFile
+            && string.IsNullOrWhiteSpace(target.RuleProfileId))
+        {
+            profile = legacyProfile;
+        }
+
+        if (profile is null)
+        {
+            // Legacy target: the job's own values are the fallback.
+            return target with
+            {
+                PathRemapRules = ReadRules(entity.PathRemapRules),
+                ExtensionRemapRules = ReadRules(entity.ExtensionRemapRules),
+                M3uRelativePaths = target.M3uRelativePaths || entity.M3uRelativePaths,
+                M3uCrlf = target.M3uCrlf || entity.M3uCrlf,
+                M3uBackslashes = target.M3uBackslashes || entity.M3uBackslashes,
+                M3uBom = target.M3uBom || entity.M3uBom,
+                AllowMetadataFallback = true,
+            };
+        }
+
+        var kind = profile.Kind;
+        var m3uPath = target.M3uPath;
+        if (kind == OutputTargetType.M3uFile)
+            m3uPath = SyncRuleProfileStore.ResolveOutputPath(profile, entity.Name ?? "");
+
+        return target with
+        {
+            Kind = kind,
+            ProfileId = kind == OutputTargetType.M3uFile
+                ? null
+                : profile.MediaServerProfileId ?? target.ProfileId,
+            M3uPath = m3uPath,
+            RuleProfileId = profile.Id,
+            RuleProfileName = profile.Name,
+            SourceArchiveProfileId = profile.SourceArchiveProfileId,
+            PlaylistName = SyncRuleProfileStore.ResolvePlaylistName(profile, entity.Name ?? ""),
+            PathRemapRules = profile.PathRemapRules,
+            ExtensionRemapRules = profile.ExtensionRemapRules,
+            M3uRelativePaths = profile.M3uRelativePaths,
+            M3uCrlf = profile.M3uCrlf,
+            M3uBackslashes = profile.M3uBackslashes,
+            M3uBom = profile.M3uBom,
+            AllowMetadataFallback = string.IsNullOrWhiteSpace(profile.SourceArchiveProfileId),
         };
     }
 
@@ -88,7 +169,12 @@ public static class SyncJobMapping
                     var targets = stored
                         .Where(t => Enum.TryParse<OutputTargetType>(t.Kind, true, out _))
                         .Select(t => new SyncTarget(
-                            Enum.Parse<OutputTargetType>(t.Kind, true), t.ProfileId, t.M3uPath))
+                            Enum.Parse<OutputTargetType>(t.Kind, true),
+                            t.ProfileId,
+                            t.M3uPath,
+                            t.RuleProfileId,
+                            SourceArchiveProfileId: t.SourceArchiveProfileId,
+                            PlaylistName: t.PlaylistName))
                         .ToList();
                     if (targets.Count > 0) return targets;
                 }
@@ -122,11 +208,15 @@ public static class SyncJobMapping
             .Where(t => t.Kind == OutputTargetType.M3uFile
                 ? !string.IsNullOrWhiteSpace(t.M3uPath)
                 : true)
-            .DistinctBy(t => (t.Kind, t.ProfileId ?? "", t.M3uPath ?? ""))
+            .DistinctBy(t => (t.Kind, t.ProfileId ?? "", t.M3uPath ?? "",
+                t.RuleProfileId ?? "", t.SourceArchiveProfileId ?? "",
+                t.PlaylistName ?? ""))
             .ToList();
 
         entity.TargetsJson = JsonSerializer.Serialize(
-            list.Select(t => new StoredTarget(t.Kind.ToString(), t.ProfileId, t.M3uPath)),
+            list.Select(t => new StoredTarget(
+                t.Kind.ToString(), t.ProfileId, t.M3uPath, t.RuleProfileId,
+                t.SourceArchiveProfileId, t.PlaylistName)),
             JsonOptions);
 
         var first = list.FirstOrDefault();
@@ -136,13 +226,32 @@ public static class SyncJobMapping
             .FirstOrDefault(t => t.Kind != OutputTargetType.M3uFile)?.ProfileId;
     }
 
+    private static Dictionary<string, string> ReadRules(string? json)
+    {
+        try
+        {
+            return JsonSerializer.Deserialize<Dictionary<string, string>>(json ?? "{}", JsonOptions)
+                ?? new();
+        }
+        catch (JsonException)
+        {
+            return new();
+        }
+    }
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         PropertyNameCaseInsensitive = true,
     };
 
-    private sealed record StoredTarget(string Kind, string? ProfileId, string? M3uPath);
+    private sealed record StoredTarget(
+        string Kind,
+        string? ProfileId,
+        string? M3uPath,
+        string? RuleProfileId = null,
+        string? SourceArchiveProfileId = null,
+        string? PlaylistName = null);
 
     /// <summary>
     /// The schedule a job runs on: the named presets resolve to their cron

@@ -120,6 +120,10 @@ public class MelodyBridgeDbContext : DbContext
             e.HasKey(p => p.Id);
             e.Property(p => p.Id).HasMaxLength(64);
             e.Property(p => p.Name).HasMaxLength(256);
+            e.Property(p => p.Kind).HasMaxLength(32);
+            e.Property(p => p.MediaServerProfileId).HasMaxLength(64);
+            e.Property(p => p.PlaylistNamePattern).HasMaxLength(256);
+            e.Property(p => p.SourceArchiveProfileId).HasMaxLength(64);
             e.Property(p => p.M3uOutputFolder).HasMaxLength(1024);
             e.Property(p => p.M3uFileNamePattern).HasMaxLength(256);
             e.Property(p => p.PathRemapRules).HasMaxLength(8192);
@@ -454,6 +458,12 @@ public class SyncRuleProfileEntity
 {
     public string Id { get; set; } = Guid.NewGuid().ToString();
     public string Name { get; set; } = string.Empty;
+    /// <summary>Destination kind: M3uFile, JellyfinApi, PlexApi or
+    /// SubsonicApi. Older rows default to M3uFile.</summary>
+    public string Kind { get; set; } = "M3uFile";
+    public string? MediaServerProfileId { get; set; }
+    public string PlaylistNamePattern { get; set; } = "{job}";
+    public string? SourceArchiveProfileId { get; set; }
     public string M3uOutputFolder { get; set; } = "/app/playlists";
     /// <summary>File name pattern; {job} and {playlist} expand to the job name.</summary>
     public string M3uFileNamePattern { get; set; } = "{job}.m3u8";

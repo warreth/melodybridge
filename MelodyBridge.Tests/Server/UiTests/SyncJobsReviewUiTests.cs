@@ -40,6 +40,8 @@ public class SyncJobsReviewUiTests
         _ctx.Services.AddSingleton<IDbContextFactory<MelodyBridgeDbContext>>(_dbFactory);
         _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Services.SettingsStore(_dbFactory));
         _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Services.SyncRuleProfileStore(_dbFactory));
+        _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Services.ArchiveProfileStore(_dbFactory));
+        _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Services.FolderBrowser(_dbFactory));
         _ctx.Services.AddSingleton(new MelodyBridge.Server.Services.NotificationService());
         _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Services.MediaServerProfileStore(
             new MelodyBridge.Infrastructure.Services.SettingsStore(_dbFactory)));
@@ -129,15 +131,13 @@ public class SyncJobsReviewUiTests
         var cut = OpenEditorWithPlaylistSource();
         cut.Find("input[placeholder='e.g. My Summer Hits']").Input("My Summer Hits");
 
-        var preset = cut.FindAll("select")
-            .Single(s => s.TextContent.Contains("Widest compatibility"));
-        var path = cut.Find("input[placeholder='/app/playlists/playlist.m3u8']");
+        var path = cut.FindAll("input[readonly]")
+            .First(i => i.GetAttribute("value")?.EndsWith(".m3u8") == true);
         Assert.Multiple(() =>
         {
-            Assert.That(preset.GetAttribute("value"), Is.EqualTo("widest"));
-            Assert.That(path.GetAttribute("value"), Does.EndWith(".m3u8"));
+            Assert.That(path.GetAttribute("value"), Does.EndWith("My Summer Hits.m3u8"));
             Assert.That(cut.Markup, Does.Not.Contain("Windows line endings (CRLF)"),
-                "a preset hides the individual switches");
+                "the profile owns the text format; the job editor does not repeat it");
         });
 
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Create sync job").Click();
@@ -158,31 +158,32 @@ public class SyncJobsReviewUiTests
     }
 
     [Test]
-    public void CarPreset_SavesBackslashes()
+    public void CarPreset_IsSavedOnThePublishProfile()
     {
         var cut = OpenEditorWithPlaylistSource();
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Edit rules").Click();
         cut.FindAll("select")
             .Single(s => s.TextContent.Contains("Widest compatibility"))
             .Change("car");
         Assert.That(cut.Markup, Does.Contain("backslashes"));
 
-        cut.FindAll("button").First(b => b.TextContent.Trim() == "Create sync job").Click();
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Save profile").Click();
 
         cut.WaitForAssertion(() =>
         {
             using var db = _dbFactory.CreateDbContext();
-            var job = db.SyncJobs.Single();
+            var profile = db.SyncRuleProfiles.Single(p => p.Kind == "M3uFile");
             Assert.Multiple(() =>
             {
-                Assert.That(job.M3uCrlf, Is.True);
-                Assert.That(job.M3uBom, Is.True);
-                Assert.That(job.M3uBackslashes, Is.True);
+                Assert.That(profile.M3uCrlf, Is.True);
+                Assert.That(profile.M3uBom, Is.True);
+                Assert.That(profile.M3uBackslashes, Is.True);
             });
         }, TimeSpan.FromSeconds(3));
     }
 
     [Test]
-    public void EditingLegacyJob_ShowsThePlainPreset()
+    public void EditingLegacyJob_ShowsTheLegacyTargetAndAsksForAProfile()
     {
         using (var db = _dbFactory.CreateDbContext())
         {
@@ -210,10 +211,12 @@ public class SyncJobsReviewUiTests
         cut.Find("button.card-menu-trigger").Click();
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Edit").Click();
 
-        var preset = cut.FindAll("select")
-            .Single(s => s.TextContent.Contains("Widest compatibility"));
-        Assert.That(preset.GetAttribute("value"), Is.EqualTo("plain"),
-            "a job from before the options existed keeps its old format");
+        Assert.Multiple(() =>
+        {
+            Assert.That(cut.Markup, Does.Contain("legacy target"));
+            Assert.That(cut.Markup, Does.Contain("Choose a profile"));
+            Assert.That(cut.Markup, Does.Contain("Convert to a profile"));
+        });
     }
 
     [Test]

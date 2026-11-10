@@ -102,13 +102,14 @@ public class SyncJobsProfilesUiTests
 
         cut.Find("input[placeholder='e.g. My Summer Hits']").Input("Jazz quick");
         cut.FindAll("select").First(s => s.TextContent.Contains("Jazz Classics")).Change("p1");
-        cut.Find("input[placeholder='/app/playlists/playlist.m3u8']").Input("/out/jazz.m3u8");
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Create sync job").Click();
 
         await WaitForJobAsync("Jazz quick");
         using var db = _factory.CreateDbContext();
         var job = db.SyncJobs.Single(j => j.Name == "Jazz quick");
-        Assert.That(SyncJobMapping.TargetsOf(job).Single().M3uPath, Is.EqualTo("/out/jazz.m3u8"));
+        Assert.That(SyncJobMapping.TargetsOf(job).Single().M3uPath,
+            Is.EqualTo("/app/playlists/Jazz quick.m3u8"),
+            "the default publish profile owns the path");
     }
 
     [Test]
@@ -134,6 +135,10 @@ public class SyncJobsProfilesUiTests
         cut.WaitForAssertion(() => Assert.That(cut.FindAll(".job-quick-modal").Count, Is.EqualTo(1)),
             TimeSpan.FromSeconds(3));
         cut.Find("input[placeholder='e.g. My Summer Hits']").Input("New name");
+        var profileSelect = cut.Find("select[aria-label='M3U publish profile']");
+        var defaultProfile = profileSelect.QuerySelectorAll("option")
+            .First(o => !string.IsNullOrWhiteSpace(o.GetAttribute("value")));
+        profileSelect.Change(defaultProfile.GetAttribute("value"));
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Save changes").Click();
 
         await WaitForAssertionAsync(() =>
@@ -159,7 +164,7 @@ public class SyncJobsProfilesUiTests
         cut.FindAll("button").First(b => b.TextContent.Trim().Contains("New sync job")).Click();
 
         cut.Find("input[placeholder='e.g. My Summer Hits']").Input("Jazz");
-        cut.Find("select[aria-label='Rule profile']").Change(profile.Id);
+        cut.Find("select[aria-label='M3U publish profile']").Change(profile.Id);
 
         var output = cut.FindAll("input").First(i => i.GetAttribute("readonly") is not null
             && (i.GetAttribute("value") ?? "").Contains("playlists"));
@@ -171,9 +176,9 @@ public class SyncJobsProfilesUiTests
     public async Task RuleProfilesTab_CreateProfile_Persists()
     {
         var cut = RenderPage();
-        cut.FindAll("button").First(b => b.TextContent.Contains("Rule profiles")).Click();
-        cut.FindAll("button").First(b => b.TextContent.Contains("New rule profile")).Click();
-        cut.Find("input[placeholder='Living room player']").Change("Car");
+        cut.FindAll("button").First(b => b.TextContent.Contains("Publish profiles")).Click();
+        cut.FindAll("button").First(b => b.TextContent.Contains("New publish profile")).Click();
+        cut.Find("input[placeholder='Living room Jellyfin']").Change("Car");
         cut.Find("input[placeholder='/app/playlists']").Input("/car/playlists");
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Save profile").Click();
 
@@ -185,45 +190,100 @@ public class SyncJobsProfilesUiTests
     }
 
     [Test]
-    public async Task BulkSetM3uFolder_GivesEverySelectedJobItsOwnPath()
+    public async Task ProfileEditor_MediaServerKind_ShowsPlaylistAndSource_AndHidesM3uFolder()
     {
+        await new MediaServerProfileStore(new SettingsStore(_factory)).SaveAsync(
+            new MediaServerProfile
+            {
+                Id = "px1", Name = "Home Jellyfin", Kind = "Jellyfin",
+                BaseUrl = "http://jf:8096", ApiKey = "key",
+            });
+        using (var db = _factory.CreateDbContext())
+        {
+            db.ArchiveProfiles.Add(new ArchiveProfileEntity
+            {
+                Id = "flac", Name = "FLAC", RootPath = "/archive/flac",
+                Format = "auto", Enabled = true,
+            });
+            db.SaveChanges();
+        }
+
+        var cut = RenderPage();
+        cut.FindAll("button").First(b => b.TextContent.Contains("Publish profiles")).Click();
+        cut.FindAll("button").First(b => b.TextContent.Contains("New publish profile")).Click();
+        cut.Find("input[placeholder='Living room Jellyfin']").Change("Jellyfin FLAC");
+        cut.FindAll("select").First(s => s.TextContent.Contains("M3U file")).Change("JellyfinApi");
+
+        Assert.That(cut.FindAll("input[placeholder='/app/playlists']"), Is.Empty,
+            "a media server profile does not ask for an M3U folder");
+        cut.FindAll("select").First(s => s.TextContent.Contains("Home Jellyfin")).Change("px1");
+        cut.FindAll("select").First(s => s.TextContent.Contains("Primary library")).Change("flac");
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Save profile").Click();
+
+        await WaitForProfileAsync("Jellyfin FLAC");
+        using var check = _factory.CreateDbContext();
+        var profile = check.SyncRuleProfiles.Single(p => p.Name == "Jellyfin FLAC");
+        Assert.Multiple(() =>
+        {
+            Assert.That(profile.Kind, Is.EqualTo("JellyfinApi"));
+            Assert.That(profile.MediaServerProfileId, Is.EqualTo("px1"));
+            Assert.That(profile.SourceArchiveProfileId, Is.EqualTo("flac"));
+        });
+    }
+
+    [Test]
+    public async Task BulkRemoveProfile_RemovesTheTargetFromSelectedJobs()
+    {
+        var profile = new SyncRuleProfile
+        {
+            Id = "profile-remove",
+            Name = "Remove me",
+            Kind = OutputTargetType.JellyfinApi,
+            MediaServerProfileId = "server-1",
+            PlaylistNamePattern = "{job}",
+        };
+        await new SyncRuleProfileStore(_factory).SaveAsync(profile);
         using (var db = _factory.CreateDbContext())
         {
             db.SyncJobs.AddRange(
                 new SyncJobEntity
                 {
-                    Id = "j1", Name = "Jazz", Schedule = "Manual", RuleProfileId = "old",
-                    M3uOutputPath = "/old/jazz.m3u8", TargetsJson = "[]", OutputTarget = "M3uFile",
+                    Id = "j1", Name = "Jazz", Schedule = "Manual",
+                    TargetsJson = System.Text.Json.JsonSerializer.Serialize(new object[]
+                    {
+                        new { kind = "M3uFile", m3uPath = "/old/jazz.m3u8" },
+                        new { kind = "JellyfinApi", ruleProfileId = profile.Id, profileId = "server-1" },
+                    }),
+                    OutputTarget = "M3uFile",
                 },
                 new SyncJobEntity
                 {
                     Id = "j2", Name = "Rock", Schedule = "Manual",
-                    M3uOutputPath = "/old/rock.m3u8", TargetsJson = "[]", OutputTarget = "M3uFile",
+                    TargetsJson = System.Text.Json.JsonSerializer.Serialize(new object[]
+                    {
+                        new { kind = "M3uFile", m3uPath = "/old/rock.m3u8" },
+                        new { kind = "JellyfinApi", ruleProfileId = profile.Id, profileId = "server-1" },
+                    }),
+                    OutputTarget = "M3uFile",
                 });
             db.SaveChanges();
         }
 
         var cut = RenderPage();
         cut.FindAll("button").First(b => b.TextContent.Contains("Select jobs")).Click();
+        cut.WaitForAssertion(() => Assert.That(cut.FindAll(".row-select").Count, Is.EqualTo(2)),
+            TimeSpan.FromSeconds(3));
         cut.FindAll(".row-select")[0].Change(true);
         cut.FindAll(".row-select")[1].Change(true);
-        cut.Find("input[aria-label='M3U folder for selected jobs']").Change("/new/playlists");
-        cut.FindAll("button").First(b => b.TextContent.Trim() == "Set M3U folder").Click();
+        cut.Find("select[aria-label='Publish profile to remove']").Change(profile.Id);
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Remove profile").Click();
 
         await WaitForAssertionAsync(() =>
         {
             using var db = _factory.CreateDbContext();
-            return db.SyncJobs.Count(j => j.M3uOutputPath!.StartsWith("/new/playlists/")) == 2
-                && db.SyncJobs.All(j => j.RuleProfileId == null);
+            return db.SyncJobs.ToList().All(job => SyncJobMapping.TargetsOf(job)
+                .All(target => target.RuleProfileId != profile.Id));
         });
-        using var check = _factory.CreateDbContext();
-        var paths = check.SyncJobs.OrderBy(j => j.Name)
-            .Select(j => j.M3uOutputPath).ToList();
-        Assert.That(paths, Is.EqualTo(new[]
-        {
-            $"/new/playlists/Jazz.m3u8",
-            $"/new/playlists/Rock.m3u8",
-        }));
     }
 
     [Test]
@@ -247,7 +307,7 @@ public class SyncJobsProfilesUiTests
 
         var cut = RenderPage();
         Assert.That(cut.Markup, Does.Contain("/srv/playlists/Old.m3u8"));
-        cut.FindAll("button").First(b => b.TextContent.Contains("Rule profiles")).Click();
+        cut.FindAll("button").First(b => b.TextContent.Contains("Publish profiles")).Click();
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Edit").Click();
         cut.Find(".profile-editor-modal input[placeholder='/app/playlists']")
             .Input("/new/playlists");
@@ -299,13 +359,15 @@ public class SyncJobsProfilesUiTests
             TimeSpan.FromSeconds(3));
         cut.FindAll(".row-select")[0].Change(true);
         cut.FindAll(".row-select")[1].Change(true);
-        cut.Find("select[aria-label='Rule profile for selected jobs']").Change(profile.Id);
-        cut.FindAll("button").First(b => b.TextContent.Trim() == "Apply profile").Click();
+        cut.Find("select[aria-label='Publish profile to add']").Change(profile.Id);
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Add profile").Click();
 
         await WaitForAssertionAsync(() =>
         {
             using var db = _factory.CreateDbContext();
-            return db.SyncJobs.Count(j => j.RuleProfileId == "profile-bulk") == 2;
+            return db.SyncJobs.Count(j => j.RuleProfileId == "profile-bulk") == 2
+                && db.SyncJobs.ToList().All(job => SyncJobMapping.TargetsOf(job)
+                    .Any(target => target.RuleProfileId == "profile-bulk"));
         });
     }
 

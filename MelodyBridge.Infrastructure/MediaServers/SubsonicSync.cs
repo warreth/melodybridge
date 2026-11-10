@@ -95,7 +95,9 @@ public class SubsonicSync : IMediaServerSync
                     continue;
                 }
 
-                var id = await ResolveSongIdAsync(baseUrl, username, password, lookupPath, track, ct);
+                var id = await ResolveSongIdAsync(
+                    baseUrl, username, password, lookupPath, track,
+                    options.AllowMetadataFallback, ct);
                 if (id is null)
                 {
                     _logger.LogInformation("Could not resolve item for path {path}", lookupPath);
@@ -118,7 +120,8 @@ public class SubsonicSync : IMediaServerSync
     /// index themselves.
     /// </summary>
     private async Task<string?> ResolveSongIdAsync(
-        string baseUrl, string username, string password, string lookupPath, Track track, CancellationToken ct)
+        string baseUrl, string username, string password, string lookupPath, Track track,
+        bool allowMetadataFallback, CancellationToken ct)
     {
         if (string.IsNullOrEmpty(track.Title)) return null;
         try
@@ -141,6 +144,15 @@ public class SubsonicSync : IMediaServerSync
                 var artist = song.TryGetProperty("artist", out var a) ? a.GetString() : null;
                 if (!string.IsNullOrEmpty(track.Artist)
                     && !string.Equals(artist, track.Artist, StringComparison.OrdinalIgnoreCase)) continue;
+
+                // Archive-source targets must resolve the exact file, not
+                // the first song with the same title and artist.
+                if (!allowMetadataFallback)
+                {
+                    var serverPath = song.TryGetProperty("path", out var p) ? p.GetString() : null;
+                    if (!PathMatches(serverPath, lookupPath)) continue;
+                }
+
                 best = song.GetProperty("id").GetString();
                 break;
             }
@@ -149,6 +161,25 @@ public class SubsonicSync : IMediaServerSync
         catch (Exception ex) { _logger.LogDebug(ex, "Subsonic search failed for {title}", track.Title); }
         return null;
     }
+
+    /// <summary>True when the server's song path names the same file. A
+    /// Subsonic server may report a path relative to its music root, so a
+    /// relative path is matched as a suffix; two absolute paths must be
+    /// equal.</summary>
+    private static bool PathMatches(string? serverPath, string localPath)
+    {
+        if (string.IsNullOrWhiteSpace(serverPath) || string.IsNullOrWhiteSpace(localPath))
+            return false;
+        var server = NormalizePath(serverPath);
+        var local = NormalizePath(localPath);
+        if (string.Equals(server, local, StringComparison.OrdinalIgnoreCase)) return true;
+        if (server.StartsWith('/') && local.StartsWith('/')) return false;
+        return server.EndsWith("/" + local.TrimStart('/'), StringComparison.OrdinalIgnoreCase)
+            || local.EndsWith("/" + server.TrimStart('/'), StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string NormalizePath(string path)
+        => path.Trim().Replace('\\', '/').TrimEnd('/');
 
     /// <summary>Creates the named playlist, or replaces an existing one's tracks.</summary>
     private async Task UpsertPlaylistAsync(string baseUrl, string username, string password, string name,

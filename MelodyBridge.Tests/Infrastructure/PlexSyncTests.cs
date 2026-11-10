@@ -209,6 +209,50 @@ public class PlexSyncTests
     }
 
     [Test]
+    public async Task SyncPlaylistAsync_ArchiveSource_SearchesEverySectionAndRequiresTheExactPath()
+    {
+        var handler = new ScriptedHandler();
+        handler.On("/identity",
+            ScriptedHandler.Json("""{"MediaContainer":{"machineIdentifier":"machine-1"}}"""));
+        handler.On("/library/sections", ScriptedHandler.Json(
+            """
+            {"MediaContainer":{"Directory":[
+                {"key":"31","type":"artist","title":"Music"},
+                {"key":"32","type":"artist","title":"Archive"}]}}
+            """));
+        handler.On("/library/sections/31/all", ScriptedHandler.Json(
+            """
+            {"MediaContainer":{"Metadata":[{"ratingKey":"rk-primary","title":"song",
+                "Media":[{"Part":[{"file":"/media/artist/album/song.mp3"}]}]}]}}
+            """));
+        handler.On("/library/sections/32/all", ScriptedHandler.Json(
+            """
+            {"MediaContainer":{"Metadata":[{"ratingKey":"rk-archive","title":"song",
+                "Media":[{"Part":[{"file":"/archive/artist/album/song.flac"}]}]}]}}
+            """));
+        handler.On("/playlists?playlistType=audio", ScriptedHandler.Json(
+            """{"MediaContainer":{"Metadata":[]}}"""));
+        handler.On("/playlists?uri=", ScriptedHandler.Json(
+            """{"MediaContainer":{"size":1,"Metadata":[{"ratingKey":"pl-1","title":"Road trip"}]}}"""));
+
+        var sync = NewSync(handler);
+        await sync.SyncPlaylistAsync(
+            PlaylistOf(Track("song", "/archive/artist/album/song.flac")),
+            new PlaylistOutputOptions("/tmp/out.m3u", false, null,
+                AllowMetadataFallback: false));
+
+        var create = handler.Requests.First(r =>
+            r.Method == "POST" && r.Url.Contains("/playlists?"));
+        Assert.Multiple(() =>
+        {
+            Assert.That(sync.LastReport!.ResolvedCount, Is.EqualTo(1));
+            Assert.That(create.Url, Does.Contain("rk-archive"));
+            Assert.That(create.Url, Does.Not.Contain("rk-primary"),
+                "the primary item must not satisfy an archive target");
+        });
+    }
+
+    [Test]
     public async Task SyncPlaylistAsync_UnresolvedTrack_ListedInReport()
     {
         var handler = StandardRoutes(file: "/media/other/none.mp3", ratingKey: "rk-x");

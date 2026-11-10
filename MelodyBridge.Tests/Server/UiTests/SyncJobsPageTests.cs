@@ -70,6 +70,7 @@ public class SyncJobsPageTests
         _ctx.Services.AddSingleton(new MelodyBridge.Server.Services.UiModeService(
             settingsStore, new MelodyBridge.Server.Services.InstallState(DatabaseExistedAtStartup: true)));
         _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Services.SyncRuleProfileStore(dbFactory));
+        _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Services.ArchiveProfileStore(dbFactory));
         _ctx.Services.AddSingleton(new MelodyBridge.Server.Services.NotificationService());
         _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Services.MediaServerProfileStore(
             new MelodyBridge.Infrastructure.Services.SettingsStore(dbFactory)));
@@ -81,7 +82,7 @@ public class SyncJobsPageTests
     public void TearDown() => _ctx.Dispose();
 
     [Test]
-    public void SimpleMode_KeepsTheJobListAndHidesRuleProfiles()
+    public void SimpleMode_KeepsTheJobListAndShowsPublishProfiles()
     {
         using (var db = _dbFactory.CreateDbContext())
         {
@@ -102,9 +103,9 @@ public class SyncJobsPageTests
         cut.WaitForAssertion(() =>
         {
             Assert.That(cut.Markup, Does.Contain("Weekly Sync"));
-            Assert.That(cut.FindAll("nav.sync-tabs"), Is.Empty,
-                "simple mode has no rule-profile tab");
-            Assert.That(cut.Markup, Does.Not.Contain("Rule profiles"));
+            Assert.That(cut.FindAll("nav.sync-tabs"), Is.Not.Empty,
+                "simple mode still needs the publish profile tab");
+            Assert.That(cut.Markup, Does.Contain("Publish profiles"));
         }, TimeSpan.FromSeconds(5));
     }
 
@@ -485,6 +486,10 @@ public class SyncJobsPageTests
         var cut = _ctx.Render<SyncJobs>();
         cut.FindAll("button.card-menu-trigger").First().Click();
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Edit").Click();
+        var profileSelect = cut.Find("select[aria-label='M3U publish profile']");
+        var defaultProfile = profileSelect.QuerySelectorAll("option")
+            .First(o => !string.IsNullOrWhiteSpace(o.GetAttribute("value")));
+        profileSelect.Change(defaultProfile.GetAttribute("value"));
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Save changes").Click();
 
         using var db = _dbFactory.CreateDbContext();
@@ -492,7 +497,8 @@ public class SyncJobsPageTests
         Assert.That(all.Count, Is.EqualTo(2), "edit must update, not duplicate");
         var updated = all.First(j => j.Id == "j1");
         Assert.That(updated.Name, Is.EqualTo("Weekly Sync"));
-        Assert.That(updated.M3uOutputPath, Is.EqualTo("/app/playlists/weekly.m3u"));
+        Assert.That(updated.M3uOutputPath, Is.EqualTo("/app/playlists/Weekly Sync.m3u8"),
+            "the chosen publish profile owns the path");
         Assert.That(updated.LastRunStatus, Is.EqualTo("Completed"), "edit must not reset run status");
     }
 

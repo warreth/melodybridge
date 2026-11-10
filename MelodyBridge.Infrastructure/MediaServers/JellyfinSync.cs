@@ -94,7 +94,8 @@ public class JellyfinSync : IMediaServerSync
                     itemId = pathHit;
                     byPath++;
                 }
-                else if (library.FindByMetadata(track) is { } metaHit)
+                else if (options.AllowMetadataFallback
+                    && library.FindByMetadata(track) is { } metaHit)
                 {
                     // The library holds the track under another path (a
                     // different mount, a file renamed after the scan): its
@@ -102,7 +103,7 @@ public class JellyfinSync : IMediaServerSync
                     itemId = metaHit;
                     byMetadata++;
                 }
-                else
+                else if (options.AllowMetadataFallback)
                 {
                     searched++;
                     itemId = await ResolveItemIdBySearchAsync(

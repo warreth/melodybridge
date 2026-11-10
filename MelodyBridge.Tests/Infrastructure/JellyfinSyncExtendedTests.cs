@@ -378,6 +378,47 @@ public class JellyfinSyncExtendedTests
     }
 
     [Test]
+    public async Task SyncPlaylistAsync_ArchiveSource_DoesNotFallBackToMetadata()
+    {
+        var handler = new ScriptedHandler()
+            .On("EnableTotalRecordCount=false", """
+                {"Items":[{"Id":"primary","Name":"Meta Song","Path":"/music/metasong.flac",
+                           "Artists":["The Artist"],"RunTimeTicks":2100000000}]}
+                """)
+            .On("IncludeItemTypes=Playlist", """{"Items":[]}""")
+            .On("/Playlists", """{"Id":"pl-1","Name":"Meta"}""");
+
+        var sync = NewSync(handler);
+        var playlist = new Playlist
+        {
+            Name = "Meta",
+            Tracks = new List<Track>
+            {
+                new()
+                {
+                    Title = "Meta Song",
+                    Artist = "The Artist",
+                    Duration = TimeSpan.FromSeconds(210),
+                    CurrentTrackLocation = new FileLocation("/archive/metasong.flac"),
+                },
+            },
+        };
+
+        await sync.SyncPlaylistAsync(playlist,
+            new PlaylistOutputOptions("/tmp/out.m3u", false, null,
+                AllowMetadataFallback: false));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(sync.LastReport!.ResolvedCount, Is.Zero,
+                "the primary item must not resolve an archive path");
+            Assert.That(sync.LastReport.UnresolvedPaths, Has.Length.EqualTo(1));
+            Assert.That(handler.Requests.Any(r => r.Url.Contains("SearchTerm")), Is.False,
+                "strict mode never searches by metadata");
+        });
+    }
+
+    [Test]
     public async Task SyncPlaylistAsync_PathMiss_MetadataPicksByArtistAndDuration()
     {
         // Two library items share the title; the track's artist and length

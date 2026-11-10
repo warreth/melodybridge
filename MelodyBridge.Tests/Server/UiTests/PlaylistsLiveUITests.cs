@@ -79,6 +79,7 @@ public class PlaylistsLiveUITests
             sp.GetRequiredService<Application.Services.DownloadCoordinator>());
         _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Services.SettingsStore(factory));
         _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Services.SyncRuleProfileStore(factory));
+        _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Services.ArchiveProfileStore(factory));
         // The page renders the publish strip, which lists the configured
         // media servers.
         _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Services.MediaServerProfileStore(

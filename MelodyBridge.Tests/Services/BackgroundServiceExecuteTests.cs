@@ -97,6 +97,16 @@ public class BackgroundServiceExecuteTests
         var services = new ServiceCollection();
         foreach (var (service, instance) in bindings)
             services.AddSingleton(service, instance);
+        // The scheduler resolves the publish profile store from its scope.
+        var factory = bindings
+            .FirstOrDefault(binding => binding.Service
+                == typeof(IDbContextFactory<MelodyBridgeDbContext>))
+            .Instance as IDbContextFactory<MelodyBridgeDbContext>;
+        if (factory is not null
+            && services.All(descriptor => descriptor.ServiceType != typeof(SyncRuleProfileStore)))
+        {
+            services.AddSingleton(new SyncRuleProfileStore(factory));
+        }
         return services.BuildServiceProvider();
     }
 
