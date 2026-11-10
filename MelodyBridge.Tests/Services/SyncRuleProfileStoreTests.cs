@@ -178,6 +178,83 @@ public class SyncRuleProfileStoreTests
     }
 
     [Test]
+    public void MapToDomain_JobNameEndingInSuffix_DoesNotPinTheFileName()
+    {
+        var profile = new SyncRuleProfile
+        {
+            Id = "m3u",
+            Name = "M3U",
+            Kind = OutputTargetType.M3uFile,
+            M3uOutputFolder = "/playlists",
+            M3uFileNamePattern = "{job}.m3u8",
+        };
+        var entity = new SyncJobEntity
+        {
+            Id = "j1",
+            Name = "Mix (2)",
+            TargetsJson = System.Text.Json.JsonSerializer.Serialize(new object[]
+            {
+                new
+                {
+                    kind = "M3uFile",
+                    ruleProfileId = "m3u",
+                    m3uPath = "/playlists/Mix (2).m3u8",
+                },
+            }),
+            OutputTarget = "M3uFile",
+        };
+
+        var job = SyncJobMapping.MapToDomain(entity, new[] { profile });
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(job.Targets.Single().M3uFileNameOverride, Is.Null,
+                "a job name that ends in a suffix is not a collision");
+            Assert.That(job.Targets.Single().M3uPath,
+                Is.EqualTo("/playlists/Mix (2).m3u8"));
+        });
+    }
+
+    [Test]
+    public void MapToDomain_OldQuickRow_RecoversTheNumberedSuffix()
+    {
+        var profile = new SyncRuleProfile
+        {
+            Id = "m3u",
+            Name = "M3U",
+            Kind = OutputTargetType.M3uFile,
+            M3uOutputFolder = "/playlists",
+            M3uFileNamePattern = "{job}.m3u8",
+        };
+        var entity = new SyncJobEntity
+        {
+            Id = "j1",
+            Name = "AC_DC",
+            TargetsJson = System.Text.Json.JsonSerializer.Serialize(new object[]
+            {
+                new
+                {
+                    kind = "M3uFile",
+                    ruleProfileId = "m3u",
+                    m3uPath = "/playlists/AC_DC (2).m3u8",
+                },
+            }),
+            OutputTarget = "M3uFile",
+        };
+
+        var job = SyncJobMapping.MapToDomain(entity, new[] { profile });
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(job.Targets.Single().M3uFileNameOverride,
+                Is.EqualTo("AC_DC (2).m3u8"),
+                "the old row keeps its unique file name");
+            Assert.That(job.Targets.Single().M3uPath,
+                Is.EqualTo("/playlists/AC_DC (2).m3u8"));
+        });
+    }
+
+    [Test]
     public void ResolveM3uPath_SanitizesTheFileNameOverride()
     {
         var profile = new SyncRuleProfile

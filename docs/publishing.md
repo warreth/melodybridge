@@ -124,6 +124,11 @@ contains literal paths, so it needs the rules when the player sees a different
 mount. The rules are only needed when that consumer sees files under a different
 path or extension, for example inside Docker.
 
+An archive source is stricter: Jellyfin, Plex and Subsonic must resolve the
+exact archive file. Add a path rule when the server reports a different root.
+Subsonic often reports paths relative to its music folder, so its archive
+profiles usually need one.
+
 ## Schedules
 
 Manually created jobs run from the **Run now** button. **Run all now** at the

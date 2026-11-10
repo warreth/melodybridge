@@ -134,13 +134,10 @@ public static class SyncJobMapping
             // Quick publish stores a unique file name per job. The profile
             // still owns the folder, so a folder edit reaches the job. A
             // row written before the override field existed still carries
-            // the numbered suffix in its stored path; recover it here.
-            if (string.IsNullOrWhiteSpace(fileNameOverride)
-                && target.M3uPath is { Length: > 0 } storedPath
-                && LooksLikeCollisionSuffix(Path.GetFileName(storedPath)))
-            {
-                fileNameOverride = Path.GetFileName(storedPath);
-            }
+            // the numbered suffix in its stored path; recover it only when
+            // removing the suffix gives the profile's own file name.
+            fileNameOverride = RecoverM3uFileNameOverride(
+                target, profile, entity.Name ?? "");
             m3uPath = SyncRuleProfileStore.ResolveM3uPath(
                 profile, entity.Name ?? "", fileNameOverride);
         }
@@ -167,16 +164,39 @@ public static class SyncJobMapping
         };
     }
 
-    /// <summary>True for the numbered suffix quick publish adds when two
-    /// playlist names sanitize to the same file, for example "Mix (2).m3u8".</summary>
-    private static bool LooksLikeCollisionSuffix(string? fileName)
+    /// <summary>The unique file name quick publish pinned, including the
+    /// recovery of a row written before the override field existed. The
+    /// suffix only counts when its base is the profile's own file name, so
+    /// a job or pattern that legitimately ends in " (2)" is left alone.</summary>
+    private static string? RecoverM3uFileNameOverride(
+        SyncTarget target, SyncRuleProfile profile, string jobName)
     {
+        if (!string.IsNullOrWhiteSpace(target.M3uFileNameOverride))
+            return target.M3uFileNameOverride;
+        if (target.M3uPath is not { Length: > 0 } storedPath) return null;
+
+        var storedName = Path.GetFileName(storedPath);
+        if (!TryCollisionBaseName(storedName, out var baseName)) return null;
+        var profileName = Path.GetFileName(
+            SyncRuleProfileStore.ResolveOutputPath(profile, jobName));
+        return string.Equals(baseName, profileName, StringComparison.OrdinalIgnoreCase)
+            ? storedName
+            : null;
+    }
+
+    /// <summary>True for a name quick publish numbered, and the unnumbered
+    /// name it would have written without the collision.</summary>
+    private static bool TryCollisionBaseName(string fileName, out string baseName)
+    {
+        baseName = "";
         if (string.IsNullOrWhiteSpace(fileName)) return false;
         var stem = Path.GetFileNameWithoutExtension(fileName);
         var open = stem.LastIndexOf(" (", StringComparison.Ordinal);
         if (open < 0 || !stem.EndsWith(')')) return false;
         var number = stem[(open + 2)..^1];
-        return int.TryParse(number, out var suffix) && suffix >= 2;
+        if (!int.TryParse(number, out var suffix) || suffix < 2) return false;
+        baseName = stem[..open] + Path.GetExtension(fileName);
+        return true;
     }
 
     /// <summary>

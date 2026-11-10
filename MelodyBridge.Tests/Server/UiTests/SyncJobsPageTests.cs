@@ -708,6 +708,18 @@ public class SyncJobsPageTests
                 new[] { profile.Id }, ScanSchedule.Manual);
             Assert.That(created.Created, Has.Count.EqualTo(2));
 
+            // Simulate a row written before the override field existed:
+            // the stored path has the suffix, the override is gone.
+            using (var db = sqliteFactory.CreateDbContext())
+            {
+                var old = db.SyncJobs.Single(j => j.Name == "AC_DC");
+                var targets = SyncJobMapping.TargetsOf(old).ToList();
+                var index = targets.FindIndex(t => t.Kind == OutputTargetType.M3uFile);
+                targets[index] = targets[index] with { M3uFileNameOverride = null };
+                SyncJobMapping.ApplyTargets(old, targets);
+                db.SaveChanges();
+            }
+
             _ctx.Services.AddSingleton<IDbContextFactory<MelodyBridgeDbContext>>(sqliteFactory);
             _ctx.Services.AddSingleton(new SettingsStore(sqliteFactory));
             _ctx.Services.AddSingleton(new MediaServerProfileStore(new SettingsStore(sqliteFactory)));
@@ -721,6 +733,8 @@ public class SyncJobsPageTests
             {
                 Assert.That(cut.Markup, Does.Contain("AC/DC"));
                 Assert.That(cut.Markup, Does.Contain("AC_DC"));
+                Assert.That(cut.Markup, Does.Contain("AC_DC (2).m3u8"),
+                    "the card shows the recovered unique path");
             }, TimeSpan.FromSeconds(3));
 
             // Edit the job that got the numbered suffix.

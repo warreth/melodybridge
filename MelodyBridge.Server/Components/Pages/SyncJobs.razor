@@ -516,7 +516,9 @@ else
                         <span>
                             Most media servers resolve tracks by metadata. Add path rules
                             only when this server sees files under a different path or
-                            extension.
+                            extension. An archive source must resolve the exact file, and
+                            Subsonic often reports paths relative to its music folder, so
+                            add a rule when the roots differ.
                         </span>
                     }
                 </div>
@@ -1587,20 +1589,8 @@ else
         => ruleProfiles.Where(p => selectedProfileIds.Contains(p.Id)).ToList();
 
     private string? EffectiveM3uPath(SyncJobEntity job)
-    {
-        var target = SyncJobMapping.TargetsOf(job)
-            .FirstOrDefault(t => t.Kind == OutputTargetType.M3uFile);
-        if (target?.RuleProfileId is { Length: > 0 } id
-            && ruleProfiles.FirstOrDefault(p => p.Id == id) is { } profile)
-        {
-            return SyncRuleProfileStore.ResolveM3uPath(
-                profile, job.Name, target.M3uFileNameOverride);
-        }
-        // A legacy job-level profile still owns its M3U target.
-        if (RuleProfileOf(job) is { } legacyProfile)
-            return SyncRuleProfileStore.ResolveOutputPath(legacyProfile, job.Name);
-        return target?.M3uPath;
-    }
+        => SyncJobMapping.MapToDomain(job, ruleProfiles)
+            .Targets.FirstOrDefault(t => t.Kind == OutputTargetType.M3uFile)?.M3uPath;
 
     private SyncRuleProfile? QuickProfile
         => ruleProfiles.FirstOrDefault(p => p.Id == draft.RuleProfileId

@@ -137,7 +137,7 @@ public class SubsonicSyncTests
         var handler = new ScriptedHandler();
         handler.On("/rest/search3", ScriptedHandler.Json(
             """{"subsonic-response":{"status":"ok","searchResult3":{"song":[""" +
-            """{"id":"sg-primary","title":"song","artist":"Artist","path":"Artist/song.mp3"}]}}}"""));
+            """{"id":"sg-primary","title":"song","artist":"Artist","path":"Artist/song.flac"}]}}}"""));
         handler.On("/rest/getPlaylists", ScriptedHandler.Json(
             """{"subsonic-response":{"status":"ok","playlists":{"playlist":[]}}}"""));
         handler.On("/rest/createPlaylist", ScriptedHandler.Json(
@@ -165,7 +165,7 @@ public class SubsonicSyncTests
         var handler = new ScriptedHandler();
         handler.On("/rest/search3", ScriptedHandler.Json(
             """{"subsonic-response":{"status":"ok","searchResult3":{"song":[""" +
-            """{"id":"sg-primary","title":"song","artist":"Artist","path":"Artist/song.mp3"}]}}}"""));
+            """{"id":"sg-primary","title":"song","artist":"Artist","path":"Artist/song.flac"}]}}}"""));
         handler.On("/rest/getPlaylists", ScriptedHandler.Json(
             """{"subsonic-response":{"status":"ok","playlists":{"playlist":[]}}}"""));
         handler.On("/rest/createPlaylist", ScriptedHandler.Json(
