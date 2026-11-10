@@ -49,11 +49,30 @@ switch at the top of the sidebar or from Settings, Appearance.
 </div>
 <div class="step" data-step="3">
 <strong>Publish it</strong>
-<p>Create a sync job that writes an M3U file or pushes the playlist to Jellyfin, Plex or a Subsonic server. More about that in <a href="/publishing">Publishing playlists</a>.</p>
+<p>Create a publish profile for your M3U player or media server, then a sync job that ticks it. One job can tick several profiles. More about that in <a href="/publishing">Publishing playlists</a>.</p>
 </div>
 </div>
 
 <img src="/screens/playlists.webp" alt="Playlists page with saved playlists and their download progress" width="800">
+
+## The three profiles
+
+They sound alike, but each one answers a different question.
+
+| Profile | What it is | Where |
+|---|---|---|
+| Media server connection | One Jellyfin, Plex or Subsonic server: URL and credentials | Settings, Media servers |
+| Archive profile | One local second copy in its own folder and format | Settings, Default paths |
+| Publish profile | One destination for a sync job: an M3U file or one media server, with its own playlist name, source copy and path rules | Sync jobs, Publish profiles |
+
+A sync job ticks one or more publish profiles. Tick one per destination: the
+M3U file, Jellyfin, Plex, Navidrome. Each profile keeps its own path rules, so
+changing the M3U player's mount never changes what Jellyfin sees.
+
+The **Source** field on a publish profile is optional. Leave it on **Primary
+library** for the normal download. Choose an archive profile when that
+destination should get the FLAC or Opus copy instead. Missing archive copies are
+skipped and reported, never replaced by the primary file.
 
 ## One song at a time
 
@@ -77,6 +96,6 @@ in the app is a container path: the music folder is `/music`, not `C:\Music` or
   build and what every volume and environment variable does.
 - [How it works](/concepts) for the download waterfall, the quality checks and
   how your library survives a database wipe.
-- [Publishing playlists](/publishing) for the sync job editor, rule profiles and schedules.
+- [Publishing playlists](/publishing) for the sync job editor, publish profiles and schedules.
 - [Accounts and imports](/accounts) when you want private playlists or liked
   songs, not just public links.

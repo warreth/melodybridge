@@ -39,21 +39,30 @@ Connect**: the app shows a code, you approve it in Jellyfin, and the sign-in
 finishes by itself. Plex takes an X-Plex-Token. Every profile has a **Test**
 button, and one can be marked **Use as app default**.
 
-Profiles are what sync jobs pick: the job editor lists the profiles of the
-chosen kind, and a job stores the profile, not a copy of its credentials. Edit a
-profile once and every job that uses it follows. The profile marked as app
-default feeds the app-wide fallback the sync clients use when no profile is
-picked.
+Connections are what publish profiles pick: the profile editor lists the
+connections of the chosen kind, and a publish profile stores the connection, not
+a copy of its credentials. Edit a connection once and every publish profile that
+uses it follows. The connection marked as app default feeds the app-wide
+fallback the sync clients use when a publish profile has no connection of its
+own.
 
-### Sync rule profiles
+### Publish profiles
 
-Named output rules for sync jobs: M3U output folder, file name pattern, text
-format, relative paths, path remaps and extension remaps. Open the **Rule
-profiles** tab on the Sync jobs page to create one. A linked job follows the
-profile live, so changing the library mount or playlist folder updates every
-job that uses it. The quick editor shows the resolved M3U path and a preview of
-the player path and M3U entry. **Select jobs** applies a profile, a schedule, an
-M3U folder or a media server target to several jobs at once.
+One destination and its rules: M3U file, Jellyfin, Plex or Subsonic. An M3U
+profile sets the output folder, file name pattern, text format and relative
+paths. A media server profile sets the connection, playlist name and source
+copy. Every profile can set path remaps and extension remaps. Open the
+**Publish profiles** tab on the Sync jobs page to create one. A job ticks one or
+more profiles, so each destination keeps its own rules. A linked job follows the
+profile live, so changing the library mount or playlist folder updates every job
+that uses it. The editor shows the resolved M3U path and a preview of the player
+path and M3U entry, or the playlist name, source copy and server path.
+
+**Source** is optional: **Primary library** publishes the normal download,
+**Default archive** or a named archive profile publishes that copy instead.
+Missing archive copies are skipped and reported, never replaced by the primary
+file. **Select jobs** adds or removes a publish profile and sets a schedule for
+several jobs at once.
 
 ### Default paths
 
@@ -66,9 +75,10 @@ M3U folder or a media server target to several jobs at once.
   directly in the music path. Saving a new path moves your existing library
   along with it.
 - **Playlist output folder** (`/app/playlists`): where M3U files are written.
-  A new sync job starts with `<folder>/<job name>.m3u8`; type a different path
-  in the quick or advanced editor when a job should land elsewhere. A rule
-  profile can set the folder and file name for every linked job.
+  A new install gets a **Default M3U** publish profile with
+  `<folder>/<job name>.m3u8`. Edit that profile, or create another one, when a
+  job should land elsewhere. A publish profile can set the folder and file name
+  for every job that ticks it.
 - **Default archive**: the first archive profile, marked **default**, edited
   from its own row. Leave the path empty for no default archive. Playlists
   choose archive destinations by profile. A playlist from before that checklist
@@ -100,6 +110,9 @@ M3U folder or a media server target to several jobs at once.
   drops the scan location it registered unless another profile still uses
   that folder. The playlist page selects the default archive and any named
   profiles as one checklist, so a playlist can write no copies or several.
+  A publish profile can use one of these profiles as its **Source**, so an M3U
+  file or a media server playlist publishes that copy instead of the primary
+  file.
 
 The path fields have a folder button that opens a server-side picker with
 shortcuts to the music, playlist, archive and scan folders. You can still type a

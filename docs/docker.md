@@ -78,7 +78,9 @@ through `http://host.docker.internal:8096` and friends; the shipped compose file
 adds the host alias for you.
 
 Either way the music folder must be mounted at the same path on both sides. If
-the paths differ, add a path remap rule in the sync job, see
+the paths differ, add a path remap rule to the publish profile for that
+destination. Each destination has its own profile, so the M3U player and
+Jellyfin can see different mounts without fighting over one rule. See
 [Publishing playlists](/publishing).
 
 ## Beta channel

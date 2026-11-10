@@ -9,16 +9,36 @@ moving parts.
 
 A first install asks how you want to use the app. **Simple** keeps the sidebar
 to the everyday path: playlists, downloads, attention, sources, sync jobs and
-settings. The setup checklist has two steps and the publishing tools stay out of
-the way. Its dashboard keeps the library counters and playlists, the attention
-page becomes one summary and one fix button, and the plugins page starts in
-compact rows. **Advanced** shows the library, diagnostics, logs and every
-setting, and starts the plugins page as cards. Both modes use the same plugin
-controls and can switch between rows and cards.
+settings. The setup checklist has two steps. The sync jobs page still shows
+publish profiles, but the editor keeps the path rules under a fold and the bulk
+selection bar out of the way. Its dashboard keeps the library counters and
+playlists, the attention page becomes one summary and one fix button, and the
+plugins page starts in compact rows. **Advanced** shows the library, diagnostics,
+logs and every setting, and starts the plugins page as cards. Both modes use the
+same plugin controls and can switch between rows and cards.
 
 The choice is a starting point, not a lock. Switch any time from the mode switch
 at the top of the sidebar or from Settings, Appearance. Direct links to a hidden
 page still work, so a bookmark or an existing link never breaks.
+
+## Profiles
+
+Three kinds of profiles show up around publishing, and each one answers a
+different question:
+
+- A **media server connection** is one server: URL and credentials. It lives in
+  Settings, Media servers.
+- An **archive profile** is one local second copy in its own folder and format.
+  Playlists choose which copies to build. It lives in Settings, Default paths.
+- A **publish profile** is one destination for a sync job: an M3U file or one
+  media server. It picks the connection, playlist name, source copy and path
+  rules. A job ticks one or more publish profiles, so each destination keeps its
+  own rules.
+
+The source copy is optional. **Primary library** publishes the normal download.
+An archive profile publishes that copy instead. This is how one playlist can
+become a normal Jellyfin playlist and a separate FLAC playlist without the two
+fighting over path rules.
 
 ## From link to library
 

@@ -59,9 +59,9 @@ const ROUTES = [
     selector: 'details.search-provider-map',
   }],
   ['/sync-jobs', 'sync'],
-  ['/playlists', 'publish', { clickText: 'Publish', checkFirstPlaylist: true, checkLabel: 'M3U file', waitFor: '.wizard-modal' }],
+  ['/playlists', 'publish', { clickText: 'Publish', checkFirstPlaylist: true, checkFirstPublishProfile: true, waitFor: '.wizard-modal' }],
   ['/sync-jobs', 'sync-quick', { clickText: 'New sync job', waitFor: '.job-quick-modal', prepare: 'sync-quick' }],
-  ['/sync-jobs', 'sync-profiles', { clickText: 'Rule profiles', waitFor: '.sync-profiles' }],
+  ['/sync-jobs', 'sync-profiles', { clickText: 'Publish profiles', waitFor: '.sync-profiles' }],
   ['/settings', 'settings'],
   ['/settings', 'settings-appearance', { clickText: 'Appearance', waitFor: 'text=Theme and color' }],
   ['/settings', 'settings-paths', { clickText: 'Default paths', waitFor: 'text=Archive profiles' }],
@@ -137,6 +137,9 @@ async function shootTheme(browser, theme) {
         await page.locator(selector).first().click()
       if (opts?.checkFirstPlaylist)
         await page.locator('.publish-list').first()
+          .locator('label.publish-option input[type=checkbox]').first().check()
+      if (opts?.checkFirstPublishProfile)
+        await page.locator('.publish-list').nth(1)
           .locator('label.publish-option input[type=checkbox]').first().check()
       if (opts?.checkLabel)
         await page.locator('label', { hasText: opts.checkLabel })
