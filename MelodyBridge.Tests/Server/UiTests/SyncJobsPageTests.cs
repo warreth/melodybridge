@@ -744,6 +744,12 @@ public class SyncJobsPageTests
             cut.WaitForAssertion(() =>
                 Assert.That(cut.FindAll(".job-quick-modal"), Is.Not.Empty),
                 TimeSpan.FromSeconds(3));
+            var outputPath = cut.FindAll("input[readonly]")
+                .First(input => input.GetAttribute("value")?.Contains(
+                    "AC_DC (2).m3u8") == true);
+            Assert.That(outputPath.GetAttribute("value"),
+                Does.EndWith("AC_DC (2).m3u8"),
+                "the editor previews the recovered unique path");
             cut.FindAll("button").First(b => b.TextContent.Trim() == "Save changes").Click();
             cut.WaitForAssertion(() =>
                 Assert.That(cut.FindAll(".job-quick-modal"), Is.Empty),

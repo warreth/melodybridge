@@ -2287,7 +2287,7 @@ else
             var targets = new List<SyncTarget>();
             if (m3uProfile is not null)
             {
-                var m3uPath = draftM3uFileNameOverride is { Length: > 0 }
+                var m3uPath = !string.IsNullOrWhiteSpace(draftM3uFileNameOverride)
                     ? SyncRuleProfileStore.ResolveM3uPath(
                         m3uProfile, draft.Name, draftM3uFileNameOverride)
                     : null;
