@@ -163,9 +163,10 @@ public class SubsonicSync : IMediaServerSync
     }
 
     /// <summary>True when the server's song path names the same file. A
-    /// Subsonic server may report a path relative to its music root, so a
-    /// relative path is matched as a suffix; two absolute paths must be
-    /// equal.</summary>
+    /// Subsonic server may report a path relative to its music root, but
+    /// an absolute local path must match exactly: the primary's relative
+    /// path is also a suffix of the archive's absolute path, and a suffix
+    /// match would silently publish the primary.</summary>
     private static bool PathMatches(string? serverPath, string localPath)
     {
         if (string.IsNullOrWhiteSpace(serverPath) || string.IsNullOrWhiteSpace(localPath))
@@ -173,7 +174,7 @@ public class SubsonicSync : IMediaServerSync
         var server = NormalizePath(serverPath);
         var local = NormalizePath(localPath);
         if (string.Equals(server, local, StringComparison.OrdinalIgnoreCase)) return true;
-        if (server.StartsWith('/') && local.StartsWith('/')) return false;
+        if (server.StartsWith('/') || local.StartsWith('/')) return false;
         return server.EndsWith("/" + local.TrimStart('/'), StringComparison.OrdinalIgnoreCase)
             || local.EndsWith("/" + server.TrimStart('/'), StringComparison.OrdinalIgnoreCase);
     }

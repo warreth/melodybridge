@@ -18,10 +18,9 @@ chose. **Send to** can be an M3U file, any number of media server profiles, or
 both.
 
 Tick one or more **publish profiles**. Each profile is one destination: an M3U
-file or a media server. The first M3U profile is picked for you. **Manage
-profiles** opens the Sync jobs page when you need another one. Names that
-sanitize to the same file get a numbered suffix, so one job never overwrites
-another's file.
+file or a media server. **Manage profiles** opens the Sync jobs page when you
+need another one. Names that sanitize to the same file get a numbered suffix,
+so one job never overwrites another's file.
 
 Playlists that already have a job are left out of the list, so the same playlist
 is not offered twice. Creating the jobs re-reads the list, and anything deleted

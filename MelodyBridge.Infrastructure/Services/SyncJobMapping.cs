@@ -69,6 +69,7 @@ public static class SyncJobMapping
             RuleProfileName = legacyProfile?.Name,
             SearchLocationPaths = searchPaths ?? new(),
             Targets = targets,
+            HasExplicitTargets = !string.IsNullOrWhiteSpace(entity.TargetsJson),
             OutputTarget = Enum.TryParse<OutputTargetType>(entity.OutputTarget, true, out var ot) ? ot : OutputTargetType.M3uFile,
             M3uOutputPath = m3uTarget?.M3uPath,
             M3uRelativePaths = m3uTarget?.M3uRelativePaths ?? false,
@@ -128,7 +129,12 @@ public static class SyncJobMapping
         var kind = profile.Kind;
         var m3uPath = target.M3uPath;
         if (kind == OutputTargetType.M3uFile)
-            m3uPath = SyncRuleProfileStore.ResolveOutputPath(profile, entity.Name ?? "");
+        {
+            // Quick publish stores a unique file name per job. The profile
+            // still owns the folder, so a folder edit reaches the job.
+            m3uPath = SyncRuleProfileStore.ResolveM3uPath(
+                profile, entity.Name ?? "", target.M3uFileNameOverride);
+        }
 
         return target with
         {
@@ -164,9 +170,11 @@ public static class SyncJobMapping
             {
                 var stored = JsonSerializer.Deserialize<List<StoredTarget>>(
                     entity.TargetsJson, JsonOptions);
-                if (stored is { Count: > 0 })
+                if (stored is not null)
                 {
-                    var targets = stored
+                    // An empty list is explicit: the user removed every
+                    // target. Only a null or damaged list is legacy.
+                    return stored
                         .Where(t => Enum.TryParse<OutputTargetType>(t.Kind, true, out _))
                         .Select(t => new SyncTarget(
                             Enum.Parse<OutputTargetType>(t.Kind, true),
@@ -174,9 +182,9 @@ public static class SyncJobMapping
                             t.M3uPath,
                             t.RuleProfileId,
                             SourceArchiveProfileId: t.SourceArchiveProfileId,
-                            PlaylistName: t.PlaylistName))
+                            PlaylistName: t.PlaylistName,
+                            M3uFileNameOverride: t.M3uFileNameOverride))
                         .ToList();
-                    if (targets.Count > 0) return targets;
                 }
             }
             catch (JsonException)
@@ -210,13 +218,13 @@ public static class SyncJobMapping
                 : true)
             .DistinctBy(t => (t.Kind, t.ProfileId ?? "", t.M3uPath ?? "",
                 t.RuleProfileId ?? "", t.SourceArchiveProfileId ?? "",
-                t.PlaylistName ?? ""))
+                t.PlaylistName ?? "", t.M3uFileNameOverride ?? ""))
             .ToList();
 
         entity.TargetsJson = JsonSerializer.Serialize(
             list.Select(t => new StoredTarget(
                 t.Kind.ToString(), t.ProfileId, t.M3uPath, t.RuleProfileId,
-                t.SourceArchiveProfileId, t.PlaylistName)),
+                t.SourceArchiveProfileId, t.PlaylistName, t.M3uFileNameOverride)),
             JsonOptions);
 
         var first = list.FirstOrDefault();
@@ -251,7 +259,8 @@ public static class SyncJobMapping
         string? M3uPath,
         string? RuleProfileId = null,
         string? SourceArchiveProfileId = null,
-        string? PlaylistName = null);
+        string? PlaylistName = null,
+        string? M3uFileNameOverride = null);
 
     /// <summary>
     /// The schedule a job runs on: the named presets resolve to their cron

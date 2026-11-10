@@ -144,6 +144,62 @@ public class SyncRuleProfileStoreTests
     }
 
     [Test]
+    public void MapToDomain_PinnedM3uPath_IsNotRecomputedFromTheProfile()
+    {
+        var profile = new SyncRuleProfile
+        {
+            Id = "m3u",
+            Name = "M3U",
+            Kind = OutputTargetType.M3uFile,
+            M3uOutputFolder = "/playlists",
+            M3uFileNamePattern = "{job}.m3u8",
+        };
+        var entity = new SyncJobEntity
+        {
+            Id = "j1",
+            Name = "AC/DC",
+            TargetsJson = System.Text.Json.JsonSerializer.Serialize(new object[]
+            {
+                new
+                {
+                    kind = "M3uFile",
+                    ruleProfileId = "m3u",
+                    m3uFileNameOverride = "AC_DC (2).m3u8",
+                },
+            }),
+            OutputTarget = "M3uFile",
+        };
+
+        var job = SyncJobMapping.MapToDomain(entity, new[] { profile });
+
+        Assert.That(job.Targets.Single().M3uPath,
+            Is.EqualTo("/playlists/AC_DC (2).m3u8"),
+            "quick publish keeps its unique path");
+    }
+
+    [Test]
+    public void TargetsOf_ExplicitEmptyList_IsNotALegacyTarget()
+    {
+        var entity = new SyncJobEntity
+        {
+            Id = "j1",
+            Name = "Empty",
+            TargetsJson = "[]",
+            OutputTarget = "M3uFile",
+            M3uOutputPath = "/stale.m3u",
+        };
+
+        Assert.That(SyncJobMapping.TargetsOf(entity), Is.Empty);
+        var job = SyncJobMapping.MapToDomain(
+            entity, Array.Empty<SyncRuleProfile>());
+        Assert.Multiple(() =>
+        {
+            Assert.That(job.Targets, Is.Empty);
+            Assert.That(job.HasExplicitTargets, Is.True);
+        });
+    }
+
+    [Test]
     public async Task Save_MediaServerProfile_DoesNotNeedAnM3uFolder()
     {
         var profile = new SyncRuleProfile
@@ -352,7 +408,7 @@ public class SyncRuleProfileStoreTests
             M3uBom = false,
             PathRemapRules = "{}",
             ExtensionRemapRules = "{}",
-            TargetsJson = "[]",
+            TargetsJson = null,
             OutputTarget = "M3uFile",
         };
 

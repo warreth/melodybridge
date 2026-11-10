@@ -78,7 +78,11 @@ public record SyncTarget(
     bool M3uCrlf = false,
     bool M3uBackslashes = false,
     bool M3uBom = false,
-    bool AllowMetadataFallback = true);
+    bool AllowMetadataFallback = true,
+    /// <summary>Per-job unique M3U file name, as quick publish creates when
+    /// two playlist names sanitize to the same file. The profile still owns
+    /// the folder, so a folder edit reaches the job.</summary>
+    string? M3uFileNameOverride = null);
 
 public class SyncJob
 {
@@ -93,8 +97,12 @@ public class SyncJob
     public string? RuleProfileName { get; set; }
     public List<string> SearchLocationPaths { get; set; } = new();
     /// <summary>Every place this job publishes to. Empty means the legacy
-    /// single target described by OutputTarget/M3uOutputPath.</summary>
+    /// single target described by OutputTarget/M3uOutputPath unless
+    /// <see cref="HasExplicitTargets"/> is true.</summary>
     public List<SyncTarget> Targets { get; set; } = new();
+    /// <summary>True when the stored row carried a target list, even an
+    /// empty one. False for legacy rows that only carry OutputTarget.</summary>
+    public bool HasExplicitTargets { get; set; }
     public OutputTargetType OutputTarget { get; set; } = OutputTargetType.M3uFile;
     public string? JellyfinServerUrl { get; set; }
     public string? JellyfinApiKey { get; set; }

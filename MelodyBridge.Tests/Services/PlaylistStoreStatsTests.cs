@@ -598,6 +598,57 @@ public class PlaylistStoreStatsTests
     }
 
     [Test]
+    public async Task SchemaPatcher_OldRuleProfiles_GainThePublishColumns()
+    {
+        var dbPath = NewDbPath();
+        try
+        {
+            var factory = await NewDbFactory(dbPath);
+            await using (var db = factory.CreateDbContext())
+            {
+                await db.Database.ExecuteSqlRawAsync("DROP TABLE SyncRuleProfiles");
+                await db.Database.ExecuteSqlRawAsync("""
+                    CREATE TABLE SyncRuleProfiles (
+                        Id TEXT NOT NULL PRIMARY KEY,
+                        Name TEXT NOT NULL DEFAULT '',
+                        M3uOutputFolder TEXT NOT NULL DEFAULT '/app/playlists',
+                        M3uFileNamePattern TEXT NOT NULL DEFAULT '{{job}}.m3u8',
+                        M3uRelativePaths INTEGER NOT NULL DEFAULT 0,
+                        M3uCrlf INTEGER NOT NULL DEFAULT 1,
+                        M3uBackslashes INTEGER NOT NULL DEFAULT 0,
+                        M3uBom INTEGER NOT NULL DEFAULT 1,
+                        PathRemapRules TEXT NOT NULL DEFAULT '{{}}',
+                        ExtensionRemapRules TEXT NOT NULL DEFAULT '{{}}',
+                        CreatedAt TEXT NOT NULL DEFAULT '0001-01-01 00:00:00'
+                    );
+                    INSERT INTO SyncRuleProfiles (Id, Name) VALUES ('old-profile', 'Old profile');
+                    """);
+            }
+
+            await using (var db = factory.CreateDbContext())
+                await SchemaPatcher.PatchAsync(db);
+
+            await using (var check = factory.CreateDbContext())
+            {
+                var profile = await check.SyncRuleProfiles.AsNoTracking()
+                    .SingleAsync(p => p.Id == "old-profile");
+                Assert.Multiple(() =>
+                {
+                    Assert.That(profile.Name, Is.EqualTo("Old profile"), "data survives");
+                    Assert.That(profile.Kind, Is.EqualTo("M3uFile"));
+                    Assert.That(profile.PlaylistNamePattern, Is.EqualTo("{job}"));
+                    Assert.That(profile.MediaServerProfileId, Is.Null);
+                    Assert.That(profile.SourceArchiveProfileId, Is.Null);
+                });
+            }
+        }
+        finally
+        {
+            File.Delete(dbPath);
+        }
+    }
+
+    [Test]
     public async Task SchemaPatcher_OldSyncJobs_GainTheCreatedAtColumn()
     {
         var dbPath = NewDbPath();

@@ -565,7 +565,7 @@ public class SyncJobRunnerTests
                 SourceId = "pl-job",
                 RuleProfileId = profile.Id,
                 M3uOutputPath = "/stale/path.m3u8",
-                TargetsJson = "[]",
+                TargetsJson = null,
                 OutputTarget = "M3uFile",
                 Schedule = "Manual",
             };
@@ -682,6 +682,115 @@ public class SyncJobRunnerTests
                 Assert.That(File.Exists(m3uPath), Is.True,
                     "the other targets still ran");
                 Assert.That(plex.Calls, Is.EqualTo(1), "a failing target stops nothing else");
+            });
+        }
+        finally
+        {
+            TryDelete(dbPath);
+            try { Directory.Delete(dir, recursive: true); } catch { /* best effort */ }
+        }
+    }
+
+    [Test]
+    public async Task RunJob_TwoCollidingQuickPublishNames_WriteSeparateFiles()
+    {
+        var dbPath = NewDbPath();
+        var dir = Path.Combine(Path.GetTempPath(), $"mb-job-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var factory = await NewDbFactory(dbPath);
+            await using (var db = await factory.CreateDbContextAsync())
+            {
+                foreach (var (id, name) in new[] { ("p1", "AC/DC"), ("p2", "AC_DC") })
+                {
+                    var track = Path.Combine(dir, $"{id}.mp3");
+                    await System.IO.File.WriteAllTextAsync(track, "x");
+                    db.Playlists.Add(new PlaylistEntity
+                    {
+                        Id = id,
+                        Name = name,
+                        SourceUrl = $"stub:{id}",
+                        Tracks = new List<TrackEntity>
+                        {
+                            new()
+                            {
+                                MelodyId = $"mel-{id}", Title = name, Artist = "A",
+                                DownloadStatus = "downloaded", CurrentPath = track,
+                                Position = 0,
+                            },
+                        },
+                    });
+                }
+                await db.SaveChangesAsync();
+            }
+
+            var store = new SyncRuleProfileStore(factory);
+            var profile = new SyncRuleProfile
+            {
+                Id = "m3u",
+                Name = "M3U",
+                Kind = OutputTargetType.M3uFile,
+                M3uOutputFolder = Path.Combine(dir, "playlists"),
+                M3uFileNamePattern = "{job}.m3u8",
+            };
+            await store.SaveAsync(profile);
+
+            var result = await QuickSyncJobs.CreateAsync(
+                factory, store,
+                new[] { ("p1", "AC/DC"), ("p2", "AC_DC") },
+                new[] { profile.Id }, ScanSchedule.Manual);
+
+            Assert.That(result.Created, Has.Count.EqualTo(2));
+            var runner = NewRunner(factory);
+            var profiles = await store.GetAllAsync();
+            foreach (var entity in result.Created)
+                await runner.RunJobAsync(SyncJobMapping.MapToDomain(entity, profiles));
+
+            var files = Directory.GetFiles(
+                Path.Combine(dir, "playlists"), "*.m3u8");
+            Assert.That(files, Has.Length.EqualTo(2),
+                "the two quick-published jobs must not overwrite each other");
+        }
+        finally
+        {
+            TryDelete(dbPath);
+            try { Directory.Delete(dir, recursive: true); } catch { /* best effort */ }
+        }
+    }
+
+    [Test]
+    public async Task RunJob_ExplicitlyEmptyTargets_WritesNothing()
+    {
+        var dbPath = NewDbPath();
+        var dir = Path.Combine(Path.GetTempPath(), $"mb-job-{Guid.NewGuid():N}");
+        var m3uPath = Path.Combine(dir, "empty.m3u");
+        try
+        {
+            var factory = await NewDbFactory(dbPath);
+            await SeedPlaylistAsync(factory, dir);
+            var entity = new SyncJobEntity
+            {
+                Id = "job-empty-targets",
+                Name = "Job Playlist",
+                SourceId = "pl-job",
+                TargetsJson = "[]",
+                OutputTarget = "M3uFile",
+                M3uOutputPath = m3uPath,
+                Schedule = "Manual",
+            };
+            var runner = NewRunner(factory);
+            var job = SyncJobMapping.MapToDomain(
+                entity, Array.Empty<SyncRuleProfile>());
+
+            var log = await runner.RunJobAsync(job);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(log.Status, Is.EqualTo(SyncStatus.Failed));
+                Assert.That(File.Exists(m3uPath), Is.False,
+                    "an explicitly empty target list must not fall back to the legacy path");
+                Assert.That(log.Message, Does.Contain("No publish targets"));
             });
         }
         finally

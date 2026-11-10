@@ -220,6 +220,19 @@ public sealed class SyncRuleProfileStore
         return Path.Combine(folder.TrimEnd('/', '\\'), name);
     }
 
+    /// <summary>The M3U path for a target, using its per-job unique file
+    /// name when quick publish created one. The profile still owns the
+    /// folder, so a folder edit reaches the job.</summary>
+    public static string ResolveM3uPath(
+        SyncRuleProfile profile, string jobName, string? fileNameOverride)
+    {
+        if (string.IsNullOrWhiteSpace(fileNameOverride))
+            return ResolveOutputPath(profile, jobName);
+        var folder = string.IsNullOrWhiteSpace(profile.M3uOutputFolder)
+            ? "/app/playlists" : profile.M3uOutputFolder.Trim();
+        return Path.Combine(folder.TrimEnd('/', '\\'), fileNameOverride);
+    }
+
     /// <summary>The target a publish profile creates for one job. An M3U
     /// profile resolves its path; a server profile carries its connection,
     /// playlist name and source variant.</summary>
@@ -228,9 +241,10 @@ public sealed class SyncRuleProfileStore
     {
         if (profile.Kind == OutputTargetType.M3uFile)
         {
+            var path = m3uPath ?? ResolveOutputPath(profile, jobName);
             return new SyncTarget(
                 OutputTargetType.M3uFile,
-                M3uPath: m3uPath ?? ResolveOutputPath(profile, jobName),
+                M3uPath: path,
                 RuleProfileId: profile.Id,
                 RuleProfileName: profile.Name,
                 SourceArchiveProfileId: profile.SourceArchiveProfileId,
@@ -240,7 +254,8 @@ public sealed class SyncRuleProfileStore
                 M3uRelativePaths: profile.M3uRelativePaths,
                 M3uCrlf: profile.M3uCrlf,
                 M3uBackslashes: profile.M3uBackslashes,
-                M3uBom: profile.M3uBom);
+                M3uBom: profile.M3uBom,
+                M3uFileNameOverride: m3uPath is null ? null : Path.GetFileName(path));
         }
 
         return new SyncTarget(

@@ -1,3 +1,4 @@
+using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.Audio;
 using MelodyBridge.Infrastructure.Data;
 using MelodyBridge.Infrastructure.Services;
@@ -116,6 +117,28 @@ public class ArchiveProfileTests
 
         await _profiles.DeleteAsync(profile.Id);
         Assert.That(await _profiles.GetAllAsync(), Is.Empty);
+    }
+
+    [Test]
+    public async Task Store_DeleteClearsPublishProfileSource()
+    {
+        var archive = await AddProfileAsync("FLAC", "archive-flac", "auto");
+        var store = new SyncRuleProfileStore(_factory);
+        var publish = new SyncRuleProfile
+        {
+            Id = "publish-flac",
+            Name = "Jellyfin FLAC",
+            Kind = OutputTargetType.JellyfinApi,
+            MediaServerProfileId = "jf",
+            SourceArchiveProfileId = archive.Id,
+        };
+        await store.SaveAsync(publish);
+
+        await _profiles.DeleteAsync(archive.Id);
+
+        var loaded = await store.FindAsync(publish.Id);
+        Assert.That(loaded!.SourceArchiveProfileId, Is.Null,
+            "the publish profile falls back to the primary file");
     }
 
     [Test]

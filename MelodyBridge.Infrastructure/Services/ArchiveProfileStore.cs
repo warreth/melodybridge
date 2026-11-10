@@ -154,6 +154,14 @@ public sealed class ArchiveProfileStore
                 string.Equals(location.Path, root, StringComparison.OrdinalIgnoreCase)));
         }
 
+        // A publish profile that used this archive falls back to the
+        // primary file instead of failing every run.
+        var linkedPublishProfiles = await db.SyncRuleProfiles
+            .Where(publish => publish.SourceArchiveProfileId == id)
+            .ToListAsync(ct);
+        foreach (var publish in linkedPublishProfiles)
+            publish.SourceArchiveProfileId = null;
+
         db.ArchiveProfiles.Remove(profile);
         await db.SaveChangesAsync(ct);
     }

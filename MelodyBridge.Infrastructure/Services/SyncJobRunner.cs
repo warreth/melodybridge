@@ -145,12 +145,17 @@ public class SyncJobRunner : ISyncJobRunner
             // legacy target.
             var targets = job.Targets.Count > 0
                 ? job.Targets
-                : new List<SyncTarget>
-                {
-                    new(job.OutputTarget,
-                        job.OutputTarget == OutputTargetType.M3uFile ? null : job.MediaServerProfileId,
-                        job.OutputTarget == OutputTargetType.M3uFile ? job.M3uOutputPath : null),
-                };
+                : job.HasExplicitTargets
+                    ? new List<SyncTarget>()
+                    : new List<SyncTarget>
+                    {
+                        new(job.OutputTarget,
+                            job.OutputTarget == OutputTargetType.M3uFile ? null : job.MediaServerProfileId,
+                            job.OutputTarget == OutputTargetType.M3uFile ? job.M3uOutputPath : null),
+                    };
+
+            if (targets.Count == 0)
+                errors.Add("No publish targets configured");
 
             // Archive copies are loaded once for every target that publishes
             // one. Primary targets pay nothing for this query.

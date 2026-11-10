@@ -1315,20 +1315,27 @@ else
     private bool ShowSource(SyncJobEntity job)
         => !string.Equals(SourceLabel(job), job.Name, StringComparison.Ordinal);
 
+    /// <summary>The publish profile name for a target, from the stored
+    /// target, the live profile list, or the legacy job-level profile.</summary>
+    private string? RuleProfileNameOf(SyncTarget target, SyncJobEntity job)
+        => target.RuleProfileName
+            ?? (!string.IsNullOrWhiteSpace(target.RuleProfileId)
+                ? ruleProfiles.FirstOrDefault(p => p.Id == target.RuleProfileId)?.Name
+                : RuleProfileOf(job)?.Name);
+
     /// <summary>One compact chip per target: M3U or a media server profile.</summary>
     private List<(string Icon, string Label)> TargetChipsOf(SyncJobEntity job)
         => SyncJobMapping.TargetsOf(job).Select(target =>
         {
+            var profileName = RuleProfileNameOf(target, job);
             if (target.Kind == OutputTargetType.M3uFile)
             {
-                var ruleProfile = target.RuleProfileName is { Length: > 0 }
-                    ? target.RuleProfileName
-                    : RuleProfileOf(job)?.Name;
-                return ("list-music", ruleProfile is null ? "M3U file" : $"M3U · {ruleProfile}");
+                return ("list-music",
+                    profileName is null ? "M3U file" : $"M3U · {profileName}");
             }
             var profile = mediaServerProfiles.FirstOrDefault(p => p.Id == target.ProfileId);
             return (TargetIcon(profile?.Kind ?? target.Kind.ToString()),
-                target.RuleProfileName ?? profile?.Name ?? TargetLabel(target.Kind));
+                profileName ?? profile?.Name ?? TargetLabel(target.Kind));
         }).ToList();
 
     private static string JobSummary(SyncJobEntity job)
@@ -1373,7 +1380,7 @@ else
                     var entity = await db.SyncJobs.FindAsync(job.Id);
                     if (entity is null) continue;
                     var log = await JobRunner.RunJobAsync(
-                        SyncJobMapping.MapToDomain(entity, RuleProfileOf(entity)));
+                        SyncJobMapping.MapToDomain(entity, ruleProfiles));
                     if (log is { Status: MelodyBridge.Core.SyncStatus.Failed }) failed++;
                 }
                 catch (Exception)
@@ -1577,7 +1584,8 @@ else
         if (target?.RuleProfileId is { Length: > 0 } id
             && ruleProfiles.FirstOrDefault(p => p.Id == id) is { } profile)
         {
-            return SyncRuleProfileStore.ResolveOutputPath(profile, job.Name);
+            return SyncRuleProfileStore.ResolveM3uPath(
+                profile, job.Name, target.M3uFileNameOverride);
         }
         // A legacy job-level profile still owns its M3U target.
         if (RuleProfileOf(job) is { } legacyProfile)
@@ -1905,11 +1913,21 @@ else
             profileError = "Choose the media server this profile publishes to.";
             return;
         }
-        if (kind != OutputTargetType.M3uFile
-            && mediaServerProfiles.All(p => p.Id != profileMediaServerProfileId))
+        if (kind != OutputTargetType.M3uFile)
         {
-            profileError = "The selected media server connection no longer exists.";
-            return;
+            var connection = mediaServerProfiles
+                .FirstOrDefault(p => p.Id == profileMediaServerProfileId);
+            if (connection is null)
+            {
+                profileError = "The selected media server connection no longer exists.";
+                return;
+            }
+            if (KindOf(connection.Kind) != kind)
+            {
+                profileError =
+                    $"The selected connection is a {TargetLabel(KindOf(connection.Kind))} server, not {TargetLabel(kind)}.";
+                return;
+            }
         }
         if (!string.IsNullOrWhiteSpace(profileSourceArchiveProfileId)
             && !string.Equals(profileSourceArchiveProfileId, SyncSourceVariants.DefaultArchive,
@@ -2266,21 +2284,7 @@ else
             // for the same destination replaces it.
             var targets = new List<SyncTarget>();
             if (m3uProfile is not null)
-            {
-                targets.Add(new SyncTarget(
-                    OutputTargetType.M3uFile,
-                    M3uPath: SyncRuleProfileStore.ResolveOutputPath(m3uProfile, draft.Name),
-                    RuleProfileId: m3uProfile.Id,
-                    RuleProfileName: m3uProfile.Name,
-                    SourceArchiveProfileId: m3uProfile.SourceArchiveProfileId,
-                    PlaylistName: SyncRuleProfileStore.ResolvePlaylistName(m3uProfile, draft.Name),
-                    PathRemapRules: m3uProfile.PathRemapRules,
-                    ExtensionRemapRules: m3uProfile.ExtensionRemapRules,
-                    M3uRelativePaths: m3uProfile.M3uRelativePaths,
-                    M3uCrlf: m3uProfile.M3uCrlf,
-                    M3uBackslashes: m3uProfile.M3uBackslashes,
-                    M3uBom: m3uProfile.M3uBom));
-            }
+                targets.Add(SyncRuleProfileStore.CreateTarget(m3uProfile, draft.Name));
             foreach (var profile in SelectedPublishProfiles)
             {
                 targets.Add(new SyncTarget(
@@ -2297,7 +2301,10 @@ else
             targets.AddRange(legacyTargets
                 .Where(t => !(m3uProfile is not null && t.Kind == OutputTargetType.M3uFile))
                 .Where(t => !(t.Kind != OutputTargetType.M3uFile
-                    && SelectedPublishProfiles.Any(p => p.Kind == t.Kind))));
+                    && SelectedPublishProfiles.Any(p => p.Kind == t.Kind
+                        && (string.IsNullOrWhiteSpace(t.ProfileId)
+                            || string.Equals(p.MediaServerProfileId, t.ProfileId,
+                                StringComparison.Ordinal))))));
             if (targets.Count == 0)
             {
                 quickError = "Pick at least one publish profile first.";
@@ -2394,7 +2401,7 @@ else
             var entity = await db.SyncJobs.FindAsync(jobId);
             if (entity == null) return;
             await JobRunner.RunJobAsync(
-                SyncJobMapping.MapToDomain(entity, RuleProfileOf(entity)));
+                SyncJobMapping.MapToDomain(entity, ruleProfiles));
             await LoadDataAsync(preserveOrder: true);
         }
         finally { runningJobs.Remove(jobId); }

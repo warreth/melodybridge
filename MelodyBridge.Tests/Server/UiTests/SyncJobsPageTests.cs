@@ -467,6 +467,145 @@ public class SyncJobsPageTests
     }
 
     [Test]
+    public async Task RunJobNow_UsesTheTargetsPublishProfile()
+    {
+        var dbPath = Path.Combine(Path.GetTempPath(), $"mb-syncjob-{Guid.NewGuid():N}.db");
+        var dir = Path.Combine(Path.GetTempPath(), $"mb-syncjob-{Guid.NewGuid():N}");
+        var profileDir = Path.Combine(dir, "profile-playlists");
+        var stalePath = Path.Combine(dir, "stale.m3u8");
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var options = new DbContextOptionsBuilder<MelodyBridgeDbContext>()
+                .UseSqlite($"Data Source={dbPath};Pooling=False").Options;
+            var sqliteFactory = new InMemFactory(options);
+            var profile = new SyncRuleProfile
+            {
+                Id = "profile-run",
+                Name = "Run profile",
+                Kind = OutputTargetType.M3uFile,
+                M3uOutputFolder = profileDir,
+                M3uFileNamePattern = "{job}.m3u8",
+                PathRemapRules = new() { [dir] = "/profile-path" },
+            };
+            using (var db = sqliteFactory.CreateDbContext())
+            {
+                db.Database.EnsureCreated();
+                var a = Path.Combine(dir, "a.mp3");
+                await System.IO.File.WriteAllTextAsync(a, "x");
+                db.Playlists.Add(new PlaylistEntity
+                {
+                    Id = "src-1", Name = "Weekly Source", SourceUrl = "stub:src-1",
+                    Tracks = new List<TrackEntity>
+                    {
+                        new()
+                        {
+                            MelodyId = "mel-a", Title = "Alpha", Artist = "A",
+                            DownloadStatus = "downloaded", CurrentPath = a, Position = 0,
+                        },
+                    },
+                });
+                var job = new SyncJobEntity
+                {
+                    Id = "j1", Name = "Weekly Sync", SourceId = "src-1",
+                    SearchLocationPaths = "[]", Schedule = "Manual",
+                    OutputTarget = "M3uFile", M3uOutputPath = stalePath,
+                };
+                MelodyBridge.Infrastructure.Services.SyncJobMapping.ApplyTargets(job, new[]
+                {
+                    new SyncTarget(OutputTargetType.M3uFile, M3uPath: stalePath,
+                        RuleProfileId: profile.Id),
+                });
+                db.SyncJobs.Add(job);
+                db.SaveChanges();
+            }
+
+            var store = new MelodyBridge.Infrastructure.Services.SyncRuleProfileStore(
+                sqliteFactory);
+            await store.SaveAsync(profile);
+
+            _ctx.Services.AddSingleton<IDbContextFactory<MelodyBridgeDbContext>>(sqliteFactory);
+            _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Services.SettingsStore(
+                sqliteFactory));
+            _ctx.Services.AddSingleton(new MelodyBridge.Infrastructure.Services.MediaServerProfileStore(
+                new MelodyBridge.Infrastructure.Services.SettingsStore(sqliteFactory)));
+            _ctx.Services.AddSingleton(store);
+            _ctx.Services.AddSingleton<ISyncJobRunner>(
+                new MelodyBridge.Infrastructure.Services.SyncJobRunner(
+                    sqliteFactory,
+                    new MelodyBridge.Infrastructure.Playlists.M3uGenerator(
+                        NullLogger<MelodyBridge.Infrastructure.Playlists.M3uGenerator>.Instance),
+                    Array.Empty<IMediaServerSync>(),
+                    NullLogger<MelodyBridge.Infrastructure.Services.SyncJobRunner>.Instance));
+
+            var cut = _ctx.Render<SyncJobs>();
+            cut.WaitForAssertion(() =>
+                Assert.That(cut.Markup, Does.Contain("Weekly Sync")), TimeSpan.FromSeconds(3));
+            cut.FindAll("button").Single(b => b.TextContent.Trim() == "Run now").Click();
+            cut.WaitForAssertion(() =>
+                Assert.That(cut.Markup, Does.Contain("Completed")), TimeSpan.FromSeconds(5));
+
+            var expected = Path.Combine(profileDir, "Weekly Sync.m3u8");
+            Assert.Multiple(() =>
+            {
+                Assert.That(System.IO.File.Exists(expected), Is.True,
+                    "the target profile owns the path");
+                Assert.That(System.IO.File.Exists(stalePath), Is.False,
+                    "the stale stored path is not used");
+            });
+            var lines = await System.IO.File.ReadAllLinesAsync(expected);
+            Assert.That(lines.Any(line => line.Contains("/profile-path/a.mp3")), Is.True,
+                "the target profile also owns the path rules");
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+            foreach (var suffix in new[] { "", "-wal", "-shm" })
+                try { File.Delete(dbPath + suffix); } catch { /* best effort */ }
+        }
+    }
+
+    [Test]
+    public async Task JobCard_TwoServerProfiles_ShowBothPublishProfileNames()
+    {
+        var store = new MelodyBridge.Infrastructure.Services.SyncRuleProfileStore(_dbFactory);
+        await store.SaveAsync(new SyncRuleProfile
+        {
+            Id = "pf1", Name = "Jellyfin One", Kind = OutputTargetType.JellyfinApi,
+            MediaServerProfileId = "jf1",
+        });
+        await store.SaveAsync(new SyncRuleProfile
+        {
+            Id = "pf2", Name = "Jellyfin Two", Kind = OutputTargetType.JellyfinApi,
+            MediaServerProfileId = "jf2",
+        });
+        using (var db = _dbFactory.CreateDbContext())
+        {
+            db.SyncJobs.Add(new SyncJobEntity
+            {
+                Id = "j-chips",
+                Name = "Chips",
+                Schedule = "Manual",
+                TargetsJson = System.Text.Json.JsonSerializer.Serialize(new object[]
+                {
+                    new { kind = "JellyfinApi", profileId = "jf1", ruleProfileId = "pf1" },
+                    new { kind = "JellyfinApi", profileId = "jf2", ruleProfileId = "pf2" },
+                }),
+                OutputTarget = "JellyfinApi",
+            });
+            db.SaveChanges();
+        }
+
+        var cut = _ctx.Render<SyncJobs>();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.Markup, Does.Contain("Jellyfin One"));
+            Assert.That(cut.Markup, Does.Contain("Jellyfin Two"));
+        }, TimeSpan.FromSeconds(3));
+    }
+
+    [Test]
     public void EditButton_OpensTheEditor_HydratedWithJobValues()
     {
         var cut = _ctx.Render<SyncJobs>();

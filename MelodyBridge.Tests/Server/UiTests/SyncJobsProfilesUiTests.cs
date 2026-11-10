@@ -124,7 +124,7 @@ public class SyncJobsProfilesUiTests
             db.SyncJobs.Add(new SyncJobEntity
             {
                 Id = "j1", Name = "Old name", SourceId = "p1", Schedule = "Manual",
-                M3uOutputPath = "/out/jazz.m3u8", TargetsJson = "[]", OutputTarget = "M3uFile",
+                M3uOutputPath = "/out/jazz.m3u8", TargetsJson = null, OutputTarget = "M3uFile",
             });
             db.SaveChanges();
         }
@@ -232,6 +232,36 @@ public class SyncJobsProfilesUiTests
     }
 
     [Test]
+    public async Task ProfileEditor_WrongKindConnection_BlocksSave()
+    {
+        var servers = new MediaServerProfileStore(new SettingsStore(_factory));
+        await servers.SaveAsync(new MediaServerProfile
+        {
+            Id = "jf", Name = "JF", Kind = "Jellyfin",
+            BaseUrl = "http://jf:8096", ApiKey = "key",
+        });
+        await servers.SaveAsync(new MediaServerProfile
+        {
+            Id = "px", Name = "PX", Kind = "Plex",
+            BaseUrl = "http://px:32400", ApiKey = "key",
+        });
+
+        var cut = RenderPage();
+        cut.FindAll("button").First(b => b.TextContent.Contains("Publish profiles")).Click();
+        cut.FindAll("button").First(b => b.TextContent.Contains("New publish profile")).Click();
+        cut.Find("input[placeholder='Living room Jellyfin']").Change("Wrong kind");
+        cut.FindAll("select").First(s => s.TextContent.Contains("M3U file")).Change("JellyfinApi");
+        cut.FindAll("select").First(s => s.TextContent.Contains("JF (Jellyfin)")).Change("jf");
+        cut.FindAll("select").First(s => s.TextContent.Contains("M3U file")).Change("PlexApi");
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Save profile").Click();
+
+        Assert.That(cut.Markup, Does.Contain("not Plex"));
+        using var db = _factory.CreateDbContext();
+        Assert.That(db.SyncRuleProfiles.Any(p => p.Name == "Wrong kind"), Is.False,
+            "a connection of the wrong kind is not saved");
+    }
+
+    [Test]
     public async Task BulkRemoveProfile_RemovesTheTargetFromSelectedJobs()
     {
         var profile = new SyncRuleProfile
@@ -300,7 +330,7 @@ public class SyncJobsProfilesUiTests
             db.SyncJobs.Add(new SyncJobEntity
             {
                 Id = "j1", Name = "Old", Schedule = "Manual", RuleProfileId = profile.Id,
-                M3uOutputPath = "/old/old.m3u8", TargetsJson = "[]", OutputTarget = "M3uFile",
+                M3uOutputPath = "/old/old.m3u8", TargetsJson = null, OutputTarget = "M3uFile",
             });
             db.SaveChanges();
         }
@@ -337,12 +367,12 @@ public class SyncJobsProfilesUiTests
                 new SyncJobEntity
                 {
                     Id = "j1", Name = "One", SourceId = "p1", Schedule = "Manual",
-                    M3uOutputPath = "/old/one.m3u8", TargetsJson = "[]", OutputTarget = "M3uFile",
+                    M3uOutputPath = "/old/one.m3u8", TargetsJson = null, OutputTarget = "M3uFile",
                 },
                 new SyncJobEntity
                 {
                     Id = "j2", Name = "Two", SourceId = "p2", Schedule = "Manual",
-                    M3uOutputPath = "/old/two.m3u8", TargetsJson = "[]", OutputTarget = "M3uFile",
+                    M3uOutputPath = "/old/two.m3u8", TargetsJson = null, OutputTarget = "M3uFile",
                 });
             db.SaveChanges();
         }

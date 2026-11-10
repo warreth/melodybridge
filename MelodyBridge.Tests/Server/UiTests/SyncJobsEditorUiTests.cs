@@ -406,6 +406,56 @@ public class SyncJobsEditorUiTests
     }
 
     [Test]
+    public void Targets_LegacySameKindTargets_OnlyTheMatchingConnectionIsReplaced()
+    {
+        SeedProfile("jf1", "JF One", "Jellyfin", "http://jf1:8096", "t1");
+        SeedProfile("jf2", "JF Two", "Jellyfin", "http://jf2:8096", "t2");
+        SeedPlaylist("p1", "My List");
+        using (var db = _dbFactory.CreateDbContext())
+        {
+            var job = new SyncJobEntity
+            {
+                Id = "job-two-jf",
+                Name = "Two Jellyfin",
+                SourceId = "p1",
+                SearchLocationPaths = "[]",
+                Schedule = "Manual",
+            };
+            MelodyBridge.Infrastructure.Services.SyncJobMapping.ApplyTargets(job, new[]
+            {
+                new SyncTarget(OutputTargetType.JellyfinApi, ProfileId: "jf1"),
+                new SyncTarget(OutputTargetType.JellyfinApi, ProfileId: "jf2"),
+            });
+            db.SyncJobs.Add(job);
+            db.SaveChanges();
+        }
+
+        var cut = _ctx.Render<SyncJobs>();
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("Two Jellyfin")), TimeSpan.FromSeconds(3));
+        cut.Find("button.card-menu-trigger").Click();
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Edit").Click();
+        TickProfile(cut, "JF One");
+        Save(cut);
+
+        using var db2 = _dbFactory.CreateDbContext();
+        var saved = db2.SyncJobs.AsNoTracking().Single(j => j.Id == "job-two-jf");
+        var targets = MelodyBridge.Infrastructure.Services.SyncJobMapping.TargetsOf(saved);
+        Assert.Multiple(() =>
+        {
+            Assert.That(targets.Count(t => t.Kind == OutputTargetType.JellyfinApi
+                && t.ProfileId == "jf1"), Is.EqualTo(1));
+            Assert.That(targets.Count(t => t.Kind == OutputTargetType.JellyfinApi
+                && t.ProfileId == "jf2"), Is.EqualTo(1),
+                "the other Jellyfin connection survives");
+            Assert.That(targets.Single(t => t.ProfileId == "jf1").RuleProfileId,
+                Is.Not.Null, "the replaced target follows its profile");
+            Assert.That(targets.Single(t => t.ProfileId == "jf2").RuleProfileId,
+                Is.Null, "the untouched target stays legacy");
+        });
+    }
+
+    [Test]
     public void Targets_JobWhoseProfileWasDeleted_PrunesItAndSavesAReplacement()
     {
         SeedProfile("prof-dead", "Gone", "Jellyfin", "http://dead:1", "t1");
