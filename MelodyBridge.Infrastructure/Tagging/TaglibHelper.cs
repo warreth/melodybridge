@@ -28,7 +28,7 @@ public static class TaglibHelper
     {
         try
         {
-            var file = TagLib.File.Create(filePath);
+            using var file = TagLib.File.Create(filePath);
 
             // Path 1: Xiph comment (Ogg Vorbis, Opus, FLAC). Checked first because
             // GetTag(Id3v2, create:true) would fabricate an ID3v2 tag inside FLAC,
@@ -85,7 +85,7 @@ public static class TaglibHelper
     {
         try
         {
-            var file = TagLib.File.Create(filePath);
+            using var file = TagLib.File.Create(filePath);
             if (!string.IsNullOrWhiteSpace(title)) file.Tag.Title = title;
             if (!string.IsNullOrWhiteSpace(artist)) file.Tag.Performers = new[] { artist };
             if (!string.IsNullOrWhiteSpace(album)) file.Tag.Album = album;
@@ -112,7 +112,7 @@ public static class TaglibHelper
     {
         try
         {
-            var file = TagLib.File.Create(filePath);
+            using var file = TagLib.File.Create(filePath);
             return file.Tag.Pictures.Length > 0;
         }
         catch
@@ -131,7 +131,7 @@ public static class TaglibHelper
     {
         try
         {
-            var file = TagLib.File.Create(filePath);
+            using var file = TagLib.File.Create(filePath);
             return !string.IsNullOrWhiteSpace(file.Tag.Title);
         }
         catch
@@ -149,7 +149,7 @@ public static class TaglibHelper
     {
         try
         {
-            var file = TagLib.File.Create(filePath);
+            using var file = TagLib.File.Create(filePath);
             return new AudioFileIdentity(
                 ReadMelodyId(file),
                 file.Tag.Title,
@@ -167,7 +167,8 @@ public static class TaglibHelper
     {
         try
         {
-            return ReadMelodyId(TagLib.File.Create(filePath));
+            using var file = TagLib.File.Create(filePath);
+            return ReadMelodyId(file);
         }
         catch
         {

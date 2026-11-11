@@ -321,7 +321,7 @@ public class LibraryScanner : ILibraryScanner
     {
         try
         {
-            var tf = TagLib.File.Create(filePath);
+            using var tf = TagLib.File.Create(filePath);
             var row = new TrackEntity
             {
                 MelodyId = id,

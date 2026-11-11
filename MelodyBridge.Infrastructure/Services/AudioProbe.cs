@@ -17,7 +17,7 @@ public static class AudioProbe
 
         try
         {
-            var tf = TagLib.File.Create(path);
+            using var tf = TagLib.File.Create(path);
             if (tf.Properties?.AudioSampleRate is > 0)
                 track.SampleRateHz = tf.Properties.AudioSampleRate;
             var container = Path.GetExtension(path).TrimStart('.').ToLowerInvariant();

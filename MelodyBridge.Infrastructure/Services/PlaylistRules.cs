@@ -202,7 +202,7 @@ internal static class PlaylistRules
     /// </summary>
     internal static (bool Album, bool AlbumArtist, bool Lyrics, bool Cover) MissingTags(string path)
     {
-        var file = TagLib.File.Create(path);
+        using var file = TagLib.File.Create(path);
         return (string.IsNullOrWhiteSpace(file.Tag.Album),
             file.Tag.AlbumArtists.Length == 0,
             string.IsNullOrWhiteSpace(file.Tag.Lyrics),
