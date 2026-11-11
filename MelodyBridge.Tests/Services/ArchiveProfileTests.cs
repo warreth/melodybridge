@@ -66,13 +66,14 @@ public class ArchiveProfileTests
         try { Directory.Delete(_root, recursive: true); } catch { /* best effort */ }
     }
 
-    private async Task AddTrackAsync(string primary, int id = 1, string title = "Song")
+    private async Task AddTrackAsync(
+        string primary, int id = 1, string title = "Song", string? melodyId = null)
     {
         await using var db = _factory.CreateDbContext();
         db.Tracks.Add(new TrackEntity
         {
             Id = id,
-            MelodyId = $"mel-{id}",
+            MelodyId = melodyId ?? $"mel-{id}",
             Title = title,
             Artist = "Artist",
             CurrentPath = primary,
@@ -186,6 +187,118 @@ public class ArchiveProfileTests
         }
         Assert.That(File.Exists(Path.Combine(_root, "archive-a", "song.mp3")), Is.True);
         Assert.That(File.Exists(Path.Combine(_root, "archive-b", "song.mp3")), Is.True);
+    }
+
+    [Test]
+    public async Task ExtraCopies_SameSongOnTwoRows_SharesOneArchiveFile()
+    {
+        var profile = await AddProfileAsync("MP3", "archive-mp3", "auto");
+        var secondPrimary = Path.Combine(_root, "music2", "song.mp3");
+        Directory.CreateDirectory(Path.GetDirectoryName(secondPrimary)!);
+        File.Copy(_primary, secondPrimary);
+        await AddTrackAsync(secondPrimary, id: 2, melodyId: "mel-1");
+
+        await using (var db = _factory.CreateDbContext())
+        {
+            var first = await db.Tracks.SingleAsync(t => t.Id == 1);
+            await _copies.ArchiveExtraCopiesAsync(first, db, save: true);
+        }
+        await using (var db = _factory.CreateDbContext())
+        {
+            var second = await db.Tracks.SingleAsync(t => t.Id == 2);
+            await _copies.ArchiveExtraCopiesAsync(second, db, save: true);
+        }
+
+        await using (var db = _factory.CreateDbContext())
+        {
+            var copies = await db.TrackArchiveCopies
+                .Where(copy => copy.ProfileId == profile.Id)
+                .OrderBy(copy => copy.TrackId)
+                .ToListAsync();
+            Assert.Multiple(() =>
+            {
+                Assert.That(copies, Has.Count.EqualTo(2));
+                Assert.That(copies.Select(copy => copy.Path).Distinct().Count(),
+                    Is.EqualTo(1), "the same song shares one archive file");
+                Assert.That(copies.All(copy => copy.Warning is null), Is.True);
+            });
+            var target = copies[0].Path!;
+            Assert.That(File.Exists(target), Is.True);
+        }
+    }
+
+    [Test]
+    public async Task ExtraCopies_HardlinkTwinWithAnotherId_SharesOneArchiveFile()
+    {
+        var profile = await AddProfileAsync("MP3", "archive-mp3", "auto");
+        var secondPrimary = Path.Combine(_root, "music2", "song.mp3");
+        Directory.CreateDirectory(Path.GetDirectoryName(secondPrimary)!);
+        var hardLinks = new MelodyBridge.Infrastructure.Files.HardLinkService();
+        if (!hardLinks.IsSupported) Assert.Ignore("hard links are not supported");
+        hardLinks.Create(secondPrimary, _primary);
+        await AddTrackAsync(secondPrimary, id: 2, melodyId: "mel-other");
+
+        await using (var db = _factory.CreateDbContext())
+        {
+            var first = await db.Tracks.SingleAsync(t => t.Id == 1);
+            await _copies.ArchiveExtraCopiesAsync(first, db, save: true);
+        }
+        await using (var db = _factory.CreateDbContext())
+        {
+            var second = await db.Tracks.SingleAsync(t => t.Id == 2);
+            await _copies.ArchiveExtraCopiesAsync(second, db, save: true);
+        }
+
+        await using (var db = _factory.CreateDbContext())
+        {
+            var copies = await db.TrackArchiveCopies
+                .Where(copy => copy.ProfileId == profile.Id)
+                .OrderBy(copy => copy.TrackId)
+                .ToListAsync();
+            Assert.Multiple(() =>
+            {
+                Assert.That(copies, Has.Count.EqualTo(2));
+                Assert.That(copies.Select(copy => copy.Path).Distinct().Count(),
+                    Is.EqualTo(1), "a hardlink twin shares the same archive file");
+                Assert.That(copies.All(copy => copy.Warning is null), Is.True);
+            });
+        }
+    }
+
+    [Test]
+    public async Task ExtraCopies_DifferentSongOnTheSameName_IsRefused()
+    {
+        var profile = await AddProfileAsync("MP3", "archive-mp3", "auto");
+        var secondPrimary = Path.Combine(_root, "music2", "song.mp3");
+        Directory.CreateDirectory(Path.GetDirectoryName(secondPrimary)!);
+        File.Copy(_primary, secondPrimary);
+        await AddTrackAsync(secondPrimary, id: 2, melodyId: "mel-other");
+
+        await using (var db = _factory.CreateDbContext())
+        {
+            var first = await db.Tracks.SingleAsync(t => t.Id == 1);
+            await _copies.ArchiveExtraCopiesAsync(first, db, save: true);
+        }
+        await using (var db = _factory.CreateDbContext())
+        {
+            var second = await db.Tracks.SingleAsync(t => t.Id == 2);
+            await _copies.ArchiveExtraCopiesAsync(second, db, save: true);
+        }
+
+        await using (var db = _factory.CreateDbContext())
+        {
+            var copies = await db.TrackArchiveCopies
+                .Where(copy => copy.ProfileId == profile.Id)
+                .OrderBy(copy => copy.TrackId)
+                .ToListAsync();
+            Assert.Multiple(() =>
+            {
+                Assert.That(copies, Has.Count.EqualTo(2));
+                Assert.That(copies[0].Warning, Is.Null);
+                Assert.That(copies[1].Warning, Does.Contain("another track already owns"));
+                Assert.That(copies[1].Path, Is.Null);
+            });
+        }
     }
 
     [Test]

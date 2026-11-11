@@ -600,7 +600,8 @@ public sealed class TrackLinker
                 var replaceExisting = !PlaylistRules.PathEquals(archiveLink, existingArchive)
                     && File.Exists(archiveLink)
                     && !_hardLinks.SameFile(archiveLink, existingArchive)
-                    && await NameIsFreeAsync(db, track, archiveLink, ct);
+                    && await NameIsFreeAsync(
+                        db, track, archiveLink, ct, allowPrimaryOwner: false);
                 if (PlaylistRules.PathEquals(archiveLink, existingArchive)
                     || TryHardLink(archiveLink, existingArchive, replaceExisting, out _))
                 {
@@ -654,7 +655,8 @@ public sealed class TrackLinker
         // instead of writing over it.
         using var scope = await _pathLocks.AcquireAsync(targetPath, ct);
 
-        if (!await NameIsFreeAsync(db, track, targetPath, ct))
+        if (!await NameIsFreeAsync(
+                db, track, targetPath, ct, allowPrimaryOwner: false))
         {
             track.Warning = string.IsNullOrEmpty(track.Warning)
                 ? $"another track already owns the archive file {Path.GetFileName(targetPath)}; no archive copy was made"
@@ -663,6 +665,18 @@ public sealed class TrackLinker
                 "Archive copy for '{Title}' skipped: {Path} belongs to another track",
                 track.Title, targetPath);
             return ArchiveOutcome.Failed;
+        }
+
+        // The same song already wrote this file (a duplicate playlist row
+        // or a hardlink twin). Adopt it instead of transcoding the same
+        // bytes again.
+        if (!string.IsNullOrEmpty(track.MelodyId)
+            && File.Exists(targetPath)
+            && string.Equals(ReadMelodyId(targetPath), track.MelodyId, StringComparison.Ordinal))
+        {
+            track.ArchivePath = targetPath;
+            track.ArchiveSizeBytes = FileSizeOf(targetPath);
+            return ArchiveOutcome.Written;
         }
 
         var result = ArchiveCopier.Copy(
@@ -748,55 +762,17 @@ public sealed class TrackLinker
     }
 
     /// <summary>
-    /// True when no other row points at this path, so replacing the name
-    /// cannot take another track's file away. The comparison follows the
-    /// filesystem: where the volume folds case, two spellings of the same
-    /// name are the same file, so a differently cased path counts as
-    /// taken. A volume that keeps the spellings apart is asked, not
-    /// assumed, Windows and macOS included.
-    /// </summary>
-    private static async Task<bool> PathIsFreeAsync(
-        MelodyBridgeDbContext db, int trackId, string path, CancellationToken ct)
-    {
-        var wanted = path.Trim().TrimEnd('/', '\\');
-        var folder = Path.GetDirectoryName(wanted) ?? wanted;
-        var caseInsensitive = FileSystemCase.FoldsCase(folder);
-        var owners = await db.Tracks.AsNoTracking()
-            .Where(t => t.Id != trackId)
-            .Where(t => caseInsensitive
-                ? EF.Functions.Collate(t.CurrentPath, "NOCASE") == wanted
-                  || EF.Functions.Collate(t.ArchivePath, "NOCASE") == wanted
-                : t.CurrentPath == wanted || t.ArchivePath == wanted)
-            .Select(t => t.Id)
-            .ToListAsync(ct);
-        return owners.Count == 0;
-    }
-
-    /// <summary>
     /// True when a copy or a link may take this name. The database says
-    /// which rows claim the name. The file that is on the name right now
-    /// says who owns the bytes: it carries the MELODY_ID of the song it
-    /// belongs to, and a song that is still in the library keeps its
-    /// file, even when the name is spelled with another case than the one
-    /// we would write. A file of a song that was removed from the library
-    /// is a leftover and does not block the copy.
+    /// which rows claim the name. The same song may share one archive
+    /// copy, and a hardlink twin is the same bytes even when the source
+    /// ids differ. A different song keeps its file, and an archive copy
+    /// never takes another track's primary.
     /// </summary>
-    private async Task<bool> NameIsFreeAsync(
-        MelodyBridgeDbContext db, TrackEntity track, string path, CancellationToken ct)
-    {
-        if (!await PathIsFreeAsync(db, track.Id, path, ct)) return false;
-        if (!File.Exists(path)) return true;
-
-        var existingId = ReadMelodyId(path);
-        if (string.IsNullOrEmpty(existingId)) return true;
-        if (string.Equals(existingId, track.MelodyId, StringComparison.Ordinal)) return true;
-
-        // Another song's file. It counts while that song is in the
-        // library; a leftover of a song that was removed does not.
-        var ownerExists = await db.Tracks.AsNoTracking()
-            .AnyAsync(t => t.Id != track.Id && t.MelodyId == existingId, ct);
-        return !ownerExists;
-    }
+    private Task<bool> NameIsFreeAsync(
+        MelodyBridgeDbContext db, TrackEntity track, string path,
+        CancellationToken ct, bool allowPrimaryOwner = true)
+        => TrackFileNamePolicy.IsFreeAsync(
+            db, track, path, _hardLinks, allowPrimaryOwner, ct);
 
     /// <summary>Size of a file the linker just made or found, or null when it
     /// cannot be read. The archive row keeps it so the Library page does not

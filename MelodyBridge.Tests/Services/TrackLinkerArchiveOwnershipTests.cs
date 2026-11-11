@@ -130,6 +130,45 @@ public class TrackLinkerArchiveOwnershipTests
     }
 
     [Test]
+    public async Task ArchiveCopy_SharesTheFileWhenAnotherRowHasTheSameSong()
+    {
+        var primary = Path.Combine(_musicDir, "song.mp3");
+        TaggedMp3("mb-track-1", primary);
+        var otherPrimary = Path.Combine(_musicDir, "other", "song.mp3");
+        Directory.CreateDirectory(Path.GetDirectoryName(otherPrimary)!);
+        File.Copy(primary, otherPrimary);
+        var target = Path.Combine(_archiveDir, "song.mp3");
+        File.Copy(primary, target);
+        TaglibHelper.WriteMelodyId(target, "mb-track-1");
+
+        await using var db = _factory.CreateDbContext();
+        var track = NewTrack("mb-track-1", primary);
+        db.Tracks.Add(track);
+        db.Tracks.Add(new TrackEntity
+        {
+            MelodyId = "mb-track-1",
+            Title = "Song",
+            Artist = "Artist",
+            Position = 1,
+            DownloadStatus = "downloaded",
+            CurrentPath = otherPrimary,
+            ArchivePath = target,
+            PlaylistEntityId = "pl-1",
+        });
+        await db.SaveChangesAsync();
+
+        var outcome = await _linker.ArchiveDownloadedTrackAsync(track, db, CancellationToken.None);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(outcome, Is.EqualTo(ArchiveOutcome.Written));
+            Assert.That(track.ArchivePath, Is.EqualTo(target),
+                "the same song shares the existing archive copy");
+            Assert.That(track.Warning, Is.Null.Or.Empty);
+        });
+    }
+
+    [Test]
     public async Task TheOwnershipCheckFollowsTheFilesystemsCaseRules()
     {
         var primary = Path.Combine(_musicDir, "song.mp3");

@@ -3,6 +3,7 @@ using System.Diagnostics;
 using MelodyBridge.Infrastructure.Audio;
 using MelodyBridge.Infrastructure.Data;
 using MelodyBridge.Infrastructure.Files;
+using MelodyBridge.Infrastructure.Tagging;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -18,6 +19,7 @@ namespace MelodyBridge.Infrastructure.Services;
 public sealed class ArchiveCopyService
 {
     private const string WarningPrefix = "archive copy failed";
+    private static readonly HardLinkService HardLinks = new();
 
     private readonly IDbContextFactory<MelodyBridgeDbContext> _dbFactory;
     private readonly SettingsStore _settings;
@@ -163,10 +165,27 @@ public sealed class ArchiveCopyService
                 continue;
             }
 
-            if (!await NameIsFreeAsync(db, track.Id, target, ct))
+            if (!await NameIsFreeAsync(db, track, target, ct))
             {
                 Fail(row, track, profile,
                     "another track already owns this archive file");
+                continue;
+            }
+
+            // The same song already wrote this file (a duplicate playlist
+            // row or a hardlink twin). Adopt it instead of transcoding the
+            // same bytes again.
+            if (!string.IsNullOrEmpty(track.MelodyId)
+                && File.Exists(target)
+                && string.Equals(
+                    TaglibHelper.ReadMelodyId(target), track.MelodyId,
+                    StringComparison.Ordinal))
+            {
+                row.Path = target;
+                row.SizeBytes = new FileInfo(target).Length;
+                row.Warning = null;
+                row.UpdatedAt = DateTime.UtcNow;
+                ClearWarning(track, profile.Name);
                 continue;
             }
 
@@ -516,16 +535,10 @@ public sealed class ArchiveCopyService
         db.TrackArchiveCopies.RemoveRange(rows);
     }
 
-    private static async Task<bool> NameIsFreeAsync(
-        MelodyBridgeDbContext db, int trackId, string path, CancellationToken ct)
-    {
-        if (await db.TrackArchiveCopies.AsNoTracking().AnyAsync(
-                copy => copy.TrackId != trackId && copy.Path == path, ct))
-            return false;
-        return !await db.Tracks.AsNoTracking().AnyAsync(
-            track => track.Id != trackId
-                && (track.CurrentPath == path || track.ArchivePath == path), ct);
-    }
+    private static Task<bool> NameIsFreeAsync(
+        MelodyBridgeDbContext db, TrackEntity track, string path, CancellationToken ct)
+        => TrackFileNamePolicy.IsFreeAsync(
+            db, track, path, HardLinks, allowPrimaryOwner: false, ct);
 
     private static async Task<bool> OwnedElsewhereAsync(
         MelodyBridgeDbContext db, int trackId, string path, CancellationToken ct)
