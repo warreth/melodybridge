@@ -273,10 +273,11 @@ away:
 1. The file's bytes are sniffed for a real audio signature. An HTML error page
    or a JSON body served with a 200 status is deleted, and the waterfall
    continues.
-2. ffprobe parses the file. A file it cannot read at all (truncated mid-frame,
-   junk under an audio header) is deleted and the track is marked failed, so a
-   later run retries it. A wrong length is not a broken file: see the review
-   below.
+2. ffprobe parses the file. A file it cannot parse (truncated mid-frame, junk
+   under an audio header) is deleted and the track is marked failed, so a later
+   run retries it. A wrong length is not a broken file: see the review below.
+   When ffprobe itself fails (missing, a timeout, or a resource limit), the file
+   is not judged: it stays and the row says it could not be verified.
 3. The measured bitrate must land inside your band. A file outside the band is
    rejected and deleted, and the waterfall moves on.
 

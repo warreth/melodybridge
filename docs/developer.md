@@ -433,7 +433,7 @@ instead of staying on "downloading".
 
 `PlaylistStore` verifies every downloaded file twice before it counts as done:
 
-- `FileIntegrity.Check` reads the real duration with ffprobe and classifies the file as OK, `Corrupt` (unreadable or truncated: deleted, track failed, retried later) or `DurationMismatch` (the file stays and is flagged).
+- `FileIntegrity.Check` reads the real duration with ffprobe and classifies the file as OK, `Corrupt` (a parse failure: deleted, track failed, retried later) or `DurationMismatch` (the file stays and is flagged). A missing or failed ffprobe sets `ToolMissing` or `ToolFailed`: that is not proof of corruption, so the file stays and the row is marked unverified.
 - `SpectrumAnalyzer.Verify` measures the real bandwidth. An inflated result flags the file; a low but honest bandwidth leaves an advisory `Warning`.
 
 A flag writes `Tracks.ReviewKind` (`length`, `spectrum`, or both joined by `+`, see `TrackReview`) and `ReviewText`. `ResolveQualityReviewAsync` settles it: Keep clears the columns, Retry deletes the primary and archive files, sets `DownloadStatus = "pending"` and copies `SourcePluginId` into the one-shot `AvoidPluginId`. A retry that cannot delete the flagged file refuses and keeps the review open: re-queueing would let the library passes re-link the same bytes as if a fresh download had landed. `PlaylistStore.Verification` carries the live `VerificationOptions` (spectrum mode and class gap, length tolerances); the Server seeds it from the settings table at startup and the Settings page replaces it on save, so a change applies without a restart.

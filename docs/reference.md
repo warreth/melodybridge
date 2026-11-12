@@ -154,8 +154,9 @@ set how strict the checks are:
 | Spectrum strictness | Balanced | How many bitrate classes (96/128/160/192/256/320) below the declared bitrate the measured bandwidth may sit before a file counts as inflated. Strict flags one class, Lenient three |
 | Length tolerance (seconds / percent) | 30 / 10 | The allowed length difference, the larger of the two wins. A file outside the window is flagged for a decision, not deleted |
 
-Broken bytes (a file ffprobe cannot read at all) are still deleted and the
-track marked failed, and the next run retries it.
+Broken bytes (a file ffprobe cannot parse) are still deleted and the track
+marked failed, and the next run retries it. A failed or missing ffprobe is not
+proof of broken bytes: the file stays and the row says it could not be verified.
 
 ### Network
 
@@ -722,8 +723,10 @@ The error on a track row is the reason the waterfall gave up:
 | *flac.music.hi.cn served aac for the requested mp3 tier* | The 128 tier returned AAC instead of MP3. The waterfall tries the other platform's candidate; if none matches, choose a different quality or source |
 | *Deezer: The Deezer ARL is no longer signed in* | Copy a fresh `arl` cookie from deezer.com and paste it on the Plugins page |
 | *no other provider is available: X delivered the flagged file and was skipped* | You chose Retry and X was the only enabled plugin left, so there was nothing else to try. Enable another plugin; a later Download attempt may use X again |
-| *corrupt download: ffprobe failed* | The file could not be read at all, so it was deleted and the track marked failed; the next run retries |
+| *corrupt download: ...* | The bytes could not be parsed at all, so the file was deleted and the track marked failed; the next run retries |
+| *could not verify the download: ffprobe failed* | The file is kept; ffprobe could not run (a missing tool, a timeout, or a resource limit). Retry the check, or install ffprobe, and the warning clears |
 | *archive copy failed: ffmpeg not found on this host* | The download itself is fine; install ffmpeg if you want archive copies |
+| *archive copy unverified: ...* | The copy is on disk but ffprobe could not check it. The next archive pass checks it again; a real defect becomes a normal archive failure |
 
 A **needs review** state is not a failure either: it means two playlists
 disagree about a track's quality and you get to pick, see
