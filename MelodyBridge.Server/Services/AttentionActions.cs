@@ -131,32 +131,45 @@ public sealed class AttentionActions : IAttentionActions
     {
         var done = 0;
         var failed = 0;
-        var messages = new List<string>();
-        foreach (var id in trackIds)
-        {
-            ct.ThrowIfCancellationRequested();
-            try
+        var messages = new System.Collections.Concurrent.ConcurrentBag<string>();
+        var completed = 0;
+
+        // An archive repair is a local copy or transcode per track, not a
+        // network download, so a few run together and the page finishes a
+        // large group in a reasonable time. The per-name and per-row locks
+        // inside the services make this safe.
+        await Parallel.ForEachAsync(
+            trackIds,
+            new ParallelOptions { MaxDegreeOfParallelism = 4, CancellationToken = ct },
+            async (id, token) =>
             {
-                var (ok, reason) = await _store.RetryArchiveAsync(id, ct);
-                await using var db = await _dbFactory.CreateDbContextAsync(ct);
-                var track = await db.Tracks.FirstOrDefaultAsync(t => t.Id == id, ct);
-                if (track is not null)
-                    await _archives.ArchiveExtraCopiesAsync(track, db, ct: ct);
-                if (ok) done++;
-                else
+                try
                 {
-                    failed++;
-                    messages.Add($"Track {id}: {reason ?? "the archive copy could not be written"}");
+                    var (ok, reason) = await _store.RetryArchiveAsync(id, token);
+                    await using var db = await _dbFactory.CreateDbContextAsync(token);
+                    var track = await db.Tracks.FirstOrDefaultAsync(t => t.Id == id, token);
+                    if (track is not null)
+                        await _archives.ArchiveExtraCopiesAsync(track, db, ct: token);
+                    if (ok) Interlocked.Increment(ref done);
+                    else
+                    {
+                        Interlocked.Increment(ref failed);
+                        messages.Add($"Track {id}: {reason ?? "the archive copy could not be written"}");
+                    }
                 }
-            }
-            catch (Exception ex)
-            {
-                failed++;
-                messages.Add($"Track {id}: {ex.Message}");
-            }
-            progress?.Report(done + failed);
-        }
-        return new AttentionBulkResult(done, failed, messages);
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    Interlocked.Increment(ref failed);
+                    messages.Add($"Track {id}: {ex.Message}");
+                }
+                progress?.Report(Interlocked.Increment(ref completed));
+            });
+
+        return new AttentionBulkResult(done, failed, messages.ToList());
     }
 
     public async Task<AttentionBulkResult> QualityReviewAsync(

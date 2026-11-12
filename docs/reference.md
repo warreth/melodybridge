@@ -413,15 +413,16 @@ metric row is the filter bar. **All** shows only the categories; pick
 group alone. A group with more than eight rows shows the first eight and a
 **Show all** button.
 
-The page opens in **Automatic** mode. The **Fix what can be fixed** card says
+The page opens with **Fix what can be fixed**. The card says
 what the fixer will do, for example *retry 9 downloads, keep 2 length-reviewed
 files, retry 2 quality reviews, recheck 1 unverified file, hardlink 2
 duplicates, rebuild 2 archive copies and re-sync 1 playlist*. **Fix all**
 applies the matching repair to every group. Each group also has its own
-**Fix all** button. The repair runs as a background job: leave the page and it
-keeps going, and the Downloads page shows it in the active runs list with its
-queue count and ETA. A progress bar and a **Stop** button stay visible while the
-work runs.
+group action (**Retry all**, **Recheck all**, **Find hardlinks**,
+**Recreate all** or **Re-sync all**). The repair runs as a background job:
+leave the page and it keeps going, and the Downloads page shows it in the
+active runs list with its queue count and ETA. A progress bar and a **Stop**
+button stay visible while the work runs.
 
 Simple mode shows one summary card with the same **Fix all** button and a note
 that the per-track controls live in Advanced mode.
@@ -432,13 +433,12 @@ duplicates hardlink the existing copy, archive warnings rebuild the archive
 copy, missing files retry the download, unverified files re-run the audio
 check, and playlist syncs refresh the source.
 
-Choose **Review individually** to show the old per-row controls: checkboxes,
-the bulk action bar, and the action buttons for one track or one group. The
-choice is not destructive; switching back to Automatic simply hides the
-individual controls.
+Choose a row's checkbox to reveal the bulk action bar: the actions that apply
+to the selected tracks, run together. Every row also carries its own action,
+always visible, so a single track never needs a mode switch first.
 
-Each row carries the track, artist, playlist link, the original reason and, in
-individual mode, the actions that make sense for it:
+Each row carries the track, artist, playlist link, the original reason and the
+actions that make sense for it:
 
 | Group | Actions |
 |---|---|

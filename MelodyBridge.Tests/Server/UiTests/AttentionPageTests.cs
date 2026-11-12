@@ -160,7 +160,7 @@ public class AttentionPageTests
         cut.WaitForAssertion(() => Assert.That(cut.Markup, Does.Contain("No source found")),
             TimeSpan.FromSeconds(5));
 
-        cut.Find(".attention-group-actions button").Click();
+        cut.Find(".attention-repair-actions button").Click();
 
         Assert.That(actions.Started.Task.Wait(TimeSpan.FromSeconds(2)), Is.True,
             "the fake action must be the one the page invoked");
@@ -171,8 +171,9 @@ public class AttentionPageTests
         {
             Assert.That(cut.Markup, Does.Contain("Retrying downloads"));
             Assert.That(repair.Current, Is.Not.Null);
-            Assert.That(repair.Current!.Processed, Is.EqualTo(1));
-            Assert.That(cut.Markup, Does.Contain("1 of 1"));
+            Assert.That(repair.Current!.Processed, Is.GreaterThanOrEqualTo(1));
+            Assert.That(cut.FindAll(".attention-progress").Count, Is.GreaterThan(0),
+                "a running bulk action shows its progress");
             Assert.That(cut.FindAll("button").Any(button => button.TextContent.Contains("Stop")),
                 Is.True, "a running bulk action can be stopped");
         }, TimeSpan.FromSeconds(5));
@@ -196,28 +197,25 @@ public class AttentionPageTests
     }
 
     [Test]
-    public void Page_DefaultsToAutomaticFixesAndCanSwitchToManual()
+    public void Page_ShowsTheFixButtonAndPerRowActions()
     {
         var cut = _ctx.Render<Attention>();
 
         cut.WaitForAssertion(() =>
         {
             Assert.That(cut.Markup, Does.Contain("Fix what can be fixed"));
-            Assert.That(cut.Markup, Does.Contain("Automatic"));
-            Assert.That(cut.Markup, Does.Contain("Review individually"));
             Assert.That(cut.Markup, Does.Contain("Fix all 2"));
             Assert.That(cut.Markup, Does.Contain("retry 1 download"));
             Assert.That(cut.Markup, Does.Contain("re-sync 1 playlist"));
+            Assert.That(cut.Markup, Does.Not.Contain("Review individually"),
+                "the mode switch is gone; rows always show their own action");
         }, TimeSpan.FromSeconds(5));
 
         ShowMetric(cut, "playlists");
         cut.WaitForAssertion(() =>
             Assert.That(cut.Find("section[aria-labelledby='group-playlists'] .attention-group-actions button")
-                .TextContent, Does.Contain("Fix all 1")), TimeSpan.FromSeconds(3));
+                .TextContent, Does.Contain("Re-sync all 1")), TimeSpan.FromSeconds(3));
 
-        cut.FindAll("button")
-            .Single(button => button.TextContent.Contains("Review individually"))
-            .Click();
         ShowMetric(cut, "failed");
 
         cut.WaitForAssertion(() =>
@@ -225,6 +223,8 @@ public class AttentionPageTests
             Assert.That(cut.FindAll("input[aria-label='Select Broken']"), Has.Count.EqualTo(1));
             Assert.That(cut.FindAll("button").Any(button => button.TextContent.Contains("Retry all")),
                 Is.True);
+            Assert.That(cut.FindAll("button").Any(button => button.TextContent.Trim() == "Retry"),
+                Is.True, "the row itself offers its own fix");
         }, TimeSpan.FromSeconds(3));
     }
 
@@ -251,9 +251,6 @@ public class AttentionPageTests
         ShowMetric(cut, "archives");
         cut.WaitForAssertion(() => Assert.That(cut.Markup, Does.Contain("Unclear")),
             TimeSpan.FromSeconds(5));
-        cut.FindAll("button")
-            .Single(button => button.TextContent.Contains("Review individually"))
-            .Click();
         cut.Find("input[aria-label='Select Unclear']").Change(true);
 
         cut.WaitForAssertion(() =>
@@ -262,6 +259,10 @@ public class AttentionPageTests
                 Is.True);
             Assert.That(cut.FindAll("button").Any(button => button.TextContent.Contains("Recreate archives")),
                 Is.False, "an unverified file has no archive to recreate");
+            Assert.That(
+                cut.Find("section[aria-labelledby='group-unverified'] .attention-row-actions")
+                    .TextContent, Does.Contain("Recheck"),
+                "the row always shows its own action");
         }, TimeSpan.FromSeconds(3));
     }
 
@@ -311,9 +312,6 @@ public class AttentionPageTests
         ShowMetric(cut, "archives");
         cut.WaitForAssertion(() => Assert.That(cut.Markup, Does.Contain("Gone")),
             TimeSpan.FromSeconds(5));
-        cut.FindAll("button")
-            .Single(button => button.TextContent.Contains("Review individually"))
-            .Click();
 
         cut.WaitForAssertion(() =>
         {
@@ -370,9 +368,6 @@ public class AttentionPageTests
         cut.WaitForAssertion(() => Assert.That(cut.Markup, Does.Contain("No source found")),
             TimeSpan.FromSeconds(5));
 
-        cut.FindAll("button")
-            .Single(button => button.TextContent.Contains("Review individually"))
-            .Click();
         cut.Find("input[aria-label='Select Broken']").Change(true);
 
         cut.WaitForAssertion(() =>

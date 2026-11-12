@@ -521,18 +521,19 @@ unverified file. Classification reads the stored status, error and warning
 texts; a normal download and an informational warning such as a quality hint are
 not attention.
 
-The page is a queue, not a log. It opens in **Automatic** mode: the repair card
-summarizes the per-group actions, **Fix all** applies them in one run, and a
-progress bar with **Stop** keeps the page responsive. The filters show one
-category at a time instead of one long scroll. The repair runs in the
-background, so navigating away does not stop it; the Downloads page shows the
-job with its queue and ETA. The mapping is deliberately
-different per group: retry for failed downloads and missing files, keep for
-length reviews, retry for quality reviews, hardlink for duplicates, rebuild for
-archive problems, re-run the audio check for unverified files and a re-sync for
-playlists. **Review individually** exposes the per-row and per-group
-actions. Retrying a group runs one track at a time and finishes with a summary
-instead of stopping at the first failure. Hardlink actions only look for a file
-that is already in the library, so they cost no network download. Archive actions
-rebuild the default copy and every enabled profile. A fixed plugin login or a
-resolved review disappears from the queue on the next refresh.
+The page is a queue, not a log. The repair card summarizes the per-group
+actions, **Fix all** applies them in one run, and a progress bar with **Stop**
+keeps the page responsive. The filters show one category at a time instead of
+one long scroll. The repair runs in the background, so navigating away does not
+stop it; the Downloads page shows the job with its queue and ETA. The mapping is
+deliberately different per group: retry for failed downloads and missing files,
+keep for length reviews, retry for quality reviews, hardlink for duplicates,
+rebuild for archive problems, re-run the audio check for unverified files and a
+re-sync for playlists. Every row shows its own action, and a group header
+offers the matching bulk action. Select rows to reveal the bulk bar with the
+actions that apply to the whole selection. Retrying a group runs one track at a
+time and finishes with a summary instead of stopping at the first failure.
+Hardlink actions only look for a file that is already in the library, so they
+cost no network download. Archive actions rebuild the default copy and every
+enabled profile. A fixed plugin login or a resolved review disappears from the
+queue on the next refresh.

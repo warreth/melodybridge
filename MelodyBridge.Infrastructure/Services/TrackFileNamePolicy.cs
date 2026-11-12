@@ -178,7 +178,7 @@ internal static class TrackFileNamePolicy
 
         foreach (var owner in owners)
         {
-            if (!await SameSongAsync(track, owner, hardLinks))
+            if (!SameSong(track, owner, hardLinks))
                 return PathVerdict.Blocked;
         }
         return exists || owners.Any(owner => SamePath(owner.ArchivePath, wanted)
@@ -211,7 +211,7 @@ internal static class TrackFileNamePolicy
             .ToListAsync(ct);
         foreach (var owner in owners)
         {
-            if (await SameSongAsync(track, owner, hardLinks)) return true;
+            if (SameSong(track, owner, hardLinks)) return true;
         }
         return false;
     }
@@ -222,7 +222,7 @@ internal static class TrackFileNamePolicy
     /// artist and title match with a plausible length and no recording
     /// marker that the other title lacks.
     /// </summary>
-    private static async Task<bool> SameSongAsync(
+    private static bool SameSong(
         TrackEntity track, OwnerRow owner, IHardLinkService hardLinks)
     {
         if (!string.IsNullOrEmpty(track.MelodyId)

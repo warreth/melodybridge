@@ -166,11 +166,19 @@
 .attention-rows { display: grid; }
 .attention-row {
     display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto auto;
+    grid-template-columns: auto minmax(0, 1fr) 96px auto;
     gap: .6rem;
     align-items: center;
     padding: .6rem .9rem;
     border-top: 1px solid var(--border);
+}
+/* The pill gets its own fixed column: a long title or artist name may
+   wrap, but it can never push the pill over the actions next to it. */
+.attention-row > .pill {
+    justify-self: start;
+    max-width: 96px;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 .attention-row:first-child { border-top: 0; }
 .attention-row:hover { background: var(--surface-2); }
@@ -230,7 +238,7 @@
         grid-template-columns: auto minmax(0, 1fr);
         align-items: start;
     }
-    .attention-row > .pill { grid-column: 2; justify-self: start; }
+    .attention-row > .pill { grid-column: 2; justify-self: start; max-width: none; }
     .attention-row-actions { grid-column: 2; justify-content: flex-start; }
 }
 @media (max-width: 560px) {
@@ -278,31 +286,6 @@
     justify-content: flex-end;
     gap: .55rem;
     flex-wrap: wrap;
-}
-.attention-modes {
-    display: inline-flex;
-    gap: .15rem;
-    padding: .15rem;
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    background: var(--surface-2);
-}
-.attention-mode {
-    border: 0;
-    border-radius: 999px;
-    padding: .32rem .62rem;
-    background: transparent;
-    color: var(--muted);
-    font: inherit;
-    font-size: .76rem;
-    font-weight: 600;
-    cursor: pointer;
-}
-.attention-mode:hover { color: var(--text); }
-.attention-mode.active {
-    background: var(--surface);
-    color: var(--text);
-    box-shadow: 0 1px 2px color-mix(in srgb, var(--text) 12%, transparent);
 }
 @media (max-width: 620px) {
     .attention-repair-actions { width: 100%; justify-content: flex-start; }
