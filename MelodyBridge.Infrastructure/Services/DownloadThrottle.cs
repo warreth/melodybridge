@@ -24,6 +24,7 @@ public sealed class DownloadThrottle
     private SemaphoreSlim _gate;
     private int _limit;
     private bool _configured;
+    private int _waiters;
 
     public DownloadThrottle(SettingsStore settings)
         : this(settings, DefaultLimit, configured: false)
@@ -50,6 +51,9 @@ public sealed class DownloadThrottle
         get { lock (_lock) return _limit; }
     }
 
+    /// <summary>Test seam: how many callers are waiting for a slot.</summary>
+    internal int Waiters => Volatile.Read(ref _waiters);
+
     /// <summary>Applies a new limit to downloads that start from now on.</summary>
     public void Configure(int limit)
     {
@@ -69,7 +73,15 @@ public sealed class DownloadThrottle
         await EnsureConfiguredAsync(ct);
         SemaphoreSlim gate;
         lock (_lock) gate = _gate;
-        await gate.WaitAsync(ct);
+        Interlocked.Increment(ref _waiters);
+        try
+        {
+            await gate.WaitAsync(ct);
+        }
+        finally
+        {
+            Interlocked.Decrement(ref _waiters);
+        }
         return new Slot(gate);
     }
 

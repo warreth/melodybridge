@@ -141,7 +141,7 @@ public sealed class AttentionActions : IAttentionActions
                 await using var db = await _dbFactory.CreateDbContextAsync(ct);
                 var track = await db.Tracks.FirstOrDefaultAsync(t => t.Id == id, ct);
                 if (track is not null)
-                    await _archives.ArchiveExtraCopiesAsync(track, db, save: true, ct: ct);
+                    await _archives.ArchiveExtraCopiesAsync(track, db, ct: ct);
                 if (ok) done++;
                 else
                 {

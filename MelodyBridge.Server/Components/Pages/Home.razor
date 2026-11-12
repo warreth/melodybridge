@@ -1051,6 +1051,7 @@ else
             t.DownloadStatus == "downloaded"
             && t.Warning != null
             && (t.Warning.Contains("archive copy failed")
+                || t.Warning.Contains("archive copy unverified")
                 || t.Warning.Contains("already owns the archive file")
                 || t.Warning.Contains("file lived in the archive folder")
                 || t.Warning.Contains("could not verify the download")));

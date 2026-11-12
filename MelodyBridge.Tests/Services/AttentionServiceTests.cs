@@ -48,6 +48,10 @@ public class AttentionClassifierTests
             Is.EqualTo(AttentionKinds.Archive));
         Assert.That(AttentionClassifier.Classify(
                 "downloaded", null, null,
+                "archive copy unverified (MP3): could not verify the transcode: ffprobe failed"),
+            Is.EqualTo(AttentionKinds.Archive));
+        Assert.That(AttentionClassifier.Classify(
+                "downloaded", null, null,
                 "file missing on disk, will re-download"),
             Is.EqualTo(AttentionKinds.FileMissing));
         Assert.That(AttentionClassifier.Classify(
@@ -108,6 +112,8 @@ public class AttentionServiceTests
                 reviewText: "bandwidth stops at 16 kHz"),
             Track("archive", 6, "p1", "downloaded",
                 warning: "archive copy failed (Opus): ffmpeg not found on this host"),
+            Track("unverified-archive", 8, "p1", "downloaded",
+                warning: "archive copy unverified (MP3): could not verify the transcode: ffprobe failed"),
             Track("normal", 7, "p1", "downloaded"));
         await db.SaveChangesAsync();
     }
@@ -149,11 +155,11 @@ public class AttentionServiceTests
             Assert.That(snapshot.Groups.Select(group => group.Kind), Does.Contain(AttentionKinds.Dedup));
             Assert.That(snapshot.Groups.Select(group => group.Kind), Does.Contain(AttentionKinds.ReviewSpectrum));
             Assert.That(snapshot.Groups.Select(group => group.Kind), Does.Contain(AttentionKinds.Archive));
-            Assert.That(snapshot.TrackCount, Is.EqualTo(6));
+            Assert.That(snapshot.TrackCount, Is.EqualTo(7));
             Assert.That(snapshot.Playlists, Has.Count.EqualTo(1));
             Assert.That(snapshot.Playlists[0].Name, Is.EqualTo("Partial"));
             Assert.That(snapshot.Playlists[0].SourceUrl, Is.EqualTo("s:2"));
-            Assert.That(snapshot.Total, Is.EqualTo(7));
+            Assert.That(snapshot.Total, Is.EqualTo(8));
         });
         Assert.That(snapshot.Groups.SelectMany(group => group.Tracks).Any(track => track.Title == "normal"),
             Is.False, "a clean download is not attention");
@@ -169,7 +175,7 @@ public class AttentionServiceTests
             Assert.That(snapshot.FailedCount, Is.EqualTo(3));
             Assert.That(snapshot.DedupCount, Is.EqualTo(1));
             Assert.That(snapshot.ReviewCount, Is.EqualTo(1));
-            Assert.That(snapshot.ArchiveCount, Is.EqualTo(1));
+            Assert.That(snapshot.ArchiveCount, Is.EqualTo(2));
         });
     }
 }

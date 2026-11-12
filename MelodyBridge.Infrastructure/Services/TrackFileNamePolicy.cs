@@ -58,6 +58,26 @@ internal static class TrackFileNamePolicy
         // means the same song, even when several rows own the name. A
         // different id belongs to another song: its row joins the owners,
         // so the hardlink check below can still recognize a twin.
+        bool SamePath(string? first, string? second)
+        {
+            if (string.IsNullOrWhiteSpace(first) || string.IsNullOrWhiteSpace(second))
+                return false;
+            return string.Equals(
+                first.Trim().TrimEnd('/', '\\'),
+                second.Trim().TrimEnd('/', '\\'),
+                caseInsensitive ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
+        }
+
+        // An archive copy must never overwrite another track's primary,
+        // even when the song is the same: the archive format may differ.
+        // This runs before the file-owner shortcut below, because a file
+        // that carries this track's id can still be another row's primary.
+        if (!allowPrimaryOwner
+            && owners.Any(owner => SamePath(owner.CurrentPath, wanted)))
+        {
+            return false;
+        }
+
         var fileOwnerId = File.Exists(path) ? TaglibHelper.ReadMelodyId(path) : null;
         if (!string.IsNullOrEmpty(fileOwnerId))
         {
@@ -74,29 +94,38 @@ internal static class TrackFileNamePolicy
 
         if (owners.Count == 0) return true;
 
-        bool SamePath(string? first, string? second)
-        {
-            if (string.IsNullOrWhiteSpace(first) || string.IsNullOrWhiteSpace(second))
-                return false;
-            return string.Equals(
-                first.Trim().TrimEnd('/', '\\'),
-                second.Trim().TrimEnd('/', '\\'),
-                caseInsensitive ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
-        }
-
-        // An archive copy must never overwrite another track's primary,
-        // even when the song is the same: the archive format may differ.
-        if (!allowPrimaryOwner
-            && owners.Any(owner => SamePath(owner.CurrentPath, wanted)))
-        {
-            return false;
-        }
-
         return owners.All(owner =>
             (!string.IsNullOrEmpty(track.MelodyId)
                 && string.Equals(owner.MelodyId, track.MelodyId, StringComparison.Ordinal))
             || (owner.CurrentPath is { Length: > 0 } other
                 && track.CurrentPath is { Length: > 0 } primary
                 && hardLinks.SameFile(primary, other)));
+    }
+
+    /// <summary>
+    /// True when the MELODY_ID on an existing archive file belongs to a
+    /// track whose primary is the same bytes as this track's primary: a
+    /// hardlink twin. The first twin's copy is already the right audio,
+    /// so the second adopts it instead of rewriting the tags.
+    /// </summary>
+    public static async Task<bool> IsTwinCopyAsync(
+        MelodyBridgeDbContext db,
+        TrackEntity track,
+        string fileMelodyId,
+        IHardLinkService hardLinks,
+        CancellationToken ct)
+    {
+        if (string.IsNullOrEmpty(fileMelodyId)
+            || string.IsNullOrEmpty(track.MelodyId)
+            || string.Equals(fileMelodyId, track.MelodyId, StringComparison.Ordinal)
+            || string.IsNullOrWhiteSpace(track.CurrentPath))
+            return false;
+
+        var ownerPrimaries = await db.Tracks.AsNoTracking()
+            .Where(other => other.Id != track.Id && other.MelodyId == fileMelodyId)
+            .Select(other => other.CurrentPath)
+            .ToListAsync(ct);
+        return ownerPrimaries.Any(primary => primary is { Length: > 0 }
+            && hardLinks.SameFile(track.CurrentPath, primary));
     }
 }

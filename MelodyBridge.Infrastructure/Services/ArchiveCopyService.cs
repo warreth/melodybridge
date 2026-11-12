@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Diagnostics;
 using MelodyBridge.Infrastructure.Audio;
 using MelodyBridge.Infrastructure.Data;
@@ -19,20 +18,24 @@ namespace MelodyBridge.Infrastructure.Services;
 public sealed class ArchiveCopyService
 {
     private const string WarningPrefix = "archive copy failed";
+    private const string UnverifiedPrefix = "archive copy unverified";
     private static readonly HardLinkService HardLinks = new();
 
     private readonly IDbContextFactory<MelodyBridgeDbContext> _dbFactory;
     private readonly SettingsStore _settings;
     private readonly ILogger<ArchiveCopyService> _logger;
+    private readonly DownloadThrottle? _throttle;
 
     public ArchiveCopyService(
         IDbContextFactory<MelodyBridgeDbContext> dbFactory,
         SettingsStore settings,
-        ILogger<ArchiveCopyService> logger)
+        ILogger<ArchiveCopyService> logger,
+        DownloadThrottle? throttle = null)
     {
         _dbFactory = dbFactory;
         _settings = settings;
         _logger = logger;
+        _throttle = throttle;
     }
 
     public sealed record BackfillProgress(
@@ -40,14 +43,15 @@ public sealed class ArchiveCopyService
         TimeSpan? Eta = null);
 
     /// <summary>
-    /// Ensures every selected profile has a copy for this track. The caller
-    /// passes its own context so the track warning and copy rows persist in
-    /// the same SaveChanges as the download; a backfill saves explicitly.
-    /// Returns false when the playlist does not use the requested profile, so
-    /// a one-profile backfill can tell "not selected" from "written".
+    /// Ensures every selected profile has a copy for this track. The rows
+    /// are saved before the per-track lock is released, so a concurrent
+    /// writer sees them; the caller can still save its own changes in the
+    /// same context. Returns false when the playlist does not use the
+    /// requested profile, so a one-profile backfill can tell "not selected"
+    /// from "written".
     /// </summary>
     public async Task<bool> ArchiveExtraCopiesAsync(
-        TrackEntity track, MelodyBridgeDbContext db, bool save,
+        TrackEntity track, MelodyBridgeDbContext db,
         string? onlyProfileId = null, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(track.CurrentPath) || !File.Exists(track.CurrentPath))
@@ -64,7 +68,7 @@ public sealed class ArchiveCopyService
             if (onlyProfileId is not null)
                 return false;
             await ClearRowsAsync(track.Id, db, ct);
-            if (save) await db.SaveChangesAsync(ct);
+            await db.SaveChangesAsync(ct);
             return true;
         }
 
@@ -102,6 +106,8 @@ public sealed class ArchiveCopyService
                 .ToList();
             if (stale.Count > 0)
             {
+                await ClearWarningsForProfilesAsync(
+                    db, track, stale.Select(row => row.ProfileId), ct);
                 db.TrackArchiveCopies.RemoveRange(stale);
                 existingRows.RemoveAll(row => !allowed.Contains(row.ProfileId));
             }
@@ -115,8 +121,10 @@ public sealed class ArchiveCopyService
                 ? existingRows
                 : existingRows.Where(row => string.Equals(
                     row.ProfileId, onlyProfileId, StringComparison.OrdinalIgnoreCase)).ToList();
+            await ClearWarningsForProfilesAsync(
+                db, track, stale.Select(row => row.ProfileId), ct);
             db.TrackArchiveCopies.RemoveRange(stale);
-            if (save) await db.SaveChangesAsync(ct);
+            await db.SaveChangesAsync(ct);
             return true;
         }
 
@@ -125,36 +133,43 @@ public sealed class ArchiveCopyService
         foreach (var profile in profiles)
         {
             ct.ThrowIfCancellationRequested();
-            var row = existingRows.FirstOrDefault(existing =>
-                string.Equals(existing.ProfileId, profile.Id, StringComparison.OrdinalIgnoreCase));
-            if (row is null)
-            {
-                row = new TrackArchiveCopyEntity
-                {
-                    TrackId = track.Id,
-                    ProfileId = profile.Id,
-                };
-                db.TrackArchiveCopies.Add(row);
-                existingRows.Add(row);
-            }
-
+            // One row per track and profile. This lock serializes the
+            // row creation and save for every branch, including the
+            // error branches that have no target path.
+            using var rowLock = await PathLockTable.Shared.AcquireAsync(
+                RowKey(track.Id, profile.Id), foldCase: false, ct);
             var folder = PlaylistRules.ResolveArchiveFolder(
                 null, profile.RootPath, playlist?.Name, playlistFolders);
             if (folder.Length == 0)
             {
-                Fail(row, track, profile, "the archive folder is empty");
+                var failed = await EnsureRowAsync(db, existingRows, track, profile, ct);
+                Fail(failed, track, profile, "the archive folder is empty");
+                await db.SaveChangesAsync(ct);
                 continue;
             }
 
             var target = ArchiveCopier.TargetPath(track.CurrentPath, folder, profile.Format);
             if (!seen.Add(target))
             {
-                Fail(row, track, profile, "another profile already writes this file");
+                var failed = await EnsureRowAsync(db, existingRows, track, profile, ct);
+                Fail(failed, track, profile, "another profile already writes this file");
+                await db.SaveChangesAsync(ct);
                 continue;
             }
 
+            // One writer per name, shared with the legacy archive path and
+            // the download workers. The name check, the copy, the row
+            // update and the row save must see each other.
+            using var targetLock = await PathLockTable.Shared.AcquireAsync(target, ct);
+
+            // The row is created under the row lock: a concurrent writer
+            // for the same track and profile finds it instead of adding a
+            // second row that the unique index would reject.
+            var row = await EnsureRowAsync(db, existingRows, track, profile, ct);
+
             if (row.Path is { Length: > 0 } current
                 && PlaylistRules.PathEquals(current, target)
+                && string.IsNullOrEmpty(row.Warning)
                 && File.Exists(current)
                 && new FileInfo(current).Length > 0)
             {
@@ -162,64 +177,97 @@ public sealed class ArchiveCopyService
                 row.Warning = null;
                 row.UpdatedAt = DateTime.UtcNow;
                 ClearWarning(track, profile.Name);
-                continue;
             }
-
-            if (!await NameIsFreeAsync(db, track, target, ct))
+            else if (!await NameIsFreeAsync(db, track, target, ct))
             {
                 Fail(row, track, profile,
                     "another track already owns this archive file");
-                continue;
             }
-
-            // The same song already wrote this file (a duplicate playlist
-            // row or a hardlink twin). Adopt it instead of transcoding the
-            // same bytes again.
-            if (!string.IsNullOrEmpty(track.MelodyId)
-                && File.Exists(target)
-                && string.Equals(
-                    TaglibHelper.ReadMelodyId(target), track.MelodyId,
-                    StringComparison.Ordinal))
+            else
             {
-                row.Path = target;
-                row.SizeBytes = new FileInfo(target).Length;
-                row.Warning = null;
-                row.UpdatedAt = DateTime.UtcNow;
-                ClearWarning(track, profile.Name);
-                continue;
+                var adopted = false;
+                // The same song already wrote this file (a duplicate
+                // playlist row or a hardlink twin). Adopt it instead of
+                // transcoding the same bytes again, but check it first: a
+                // row with a warning is not adopted, and an unverified
+                // file stays unverified on the adopting row too.
+                if (string.IsNullOrEmpty(row.Warning) && File.Exists(target))
+                {
+                    var existingId = TaglibHelper.ReadMelodyId(target);
+                    if (!string.IsNullOrEmpty(existingId)
+                        && (string.Equals(existingId, track.MelodyId, StringComparison.Ordinal)
+                            || await TrackFileNamePolicy.IsTwinCopyAsync(
+                                db, track, existingId, HardLinks, ct)))
+                    {
+                        var integrity = VerifyCopy(track, target);
+                        if (integrity.Ok)
+                        {
+                            Adopt(row, track, profile, target, null);
+                            adopted = true;
+                        }
+                        else if (integrity.ToolMissing || integrity.ToolFailed)
+                        {
+                            Adopt(row, track, profile, target,
+                                $"could not verify the archive copy: {integrity.Reason}");
+                            adopted = true;
+                        }
+                        // A real defect falls through to a rebuild.
+                    }
+                }
+
+                if (!adopted)
+                {
+                    var result = ArchiveCopier.Copy(
+                        track.CurrentPath, folder, profile.Format,
+                        melodyId: track.MelodyId,
+                        title: track.Title, artist: track.Artist, album: track.Album,
+                        trackNumber: (uint?)(track.Position + 1),
+                        expectedDuration: track.DurationMs is > 0
+                            ? TimeSpan.FromMilliseconds(track.DurationMs.Value)
+                            : null);
+
+                    if (result.Ok)
+                    {
+                        row.Path = result.ArchivePath;
+                        row.SizeBytes = new FileInfo(result.ArchivePath).Length;
+                        row.UpdatedAt = DateTime.UtcNow;
+                        if (result.Unverified)
+                        {
+                            // The file is there but ffprobe could not
+                            // check it. Keep the row and name the state,
+                            // so the next backfill checks it again
+                            // instead of trusting it.
+                            row.Warning = result.Reason ?? "could not verify the copy";
+                            WarnUnverified(track, profile.Name, row.Warning);
+                        }
+                        else
+                        {
+                            row.Warning = null;
+                            ClearWarning(track, profile.Name);
+                        }
+                    }
+                    else
+                    {
+                        // Keep an earlier copy that is still on disk;
+                        // otherwise the row points nowhere and the next
+                        // attempt starts clean.
+                        var previous = new[] { result.ArchivePath, row.Path }
+                            .FirstOrDefault(path => !string.IsNullOrWhiteSpace(path)
+                                && File.Exists(path)
+                                && !PlaylistRules.PathEquals(path, track.CurrentPath));
+                        row.Path = previous;
+                        row.SizeBytes = previous is null ? 0 : new FileInfo(previous).Length;
+                        Fail(row, track, profile, result.Reason ?? "unknown error");
+                    }
+                }
             }
 
-            var result = ArchiveCopier.Copy(
-                track.CurrentPath, folder, profile.Format,
-                melodyId: track.MelodyId,
-                title: track.Title, artist: track.Artist, album: track.Album,
-                trackNumber: (uint?)(track.Position + 1),
-                expectedDuration: track.DurationMs is > 0
-                    ? TimeSpan.FromMilliseconds(track.DurationMs.Value)
-                    : null);
-
-            if (result.Ok)
-            {
-                row.Path = result.ArchivePath;
-                row.SizeBytes = new FileInfo(result.ArchivePath).Length;
-                row.Warning = null;
-                row.UpdatedAt = DateTime.UtcNow;
-                ClearWarning(track, profile.Name);
-                continue;
-            }
-
-            // Keep an earlier copy that is still on disk; otherwise the row
-            // points nowhere and the next attempt starts clean.
-            var previous = new[] { result.ArchivePath, row.Path }
-                .FirstOrDefault(path => !string.IsNullOrWhiteSpace(path)
-                    && File.Exists(path)
-                    && !PlaylistRules.PathEquals(path, track.CurrentPath));
-            row.Path = previous;
-            row.SizeBytes = previous is null ? 0 : new FileInfo(previous).Length;
-            Fail(row, track, profile, result.Reason ?? "unknown error");
+            // Saved under the row lock, so the next writer sees the row
+            // instead of creating a duplicate.
+            await db.SaveChangesAsync(ct);
         }
 
-        if (save) await db.SaveChangesAsync(ct);
+        await db.SaveChangesAsync(ct);
         return true;
     }
 
@@ -374,29 +422,33 @@ public sealed class ArchiveCopyService
 
         Report(null, true, "Preparing…");
         var lastUiReport = Stopwatch.GetTimestamp();
-        var gates = new ConcurrentDictionary<string, SemaphoreSlim>(StringComparer.OrdinalIgnoreCase);
-        // The same cap as downloads: it is the user's answer to "how much
-        // may this box do at once", and transcoding is the same kind of
-        // CPU work. A missing or unreadable row keeps the default.
-        var configured = await _settings.GetAsync(
-            "download_max_concurrent", DownloadThrottle.DefaultLimit.ToString(), ct);
-        var maxParallel = int.TryParse(configured, out var parsed)
-            ? Math.Clamp(parsed, 1, 8)
-            : DownloadThrottle.DefaultLimit;
+        // With a shared throttle, downloads and the backfill compete for
+        // the same slots: the setting bounds the whole box, not each pass.
+        // Without one (tests, direct callers), keep the old setting cap.
+        var maxParallel = 8;
+        if (_throttle is null)
+        {
+            var configured = await _settings.GetAsync(
+                "download_max_concurrent", DownloadThrottle.DefaultLimit.ToString(), ct);
+            maxParallel = int.TryParse(configured, out var parsed)
+                ? Math.Clamp(parsed, 1, 8)
+                : DownloadThrottle.DefaultLimit;
+        }
         await Parallel.ForEachAsync(candidates,
             new ParallelOptions { MaxDegreeOfParallelism = maxParallel, CancellationToken = ct },
             async (candidate, token) =>
             {
-                var gate = gates.GetOrAdd(candidate.Target, _ => new SemaphoreSlim(1, 1));
-                await gate.WaitAsync(token);
+                IDisposable? slot = null;
                 try
                 {
+                    if (_throttle is not null)
+                        slot = await _throttle.AcquireAsync(token);
                     await using var db = await _dbFactory.CreateDbContextAsync(token);
                     var track = await db.Tracks.FirstOrDefaultAsync(t => t.Id == candidate.Id, token);
                     if (track is not null)
                     {
                         var applied = await ArchiveExtraCopiesAsync(
-                            track, db, save: true, profileId, token);
+                            track, db, profileId, token);
                         if (applied)
                         {
                             var copy = await db.TrackArchiveCopies.AsNoTracking()
@@ -418,7 +470,7 @@ public sealed class ArchiveCopyService
                 }
                 finally
                 {
-                    gate.Release();
+                    slot?.Dispose();
                 }
 
                 var finished = Interlocked.Increment(ref done);
@@ -435,7 +487,7 @@ public sealed class ArchiveCopyService
             failed == 0 ? "Every archive copy is present." : $"{failed} copies need another try.");
     }
 
-    private sealed record BackfillCandidate(int Id, string? Title, string Target);
+    private sealed record BackfillCandidate(int Id, string? Title);
 
     private static bool IsPresent(string? path)
     {
@@ -520,7 +572,7 @@ public sealed class ArchiveCopyService
                 continue;
             }
 
-            candidates.Add(new BackfillCandidate(track.Id, track.Title, target));
+            candidates.Add(new BackfillCandidate(track.Id, track.Title));
         }
 
         return candidates;
@@ -551,30 +603,130 @@ public sealed class ArchiveCopyService
                 && (track.CurrentPath == path || track.ArchivePath == path), ct);
     }
 
+    /// <summary>The lock key for one track/profile row, never a file path.</summary>
+    private static string RowKey(int trackId, string profileId)
+        => $"archive-row:{trackId}:{profileId}";
+
+    /// <summary>
+    /// The row for this track and profile, created under the row lock
+    /// when it does not exist yet. A concurrent writer that already saved
+    /// the row is found by the query instead of adding a second one.
+    /// </summary>
+    private static async Task<TrackArchiveCopyEntity> EnsureRowAsync(
+        MelodyBridgeDbContext db,
+        List<TrackArchiveCopyEntity> existingRows,
+        TrackEntity track,
+        ArchiveProfileEntity profile,
+        CancellationToken ct)
+    {
+        var row = existingRows.FirstOrDefault(existing =>
+            string.Equals(existing.ProfileId, profile.Id, StringComparison.OrdinalIgnoreCase));
+        if (row is not null) return row;
+
+        row = await db.TrackArchiveCopies.FirstOrDefaultAsync(
+            copy => copy.TrackId == track.Id && copy.ProfileId == profile.Id, ct);
+        if (row is not null)
+        {
+            existingRows.Add(row);
+            return row;
+        }
+
+        row = new TrackArchiveCopyEntity
+        {
+            TrackId = track.Id,
+            ProfileId = profile.Id,
+        };
+        db.TrackArchiveCopies.Add(row);
+        existingRows.Add(row);
+        return row;
+    }
+
+    /// <summary>
+    /// Checks an archive file against its primary with the same window the
+    /// copier uses: the primary's measured length is the yardstick.
+    /// </summary>
+    private static IntegrityResult VerifyCopy(TrackEntity track, string path)
+    {
+        var primaryDuration = FileIntegrity.MeasureDuration(track.CurrentPath!);
+        var tolerance = primaryDuration is { } source
+            ? TimeSpan.FromSeconds(Math.Max(2, source.TotalSeconds * 0.02))
+            : (TimeSpan?)null;
+        return FileIntegrity.Check(path, primaryDuration, tolerance);
+    }
+
+    private static void Adopt(
+        TrackArchiveCopyEntity row, TrackEntity track, ArchiveProfileEntity profile,
+        string target, string? warning)
+    {
+        row.Path = target;
+        row.SizeBytes = new FileInfo(target).Length;
+        row.Warning = warning;
+        row.UpdatedAt = DateTime.UtcNow;
+        if (warning is null)
+            ClearWarning(track, profile.Name);
+        else
+            WarnUnverified(track, profile.Name, warning);
+    }
+
+    private static async Task ClearWarningsForProfilesAsync(
+        MelodyBridgeDbContext db, TrackEntity track,
+        IEnumerable<string> profileIds, CancellationToken ct)
+    {
+        var ids = profileIds.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        if (ids.Count == 0) return;
+        var names = await db.ArchiveProfiles.AsNoTracking()
+            .Where(profile => ids.Contains(profile.Id))
+            .Select(profile => profile.Name)
+            .ToListAsync(ct);
+        foreach (var name in names)
+            ClearWarning(track, name);
+    }
+
     private static void Fail(
         TrackArchiveCopyEntity row, TrackEntity track, ArchiveProfileEntity profile, string reason)
     {
         row.Warning = reason;
         row.UpdatedAt = DateTime.UtcNow;
-        var segment = $"{WarningPrefix} ({profile.Name}): {reason}";
-        var segments = (track.Warning ?? string.Empty)
-            .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Where(existing => !existing.StartsWith(
-                $"{WarningPrefix} ({profile.Name}):", StringComparison.Ordinal))
-            .ToList();
+        ReplaceWarning(track, WarningPrefix, profile.Name, reason);
+    }
+
+    private static void WarnUnverified(TrackEntity track, string profileName, string reason)
+        => ReplaceWarning(track, UnverifiedPrefix, profileName, reason);
+
+    /// <summary>
+    /// Replaces this profile's verdict on the track warning, whichever
+    /// state it was in: a failed copy and an unverified copy are two
+    /// answers to the same question.
+    /// </summary>
+    private static void ReplaceWarning(
+        TrackEntity track, string prefix, string profileName, string reason)
+    {
+        var segment = $"{prefix} ({profileName}): {reason}";
+        var segments = ProfileSegments(track, profileName).ToList();
         segments.Add(segment);
         track.Warning = string.Join("; ", segments);
     }
 
-    private static void ClearWarning(TrackEntity track, string profileName)
+    internal static void ClearWarning(TrackEntity track, string profileName)
     {
         if (string.IsNullOrWhiteSpace(track.Warning)) return;
-        var prefix = $"{WarningPrefix} ({profileName}):";
-        var segments = track.Warning
-            .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Where(existing => !existing.StartsWith(prefix, StringComparison.Ordinal))
-            .ToList();
+        var segments = ProfileSegments(track, profileName).ToList();
         track.Warning = segments.Count == 0 ? null : string.Join("; ", segments);
+    }
+
+    /// <summary>
+    /// Every warning segment except this profile's own failed and
+    /// unverified verdicts. Both belong to the same row, so a new answer
+    /// replaces the old one.
+    /// </summary>
+    private static IEnumerable<string> ProfileSegments(TrackEntity track, string profileName)
+    {
+        var failed = $"{WarningPrefix} ({profileName}):";
+        var unverified = $"{UnverifiedPrefix} ({profileName}):";
+        return (track.Warning ?? string.Empty)
+            .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(existing => !existing.StartsWith(failed, StringComparison.Ordinal)
+                && !existing.StartsWith(unverified, StringComparison.Ordinal));
     }
 
     private static bool IsUnder(string path, string root)

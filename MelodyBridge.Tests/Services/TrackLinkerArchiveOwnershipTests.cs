@@ -91,6 +91,90 @@ public class TrackLinkerArchiveOwnershipTests
     }
 
     [Test]
+    public async Task ArchiveCopy_VerifiedSuccess_ClearsTheOldWarning()
+    {
+        var primary = Path.Combine(_musicDir, "song.mp3");
+        File.WriteAllText(primary, "primary bytes");
+
+        await using var db = _factory.CreateDbContext();
+        var track = NewTrack("track-1", primary);
+        track.Warning =
+            "archive copy unverified: could not verify the transcode: ffprobe failed";
+        db.Tracks.Add(track);
+        await db.SaveChangesAsync();
+
+        var outcome = await _linker.ArchiveDownloadedTrackAsync(track, db, CancellationToken.None);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(outcome, Is.EqualTo(ArchiveOutcome.Written));
+            Assert.That(track.Warning, Is.Null, "the verified copy replaces the old verdict");
+        });
+    }
+
+    [Test]
+    public async Task ArchiveCopy_VerifiedAdoption_ClearsTheOldWarning()
+    {
+        if (SpectrumAnalyzer.FindFfprobe() is null)
+            Assert.Ignore("ffprobe is not installed on this machine");
+
+        var primary = Path.Combine(_musicDir, "song.mp3");
+        await File.WriteAllBytesAsync(primary, TestAudio.MinimalMp3());
+        TaglibHelper.WriteMelodyId(primary, "mb-track-1");
+
+        // A valid same-song copy already sits on the target. The adoption
+        // branch checks it and clears the old unverified warning.
+        var target = Path.Combine(_archiveDir, "song.mp3");
+        await File.WriteAllBytesAsync(target, TestAudio.MinimalMp3());
+        TaglibHelper.WriteMelodyId(target, "mb-track-1");
+
+        await using var db = _factory.CreateDbContext();
+        var track = NewTrack("mb-track-1", primary);
+        track.Warning =
+            "archive copy unverified: could not verify the transcode: ffprobe failed";
+        db.Tracks.Add(track);
+        await db.SaveChangesAsync();
+
+        var outcome = await _linker.ArchiveDownloadedTrackAsync(track, db, CancellationToken.None);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(outcome, Is.EqualTo(ArchiveOutcome.Written));
+            Assert.That(track.ArchivePath, Is.EqualTo(target), "the verified copy is adopted");
+            Assert.That(track.Warning, Is.Null, "the verified copy replaces the old verdict");
+        });
+    }
+
+    [Test]
+    public async Task ArchiveCopy_DisabledTarget_ClearsTheOldWarning()
+    {
+        var primary = Path.Combine(_musicDir, "song.mp3");
+        File.WriteAllText(primary, "primary bytes");
+
+        await using (var setupDb = _factory.CreateDbContext())
+        {
+            var playlist = await setupDb.Playlists.SingleAsync(p => p.Id == "pl-1");
+            playlist.ArchiveEnabled = false;
+            await setupDb.SaveChangesAsync();
+        }
+
+        await using var db = _factory.CreateDbContext();
+        var track = NewTrack("track-1", primary);
+        track.Warning =
+            "archive copy unverified: could not verify the transcode: ffprobe failed";
+        db.Tracks.Add(track);
+        await db.SaveChangesAsync();
+
+        var outcome = await _linker.ArchiveDownloadedTrackAsync(track, db, CancellationToken.None);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(outcome, Is.EqualTo(ArchiveOutcome.Skipped));
+            Assert.That(track.Warning, Is.Null, "the disabled archive no longer claims a problem");
+        });
+    }
+
+    [Test]
     public async Task ArchiveCopy_DoesNotOverwriteAFileAnotherRowOwns()
     {
         var primary = Path.Combine(_musicDir, "song.mp3");
@@ -124,6 +208,46 @@ public class TrackLinkerArchiveOwnershipTests
             Assert.That(outcome, Is.EqualTo(ArchiveOutcome.Failed));
             Assert.That(File.ReadAllText(owned), Is.EqualTo("another track's bytes"),
                 "the file that belongs to the other track kept its bytes");
+            Assert.That(track.Warning, Does.Contain("already owns"),
+                "the row says why there is no archive copy");
+        });
+    }
+
+    [Test]
+    public async Task ArchiveCopy_DoesNotTakeAnotherTracksPrimary()
+    {
+        var primary = Path.Combine(_musicDir, "song.mp3");
+        TaggedMp3("mb-track-1", primary);
+
+        // The archive target is another track's primary, and the file
+        // carries this track's id: the same song, a different file. The
+        // archive copy must still not replace that row's primary.
+        var otherPrimary = Path.Combine(_archiveDir, "song.mp3");
+        TaggedMp3("mb-track-1", otherPrimary);
+        var bytes = File.ReadAllBytes(otherPrimary);
+
+        await using var db = _factory.CreateDbContext();
+        var track = NewTrack("mb-track-1", primary);
+        db.Tracks.Add(track);
+        db.Tracks.Add(new TrackEntity
+        {
+            MelodyId = "mb-track-1",
+            Title = "Song",
+            Artist = "Artist",
+            Position = 1,
+            DownloadStatus = "downloaded",
+            CurrentPath = otherPrimary,
+            PlaylistEntityId = "pl-1",
+        });
+        await db.SaveChangesAsync();
+
+        var outcome = await _linker.ArchiveDownloadedTrackAsync(track, db, CancellationToken.None);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(outcome, Is.EqualTo(ArchiveOutcome.Failed));
+            Assert.That(File.ReadAllBytes(otherPrimary), Is.EqualTo(bytes),
+                "the other track's primary kept its bytes");
             Assert.That(track.Warning, Does.Contain("already owns"),
                 "the row says why there is no archive copy");
         });

@@ -6,7 +6,8 @@ namespace MelodyBridge.Tests.Infrastructure;
 /// <summary>
 /// ArchiveCopier against real files and a real ffmpeg: a valid WAV
 /// written entirely from C# (RIFF header plus seconds of silence)
-/// copied byte-for-byte for format auto, transcoded to opus and mp3
+/// copied as-is for format auto (plus the MELODY_ID tag when one is
+/// given), transcoded to opus and mp3
 /// with the MELODY_ID handover and the ffprobe integrity gate, and the
 /// failure isolation when the primary path does not exist. Tests that
 /// transcode skip honestly on hosts without ffmpeg or ffprobe.
@@ -104,7 +105,7 @@ public class ArchiveCopierTests
                 "the copy lands inside the archive directory");
             Assert.That(File.ReadAllBytes(result.ArchivePath),
                 Is.EqualTo(File.ReadAllBytes(primary)),
-                "auto is a byte-for-byte copy, no re-encode");
+                "auto copies the primary bytes, no re-encode");
         });
     }
 

@@ -136,6 +136,29 @@ public class DedupReviewUiTests
     }
 
     [Test]
+    public void DownloadedTrack_WithUnverifiedArchive_KeepsTheWarning()
+    {
+        var (cut, _) = Render(new TrackEntity
+        {
+            Title = "River", Artist = "Eminem, Ed Sheeran", Position = 13,
+            DownloadStatus = "downloaded",
+            CurrentPath = "/music/River.flac",
+            Warning = "hardlinked from playlist A: flac (bitrate unknown) "
+                + "(user accepted the quality difference); "
+                + "archive copy unverified (MP3): could not verify the transcode: ffprobe failed",
+        });
+
+        var row = cut.Find("tbody tr");
+        Assert.Multiple(() =>
+        {
+            Assert.That(row.InnerHtml, Does.Contain("warn"),
+                "an unverified archive copy is still an open issue");
+            Assert.That(row.InnerHtml, Does.Contain("archive copy unverified"),
+                "the warning stays visible");
+        });
+    }
+
+    [Test]
     public void DownloadedTrack_KeepsItsUsualActions()
     {
         var (cut, _) = Render(new TrackEntity

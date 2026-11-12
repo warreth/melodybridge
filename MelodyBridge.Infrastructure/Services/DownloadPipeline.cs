@@ -385,7 +385,7 @@ internal sealed class DownloadPipeline
         var integrity = Audio.FileIntegrity.Check(
             path, expectedDuration,
             expectedDuration is { } expected ? verification.ToleranceFor(expected) : null);
-        if (integrity.Issue == Audio.IntegrityIssue.Corrupt)
+        if (integrity.Issue == Audio.IntegrityIssue.Corrupt && !integrity.ToolFailed)
         {
             try { System.IO.File.Delete(path); } catch { /* best effort */ }
             track.DownloadStatus = "failed";
@@ -431,6 +431,12 @@ internal sealed class DownloadPipeline
         if (integrity.ToolMissing)
         {
             const string unverified = "could not verify the download: ffprobe is not installed";
+            track.Warning = string.IsNullOrEmpty(track.Warning)
+                ? unverified : $"{track.Warning}; {unverified}";
+        }
+        else if (integrity.ToolFailed)
+        {
+            const string unverified = "could not verify the download: ffprobe failed";
             track.Warning = string.IsNullOrEmpty(track.Warning)
                 ? unverified : $"{track.Warning}; {unverified}";
         }
@@ -1241,16 +1247,18 @@ internal sealed class DownloadPipeline
     }
 
     /// <summary>
-    /// Removes every "archive copy failed: ..." segment from a warning,
-    /// keeping the other segments (a warning can be several facts joined
-    /// with "; "). The archive verdict is rebuilt by the retry itself.
+    /// Removes every archive verdict ("archive copy failed: ..." or
+    /// "archive copy unverified: ...") from a warning, keeping the other
+    /// segments (a warning can be several facts joined with "; "). The
+    /// archive verdict is rebuilt by the retry itself.
     /// </summary>
     internal static string? StripArchiveFailures(string? warning)
     {
         if (warning is not { Length: > 0 }) return warning;
         var kept = warning
             .Split("; ", StringSplitOptions.RemoveEmptyEntries)
-            .Where(part => !part.StartsWith("archive copy failed:", StringComparison.Ordinal))
+            .Where(part => !part.StartsWith("archive copy failed:", StringComparison.Ordinal)
+                && !part.StartsWith("archive copy unverified:", StringComparison.Ordinal))
             .ToList();
         return kept.Count == 0 ? null : string.Join("; ", kept);
     }

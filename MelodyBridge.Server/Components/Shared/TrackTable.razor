@@ -528,6 +528,7 @@
         => track.DownloadStatus == "downloaded"
            && track.Warning?.StartsWith("hardlinked from", StringComparison.Ordinal) == true
            && !track.Warning.Contains("archive copy failed", StringComparison.Ordinal)
+           && !track.Warning.Contains("archive copy unverified", StringComparison.Ordinal)
            && !track.Warning.Contains("another track already owns", StringComparison.Ordinal);
 
     /// <summary>

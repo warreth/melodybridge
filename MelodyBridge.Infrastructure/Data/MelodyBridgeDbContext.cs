@@ -324,9 +324,9 @@ public class PlaylistEntity
     public string? ArchiveDirectory { get; set; }
     /// <summary>
     /// Container for the archive copy: "auto" copies the primary file
-    /// byte for byte; "opus"/"flac"/"mp3"/"aac" transcode locally with
-    /// ffmpeg (one internet download, two library files). Null means the
-    /// app-wide archive format default applies.
+    /// and writes its MELODY_ID tag; "opus"/"flac"/"mp3"/"aac" transcode
+    /// locally with ffmpeg (one internet download, two library files).
+    /// Null means the app-wide archive format default applies.
     /// </summary>
     public string? ArchiveFormat { get; set; }
     /// <summary>

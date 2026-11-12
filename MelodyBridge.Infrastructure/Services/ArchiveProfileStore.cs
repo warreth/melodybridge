@@ -162,6 +162,17 @@ public sealed class ArchiveProfileStore
         foreach (var publish in linkedPublishProfiles)
             publish.SourceArchiveProfileId = null;
 
+        // A removed profile must not leave a warning that no retry can
+        // clear. The copy rows are gone; the track text goes with them.
+        var failed = $"archive copy failed ({profile.Name}):";
+        var unverified = $"archive copy unverified ({profile.Name}):";
+        var warned = await db.Tracks
+            .Where(track => track.Warning != null
+                && (track.Warning.Contains(failed) || track.Warning.Contains(unverified)))
+            .ToListAsync(ct);
+        foreach (var track in warned)
+            ArchiveCopyService.ClearWarning(track, profile.Name);
+
         db.ArchiveProfiles.Remove(profile);
         await db.SaveChangesAsync(ct);
     }

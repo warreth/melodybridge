@@ -1,9 +1,12 @@
 using MelodyBridge.Core;
 using MelodyBridge.Infrastructure.Audio;
 using MelodyBridge.Infrastructure.Data;
+using MelodyBridge.Infrastructure.Files;
 using MelodyBridge.Infrastructure.Services;
+using MelodyBridge.Infrastructure.Tagging;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
+using System.Diagnostics;
 
 namespace MelodyBridge.Tests.Services;
 
@@ -67,7 +70,8 @@ public class ArchiveProfileTests
     }
 
     private async Task AddTrackAsync(
-        string primary, int id = 1, string title = "Song", string? melodyId = null)
+        string primary, int id = 1, string title = "Song", string? melodyId = null,
+        string playlistId = "p1")
     {
         await using var db = _factory.CreateDbContext();
         db.Tracks.Add(new TrackEntity
@@ -78,7 +82,7 @@ public class ArchiveProfileTests
             Artist = "Artist",
             CurrentPath = primary,
             DownloadStatus = "downloaded",
-            PlaylistEntityId = "p1",
+            PlaylistEntityId = playlistId,
             FileSizeBytes = new FileInfo(primary).Length,
         });
         await db.SaveChangesAsync();
@@ -175,7 +179,7 @@ public class ArchiveProfileTests
         await using (var db = _factory.CreateDbContext())
         {
             var track = await db.Tracks.SingleAsync(t => t.Id == 1);
-            await _copies.ArchiveExtraCopiesAsync(track, db, save: true);
+            await _copies.ArchiveExtraCopiesAsync(track, db);
         }
 
         await using (var db = _factory.CreateDbContext())
@@ -201,12 +205,12 @@ public class ArchiveProfileTests
         await using (var db = _factory.CreateDbContext())
         {
             var first = await db.Tracks.SingleAsync(t => t.Id == 1);
-            await _copies.ArchiveExtraCopiesAsync(first, db, save: true);
+            await _copies.ArchiveExtraCopiesAsync(first, db);
         }
         await using (var db = _factory.CreateDbContext())
         {
             var second = await db.Tracks.SingleAsync(t => t.Id == 2);
-            await _copies.ArchiveExtraCopiesAsync(second, db, save: true);
+            await _copies.ArchiveExtraCopiesAsync(second, db);
         }
 
         await using (var db = _factory.CreateDbContext())
@@ -241,12 +245,12 @@ public class ArchiveProfileTests
         await using (var db = _factory.CreateDbContext())
         {
             var first = await db.Tracks.SingleAsync(t => t.Id == 1);
-            await _copies.ArchiveExtraCopiesAsync(first, db, save: true);
+            await _copies.ArchiveExtraCopiesAsync(first, db);
         }
         await using (var db = _factory.CreateDbContext())
         {
             var second = await db.Tracks.SingleAsync(t => t.Id == 2);
-            await _copies.ArchiveExtraCopiesAsync(second, db, save: true);
+            await _copies.ArchiveExtraCopiesAsync(second, db);
         }
 
         await using (var db = _factory.CreateDbContext())
@@ -262,6 +266,9 @@ public class ArchiveProfileTests
                     Is.EqualTo(1), "a hardlink twin shares the same archive file");
                 Assert.That(copies.All(copy => copy.Warning is null), Is.True);
             });
+            var target = copies[0].Path!;
+            Assert.That(TaglibHelper.ReadMelodyId(target), Is.EqualTo("mel-1"),
+                "the first twin's tags stay on the shared copy");
         }
     }
 
@@ -277,12 +284,12 @@ public class ArchiveProfileTests
         await using (var db = _factory.CreateDbContext())
         {
             var first = await db.Tracks.SingleAsync(t => t.Id == 1);
-            await _copies.ArchiveExtraCopiesAsync(first, db, save: true);
+            await _copies.ArchiveExtraCopiesAsync(first, db);
         }
         await using (var db = _factory.CreateDbContext())
         {
             var second = await db.Tracks.SingleAsync(t => t.Id == 2);
-            await _copies.ArchiveExtraCopiesAsync(second, db, save: true);
+            await _copies.ArchiveExtraCopiesAsync(second, db);
         }
 
         await using (var db = _factory.CreateDbContext())
@@ -302,6 +309,301 @@ public class ArchiveProfileTests
     }
 
     [Test]
+    public async Task Backfill_WaitsForTheSharedDownloadThrottle()
+    {
+        var profile = await AddProfileAsync("MP3", "archive-mp3", "auto");
+        var throttle = new DownloadThrottle(1);
+        var copies = new ArchiveCopyService(
+            _factory, _settings, NullLogger<ArchiveCopyService>.Instance, throttle);
+
+        using var held = await throttle.AcquireAsync(default);
+        var backfill = copies.BuildMissingAsync(profile.Id);
+        await WaitForWaiterAsync(throttle);
+        Assert.That(backfill.IsCompleted, Is.False,
+            "the backfill waits for the slot a download holds");
+
+        held.Dispose();
+        await backfill;
+
+        using var db = _factory.CreateDbContext();
+        Assert.That(db.TrackArchiveCopies.Any(copy => copy.ProfileId == profile.Id),
+            Is.True, "the backfill ran after the slot was released");
+    }
+
+    private static async Task WaitForWaiterAsync(DownloadThrottle throttle)
+    {
+        var timeout = Stopwatch.StartNew();
+        while (throttle.Waiters == 0)
+        {
+            if (timeout.Elapsed > TimeSpan.FromSeconds(10))
+                Assert.Fail("the backfill never asked for a download slot");
+            await Task.Delay(10);
+        }
+    }
+
+    [Test]
+    public async Task ExtraCopies_UnverifiedRow_IsCheckedAgain()
+    {
+        var profile = await AddProfileAsync("MP3", "archive-mp3", "auto");
+        await using (var db = _factory.CreateDbContext())
+        {
+            var track = await db.Tracks.SingleAsync(t => t.Id == 1);
+            await _copies.ArchiveExtraCopiesAsync(track, db);
+        }
+
+        var target = Path.Combine(_root, "archive-mp3", "song.mp3");
+        // The copy exists but was never checked: the row says so. The
+        // next pass must not trust the file, it must check it again.
+        await using (var db = _factory.CreateDbContext())
+        {
+            var copy = await db.TrackArchiveCopies.SingleAsync(c => c.ProfileId == profile.Id);
+            copy.Warning = "could not verify the transcode: ffprobe failed";
+            var track = await db.Tracks.SingleAsync(t => t.Id == 1);
+            track.Warning =
+                "archive copy unverified (MP3): could not verify the transcode: ffprobe failed";
+            await db.SaveChangesAsync();
+        }
+        await File.WriteAllTextAsync(target, "not the primary");
+
+        await using (var db = _factory.CreateDbContext())
+        {
+            var track = await db.Tracks.SingleAsync(t => t.Id == 1);
+            await _copies.ArchiveExtraCopiesAsync(track, db);
+        }
+
+        await using (var db = _factory.CreateDbContext())
+        {
+            var copy = await db.TrackArchiveCopies.SingleAsync(c => c.ProfileId == profile.Id);
+            var track = await db.Tracks.SingleAsync(t => t.Id == 1);
+            Assert.Multiple(() =>
+            {
+                Assert.That(copy.Warning, Is.Null, "the copy was checked again");
+                Assert.That(track.Warning, Is.Null, "the unverified warning is gone");
+            });
+        }
+        Assert.That(TaglibHelper.ReadMelodyId(target), Is.EqualTo("mel-1"),
+            "the archive copy was rebuilt from the primary");
+    }
+
+    [Test]
+    public async Task BackfillAndDownload_OnTheSameArchiveName_LeaveOneOwner()
+    {
+        var profile = await AddProfileAsync("MP3", "archive-mp3", "auto");
+        var archiveDir = Path.Combine(_root, "archive-mp3");
+
+        // Track 1 keeps the legacy archive on the same folder and format.
+        // It does not select the named profile, so the backfill leaves it
+        // alone and the two writers are a download and a backfill worker.
+        await using (var db = _factory.CreateDbContext())
+        {
+            var playlist = await db.Playlists.SingleAsync(p => p.Id == "p1");
+            playlist.ArchiveDirectory = archiveDir;
+            playlist.ArchiveFormat = "auto";
+            playlist.ArchiveProfileIds = PlaylistArchiveSelection.Serialize(
+                new[] { PlaylistArchiveSelection.LegacyId });
+            db.Playlists.Add(new PlaylistEntity
+            {
+                Id = "p2",
+                Name = "Named",
+                SourceUrl = "s:2",
+                ArchiveEnabled = true,
+                ArchiveProfileIds = PlaylistArchiveSelection.Serialize(new[] { profile.Id }),
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var secondPrimary = Path.Combine(_root, "music2", "song.mp3");
+        Directory.CreateDirectory(Path.GetDirectoryName(secondPrimary)!);
+        await File.WriteAllBytesAsync(secondPrimary, TestAudio.MinimalMp3());
+        await AddTrackAsync(secondPrimary, id: 2, melodyId: "mel-other", playlistId: "p2");
+
+        var linker = new TrackLinker(
+            _factory, _settings, new HardLinkService(),
+            NullLogger<TrackLinker>.Instance, archiveCopies: _copies);
+
+        var start = new TaskCompletionSource();
+        var backfill = Task.Run(async () =>
+        {
+            await start.Task;
+            await _copies.BuildMissingAsync(profile.Id);
+        });
+        var download = Task.Run(async () =>
+        {
+            await using var db = _factory.CreateDbContext();
+            var track = await db.Tracks.SingleAsync(t => t.Id == 1);
+            await start.Task;
+            await linker.ArchiveDownloadedTrackAsync(track, db, CancellationToken.None);
+            await db.SaveChangesAsync();
+        });
+        start.SetResult();
+        await Task.WhenAll(backfill, download);
+
+        var target = Path.Combine(archiveDir, "song.mp3");
+        await using var check = _factory.CreateDbContext();
+        var track1 = await check.Tracks.SingleAsync(t => t.Id == 1);
+        var copy2 = await check.TrackArchiveCopies
+            .SingleOrDefaultAsync(c => c.TrackId == 2 && c.ProfileId == profile.Id);
+        var track1Owns = string.Equals(track1.ArchivePath, target, StringComparison.Ordinal);
+        var track2Owns = string.Equals(copy2?.Path, target, StringComparison.Ordinal);
+        Assert.Multiple(() =>
+        {
+            Assert.That(track1Owns ^ track2Owns, Is.True,
+                "exactly one writer owns the shared archive name");
+            Assert.That(File.Exists(target), Is.True);
+            Assert.That(TaglibHelper.ReadMelodyId(target),
+                Is.EqualTo(track1Owns ? "mel-1" : "mel-other"),
+                "the file carries the id of the writer that won");
+            Assert.That(track1Owns ? copy2?.Warning : track1.Warning,
+                Does.Contain("already owns"),
+                "the other writer says why it did not write");
+        });
+    }
+
+    [Test]
+    public async Task TwoWriters_ForTheSameTrack_LeaveOneRow()
+    {
+        var profile = await AddProfileAsync("MP3", "archive-mp3", "auto");
+        // A large primary keeps the first copy busy long enough for the
+        // second writer to load the same empty row list.
+        Pad(_primary);
+
+        var start = new TaskCompletionSource();
+        async Task WriteAsync()
+        {
+            await using var db = _factory.CreateDbContext();
+            var track = await db.Tracks.SingleAsync(t => t.Id == 1);
+            await start.Task;
+            await _copies.ArchiveExtraCopiesAsync(track, db);
+        }
+        var first = Task.Run(WriteAsync);
+        var second = Task.Run(WriteAsync);
+        start.SetResult();
+        await Task.WhenAll(first, second);
+
+        await using var db = _factory.CreateDbContext();
+        var copies = await db.TrackArchiveCopies
+            .Where(copy => copy.TrackId == 1 && copy.ProfileId == profile.Id)
+            .ToListAsync();
+        Assert.That(copies, Has.Count.EqualTo(1),
+            "the unique track/profile row is written once");
+    }
+
+    [Test]
+    public async Task ExtraCopies_AdoptingADamagedSharedCopy_RebuildsIt()
+    {
+        var profile = await AddProfileAsync("MP3", "archive-mp3", "auto");
+        var secondPrimary = Path.Combine(_root, "music2", "song.mp3");
+        Directory.CreateDirectory(Path.GetDirectoryName(secondPrimary)!);
+        File.Copy(_primary, secondPrimary);
+        await AddTrackAsync(secondPrimary, id: 2, melodyId: "mel-1");
+
+        var target = Path.Combine(_root, "archive-mp3", "song.mp3");
+        // A same-song copy that is too long for the primary, and a row
+        // that says it was never checked. The second row must not adopt
+        // the damaged bytes.
+        await File.WriteAllBytesAsync(target, LongMp3());
+        TaglibHelper.WriteMelodyId(target, "mel-1");
+
+        await using (var db = _factory.CreateDbContext())
+        {
+            db.TrackArchiveCopies.Add(new TrackArchiveCopyEntity
+            {
+                TrackId = 1,
+                ProfileId = profile.Id,
+                Path = target,
+                SizeBytes = new FileInfo(target).Length,
+                Warning = "could not verify the transcode: ffprobe failed",
+            });
+            await db.SaveChangesAsync();
+        }
+
+        await using (var db = _factory.CreateDbContext())
+        {
+            var second = await db.Tracks.SingleAsync(t => t.Id == 2);
+            await _copies.ArchiveExtraCopiesAsync(second, db);
+        }
+
+        await using (var db = _factory.CreateDbContext())
+        {
+            var copy = await db.TrackArchiveCopies
+                .SingleAsync(c => c.TrackId == 2 && c.ProfileId == profile.Id);
+            Assert.Multiple(() =>
+            {
+                Assert.That(copy.Warning, Is.Null, "the rebuilt copy is verified");
+                Assert.That(copy.Path, Is.EqualTo(target));
+            });
+        }
+        var primaryDuration = FileIntegrity.MeasureDuration(secondPrimary);
+        var targetDuration = FileIntegrity.MeasureDuration(target);
+        Assert.Multiple(() =>
+        {
+            Assert.That(targetDuration, Is.Not.Null);
+            Assert.That(
+                Math.Abs(targetDuration!.Value.TotalSeconds - primaryDuration!.Value.TotalSeconds),
+                Is.LessThan(1), "the damaged shared copy was rebuilt from the primary");
+        });
+    }
+
+    private static byte[] LongMp3()
+    {
+        var bytes = TestAudio.MinimalMp3();
+        const int headerLength = 10;
+        var frames = bytes[headerLength..];
+        var result = new byte[headerLength + frames.Length * 5];
+        bytes[..headerLength].CopyTo(result, 0);
+        for (var i = 0; i < 5; i++)
+            frames.CopyTo(result, headerLength + frames.Length * i);
+        return result;
+    }
+
+    [Test]
+    public async Task TwoWriters_ForAnEmptyFolder_LeaveOneRow()
+    {
+        await using (var setupDb = _factory.CreateDbContext())
+        {
+            setupDb.ArchiveProfiles.Add(new ArchiveProfileEntity
+            {
+                Id = "empty-folder",
+                Name = "Empty",
+                RootPath = "",
+                Format = "auto",
+                Enabled = true,
+            });
+            await setupDb.SaveChangesAsync();
+        }
+
+        var start = new TaskCompletionSource();
+        async Task WriteAsync()
+        {
+            await using var db = _factory.CreateDbContext();
+            var track = await db.Tracks.SingleAsync(t => t.Id == 1);
+            await start.Task;
+            await _copies.ArchiveExtraCopiesAsync(track, db);
+        }
+        var first = Task.Run(WriteAsync);
+        var second = Task.Run(WriteAsync);
+        start.SetResult();
+        await Task.WhenAll(first, second);
+
+        await using var db = _factory.CreateDbContext();
+        var copies = await db.TrackArchiveCopies
+            .Where(copy => copy.TrackId == 1 && copy.ProfileId == "empty-folder")
+            .ToListAsync();
+        Assert.Multiple(() =>
+        {
+            Assert.That(copies, Has.Count.EqualTo(1),
+                "the unique track/profile row is written once");
+            Assert.That(copies[0].Warning, Is.EqualTo("the archive folder is empty"));
+        });
+    }
+
+    private static void Pad(string path)
+    {
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Write);
+        stream.SetLength(stream.Length + 24L * 1024 * 1024);
+    }
+
+    [Test]
     public async Task ExtraCopies_FollowThePlaylistSelection()
     {
         var opus = await AddProfileAsync("Opus", "archive-opus", "opus:128");
@@ -316,7 +618,7 @@ public class ArchiveProfileTests
         await using (var db = _factory.CreateDbContext())
         {
             var track = await db.Tracks.SingleAsync(t => t.Id == 1);
-            await _copies.ArchiveExtraCopiesAsync(track, db, save: true);
+            await _copies.ArchiveExtraCopiesAsync(track, db);
         }
 
         await using (var db = _factory.CreateDbContext())
@@ -347,7 +649,7 @@ public class ArchiveProfileTests
         await using (var db = _factory.CreateDbContext())
         {
             var track = await db.Tracks.SingleAsync(t => t.Id == 1);
-            await _copies.ArchiveExtraCopiesAsync(track, db, save: true);
+            await _copies.ArchiveExtraCopiesAsync(track, db);
         }
 
         await using (var db = _factory.CreateDbContext())
@@ -367,9 +669,17 @@ public class ArchiveProfileTests
         await using (var db = _factory.CreateDbContext())
         {
             var track = await db.Tracks.SingleAsync(t => t.Id == 1);
-            await _copies.ArchiveExtraCopiesAsync(track, db, save: true);
+            await _copies.ArchiveExtraCopiesAsync(track, db);
         }
         var mp3File = Directory.GetFiles(Path.Combine(_root, "archive-mp3")).Single();
+
+        await using (var db = _factory.CreateDbContext())
+        {
+            var track = await db.Tracks.SingleAsync(t => t.Id == 1);
+            track.Warning =
+                "archive copy unverified (MP3): could not verify the transcode: ffprobe failed";
+            await db.SaveChangesAsync();
+        }
 
         await using (var db = _factory.CreateDbContext())
         {
@@ -380,13 +690,15 @@ public class ArchiveProfileTests
         await using (var db = _factory.CreateDbContext())
         {
             var track = await db.Tracks.SingleAsync(t => t.Id == 1);
-            await _copies.ArchiveExtraCopiesAsync(track, db, save: true);
+            await _copies.ArchiveExtraCopiesAsync(track, db);
         }
 
         await using (var db = _factory.CreateDbContext())
         {
             var ids = await db.TrackArchiveCopies.Select(c => c.ProfileId).ToListAsync();
             Assert.That(ids, Is.EquivalentTo(new[] { opus.Id }));
+            Assert.That((await db.Tracks.SingleAsync(t => t.Id == 1)).Warning, Is.Null,
+                "the deselected profile's warning is gone too");
         }
         Assert.That(File.Exists(mp3File), Is.True,
             "deselecting a profile keeps the existing archive file");
@@ -400,14 +712,14 @@ public class ArchiveProfileTests
         await using (var db = _factory.CreateDbContext())
         {
             var track = await db.Tracks.SingleAsync(t => t.Id == 1);
-            await _copies.ArchiveExtraCopiesAsync(track, db, save: true);
+            await _copies.ArchiveExtraCopiesAsync(track, db);
         }
 
         await using (var db = _factory.CreateDbContext())
         {
             var track = await db.Tracks.SingleAsync(t => t.Id == 1);
             await _copies.ArchiveExtraCopiesAsync(
-                track, db, save: true, onlyProfileId: opus.Id);
+                track, db, onlyProfileId: opus.Id);
         }
 
         await using (var db = _factory.CreateDbContext())
@@ -426,7 +738,7 @@ public class ArchiveProfileTests
         await using (var db = _factory.CreateDbContext())
         {
             var track = await db.Tracks.SingleAsync(t => t.Id == 1);
-            await _copies.ArchiveExtraCopiesAsync(track, db, save: true);
+            await _copies.ArchiveExtraCopiesAsync(track, db);
         }
         await using (var db = _factory.CreateDbContext())
         {
@@ -470,7 +782,7 @@ public class ArchiveProfileTests
         await using (var db = _factory.CreateDbContext())
         {
             var track = await db.Tracks.SingleAsync(t => t.Id == 1);
-            await _copies.ArchiveExtraCopiesAsync(track, db, save: true);
+            await _copies.ArchiveExtraCopiesAsync(track, db);
         }
 
         await using (var db = _factory.CreateDbContext())
@@ -486,7 +798,7 @@ public class ArchiveProfileTests
         await using (var db = _factory.CreateDbContext())
         {
             var track = await db.Tracks.SingleAsync(t => t.Id == 1);
-            await _copies.ArchiveExtraCopiesAsync(track, db, save: true);
+            await _copies.ArchiveExtraCopiesAsync(track, db);
         }
         var copyPath = Path.Combine(_root, "archive-a", "song.mp3");
         var firstWrite = File.GetLastWriteTimeUtc(copyPath);
@@ -497,7 +809,7 @@ public class ArchiveProfileTests
         await using (var db = _factory.CreateDbContext())
         {
             var track = await db.Tracks.SingleAsync(t => t.Id == 1);
-            await _copies.ArchiveExtraCopiesAsync(track, db, save: true);
+            await _copies.ArchiveExtraCopiesAsync(track, db);
         }
 
         Assert.That(File.GetLastWriteTimeUtc(copyPath), Is.EqualTo(firstWrite),
@@ -511,7 +823,7 @@ public class ArchiveProfileTests
         await using (var db = _factory.CreateDbContext())
         {
             var track = await db.Tracks.SingleAsync(t => t.Id == 1);
-            await _copies.ArchiveExtraCopiesAsync(track, db, save: true);
+            await _copies.ArchiveExtraCopiesAsync(track, db);
         }
 
         var oldRoot = Path.Combine(_root, "archive-a");
@@ -534,7 +846,7 @@ public class ArchiveProfileTests
         await using (var db = _factory.CreateDbContext())
         {
             var track = await db.Tracks.SingleAsync(t => t.Id == 1);
-            await _copies.ArchiveExtraCopiesAsync(track, db, save: true);
+            await _copies.ArchiveExtraCopiesAsync(track, db);
         }
 
         var renamedPrimary = Path.Combine(_root, "music", "01 - Song.mp3");
@@ -560,7 +872,7 @@ public class ArchiveProfileTests
         await using (var db = _factory.CreateDbContext())
         {
             var track = await db.Tracks.SingleAsync(t => t.Id == 1);
-            await _copies.ArchiveExtraCopiesAsync(track, db, save: true);
+            await _copies.ArchiveExtraCopiesAsync(track, db);
         }
 
         await using (var db = _factory.CreateDbContext())
@@ -584,7 +896,15 @@ public class ArchiveProfileTests
         await using (var db = _factory.CreateDbContext())
         {
             var track = await db.Tracks.SingleAsync(t => t.Id == 1);
-            await _copies.ArchiveExtraCopiesAsync(track, db, save: true);
+            await _copies.ArchiveExtraCopiesAsync(track, db);
+        }
+
+        await using (var db = _factory.CreateDbContext())
+        {
+            var track = await db.Tracks.SingleAsync(t => t.Id == 1);
+            track.Warning =
+                "archive copy unverified (Copy A): could not verify the transcode: ffprobe failed";
+            await db.SaveChangesAsync();
         }
 
         await _profiles.DeleteAsync(profile.Id);
@@ -594,6 +914,8 @@ public class ArchiveProfileTests
         await using (var db = _factory.CreateDbContext())
         {
             Assert.That(await db.TrackArchiveCopies.CountAsync(), Is.Zero);
+            Assert.That((await db.Tracks.SingleAsync(t => t.Id == 1)).Warning, Is.Null,
+                "the removed profile's warning is gone too");
         }
     }
 
@@ -611,7 +933,7 @@ public class ArchiveProfileTests
         await using (var db = _factory.CreateDbContext())
         {
             var track = await db.Tracks.SingleAsync(t => t.Id == 1);
-            await _copies.ArchiveExtraCopiesAsync(track, db, save: true);
+            await _copies.ArchiveExtraCopiesAsync(track, db);
         }
 
         await using (var db = _factory.CreateDbContext())
@@ -750,7 +1072,7 @@ public class ArchiveProfileTests
         await using (var db = _factory.CreateDbContext())
         {
             var track = await db.Tracks.SingleAsync(t => t.Id == 1);
-            await _copies.ArchiveExtraCopiesAsync(track, db, save: true);
+            await _copies.ArchiveExtraCopiesAsync(track, db);
         }
 
         ArchiveCopyService.BackfillProgress? last = null;

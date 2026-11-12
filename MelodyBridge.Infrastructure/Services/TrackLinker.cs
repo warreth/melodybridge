@@ -574,13 +574,14 @@ public sealed class TrackLinker
         TrackEntity track, DedupMatch candidate, MelodyBridgeDbContext db, CancellationToken ct)
     {
         if (_archiveCopies is not null)
-            await _archiveCopies.ArchiveExtraCopiesAsync(track, db, save: false, ct: ct);
+            await _archiveCopies.ArchiveExtraCopiesAsync(track, db, ct: ct);
 
         var archiveTarget = await ResolveArchiveTargetAsync(track.PlaylistEntityId, db, ct);
         if (!archiveTarget.Enabled || archiveTarget.Folder is null)
         {
             track.ArchivePath = null;
             track.ArchiveSizeBytes = null;
+            ClearArchiveWarning(track);
             return;
         }
 
@@ -632,15 +633,18 @@ public sealed class TrackLinker
         // Named archive profiles are additive: they run even when the
         // original single archive has no folder configured.
         if (_archiveCopies is not null)
-            await _archiveCopies.ArchiveExtraCopiesAsync(track, db, save: false, ct: ct);
+            await _archiveCopies.ArchiveExtraCopiesAsync(track, db, ct: ct);
 
         var target = await ResolveArchiveTargetAsync(track.PlaylistEntityId, db, ct);
         if (!target.Enabled || target.Folder is null)
         {
             // No archive target (or the playlist switched it off): clear
-            // a stale archive path from an earlier configuration so the
-            // UI never shows a file that no longer belongs to this setup.
+            // a stale archive path and verdict from an earlier
+            // configuration so the UI never shows a file or a problem
+            // that no longer belongs to this setup.
             track.ArchivePath = null;
+            track.ArchiveSizeBytes = null;
+            ClearArchiveWarning(track);
             return ArchiveOutcome.Skipped;
         }
 
@@ -669,14 +673,34 @@ public sealed class TrackLinker
 
         // The same song already wrote this file (a duplicate playlist row
         // or a hardlink twin). Adopt it instead of transcoding the same
-        // bytes again.
-        if (!string.IsNullOrEmpty(track.MelodyId)
-            && File.Exists(targetPath)
-            && string.Equals(ReadMelodyId(targetPath), track.MelodyId, StringComparison.Ordinal))
+        // bytes again, but check it first: an unverified copy stays
+        // unverified, and a real defect is rebuilt below.
+        if (File.Exists(targetPath)
+            && !PlaylistRules.PathEquals(targetPath, track.CurrentPath!))
         {
-            track.ArchivePath = targetPath;
-            track.ArchiveSizeBytes = FileSizeOf(targetPath);
-            return ArchiveOutcome.Written;
+            var existingId = ReadMelodyId(targetPath);
+            if (!string.IsNullOrEmpty(existingId)
+                && (string.Equals(existingId, track.MelodyId, StringComparison.Ordinal)
+                    || await TrackFileNamePolicy.IsTwinCopyAsync(
+                        db, track, existingId, _hardLinks, ct)))
+            {
+                var integrity = VerifyArchiveCopy(track, targetPath);
+                if (integrity.Ok)
+                {
+                    track.ArchivePath = targetPath;
+                    track.ArchiveSizeBytes = FileSizeOf(targetPath);
+                    ClearArchiveWarning(track);
+                    return ArchiveOutcome.Written;
+                }
+                if (integrity.ToolMissing || integrity.ToolFailed)
+                {
+                    track.ArchivePath = targetPath;
+                    track.ArchiveSizeBytes = FileSizeOf(targetPath);
+                    SetArchiveWarning(track,
+                        $"archive copy unverified: {integrity.Reason}");
+                    return ArchiveOutcome.Written;
+                }
+            }
         }
 
         var result = ArchiveCopier.Copy(
@@ -694,6 +718,16 @@ public sealed class TrackLinker
             // The app just wrote that file, so it knows its size: the
             // Library page does not have to stat every archive copy again.
             track.ArchiveSizeBytes = FileSizeOf(result.ArchivePath);
+            if (result.Unverified)
+            {
+                // The file is there but ffprobe could not check it. Say
+                // so; the archive retry checks it again.
+                SetArchiveWarning(track, $"archive copy unverified: {result.Reason}");
+            }
+            else
+            {
+                ClearArchiveWarning(track);
+            }
             return ArchiveOutcome.Written;
         }
 
@@ -710,10 +744,48 @@ public sealed class TrackLinker
         var failure = keptPrevious is null
             ? $"archive copy failed: {result.Reason}"
             : $"archive copy failed: {result.Reason} (the previous copy was kept)";
-        track.Warning = string.IsNullOrEmpty(track.Warning)
-            ? failure
-            : $"{track.Warning}; {failure}";
+        SetArchiveWarning(track, failure);
         return ArchiveOutcome.Failed;
+    }
+
+    /// <summary>
+    /// Replaces the default archive's verdict on the track warning. The
+    /// old verdict is stale once a new attempt has an answer, and a
+    /// reconciliation can run the same attempt again.
+    /// </summary>
+    private static void SetArchiveWarning(TrackEntity track, string segment)
+    {
+        var kept = WithoutArchiveVerdict(track.Warning).ToList();
+        kept.Add(segment);
+        track.Warning = string.Join("; ", kept);
+    }
+
+    /// <summary>Removes the default archive's old verdict after a verified copy.</summary>
+    private static void ClearArchiveWarning(TrackEntity track)
+    {
+        if (string.IsNullOrWhiteSpace(track.Warning)) return;
+        var kept = WithoutArchiveVerdict(track.Warning).ToList();
+        track.Warning = kept.Count == 0 ? null : string.Join("; ", kept);
+    }
+
+    private static IEnumerable<string> WithoutArchiveVerdict(string? warning)
+        => (warning ?? string.Empty)
+            .Split("; ", StringSplitOptions.RemoveEmptyEntries)
+            .Where(part => !part.StartsWith("archive copy failed:", StringComparison.Ordinal)
+                && !part.StartsWith("archive copy unverified:", StringComparison.Ordinal));
+
+    /// <summary>
+    /// Checks an existing archive file against its primary with the same
+    /// window the copier uses: the primary's measured length is the
+    /// yardstick.
+    /// </summary>
+    private static IntegrityResult VerifyArchiveCopy(TrackEntity track, string path)
+    {
+        var primaryDuration = FileIntegrity.MeasureDuration(track.CurrentPath!);
+        var tolerance = primaryDuration is { } source
+            ? TimeSpan.FromSeconds(Math.Max(2, source.TotalSeconds * 0.02))
+            : (TimeSpan?)null;
+        return FileIntegrity.Check(path, primaryDuration, tolerance);
     }
 
     /// <summary>

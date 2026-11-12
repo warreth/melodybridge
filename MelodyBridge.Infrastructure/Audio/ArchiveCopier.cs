@@ -6,12 +6,16 @@ namespace MelodyBridge.Infrastructure.Audio;
 /// archive copy is a warning on the track, not a failed download.</summary>
 /// <param name="Ok">True when the archive file exists at the target path.</param>
 /// <param name="ArchivePath">The path written, or the intended one on failure.</param>
-/// <param name="Reason">Terse failure reason; null when <paramref name="Ok"/> is true.</param>
-public record ArchiveResult(bool Ok, string ArchivePath, string? Reason);
+/// <param name="Reason">Terse failure or unverified reason; null when the
+/// copy is verified.</param>
+/// <param name="Unverified">True when the copy exists but ffprobe could not
+/// check it. The caller keeps the file and records the warning.</param>
+public record ArchiveResult(
+    bool Ok, string ArchivePath, string? Reason, bool Unverified = false);
 
 /// <summary>
 /// Produces the secondary archive copy of an already downloaded track:
-/// a byte-for-byte copy when the archive format is Auto, or one local
+/// a plain copy when the archive format is Auto, or one local
 /// ffmpeg transcode into the requested container. One internet download,
 /// two library files. Every failure (missing ffmpeg, full disk, bad
 /// target path) degrades to a track warning; the primary file is never
@@ -33,7 +37,7 @@ public static class ArchiveCopier
     }
 
     /// <summary>Trimmed lower-case format, with a leading dot removed. Empty
-    /// becomes auto, the byte-for-byte copy. A custom format may name a
+    /// becomes auto, the plain copy. A custom format may name a
     /// codec after a colon ("m4a:alac").</summary>
     public static string NormalizeFormat(string? format)
     {
@@ -126,13 +130,15 @@ public static class ArchiveCopier
                 Path.GetFileNameWithoutExtension(targetName)
                 + ".mb-tmp-" + Guid.NewGuid().ToString("N")
                 + Path.GetExtension(targetName));
+            string? unverified = null;
             try
             {
                 if (string.IsNullOrWhiteSpace(archiveFormat)
                     || archiveFormat.Trim().Equals("auto", StringComparison.OrdinalIgnoreCase))
                 {
-                    // Auto archive: byte-for-byte copy, no transcode, no
-                    // quality change.
+                    // Auto archive: a plain copy, no transcode, no
+                    // quality change. The id tag below still marks whose
+                    // copy it is.
                     File.Copy(primaryPath, tempPath, overwrite: false);
                 }
                 else
@@ -165,30 +171,40 @@ public static class ArchiveCopier
                         ? TimeSpan.FromSeconds(Math.Max(2, source.TotalSeconds * 0.02))
                         : (TimeSpan?)null;
                     var integrity = FileIntegrity.Check(tempPath, primaryDuration, tolerance);
-                    // A missing ffprobe is not proof that the copy is broken: keep it.
-                    if (!integrity.Ok && !integrity.ToolMissing)
+                    // A missing or failed ffprobe is not proof that the
+                    // copy is broken: keep it and say it was not checked.
+                    if (!integrity.Ok)
                     {
-                        return new(false, targetPath,
-                            integrity.Issue == IntegrityIssue.Corrupt
-                                ? $"archive transcode looks corrupt: {integrity.Reason}"
-                                : $"archive transcode does not match the source: {integrity.Reason}");
-                    }
-
-                    // Metadata handover: ffmpeg keeps Vorbis and ID3 tags in
-                    // most conversions, but a container switch can drop them.
-                    // When the MELODY_ID survived, everything meaningful did
-                    // (reconciliation joins on it); when it did not, write the
-                    // full tag set the same way the primary path does.
-                    if (!string.IsNullOrEmpty(melodyId)
-                        && TaglibHelper.ReadMelodyId(tempPath) != melodyId)
-                    {
-                        TaglibHelper.WriteTags(tempPath, title, artist, album, track: trackNumber);
-                        TaglibHelper.WriteMelodyId(tempPath, melodyId);
+                        if (integrity.ToolMissing || integrity.ToolFailed)
+                        {
+                            unverified = $"could not verify the transcode: {integrity.Reason}";
+                        }
+                        else
+                        {
+                            return new(false, targetPath,
+                                integrity.Issue == IntegrityIssue.Corrupt
+                                    ? $"archive transcode looks corrupt: {integrity.Reason}"
+                                    : $"archive transcode does not match the source: {integrity.Reason}");
+                        }
                     }
                 }
 
+                // Metadata handover: ffmpeg keeps Vorbis and ID3 tags in
+                // most conversions, but a container switch can drop them.
+                // When the MELODY_ID survived, everything meaningful did
+                // (reconciliation joins on it); when it did not, write the
+                // full tag set the same way the primary path does. A plain
+                // copy carries the id too: the file on disk is the witness
+                // two writers use to tell whose bytes are already there.
+                if (!string.IsNullOrEmpty(melodyId)
+                    && TaglibHelper.ReadMelodyId(tempPath) != melodyId)
+                {
+                    TaglibHelper.WriteTags(tempPath, title, artist, album, track: trackNumber);
+                    TaglibHelper.WriteMelodyId(tempPath, melodyId);
+                }
+
                 File.Move(tempPath, targetPath, overwrite: true);
-                return new(true, targetPath, null);
+                return new(true, targetPath, unverified, Unverified: unverified is not null);
             }
             finally
             {

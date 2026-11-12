@@ -1,8 +1,11 @@
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
+using MelodyBridge.Infrastructure.Audio;
 using MelodyBridge.Infrastructure.Data;
 using MelodyBridge.Infrastructure.Services;
+using MelodyBridge.Infrastructure.Tagging;
 
 namespace MelodyBridge.Tests.Services;
 
@@ -112,8 +115,107 @@ public class ArchiveRetryTests
         Assert.That(track.ArchivePath, Is.Not.Null.And.Not.Empty);
         Assert.That(File.Exists(track.ArchivePath), Is.True, "the copy really exists on disk");
         Assert.That(await File.ReadAllBytesAsync(track.ArchivePath!), Is.EqualTo(new byte[] { 1, 2, 3, 4, 5 }),
-            "an auto archive is a byte-for-byte copy");
+            "an auto archive copies the primary bytes");
         Assert.That(track.Warning, Is.Null, "the stale archive failure is gone");
+    }
+
+    [Test]
+    public async Task Retry_ChecksAnUnverifiedLegacyCopyBeforeAdoptingIt()
+    {
+        var ffmpeg = SpectrumAnalyzer.FindBinary("ffmpeg");
+        if (ffmpeg is null) Assert.Ignore("ffmpeg is not installed on this machine");
+
+        var primary = Path.Combine(_root, "music", "song.mp3");
+        Directory.CreateDirectory(Path.GetDirectoryName(primary)!);
+        await File.WriteAllBytesAsync(primary, TestAudio.MinimalMp3());
+        TaglibHelper.WriteMelodyId(primary, "m-arc");
+
+        // A same-song copy that is long enough to fail the duration check
+        // against the primary. Adopting it without looking would hide the
+        // defect and clear the unverified warning.
+        var archive = Path.Combine(_root, "archive", "song.mp3");
+        Directory.CreateDirectory(Path.GetDirectoryName(archive)!);
+        MakeMp3(ffmpeg, archive, seconds: 5);
+        TaglibHelper.WriteMelodyId(archive, "m-arc");
+
+        int trackId;
+        await using (var db = _factory.CreateDbContext())
+        {
+            db.DownloaderSettings.Add(new DownloaderSettingEntity
+            {
+                Key = "archive_path",
+                Value = Path.Combine(_root, "archive"),
+            });
+            db.DownloaderSettings.Add(new DownloaderSettingEntity
+            {
+                Key = "archive_format",
+                Value = "auto",
+            });
+            db.DownloaderSettings.Add(new DownloaderSettingEntity
+            {
+                Key = "playlist_folders",
+                Value = "false",
+            });
+            var track = new TrackEntity
+            {
+                MelodyId = "m-arc",
+                Title = "Song",
+                Artist = "Artist",
+                Position = 0,
+                DownloadStatus = "downloaded",
+                CurrentPath = primary,
+                Warning = "archive copy unverified: could not verify the transcode: ffprobe failed",
+            };
+            db.Playlists.Add(new PlaylistEntity
+            {
+                Id = "pl-arc",
+                Name = "Archive retry",
+                SourceUrl = "stub:arc",
+                Tracks = new List<TrackEntity> { track },
+            });
+            await db.SaveChangesAsync();
+            trackId = track.Id;
+        }
+
+        var (ok, reason) = await _store.RetryArchiveAsync(trackId);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(ok, Is.True, reason);
+            Assert.That(reason, Is.Null);
+        });
+        var after = await ReadTrackAsync(trackId);
+        Assert.Multiple(() =>
+        {
+            Assert.That(after.Warning, Is.Null, "the unverified warning is gone after the check");
+            Assert.That(File.ReadAllBytes(archive), Is.EqualTo(File.ReadAllBytes(primary)),
+                "the stale copy was rebuilt from the primary instead of adopted");
+        });
+    }
+
+    private static void MakeMp3(string ffmpeg, string path, int seconds)
+    {
+        var psi = new ProcessStartInfo
+        {
+            FileName = ffmpeg,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardError = true,
+            RedirectStandardOutput = true,
+        };
+        foreach (var argument in new[]
+                 {
+                     "-y", "-v", "error", "-f", "lavfi", "-i",
+                     "anullsrc=r=44100:cl=stereo", "-t", seconds.ToString(),
+                     "-c:a", "libmp3lame", "-b:a", "128k", path,
+                 })
+        {
+            psi.ArgumentList.Add(argument);
+        }
+        using var process = Process.Start(psi)!;
+        process.StandardError.ReadToEnd();
+        process.WaitForExit(30000);
+        Assert.That(process.ExitCode, Is.Zero, "ffmpeg must produce the test file");
     }
 
     [Test]
@@ -310,6 +412,11 @@ public class ArchiveRetryTests
                 Is.EqualTo("b"));
             Assert.That(DownloadPipeline.StripArchiveFailures("a; archive copy failed: b; c"),
                 Is.EqualTo("a; c"));
+            Assert.That(DownloadPipeline.StripArchiveFailures("archive copy unverified: a"), Is.Null);
+            Assert.That(DownloadPipeline.StripArchiveFailures("a; archive copy unverified: b"),
+                Is.EqualTo("a"));
+            Assert.That(DownloadPipeline.StripArchiveFailures(
+                "archive copy failed: a; archive copy unverified: b"), Is.Null);
         });
     }
 }

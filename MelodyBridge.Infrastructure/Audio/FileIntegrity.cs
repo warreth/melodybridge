@@ -23,9 +23,12 @@ public enum IntegrityIssue
 /// <param name="ToolMissing">True when the check could not run because
 /// ffprobe is not installed. That is not proof of corruption: the caller
 /// keeps the file and flags it as unverified.</param>
+/// <param name="ToolFailed">True when ffprobe could not start or timed
+/// out. That is not proof of corruption either: the caller keeps the file
+/// and flags it as unverified.</param>
 public record IntegrityResult(
     bool Ok, string? Reason, IntegrityIssue Issue = IntegrityIssue.None,
-    bool ToolMissing = false);
+    bool ToolMissing = false, bool ToolFailed = false);
 
 /// <summary>
 /// Fast post-download integrity check: parses the file with ffprobe and
@@ -51,11 +54,11 @@ public static class FileIntegrity
     public static IntegrityResult Check(
         string path, TimeSpan? expectedDuration = null, TimeSpan? tolerance = null)
     {
-        var (seconds, failure, toolMissing) = ProbeDuration(path);
+        var (seconds, failure, toolMissing, toolFailed) = ProbeDuration(path);
         if (toolMissing)
             return new(false, failure, IntegrityIssue.None, ToolMissing: true);
         if (failure is not null)
-            return new(false, failure, IntegrityIssue.Corrupt);
+            return new(false, failure, IntegrityIssue.Corrupt, ToolFailed: toolFailed);
         if (seconds is not > 0)
             return new(false, "no duration", IntegrityIssue.Corrupt);
 
@@ -87,11 +90,12 @@ public static class FileIntegrity
     /// One ffprobe run: the parsed duration in seconds, or the terse
     /// failure that explains why there is none.
     /// </summary>
-    private static (double? Seconds, string? Failure, bool ToolMissing) ProbeDuration(string path)
+    private static (double? Seconds, string? Failure, bool ToolMissing, bool ToolFailed)
+        ProbeDuration(string path)
     {
         var ffprobe = SpectrumAnalyzer.FindFfprobe();
         if (ffprobe is null)
-            return (null, "ffprobe not found", true);
+            return (null, "ffprobe not found", true, false);
 
         try
         {
@@ -103,14 +107,44 @@ public static class FileIntegrity
                 "-of", "json",
                 path,
             }, timeoutMs: 15000);
-            if (result.TimedOut) return (null, "ffprobe timed out", false);
-            if (result.ExitCode != 0) return (null, "ffprobe failed", false);
-            return (ParseDuration(result.Stdout), null, false);
+            if (result.TimedOut) return (null, "ffprobe timed out", false, true);
+            if (result.ExitCode != 0)
+            {
+                // A parse failure is the file's verdict. Anything else
+                // (a resource limit, a killed process, an I/O error) is
+                // the tool's failure: the file stays and the caller flags
+                // it as unverified.
+                var parseFailure = LooksLikeParseFailure(result.Stderr);
+                return (null, "ffprobe failed", false, !parseFailure);
+            }
+            return (ParseDuration(result.Stdout), null, false, false);
         }
         catch
         {
-            return (null, "ffprobe failed", false);
+            // The process could not start (for example EMFILE): the tool
+            // failed, not the file.
+            return (null, "ffprobe failed", false, true);
         }
+    }
+
+    /// <summary>
+    /// ffprobe's stderr for a file it cannot parse. A non-zero exit with
+    /// none of these is treated as a tool failure, not a corrupt file:
+    /// keeping a good file with an unverified flag is the safer mistake.
+    /// </summary>
+    internal static bool LooksLikeParseFailure(string stderr)
+    {
+        string[] signatures =
+        {
+            "Invalid data found when processing input",
+            "Failed to read frame size",
+            "moov atom not found",
+            "could not find codec parameters",
+            "Invalid argument",
+            "End of file",
+        };
+        return signatures.Any(signature =>
+            stderr.Contains(signature, StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>Reads format.duration from ffprobe's JSON ("N/A" and missing mean no duration).</summary>

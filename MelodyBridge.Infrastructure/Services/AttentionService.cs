@@ -189,6 +189,7 @@ public static class AttentionClassifier
 
         var text = warning ?? "";
         if (text.Contains("archive copy failed", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("archive copy unverified", StringComparison.OrdinalIgnoreCase)
             || text.Contains("already owns the archive file", StringComparison.OrdinalIgnoreCase))
             return AttentionKinds.Archive;
         if (text.Contains("file missing on disk", StringComparison.OrdinalIgnoreCase)
@@ -251,6 +252,7 @@ public sealed class AttentionService
                         && (track.ReviewKind != null
                             || (track.Warning != null
                                 && (track.Warning.Contains("archive copy failed")
+                                    || track.Warning.Contains("archive copy unverified")
                                     || track.Warning.Contains("already owns the archive file")
                                     || track.Warning.Contains("file missing on disk")
                                     || track.Warning.Contains("the file lived in the archive folder")
