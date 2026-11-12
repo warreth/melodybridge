@@ -205,11 +205,57 @@ public class TrackLinkerArchiveOwnershipTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(outcome, Is.EqualTo(ArchiveOutcome.Failed));
+            Assert.That(outcome, Is.EqualTo(ArchiveOutcome.Written));
             Assert.That(File.ReadAllText(owned), Is.EqualTo("another track's bytes"),
                 "the file that belongs to the other track kept its bytes");
-            Assert.That(track.Warning, Does.Contain("already owns"),
-                "the row says why there is no archive copy");
+            Assert.That(track.ArchivePath, Is.EqualTo(
+                    Path.Combine(_archiveDir, "song (2).mp3")),
+                "the copy takes the next free name instead of overwriting or failing");
+            Assert.That(track.Warning, Is.Null);
+            Assert.That(File.ReadAllText(track.ArchivePath!), Is.EqualTo("primary bytes"));
+        });
+    }
+
+    [Test]
+    public async Task ArchiveCopy_ExistingVariant_IsReusedInsteadOfNumberedAgain()
+    {
+        var primary = Path.Combine(_musicDir, "song.mp3");
+        File.WriteAllText(primary, "primary bytes");
+
+        var owned = Path.Combine(_archiveDir, "song.mp3");
+        File.WriteAllText(owned, "another track's bytes");
+
+        await using var db = _factory.CreateDbContext();
+        var track = NewTrack("track-1", primary);
+        db.Tracks.Add(track);
+        db.Tracks.Add(new TrackEntity
+        {
+            MelodyId = "mb-other",
+            Title = "Other",
+            Artist = "Artist",
+            Position = 1,
+            DownloadStatus = "downloaded",
+            CurrentPath = Path.Combine(_musicDir, "other.mp3"),
+            ArchivePath = owned,
+            PlaylistEntityId = "pl-1",
+        });
+        await db.SaveChangesAsync();
+
+        await _linker.ArchiveDownloadedTrackAsync(track, db, CancellationToken.None);
+        await db.SaveChangesAsync();
+        var first = track.ArchivePath;
+        Assert.That(first, Is.EqualTo(Path.Combine(_archiveDir, "song (2).mp3")));
+
+        // A second pass sees its own variant and keeps it. Taking a new
+        // one every run would fill the folder with "song (3).mp3" and so on.
+        await _linker.ArchiveDownloadedTrackAsync(track, db, CancellationToken.None);
+        await db.SaveChangesAsync();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(track.ArchivePath, Is.EqualTo(first));
+            Assert.That(Directory.GetFiles(_archiveDir), Has.Length.EqualTo(2),
+                "a repeated pass writes no extra copy");
         });
     }
 
@@ -245,11 +291,13 @@ public class TrackLinkerArchiveOwnershipTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(outcome, Is.EqualTo(ArchiveOutcome.Failed));
+            Assert.That(outcome, Is.EqualTo(ArchiveOutcome.Written));
             Assert.That(File.ReadAllBytes(otherPrimary), Is.EqualTo(bytes),
                 "the other track's primary kept its bytes");
-            Assert.That(track.Warning, Does.Contain("already owns"),
-                "the row says why there is no archive copy");
+            Assert.That(track.ArchivePath, Is.EqualTo(
+                    Path.Combine(_archiveDir, "song (2).mp3")),
+                "the copy takes the next free name, never the other track's primary");
+            Assert.That(track.Warning, Is.Null);
         });
     }
 
@@ -329,8 +377,10 @@ public class TrackLinkerArchiveOwnershipTests
         {
             Assert.Multiple(() =>
             {
-                Assert.That(outcome, Is.EqualTo(ArchiveOutcome.Failed),
-                    "on a case-insensitive filesystem the name is taken");
+                Assert.That(outcome, Is.EqualTo(ArchiveOutcome.Written));
+                Assert.That(track.ArchivePath, Is.EqualTo(
+                        Path.Combine(_archiveDir, "song (2).mp3")),
+                    "on a case-insensitive filesystem the other spelling is taken, so the copy takes a variant");
                 Assert.That(File.ReadAllText(owned), Is.EqualTo("another track's bytes"));
             });
         }
@@ -338,6 +388,8 @@ public class TrackLinkerArchiveOwnershipTests
         {
             Assert.That(outcome, Is.EqualTo(ArchiveOutcome.Written),
                 "on a case-sensitive filesystem the name is free");
+            Assert.That(track.ArchivePath, Is.EqualTo(Path.Combine(_archiveDir, "song.mp3")),
+                "the differently cased name is a separate file");
             Assert.That(File.ReadAllText(owned), Is.EqualTo("another track's bytes"),
                 "and the other file is untouched anyway");
         }
@@ -377,8 +429,9 @@ public class TrackLinkerArchiveOwnershipTests
         {
             Assert.Multiple(() =>
             {
-                Assert.That(outcome, Is.Not.EqualTo(ArchiveOutcome.Written),
-                    "on a volume that folds case the other song keeps the file");
+                Assert.That(outcome, Is.EqualTo(ArchiveOutcome.Written));
+                Assert.That(track.ArchivePath, Is.Not.EqualTo(owned),
+                    "on a volume that folds case the other song keeps its own file");
                 Assert.That(TaglibHelper.ReadMelodyId(owned), Is.EqualTo("mb-other"),
                     "the file of the other song still holds its own song");
             });
@@ -395,11 +448,11 @@ public class TrackLinkerArchiveOwnershipTests
         }
     }
 
-    private static TrackEntity NewTrack(string melodyId, string primary)
+    private static TrackEntity NewTrack(string melodyId, string primary, string? title = null)
         => new()
         {
             MelodyId = melodyId,
-            Title = "Song",
+            Title = title ?? "Song",
             Artist = "Artist",
             Position = 0,
             DownloadStatus = "downloaded",
@@ -410,11 +463,12 @@ public class TrackLinkerArchiveOwnershipTests
     // ── the file on the name is the witness ────────────────────────
 
     [Test]
-    public async Task ArchiveCopy_RefusesAFileThatCarriesAnotherSongsId()
+    public async Task ArchiveCopy_TakesAVariantWhenTheNameCarriesAnotherSongsId()
     {
         // The file on the name belongs to another song. The database does
         // not point at the name, so the name comparison finds nothing and
-        // only the file itself says that the bytes are not ours.
+        // only the file itself says that the bytes are not ours. This
+        // song takes the next free name, and the other song keeps its file.
         var primary = Path.Combine(_musicDir, "song.mp3");
         TaggedMp3("mb-track-1", primary);
 
@@ -441,9 +495,12 @@ public class TrackLinkerArchiveOwnershipTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(outcome, Is.EqualTo(ArchiveOutcome.Failed));
+            Assert.That(outcome, Is.EqualTo(ArchiveOutcome.Written));
             Assert.That(File.ReadAllBytes(owned), Is.EqualTo(bytes),
                 "the file that belongs to the other song kept its bytes");
+            Assert.That(track.ArchivePath, Is.Not.EqualTo(owned));
+            Assert.That(TaglibHelper.ReadMelodyId(track.ArchivePath!), Is.EqualTo("mb-track-1"),
+                "this song's copy carries its own id");
         });
     }
 
@@ -499,21 +556,23 @@ public class TrackLinkerArchiveOwnershipTests
     }
 
     [Test]
-    public async Task TwoWorkersOnTheSameArchiveName_LeaveOneFile()
+    public async Task TwoWorkersOnTheSameArchiveName_EachSongGetsItsOwnFile()
     {
         // Eight tracks in eight folders with the same file name, so all
-        // eight want the same archive file. Eight workers copy at the same
+        // eight want the same archive name. Eight workers copy at the same
         // time.
         var names = new[] { "mb-one", "mb-two", "mb-three", "mb-four",
             "mb-five", "mb-six", "mb-seven", "mb-eight" };
+        var titles = new[] { "Alpha", "Bravo", "Charlie", "Delta",
+            "Echo", "Foxtrot", "Golf", "Hotel" };
         await using var db = _factory.CreateDbContext();
-        foreach (var name in names)
+        for (var i = 0; i < names.Length; i++)
         {
-            var folder = Path.Combine(_musicDir, name);
+            var folder = Path.Combine(_musicDir, names[i]);
             Directory.CreateDirectory(folder);
             var primary = Path.Combine(folder, "song.mp3");
-            TaggedMp3(name, primary);
-            db.Tracks.Add(NewTrack(name, primary));
+            TaggedMp3(names[i], primary);
+            db.Tracks.Add(NewTrack(names[i], primary, titles[i]));
         }
         await db.SaveChangesAsync();
 
@@ -526,24 +585,28 @@ public class TrackLinkerArchiveOwnershipTests
             await using var workerDb = _factory.CreateDbContext();
             var track = await workerDb.Tracks.SingleAsync(t => t.MelodyId == name);
             await start.Task;
-            return await _linker.ArchiveDownloadedTrackAsync(track, workerDb, CancellationToken.None);
+            var outcome = await _linker.ArchiveDownloadedTrackAsync(
+                track, workerDb, CancellationToken.None);
+            await workerDb.SaveChangesAsync();
+            return (Name: name, Outcome: outcome, Path: track.ArchivePath);
         }).ToList();
         start.SetResult();
 
         var outcomes = await Task.WhenAll(workers);
 
-        var target = Path.Combine(_archiveDir, "song.mp3");
-        var written = outcomes.Count(o => o == ArchiveOutcome.Written);
-        var refused = outcomes.Count(o => o == ArchiveOutcome.Failed);
         Assert.Multiple(() =>
         {
-            Assert.That(written, Is.EqualTo(1),
-                "only one worker may write the name");
-            Assert.That(refused, Is.EqualTo(names.Length - 1),
-                "the other workers are refused instead of overwriting the file");
-            Assert.That(File.Exists(target), Is.True);
-            Assert.That(TaglibHelper.ReadMelodyId(target), Is.Not.Null,
-                "the file that is there carries the id of the song that wrote it");
+            Assert.That(outcomes.All(o => o.Outcome == ArchiveOutcome.Written), Is.True,
+                "every song gets a copy, under its own name");
+            Assert.That(outcomes.Select(o => o.Path).Distinct().Count(),
+                Is.EqualTo(names.Length),
+                "no two songs share one archive file");
+            foreach (var worker in outcomes)
+            {
+                Assert.That(File.Exists(worker.Path), Is.True, worker.Name);
+                Assert.That(TaglibHelper.ReadMelodyId(worker.Path!), Is.EqualTo(worker.Name),
+                    $"the copy for {worker.Name} carries its own id");
+            }
         });
     }
 

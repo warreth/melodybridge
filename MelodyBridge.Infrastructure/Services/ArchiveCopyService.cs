@@ -148,8 +148,8 @@ public sealed class ArchiveCopyService
                 continue;
             }
 
-            var target = ArchiveCopier.TargetPath(track.CurrentPath, folder, profile.Format);
-            if (!seen.Add(target))
+            var preferred = ArchiveCopier.TargetPath(track.CurrentPath, folder, profile.Format);
+            if (!seen.Add(preferred))
             {
                 var failed = await EnsureRowAsync(db, existingRows, track, profile, ct);
                 Fail(failed, track, profile, "another profile already writes this file");
@@ -158,9 +158,9 @@ public sealed class ArchiveCopyService
             }
 
             // One writer per name, shared with the legacy archive path and
-            // the download workers. The name check, the copy, the row
+            // the download workers. The name decision, the copy, the row
             // update and the row save must see each other.
-            using var targetLock = await PathLockTable.Shared.AcquireAsync(target, ct);
+            using var targetLock = await PathLockTable.Shared.AcquireAsync(preferred, ct);
 
             // The row is created under the row lock: a concurrent writer
             // for the same track and profile finds it instead of adding a
@@ -168,7 +168,7 @@ public sealed class ArchiveCopyService
             var row = await EnsureRowAsync(db, existingRows, track, profile, ct);
 
             if (row.Path is { Length: > 0 } current
-                && PlaylistRules.PathEquals(current, target)
+                && PlaylistRules.PathEquals(current, preferred)
                 && string.IsNullOrEmpty(row.Warning)
                 && File.Exists(current)
                 && new FileInfo(current).Length > 0)
@@ -178,86 +178,98 @@ public sealed class ArchiveCopyService
                 row.UpdatedAt = DateTime.UtcNow;
                 ClearWarning(track, profile.Name);
             }
-            else if (!await NameIsFreeAsync(db, track, target, ct))
-            {
-                Fail(row, track, profile,
-                    "another track already owns this archive file");
-            }
             else
             {
-                var adopted = false;
-                // The same song already wrote this file (a duplicate
-                // playlist row or a hardlink twin). Adopt it instead of
-                // transcoding the same bytes again, but check it first: a
-                // row with a warning is not adopted, and an unverified
-                // file stays unverified on the adopting row too.
-                if (string.IsNullOrEmpty(row.Warning) && File.Exists(target))
+                // The same name may already belong to another song in a
+                // flat archive folder. This song then takes the next
+                // numbered variant instead of reporting the same failure
+                // on every pass.
+                var resolution = await TrackFileNamePolicy.ResolveArchiveAsync(
+                    db, track, preferred, HardLinks, ct);
+                if (resolution is null)
                 {
-                    var existingId = TaglibHelper.ReadMelodyId(target);
-                    if (!string.IsNullOrEmpty(existingId)
-                        && (string.Equals(existingId, track.MelodyId, StringComparison.Ordinal)
-                            || await TrackFileNamePolicy.IsTwinCopyAsync(
-                                db, track, existingId, HardLinks, ct)))
-                    {
-                        var integrity = VerifyCopy(track, target);
-                        if (integrity.Ok)
-                        {
-                            Adopt(row, track, profile, target, null);
-                            adopted = true;
-                        }
-                        else if (integrity.ToolMissing || integrity.ToolFailed)
-                        {
-                            Adopt(row, track, profile, target,
-                                $"could not verify the archive copy: {integrity.Reason}");
-                            adopted = true;
-                        }
-                        // A real defect falls through to a rebuild.
-                    }
+                    Fail(row, track, profile,
+                        "no free archive name; the folder holds too many songs with this name");
                 }
-
-                if (!adopted)
+                else
                 {
-                    var result = ArchiveCopier.Copy(
-                        track.CurrentPath, folder, profile.Format,
-                        melodyId: track.MelodyId,
-                        title: track.Title, artist: track.Artist, album: track.Album,
-                        trackNumber: (uint?)(track.Position + 1),
-                        expectedDuration: track.DurationMs is > 0
-                            ? TimeSpan.FromMilliseconds(track.DurationMs.Value)
-                            : null);
-
-                    if (result.Ok)
+                    var target = resolution.Path;
+                    var adopted = false;
+                    // The same song already wrote this file (a duplicate
+                    // playlist row, a hardlink twin or another platform's
+                    // copy). Adopt it instead of transcoding the same
+                    // bytes again, but check it first: a row with a
+                    // warning is not adopted, and an unverified file
+                    // stays unverified on the adopting row too.
+                    if (string.IsNullOrEmpty(row.Warning) && File.Exists(target))
                     {
-                        row.Path = result.ArchivePath;
-                        row.SizeBytes = new FileInfo(result.ArchivePath).Length;
-                        row.UpdatedAt = DateTime.UtcNow;
-                        if (result.Unverified)
+                        var existingId = TaglibHelper.ReadMelodyId(target);
+                        if (!string.IsNullOrEmpty(existingId)
+                            && (string.Equals(existingId, track.MelodyId, StringComparison.Ordinal)
+                                || await TrackFileNamePolicy.IsSameSongCopyAsync(
+                                    db, track, existingId, HardLinks, ct)))
                         {
-                            // The file is there but ffprobe could not
-                            // check it. Keep the row and name the state,
-                            // so the next backfill checks it again
-                            // instead of trusting it.
-                            row.Warning = result.Reason ?? "could not verify the copy";
-                            WarnUnverified(track, profile.Name, row.Warning);
+                            var integrity = VerifyCopy(track, target);
+                            if (integrity.Ok)
+                            {
+                                Adopt(row, track, profile, target, null);
+                                adopted = true;
+                            }
+                            else if (integrity.ToolMissing || integrity.ToolFailed)
+                            {
+                                Adopt(row, track, profile, target,
+                                    $"could not verify the archive copy: {integrity.Reason}");
+                                adopted = true;
+                            }
+                            // A real defect falls through to a rebuild.
+                        }
+                    }
+
+                    if (!adopted)
+                    {
+                        var result = ArchiveCopier.Copy(
+                            track.CurrentPath, folder, profile.Format,
+                            melodyId: track.MelodyId,
+                            title: track.Title, artist: track.Artist, album: track.Album,
+                            trackNumber: (uint?)(track.Position + 1),
+                            expectedDuration: track.DurationMs is > 0
+                                ? TimeSpan.FromMilliseconds(track.DurationMs.Value)
+                                : null,
+                            targetPath: target);
+
+                        if (result.Ok)
+                        {
+                            row.Path = result.ArchivePath;
+                            row.SizeBytes = new FileInfo(result.ArchivePath).Length;
+                            row.UpdatedAt = DateTime.UtcNow;
+                            if (result.Unverified)
+                            {
+                                // The file is there but ffprobe could not
+                                // check it. Keep the row and name the state,
+                                // so the next backfill checks it again
+                                // instead of trusting it.
+                                row.Warning = result.Reason ?? "could not verify the copy";
+                                WarnUnverified(track, profile.Name, row.Warning);
+                            }
+                            else
+                            {
+                                row.Warning = null;
+                                ClearWarning(track, profile.Name);
+                            }
                         }
                         else
                         {
-                            row.Warning = null;
-                            ClearWarning(track, profile.Name);
+                            // Keep an earlier copy that is still on disk;
+                            // otherwise the row points nowhere and the next
+                            // attempt starts clean.
+                            var previous = new[] { result.ArchivePath, row.Path }
+                                .FirstOrDefault(path => !string.IsNullOrWhiteSpace(path)
+                                    && File.Exists(path)
+                                    && !PlaylistRules.PathEquals(path, track.CurrentPath));
+                            row.Path = previous;
+                            row.SizeBytes = previous is null ? 0 : new FileInfo(previous).Length;
+                            Fail(row, track, profile, result.Reason ?? "unknown error");
                         }
-                    }
-                    else
-                    {
-                        // Keep an earlier copy that is still on disk;
-                        // otherwise the row points nowhere and the next
-                        // attempt starts clean.
-                        var previous = new[] { result.ArchivePath, row.Path }
-                            .FirstOrDefault(path => !string.IsNullOrWhiteSpace(path)
-                                && File.Exists(path)
-                                && !PlaylistRules.PathEquals(path, track.CurrentPath));
-                        row.Path = previous;
-                        row.SizeBytes = previous is null ? 0 : new FileInfo(previous).Length;
-                        Fail(row, track, profile, result.Reason ?? "unknown error");
                     }
                 }
             }

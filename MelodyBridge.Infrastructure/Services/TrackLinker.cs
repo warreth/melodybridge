@@ -648,40 +648,37 @@ public sealed class TrackLinker
             return ArchiveOutcome.Skipped;
         }
 
-        // The copy lands on a fixed name. Another row can own that name:
-        // replacing it would take that track's file away, so the copy is
-        // refused instead. The link path checks the same thing.
-        var targetPath = ArchiveCopier.TargetPath(track.CurrentPath!, target.Folder, target.Format);
-
-        // One writer per name. Two tracks can resolve to the same archive
-        // file, and two workers can pick them up at the same time. The
-        // second one waits here and then sees what the first one wrote,
-        // instead of writing over it.
-        using var scope = await _pathLocks.AcquireAsync(targetPath, ct);
-
-        if (!await NameIsFreeAsync(
-                db, track, targetPath, ct, allowPrimaryOwner: false))
+        // The copy lands on the primary's name, or the next free variant
+        // when another song already owns that name in a flat archive
+        // folder. The name decision and the write happen under the same
+        // lock, so a second worker sees what the first one left.
+        var preferredPath = ArchiveCopier.TargetPath(track.CurrentPath!, target.Folder, target.Format);
+        var resolution = await ResolveNameAsync(db, track, preferredPath, ct);
+        if (resolution is null)
         {
-            track.Warning = string.IsNullOrEmpty(track.Warning)
-                ? $"another track already owns the archive file {Path.GetFileName(targetPath)}; no archive copy was made"
-                : $"{track.Warning}; another track already owns the archive file {Path.GetFileName(targetPath)}";
+            SetArchiveWarning(track,
+                $"no free archive name for {Path.GetFileName(preferredPath)}; "
+                + "the folder holds too many songs with this name");
             _logger.LogInformation(
-                "Archive copy for '{Title}' skipped: {Path} belongs to another track",
-                track.Title, targetPath);
+                "Archive copy for '{Title}' skipped: every archive name for {Path} is taken",
+                track.Title, preferredPath);
             return ArchiveOutcome.Failed;
         }
+        using var nameLock = resolution.Value.Lock;
+        var targetPath = resolution.Value.Path;
 
-        // The same song already wrote this file (a duplicate playlist row
-        // or a hardlink twin). Adopt it instead of transcoding the same
-        // bytes again, but check it first: an unverified copy stays
-        // unverified, and a real defect is rebuilt below.
+        // The same song already wrote this file (a duplicate playlist row,
+        // a hardlink twin, or the same recording from another platform).
+        // Adopt it instead of transcoding the same bytes again, but check
+        // it first: an unverified copy stays unverified, and a real defect
+        // is rebuilt below.
         if (File.Exists(targetPath)
             && !PlaylistRules.PathEquals(targetPath, track.CurrentPath!))
         {
             var existingId = ReadMelodyId(targetPath);
             if (!string.IsNullOrEmpty(existingId)
                 && (string.Equals(existingId, track.MelodyId, StringComparison.Ordinal)
-                    || await TrackFileNamePolicy.IsTwinCopyAsync(
+                    || await TrackFileNamePolicy.IsSameSongCopyAsync(
                         db, track, existingId, _hardLinks, ct)))
             {
                 var integrity = VerifyArchiveCopy(track, targetPath);
@@ -710,7 +707,8 @@ public sealed class TrackLinker
             trackNumber: (uint?)(track.Position + 1),
             expectedDuration: track.DurationMs is > 0
                 ? TimeSpan.FromMilliseconds(track.DurationMs.Value)
-                : null);
+                : null,
+            targetPath: targetPath);
 
         if (result.Ok)
         {
@@ -772,7 +770,13 @@ public sealed class TrackLinker
         => (warning ?? string.Empty)
             .Split("; ", StringSplitOptions.RemoveEmptyEntries)
             .Where(part => !part.StartsWith("archive copy failed:", StringComparison.Ordinal)
-                && !part.StartsWith("archive copy unverified:", StringComparison.Ordinal));
+                && !part.StartsWith("archive copy unverified:", StringComparison.Ordinal)
+                // The legacy wording from before the split, plus the
+                // "no archive copy was made" tail it carried. Older rows
+                // repeated it on every pass; cleaning it here lets one
+                // retry heal them.
+                && !part.StartsWith("another track already owns the archive file", StringComparison.Ordinal)
+                && !string.Equals(part, "no archive copy was made", StringComparison.Ordinal));
 
     /// <summary>
     /// Checks an existing archive file against its primary with the same
@@ -845,6 +849,35 @@ public sealed class TrackLinker
         CancellationToken ct, bool allowPrimaryOwner = true)
         => TrackFileNamePolicy.IsFreeAsync(
             db, track, path, _hardLinks, allowPrimaryOwner, ct);
+
+    /// <summary>
+    /// Picks the archive name for this track and holds its lock until the
+    /// caller disposes it. The lock is always taken on the preferred name
+    /// first, so two writers that want the same song serialize on the same
+    /// lock even when one of them ends up on a numbered variant. Returns
+    /// null when every variant is taken.
+    /// </summary>
+    private async Task<(string Path, IDisposable Lock)?> ResolveNameAsync(
+        MelodyBridgeDbContext db, TrackEntity track, string preferredPath, CancellationToken ct)
+    {
+        var nameLock = await _pathLocks.AcquireAsync(preferredPath, ct);
+        try
+        {
+            var resolved = await TrackFileNamePolicy.ResolveArchiveAsync(
+                db, track, preferredPath, _hardLinks, ct);
+            if (resolved is null)
+            {
+                nameLock.Dispose();
+                return null;
+            }
+            return (resolved.Path, nameLock);
+        }
+        catch
+        {
+            nameLock.Dispose();
+            throw;
+        }
+    }
 
     /// <summary>Size of a file the linker just made or found, or null when it
     /// cannot be read. The archive row keeps it so the Library page does not

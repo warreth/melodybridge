@@ -500,7 +500,11 @@ The default copy is rebuilt per track from its row action.
 The track is fetched from the source once. The archive copy is produced locally
 from that file with ffmpeg, so a second library never costs a second internet
 download. If ffmpeg is missing, the download still succeeds and the track gets
-an **archive copy failed** warning instead. The file column on the playlist
+an **archive copy failed** warning instead. Two songs that would land on the same
+name in a flat archive folder both get their copy: the second one is written as
+`Song (2).opus`. The same recording found on two platforms (Spotify and Apple
+Music, say) is recognised by its ISRC, its tags or its bytes, and shares one
+copy instead of being written twice. The file column on the playlist
 tracks (enable it on the Advanced page) shows an `archive: <filename>` chip on
 tracks that have an archive copy, and a small check next to the status column
 tells you at a glance whether the copy exists, is missing from disk, or was

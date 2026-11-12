@@ -81,6 +81,23 @@ public static class ArchiveCopier
         => Path.Combine(archiveDirectory, BuildTargetName(primaryPath, archiveFormat));
 
     /// <summary>
+    /// The preferred name first, then numbered variants that the filesystem
+    /// keeps apart: "Song.opus", "Song (2).opus", "Song (3).opus". A flat
+    /// archive folder gives two different songs the same name; the second
+    /// one takes the next number instead of being refused forever.
+    /// </summary>
+    public static IEnumerable<string> TargetVariants(string targetPath, int limit = 100)
+    {
+        yield return targetPath;
+        var directory = Path.GetDirectoryName(targetPath);
+        if (string.IsNullOrEmpty(directory)) yield break;
+        var baseName = Path.GetFileNameWithoutExtension(targetPath);
+        var extension = Path.GetExtension(targetPath);
+        for (var i = 2; i <= limit; i++)
+            yield return Path.Combine(directory, $"{baseName} ({i}){extension}");
+    }
+
+    /// <summary>
     /// Copies or transcodes <paramref name="primaryPath"/> into
     /// <paramref name="archiveDirectory"/> using the container implied by
     /// <paramref name="archiveFormat"/> ("auto" copies the file as-is).
@@ -92,6 +109,11 @@ public static class ArchiveCopier
     /// <param name="title">Passed to the tag rewrite when it must run.</param>
     /// <param name="artist">Passed to the tag rewrite when it must run.</param>
     /// <param name="album">Passed to the tag rewrite when it must run.</param>
+    /// <param name="expectedDuration">The primary's advertised length, used
+    /// for the transcode timeout when it is known.</param>
+    /// <param name="targetPath">The exact file to write. The caller picks it
+    /// (see <see cref="TargetVariants"/>) so a flat archive folder can give
+    /// two songs the same name without one overwriting the other.</param>
     public static ArchiveResult Copy(
         string primaryPath,
         string archiveDirectory,
@@ -101,10 +123,11 @@ public static class ArchiveCopier
         string? artist,
         string? album,
         uint? trackNumber,
-        TimeSpan? expectedDuration = null)
+        TimeSpan? expectedDuration = null,
+        string? targetPath = null)
     {
-        var targetName = BuildTargetName(primaryPath, archiveFormat);
-        var targetPath = TargetPath(primaryPath, archiveDirectory, archiveFormat);
+        var targetName = Path.GetFileName(targetPath) ?? BuildTargetName(primaryPath, archiveFormat);
+        targetPath ??= TargetPath(primaryPath, archiveDirectory, archiveFormat);
 
         // Copying a file onto itself destroys it: File.Copy fails, the
         // failure cleanup below would delete the target, and the target

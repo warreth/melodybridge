@@ -71,7 +71,7 @@ public class ArchiveProfileTests
 
     private async Task AddTrackAsync(
         string primary, int id = 1, string title = "Song", string? melodyId = null,
-        string playlistId = "p1")
+        string playlistId = "p1", string artist = "Artist", string? isrc = null)
     {
         await using var db = _factory.CreateDbContext();
         db.Tracks.Add(new TrackEntity
@@ -79,7 +79,8 @@ public class ArchiveProfileTests
             Id = id,
             MelodyId = melodyId ?? $"mel-{id}",
             Title = title,
-            Artist = "Artist",
+            Artist = artist,
+            Isrc = isrc,
             CurrentPath = primary,
             DownloadStatus = "downloaded",
             PlaylistEntityId = playlistId,
@@ -240,7 +241,8 @@ public class ArchiveProfileTests
         var hardLinks = new MelodyBridge.Infrastructure.Files.HardLinkService();
         if (!hardLinks.IsSupported) Assert.Ignore("hard links are not supported");
         hardLinks.Create(secondPrimary, _primary);
-        await AddTrackAsync(secondPrimary, id: 2, melodyId: "mel-other");
+        await AddTrackAsync(secondPrimary, id: 2, melodyId: "mel-other",
+            title: "Other Song");
 
         await using (var db = _factory.CreateDbContext())
         {
@@ -273,13 +275,139 @@ public class ArchiveProfileTests
     }
 
     [Test]
-    public async Task ExtraCopies_DifferentSongOnTheSameName_IsRefused()
+    public async Task ExtraCopies_SameSongFromAnotherPlatform_SharesOneArchiveFile()
     {
         var profile = await AddProfileAsync("MP3", "archive-mp3", "auto");
         var secondPrimary = Path.Combine(_root, "music2", "song.mp3");
         Directory.CreateDirectory(Path.GetDirectoryName(secondPrimary)!);
         File.Copy(_primary, secondPrimary);
-        await AddTrackAsync(secondPrimary, id: 2, melodyId: "mel-other");
+        // The same recording, imported from another platform: a different
+        // MELODY_ID but the same ISRC.
+        await AddTrackAsync(secondPrimary, id: 2, melodyId: "apple:other",
+            isrc: "NLB931100460");
+
+        await using (var db = _factory.CreateDbContext())
+        {
+            var first = await db.Tracks.SingleAsync(t => t.Id == 1);
+            first.Isrc = "NL-B93-11-00460";
+            await db.SaveChangesAsync();
+            await _copies.ArchiveExtraCopiesAsync(first, db);
+        }
+        await using (var db = _factory.CreateDbContext())
+        {
+            var second = await db.Tracks.SingleAsync(t => t.Id == 2);
+            await _copies.ArchiveExtraCopiesAsync(second, db);
+        }
+
+        await using (var db = _factory.CreateDbContext())
+        {
+            var copies = await db.TrackArchiveCopies
+                .Where(copy => copy.ProfileId == profile.Id)
+                .OrderBy(copy => copy.TrackId)
+                .ToListAsync();
+            Assert.Multiple(() =>
+            {
+                Assert.That(copies, Has.Count.EqualTo(2));
+                Assert.That(copies.Select(copy => copy.Path).Distinct().Count(),
+                    Is.EqualTo(1), "the same ISRC means the same recording");
+                Assert.That(copies.All(copy => copy.Warning is null), Is.True);
+            });
+        }
+    }
+
+    [Test]
+    public async Task ExtraCopies_SameSongByMetadata_SharesOneArchiveFile()
+    {
+        var profile = await AddProfileAsync("MP3", "archive-mp3", "auto");
+        var secondPrimary = Path.Combine(_root, "music2", "song.mp3");
+        Directory.CreateDirectory(Path.GetDirectoryName(secondPrimary)!);
+        File.Copy(_primary, secondPrimary);
+        // No ids match and no ISRC: the artist, title and length do. The
+        // platforms spell the credit differently for the same recording.
+        await AddTrackAsync(secondPrimary, id: 2, melodyId: "tidal:other",
+            title: "Song", artist: "Artist & Someone");
+
+        await using (var db = _factory.CreateDbContext())
+        {
+            var first = await db.Tracks.SingleAsync(t => t.Id == 1);
+            first.DurationMs = 215_000;
+            var second = await db.Tracks.SingleAsync(t => t.Id == 2);
+            second.DurationMs = 216_500;
+            await db.SaveChangesAsync();
+            await _copies.ArchiveExtraCopiesAsync(first, db);
+        }
+        await using (var db = _factory.CreateDbContext())
+        {
+            var second = await db.Tracks.SingleAsync(t => t.Id == 2);
+            await _copies.ArchiveExtraCopiesAsync(second, db);
+        }
+
+        await using (var db = _factory.CreateDbContext())
+        {
+            var copies = await db.TrackArchiveCopies
+                .Where(copy => copy.ProfileId == profile.Id)
+                .OrderBy(copy => copy.TrackId)
+                .ToListAsync();
+            Assert.Multiple(() =>
+            {
+                Assert.That(copies, Has.Count.EqualTo(2));
+                Assert.That(copies.Select(copy => copy.Path).Distinct().Count(),
+                    Is.EqualTo(1),
+                    "a high-confidence artist/title match with a plausible length is the same song");
+                Assert.That(copies.All(copy => copy.Warning is null), Is.True);
+            });
+        }
+    }
+
+    [Test]
+    public async Task ExtraCopies_LiveVersionIsNotTheSameSong()
+    {
+        var profile = await AddProfileAsync("MP3", "archive-mp3", "auto");
+        var secondPrimary = Path.Combine(_root, "music2", "song.mp3");
+        Directory.CreateDirectory(Path.GetDirectoryName(secondPrimary)!);
+        File.Copy(_primary, secondPrimary);
+        await AddTrackAsync(secondPrimary, id: 2, melodyId: "tidal:live",
+            title: "Song (Live)", artist: "Artist");
+
+        await using (var db = _factory.CreateDbContext())
+        {
+            var first = await db.Tracks.SingleAsync(t => t.Id == 1);
+            first.DurationMs = 215_000;
+            var second = await db.Tracks.SingleAsync(t => t.Id == 2);
+            second.DurationMs = 216_500;
+            await db.SaveChangesAsync();
+            await _copies.ArchiveExtraCopiesAsync(first, db);
+        }
+        await using (var db = _factory.CreateDbContext())
+        {
+            var second = await db.Tracks.SingleAsync(t => t.Id == 2);
+            await _copies.ArchiveExtraCopiesAsync(second, db);
+        }
+
+        await using (var db = _factory.CreateDbContext())
+        {
+            var copies = await db.TrackArchiveCopies
+                .Where(copy => copy.ProfileId == profile.Id)
+                .OrderBy(copy => copy.TrackId)
+                .ToListAsync();
+            Assert.Multiple(() =>
+            {
+                Assert.That(copies.Select(copy => copy.Path).Distinct().Count(),
+                    Is.EqualTo(2),
+                    "a live recording is not the studio take, even with the same name");
+            });
+        }
+    }
+
+    [Test]
+    public async Task ExtraCopies_DifferentSongOnTheSameName_TakesANumberedVariant()
+    {
+        var profile = await AddProfileAsync("MP3", "archive-mp3", "auto");
+        var secondPrimary = Path.Combine(_root, "music2", "song.mp3");
+        Directory.CreateDirectory(Path.GetDirectoryName(secondPrimary)!);
+        File.Copy(_primary, secondPrimary);
+        await AddTrackAsync(secondPrimary, id: 2, melodyId: "mel-other",
+            title: "Other Song");
 
         await using (var db = _factory.CreateDbContext())
         {
@@ -301,10 +429,17 @@ public class ArchiveProfileTests
             Assert.Multiple(() =>
             {
                 Assert.That(copies, Has.Count.EqualTo(2));
-                Assert.That(copies[0].Warning, Is.Null);
-                Assert.That(copies[1].Warning, Does.Contain("another track already owns"));
-                Assert.That(copies[1].Path, Is.Null);
+                Assert.That(copies.All(copy => copy.Warning is null), Is.True);
+                Assert.That(copies[0].Path, Is.EqualTo(
+                    Path.Combine(_root, "archive-mp3", "song.mp3")));
+                Assert.That(copies[1].Path, Is.EqualTo(
+                    Path.Combine(_root, "archive-mp3", "song (2).mp3")),
+                    "the other song takes the next free name instead of failing forever");
+                Assert.That(File.Exists(copies[1].Path!), Is.True);
             });
+            Assert.That(File.ReadAllText(copies[0].Path!), Is.Not.EqualTo(
+                File.ReadAllText(copies[1].Path!)),
+                "each song got its own bytes");
         }
     }
 
@@ -415,7 +550,8 @@ public class ArchiveProfileTests
         var secondPrimary = Path.Combine(_root, "music2", "song.mp3");
         Directory.CreateDirectory(Path.GetDirectoryName(secondPrimary)!);
         await File.WriteAllBytesAsync(secondPrimary, TestAudio.MinimalMp3());
-        await AddTrackAsync(secondPrimary, id: 2, melodyId: "mel-other", playlistId: "p2");
+        await AddTrackAsync(secondPrimary, id: 2, melodyId: "mel-other",
+            playlistId: "p2", title: "Other Song");
 
         var linker = new TrackLinker(
             _factory, _settings, new HardLinkService(),
@@ -443,19 +579,19 @@ public class ArchiveProfileTests
         var track1 = await check.Tracks.SingleAsync(t => t.Id == 1);
         var copy2 = await check.TrackArchiveCopies
             .SingleOrDefaultAsync(c => c.TrackId == 2 && c.ProfileId == profile.Id);
-        var track1Owns = string.Equals(track1.ArchivePath, target, StringComparison.Ordinal);
-        var track2Owns = string.Equals(copy2?.Path, target, StringComparison.Ordinal);
         Assert.Multiple(() =>
         {
-            Assert.That(track1Owns ^ track2Owns, Is.True,
-                "exactly one writer owns the shared archive name");
+            Assert.That(track1.ArchivePath, Is.Not.Null.And.Not.Empty);
+            Assert.That(copy2?.Path, Is.Not.Null.And.Not.Empty);
+            Assert.That(track1.ArchivePath, Is.Not.EqualTo(copy2!.Path),
+                "each writer got its own file instead of overwriting the other");
             Assert.That(File.Exists(target), Is.True);
-            Assert.That(TaglibHelper.ReadMelodyId(target),
-                Is.EqualTo(track1Owns ? "mel-1" : "mel-other"),
-                "the file carries the id of the writer that won");
-            Assert.That(track1Owns ? copy2?.Warning : track1.Warning,
-                Does.Contain("already owns"),
-                "the other writer says why it did not write");
+            Assert.That(TaglibHelper.ReadMelodyId(track1.ArchivePath!), Is.EqualTo("mel-1"),
+                "the legacy copy carries its own song's id");
+            Assert.That(TaglibHelper.ReadMelodyId(copy2.Path!), Is.EqualTo("mel-other"),
+                "the named copy carries its own song's id");
+            Assert.That(track1.Warning, Is.Null);
+            Assert.That(copy2.Warning, Is.Null);
         });
     }
 

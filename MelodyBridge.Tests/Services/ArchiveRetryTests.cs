@@ -400,6 +400,25 @@ public class ArchiveRetryTests
     }
 
     [Test]
+    public void StripArchiveFailures_RemovesLegacyRepeatAndKeepsOtherFacts()
+    {
+        const string legacy =
+            "another track already owns the archive file Song.opus; no archive copy was made; "
+            + "another track already owns the archive file Song.opus; "
+            + "another track already owns the archive file Song.opus; no archive copy was made";
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(DownloadPipeline.StripArchiveFailures(legacy), Is.Null,
+                "the repeated legacy text and its tail are one verdict and go");
+            Assert.That(DownloadPipeline.StripArchiveFailures(
+                    "quality hint: high end fades out; " + legacy),
+                Is.EqualTo("quality hint: high end fades out"),
+                "the other facts stay");
+        });
+    }
+
+    [Test]
     public void StripArchiveFailures_RemovesEveryArchiveSegment()
     {
         Assert.Multiple(() =>

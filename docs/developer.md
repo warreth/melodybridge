@@ -601,13 +601,27 @@ says who owns the bytes: it carries the `MELODY_ID` of the song it
 belongs to, and a song that is still in the library keeps its file, even
 when the name is spelled with a case the database comparison does not
 fold. A file of a song that was removed from the library is a leftover
-and does not block the copy. The same rule guards the hard link into a
-playlist folder, so both paths judge a name the same way. Two workers
-that want the same name take one lock per name (`PathLockTable`), so the
-second one waits and then sees what the first one wrote instead of
-writing over it, and the delete of a file a rerun replaced takes that
-lock as well, so it cannot pull a file away from a worker that is
-writing it. Whether two spellings of one name are the same file is the
+and does not block the copy. `TrackFileNamePolicy` is the one place that
+decides this, and it treats four things as the same song: the same
+`MELODY_ID`, the same ISRC (normalized, so `NL-B93-11-00460` matches
+`NLB931100460`), a hardlink twin (the same inode), or a high-confidence
+artist and title match with a plausible length and no recording marker
+one title carries and the other drops. That last rule is what lets a
+track imported from Spotify and the same track imported from Apple Music
+share one copy instead of fighting over the name.
+
+When another song really does own the preferred name in a flat archive
+folder, the copy takes the next numbered variant (`Song (2).opus`) rather
+than being refused on every pass: a name collision must cost a nicer file
+name, never an archive copy. A variant this row already wrote is reused,
+so a repeated pass does not fill the folder. The same rule guards the
+hard link into a playlist folder, so both paths judge a name the same way.
+Two workers that want the same name take one lock per name
+(`PathLockTable`), so the second one waits and then sees what the first
+one wrote instead of writing over it, and the delete of a file a rerun
+replaced takes that lock as well, so it cannot pull a file away from a
+worker that is writing it. Whether two spellings of one name are the same
+file is the
 volume's business, not the operating system's: `FileSystemCase` asks the
 volume with a probe and caches the answer per folder, Windows and macOS
 included. A volume that cannot be asked is treated as one that folds

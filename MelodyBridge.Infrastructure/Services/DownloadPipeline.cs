@@ -1247,10 +1247,12 @@ internal sealed class DownloadPipeline
     }
 
     /// <summary>
-    /// Removes every archive verdict ("archive copy failed: ..." or
-    /// "archive copy unverified: ...") from a warning, keeping the other
+    /// Removes every archive verdict from a warning, keeping the other
     /// segments (a warning can be several facts joined with "; "). The
-    /// archive verdict is rebuilt by the retry itself.
+    /// archive verdict is rebuilt by the retry itself. The legacy
+    /// "another track already owns the archive file" wording is removed
+    /// too: older builds appended it on every pass, and rows have to be
+    /// able to shed it.
     /// </summary>
     internal static string? StripArchiveFailures(string? warning)
     {
@@ -1258,7 +1260,11 @@ internal sealed class DownloadPipeline
         var kept = warning
             .Split("; ", StringSplitOptions.RemoveEmptyEntries)
             .Where(part => !part.StartsWith("archive copy failed:", StringComparison.Ordinal)
-                && !part.StartsWith("archive copy unverified:", StringComparison.Ordinal))
+                && !part.StartsWith("archive copy unverified:", StringComparison.Ordinal)
+                && !part.StartsWith("another track already owns the archive file", StringComparison.Ordinal)
+                // The tail of the legacy sentence, split off on the ";" it
+                // carried.
+                && !string.Equals(part, "no archive copy was made", StringComparison.Ordinal))
             .ToList();
         return kept.Count == 0 ? null : string.Join("; ", kept);
     }

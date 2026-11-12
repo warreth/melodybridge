@@ -727,6 +727,7 @@ The error on a track row is the reason the waterfall gave up:
 | *could not verify the download: ffprobe failed* | The file is kept; ffprobe could not run (a missing tool, a timeout, or a resource limit). Retry the check, or install ffprobe, and the warning clears |
 | *archive copy failed: ffmpeg not found on this host* | The download itself is fine; install ffmpeg if you want archive copies |
 | *archive copy unverified: ...* | The copy is on disk but ffprobe could not check it. The next archive pass checks it again; a real defect becomes a normal archive failure |
+| two songs with the same name in one archive folder | Both get a copy: the second lands as `Song (2).opus`, so a flat archive folder never costs a song its archive |
 
 A **needs review** state is not a failure either: it means two playlists
 disagree about a track's quality and you get to pick, see
