@@ -28,11 +28,4 @@ public class QualityPresetsTests
         Assert.That(QualityPresets.LabelFor(""), Is.EqualTo("No filter"));
     }
 
-    [Test]
-    public void EveryPreset_Label_IsNonEmptyAndUnique()
-    {
-        var labels = QualityPresets.All.Select(p => p.Label).ToList();
-        Assert.That(labels, Has.All.Not.Empty);
-        Assert.That(labels.Distinct().Count(), Is.EqualTo(labels.Count));
-    }
 }

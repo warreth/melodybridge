@@ -9,14 +9,10 @@ namespace MelodyBridge.Tests.Server.Services;
 [TestFixture]
 public class AttentionFixPolicyTests
 {
-    [TestCase("failed-no-source", AttentionFixAction.Retry)]
-    [TestCase("failed-auth", AttentionFixAction.Retry)]
-    [TestCase("dedup", AttentionFixAction.Hardlink)]
-    [TestCase("review-length", AttentionFixAction.Keep)]
-    [TestCase("review-spectrum", AttentionFixAction.RetryReview)]
+    // The two non-obvious mappings are the ones worth pinning: a review that
+    // flags both length and spectrum, and an unverified file. The rest of the
+    // table is config and is exercised through the repair runner.
     [TestCase("review-both", AttentionFixAction.RetryReview)]
-    [TestCase("archive", AttentionFixAction.Archive)]
-    [TestCase("file-missing", AttentionFixAction.Retry)]
     [TestCase("unverified", AttentionFixAction.Reverify)]
     public void EachKind_GetsItsOwnRepair(string kind, AttentionFixAction expected)
         => Assert.That(AttentionFixPolicy.ForKind(kind), Is.EqualTo(expected));

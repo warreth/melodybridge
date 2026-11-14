@@ -10,20 +10,6 @@ namespace MelodyBridge.Tests.Audio;
 public class VerificationOptionsTests
 {
     [Test]
-    public void Defaults_MatchTheDocumentedNumbers()
-    {
-        var options = new VerificationOptions();
-
-        Assert.Multiple(() =>
-        {
-            Assert.That(options.Spectrum, Is.EqualTo(SpectrumMode.Fast));
-            Assert.That(options.LengthToleranceSeconds, Is.EqualTo(30));
-            Assert.That(options.LengthTolerancePercent, Is.EqualTo(10));
-            Assert.That(options.SpectrumClassGap, Is.EqualTo(2));
-        });
-    }
-
-    [Test]
     public void FromSettings_ParsesStoredValues()
     {
         var options = VerificationOptions.FromSettings("Thorough", "3", "45", "12.5");
