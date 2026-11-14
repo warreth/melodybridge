@@ -30,7 +30,9 @@ public sealed class UpdateService(
 {
     public const string EnabledKey = "update_check_enabled";
     public const string SeenVersionKey = "update_seen_version";
-    public const string NotifiedVersionKey = "update_notified_version";
+    /// <summary>The newer version whose notice the user closed. The same
+    /// version stays quiet until an even newer one appears.</summary>
+    public const string DismissedVersionKey = "update_dismissed_version";
 
     private readonly SemaphoreSlim _gate = new(1, 1);
     private bool _releaseNotesChecked;
@@ -118,11 +120,14 @@ public sealed class UpdateService(
             if (!UpdateCheckService.IsNewer(result.LatestVersion, AppInfo.Version))
                 return;
 
-            var notified = await settings.GetAsync(NotifiedVersionKey, "", ct);
-            if (string.Equals(notified, result.LatestVersion, StringComparison.Ordinal))
+            // The notice stays in the bell until the user closes it. A
+            // dismissed version is not asked about again, but any version
+            // newer than that one is a fresh notice.
+            var dismissed = await settings.GetAsync(DismissedVersionKey, "", ct);
+            if (!string.IsNullOrWhiteSpace(dismissed)
+                && !UpdateCheckService.IsNewer(result.LatestVersion, dismissed))
                 return;
 
-            await settings.SetAsync(NotifiedVersionKey, result.LatestVersion, ct);
             notifications.Important(
                 $"MelodyBridge v{result.LatestVersion} is available",
                 "info",
@@ -149,6 +154,20 @@ public sealed class UpdateService(
     {
         PendingReleaseNotes = null;
         await settings.SetAsync(SeenVersionKey, AppInfo.Version, ct);
+        Changed?.Invoke();
+    }
+
+    /// <summary>
+    /// The user closed the newer-version notice. It stays gone until a
+    /// version newer than this one appears, and a restart does not bring
+    /// it back.
+    /// </summary>
+    public async Task DismissAvailableAsync(CancellationToken ct = default)
+    {
+        var latest = Available?.LatestVersion;
+        if (string.IsNullOrWhiteSpace(latest)) return;
+        await settings.SetAsync(DismissedVersionKey, latest, ct);
+        notifications.Resolve($"update:{latest}");
         Changed?.Invoke();
     }
 

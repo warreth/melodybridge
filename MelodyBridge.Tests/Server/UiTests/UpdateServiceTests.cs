@@ -138,12 +138,55 @@ public class UpdateServiceTests
         await service.CheckAndNotifyAsync();
         await service.CheckAndNotifyAsync();
 
-        var toasts = _notifications.Snapshot();
-        Assert.That(toasts, Has.Count.EqualTo(1), "a restart or a second sweep stays quiet");
-        Assert.That(toasts[0].Message, Does.Contain("9.9.9"));
-        Assert.That(toasts[0].ActionLabel, Is.EqualTo("Release notes"));
-        Assert.That(await _settings.GetAsync(UpdateService.NotifiedVersionKey, ""),
+        var important = _notifications.History();
+        Assert.Multiple(() =>
+        {
+            Assert.That(important, Has.Count.EqualTo(1),
+                "a repeated sweep replaces the same notice instead of stacking");
+            Assert.That(important[0].Message, Does.Contain("9.9.9"));
+            Assert.That(important[0].ActionLabel, Is.EqualTo("Release notes"));
+            Assert.That(important[0].Key, Is.EqualTo("update:9.9.9"));
+        });
+    }
+
+    [Test]
+    public async Task NewVersion_NoticeSurvivesARestart_UntilDismissed()
+    {
+        // First process: the check finds 9.9.9 and puts a notice in the
+        // bell. A restart (a new service over the same settings) must not
+        // lose it just because the check ran again.
+        var first = Build(new LatestReleaseHandler("9.9.9"));
+        await first.CheckAndNotifyAsync();
+        Assert.That(_notifications.History(), Has.Count.EqualTo(1));
+
+        var second = Build(new LatestReleaseHandler("9.9.9"));
+        await second.CheckAndNotifyAsync();
+        Assert.That(_notifications.History(), Has.Count.EqualTo(1),
+            "the notice stays until the user closes it");
+
+        await second.DismissAvailableAsync();
+        Assert.That(_notifications.History(), Is.Empty, "dismissing clears the bell entry");
+        Assert.That(await _settings.GetAsync(UpdateService.DismissedVersionKey, ""),
             Is.EqualTo("9.9.9"));
+
+        var third = Build(new LatestReleaseHandler("9.9.9"));
+        await third.CheckAndNotifyAsync();
+        Assert.That(_notifications.History(), Is.Empty,
+            "a dismissed version does not come back after a restart");
+    }
+
+    [Test]
+    public async Task DismissedVersion_DoesNotHideANewerOne()
+    {
+        var first = Build(new LatestReleaseHandler("9.9.9"));
+        await first.CheckAndNotifyAsync();
+        await first.DismissAvailableAsync();
+
+        var next = Build(new LatestReleaseHandler("10.0.0"));
+        await next.CheckAndNotifyAsync();
+
+        Assert.That(_notifications.History().Single().Message, Does.Contain("10.0.0"),
+            "an even newer release is a fresh notice");
     }
 
     [Test]
@@ -187,6 +230,25 @@ public class UpdateServiceTests
 
         Assert.That(service.PendingReleaseNotes, Is.Not.Null,
             "the disabled startup must not mark the notes as handled");
+    }
+
+    [Test]
+    public async Task BellEntry_DisappearsOnlyWhenDismissed()
+    {
+        var service = Build(new LatestReleaseHandler("9.9.9"));
+        await service.CheckAndNotifyAsync();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(_notifications.History(), Has.Count.EqualTo(1),
+                "the notice is in the bell, not only a toast");
+            Assert.That(_notifications.History()[0].Key, Is.EqualTo("update:9.9.9"));
+            Assert.That(_notifications.History()[0].ActionLabel, Is.EqualTo("Release notes"));
+        });
+
+        _notifications.DismissImportant(_notifications.History()[0]);
+        Assert.That(_notifications.History(), Is.Empty,
+            "closing the entry removes it from the bell");
     }
 
     private sealed class LatestReleaseHandler(string version) : HttpMessageHandler

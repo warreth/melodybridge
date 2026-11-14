@@ -187,7 +187,20 @@
 
     private void DismissToast(AppNotification toast) => Notifications.Dismiss(toast);
 
-    private void DismissImportant(AppNotification item) => Notifications.DismissImportant(item);
+    /// <summary>
+    /// Closing a newer-version notice also records the version, so a
+    /// restart does not bring it back. Dismissing any other entry only
+    /// clears that entry.
+    /// </summary>
+    private async Task DismissImportant(AppNotification item)
+    {
+        if (item.Key?.StartsWith("update:", StringComparison.Ordinal) == true)
+        {
+            await Updates.DismissAvailableAsync();
+            return;
+        }
+        Notifications.DismissImportant(item);
+    }
 
     /// <summary>The update service sets pending notes from a background
     /// thread; marshal the redraw onto this circuit.</summary>
