@@ -1,0 +1,38 @@
+/* One account card header: the provider mark, the name and its purpose,
+   the state on the right. The mark is the service's own logo in a quiet tile,
+   so four accounts read as four services at a glance. */
+.account-head {
+    display: flex;
+    align-items: center;
+    gap: .7rem;
+    margin-bottom: .1rem;
+}
+.account-mark {
+    display: grid;
+    place-items: center;
+    width: 34px;
+    height: 34px;
+    flex: 0 0 auto;
+    border-radius: 9px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+}
+.account-head-copy {
+    flex: 1;
+    min-width: 0;
+    display: grid;
+    gap: .05rem;
+}
+.account-head-copy strong { font-size: .9rem; }
+.account-head-copy small {
+    color: var(--muted);
+    font-size: .75rem;
+    overflow-wrap: anywhere;
+}
+.account-head-state {
+    display: flex;
+    align-items: center;
+    gap: .35rem;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}

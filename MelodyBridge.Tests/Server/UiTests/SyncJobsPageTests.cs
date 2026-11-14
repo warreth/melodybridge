@@ -382,8 +382,8 @@ public class SyncJobsPageTests
             Is.False, "the second wizard entry point is gone");
         cut.FindAll("button").First(b => b.TextContent.Trim().Contains("New sync job")).Click();
         Assert.That(cut.FindAll(".job-quick-modal"), Has.Count.EqualTo(1));
-        Assert.That(cut.Find("details.quick-advanced").HasAttribute("open"), Is.False,
-            "advanced options stay collapsed on a new job");
+        Assert.That(cut.FindAll(".profile-targets .publish-option").Count, Is.GreaterThan(0),
+            "the editor offers every publish profile as a target");
     }
 
     [Test]
@@ -744,12 +744,12 @@ public class SyncJobsPageTests
             cut.WaitForAssertion(() =>
                 Assert.That(cut.FindAll(".job-quick-modal"), Is.Not.Empty),
                 TimeSpan.FromSeconds(3));
-            var outputPath = cut.FindAll("input[readonly]")
-                .First(input => input.GetAttribute("value")?.Contains(
-                    "AC_DC (2).m3u8") == true);
-            Assert.That(outputPath.GetAttribute("value"),
-                Does.EndWith("AC_DC (2).m3u8"),
+            Assert.That(cut.Find(".job-quick-modal").TextContent,
+                Does.Contain("AC_DC (2).m3u8"),
                 "the editor previews the recovered unique path");
+            Assert.That(cut.Find(".profile-targets .publish-option.on").TextContent,
+                Does.Contain("AC_DC (2).m3u8"),
+                "the ticked profile row names the same file as the preview");
             cut.FindAll("button").First(b => b.TextContent.Trim() == "Save changes").Click();
             cut.WaitForAssertion(() =>
                 Assert.That(cut.FindAll(".job-quick-modal"), Is.Empty),
@@ -806,10 +806,11 @@ public class SyncJobsPageTests
         var cut = _ctx.Render<SyncJobs>();
         cut.FindAll("button.card-menu-trigger").First().Click();
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Edit").Click();
-        var profileSelect = cut.Find("select[aria-label='M3U publish profile']");
-        var defaultProfile = profileSelect.QuerySelectorAll("option")
-            .First(o => !string.IsNullOrWhiteSpace(o.GetAttribute("value")));
-        profileSelect.Change(defaultProfile.GetAttribute("value"));
+        // The job predates profiles: ticking one replaces its legacy M3U
+        // target with the profile's own path.
+        var target = cut.FindAll(".profile-targets .publish-option")
+            .First(o => o.TextContent.Contains("M3U"));
+        target.QuerySelector("input[type='checkbox']")!.Change(true);
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Save changes").Click();
 
         using var db = _dbFactory.CreateDbContext();
@@ -817,8 +818,10 @@ public class SyncJobsPageTests
         Assert.That(all.Count, Is.EqualTo(2), "edit must update, not duplicate");
         var updated = all.First(j => j.Id == "j1");
         Assert.That(updated.Name, Is.EqualTo("Weekly Sync"));
-        Assert.That(updated.M3uOutputPath, Is.EqualTo("/app/playlists/Weekly Sync.m3u8"),
-            "the chosen publish profile owns the path");
+        Assert.That(SyncJobMapping.TargetsOf(updated)
+                .Single(t => t.Kind == OutputTargetType.M3uFile).M3uPath,
+            Is.EqualTo("/app/playlists/Weekly Sync.m3u8"),
+            "the ticked publish profile owns the path");
         Assert.That(updated.LastRunStatus, Is.EqualTo("Completed"), "edit must not reset run status");
     }
 

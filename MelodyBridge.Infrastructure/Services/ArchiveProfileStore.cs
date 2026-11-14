@@ -25,6 +25,19 @@ public sealed class ArchiveProfileStore
             .ToListAsync(ct);
     }
 
+    /// <summary>Copy rows per profile: one grouped query for a whole page
+    /// of profile cards, so a list does not cost a query per profile.</summary>
+    public async Task<IReadOnlyDictionary<string, int>> CopyCountsAsync(
+        CancellationToken ct = default)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var rows = await db.TrackArchiveCopies.AsNoTracking()
+            .GroupBy(copy => copy.ProfileId)
+            .Select(group => new { ProfileId = group.Key, Count = group.Count() })
+            .ToListAsync(ct);
+        return rows.ToDictionary(row => row.ProfileId, row => row.Count, StringComparer.Ordinal);
+    }
+
     public async Task<IReadOnlyList<ArchiveProfileEntity>> GetEnabledAsync(CancellationToken ct = default)
     {
         await using var db = await _dbFactory.CreateDbContextAsync(ct);

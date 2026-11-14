@@ -47,7 +47,9 @@
     --border-strong: #d4d4d8;
     --text: #18181b;
     --muted: #52525b;
-    --muted-2: #71717a;
+    /* 4.5:1 on surface-2 (#f4f4f5), not only on the page background: the
+       small print sits inside cards most of the time. */
+    --muted-2: #6b6b74;
     --accent: #0f766e;
     --accent-strong: #0f766e;
     --accent-soft: rgba(15, 118, 110, .10);
@@ -56,11 +58,13 @@
        the strong shade where the palette defines a lighter accent. */
     --accent-contrast: #ffffff;
     --accent-text: var(--accent-strong);
-    --success: #059669;
+    /* Status text is read at 11-12px on a tinted pill, so it needs 4.5:1
+       against the transparent tint, which the mid-600 shades miss. */
+    --success: #047857;
     --success-soft: rgba(5, 150, 105, .10);
-    --warning: #b45309;
+    --warning: #a34a08;
     --warning-soft: rgba(180, 83, 9, .10);
-    --danger: #e11d48;
+    --danger: #be123c;
     --danger-soft: rgba(225, 29, 72, .10);
     --shadow: 0 1px 2px rgba(0, 0, 0, .06), 0 10px 24px rgba(15, 23, 42, .08);
 }
@@ -113,7 +117,9 @@
     --accent-hover: #e11d48;
 }
 :root[data-accent="rose"][data-theme="light"] {
-    --accent: #e11d48;
+    /* #e11d48 lands on 4.50:1 exactly; the darker step gives the palette
+       the same headroom as the others. */
+    --accent: #d91440;
     --accent-strong: #be123c;
     --accent-soft: rgba(190, 18, 60, .10);
     --accent-hover: #9f1239;
@@ -357,7 +363,7 @@ h1:focus { outline: none; }
     border-radius: 99px;
     background: var(--danger);
     color: var(--bg);
-    font-size: .62rem;
+    font-size: .68rem;
     font-weight: 800;
     line-height: 1;
     font-variant-numeric: tabular-nums;
@@ -668,36 +674,6 @@ select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-s
 /* Sections inside the card keep the shared .settings-section rhythm
    defined next to the card rules above. */
 
-.timeline-list,
-.health-list,
-.provider-list { display: grid; gap: .65rem; }
-.timeline-item,
-.health-list > div,
-.provider-row {
-    display: flex;
-    gap: .75rem;
-    align-items: center;
-    padding: .75rem;
-    border-radius: 8px;
-    background: var(--surface-3);
-}
-.timeline-item span:first-child {
-    width: 26px;
-    height: 26px;
-    display: grid;
-    place-items: center;
-    border-radius: 999px;
-    background: var(--bg);
-    color: var(--muted);
-    font-size: .82rem;
-    font-weight: 800;
-}
-.timeline-item.done span:first-child,
-.timeline-item.active span:first-child { background: var(--accent-soft); color: var(--accent-strong); }
-.timeline-item p,
-.health-list small,
-.provider-row small { margin: 0; }
-.health-list > div { justify-content: start; }
 .account-card { display: grid; gap: .85rem; }
 /* Account card header: provider name, state pill and the optional
    disconnect action on one line. */
@@ -712,16 +688,6 @@ select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-s
 /* The credential fields and their connect button as one block. */
 .account-connect { display: grid; gap: .85rem; }
 .account-connect label { display: grid; gap: .4rem; }
-.account-meta { display: flex; justify-content: space-between; align-items: center; gap: .75rem; }
-.provider-row {
-    display: grid;
-    grid-template-columns: 32px 1fr auto;
-    gap: .65rem;
-    align-items: center;
-}
-.provider-row.enabled { border-left: 3px solid var(--accent-soft); }
-.provider-row.disabled { opacity: .55; }
-.provider-row.builtin { border-left: 3px solid var(--border); }
 .provider-icon { font-size: 1.3rem; line-height: 1; }
 /* Connection rows (dashboard): icon column, flexible info, right pill. */
 .connection-row {
@@ -748,11 +714,6 @@ select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-s
     overflow-wrap: anywhere;
     word-break: normal;
 }
-.provider-info { display: flex; flex-direction: column; gap: .15rem; min-width: 0; }
-.provider-info small { font-size: .78rem; color: var(--muted); white-space: normal; }
-.provider-tags,
-.provider-platforms { display: flex; flex-wrap: wrap; gap: .25rem; margin-top: .2rem; }
-.provider-qualities { display: flex; gap: .25rem; flex-wrap: wrap; }
 /* Shared badge base for small capability/fact chips (playlist cards,
    plugin quality lines). Shape tweaks live in the owning page's
    scoped css so the two contexts stay independent. */
@@ -775,7 +736,7 @@ select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-s
     color: var(--muted);
     font-size: .7rem;
 }
-.pill.outline.small { font-size: .65rem; padding: .05rem .35rem; }
+.pill.outline.small { font-size: .68rem; padding: .05rem .35rem; }
 
 /* Toggle switch */
 .toggle-switch {
@@ -914,18 +875,6 @@ select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-s
     background: var(--bg);
     border: 1px solid var(--border);
 }
-.toast-preview {
-    position: fixed;
-    right: 1rem;
-    bottom: 1rem;
-    padding: .8rem .9rem;
-    border-radius: 8px;
-    background: var(--surface);
-    color: var(--text);
-    border: 1px solid var(--border);
-    box-shadow: var(--shadow);
-}
-
 /* Wizard modal */
 .wizard-overlay {
     position: fixed;
@@ -1324,7 +1273,7 @@ select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-s
 .job-progress .progress-track { height: 5px; }
 .job-progress.is-failed .progress-fill { background: var(--danger); }
 .job-progress.is-warn .progress-fill { background: var(--warning); }
-.job-progress.is-ok .progress-fill { background: linear-gradient(90deg, var(--accent), var(--success)); }
+.job-progress.is-ok .progress-fill { background: var(--accent); }
 .job-card .job-meta {
     display: flex;
     gap: .35rem 1rem;
@@ -1526,7 +1475,7 @@ textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent
 .playlist-card h2 { font-size: 1.05rem; margin: 0; }
 .playlist-card h2 a { color: var(--text); text-decoration: none; }
 .playlist-card h2 a:hover { color: var(--accent-strong); text-decoration: underline; }
-.playlist-card .eyebrow { font-size: .66rem; }
+.playlist-card .eyebrow { font-size: .68rem; }
 .playlist-grid {
     display: grid;
     gap: 1rem;
@@ -1551,8 +1500,6 @@ textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent
 .playlist-header { display: flex; gap: 1.1rem; align-items: center; }
 .playlist-header h1 { margin-bottom: .2rem; }
 .playlist-header p { margin: 0; font-size: .95rem; }
-.toggle-row { display: flex; align-items: center; gap: .6rem; }
-.toggle-row input[type=checkbox] { width: 18px; height: 18px; accent-color: var(--accent-strong); }
 
 /* Path fields: the input keeps the width and the optional browse button
    sits at its edge. Pages with their own scoped copy keep the same rule. */
@@ -1624,8 +1571,6 @@ td.file-path {
 /* Action rows that close a form or a card: the primary action sits at the
    right edge, where the eye ends up after reading the fields. */
 .flex-actions.end { justify-content: flex-end; }
-.search-controls { display: flex; flex-direction: column; gap: .6rem; }
-.search-row { display: flex; gap: .6rem; }
 .search-input,
 .search-provider-select {
     flex: 1;
@@ -1655,38 +1600,6 @@ td.file-path {
 .btn-icon { margin-right: .3rem; }
 .btn-icon-only { border: 0; background: none; cursor: pointer; color: var(--muted); padding: .25rem .45rem; border-radius: 6px; }
 .btn-icon-only:hover { background: var(--surface-2); color: var(--text); }
-.btn-filter {
-    border: 1px solid var(--border);
-    background: none;
-    color: var(--muted);
-    padding: .25rem .7rem;
-    border-radius: 999px;
-    cursor: pointer;
-    font-size: .8rem;
-}
-.btn-filter.active { background: var(--accent-soft); color: var(--accent-strong); border-color: var(--accent); }
-.log-section { max-height: 420px; display: flex; flex-direction: column; }
-.log-filters { display: flex; gap: .4rem; flex-wrap: wrap; margin-bottom: .6rem; }
-.log-container { overflow-y: auto; display: flex; flex-direction: column; gap: .25rem; max-height: 300px; }
-.log-line {
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    font-size: .78rem;
-    padding: .3rem .5rem;
-    border-radius: 4px;
-    background: var(--surface-2);
-    display: flex;
-    gap: .6rem;
-    align-items: baseline;
-}
-.log-line.trace, .log-line.debug { color: var(--muted-2); }
-.log-line.info { color: var(--text); }
-.log-line.warn { color: var(--warning); }
-.log-line.error, .log-line.critical { color: var(--danger); }
-.log-time { color: var(--muted-2); white-space: nowrap; }
-.log-cat { color: var(--accent-strong); white-space: nowrap; }
-.log-msg { flex: 1; min-width: 0; word-break: break-word; white-space: pre-wrap; }
-.log-detail { margin-top: .35rem; padding: .5rem; border-radius: 6px; background: var(--bg); font-size: .75rem; color: var(--muted); white-space: pre-wrap; }
-.log-empty { color: var(--muted-2); padding: 1rem 0; text-align: center; }
 .hint { font-size: .82rem; color: var(--muted-2); }
 
 @media (max-width: 1100px) {
@@ -1749,8 +1662,6 @@ td.file-path {
     }
     .page-title .topbar-actions > .btn-modern { flex: 1 1 auto; }
     .detail-header .detail-actions > .btn-modern { flex: 0 1 auto; }
-    .provider-row { grid-template-columns: 32px 1fr auto; }
-    .provider-qualities { display: none; }
 
     /* One-column playlist cards stay compact: the cover sits beside the
        text instead of swallowing a phone screen. */
@@ -1769,7 +1680,7 @@ td.file-path {
     height: 26px;
     border-radius: 8px;
     background: color-mix(in srgb, var(--accent) 14%, transparent);
-    color: var(--accent-strong, #7F5AF0);
+    color: var(--accent-strong);
     font-size: .78rem;
     font-weight: 700;
     font-variant-numeric: tabular-nums;
@@ -1780,7 +1691,7 @@ td.file-path {
 .download-live {
     margin-top: .9rem;
     padding: .9rem 1rem;
-    border: 1px solid var(--border, rgba(128, 128, 128, .25));
+    border: 1px solid var(--border);
     border-radius: 12px;
     background: color-mix(in srgb, var(--accent) 6%, transparent);
 }
@@ -1802,14 +1713,17 @@ td.file-path {
 .progress-track {
     height: 6px;
     border-radius: 99px;
-    background: color-mix(in srgb, var(--border, #888) 25%, transparent);
+    background: color-mix(in srgb, var(--border) 25%, transparent);
     overflow: hidden;
 }
 
 .progress-fill {
     height: 100%;
     border-radius: 99px;
-    background: linear-gradient(90deg, var(--accent), var(--success, #2CB67D));
+    /* One flat accent: the bar reports how far a job got, and a gradient
+       from accent to success would imply a state change the bar does not
+       track. */
+    background: var(--accent);
     transition: width .5s ease;
 }
 
@@ -1831,7 +1745,7 @@ td.file-path {
 }
 
 .filter-chip {
-    border: 1px solid var(--border, rgba(128, 128, 128, .3));
+    border: 1px solid var(--border);
     background: transparent;
     color: var(--muted-2);
     border-radius: 99px;
@@ -1842,13 +1756,13 @@ td.file-path {
 }
 
 .filter-chip:hover {
-    color: var(--text, #eee);
+    color: var(--text);
     border-color: var(--accent);
 }
 
 .filter-chip.active {
     background: color-mix(in srgb, var(--accent) 18%, transparent);
-    color: var(--accent-strong, #7F5AF0);
+    color: var(--accent-strong);
     border-color: var(--accent);
     font-weight: 600;
 }
@@ -1895,7 +1809,7 @@ td.file-path {
     flex-direction: column;
     max-height: 62vh;
     overflow-y: auto;
-    border: 1px solid var(--border, rgba(128, 128, 128, .25));
+    border: 1px solid var(--border);
     border-radius: 10px;
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     font-size: .74rem;
@@ -1906,7 +1820,7 @@ td.file-path {
     grid-template-columns: 4.2rem 4.2rem minmax(8rem, 16rem) 1fr auto;
     gap: .6rem;
     padding: .45rem .7rem;
-    border-bottom: 1px solid color-mix(in srgb, var(--border, #888) 60%, transparent);
+    border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
     align-items: baseline;
     line-height: 1.45;
 }
@@ -1960,7 +1874,7 @@ td.file-path {
 }
 
 .log-row.info .log-level {
-    color: var(--accent-strong, #7F5AF0);
+    color: var(--accent-strong);
 }
 
 .log-category {
@@ -2004,7 +1918,9 @@ td.file-path {
     justify-content: center;
     gap: .6rem;
     padding: .6rem;
-    background: var(--surface-1);
+    /* Sticky footer over a scrolling list: it needs a real surface, or the
+       rows show through it. */
+    background: var(--surface-2);
     border-top: 1px solid var(--border);
 }
 
@@ -2049,7 +1965,7 @@ td.file-path {
     align-items: center;
     gap: 1rem;
     padding: .85rem 1rem;
-    border: 1px solid var(--border, rgba(128, 128, 128, .25));
+    border: 1px solid var(--border);
     border-radius: 12px;
     text-decoration: none;
     color: inherit;
@@ -2062,7 +1978,7 @@ td.file-path {
 }
 
 .workflow-step.done {
-    border-color: color-mix(in srgb, var(--success, #2CB67D) 45%, transparent);
+    border-color: color-mix(in srgb, var(--success) 45%, transparent);
 }
 
 .workflow-number {
@@ -2073,14 +1989,14 @@ td.file-path {
     height: 30px;
     border-radius: 9px;
     background: color-mix(in srgb, var(--accent) 14%, transparent);
-    color: var(--accent-strong, #7F5AF0);
+    color: var(--accent-strong);
     font-weight: 700;
     flex: none;
 }
 
 .workflow-step.done .workflow-number {
-    background: color-mix(in srgb, var(--success, #2CB67D) 16%, transparent);
-    color: var(--success, #2CB67D);
+    background: color-mix(in srgb, var(--success) 16%, transparent);
+    color: var(--success);
 }
 
 .workflow-step strong {
@@ -2095,12 +2011,12 @@ td.file-path {
 }
 
 .workflow-step small {
-    color: var(--accent-strong, #7F5AF0);
+    color: var(--accent-strong);
     font-size: .72rem;
 }
 
 .workflow-step.done small {
-    color: var(--success, #2CB67D);
+    color: var(--success);
 }
 
 .workflow-arrow {
@@ -2258,7 +2174,7 @@ td.file-path {
     overflow-wrap: anywhere;
 }
 .toast-item .toast-action { flex-shrink: 0; }
-.toast-item.success { border-left: 3px solid var(--success, #2CB67D); }
+.toast-item.success { border-left: 3px solid var(--success); }
 .toast-item.warn { border-left: 3px solid var(--warning); }
 .toast-item.error { border-left: 3px solid var(--danger); }
 .toast-item.info { border-left: 3px solid var(--accent-strong); }
@@ -2360,7 +2276,7 @@ td.file-path {
 }
 .notification-dismiss:hover {
     background: var(--surface-3);
-    color: var(--foreground);
+    color: var(--text);
 }
 
 @media (max-width: 1100px) {
@@ -2523,7 +2439,6 @@ input[type="file"].btn-modern::file-selector-button {
 
 /* Why a track failed, in small quiet text under the status pill; the
    full story stays available on the pill's hover. */
-.fail-note { font-size: .75rem; color: var(--muted-2); margin-top: .15rem; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ── Track table: stable columns, sortable headers, pill status cells ── */
 /* Fixed layout plus explicit col widths: rows cannot wobble, borders
@@ -2669,7 +2584,7 @@ input[type="file"].btn-modern::file-selector-button {
 .form-grid label { margin-bottom: .35rem; }
 
 /* Placeholders are suggestions, not values: visibly lighter than typed text. */
-input::placeholder, textarea::placeholder { color: var(--muted-2, #8a8f98); opacity: 1; }
+input::placeholder, textarea::placeholder { color: var(--muted-2); opacity: 1; }
 
 /* Action rows: buttons plus adjacent description text (Settings test
    results, PlaylistDetails source link) get honest spacing. */
@@ -2702,7 +2617,6 @@ input::placeholder, textarea::placeholder { color: var(--muted-2, #8a8f98); opac
 }
 
 /* Toast preview on Advanced keeps clear of the panel edge. */
-.toast-preview { z-index: 300; max-width: min(24rem, calc(100vw - 2rem)); }
 
 /* ── Wizard & step lists ─────────────────────────────────────────── */
 /* Boxed wide toggles inside wizard bodies read as a list of choices
@@ -2781,4 +2695,77 @@ svg.icon { flex-shrink: 0; }
     .track-table .col-title { width: auto; }
     .track-table .col-status { width: 6.5rem; }
     .track-table .col-actions { width: 6rem; }
+}
+
+/* Motion is feedback, not decoration: spinners stay (they report work in
+   progress) and everything else holds still for a reader who asked the
+   system for less motion. One rule for every keyframe animation in the
+   app, so a new animation cannot forget it. */
+@media (prefers-reduced-motion: reduce) {
+    .pill .dot,
+    .skeleton,
+    .skeleton-line,
+    .toast-item,
+    .components-rejoining-animation div {
+        animation: none !important;
+    }
+    *,
+    *::before,
+    *::after {
+        transition-duration: .01ms !important;
+        scroll-behavior: auto !important;
+    }
+}
+
+/* Touch targets: a mouse accepts a 32px button, a finger does not. Only
+   coarse pointers get the 44px floor, so the desktop rows stay dense and
+   the phone rows are usable. */
+@media (pointer: coarse) {
+    .btn-modern,
+    .btn-modern.small,
+    .icon-button,
+    .pill-button,
+    .card-menu-trigger {
+        min-height: 44px;
+    }
+    .icon-button { min-width: 44px; }
+    .btn-modern.small { padding: .5rem .7rem; }
+    /* A checkbox row is a label; give it the same floor. */
+    .toggle-switch.wide,
+    .publish-option,
+    .row-select {
+        min-height: 44px;
+    }
+}
+
+/* A list row on a phone: the cover stays, the title takes the row, and the
+   state and actions drop below it. Squeezing all four columns into 390px
+   truncates the playlist name to "Today's H..." next to a count and a pill. */
+@media (max-width: 720px) {
+    .entity-row,
+    .entity-row-link {
+        flex-wrap: wrap;
+    }
+    .entity-row-main {
+        flex: 1 1 60%;
+        min-width: 0;
+    }
+    .entity-row-main strong {
+        white-space: normal;
+        overflow-wrap: anywhere;
+    }
+    .entity-row-main small {
+        display: block;
+        white-space: normal;
+    }
+    .entity-row-state,
+    .entity-row-meta {
+        flex: 1 1 100%;
+        margin-left: calc(42px + .75rem);
+    }
+    .entity-row-actions {
+        flex: 0 0 auto;
+        margin-left: auto;
+    }
+    .entity-row-meta { white-space: normal; }
 }

@@ -90,8 +90,8 @@ public class SyncJobsLayoutUiTests
         var cut = OpenEditor();
         Assert.That(cut.FindAll(".job-quick-modal .job-quick-grid .quick-section").Count,
             Is.EqualTo(3));
-        Assert.That(cut.FindAll(".job-quick-modal details.quick-advanced").Count, Is.EqualTo(1),
-            "advanced fields live in one collapsed block");
+        Assert.That(cut.FindAll(".job-quick-modal .quick-section .profile-targets").Count,
+            Is.EqualTo(1), "one target list holds every publish profile");
     }
 
     [Test]

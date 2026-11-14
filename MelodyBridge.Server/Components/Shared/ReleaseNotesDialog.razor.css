@@ -19,4 +19,4 @@
     display: grid;
     gap: .25rem;
 }
-.release-notes-body ::deep(li) { color: var(--foreground); }
+.release-notes-body ::deep(li) { color: var(--text); }

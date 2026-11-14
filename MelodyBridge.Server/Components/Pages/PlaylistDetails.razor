@@ -395,7 +395,7 @@ else
                         <h2>@(archive.Title ?? "Track")</h2>
                         <span class="text-muted">@(archive.Artist ?? "Unknown artist")</span>
                     </div>
-                    <button class="icon-button" title="Close" @onclick="CloseArchiveDialog"><Icon Name="x" Size="18" /></button>
+                    <button class="icon-button" aria-label="Close" title="Close" @onclick="CloseArchiveDialog"><Icon Name="x" Size="18" /></button>
                 </div>
                 <div class="wizard-body">
                     <div class="archive-state-card">

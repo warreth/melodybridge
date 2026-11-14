@@ -180,6 +180,9 @@
     overflow: hidden;
     text-overflow: ellipsis;
 }
+/* A playlist row carries no pill (its state sits inside the title), so
+   its actions span the pill column and the action column. */
+.attention-row.playlist-row > .attention-row-actions { grid-column: 3 / span 2; }
 .attention-row:first-child { border-top: 0; }
 .attention-row:hover { background: var(--surface-2); }
 .attention-row.selected { background: var(--accent-soft); }
@@ -240,6 +243,8 @@
     }
     .attention-row > .pill { grid-column: 2; justify-self: start; max-width: none; }
     .attention-row-actions { grid-column: 2; justify-content: flex-start; }
+    /* Two columns here: the wide-layout span must not leak through. */
+    .attention-row.playlist-row > .attention-row-actions { grid-column: 2; }
 }
 @media (max-width: 560px) {
     .attention-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }

@@ -1,0 +1,33 @@
+@* The header of one account card: the provider's own mark, the name and what
+   the account is for, then the state pill and any actions. One shape for every
+   provider so the tab reads as a list of services, not four designs. *@
+<div class="account-head">
+    <span class="account-mark" aria-hidden="true">
+        <BrandIcon Name="@Brand" Size="20" />
+    </span>
+    <div class="account-head-copy">
+        <strong>@Name</strong>
+        @if (!string.IsNullOrWhiteSpace(Detail))
+        {
+            <small>@Detail</small>
+        }
+    </div>
+    <div class="account-head-state">
+        @ChildContent
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string Name { get; set; } = "";
+
+    /// <summary>One line on what the account unlocks. Keep it short.</summary>
+    [Parameter] public string? Detail { get; set; }
+
+    /// <summary>Brand key for BrandIcon: spotify, youtube, applemusic. The
+    /// service's own mark identifies it faster than a letter ever can, and
+    /// the app already ships these paths for the dashboard.</summary>
+    [Parameter] public string Brand { get; set; } = "server";
+
+    /// <summary>The status pills and the disconnect or remove action.</summary>
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+}

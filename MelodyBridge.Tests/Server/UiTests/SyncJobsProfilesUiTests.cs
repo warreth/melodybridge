@@ -86,8 +86,8 @@ public class SyncJobsProfilesUiTests
             Assert.That(cut.FindAll(".job-quick-modal").Count, Is.EqualTo(1));
             Assert.That(cut.Markup, Does.Contain("Create a sync job"));
             Assert.That(cut.Markup, Does.Not.Contain("Step 1 of 5"));
-            Assert.That(cut.Find("details.quick-advanced").HasAttribute("open"), Is.False,
-                "advanced options start collapsed");
+            Assert.That(cut.FindAll(".profile-targets .publish-option").Count,
+                Is.GreaterThan(0), "the target list is always visible");
             Assert.That(cut.Markup, Does.Not.Contain("Advanced wizard"),
                 "there is no second wizard entry point");
         });
@@ -135,10 +135,6 @@ public class SyncJobsProfilesUiTests
         cut.WaitForAssertion(() => Assert.That(cut.FindAll(".job-quick-modal").Count, Is.EqualTo(1)),
             TimeSpan.FromSeconds(3));
         cut.Find("input[placeholder='e.g. My Summer Hits']").Input("New name");
-        var profileSelect = cut.Find("select[aria-label='M3U publish profile']");
-        var defaultProfile = profileSelect.QuerySelectorAll("option")
-            .First(o => !string.IsNullOrWhiteSpace(o.GetAttribute("value")));
-        profileSelect.Change(defaultProfile.GetAttribute("value"));
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Save changes").Click();
 
         await WaitForAssertionAsync(() =>
@@ -164,11 +160,14 @@ public class SyncJobsProfilesUiTests
         cut.FindAll("button").First(b => b.TextContent.Trim().Contains("New sync job")).Click();
 
         cut.Find("input[placeholder='e.g. My Summer Hits']").Input("Jazz");
-        cut.Find("select[aria-label='M3U publish profile']").Change(profile.Id);
+        // The default M3U profile starts ticked; tick the new one instead.
+        cut.Find(".profile-targets .publish-option.on input[type='checkbox']").Change(false);
+        cut.FindAll("input[type='checkbox']")
+            .Single(i => i.GetAttribute("aria-label") == "Send to Living room")
+            .Change(true);
 
-        var output = cut.FindAll("input").First(i => i.GetAttribute("readonly") is not null
-            && (i.GetAttribute("value") ?? "").Contains("playlists"));
-        Assert.That(output.GetAttribute("value"), Is.EqualTo("/srv/playlists/Jazz.m3u8"));
+        Assert.That(cut.Find(".job-quick-modal").TextContent,
+            Does.Contain("/srv/playlists/Jazz.m3u8"));
         Assert.That(cut.Markup, Does.Contain("Living room"));
     }
 

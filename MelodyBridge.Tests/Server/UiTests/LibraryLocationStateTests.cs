@@ -76,17 +76,24 @@ public class LibraryLocationStateTests
 
         cut.WaitForAssertion(() =>
         {
-            var card = cut.FindAll(".location-card").Single(c => c.TextContent.Contains("/archive"));
-            Assert.That(card.TextContent, Does.Contain("archive folder"),
-                "the folder is marked so its files are understood as copies");
+            var archiveSection = cut.Find("[data-section='archive']");
+            var card = archiveSection.QuerySelectorAll(".archive-default-row").Single();
+            Assert.Multiple(() =>
+            {
+                Assert.That(card.TextContent, Does.Contain("/archive"),
+                    "the default archive folder is named");
+                Assert.That(archiveSection.TextContent, Does.Contain("/archive"),
+                    "it is listed under archive copies, not under music folders");
+            });
         }, TimeSpan.FromSeconds(5));
-        var normal = cut.FindAll(".location-card").Single(c => c.TextContent.Contains("/music/rock"));
-        Assert.That(normal.TextContent, Does.Not.Contain("archive folder"));
+        var foldersSection = cut.Find("[data-section='folders']");
+        Assert.That(foldersSection.TextContent, Does.Not.Contain("/archive"),
+            "an archive root never appears as a music folder");
     }
 
     private void OpenAddModal(IRenderedComponent<Library> cut)
     {
-        cut.FindAll("button").Single(b => b.TextContent.Trim() == "Add location").Click();
+        cut.FindAll("button").Single(b => b.TextContent.Trim() == "Add music folder").Click();
         cut.Render();
     }
 
@@ -105,7 +112,7 @@ public class LibraryLocationStateTests
             OpenAddModal(cut);
             cut.Find("input[placeholder='/music']").Change("/music/metal-never-created");
 
-            cut.FindAll("button").Single(b => b.TextContent.Trim() == "Add location" && b.ClassList.Contains("primary")).Click();
+            cut.FindAll("button").Single(b => b.TextContent.Trim() == "Add music folder" && b.ClassList.Contains("primary")).Click();
             cut.WaitForAssertion(() => Assert.That(cut.Markup,
                 Does.Contain("That folder does not exist"),
                 "a path the app cannot see is rejected inline"));
@@ -115,12 +122,13 @@ public class LibraryLocationStateTests
                     "the rejected add never writes a row");
 
             cut.Find("input[placeholder='/music']").Change(metalDir);
-            cut.FindAll("button").Single(b => b.TextContent.Trim() == "Add location" && b.ClassList.Contains("primary")).Click();
+            cut.FindAll("button").Single(b => b.TextContent.Trim() == "Add music folder" && b.ClassList.Contains("primary")).Click();
 
             // SaveLocation runs a full async pipeline through SQLite; wait for
             // the page to re-render with the new card before asserting state.
-            cut.WaitForAssertion(() => Assert.That(cut.Markup, Does.Contain("Music folders (2)"),
-                "the panel header counts both locations"));
+            cut.WaitForAssertion(
+                () => Assert.That(cut.FindAll(".location-card"), Has.Count.EqualTo(2),
+                    "the page shows both locations"));
 
             using (var db = _factory.CreateDbContext())
             {
@@ -183,10 +191,8 @@ public class LibraryLocationStateTests
 
         Assert.That(cut.FindAll(".location-card").Count, Is.EqualTo(0),
             "the page drops the card with the row");
-        Assert.That(cut.Markup, Does.Contain("No scan locations"),
+        Assert.That(cut.Markup, Does.Contain("No music folders yet"),
             "the empty state takes over when the last location goes");
-        Assert.That(cut.Markup, Does.Contain("Music folders (0)"),
-            "the panel header counts zero locations");
     }
 
     [Test]

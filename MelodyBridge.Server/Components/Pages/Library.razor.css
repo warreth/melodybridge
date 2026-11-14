@@ -1,5 +1,235 @@
-/* Library page scoped styles: the scan-location list grid. The
-   cards and the identity legend own their styles beside their
-   components (LibraryLocationCard, LibraryIdentityPanel). */
+/* Library page shell. Two sections, one voice: the totals line, an optional
+   warning, then a list of music folders and a list of archive destinations.
+   Every row is one line of type with its actions at the end; the only color
+   is the status pill that names a real problem. */
 
-.path-list { display: grid; gap: .65rem; }
+.lib-summary {
+    display: flex;
+    align-items: baseline;
+    gap: 1.75rem;
+    flex-wrap: wrap;
+    margin-top: 1rem;
+    padding: .8rem 1.1rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+}
+.lib-figure {
+    display: flex;
+    align-items: baseline;
+    gap: .35rem;
+    min-width: 0;
+}
+.lib-figure strong {
+    font-size: 1.05rem;
+    font-weight: 650;
+    font-variant-numeric: tabular-nums;
+    color: var(--text);
+}
+.lib-figure span { color: var(--muted); font-size: .8rem; }
+.lib-summary-note {
+    margin-left: auto;
+    color: var(--muted-2);
+    font-size: .78rem;
+    font-variant-numeric: tabular-nums;
+}
+
+/* One warning line for the whole page. The rows below already say which
+   folder, so this only states the consequence. */
+.lib-alert {
+    display: flex;
+    align-items: flex-start;
+    gap: .45rem;
+    margin: .75rem 0 0;
+    color: var(--danger);
+    font-size: .82rem;
+    line-height: 1.5;
+}
+.lib-alert .icon { flex: 0 0 auto; margin-top: .12rem; }
+
+.lib-result { margin-top: 1rem; }
+
+.lib-backfill {
+    display: flex;
+    align-items: center;
+    gap: .6rem;
+    flex-wrap: wrap;
+    margin-top: 1rem;
+    padding: .6rem .8rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+}
+.lib-backfill-copy { flex: 1; min-width: 0; display: grid; gap: .05rem; }
+.lib-backfill-copy strong { font-size: .84rem; }
+.lib-backfill-copy small { color: var(--muted); font-size: .76rem; }
+
+/* One section per subject: a heading with its own action, then rows. */
+.lib-section { margin-top: 1rem; padding: 1rem 1.1rem; }
+.lib-section-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: .75rem;
+}
+.lib-section-head h2 { margin: 0 0 .15rem; font-size: 1rem; }
+.lib-section-head p {
+    margin: 0;
+    max-width: 68ch;
+    color: var(--muted);
+    font-size: .8rem;
+    line-height: 1.45;
+}
+
+.lib-list {
+    display: grid;
+    gap: .35rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+/* A row is a quiet band, not a card: one background step, no shadow, no
+   colored fill. Only the pill carries a verdict. The right-hand pieces sit in
+   one column whose slots are fixed, so the pills, switches and buttons line up
+   down the list instead of drifting with each row's text width. */
+.lib-row {
+    display: flex;
+    align-items: center;
+    gap: .65rem;
+    flex-wrap: wrap;
+    min-width: 0;
+    padding: .55rem .6rem;
+    border-radius: 8px;
+    background: var(--surface-2);
+}
+.lib-row-side {
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    margin-left: auto;
+}
+.lib-row-state {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: .3rem;
+    /* A pill is the widest of the three states, and reserving its width keeps
+       Edit on one vertical line on rows without one. */
+    min-width: 7.5rem;
+}
+.lib-row-switch {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    /* Matches the switch's own width, so a row without one keeps the status
+       pill on the same vertical line as the rows that have it. */
+    width: 40px;
+}
+.lib-row-icon {
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    flex: 0 0 auto;
+    border-radius: 7px;
+    background: var(--surface);
+    color: var(--accent-text);
+}
+.lib-row-icon.archive { color: var(--warning); }
+.lib-row-icon.bad { color: var(--danger); }
+.lib-row-main {
+    min-width: 0;
+    display: grid;
+    gap: .1rem;
+}
+.lib-row-title {
+    display: flex;
+    align-items: center;
+    gap: .4rem;
+    font-size: .86rem;
+    font-weight: 600;
+    min-width: 0;
+}
+.lib-row-path {
+    display: block;
+    overflow-wrap: anywhere;
+    font-family: var(--font-mono);
+    font-size: .8rem;
+    color: var(--text);
+    background: none;
+    padding: 0;
+    border-radius: 0;
+}
+.lib-row-main small {
+    display: flex;
+    align-items: center;
+    gap: .3rem;
+    flex-wrap: wrap;
+    color: var(--muted);
+    font-size: .75rem;
+}
+.lib-row-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: .25rem;
+}
+.lib-hint {
+    margin: .7rem 0 0;
+    color: var(--muted);
+    font-size: .76rem;
+    line-height: 1.45;
+}
+.lib-loose {
+    margin-top: 1rem;
+    padding-top: .9rem;
+    border-top: 1px solid var(--border);
+}
+.lib-loose h3 { margin: 0 0 .15rem; font-size: .88rem; }
+.lib-loose p {
+    margin: 0 0 .55rem;
+    color: var(--muted);
+    font-size: .78rem;
+    line-height: 1.45;
+}
+
+@media (max-width: 760px) {
+    .lib-summary { gap: .9rem 1.25rem; }
+    .lib-summary-note { margin-left: 0; flex-basis: 100%; }
+    .lib-section-head { flex-direction: column; align-items: stretch; }
+    .lib-row-main { flex: 1 1 calc(100% - 28px - .65rem); }
+    .lib-row-side {
+        flex: 1 1 100%;
+        margin-left: calc(28px + .65rem);
+        gap: .4rem;
+    }
+    .lib-row-state {
+        min-width: 0;
+        justify-content: flex-start;
+    }
+    .lib-row-switch:empty { display: none; }
+}
+
+/* The section count sits next to the heading, quieter than the word: it is a
+   fact about the list, not a second title. */
+.lib-count {
+    margin-left: .3rem;
+    color: var(--muted-2);
+    font-size: .82rem;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+}
+
+/* The editor footer keeps its repair action on the left and the save on the
+   right, the way a dialog that can also do something else should read. */
+.wizard-footer-spacer { flex: 1; }
+
+/* The way out of a destination is optional, but its column is not: a fixed
+   slot keeps Edit on one vertical line down the list. */
+.lib-row-trash {
+    display: flex;
+    justify-content: flex-end;
+    width: 34px;
+}

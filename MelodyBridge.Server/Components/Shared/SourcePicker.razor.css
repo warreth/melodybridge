@@ -219,6 +219,9 @@
     0% { transform: translateX(-120%); }
     100% { transform: translateX(320%); }
 }
+@media (prefers-reduced-motion: reduce) {
+    .source-progress span { animation: none; width: 100%; }
+}
 ::deep .source-candidate.busy { border-color: var(--accent-strong); background: var(--accent-soft); }
 .source-delta {
     margin-left: .35rem;

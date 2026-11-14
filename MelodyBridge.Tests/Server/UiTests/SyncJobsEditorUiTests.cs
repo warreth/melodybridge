@@ -213,9 +213,9 @@ public class SyncJobsEditorUiTests
     }
 
     private static void TickProfile(IRenderedComponent<SyncJobs> cut, string profileName)
-        => cut.FindAll("label.toggle-switch.wide")
-            .Single(l => l.TextContent.Contains(profileName))
-            .QuerySelector("input[type='checkbox']")!.Change(true);
+        => cut.FindAll("input[type='checkbox']")
+            .Single(i => i.GetAttribute("aria-label") == $"Send to {profileName}")
+            .Change(true);
 
     [Test]
     public void Targets_ProfilesAreTicked_AndNeverAskForCredentials()
@@ -224,7 +224,7 @@ public class SyncJobsEditorUiTests
         var cut = OpenEditorWithPlaylistSource();
         TickProfile(cut, "Homelab");
 
-        var row = cut.FindAll("label.toggle-switch.wide")
+        var row = cut.FindAll(".profile-targets .publish-option")
             .Single(l => l.TextContent.Contains("Homelab"));
         Assert.That(row.TextContent, Does.Contain("Jellyfin"), "the row names the server kind");
         Assert.That(cut.Markup, Does.Not.Contain("http://host.docker.internal:8096"),
@@ -241,18 +241,85 @@ public class SyncJobsEditorUiTests
     }
 
     [Test]
-    public void Targets_NoProfileAndM3uOff_ShowsErrorAndSettingsLink()
+    public void Targets_TickedJellyfin_ShowsTheFavoriteUserPicker()
+    {
+        SeedProfile("prof-1", "Homelab", "Jellyfin", "http://jf:8096", "token-1");
+        var cut = OpenEditorWithPlaylistSource();
+
+        Assert.That(cut.Markup, Does.Not.Contain("Jellyfin user"),
+            "no Jellyfin profile is ticked yet");
+        TickProfile(cut, "Homelab");
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.Markup, Does.Contain("Jellyfin user"),
+                "ticking a Jellyfin profile reveals the user picker");
+            Assert.That(cut.Markup, Does.Contain(
+                    "whose favorites get marked"),
+                "the picker says what the choice does");
+        }, TimeSpan.FromSeconds(3));
+    }
+
+    [Test]
+    public void Targets_DeletedOriginProfile_KeepsThePinnedFileName()
+    {
+        SeedPlaylist("p1", "My List");
+        using (var db = _dbFactory.CreateDbContext())
+        {
+            var job = new SyncJobEntity
+            {
+                Id = "job-orphan-override",
+                Name = "AC_DC",
+                SourceId = "p1",
+                SearchLocationPaths = "[]",
+                Schedule = "Manual",
+            };
+            // Quick publish pinned this file for a profile that was later
+            // deleted, so the origin id no longer exists.
+            MelodyBridge.Infrastructure.Services.SyncJobMapping.ApplyTargets(job, new[]
+            {
+                new SyncTarget(OutputTargetType.M3uFile,
+                    RuleProfileId: "deleted-profile",
+                    M3uPath: "/app/playlists/AC_DC (2).m3u8",
+                    M3uFileNameOverride: "AC_DC (2).m3u8"),
+            });
+            db.SyncJobs.Add(job);
+            db.SaveChanges();
+        }
+
+        var cut = _ctx.Render<SyncJobs>();
+        cut.WaitForAssertion(() => Assert.That(cut.Markup, Does.Contain("AC_DC")),
+            TimeSpan.FromSeconds(3));
+        cut.Find("button.card-menu-trigger").Click();
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Edit").Click();
+
+        // The dead profile is pruned; ticking the surviving M3U profile
+        // must still use the pinned name instead of losing it.
+        var m3u = cut.FindAll(".profile-targets .publish-option")
+            .First(o => o.TextContent.Contains("M3U"));
+        m3u.QuerySelector("input[type='checkbox']")!.Change(true);
+
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Find(".job-quick-modal").TextContent,
+                Does.Contain("AC_DC (2).m3u8")), TimeSpan.FromSeconds(3));
+    }
+
+    [Test]
+    public void Targets_NoProfileTicked_ShowsError()
     {
         var cut = OpenEditorWithPlaylistSource();
-        cut.FindAll("label.toggle-switch.wide")
-            .Single(l => l.TextContent.Contains("M3U file"))
-            .QuerySelector("input[type='checkbox']")!.Change(false);
+        // The default M3U profile starts ticked; untick it and save.
+        cut.Find(".profile-targets .publish-option.on input[type='checkbox']").Change(false);
         Save(cut);
 
-        Assert.That(cut.Markup, Does.Contain("Pick at least one publish profile"));
-        Assert.That(cut.Markup, Does.Contain("Settings, Media servers"),
-            "the empty profile list points at where a profile is created");
-        Assert.That(cut.Markup, Does.Contain("href=\"/settings#media-servers\""));
+        Assert.Multiple(() =>
+        {
+            Assert.That(cut.Markup, Does.Contain("Pick at least one publish profile"));
+            Assert.That(cut.FindAll(".job-quick-modal"), Has.Count.EqualTo(1),
+                "the editor stays open so a profile can be picked");
+        });
+        using var db = _dbFactory.CreateDbContext();
+        Assert.That(db.SyncJobs.Count(), Is.Zero);
     }
 
     [Test]
@@ -339,9 +406,9 @@ public class SyncJobsEditorUiTests
         cut.Find("button.card-menu-trigger").Click();
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Edit").Click();
 
-        var advanced = cut.Find("details.quick-advanced");
+        var advanced = cut.Find("details.legacy-targets");
         var keep = advanced.QuerySelectorAll("label.toggle-switch.wide")
-            .Single(l => l.TextContent.Contains("Keep the legacy connection"));
+            .Single(l => l.TextContent.Contains("Keep the connection saved"));
         Assert.That(keep.QuerySelector("input[type='checkbox']")!.HasAttribute("checked"), Is.True,
             "the saved connection stays ticked until a profile replaces it");
         advanced.QuerySelectorAll("button")
@@ -384,9 +451,9 @@ public class SyncJobsEditorUiTests
         cut.Find("button.card-menu-trigger").Click();
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Edit").Click();
 
-        cut.Find("details.quick-advanced")
+        cut.Find("details.legacy-targets")
             .QuerySelectorAll("label.toggle-switch.wide")
-            .Single(l => l.TextContent.Contains("Keep the legacy connection"))
+            .Single(l => l.TextContent.Contains("Keep the connection saved"))
             .QuerySelector("input[type='checkbox']")!.Change(false);
         TickProfile(cut, "Homelab");
         Save(cut);
@@ -497,11 +564,6 @@ public class SyncJobsEditorUiTests
                 "the deleted profile has no row to tick");
         });
 
-        var profileSelect = cut.Find("select[aria-label='M3U publish profile']");
-        var defaultProfile = profileSelect.QuerySelectorAll("option")
-            .First(o => !string.IsNullOrWhiteSpace(o.GetAttribute("value")));
-        var m3uProfileId = defaultProfile.GetAttribute("value");
-        profileSelect.Change(m3uProfileId);
         TickProfile(cut, "Live");
         Save(cut);
 
@@ -514,9 +576,8 @@ public class SyncJobsEditorUiTests
                 "the stale target is dropped on save");
             Assert.That(targets.Any(t => t.Kind == OutputTargetType.JellyfinApi
                 && t.ProfileId == "prof-live"), Is.True, "the replacement target is stored");
-            Assert.That(targets.Any(t => t.Kind == OutputTargetType.M3uFile
-                && t.RuleProfileId == m3uProfileId), Is.True,
-                "the other target survives through its profile");
+            Assert.That(targets.Any(t => t.Kind == OutputTargetType.M3uFile),
+                Is.True, "the legacy M3U target survives");
         });
     }
 
@@ -548,35 +609,42 @@ public class SyncJobsEditorUiTests
         var cut = OpenEditorWithPlaylistSource();
         cut.Find("input[placeholder='e.g. My Summer Hits']").Input("My List");
 
-        string OutputPath() => cut.FindAll("input[readonly]")
-            .First(i => i.GetAttribute("value")?.EndsWith(".m3u8") == true)
-            .GetAttribute("value")!;
+        // Only the M3U profile is ticked; the preview names the file it writes.
+        cut.Find(".profile-targets .publish-option.on input[type='checkbox']").Change(false);
+        TickProfile(cut, "Living room");
+        Assert.That(cut.Find(".job-quick-modal").TextContent,
+            Does.Contain("/srv/playlists/My List.m3u8"),
+            "the ticked profile owns the folder and the job name fills the file");
 
-        cut.Find("select[aria-label='M3U publish profile']").Change("living");
-        Assert.That(OutputPath(), Is.EqualTo("/srv/playlists/My List.m3u8"),
-            "the chosen M3U profile owns the folder and the job name fills the file");
-
-        cut.Find("select[aria-label='M3U publish profile']").Change("car");
-        Assert.That(OutputPath(), Is.EqualTo("/car/My List.m3u8"),
+        cut.Find(".profile-targets .publish-option.on input[type='checkbox']").Change(false);
+        TickProfile(cut, "Car");
+        Assert.That(cut.Find(".job-quick-modal").TextContent,
+            Does.Contain("/car/My List.m3u8"),
             "another profile brings its own folder and file name");
     }
 
-    // -- C3: multiple remap rules -----------------------------------
+    // -- C3: remap rules live on the publish profile ------------------
 
     [Test]
-    public void Rules_CustomJob_StartsWithoutRules_AndHidesThemUnderAdvanced()
+    public void Rules_JobEditor_OffersNoPerJobRules()
     {
         var cut = OpenEditorWithPlaylistSource();
-        var advanced = cut.Find("details.quick-advanced");
-        Assert.That(advanced.HasAttribute("open"), Is.False,
-            "advanced options start collapsed for a first setup");
+        Assert.Multiple(() =>
+        {
+            Assert.That(cut.FindAll("input[placeholder='/music']"), Is.Empty,
+                "path rules belong to the publish profile, not the job");
+            Assert.That(cut.Markup, Does.Not.Contain("Add path rule"));
+            Assert.That(cut.Markup, Does.Contain("Path and extension rules live on the profile"),
+                "the editor says where the rules went");
+        });
     }
 
     [Test]
     public void Rules_ProfileEditor_SavesTwoPathRulesAndOneExtRule()
     {
         var cut = OpenEditorWithPlaylistSource();
-        cut.FindAll("button").First(b => b.TextContent.Trim() == "Edit rules").Click();
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "New publish profile").Click();
+        cut.Find("input[placeholder='Living room Jellyfin']").Change("Rules profile");
 
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Add path rule").Click();
         cut.FindAll("input[placeholder='/music']")[0].Input("/from/one");
@@ -592,7 +660,8 @@ public class SyncJobsEditorUiTests
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Save profile").Click();
 
         using var db = _dbFactory.CreateDbContext();
-        var profile = db.SyncRuleProfiles.AsNoTracking().Single(p => p.Kind == "M3uFile");
+        var profile = db.SyncRuleProfiles.AsNoTracking()
+            .Single(p => p.Kind == "M3uFile" && p.PathRemapRules.Contains("/from/two"));
         var paths = System.Text.Json.JsonSerializer
             .Deserialize<Dictionary<string, string>>(profile.PathRemapRules);
         Assert.That(paths, Is.EqualTo(new Dictionary<string, string>
@@ -606,34 +675,29 @@ public class SyncJobsEditorUiTests
     }
 
     [Test]
-    public void Rules_EditHydration_RendersTwoRuleRows_FromStoredDictionary()
+    public void Rules_ProfileEditor_HydratesStoredRuleRows()
     {
-        SeedPlaylist("p1", "My List");
-        using (var db = _dbFactory.CreateDbContext())
-        {
-            db.SyncJobs.Add(new SyncJobEntity
+        new MelodyBridge.Infrastructure.Services.SyncRuleProfileStore(_dbFactory)
+            .SaveAsync(new MelodyBridge.Core.SyncRuleProfile
             {
-                Id = "job-r",
-                Name = "Rules",
-                SourceId = "p1",
-                SearchLocationPaths = "[]",
-                OutputTarget = "M3uFile",
-                M3uOutputPath = "/out/x.m3u",
-                PathRemapRules = System.Text.Json.JsonSerializer.Serialize(
-                    new Dictionary<string, string>
-                    {
-                        ["/old"] = "/new",
-                        ["/alt"] = "/other",
-                    }),
-                Schedule = "Manual",
-            });
-            db.SaveChanges();
-        }
+                Id = "profile-rules",
+                Name = "Rules profile",
+                M3uOutputFolder = "/srv/playlists",
+                M3uFileNamePattern = "{job}.m3u8",
+                PathRemapRules = new Dictionary<string, string>
+                {
+                    ["/old"] = "/new",
+                    ["/alt"] = "/other",
+                },
+            }).GetAwaiter().GetResult();
 
         var cut = _ctx.Render<SyncJobs>();
-        cut.Find("button.card-menu-trigger").Click();
+        cut.WaitForAssertion(() => Assert.That(cut.Markup, Does.Contain("Sync jobs")),
+            TimeSpan.FromSeconds(3));
+        cut.FindAll("button").First(b => b.TextContent.Contains("Publish profiles")).Click();
+        cut.WaitForAssertion(() => Assert.That(cut.Markup, Does.Contain("Rules profile")),
+            TimeSpan.FromSeconds(3));
         cut.FindAll("button").First(b => b.TextContent.Trim() == "Edit").Click();
-        cut.Find("details.quick-advanced").SetAttribute("open", "open");
 
         var fromInputs = cut.FindAll("input[placeholder='/music']");
         Assert.That(fromInputs, Has.Count.EqualTo(2), "two stored path rules render as two rows");
@@ -642,27 +706,31 @@ public class SyncJobsEditorUiTests
     }
 
     [Test]
-    public void Rules_ProfileLinked_OffersTheProfileInsteadOfCustomRules()
+    public void Rules_TickedProfile_ShowsItsNameAndNoJobLevelEditor()
     {
-        var profile = new MelodyBridge.Core.SyncRuleProfile
-        {
-            Id = "profile-rules",
-            Name = "Living room",
-            M3uOutputFolder = "/srv/playlists",
-            M3uFileNamePattern = "{job}.m3u8",
-        };
         new MelodyBridge.Infrastructure.Services.SyncRuleProfileStore(_dbFactory)
-            .SaveAsync(profile).GetAwaiter().GetResult();
+            .SaveAsync(new MelodyBridge.Core.SyncRuleProfile
+            {
+                Id = "profile-rules",
+                Name = "Living room",
+                M3uOutputFolder = "/srv/playlists",
+                M3uFileNamePattern = "{job}.m3u8",
+            }).GetAwaiter().GetResult();
 
         var cut = OpenEditorWithPlaylistSource();
-        cut.Find("select[aria-label='M3U publish profile']").Change(profile.Id);
+        TickProfile(cut, "Living room");
 
-        Assert.That(cut.Markup, Does.Contain("Living room"));
-        Assert.That(cut.Markup, Does.Not.Contain("Add path rule"),
-            "a linked profile replaces the per-job remap editors");
+        Assert.Multiple(() =>
+        {
+            Assert.That(cut.Markup, Does.Contain("Living room"));
+            Assert.That(cut.FindAll("input[placeholder='/music']"), Is.Empty,
+                "a tied profile owns the rules, the job has none of its own");
+            Assert.That(cut.Find(".profile-targets .publish-option.on").TextContent,
+                Does.Contain("/srv/playlists"), "the ticked profile shows where it writes");
+        });
     }
 
-    // -- C4: cron schedule ------------------------------------------
+    // -- C4: schedule -----------------------------------------------
 
     [Test]
     public void Schedule_Cron_ShowsExpressionInput()
@@ -670,7 +738,7 @@ public class SyncJobsEditorUiTests
         var cut = OpenEditorWithPlaylistSource();
         cut.FindAll("select").First(s => s.TextContent.Contains("Manual")).Change("Cron");
 
-        Assert.That(cut.Markup, Does.Contain("placeholder=\"0 3 * * *\""));
+        Assert.That(cut.Markup, Does.Contain("placeholder=\"30 4 * * *\""));
     }
 
     [Test]
@@ -678,14 +746,13 @@ public class SyncJobsEditorUiTests
     {
         var cut = OpenEditorWithPlaylistSource();
         cut.FindAll("select").First(s => s.TextContent.Contains("Manual")).Change("Cron");
-        Assert.That(cut.FindAll("input[placeholder='0 3 * * *']"), Has.Count.EqualTo(1),
+        Assert.That(cut.FindAll("input[placeholder='30 4 * * *']"), Has.Count.EqualTo(1),
             "the cron input appears after choosing Cron");
+        cut.Find("input[placeholder='30 4 * * *']").Input("");
         Save(cut);
 
         Assert.That(cut.FindAll(".job-quick-modal"), Has.Count.EqualTo(1),
             "a blank cron keeps the editor open");
-        Assert.That(cut.Markup, Does.Contain("valid five-field cron expression"),
-            cut.Find(".job-quick-modal").TextContent);
         using var db = _dbFactory.CreateDbContext();
         Assert.That(db.SyncJobs.Count(), Is.Zero, "nothing is saved while the schedule is invalid");
     }
@@ -695,13 +762,82 @@ public class SyncJobsEditorUiTests
     {
         var cut = OpenEditorWithPlaylistSource();
         cut.FindAll("select").First(s => s.TextContent.Contains("Manual")).Change("Cron");
-        cut.Find("input[placeholder='0 3 * * *']").Change("15 2 * * 6");
+        cut.Find("input[placeholder='30 4 * * *']").Input("15 2 * * 6");
         Save(cut);
 
         using var db = _dbFactory.CreateDbContext();
         var job = db.SyncJobs.AsNoTracking().Single();
         Assert.That(job.Schedule, Is.EqualTo("Cron"));
         Assert.That(job.CronExpression, Is.EqualTo("15 2 * * 6"));
+    }
+
+    [Test]
+    public void Schedule_NamedPreset_SurvivesAnEdit()
+    {
+        SeedPlaylist("p1", "My List");
+        using (var db = _dbFactory.CreateDbContext())
+        {
+            db.SyncJobs.Add(new SyncJobEntity
+            {
+                Id = "job-daily",
+                Name = "Daily job",
+                SourceId = "p1",
+                SearchLocationPaths = "[]",
+                OutputTarget = "M3uFile",
+                M3uOutputPath = "/out/daily.m3u",
+                Schedule = "Daily",
+            });
+            db.SaveChanges();
+        }
+
+        var cut = _ctx.Render<SyncJobs>();
+        cut.Find("button.card-menu-trigger").Click();
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Edit").Click();
+        Save(cut);
+
+        using var db2 = _dbFactory.CreateDbContext();
+        var job = db2.SyncJobs.AsNoTracking().Single(j => j.Id == "job-daily");
+        Assert.Multiple(() =>
+        {
+            Assert.That(job.Schedule, Is.EqualTo("Daily"),
+                "a named preset keeps its label instead of becoming a cron string");
+            Assert.That(job.CronExpression, Is.Null);
+        });
+    }
+
+    [Test]
+    public void Schedule_CustomCron_SurvivesAnEdit()
+    {
+        SeedPlaylist("p1", "My List");
+        using (var db = _dbFactory.CreateDbContext())
+        {
+            db.SyncJobs.Add(new SyncJobEntity
+            {
+                Id = "job-cron",
+                Name = "Cron job",
+                SourceId = "p1",
+                SearchLocationPaths = "[]",
+                OutputTarget = "M3uFile",
+                M3uOutputPath = "/out/cron.m3u",
+                Schedule = "Cron",
+                CronExpression = "15 2 * * 6",
+            });
+            db.SaveChanges();
+        }
+
+        var cut = _ctx.Render<SyncJobs>();
+        cut.Find("button.card-menu-trigger").Click();
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Edit").Click();
+        Save(cut);
+
+        using var db2 = _dbFactory.CreateDbContext();
+        var job = db2.SyncJobs.AsNoTracking().Single(j => j.Id == "job-cron");
+        Assert.Multiple(() =>
+        {
+            Assert.That(job.Schedule, Is.EqualTo("Cron"));
+            Assert.That(job.CronExpression, Is.EqualTo("15 2 * * 6"),
+                "an unchanged custom schedule round-trips exactly");
+        });
     }
 
     // -- C5: local folder source ------------------------------------

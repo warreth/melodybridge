@@ -17,9 +17,6 @@
 @inject LibraryPathMover PathMover
 @inject SettingsStore TourReset
 @inject DatabaseBackupService DbBackup
-@inject ArchiveProfileStore ArchiveProfiles
-@inject ArchiveCopyService ArchiveCopies
-@inject ArchiveBackfillService ArchiveBackfill
 @inject NtfyNotifier Ntfy
 @inject UpdateCheckService UpdateCheck
 @inject UpdateService Update
@@ -98,11 +95,14 @@
                 for read access and never changes anything on your account.
             </div>
 
-            <span class="eyebrow">Official logins</span>
+            <div class="account-section-head">
+                <span class="eyebrow">Official logins</span>
+                <small>The safest route, and the only one that needs a client ID.</small>
+            </div>
             <div class="account-grid">
                 <div class="account-card">
-                    <div class="account-head">
-                        <strong>Spotify</strong>
+                    <AccountCardHead Name="Spotify" Brand="spotify"
+                                     Detail="Private playlists and liked songs">
                         <StatusPill Variant="@(_spotifyConnected ? "connected" : "neutral")">
                             @(_spotifyConnected ? "connected" : "not connected")
                         </StatusPill>
@@ -110,7 +110,7 @@
                         {
                             <button class="btn-modern subtle small" @onclick="() => Logout(SpotifyAccount)">Disconnect</button>
                         }
-                    </div>
+                    </AccountCardHead>
                     @if (_spotifyConnected)
                     {
                         <p class="account-note">
@@ -162,8 +162,8 @@
                 </div>
 
                 <div class="account-card">
-                    <div class="account-head">
-                        <strong>YouTube</strong>
+                    <AccountCardHead Name="YouTube" Brand="youtube"
+                                     Detail="Google login for private playlists">
                         <StatusPill Variant="@(_youtubeConnected ? "connected" : "neutral")">
                             @(_youtubeConnected ? "connected" : "not connected")
                         </StatusPill>
@@ -171,7 +171,7 @@
                         {
                             <button class="btn-modern subtle small" @onclick="() => Logout(YouTubeAccount)">Disconnect</button>
                         }
-                    </div>
+                    </AccountCardHead>
                     @if (_youtubeConnected)
                     {
                         <p class="account-note">
@@ -228,11 +228,14 @@
             </div>
         </div>
         <div class="settings-section">
-            <span class="eyebrow">Web sessions</span>
+            <div class="account-section-head">
+                <span class="eyebrow">Web sessions</span>
+                <small>Unofficial. A burner account is the safest choice.</small>
+            </div>
             <div class="account-grid">
                 <div class="account-card">
-                    <div class="account-head">
-                        <strong>Spotify web session</strong>
+                    <AccountCardHead Name="Spotify web session" Brand="spotify"
+                                     Detail="sp_dc cookie, for public fallback and imports">
                         <span class="account-badges">
                             @if (_spotifyWebConnected)
                             {
@@ -246,7 +249,7 @@
                         {
                             <button class="btn-modern subtle small" @onclick="DisconnectSpotifyWeb">Remove cookie</button>
                         }
-                    </div>
+                    </AccountCardHead>
                     <p class="account-note">
                         One <code>sp_dc</code> cookie does both jobs: it lets MelodyBridge
                         fetch public Spotify pages when the normal scrape is blocked,
@@ -340,8 +343,8 @@
                     </div>
                 </div>
                 <div class="account-card">
-                    <div class="account-head">
-                        <strong>Apple Music</strong>
+                    <AccountCardHead Name="Apple Music" Brand="applemusic"
+                                     Detail="Unshared playlists and saved songs">
                         <span class="account-badges">
                             @if (_appleConnected)
                             {
@@ -355,7 +358,7 @@
                         {
                             <button class="btn-modern subtle small" @onclick="DisconnectApple">Remove cookie</button>
                         }
-                    </div>
+                    </AccountCardHead>
                     <p class="account-note">
                         Most Apple Music playlists need no cookie: press Share in
                         Apple Music and paste the link on the Playlists page.
@@ -624,178 +627,14 @@ else if (activeTab == "paths")
         <div class="settings-section">
             <div class="section-head">
                 <span class="eyebrow">Archive</span>
-                <div class="title-with-help">
-                    <h3>Archive copies</h3>
-                    <HelpTip Path="concepts#archive-copies" Text="Local second copies, converted on this machine. The default plus any extra profiles." />
-                </div>
+                <h3>Archive copies</h3>
             </div>
-            <div class="hint-box">
-                Every track is fetched once. Playlists choose the default
-                archive and any extra profiles they want; each selected profile
-                adds one local copy in its own format, for example Opus 128 and
-                MP3 160. A profile only costs disk space and ffmpeg CPU, never
-                another download. A <a href="/sync-jobs">publish profile</a> can
-                publish one of these copies to a media server or an M3U file;
-                leave its source on Primary library when you do not need that.
-            </div>
-            <div class="archive-profiles">
-                <div class="archive-profiles-head">
-                    <div>
-                        <span class="eyebrow">Profiles</span>
-                        <h3>Archive profiles</h3>
-                        <p>
-                            Playlists choose from the default archive and these
-                            named profiles. Each selected profile adds one copy in
-                            its own folder and format.
-                        </p>
-                    </div>
-                    <button class="btn-modern small secondary" @onclick="OpenNewArchiveProfile">
-                        <Icon Name="plus" Size="14" /> Add profile
-                    </button>
-                </div>
-
-                <div class="archive-profile-list">
-                    <div class="archive-profile-row default @(showDefaultArchiveEditor ? "editing" : "")">
-                        <div class="archive-profile-copy">
-                            <strong>
-                                Default archive
-                                <span class="archive-default-badge">default</span>
-                            </strong>
-                            <small>@(string.IsNullOrWhiteSpace(archivePath) ? "No archive copy configured" : archivePath)</small>
-                            <span class="archive-profile-format">@ArchiveFormatText(archiveFormat)</span>
-                        </div>
-                        <button class="btn-modern small ghost" @onclick="() => showDefaultArchiveEditor = !showDefaultArchiveEditor">
-                            @(showDefaultArchiveEditor ? "Close" : string.IsNullOrWhiteSpace(archivePath) ? "Set up" : "Edit")
-                        </button>
-                    </div>
-                    @if (showDefaultArchiveEditor)
-                    {
-                        <div class="archive-default-editor">
-                            <div class="form-grid single">
-                                <label>
-                                    Default archive path
-                                    <span class="path-field">
-                                        <input @bind="archivePath" @bind:after="ValidatePaths" placeholder="/archive-music"
-                                               aria-invalid="@(archivePathWarning is { Length: > 0 } ? "true" : null)"
-                                               aria-describedby="@(archivePathWarning is { Length: > 0 } ? "archive-path-warning" : null)" />
-                                        @if (playlistFolders && !string.IsNullOrWhiteSpace(archivePath))
-                                        {
-                                            <span class="path-suffix" title="Added to every playlist's own archive folder name">{playlist}</span>
-                                        }
-                                        <FolderBrowseButton Value="@archivePath" ValueChanged="@SetArchivePath" Label="the archive folder" />
-                                    </span>
-                                    @if (archivePathWarning is { Length: > 0 })
-                                    {
-                                        <small class="text-warn" id="archive-path-warning">@archivePathWarning</small>
-                                    }
-                                    <small class="text-muted">
-                                        Leave empty for no default archive copy. Playlists can
-                                        override this folder on their own page. Changing it here
-                                        moves the existing default copies when you save.
-                                    </small>
-                                </label>
-                                <label>
-                                    Default archive format
-                                    <select value="@archiveFormatChoice" @onchange="OnArchiveFormatChoiceChanged">
-                                        @foreach (var option in ArchiveFormatOptions)
-                                        {
-                                            <option value="@option.Value">@option.Label</option>
-                                        }
-                                    </select>
-                                </label>
-                                @if (archiveFormatChoice == "custom")
-                                {
-                                    <label>
-                                        Custom archive container
-                                        <input @bind="archiveFormatCustom" @bind:after="OnArchiveCustomFormatChanged"
-                                               placeholder="ogg" />
-                                    </label>
-                                }
-                            </div>
-                            @if (archiveFormatChoice == "custom")
-                            {
-                                <div class="hint-box">
-                                    Any container ffmpeg can write, for example ogg, wav, m4a or aiff.
-                                    Add a codec with a colon for a specific encoder, for example
-                                    <code>m4a:alac</code>. Without one, ffmpeg picks the container's
-                                    default. A format ffmpeg cannot write leaves a warning on the track.
-                                </div>
-                            }
-                        </div>
-                    }
-                @if (ArchiveBackfill.IsRunning || ArchiveBackfill.Progress.Total > 0)
-                {
-                    <div class="archive-backfill">
-                        <div class="progress-track" aria-hidden="true">
-                            <span style="width:@ArchiveBackfillPercent%"></span>
-                        </div>
-                        <div class="archive-backfill-copy">
-                            <strong>
-                                @(ArchiveBackfill.IsRunning ? "Building archive copies" : "Last archive pass")
-                            </strong>
-                            <small>@ArchiveBackfillSummary</small>
-                        </div>
-                        @if (ArchiveBackfill.IsRunning)
-                        {
-                            <button class="btn-modern small ghost" @onclick="ArchiveBackfill.Stop">Stop</button>
-                        }
-                    </div>
-                }
-
-                @if (archiveProfiles.Count == 0)
-                {
-                    <div class="hint-box">
-                        No extra profiles yet. Add one for a second format, for
-                        example Opus 128 next to an MP3 160 default.
-                    </div>
-                }
-                else
-                {
-                        @foreach (var profile in archiveProfiles)
-                        {
-                            <div class="archive-profile-row @(profile.Enabled ? "" : "disabled")">
-                                <div class="archive-profile-copy">
-                                    <strong>@profile.Name</strong>
-                                    <small>@profile.RootPath</small>
-                                    <span class="archive-profile-format">
-                                        @ArchiveFormatText(profile.Format)
-                                        @if (!profile.Enabled)
-                                        {
-                                            <em> · off</em>
-                                        }
-                                    </span>
-                                </div>
-                                <label class="toggle-switch" title="Enable this profile">
-                                    <input type="checkbox" checked="@profile.Enabled"
-                                           aria-label="Enable @profile.Name"
-                                           @onchange="e => ToggleArchiveProfile(profile, (bool)e.Value!)" />
-                                    <span class="toggle-slider"></span>
-                                </label>
-                                <button class="btn-modern small ghost"
-                                        @onclick="() => StartArchiveBackfill(profile)"
-                                        disabled="@(ArchiveBackfill.IsRunning)">
-                                    Build missing
-                                </button>
-                                <button class="btn-modern small ghost" @onclick="() => OpenEditArchiveProfile(profile)">
-                                    Edit
-                                </button>
-                                <button class="icon-button" title="Delete @profile.Name"
-                                        aria-label="Delete @profile.Name"
-                                        @onclick="() => AskDeleteArchiveProfile(profile)">
-                                    <Icon Name="trash" Size="15" />
-                                </button>
-                            </div>
-                        }
-                }
-            </div>
-            </div>
+            <p class="panel-description">
+                The default archive and every named archive profile live on the
+                <a href="/library">Library</a> page, next to the folders they write to.
+                That page owns the folder, the format and the copy count of each one.
+            </p>
             <MountWarning />
-            <div class="hint-box">
-                New downloads land under the music path, M3U files go to the
-                playlist output folder. Archive copies follow the archive
-                path above. Changing the music or archive path moves the
-                files you already have along with it.
-            </div>
         </div>
     </section>
 }
@@ -1194,105 +1033,6 @@ else if (activeTab == "about")
     </section>
 }
 
-@if (showArchiveProfileEditor && archiveDraft is not null)
-{
-    <div class="wizard-overlay" @onclick="CloseArchiveProfileEditor">
-        <div class="wizard-modal archive-profile-modal" role="dialog" aria-modal="true"
-             aria-label="Archive profile" @onclick:stopPropagation="true">
-            <div class="wizard-header">
-                <div>
-                    <span class="eyebrow">Archive copy</span>
-                    <h2>@(string.IsNullOrWhiteSpace(archiveDraft.Id) ? "Add an archive profile" : "Edit archive profile")</h2>
-                </div>
-                <button class="icon-button" title="Close" @onclick="CloseArchiveProfileEditor">
-                    <Icon Name="x" Size="15" />
-                </button>
-            </div>
-            <div class="wizard-body">
-                <div class="form-grid single">
-                    <label>
-                        Profile name
-                        <input @bind="archiveDraft.Name" placeholder="Opus archive" />
-                    </label>
-                    <label>
-                        Folder
-                        <span class="path-field">
-                            <input @bind="archiveDraft.RootPath" placeholder="/archive-opus" />
-                            <FolderBrowseButton Value="@archiveDraft.RootPath"
-                                                ValueChanged="@(v => archiveDraft.RootPath = v)"
-                                                Label="the archive folder" />
-                        </span>
-                        <small class="text-muted">
-                            Each track gets the same file name as the default archive,
-                            in this folder, with the format below.
-                        </small>
-                    </label>
-                    <label>
-                        Container
-                        <select @bind="archiveDraftContainer" @bind:after="OnArchiveDraftContainerChanged">
-                            <option value="auto">Auto: copy the downloaded file as-is</option>
-                            <option value="opus">Opus</option>
-                            <option value="flac">FLAC (lossless)</option>
-                            <option value="mp3">MP3</option>
-                            <option value="aac">AAC (lands as .m4a)</option>
-                            <option value="custom">Custom container...</option>
-                        </select>
-                    </label>
-                    @if (ShowArchiveDraftBitrate)
-                    {
-                        <label>
-                            Bitrate
-                            <select @bind="archiveDraftBitrate">
-                                @foreach (var rate in new[] { "96", "128", "160", "192", "256", "320" })
-                                {
-                                    <option value="@rate">@rate kbps</option>
-                                }
-                            </select>
-                        </label>
-                    }
-                    @if (archiveDraftContainer == "custom")
-                    {
-                        <label>
-                            Custom container
-                            <input @bind="archiveDraftCustomContainer" placeholder="m4a" />
-                        </label>
-                        <label>
-                            Codec (optional)
-                            <input @bind="archiveDraftCodec" placeholder="alac" />
-                            <small class="text-muted">
-                                Leave empty to let ffmpeg pick the container default.
-                                For example <code>m4a</code> plus <code>alac</code>.
-                            </small>
-                        </label>
-                    }
-                </div>
-                <div class="hint-box">
-                    @ArchiveDraftSummary
-                </div>
-                @if (!string.IsNullOrWhiteSpace(archiveProfileError))
-                {
-                    <div class="result-box error">@archiveProfileError</div>
-                }
-            </div>
-            <div class="wizard-footer">
-                <button class="btn-modern secondary" @onclick="CloseArchiveProfileEditor">Cancel</button>
-                <span></span>
-                <button class="btn-modern primary" @onclick="SaveArchiveProfile" disabled="@archiveSaving">
-                    @(archiveSaving ? "Saving…" : "Save profile")
-                </button>
-            </div>
-        </div>
-    </div>
-}
-
-<ConfirmDialog Show="archivePendingDelete is not null"
-               Eyebrow="Archive profile"
-               Title="@($"Delete {archivePendingDelete?.Name}?")"
-               Message="The copy records are removed and this profile stops creating new copies. Files already on disk stay where they are; keep the folder out of the music path if you do not want a scan to adopt them."
-               ConfirmLabel="Delete profile"
-               OnConfirm="DeleteArchiveProfile"
-               OnCancel="CancelDeleteArchiveProfile" />
-
 @code {
     // Tab ids double as URL fragments: /settings#accounts opens Accounts.
     private static readonly (string Id, string Label)[] Tabs =
@@ -1354,7 +1094,6 @@ else if (activeTab == "about")
         new("Subsonic or Navidrome", "media-servers", "URL, user and password", "subsonic navidrome server"),
         new("Music folder", "paths", "Where downloads and the library live", "music path download folder"),
         new("Playlist folders", "paths", "One folder per playlist or a flat folder", "playlist folder layout"),
-        new("Archive folder", "paths", "Where archive copies are written", "archive folder format copy"),
         new("Default quality", "quality", "Space Saver, High Quality, Lossless or no filter", "quality mp3 flac lossless bitrate"),
         new("FlareSolverr", "network", "Cloudflare solver for Lucida", "flaresolverr cloudflare lucida solver"),
         new("Notifications", "notifications", "Toast rules for downloads and failures", "toast notification download failure"),
@@ -1456,28 +1195,9 @@ else if (activeTab == "about")
     private string activeTab = "accounts";
     private string musicPath = "/music";
     private string playlistPath = "/app/playlists";
-    private string archivePath = "";
     /// <summary>The roots as last persisted; a save compares against them so
     /// the library moves even after several saves in one session.</summary>
     private string savedMusicPath = "/music";
-    private string savedArchivePath = "";
-    private string archiveFormat = "auto";
-    /// <summary>The select value: a named preset or "custom".</summary>
-    private string archiveFormatChoice = "auto";
-    /// <summary>The container typed for a custom archive format.</summary>
-    private string archiveFormatCustom = "";
-    private List<ArchiveProfileEntity> archiveProfiles = new();
-    private bool showDefaultArchiveEditor;
-    private bool showArchiveProfileEditor;
-    private ArchiveProfileEntity? archiveDraft;
-    private string archiveDraftContainer = "opus";
-    private string archiveDraftBitrate = "128";
-    private string archiveDraftCodec = "";
-    private string archiveDraftCustomContainer = "ogg";
-    private string? archiveDraftOriginalRoot;
-    private ArchiveProfileEntity? archivePendingDelete;
-    private bool archiveSaving;
-    private string? archiveProfileError;
     private string defaultQuality = "auto";
     private string spectrumMode = "Fast";
     private string spectrumClassGap = "2";
@@ -1504,7 +1224,6 @@ else if (activeTab == "about")
     // Inline path checks: advisory, they never block a save.
     private string musicPathWarning = string.Empty;
     private string playlistPathWarning = string.Empty;
-    private string archivePathWarning = string.Empty;
 
     // Unsaved-changes state for the floating save bar.
     private bool dirty;
@@ -1557,8 +1276,6 @@ else if (activeTab == "about")
         }
 
         profiles = (await ServerProfiles.GetAllAsync()).ToList();
-        archiveProfiles = (await ArchiveProfiles.GetAllAsync()).ToList();
-        ArchiveBackfill.Changed += OnArchiveBackfillChanged;
 
         // An import that was staged but not applied yet: the next start
         // swaps it in. Say so, so the user knows a restart is pending.
@@ -1603,10 +1320,7 @@ else if (activeTab == "about")
         var settings = _initSettings!;
         musicPath = FindSetting(settings, "music_path", "/music");
         playlistPath = FindSetting(settings, "playlist_path", "/app/playlists");
-        archivePath = FindSetting(settings, "archive_path", "");
         savedMusicPath = musicPath.Trim();
-        savedArchivePath = archivePath.Trim();
-        SetArchiveFormatState(FindSetting(settings, "archive_format", "auto"));
         defaultQuality = FindSetting(settings, "default_quality", "auto");
         if (!PlaylistStore.IsValidFormat(defaultQuality)) defaultQuality = "auto";
         spectrumMode = FindSetting(settings, "spectrum_mode", Config?["SpectrumAnalysis:Mode"] ?? "Fast");
@@ -2130,16 +1844,9 @@ else if (activeTab == "about")
             // inside a path the downloader uses verbatim.
             musicPath = musicPath.Trim();
             playlistPath = playlistPath.Trim();
-            archivePath = archivePath.Trim();
             await Upsert(db, "music_path", musicPath);
             await Upsert(db, "playlist_path", playlistPath);
-            await Upsert(db, "archive_path", archivePath);
             await Upsert(db, "playlist_folders", playlistFolders ? "true" : "false");
-            var storedArchiveFormat = archiveFormatChoice == "custom"
-                ? ArchiveCopier.NormalizeFormat(archiveFormatCustom)
-                : ArchiveCopier.NormalizeFormat(archiveFormatChoice);
-            SetArchiveFormatState(storedArchiveFormat);
-            await Upsert(db, "archive_format", storedArchiveFormat);
             await Upsert(db, "default_quality", defaultQuality);
             await Upsert(db, "spectrum_mode", spectrumMode);
             await Upsert(db, "spectrum_class_gap", spectrumClassGap);
@@ -2169,18 +1876,13 @@ else if (activeTab == "about")
             // root only advances on a real value: clearing the field then
             // filling in a new root later still moves the old files.
             var newMusicPath = musicPath;
-            var newArchivePath = archivePath;
+            // The archive root is not a setting on this page: the Library
+            // page owns it and moves its own copies. Passing an empty archive
+            // pair keeps this save from touching those folders.
             var move = await PathMover.MoveAsync(
-                savedMusicPath, newMusicPath, savedArchivePath, newArchivePath);
-            // After the mover has taken any existing archive location
-            // along, a new archive root without a location gets one. The
-            // mover runs first so the two cannot produce a duplicate.
-            if (archivePath.Length == 0 && savedArchivePath.Length > 0)
-                await ScanLocations.RemoveRootAsync(db, savedArchivePath);
-            await ScanLocations.EnsureAsync(db, archivePath);
+                savedMusicPath, newMusicPath, null, null);
             await db.SaveChangesAsync();
             if (newMusicPath.Length > 0) savedMusicPath = newMusicPath;
-            if (newArchivePath.Length > 0) savedArchivePath = newArchivePath;
             await LoadInitSettingsAsync(); // the default pill reads fresh rows
 
             dirty = false;
@@ -2215,305 +1917,6 @@ else if (activeTab == "about")
 
     /// <summary>An edit landed: the floating save bar appears.</summary>
     /// <summary>Maps a stored format to the select and its optional text field.</summary>
-    private static readonly (string Value, string Label)[] BaseArchiveFormatOptions =
-    [
-        ("auto", "Auto: copy the downloaded file as-is"),
-        ("opus", "Opus: small and efficient (128k)"),
-        ("opus:192", "Opus: higher quality (192k)"),
-        ("flac", "FLAC: lossless (level 5)"),
-        ("mp3", "MP3: widely compatible (256k)"),
-        ("mp3:128", "MP3: compact (128k)"),
-        ("mp3:160", "MP3: balanced (160k)"),
-        ("mp3:320", "MP3: high quality (320k)"),
-        ("aac", "AAC: small and modern (192k)"),
-        ("aac:256", "AAC: higher quality (256k)"),
-        ("custom", "Custom container..."),
-    ];
-
-    private IReadOnlyList<(string Value, string Label)> ArchiveFormatOptions
-    {
-        get
-        {
-            var options = BaseArchiveFormatOptions.ToList();
-            if (IsSimpleArchiveFormat(archiveFormat)
-                && !options.Any(option => option.Value == archiveFormat))
-            {
-                options.Insert(options.Count - 1,
-                    (archiveFormat, ArchiveFormatText(archiveFormat)));
-            }
-            return options;
-        }
-    }
-
-    private static bool IsSimpleArchiveFormat(string? format)
-    {
-        var spec = ArchiveCopier.ParseFormat(format);
-        return spec.Codec is null
-            && spec.Container is "auto" or "opus" or "flac" or "mp3" or "aac";
-    }
-
-    private static string ArchiveFormatText(string? format)
-    {
-        var spec = ArchiveCopier.ParseFormat(format);
-        return spec.Container switch
-        {
-            "auto" => "Auto (same file)",
-            "flac" => "FLAC lossless",
-            "opus" or "mp3" or "aac" =>
-                $"{ContainerLabel(spec.Container)} {spec.BitrateKbps ?? DefaultBitrate(spec.Container)} kbps",
-            _ => spec.Container
-                + (spec.Codec is { Length: > 0 } ? " / " + spec.Codec : "")
-                + (spec.BitrateKbps is { } rate ? $" / {rate} kbps" : ""),
-        };
-    }
-
-    private static int DefaultBitrate(string container) => container switch
-    {
-        "opus" => 128,
-        "aac" => 192,
-        _ => 256,
-    };
-
-    private static string ContainerLabel(string container) => container switch
-    {
-        "opus" => "Opus",
-        "mp3" => "MP3",
-        "aac" => "AAC",
-        "flac" => "FLAC",
-        _ => container,
-    };
-
-    private void SetArchiveFormatState(string? stored)
-    {
-        archiveFormat = ArchiveCopier.NormalizeFormat(stored);
-        if (IsSimpleArchiveFormat(archiveFormat))
-        {
-            archiveFormatChoice = archiveFormat;
-            archiveFormatCustom = "";
-        }
-        else
-        {
-            archiveFormatChoice = "custom";
-            archiveFormatCustom = archiveFormat;
-        }
-    }
-
-    private async Task ReloadArchiveProfilesAsync()
-        => archiveProfiles = (await ArchiveProfiles.GetAllAsync()).ToList();
-
-    private void OpenNewArchiveProfile()
-    {
-        var number = archiveProfiles.Count + 1;
-        archiveDraft = new ArchiveProfileEntity
-        {
-            Id = "",
-            Name = $"Archive {number}",
-            RootPath = "",
-            Format = "opus:128",
-            Enabled = true,
-        };
-        archiveDraftOriginalRoot = null;
-        LoadArchiveDraftFormat(archiveDraft.Format);
-        archiveProfileError = null;
-        showArchiveProfileEditor = true;
-    }
-
-    private void OpenEditArchiveProfile(ArchiveProfileEntity profile)
-    {
-        archiveDraft = new ArchiveProfileEntity
-        {
-            Id = profile.Id,
-            Name = profile.Name,
-            RootPath = profile.RootPath,
-            Format = profile.Format,
-            Enabled = profile.Enabled,
-            Priority = profile.Priority,
-            CreatedAt = profile.CreatedAt,
-        };
-        archiveDraftOriginalRoot = profile.RootPath;
-        LoadArchiveDraftFormat(profile.Format);
-        archiveProfileError = null;
-        showArchiveProfileEditor = true;
-    }
-
-    private void LoadArchiveDraftFormat(string? format)
-    {
-        var spec = ArchiveCopier.ParseFormat(format);
-        if (spec.Container is "auto" or "opus" or "flac" or "mp3" or "aac"
-            && spec.Codec is null)
-        {
-            archiveDraftContainer = spec.Container;
-            archiveDraftBitrate = (spec.BitrateKbps ?? DefaultBitrate(spec.Container)).ToString();
-            archiveDraftCodec = "";
-            archiveDraftCustomContainer = "ogg";
-        }
-        else
-        {
-            archiveDraftContainer = "custom";
-            archiveDraftCustomContainer = spec.Container;
-            archiveDraftCodec = spec.Codec ?? "";
-            archiveDraftBitrate = (spec.BitrateKbps ?? 192).ToString();
-        }
-    }
-
-    private bool ShowArchiveDraftBitrate
-        => archiveDraftContainer is "opus" or "mp3" or "aac" or "custom";
-
-    private void OnArchiveDraftContainerChanged()
-    {
-        archiveDraftBitrate = archiveDraftContainer switch
-        {
-            "opus" => "128",
-            "mp3" => "256",
-            "aac" => "192",
-            "custom" => archiveDraftBitrate,
-            _ => "",
-        };
-    }
-
-    private string ArchiveDraftSummary => archiveDraftContainer switch
-    {
-        "auto" => "Byte-for-byte copy of the downloaded file. No ffmpeg work.",
-        "flac" => "Lossless FLAC, compression level 5. The largest option.",
-        "opus" => $"Opus at {archiveDraftBitrate} kbps. Small files with good quality.",
-        "mp3" => $"MP3 at {archiveDraftBitrate} kbps. Plays almost everywhere.",
-        "aac" => $"AAC at {archiveDraftBitrate} kbps, written as .m4a.",
-        _ => "A custom ffmpeg container. Use the codec field when the container needs one.",
-    };
-
-    private string BuildArchiveDraftFormat()
-    {
-        if (archiveDraftContainer is "auto" or "flac")
-            return archiveDraftContainer;
-        if (archiveDraftContainer == "custom")
-        {
-            var container = archiveDraftCustomContainer.Trim().TrimStart('.').ToLowerInvariant();
-            var codec = archiveDraftCodec.Trim().ToLowerInvariant();
-            var rate = archiveDraftBitrate.Trim();
-            return container
-                + (codec.Length > 0 ? ":" + codec : "")
-                + (rate.Length > 0 ? ":" + rate : "");
-        }
-        return archiveDraftContainer + ":" + archiveDraftBitrate;
-    }
-
-    private async Task SaveArchiveProfile()
-    {
-        if (archiveDraft is null) return;
-        archiveProfileError = null;
-        archiveSaving = true;
-        try
-        {
-            archiveDraft.Name = archiveDraft.Name.Trim();
-            archiveDraft.RootPath = archiveDraft.RootPath.Trim();
-            if (archiveDraft.RootPath.Length == 0)
-                throw new InvalidOperationException("Choose a folder for this archive.");
-            archiveDraft.Format = BuildArchiveDraftFormat();
-            if (archiveProfiles.Any(other =>
-                !string.Equals(other.Id, archiveDraft.Id, StringComparison.Ordinal)
-                && string.Equals(other.RootPath.Trim(), archiveDraft.RootPath,
-                    OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)
-                && ArchiveCopier.ExtensionsMayCollide(other.Format, archiveDraft.Format)))
-            {
-                throw new InvalidOperationException(
-                    "Another archive profile already uses this folder and format.");
-            }
-            if (archivePath.Trim().Length > 0
-                && string.Equals(
-                    Path.GetFullPath(archiveDraft.RootPath),
-                    Path.GetFullPath(archivePath.Trim()),
-                    OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)
-                && ArchiveCopier.ExtensionsMayCollide(archiveDraft.Format, archiveFormat))
-            {
-                throw new InvalidOperationException(
-                    "The default archive already uses this folder and format. Pick another folder or format.");
-            }
-
-            // Move the existing copies before the profile points at the new
-            // root, so the files and the rows keep the same story.
-            if (archiveDraftOriginalRoot is { Length: > 0 } oldRoot
-                && !string.Equals(oldRoot, archiveDraft.RootPath, StringComparison.Ordinal))
-            {
-                await ArchiveCopies.MoveRootAsync(oldRoot, archiveDraft.RootPath);
-            }
-
-            await ArchiveProfiles.SaveAsync(archiveDraft);
-            await ReloadArchiveProfilesAsync();
-            showArchiveProfileEditor = false;
-            archiveDraft = null;
-            Notifications.Success("Archive profile saved.");
-        }
-        catch (Exception ex)
-        {
-            archiveProfileError = ex.Message;
-        }
-        finally
-        {
-            archiveSaving = false;
-        }
-    }
-
-    private void CloseArchiveProfileEditor()
-    {
-        showArchiveProfileEditor = false;
-        archiveDraft = null;
-        archiveProfileError = null;
-    }
-
-    private async Task ToggleArchiveProfile(ArchiveProfileEntity profile, bool enabled)
-    {
-        await ArchiveProfiles.SetEnabledAsync(profile.Id, enabled);
-        await ReloadArchiveProfilesAsync();
-        Notifications.Success(enabled
-            ? $"{profile.Name} enabled. Use Build missing for tracks you already have."
-            : $"{profile.Name} disabled; existing copies stay on disk.");
-    }
-
-    private void AskDeleteArchiveProfile(ArchiveProfileEntity profile)
-        => archivePendingDelete = profile;
-
-    private void CancelDeleteArchiveProfile()
-        => archivePendingDelete = null;
-
-    private async Task DeleteArchiveProfile()
-    {
-        if (archivePendingDelete is null) return;
-        var name = archivePendingDelete.Name;
-        await ArchiveProfiles.DeleteAsync(archivePendingDelete.Id);
-        archivePendingDelete = null;
-        await ReloadArchiveProfilesAsync();
-        Notifications.Info($"{name} removed. Files already on disk were kept.");
-    }
-
-    private void StartArchiveBackfill(ArchiveProfileEntity profile)
-    {
-        if (!ArchiveBackfill.Start(profile.Id, profile.Name))
-            Notifications.Warn("An archive pass is already running.");
-        else
-            Notifications.Info($"Building {profile.Name} copies for your existing tracks.");
-    }
-
-    private void OnArchiveFormatChoiceChanged(ChangeEventArgs e)
-    {
-        archiveFormatChoice = e.Value?.ToString() ?? "auto";
-        if (archiveFormatChoice == "custom")
-        {
-            archiveFormat = ArchiveCopier.NormalizeFormat(archiveFormatCustom);
-        }
-        else
-        {
-            archiveFormat = ArchiveCopier.NormalizeFormat(archiveFormatChoice);
-            archiveFormatCustom = "";
-        }
-        MarkDirty();
-    }
-
-    private void OnArchiveCustomFormatChanged()
-    {
-        archiveFormat = ArchiveCopier.NormalizeFormat(archiveFormatCustom);
-        MarkDirty();
-    }
-
     private void MarkDirty() => dirty = true;
 
     /// <summary>Persists the ntfy block; a test send uses the typed values
@@ -2572,12 +1975,6 @@ else if (activeTab == "about")
         ValidatePaths();
     }
 
-    private void SetArchivePath(string value)
-    {
-        archivePath = value;
-        ValidatePaths();
-    }
-
     /// <summary>Advisory path checks: warnings, never a blocked save.</summary>
     private void ValidatePaths()
     {
@@ -2588,9 +1985,6 @@ else if (activeTab == "about")
         playlistPathWarning = playlistPath.Trim().Length == 0
             ? "M3U exports need a folder here."
             : Directory.Exists(playlistPath.Trim()) ? "" : "That folder does not exist from the app's point of view.";
-        archivePathWarning = archivePath.Trim().Length == 0 || Directory.Exists(archivePath.Trim())
-            ? ""
-            : "That folder does not exist from the app's point of view.";
     }
 
     /// <summary>Browser back/forward moves the fragment: keep the shown tab in step.</summary>
@@ -2719,8 +2113,6 @@ else if (activeTab == "about")
         profileError = null;
         await ServerProfiles.SaveAsync(editingProfile);
         profiles = (await ServerProfiles.GetAllAsync()).ToList();
-        archiveProfiles = (await ArchiveProfiles.GetAllAsync()).ToList();
-        ArchiveBackfill.Changed += OnArchiveBackfillChanged;
         editingProfile = null;
         Notifications.Success("Profile saved.");
     }
@@ -2778,8 +2170,6 @@ else if (activeTab == "about")
                 Notifications.Info($"Deleted profile '{deleteProfileName}'.");
             }
             profiles = (await ServerProfiles.GetAllAsync()).ToList();
-        archiveProfiles = (await ArchiveProfiles.GetAllAsync()).ToList();
-        ArchiveBackfill.Changed += OnArchiveBackfillChanged;
         }
         deleteProfileId = null;
     }
@@ -2897,46 +2287,6 @@ else if (activeTab == "about")
     public void Dispose()
     {
         Nav.LocationChanged -= OnLocationChanged;
-        ArchiveBackfill.Changed -= OnArchiveBackfillChanged;
         if (_mode is not null) _mode.Changed -= OnModeChanged;
     }
-
-    private void OnArchiveBackfillChanged()
-        => _ = InvokeAsync(StateHasChanged);
-
-    private int ArchiveBackfillPercent
-    {
-        get
-        {
-            var progress = ArchiveBackfill.Progress;
-            return progress.Total <= 0
-                ? 0
-                : Math.Clamp(100 * progress.Done / progress.Total, 0, 100);
-        }
-    }
-
-    private string ArchiveBackfillSummary
-    {
-        get
-        {
-            var progress = ArchiveBackfill.Progress;
-            var parts = new List<string>();
-            if (progress.Total > 0)
-            {
-                var text = $"{progress.Done} of {progress.Total}";
-                if (progress.Failed > 0) text += $", {progress.Failed} failed";
-                if (!string.IsNullOrWhiteSpace(progress.Current)) text += $" · {progress.Current}";
-                if (ArchiveBackfill.IsRunning && progress.Eta is { } eta)
-                    text += $" · ETA {EtaText(eta)}";
-                parts.Add(text);
-            }
-            if (!string.IsNullOrWhiteSpace(progress.Message)) parts.Add(progress.Message);
-            return string.Join(" · ", parts);
-        }
-    }
-
-    private static string EtaText(TimeSpan eta)
-        => eta.TotalHours >= 1
-            ? eta.ToString(@"h\:mm\:ss")
-            : eta.ToString(@"m\:ss");
 }

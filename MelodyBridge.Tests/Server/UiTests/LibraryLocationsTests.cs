@@ -71,13 +71,17 @@ public class LibraryLocationsTests
     {
         var cut = _ctx.Render<Library>();
 
-        Assert.That(cut.Markup, Does.Contain("2 files with MELODY_ID"),
+        // A table puts the count in its own column, so the assertion reads the
+        // row for each folder instead of a sentence.
+        var rock = cut.FindAll(".location-card").Single(r => r.TextContent.Contains("/music/rock"));
+        var jazz = cut.FindAll(".location-card").Single(r => r.TextContent.Contains("/music/jazz"));
+        Assert.That(rock.QuerySelector(".lib-row-main small")?.TextContent, Does.Contain("2 files"),
             "the rock folder holds exactly two tagged files (nested ones included)");
-        Assert.That(cut.Markup, Does.Contain("1 file with MELODY_ID"),
+        Assert.That(jazz.QuerySelector(".lib-row-main small")?.TextContent, Does.Contain("1 file"),
             "the jazz folder holds exactly one tagged file");
-        Assert.That(cut.Markup, Does.Contain("last scan 2026-07-06"),
-            "the stored last-scan time renders on the card in a stable format");
-        Assert.That(cut.Markup, Does.Contain("never"),
+        Assert.That(rock.TextContent, Does.Contain("2026-07-06"),
+            "the stored last-scan time renders in a stable format");
+        Assert.That(jazz.TextContent, Does.Contain("never"),
             "a location that was never scanned says so");
     }
 
@@ -86,12 +90,16 @@ public class LibraryLocationsTests
     {
         var cut = _ctx.Render<Library>();
 
-        Assert.That(cut.Markup, Does.Contain("cron 0 9 * * 1"),
-            "the stored cron schedule is described on the card");
-        Assert.That(cut.Markup, Does.Contain("manual"),
+        var rock = cut.FindAll(".location-card").Single(r => r.TextContent.Contains("/music/rock"));
+        var jazz = cut.FindAll(".location-card").Single(r => r.TextContent.Contains("/music/jazz"));
+        Assert.That(rock.TextContent, Does.Contain("cron 0 9 * * 1"),
+            "the stored cron schedule is described on the folder's row");
+        Assert.That(jazz.TextContent, Does.Contain("manual"),
             "a location without a schedule shows manual");
-        Assert.That(cut.Markup, Does.Contain("live"),
-            "the live monitoring state is visible per location");
+        Assert.That(rock.TextContent, Does.Contain("live"),
+            "live monitoring is visible per location");
+        Assert.That(jazz.TextContent, Does.Not.Contain("live"),
+            "a folder without live monitoring does not claim it");
     }
 
     [Test]
@@ -115,10 +123,17 @@ public class LibraryLocationsTests
 
             cut.WaitForAssertion(() =>
             {
-                var card = cut.FindAll(".location-card")
+                var archiveSection = cut.Find("[data-section='archive']");
+                var card = archiveSection.QuerySelectorAll(".archive-card")
                     .Single(c => c.TextContent.Contains(root));
-                Assert.That(card.TextContent, Does.Contain("archive folder"),
-                    "the new archive root is listed and marked as a copy folder");
+                Assert.Multiple(() =>
+                {
+                    Assert.That(card.TextContent, Does.Contain("Opus mirror"),
+                        "a new profile shows its own row");
+                    Assert.That(cut.Find("[data-section='folders']").TextContent,
+                        Does.Not.Contain(root),
+                        "the profile's folder stays out of the music folders");
+                });
             }, TimeSpan.FromSeconds(3));
         }
         finally
@@ -128,10 +143,121 @@ public class LibraryLocationsTests
     }
 
     [Test]
+    public async Task ArchiveProfiles_SaveAndDeleteOnTheLibraryPage()
+    {
+        var folder = Path.Combine(Path.GetTempPath(), $"mb-archive-{Guid.NewGuid():N}");
+        var cut = _ctx.Render<Library>();
+
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("Archive copies")), TimeSpan.FromSeconds(3));
+        cut.FindAll("button").First(b => b.TextContent.Contains("Add destination")).Click();
+
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("Add an archive destination")), TimeSpan.FromSeconds(3));
+        var name = cut.FindAll(".wizard-modal label")
+            .Single(l => l.TextContent.TrimStart().StartsWith("Name"))
+            .QuerySelector("input")!;
+        name.Change("Opus copy");
+        var root = cut.FindAll(".wizard-modal label")
+            .Single(l => l.TextContent.Contains("Folder"))
+            .QuerySelector("input")!;
+        root.Change(folder);
+        cut.FindAll("button").First(b => b.TextContent.Contains("Save destination")).Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.Markup, Does.Contain("Opus copy"));
+            Assert.That(cut.Markup, Does.Contain("Opus 128 kbps"));
+        }, TimeSpan.FromSeconds(5));
+
+        using (var db = _factory.CreateDbContext())
+        {
+            var saved = db.ArchiveProfiles.AsNoTracking().Single(p => p.Name == "Opus copy");
+            Assert.Multiple(() =>
+            {
+                Assert.That(saved.RootPath, Is.EqualTo(folder.Trim()));
+                Assert.That(saved.Format, Is.EqualTo("opus:128"));
+                Assert.That(saved.Enabled, Is.True);
+            });
+        }
+
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.FindAll("button").Any(b => b.GetAttribute("aria-label") == "Delete Opus copy"),
+                Is.True, "the saved destination offers a delete action"), TimeSpan.FromSeconds(5));
+        cut.FindAll("button").Single(b => b.GetAttribute("aria-label") == "Delete Opus copy").Click();
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Contain("Delete Opus copy?")), TimeSpan.FromSeconds(3));
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Delete destination").Click();
+
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.Markup, Does.Not.Contain("Opus copy")), TimeSpan.FromSeconds(5));
+        using (var db = _factory.CreateDbContext())
+            Assert.That(db.ArchiveProfiles.Count(p => p.Name == "Opus copy"), Is.Zero);
+    }
+
+    [Test]
+    public void Library_ShowsTheDefaultAndEachDestination()
+    {
+        using (var db = _factory.CreateDbContext())
+        {
+            db.ArchiveProfiles.Add(new ArchiveProfileEntity
+            {
+                Id = "p-opus",
+                Name = "Opus mirror",
+                RootPath = "/archive-opus",
+                Format = "opus:128",
+                Enabled = true,
+            });
+            db.SaveChanges();
+        }
+
+        var cut = _ctx.Render<Library>();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.That(cut.Markup, Does.Contain("Default archive"),
+                "the default row sits above the named profiles");
+            Assert.That(cut.Markup, Does.Contain("Opus mirror"));
+            Assert.That(cut.Markup, Does.Contain("/archive-opus"));
+            Assert.That(cut.Markup, Does.Contain("Opus 128 kbps"));
+            Assert.That(cut.FindAll(".archive-card"), Has.Count.EqualTo(1));
+        }, TimeSpan.FromSeconds(3));
+    }
+
+    [Test]
+    public void Library_DestinationTogglePersists()
+    {
+        using (var db = _factory.CreateDbContext())
+        {
+            db.ArchiveProfiles.Add(new ArchiveProfileEntity
+            {
+                Id = "p-mp3",
+                Name = "MP3 car",
+                RootPath = "/archive-mp3",
+                Format = "mp3:192",
+                Enabled = true,
+            });
+            db.SaveChanges();
+        }
+
+        var cut = _ctx.Render<Library>();
+        cut.WaitForAssertion(() => Assert.That(cut.FindAll(".archive-card"), Has.Count.EqualTo(1)),
+            TimeSpan.FromSeconds(3));
+        cut.Find("input[aria-label='Enable MP3 car']").Change(false);
+
+        cut.WaitForAssertion(() =>
+        {
+            using var db = _factory.CreateDbContext();
+            Assert.That(db.ArchiveProfiles.AsNoTracking().Single(p => p.Id == "p-mp3").Enabled,
+                Is.False, "the toggle writes through to the store");
+        }, TimeSpan.FromSeconds(5));
+    }
+
+    [Test]
     public void AddLocationModal_ShowsDockerMountWarning()
     {
         var cut = _ctx.Render<Library>();
-        cut.FindAll("button").First(b => b.TextContent.Trim() == "Add location").Click();
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Add music folder").Click();
         // The page initializes asynchronously; under load the modal can
         // land a moment after the click.
         cut.WaitForAssertion(() => Assert.That(cut.Markup, Does.Contain("Add scan location")),
@@ -152,7 +278,7 @@ public class LibraryLocationsTests
     public void AddLocationModal_HasScheduleModePicker()
     {
         var cut = _ctx.Render<Library>();
-        cut.FindAll("button").First(b => b.TextContent.Trim() == "Add location").Click();
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Add music folder").Click();
         // The page initializes asynchronously; under the full suite the
         // modal can land a moment after the click.
         cut.WaitForAssertion(() => Assert.That(cut.Markup, Does.Contain("Add scan location")),
@@ -168,7 +294,7 @@ public class LibraryLocationsTests
     public void SaveLocation_PersistsScheduleAndLiveMonitoring()
     {
         var cut = _ctx.Render<Library>();
-        cut.FindAll("button").First(b => b.TextContent.Trim() == "Add location").Click();
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Add music folder").Click();
         cut.WaitForAssertion(() => Assert.That(cut.Markup, Does.Contain("Add scan location")),
             TimeSpan.FromSeconds(5));
 
@@ -186,7 +312,7 @@ public class LibraryLocationsTests
         cut.Render(); // let the picker push the new schedule up
 
         // Live monitoring is on by default; submit.
-        cut.FindAll("button").First(b => b.TextContent.Trim() == "Add location" && b.ClassList.Contains("primary")).Click();
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Add music folder" && b.ClassList.Contains("primary")).Click();
         cut.Render();
 
         using var db = _factory.CreateDbContext();
@@ -200,7 +326,10 @@ public class LibraryLocationsTests
     public void SaveLocation_CustomCron_Persists()
     {
         var cut = _ctx.Render<Library>();
-        cut.FindAll("button").First(b => b.TextContent.Trim() == "Add location").Click();
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Add music folder").Click();
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.FindAll("input[placeholder='/music']"), Has.Count.EqualTo(1),
+                "the add dialog opens"));
 
         // A real directory: saving refuses paths the app cannot see.
         var dir = Path.Combine(Path.GetTempPath(), $"mb-loc-{Guid.NewGuid():N}");
@@ -215,7 +344,7 @@ public class LibraryLocationsTests
         cut.Find("input[placeholder='30 4 * * *']").Change("0 22 * * 5");
         cut.Render();
 
-        cut.FindAll("button").First(b => b.TextContent.Trim() == "Add location" && b.ClassList.Contains("primary")).Click();
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Add music folder" && b.ClassList.Contains("primary")).Click();
         cut.Render();
 
         using var db = _factory.CreateDbContext();
@@ -245,12 +374,15 @@ public class LibraryLocationsTests
     public void SaveLocation_NonExistentPath_ShowsError_AndDoesNotSave()
     {
         var cut = _ctx.Render<Library>();
-        cut.FindAll("button").First(b => b.TextContent.Trim() == "Add location").Click();
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Add music folder").Click();
+        cut.WaitForAssertion(() =>
+            Assert.That(cut.FindAll("input[placeholder='/music']"), Has.Count.EqualTo(1),
+                "the add dialog opens"));
 
         // A host-style path the app cannot see from inside its process.
         cut.Find("input[placeholder='/music']").Change("/home/someone/Music/techno");
         cut.Render();
-        cut.FindAll("button").First(b => b.TextContent.Trim() == "Add location" && b.ClassList.Contains("primary")).Click();
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Add music folder" && b.ClassList.Contains("primary")).Click();
         cut.Render();
 
         Assert.That(cut.Markup, Does.Contain("does not exist from the app's point of view"),
@@ -277,4 +409,76 @@ public class LibraryLocationsTests
                 "a path the app cannot see gets an explicit missing marker");
         }, TimeSpan.FromSeconds(3));
     }
+
+    [Test]
+    public async Task SavingADefaultArchive_RegistersItAsAScanLocation()
+    {
+        var archiveDir = Path.Combine(Path.GetTempPath(), $"mb-archive-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(archiveDir);
+        try
+        {
+            var cut = _ctx.Render<Library>();
+            cut.WaitForAssertion(() => Assert.That(cut.FindAll(".archive-default-row"), Has.Count.EqualTo(1)));
+
+            cut.FindAll(".archive-default-row button")
+                .First(b => b.TextContent.Trim() == "Edit").Click();
+            cut.WaitForAssertion(() =>
+                Assert.That(cut.Markup, Does.Contain("Default archive")));
+
+            cut.Find("input[placeholder='/archive-opus']").Change(archiveDir);
+            cut.FindAll("button").First(b => b.TextContent.Trim() == "Save destination").Click();
+
+            cut.WaitForAssertion(() =>
+            {
+                using var db = _factory.CreateDbContext();
+                Assert.That(db.ScanLocations.Any(location => location.Path == archiveDir), Is.True,
+                    "the default archive folder joins the scan locations so its files are known copies");
+                Assert.That(db.DownloaderSettings.Single(s => s.Key == "archive_path").Value,
+                    Is.EqualTo(archiveDir), "the setting itself is stored");
+            }, TimeSpan.FromSeconds(5));
+        }
+        finally
+        {
+            try { Directory.Delete(archiveDir, recursive: true); } catch { /* best effort */ }
+        }
+    }
+
+    [Test]
+    public async Task ClearingADefaultArchive_RemovesItsScanLocation()
+    {
+        var oldArchive = Path.Combine(Path.GetTempPath(), $"mb-archive-old-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(oldArchive);
+        try
+        {
+            using (var db = _factory.CreateDbContext())
+            {
+                db.DownloaderSettings.Add(new DownloaderSettingEntity
+                    { Key = "archive_path", Value = oldArchive });
+                db.DownloaderSettings.Add(new DownloaderSettingEntity
+                    { Key = "archive_format", Value = "auto" });
+                db.ScanLocations.Add(new ScanLocationEntity { Path = oldArchive });
+                db.SaveChanges();
+            }
+
+            var cut = _ctx.Render<Library>();
+            cut.WaitForAssertion(() => Assert.That(cut.Markup, Does.Contain(oldArchive)));
+
+            cut.FindAll(".archive-default-row button")
+                .First(b => b.TextContent.Trim() == "Edit").Click();
+            cut.Find("input[placeholder='/archive-opus']").Change("");
+            cut.FindAll("button").First(b => b.TextContent.Trim() == "Save destination").Click();
+
+            cut.WaitForAssertion(() =>
+            {
+                using var db = _factory.CreateDbContext();
+                Assert.That(db.ScanLocations.Any(location => location.Path == oldArchive), Is.False,
+                    "a cleared archive root stops being scanned as music");
+            }, TimeSpan.FromSeconds(5));
+        }
+        finally
+        {
+            try { Directory.Delete(oldArchive, recursive: true); } catch { /* best effort */ }
+        }
+    }
+
 }

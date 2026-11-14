@@ -89,7 +89,7 @@
     border: 1px solid var(--border);
     border-radius: 999px;
     color: var(--muted-2);
-    font-size: .6rem;
+    font-size: .68rem;
     font-weight: 700;
     letter-spacing: .04em;
     text-transform: uppercase;
@@ -106,7 +106,7 @@
     border: 1px solid var(--border);
     border-radius: 999px;
     color: var(--muted-2);
-    font-size: .6rem;
+    font-size: .68rem;
     font-weight: 700;
     letter-spacing: .04em;
     text-transform: uppercase;
@@ -187,7 +187,7 @@
 .search-target-data { color: var(--muted-2); }
 .search-target-off {
     color: var(--warning);
-    font-size: .66rem;
+    font-size: .68rem;
     font-weight: 700;
     text-transform: uppercase;
 }
@@ -197,7 +197,7 @@
     border: 1px solid var(--accent);
     border-radius: 999px;
     color: var(--accent-text);
-    font-size: .6rem;
+    font-size: .68rem;
     font-weight: 700;
     letter-spacing: .04em;
     text-transform: uppercase;
@@ -257,7 +257,7 @@
     border-radius: 999px;
     background: var(--warning-soft);
     color: var(--warning);
-    font-size: .62rem;
+    font-size: .68rem;
     font-weight: 700;
     text-transform: uppercase;
     vertical-align: .05rem;

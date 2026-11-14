@@ -57,21 +57,20 @@ public class SettingsPageTests
     }
 
     [Test]
-    public void PathsTab_ShowsTheDefaultArchiveAsAProfile()
+    public void PathsTab_HandsEveryArchiveSettingToTheLibrary()
     {
         var cut = _ctx.Render<Settings>();
         cut.Find("button[data-tab='paths']").Click();
 
         cut.WaitForAssertion(() =>
         {
-            var row = cut.Find(".archive-profile-row.default");
-            Assert.That(row.TextContent, Does.Contain("Default archive"));
-            Assert.That(row.TextContent, Does.Contain("default"));
-            Assert.That(row.TextContent, Does.Contain("No archive copy configured"));
+            Assert.That(cut.Markup, Does.Contain("href=\"/library\""),
+                "the archive section points at the page that owns it now");
+            Assert.That(cut.FindAll(".archive-profile-row"), Is.Empty,
+                "no archive field is left on Settings");
+            Assert.That(cut.FindAll("input[placeholder='/archive-music']"), Is.Empty,
+                "the default archive path moved with the rest");
         }, TimeSpan.FromSeconds(3));
-
-        cut.Find(".archive-profile-row.default button").Click();
-        cut.WaitForAssertion(() => Assert.That(cut.Markup, Does.Contain("Default archive path")));
     }
 
     [Test]
@@ -111,35 +110,6 @@ public class SettingsPageTests
             Assert.That(db.DownloaderSettings
                     .Single(s => s.Key == "ui_mode").Value,
                 Is.EqualTo("simple"));
-        }, TimeSpan.FromSeconds(3));
-    }
-
-    [Test]
-    public async Task PathsTab_CustomArchiveContainer_Saves()
-    {
-        var cut = _ctx.Render<Settings>();
-        await cut.InvokeAsync(() => cut.Find("button[data-tab='paths']").Click());
-        cut.Find(".archive-profile-row.default button").Click();
-        cut.WaitForAssertion(() =>
-            Assert.That(cut.Markup, Does.Contain("Default archive format")));
-
-        cut.FindAll("select")
-            .Single(select => select.TextContent.Contains("Custom container"))
-            .Change("custom");
-        cut.WaitForAssertion(() =>
-            Assert.That(cut.Markup, Does.Contain("Custom archive container")));
-        cut.Find("input[placeholder='ogg']").Change("ogg");
-        await cut.InvokeAsync(() =>
-            cut.FindAll("button").Single(b => b.TextContent.Trim() == "Save settings").Click());
-
-        cut.WaitForAssertion(() =>
-        {
-            using var db = _ctx.Services
-                .GetRequiredService<IDbContextFactory<MelodyBridgeDbContext>>()
-                .CreateDbContext();
-            Assert.That(db.DownloaderSettings
-                    .Single(s => s.Key == "archive_format").Value,
-                Is.EqualTo("ogg"));
         }, TimeSpan.FromSeconds(3));
     }
 
@@ -269,40 +239,6 @@ public class SettingsPageTests
             Assert.That(cut.Markup, Does.Contain("Music path"));
             Assert.That(cut.Markup, Does.Contain("Playlist output folder"));
         }, TimeSpan.FromSeconds(3));
-    }
-
-    [Test]
-    public void Settings_ArchiveProfiles_SaveAndDelete()
-    {
-        var folder = Path.Combine(Path.GetTempPath(), $"mb-archive-{Guid.NewGuid():N}");
-        var cut = _ctx.Render<Settings>();
-        cut.FindAll("button.tab-link").First(b => b.TextContent == "Default paths").Click();
-
-        cut.WaitForAssertion(() =>
-            Assert.That(cut.Markup, Does.Contain("Archive profiles")), TimeSpan.FromSeconds(3));
-        cut.FindAll("button").First(b => b.TextContent.Contains("Add profile")).Click();
-
-        cut.WaitForAssertion(() =>
-            Assert.That(cut.Markup, Does.Contain("Add an archive profile")), TimeSpan.FromSeconds(3));
-        var name = cut.FindAll("label").Single(l => l.TextContent.Contains("Profile name")).QuerySelector("input")!;
-        name.Change("Opus copy");
-        var root = cut.FindAll("label").Single(l => l.TextContent.Contains("Folder")).QuerySelector("input")!;
-        root.Change(folder);
-        cut.FindAll("button").First(b => b.TextContent.Contains("Save profile")).Click();
-
-        cut.WaitForAssertion(() =>
-        {
-            Assert.That(cut.Markup, Does.Contain("Opus copy"));
-            Assert.That(cut.Markup, Does.Contain("Opus 128 kbps"));
-        }, TimeSpan.FromSeconds(5));
-
-        cut.FindAll("button").Single(b => b.GetAttribute("aria-label") == "Delete Opus copy").Click();
-        cut.WaitForAssertion(() =>
-            Assert.That(cut.Markup, Does.Contain("Delete Opus copy?")), TimeSpan.FromSeconds(3));
-        cut.FindAll("button").First(b => b.TextContent.Trim() == "Delete profile").Click();
-
-        cut.WaitForAssertion(() =>
-            Assert.That(cut.Markup, Does.Not.Contain("Opus copy")), TimeSpan.FromSeconds(5));
     }
 
     [Test]

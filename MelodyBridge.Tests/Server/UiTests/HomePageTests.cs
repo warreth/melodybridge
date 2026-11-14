@@ -656,8 +656,8 @@ public class HomePageTests
 
         Assert.That(cut.Markup, Does.Contain("No playlists yet"),
             "the playlist panel must explain what to do first");
-        Assert.That(cut.Markup, Does.Contain("No errors"),
-            "a clean log stream must say so instead of an empty hole");
+        Assert.That(cut.Markup, Does.Contain("Nothing waiting"),
+            "a clean database shows the attention tile at zero instead of a warning band");
     }
 
     private sealed class ScriptedDirectory : IMediaServerDirectory

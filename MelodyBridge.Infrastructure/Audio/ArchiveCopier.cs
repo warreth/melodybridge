@@ -52,6 +52,54 @@ public static class ArchiveCopier
     /// </summary>
     public sealed record ArchiveFormatSpec(string Container, string? Codec, int? BitrateKbps);
 
+    /// <summary>
+    /// A short human label for a stored archive format: what a profile row
+    /// shows. One wording for every page that lists formats.
+    /// </summary>
+    public static string DescribeFormat(string? format)
+    {
+        var spec = ParseFormat(format);
+        return spec.Container switch
+        {
+            "auto" => "Auto (same file)",
+            "flac" => "FLAC lossless",
+            // The container names are acronyms: Opus is a word, the rest
+            // are spelled in capitals.
+            "opus" => $"Opus {spec.BitrateKbps ?? DefaultBitrateKbps(spec.Container)} kbps",
+            "mp3" or "aac" =>
+                $"{spec.Container.ToUpperInvariant()} "
+                + $"{spec.BitrateKbps ?? DefaultBitrateKbps(spec.Container)} kbps",
+            _ => spec.Container
+                + (spec.Codec is { Length: > 0 } ? " / " + spec.Codec : "")
+                + (spec.BitrateKbps is { } rate ? $" / {rate} kbps" : ""),
+        };
+    }
+
+    /// <summary>The bitrate a container uses when a format names none.</summary>
+    public static int DefaultBitrateKbps(string container) => container switch
+    {
+        "opus" => 128,
+        "mp3" => 256,
+        "aac" => 192,
+        _ => 128,
+    };
+
+    /// <summary>The format options the editor offers, as value and label.</summary>
+    public static readonly (string Value, string Label)[] FormatOptions =
+    [
+        ("auto", "Auto: copy the downloaded file as-is"),
+        ("opus", "Opus: small and efficient (128k)"),
+        ("opus:192", "Opus: higher quality (192k)"),
+        ("flac", "FLAC: lossless (level 5)"),
+        ("mp3", "MP3: widely compatible (256k)"),
+        ("mp3:128", "MP3: compact (128k)"),
+        ("mp3:160", "MP3: balanced (160k)"),
+        ("mp3:320", "MP3: high quality (320k)"),
+        ("aac", "AAC: small and modern (192k)"),
+        ("aac:256", "AAC: higher quality (256k)"),
+        ("custom", "Custom container..."),
+    ];
+
     public static ArchiveFormatSpec ParseFormat(string? format)
     {
         var normalized = NormalizeFormat(format);

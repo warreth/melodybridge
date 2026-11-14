@@ -131,11 +131,11 @@ public class SyncJobsReviewUiTests
         var cut = OpenEditorWithPlaylistSource();
         cut.Find("input[placeholder='e.g. My Summer Hits']").Input("My Summer Hits");
 
-        var path = cut.FindAll("input[readonly]")
-            .First(i => i.GetAttribute("value")?.EndsWith(".m3u8") == true);
         Assert.Multiple(() =>
         {
-            Assert.That(path.GetAttribute("value"), Does.EndWith("My Summer Hits.m3u8"));
+            Assert.That(cut.Find(".job-quick-modal").TextContent,
+                Does.Contain("My Summer Hits.m3u8"),
+                "the ticked M3U profile shows the file it writes");
             Assert.That(cut.Markup, Does.Not.Contain("Windows line endings (CRLF)"),
                 "the profile owns the text format; the job editor does not repeat it");
         });
@@ -161,7 +161,8 @@ public class SyncJobsReviewUiTests
     public void CarPreset_IsSavedOnThePublishProfile()
     {
         var cut = OpenEditorWithPlaylistSource();
-        cut.FindAll("button").First(b => b.TextContent.Trim() == "Edit rules").Click();
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "New publish profile").Click();
+        cut.Find("input[placeholder='Living room Jellyfin']").Change("Car profile");
         cut.FindAll("select")
             .Single(s => s.TextContent.Contains("Widest compatibility"))
             .Change("car");
@@ -172,7 +173,7 @@ public class SyncJobsReviewUiTests
         cut.WaitForAssertion(() =>
         {
             using var db = _dbFactory.CreateDbContext();
-            var profile = db.SyncRuleProfiles.Single(p => p.Kind == "M3uFile");
+            var profile = db.SyncRuleProfiles.Single(p => p.Name == "Car profile");
             Assert.Multiple(() =>
             {
                 Assert.That(profile.M3uCrlf, Is.True);
@@ -213,9 +214,55 @@ public class SyncJobsReviewUiTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(cut.Markup, Does.Contain("legacy target"));
-            Assert.That(cut.Markup, Does.Contain("Choose a profile"));
+            Assert.That(cut.Markup, Does.Contain("From an older version"));
+            Assert.That(cut.Markup, Does.Contain("(legacy)"));
             Assert.That(cut.Markup, Does.Contain("Convert to a profile"));
+        });
+    }
+
+    [Test]
+    public void EditingLegacyJob_KeepsItsPathAndExtensionRules()
+    {
+        var paths = System.Text.Json.JsonSerializer.Serialize(
+            new Dictionary<string, string> { ["/music"] = "/media/music" });
+        var exts = System.Text.Json.JsonSerializer.Serialize(
+            new Dictionary<string, string> { [".flac"] = ".mp3" });
+        using (var db = _dbFactory.CreateDbContext())
+        {
+            db.Playlists.Add(new PlaylistEntity
+            {
+                Id = "p1",
+                Name = "Legacy rules",
+                SourceUrl = "stub:p1",
+            });
+            db.SyncJobs.Add(new SyncJobEntity
+            {
+                Id = "job-legacy-rules",
+                Name = "Legacy rules",
+                SourceId = "p1",
+                SearchLocationPaths = "[]",
+                OutputTarget = "M3uFile",
+                M3uOutputPath = "/out/old.m3u",
+                PathRemapRules = paths,
+                ExtensionRemapRules = exts,
+                Schedule = "Manual",
+            });
+            db.SaveChanges();
+        }
+
+        var cut = _ctx.Render<SyncJobs>();
+        cut.Find("button.card-menu-trigger").Click();
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Edit").Click();
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Save changes").Click();
+
+        using var db2 = _dbFactory.CreateDbContext();
+        var saved = db2.SyncJobs.AsNoTracking().Single(j => j.Id == "job-legacy-rules");
+        Assert.Multiple(() =>
+        {
+            Assert.That(saved.PathRemapRules, Does.Contain("/media/music"),
+                "a surviving legacy target keeps the job's path rules");
+            Assert.That(saved.ExtensionRemapRules, Does.Contain(".mp3"),
+                "and its extension rules");
         });
     }
 

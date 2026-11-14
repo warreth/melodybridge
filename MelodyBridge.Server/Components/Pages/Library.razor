@@ -1,6 +1,10 @@
 @page "/library"
+@using MelodyBridge.Infrastructure.Audio
+@using MelodyBridge.Server.Components.Library
 @inject IDbContextFactory<MelodyBridgeDbContext> DbFactory
 @inject ILibraryScanner Scanner
+@inject SettingsStore Settings
+@inject LibraryPathMover PathMover
 @inject NotificationService Notifications
 @implements IDisposable
 
@@ -13,34 +17,62 @@
             <h1>Library</h1>
             <HelpTip Path="concepts#track-identity" Text="The scanner reads tags, not filenames, and matches files to playlist tracks by their MELODY_ID tag." />
         </div>
-        <p>Point this at the folders that already hold your music. MelodyBridge
-            matches files to playlist tracks by their MELODY_ID tag, so music you
-            already have is not downloaded again. Download folders are added
-            automatically.</p>
+        <p>Folders that hold your music, and the archive copies written beside them.
+            Matching runs on the <code>MELODY_ID</code> tag, so a file you already have is never
+            downloaded twice.</p>
     </div>
     <div class="topbar-actions">
         <button class="btn-modern primary" @onclick="RunScan" disabled="@scanning">
             <Icon Name="refresh" Size="16" />
             @(scanning ? "Scanning..." : "Run scan")
         </button>
-        <button class="btn-modern secondary" @onclick="ShowAddLocation"><Icon Name="plus" Size="16" /> Add location</button>
+        <button class="btn-modern secondary" @onclick="ShowAddLocation">
+            <Icon Name="plus" Size="16" /> Add music folder
+        </button>
     </div>
 </section>
 
-<section class="stat-grid">
-    <StatCard IconName="library" Label="Library files" Value="@footprint.Files.ToString()"
-              Caption="Files with a MELODY_ID tag" />
-    <StatCard IconName="hard-drive" Label="Library size" Value="@SizeText(footprint.Bytes)"
-              Caption="@(measuring ? "Measuring the files without a size" : "Main files and archive copies")" />
-    <StatCard IconName="archive" Label="Archive copies" Value="@footprint.ArchiveFiles.ToString()"
-              Caption="@($"{SizeText(footprint.ArchiveBytes)} in extra copies")" />
-    <StatCard IconName="folder" Label="Scan folders" Value="@locations.Count.ToString()"
-              Caption="@ArchiveLocationsCaption" />
+<section class="lib-summary" aria-label="Library totals">
+    <div class="lib-figure" data-figure="files">
+        <strong>@view.FileCount</strong>
+        <span>@(view.FileCount == 1 ? "file" : "files") with a MELODY_ID tag</span>
+    </div>
+    <div class="lib-figure" data-figure="size">
+        <strong>@view.SizeText</strong>
+        <span>in the library</span>
+    </div>
+    <div class="lib-figure" data-figure="archive">
+        <strong>@view.ArchiveFiles</strong>
+        <span>@(view.ArchiveFiles == 1 ? "archive copy" : "archive copies"), @view.ArchiveSizeText</span>
+    </div>
+    <div class="lib-figure" data-figure="folders">
+        <strong>@view.MusicFolderCount</strong>
+        <span>
+            @(view.MusicFolderCount == 1 ? "music folder" : "music folders")@(view.ArchiveLocationCount > 0
+                ? $", {view.ArchiveLocationCount} archive folder{(view.ArchiveLocationCount == 1 ? "" : "s")}"
+                : "")
+        </span>
+    </div>
+    <span class="lib-summary-note">
+        @(view.Measuring ? "Measuring files…" : $"Last scan {view.LastScanText}")
+    </span>
 </section>
+
+@if (view.MissingCount > 0)
+{
+    <p class="lib-alert">
+        <Icon Name="alert" Size="15" />
+        <span>
+            @(view.MissingCount == 1 ? "1 folder is" : $"{view.MissingCount} folders are")
+            not on disk, so a scan skips @(view.MissingCount == 1 ? "it" : "them").
+            Fix the path, or remove the folder to clear the warning.
+        </span>
+    </p>
+}
 
 @if (scanResult != null)
 {
-    <section class="panel-card">
+    <section class="panel-card lib-result">
         <div class="panel-header">
             <div>
                 <span class="eyebrow">Last scan</span>
@@ -52,34 +84,214 @@
     </section>
 }
 
-<section class="content-grid two">
-    <div class="settings-card">
-        <div class="settings-head">
-            <div>
-                <span class="eyebrow">Folders</span>
-                <h2>Music folders (@locations.Count)</h2>
-            </div>
+@if (Backfill.IsRunning || Backfill.Progress.Total > 0)
+{
+    <div class="lib-backfill" aria-live="polite">
+        <span class="spinner"></span>
+        <div class="lib-backfill-copy">
+            <strong>@(Backfill.IsRunning ? "Building archive copies" : "Last archive pass")</strong>
+            <small>@BackfillSummary</small>
         </div>
-        @if (locations.Count == 0)
+        <div class="progress-track" aria-hidden="true">
+            <span style="width:@BackfillPercent%"></span>
+        </div>
+        @if (Backfill.IsRunning)
         {
-            <EmptyState IconName="folder" Title="No scan locations">No scan locations configured. Add one to start scanning.</EmptyState>
+            <button class="btn-modern small ghost" @onclick="Backfill.Stop">Stop</button>
         }
-        <div class="path-list">
-            @foreach (var loc in locations)
-            {
-                <LibraryLocationCard Location="loc"
-                                     FileCount="@FileCount(loc)"
-                                     PathMissing="@(existence.TryGetValue(loc.Id, out var ok) ? !ok : (bool?)null)"
-                                     FolderSize="@FolderSizeText(loc)"
-
-                                     IsArchive="@IsArchivePath(loc)"
-                                     Schedule="@LocationSchedule.Of(loc)"
-                                     OnEdit="ShowEditLocation"
-                                     OnRemove="AskRemoveLocation" />
-            }
-        </div>
     </div>
-    <LibraryIdentityPanel />
+}
+
+<section class="panel-card lib-section" data-section="folders">
+    <div class="lib-section-head">
+        <div>
+            <h2>Music folders <span class="lib-count">@view.Folders.Count</span></h2>
+            <p>Scanned for tagged files. A download adds its own folder here, so this list grows on its own.</p>
+        </div>
+        <button class="btn-modern ghost small" @onclick="ShowAddLocation">
+            <Icon Name="plus" Size="14" /> Add folder
+        </button>
+    </div>
+
+    @if (view.Folders.Count == 0)
+    {
+        <EmptyState IconName="folder" Title="No music folders yet">
+            Add the folder that already holds your music. Download folders appear here by themselves.
+        </EmptyState>
+    }
+    else
+    {
+        <ul class="lib-list">
+            @foreach (var folder in view.Folders)
+            {
+                <li class="lib-row location-card">
+                    <span class="lib-row-icon @(folder.Missing ? "bad" : null)">
+                        <Icon Name="@(folder.Missing ? "alert" : "folder")" Size="16" />
+                    </span>
+                    <div class="lib-row-main">
+                        <code class="lib-row-path library-row-path">@folder.Path</code>
+                        <small>
+                            @folder.Files @(folder.Files == 1 ? "file" : "files")
+                            <span aria-hidden="true">·</span>
+                            @folder.Size
+                            <span aria-hidden="true">·</span>
+                            @folder.Schedule
+                            <span aria-hidden="true">·</span>
+                            last scan @folder.LastScan
+                        </small>
+                    </div>
+                    <div class="lib-row-side">
+                        <span class="lib-row-state">
+                            @if (folder.Missing)
+                            {
+                                <StatusPill Variant="err">not on disk</StatusPill>
+                            }
+                            @if (folder.Live)
+                            {
+                                <StatusPill Variant="neutral">live</StatusPill>
+                            }
+                        </span>
+                        <div class="lib-row-actions">
+                            <button class="btn-modern ghost small" @onclick="() => ShowEditFolder(folder)">Edit</button>
+                            <button class="btn-modern ghost small" @onclick="() => AskRemoveFolder(folder)">Remove</button>
+                        </div>
+                    </div>
+                </li>
+            }
+        </ul>
+        <p class="lib-hint">
+            Removing a folder stops scanning and watching it. The files on disk are never deleted.
+        </p>
+    }
+</section>
+
+<section class="panel-card lib-section" data-section="archive">
+    <div class="lib-section-head">
+        <div>
+            <h2>Archive copies <span class="lib-count">@view.Destinations.Count</span></h2>
+            <p>
+                A second copy of a track in another format, made on this machine.
+                Each destination costs disk space and ffmpeg time, never another download.
+            </p>
+        </div>
+        <button class="btn-modern ghost small" @onclick="() => OpenDestinationEditor(null)">
+            <Icon Name="plus" Size="14" /> Add destination
+        </button>
+    </div>
+
+    @if (view.Destinations.Count == 0 && view.LooseArchives.Count == 0)
+    {
+        <EmptyState IconName="archive" Title="No archive destinations yet">
+            Add one for a second format, for example Opus 128 next to the downloaded file.
+        </EmptyState>
+    }
+    else
+    {
+        <ul class="lib-list">
+            @foreach (var destination in view.Destinations)
+            {
+                <li class="lib-row @(destination.IsDefault ? "archive-default-row" : "archive-card")">
+                    <span class="lib-row-icon archive @(destination.Missing ? "bad" : null)">
+                        <Icon Name="archive" Size="16" />
+                    </span>
+                    <div class="lib-row-main">
+                        <span class="lib-row-title">@destination.Name</span>
+                        <code class="lib-row-path library-row-path">@destination.Path</code>
+                        <small>
+                            @destination.Format
+                            <span aria-hidden="true">·</span>
+                            @destination.Copies
+                            @if (destination.SizeOnDisk is { Length: > 0 } size && destination.Copies != "no copies yet")
+                            {
+                                <span aria-hidden="true">·</span>
+                                @size
+                            }
+                        </small>
+                    </div>
+                    <div class="lib-row-side">
+                        <span class="lib-row-state">
+                            @if (destination.Missing)
+                            {
+                                <StatusPill Variant="err">not on disk</StatusPill>
+                            }
+                        </span>
+                        <span class="lib-row-switch">
+                            @if (!destination.IsDefault)
+                            {
+                                <label class="toggle-switch" title="Create copies for @destination.Name">
+                                    <input type="checkbox" checked="@destination.Enabled"
+                                           aria-label="Enable @destination.Name"
+                                           @onchange="e => ToggleDestinationAsync(destination, e.Value is true)" />
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            }
+                        </span>
+                        <div class="lib-row-actions">
+                            <button class="btn-modern ghost small" @onclick="() => OpenDestinationEditor(destination)">
+                                Edit
+                            </button>
+                            @* The slot stays whether or not the row can be deleted,
+                               so Edit sits on one line down the whole list. *@
+                            <span class="lib-row-trash">
+                                @if (!destination.IsDefault)
+                                {
+                                    <button class="icon-button" title="Delete @destination.Name"
+                                            aria-label="Delete @destination.Name"
+                                            @onclick="() => pendingDestinationDelete = destination">
+                                        <Icon Name="trash" Size="15" />
+                                    </button>
+                                }
+                            </span>
+                        </div>
+                    </div>
+                </li>
+            }
+        </ul>
+
+        @if (view.LooseArchives.Count > 0)
+        {
+            <div class="lib-loose">
+                <h3>Other archive folders</h3>
+                <p>
+                    Copies that no destination above writes, for example a playlist's own
+                    archive folder. The scanner reads their tags but never treats a file
+                    there as a track's main file.
+                </p>
+                <ul class="lib-list">
+                    @foreach (var loose in view.LooseArchives)
+                    {
+                        <li class="lib-row">
+                            <span class="lib-row-icon archive @(loose.Missing ? "bad" : null)">
+                                <Icon Name="archive" Size="16" />
+                            </span>
+                            <div class="lib-row-main">
+                                <code class="lib-row-path library-row-path">@loose.Path</code>
+                                <small>
+                                    @loose.Files @(loose.Files == 1 ? "file" : "files")
+                                    <span aria-hidden="true">·</span>
+                                    @loose.Size
+                                    <span aria-hidden="true">·</span>
+                                    @loose.Owner
+                                </small>
+                            </div>
+                            <div class="lib-row-side">
+                                <span class="lib-row-state">
+                                    @if (loose.Missing)
+                                    {
+                                        <StatusPill Variant="err">not on disk</StatusPill>
+                                    }
+                                </span>
+                                <div class="lib-row-actions">
+                                    <button class="btn-modern ghost small" @onclick="() => ShowEditLooseArchive(loose)">Edit</button>
+                                    <button class="btn-modern ghost small" @onclick="() => AskRemoveLooseArchive(loose)">Remove</button>
+                                </div>
+                            </div>
+                        </li>
+                    }
+                </ul>
+            </div>
+        }
+    }
 </section>
 
 @if (showForm)
@@ -87,9 +299,9 @@
     <div class="wizard-overlay" @onclick="CloseForm">
         <div class="wizard-modal narrow" @onclick:stopPropagation="true">
             <div class="wizard-header">
-                <span class="eyebrow">@(editingId is null ? "New location" : $"Editing: {newPath}")</span>
+                <span class="eyebrow">@(editingId is null ? "New folder" : $"Editing: {newPath}")</span>
                 <h2>@(editingId is null ? "Add scan location" : "Edit scan location")</h2>
-                <button class="icon-button" title="Close" @onclick="CloseForm"><Icon Name="x" Size="18" /></button>
+                <button class="icon-button" aria-label="Close" title="Close" @onclick="CloseForm"><Icon Name="x" Size="18" /></button>
             </div>
             <div class="wizard-body">
                 <div class="form-grid single">
@@ -118,7 +330,7 @@
             <div class="wizard-footer">
                 <button class="btn-modern secondary" @onclick="CloseForm">Cancel</button>
                 <button class="btn-modern primary" @onclick="SaveLocation">
-                    @(editingId is null ? "Add location" : "Save changes")
+                    @(editingId is null ? "Add music folder" : "Save changes")
                 </button>
             </div>
         </div>
@@ -136,50 +348,189 @@
                    OnCancel="CancelRemoveLocation" />
 }
 
+@if (destinationEditorOpen)
+{
+    <div class="wizard-overlay" @onclick="CloseDestinationEditor">
+        <div class="wizard-modal narrow" role="dialog" aria-modal="true"
+             aria-label="Archive destination" @onclick:stopPropagation="true">
+            <div class="wizard-header">
+                <div>
+                    <span class="eyebrow">Archive copy</span>
+                    <h2>@DestinationDialogTitle</h2>
+                </div>
+                <button class="icon-button" title="Close" aria-label="Close"
+                        @onclick="CloseDestinationEditor"><Icon Name="x" Size="16" /></button>
+            </div>
+            <div class="wizard-body">
+                <div class="form-grid single">
+                    @if (!editingDefaultArchive)
+                    {
+                        <label>
+                            Name
+                            <input @bind="destinationName" placeholder="Opus copy" />
+                            <small class="text-muted">Shown wherever a playlist picks its archive destinations.</small>
+                        </label>
+                    }
+                    <label>
+                        Folder
+                        <span class="path-field">
+                            <input @bind="destinationFolder" placeholder="/archive-opus" />
+                            <FolderBrowseButton Value="@destinationFolder"
+                                                ValueChanged="@(v => destinationFolder = v)"
+                                                Label="the archive folder" />
+                        </span>
+                        @if (editingDefaultArchive)
+                        {
+                            <small class="text-muted">
+                                Leave empty for no default copy. Changing it moves the copies
+                                already written here.
+                            </small>
+                        }
+                    </label>
+                    <label>
+                        Format
+                        <select @bind="destinationContainer">
+                            <option value="auto">Auto: keep the downloaded file as-is</option>
+                            <option value="opus">Opus</option>
+                            <option value="flac">FLAC (lossless)</option>
+                            <option value="mp3">MP3</option>
+                            <option value="aac">AAC (lands as .m4a)</option>
+                            <option value="custom">Another container...</option>
+                        </select>
+                    </label>
+                    @if (destinationContainer is "opus" or "mp3" or "aac" or "custom")
+                    {
+                        <label>
+                            Bitrate
+                            <select @bind="destinationBitrate">
+                                @foreach (var rate in new[] { "96", "128", "160", "192", "256", "320" })
+                                {
+                                    <option value="@rate">@rate kbps</option>
+                                }
+                            </select>
+                        </label>
+                    }
+                    @if (destinationContainer == "custom")
+                    {
+                        <label>
+                            Container
+                            <input @bind="destinationCustomContainer" placeholder="m4a" />
+                        </label>
+                        <label>
+                            Codec (optional)
+                            <input @bind="destinationCodec" placeholder="alac" />
+                            <small class="text-muted">
+                                Empty lets ffmpeg pick the container default, for example
+                                <code>m4a</code> with <code>alac</code>.
+                            </small>
+                        </label>
+                    }
+                </div>
+                <div class="hint-box">@DestinationDraftSummary</div>
+                @if (destinationError is { Length: > 0 })
+                {
+                    <div class="result-box error">@destinationError</div>
+                }
+            </div>
+            <div class="wizard-footer">
+                @if (!editingDefaultArchive && editingDestination is not null)
+                {
+                    <button class="btn-modern ghost" @onclick="BuildMissingFromEditorAsync"
+                            disabled="@Backfill.IsRunning">
+                        Build missing
+                    </button>
+                }
+                <span class="wizard-footer-spacer"></span>
+                <button class="btn-modern secondary" @onclick="CloseDestinationEditor">Cancel</button>
+                <button class="btn-modern primary" @onclick="SaveDestinationAsync" disabled="@savingDestination">
+                    @(savingDestination ? "Saving..." : "Save destination")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (pendingDestinationDelete is { } doomedDestination)
+{
+    <ConfirmDialog Show="true"
+                   Eyebrow="Archive destination"
+                   Title=@($"Delete {doomedDestination.Name}?")
+                   Message="Copy records for this destination are removed and it stops creating new copies. Files already on disk stay where they are."
+                   ConfirmLabel="Delete destination"
+                   OnConfirm="DeleteDestinationAsync"
+                   OnCancel="CancelDestinationDelete" />
+}
+
 @code {
+    [Inject] private ArchiveProfileStore ArchiveProfiles { get; set; } = default!;
+    [Inject] private ArchiveBackfillService Backfill { get; set; } = default!;
+
     private List<ScanLocationEntity> locations = new();
-    /// <summary>Archive roots (global plus per playlist) for the folder badge.</summary>
     private List<string> archiveRoots = new();
-    /// <summary>Files and bytes per scan location, current files plus archive copies.</summary>
+    private Dictionary<string, string> archiveOwners = new(StringComparer.OrdinalIgnoreCase);
     private Dictionary<int, LocationFootprint> footprints = new();
-    private LibraryFootprint footprint = new(0, 0, 0, 0);
+    private Dictionary<string, int> copyCounts = new(StringComparer.Ordinal);
+    private LibraryViewData view = new();
+
     private bool scanning;
     private string? scanResult;
     private bool scanResultOk;
     private bool showForm;
-    private int? editingId; // null = add, otherwise the row being edited
+    private int? editingId;
     private string newPath = "";
     private ScanSchedule newSchedule = ScanSchedule.Manual;
     private bool liveMonitoring = true;
     private string? formError;
+    private string defaultArchivePath = "";
+    private string defaultArchiveFormat = "auto";
+    private readonly List<(string Key, long Bytes)> files = new();
+    private bool measuring;
+    private bool disposed;
+    private List<ArchiveProfileEntity> loadedProfiles = new();
 
-    protected override async Task OnInitializedAsync() => await LoadDataAsync();
+    /// <summary>Folders that hold tracks: everything outside an archive root.</summary>
+    private List<ScanLocationEntity> MusicLocations
+        => locations.Where(loc => !IsArchivePath(loc)).ToList();
+
+    private List<ScanLocationEntity> ArchiveLocations
+        => locations.Where(IsArchivePath).ToList();
+
+    /// <summary>Archive folders no destination already names.</summary>
+    private List<ScanLocationEntity> OtherArchiveLocations
+        => ArchiveLocations.Where(loc => ArchiveOwnerText(loc) == "archive copy").ToList();
+
+    protected override async Task OnInitializedAsync()
+    {
+        Backfill.Changed += OnBackfillChanged;
+        await LoadDataAsync();
+    }
 
     private async Task LoadDataAsync()
     {
         await using var db = await DbFactory.CreateDbContextAsync();
         locations = await db.ScanLocations.ToListAsync();
 
-        // Archive roots mark folders whose files are copies, not tracks.
         var playlistArchiveDirs = await db.Playlists.AsNoTracking()
             .Where(p => p.ArchiveDirectory != null && p.ArchiveDirectory != "")
             .Select(p => p.ArchiveDirectory!)
             .ToListAsync();
-        var globalArchive = await db.DownloaderSettings.AsNoTracking()
-            .Where(s => s.Key == "archive_path")
-            .Select(s => s.Value)
-            .FirstOrDefaultAsync();
+        defaultArchivePath = await Settings.GetAsync("archive_path", "");
+        defaultArchiveFormat = await Settings.GetAsync("archive_format", "auto");
         archiveRoots = playlistArchiveDirs;
-        if (!string.IsNullOrWhiteSpace(globalArchive)) archiveRoots.Add(globalArchive);
-        archiveRoots.AddRange(await db.ArchiveProfiles.AsNoTracking()
+        if (!string.IsNullOrWhiteSpace(defaultArchivePath)) archiveRoots.Add(defaultArchivePath);
+        var profiles = await db.ArchiveProfiles.AsNoTracking().OrderBy(p => p.Name).ToListAsync();
+        loadedProfiles = profiles;
+        archiveRoots.AddRange(profiles
             .Where(profile => profile.RootPath != "")
-            .Select(profile => profile.RootPath)
-            .ToListAsync());
+            .Select(profile => profile.RootPath));
+        archiveOwners = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (!string.IsNullOrWhiteSpace(defaultArchivePath))
+            archiveOwners[defaultArchivePath.TrimEnd('/', '\\')] = "default archive";
+        foreach (var profile in profiles.Where(p => p.RootPath.Length > 0))
+            archiveOwners[profile.RootPath.TrimEnd('/', '\\')] = profile.Name;
+        copyCounts = (await ArchiveProfiles.CopyCountsAsync())
+            .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
 
-        // Files with a MELODY_ID per location: a track belongs to the folder
-        // its current path lives under, and its archive copy belongs to the
-        // archive folder. ArchivePath is a second real file on disk, so it is
-        // counted where it lives instead of being folded into the main row.
         var tracks = await db.Tracks.AsNoTracking()
             .Where(t => t.MelodyId != null
                         && (t.CurrentPath != null || t.ArchivePath != null))
@@ -190,12 +541,6 @@
             .Select(copy => new { copy.TrackId, copy.Path, copy.SizeBytes })
             .ToListAsync();
 
-        // One entry per file path: two rows can share a path (dedup
-        // hardlinks) and must not count twice. The download row knows its
-        // current file size, and the archive copy's size is in the row too:
-        // the app wrote that file, so the page never has to stat it. An
-        // archive copy from before that was known is measured in the
-        // background, once, and the answer is stored.
         var byPath = new Dictionary<string, long?>(StringComparer.OrdinalIgnoreCase);
         var unmeasured = new List<(int TrackId, string Path, bool Archive)>();
         foreach (var track in tracks)
@@ -208,37 +553,21 @@
             }
             if (!string.IsNullOrWhiteSpace(track.ArchivePath))
             {
-                if (track.ArchiveSizeBytes is > 0)
-                {
-                    RememberSize(byPath, track.ArchivePath!, track.ArchiveSizeBytes);
-                }
-                else
-                {
-                    RememberSize(byPath, track.ArchivePath!, null);
+                RememberSize(byPath, track.ArchivePath!, track.ArchiveSizeBytes);
+                if (track.ArchiveSizeBytes is not > 0)
                     unmeasured.Add((track.Id, track.ArchivePath!, Archive: true));
-                }
             }
         }
         foreach (var copy in extraCopies)
         {
-            if (copy.SizeBytes > 0)
-                RememberSize(byPath, copy.Path!, copy.SizeBytes);
-            else
-            {
-                RememberSize(byPath, copy.Path!, null);
+            RememberSize(byPath, copy.Path!, copy.SizeBytes);
+            if (copy.SizeBytes <= 0)
                 unmeasured.Add((copy.TrackId, copy.Path!, Archive: true));
-            }
         }
-        files = byPath
-            .Select(file => (file.Key, Bytes: file.Value ?? 0))
-            .ToList();
-        ApplyFootprint();
+        files.Clear();
+        files.AddRange(byPath.Select(file => (file.Key, Bytes: file.Value ?? 0)));
 
-        // One disk probe per location, once per load: the card's
-        // missing-path verdict is a parameter, not a per-render
-        // File.Exists on the dispatcher. Each render only reads the
-        // dictionary, so a save or a toggle costs no probe at all.
-        existence.Clear();
+        var existence = new Dictionary<int, bool>();
         foreach (var loc in locations)
         {
             var verdict = false;
@@ -246,9 +575,11 @@
             existence[loc.Id] = verdict;
         }
 
-        // Files the database has no size for are measured in the
-        // background: the page shows what it knows right away, and the
-        // answer is stored so the next visit does not measure again.
+        // The footprint must exist before the view reads it: the rows show a
+        // per-folder count, and building the view first would render zeros.
+        ApplyFootprint();
+        view = BuildView(profiles, existence);
+
         if (unmeasured.Count > 0)
         {
             measuring = true;
@@ -256,35 +587,80 @@
         }
     }
 
-    /// <summary>
-    /// Remembers the size of one file. Two rows can point at the same
-    /// file, and a row without a size must not hide the size another row
-    /// knows. A stored zero counts as unknown, same as the caller that
-    /// treats it as unmeasured.
-    /// </summary>
-    private static void RememberSize(
-        Dictionary<string, long?> byPath, string path, long? size)
+    private LibraryViewData BuildView(
+        List<ArchiveProfileEntity> profiles, Dictionary<int, bool> existence)
     {
-        if (byPath.TryGetValue(path, out var known) && known is > 0)
-            return;
-        byPath[path] = size;
+        var folders = MusicLocations.Select(loc => new LibraryFolder(
+            loc.Id,
+            loc.Path ?? "",
+            FileCount(loc),
+            FolderSizeText(loc),
+            ScheduleText(loc),
+            LastScanText(loc),
+            existence.TryGetValue(loc.Id, out var ok) && !ok,
+            loc.LiveMonitoring)).ToList();
+
+        var defaultFacts = FolderFacts(defaultArchivePath);
+        var destinations = new List<LibraryDestination>
+        {
+            new(
+                Id: "default",
+                Name: "Default archive",
+                Path: string.IsNullOrWhiteSpace(defaultArchivePath) ? "Not set up" : defaultArchivePath,
+                Format: FormatText(defaultArchiveFormat),
+                Copies: defaultFacts is { } facts && facts.Files > 0
+                    ? facts.Files == 1 ? "1 copy" : $"{facts.Files} copies"
+                    : "no copies yet",
+                SizeOnDisk: defaultFacts?.Size,
+                Missing: !string.IsNullOrWhiteSpace(defaultArchivePath) && FolderIsMissing(defaultArchivePath),
+                Enabled: !string.IsNullOrWhiteSpace(defaultArchivePath),
+                IsDefault: true,
+                Summary: string.IsNullOrWhiteSpace(defaultArchivePath)
+                    ? "No default copy. Playlists that pick no named destination keep the downloaded file only."
+                    : "Playlists that do not pick a named profile write their copy here."),
+        };
+        destinations.AddRange(profiles.Select(profile => new LibraryDestination(
+            Id: profile.Id,
+            Name: profile.Name,
+            Path: profile.RootPath,
+            Format: FormatText(profile.Format),
+            Copies: CopyCountText(profile),
+            SizeOnDisk: FolderFacts(profile.RootPath)?.Size,
+            Missing: FolderIsMissing(profile.RootPath),
+            Enabled: profile.Enabled,
+            IsDefault: false,
+            Summary: profile.Enabled
+                ? "Playlists that tick this destination get one copy in this format."
+                : "Switched off: existing copies stay, nothing new is written.")));
+
+        var loose = OtherArchiveLocations.Select(loc => new LibraryLooseArchive(
+            loc.Id,
+            loc.Path ?? "",
+            FileCount(loc),
+            FolderSizeText(loc),
+            ArchiveOwnerText(loc),
+            LastScanText(loc),
+            existence.TryGetValue(loc.Id, out var ok) && !ok)).ToList();
+
+        var archiveFiles = files.Where(file => IsArchiveFile(file.Key)).ToList();
+        return new LibraryViewData
+        {
+            Folders = folders,
+            Destinations = destinations,
+            LooseArchives = loose,
+            FileCount = files.Count,
+            Bytes = files.Sum(file => file.Bytes),
+            ArchiveFiles = archiveFiles.Count,
+            ArchiveBytes = archiveFiles.Sum(file => file.Bytes),
+            MusicFolderCount = folders.Count,
+            ArchiveLocationCount = locations.Count(IsArchivePath),
+            LastScanText = PageLastScanText,
+            Measuring = measuring,
+        };
     }
 
-    /// <summary>One file of the library: its path and its size.</summary>
-    private List<(string Key, long Bytes)> files = new();
-
-    /// <summary>True while the page is still measuring files it had no size for.</summary>
-    private bool measuring;
-
-    /// <summary>The summary tiles from the files the page knows.</summary>
     private void ApplyFootprint()
     {
-        var archiveFiles = files.Where(file => IsArchiveFile(file.Key)).ToList();
-        footprint = new LibraryFootprint(
-            files.Count,
-            files.Sum(file => file.Bytes),
-            archiveFiles.Count,
-            archiveFiles.Sum(file => file.Bytes));
         footprints = locations.ToDictionary(
             location => location.Id,
             location =>
@@ -296,11 +672,6 @@
             });
     }
 
-    /// <summary>
-    /// Measures the files the database has no size for, off the render
-    /// path, and stores the answer: the app knows the size of a file it
-    /// wrote, so the next visit does not have to ask the disk again.
-    /// </summary>
     private async Task MeasureMissingSizesAsync(List<(int TrackId, string Path, bool Archive)> unmeasured)
     {
         try
@@ -314,11 +685,6 @@
             if (measured.Count > 0)
             {
                 await using var db = await DbFactory.CreateDbContextAsync();
-                // One statement per file, not per row: rows that share a
-                // path share the answer. The path is part of the condition
-                // because a re-download can move the file while the
-                // measurement runs, and the old size must not land on the
-                // new one.
                 foreach (var group in unmeasured.GroupBy(entry => entry.Path))
                 {
                     if (!measured.TryGetValue(group.Key, out var bytes)) continue;
@@ -333,23 +699,24 @@
                         await db.Tracks.Where(t => ids.Contains(t.Id) && t.CurrentPath == group.Key)
                             .ExecuteUpdateAsync(s => s.SetProperty(t => t.FileSizeBytes, bytes));
                     }
-                    // Named archive profiles store their sizes on the copy
-                    // row, not on the track.
                     await db.TrackArchiveCopies.Where(copy => copy.Path == group.Key)
                         .ExecuteUpdateAsync(s => s.SetProperty(copy => copy.SizeBytes, bytes));
                 }
             }
 
-            await InvokeAsync(() =>
+            await InvokeAsync(async () =>
             {
                 if (disposed) return;
-                files = files
-                    .Select(file => measured.TryGetValue(file.Key, out var bytes)
-                        ? (file.Key, Bytes: bytes)
-                        : file)
-                    .ToList();
-                ApplyFootprint();
+                for (var i = 0; i < files.Count; i++)
+                {
+                    if (measured.TryGetValue(files[i].Key, out var bytes))
+                        files[i] = (files[i].Key, bytes);
+                }
                 measuring = false;
+                ApplyFootprint();
+                await using var db = await DbFactory.CreateDbContextAsync();
+                var profiles = await db.ArchiveProfiles.AsNoTracking().OrderBy(p => p.Name).ToListAsync();
+                view = BuildView(profiles, CurrentExistence());
                 StateHasChanged();
             });
         }
@@ -359,13 +726,24 @@
         }
     }
 
+    private Dictionary<int, bool> CurrentExistence()
+        => locations.ToDictionary(
+            loc => loc.Id,
+            loc =>
+            {
+                try { return Directory.Exists(loc.Path ?? ""); } catch { return false; }
+            });
+
+    private void OnBackfillChanged() => _ = InvokeAsync(StateHasChanged);
+
     private sealed record LocationFootprint(int Files, long Bytes);
 
-    private sealed record LibraryFootprint(int Files, long Bytes, int ArchiveFiles, long ArchiveBytes);
+    private static void RememberSize(Dictionary<string, long?> byPath, string path, long? size)
+    {
+        if (byPath.TryGetValue(path, out var known) && known is > 0) return;
+        byPath[path] = size;
+    }
 
-    /// <summary>Known row size first (downloads and scans store it), otherwise
-    /// one stat for files the database has no size for, archive copies above
-    /// all. A missing file reads as zero, never as an error on the page.</summary>
     private static long FileBytes(string path, long? known)
     {
         if (known is > 0) return known.Value;
@@ -383,9 +761,41 @@
     private static string SizeText(long bytes)
         => TrackDisplay.Size(bytes) is { Length: > 0 } text ? text : "0 B";
 
-    /// <summary>Location id -> the disk verdict, probed once per load.</summary>
-    private readonly Dictionary<int, bool> existence = new();
+    private bool FolderIsMissing(string folder)
+    {
+        if (string.IsNullOrWhiteSpace(folder)) return false;
+        var loc = locations.FirstOrDefault(l =>
+            l.Path is { Length: > 0 } path
+            && string.Equals(path.TrimEnd('/', '\\'), folder.TrimEnd('/', '\\'),
+                StringComparison.OrdinalIgnoreCase));
+        return loc is not null && !Directory.Exists(loc.Path ?? "");
+    }
 
+    private (int Files, string Size)? FolderFacts(string folder)
+    {
+        if (string.IsNullOrWhiteSpace(folder)) return null;
+        var loc = locations.FirstOrDefault(l =>
+            l.Path is { Length: > 0 } path
+            && string.Equals(path.TrimEnd('/', '\\'), folder.TrimEnd('/', '\\'),
+                StringComparison.OrdinalIgnoreCase));
+        if (loc is null) return null;
+        return (FileCount(loc), FolderSizeText(loc));
+    }
+
+    private string ArchiveOwnerText(ScanLocationEntity loc)
+    {
+        if (loc.Path is not { Length: > 0 } path) return "archive copy";
+        return archiveOwners.TryGetValue(path.TrimEnd('/', '\\'), out var owner)
+            ? owner
+            : "archive copy";
+    }
+
+    private static string FormatText(string format) => ArchiveCopier.DescribeFormat(format);
+
+    private string CopyCountText(ArchiveProfileEntity profile)
+        => copyCounts.TryGetValue(profile.Id, out var count)
+            ? count == 1 ? "1 copy" : $"{count} copies"
+            : "no copies yet";
 
     private static bool LocationContains(string locationPath, string filePath)
         => filePath.StartsWith(locationPath, StringComparison.OrdinalIgnoreCase)
@@ -399,21 +809,27 @@
     private string FolderSizeText(ScanLocationEntity loc)
         => footprints.TryGetValue(loc.Id, out var fp) ? SizeText(fp.Bytes) : "0 B";
 
-    private string ArchiveLocationsCaption
+    private string PageLastScanText
+        => locations
+            .Where(loc => loc.LastScannedAt is not null)
+            .OrderByDescending(loc => loc.LastScannedAt)
+            .Select(loc => loc.LastScannedAt!.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm"))
+            .FirstOrDefault() ?? "never";
+
+    private static string LastScanText(ScanLocationEntity loc)
+        => loc.LastScannedAt is { } scanned
+            ? scanned.ToLocalTime().ToString("yyyy-MM-dd HH:mm")
+            : "never";
+
+    private static string ScheduleText(ScanLocationEntity loc)
     {
-        get
-        {
-            var count = locations.Count(IsArchivePath);
-            return count == 1 ? "1 archive folder" : $"{count} archive folders";
-        }
+        var schedule = LocationSchedule.Of(loc);
+        return schedule.Mode == ScanScheduleMode.Manual ? "manual" : schedule.Describe();
     }
 
-    /// <summary>True when a file lives under one of the archive roots.</summary>
     private bool IsArchiveFile(string filePath)
         => archiveRoots.Any(root => LocationContains(root, filePath));
 
-    /// <summary>A scan location inside an archive root: its files are copies,
-    /// never adopted as a track's main file.</summary>
     private bool IsArchivePath(ScanLocationEntity loc)
         => loc.Path is { Length: > 0 } path
            && archiveRoots.Any(root =>
@@ -421,6 +837,259 @@
                || string.Equals(path.TrimEnd('/', '\\'), root.TrimEnd('/', '\\'),
                    StringComparison.OrdinalIgnoreCase));
 
+    // ── Archive destination editor ────────────────────────────────
+    private bool destinationEditorOpen;
+    private ArchiveProfileEntity? editingDestination;
+    private string destinationName = "";
+    private string destinationFolder = "";
+    private string destinationContainer = "opus";
+    private string destinationBitrate = "128";
+    private string destinationCustomContainer = "ogg";
+    private string destinationCodec = "";
+    private string? destinationError;
+    private bool savingDestination;
+    private LibraryDestination? pendingDestinationDelete;
+    private bool editingDefaultArchive;
+
+    private string DestinationDialogTitle
+        => editingDefaultArchive
+            ? "Default archive"
+            : editingDestination is null ? "Add an archive destination" : $"Edit {editingDestination.Name}";
+
+    private string DestinationDraftSummary
+    {
+        get
+        {
+            if (destinationContainer == "auto")
+                return "Auto keeps the downloaded file exactly as it is, with no re-encode.";
+            if (destinationContainer == "flac")
+                return "Lossless FLAC at the source's own sample rate.";
+            var container = destinationContainer == "custom" ? destinationCustomContainer : destinationContainer;
+            return $"{(string.IsNullOrWhiteSpace(container) ? "Custom" : container)} at {destinationBitrate} kbps.";
+        }
+    }
+
+    /// <summary>Opens the editor for a named destination, or a blank one for
+    /// a new destination. The default archive has its own opener because it is
+    /// one folder and one format, not a profile row.</summary>
+    private void OpenDestinationEditor(LibraryDestination? destination)
+    {
+        destinationEditorOpen = true;
+        destinationError = null;
+
+        if (destination is null)
+        {
+            editingDefaultArchive = false;
+            editingDestination = null;
+            destinationName = $"Archive {view.Destinations.Count}";
+            destinationFolder = "";
+            SetDestinationFormat("opus:128");
+            return;
+        }
+
+        if (destination.IsDefault)
+        {
+            OpenDefaultArchiveEditor();
+            return;
+        }
+
+        editingDefaultArchive = false;
+        var profile = loadedProfiles.FirstOrDefault(p => p.Id == destination.Id);
+        editingDestination = new ArchiveProfileEntity
+        {
+            Id = destination.Id,
+            Name = destination.Name,
+            RootPath = destination.Path,
+            Format = profile?.Format ?? "opus:128",
+            Enabled = destination.Enabled,
+        };
+        destinationName = destination.Name;
+        destinationFolder = destination.Path;
+        SetDestinationFormat(profile?.Format ?? "opus:128");
+    }
+
+    private void OpenDefaultArchiveEditor()
+    {
+        destinationEditorOpen = true;
+        destinationError = null;
+        editingDestination = null;
+        editingDefaultArchive = true;
+        destinationName = "Default archive";
+        destinationFolder = defaultArchivePath;
+        SetDestinationFormat(defaultArchiveFormat);
+    }
+
+    private void SetDestinationFormat(string format)
+    {
+        var spec = ArchiveCopier.ParseFormat(format);
+        destinationContainer = spec.Container is "opus" or "mp3" or "aac" or "auto" or "flac"
+            ? spec.Container
+            : "custom";
+        destinationBitrate = (spec.BitrateKbps ?? ArchiveCopier.DefaultBitrateKbps(spec.Container)).ToString();
+        destinationCodec = spec.Codec ?? "";
+        if (destinationContainer == "custom") destinationCustomContainer = spec.Container;
+    }
+
+    private void CloseDestinationEditor()
+    {
+        destinationEditorOpen = false;
+        editingDefaultArchive = false;
+        editingDestination = null;
+        destinationError = null;
+    }
+
+    private async Task SaveDestinationAsync()
+    {
+        destinationError = null;
+        if (!editingDefaultArchive && string.IsNullOrWhiteSpace(destinationName))
+        {
+            destinationError = "Give this destination a name.";
+            return;
+        }
+        // A named destination needs a folder. The default archive may be
+        // cleared: that is how a reader turns it off without deleting a row.
+        if (string.IsNullOrWhiteSpace(destinationFolder) && !editingDefaultArchive)
+        {
+            destinationError = "Choose the folder this copy is written to.";
+            return;
+        }
+
+        savingDestination = true;
+        try
+        {
+            var format = destinationContainer switch
+            {
+                "auto" => "auto",
+                "flac" => "flac",
+                "custom" => ArchiveCopier.NormalizeFormat(
+                    string.IsNullOrWhiteSpace(destinationCodec)
+                        ? destinationCustomContainer
+                        : $"{destinationCustomContainer}:{destinationCodec}:{destinationBitrate}"),
+                _ => ArchiveCopier.NormalizeFormat($"{destinationContainer}:{destinationBitrate}"),
+            };
+
+            if (editingDefaultArchive)
+            {
+                await SaveDefaultArchiveAsync(destinationFolder.Trim(), format);
+                CloseDestinationEditor();
+            }
+            else
+            {
+                var entity = editingDestination ?? new ArchiveProfileEntity
+                {
+                    Id = "",
+                    Enabled = true,
+                };
+                entity.Name = destinationName.Trim();
+                entity.RootPath = destinationFolder.Trim();
+                entity.Format = format;
+                await ArchiveProfiles.SaveAsync(entity);
+                await LoadDataAsync();
+                CloseDestinationEditor();
+            }
+            Notifications.Success(editingDefaultArchive
+                ? "Default archive saved."
+                : "Archive destination saved.");
+        }
+        catch (Exception ex)
+        {
+            destinationError = ex.Message;
+        }
+        finally
+        {
+            savingDestination = false;
+        }
+    }
+
+    /// <summary>
+    /// Saves the default archive and moves its files. The Settings page used
+    /// to own this; the Library owns every archive destination now, so the
+    /// move lives here with the rest.
+    /// </summary>
+    private async Task SaveDefaultArchiveAsync(string folder, string format)
+    {
+        var previous = await Settings.GetAsync("archive_path", "");
+        var musicPath = await Settings.GetAsync("music_path", "/music");
+        await Settings.SetAsync("archive_path", folder);
+        await Settings.SetAsync("archive_format", format);
+        defaultArchivePath = folder;
+        defaultArchiveFormat = format;
+
+        var move = await PathMover.MoveAsync(musicPath, musicPath, previous, folder);
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+        if (folder.Length == 0 && previous.Trim().Length > 0)
+            await ScanLocations.RemoveRootAsync(db, previous);
+        await ScanLocations.EnsureAsync(db, folder);
+        await db.SaveChangesAsync();
+        await LoadDataAsync();
+
+        if (move.FailedFiles > 0)
+        {
+            Notifications.Warn(
+                $"Default archive saved. Moved {move.Files} file(s); {move.FailedFiles} kept their old path because the destination was taken.");
+        }
+        else if (move.ArchiveMoveRefused)
+        {
+            Notifications.Warn(
+                "Default archive saved, but its files were not moved: the new folder sits inside the old one (or the other way around). Pick a folder outside the current one.");
+        }
+        else if (move.MovedAnything)
+        {
+            Notifications.Success($"Default archive saved. Moved {move.Files} file(s).");
+        }
+    }
+
+    /// <summary>Build missing from the editor: the save runs first, so a
+    /// just-changed folder is the one that gets filled.</summary>
+    private async Task BuildMissingFromEditorAsync()
+    {
+        if (editingDestination is null) return;
+        await SaveDestinationAsync();
+        if (destinationError is { Length: > 0 }) return;
+        Backfill.Start(editingDestination.Id,
+            string.IsNullOrWhiteSpace(destinationName) ? "archive destination" : destinationName);
+    }
+
+    private async Task ToggleDestinationAsync(LibraryDestination destination, bool enabled)
+    {
+        await ArchiveProfiles.SetEnabledAsync(destination.Id, enabled);
+        await LoadDataAsync();
+    }
+
+    private async Task DeleteDestinationAsync()
+    {
+        if (pendingDestinationDelete is null) return;
+        await ArchiveProfiles.DeleteAsync(pendingDestinationDelete.Id);
+        pendingDestinationDelete = null;
+        await LoadDataAsync();
+    }
+
+    private void CancelDestinationDelete() => pendingDestinationDelete = null;
+
+    private int BackfillPercent
+    {
+        get
+        {
+            var progress = Backfill.Progress;
+            return progress.Total <= 0 ? 0 : Math.Clamp(100 * progress.Done / progress.Total, 0, 100);
+        }
+    }
+
+    private string BackfillSummary
+    {
+        get
+        {
+            var progress = Backfill.Progress;
+            if (progress.Total <= 0) return progress.Message ?? "Preparing…";
+            var text = $"{progress.Done} of {progress.Total}";
+            if (progress.Failed > 0) text += $", {progress.Failed} need another try";
+            if (!string.IsNullOrWhiteSpace(progress.Current)) text += $" · {progress.Current}";
+            return text;
+        }
+    }
+
+    // ── Scan location actions ─────────────────────────────────────
     private async Task RunScan()
     {
         scanning = true;
@@ -428,7 +1097,6 @@
         try
         {
             var scanLocations = locations.Select(l => new ScanLocation(l.Path ?? "")).ToArray();
-
             if (scanLocations.Length == 0)
             {
                 scanResult = "No scan locations configured.";
@@ -437,8 +1105,6 @@
             }
 
             var report = await Scanner.ScanAsync(scanLocations);
-
-            // Stamp every scanned location so the cards show a real last-scan time.
             await using var db = await DbFactory.CreateDbContextAsync();
             var scannedIds = locations.Select(l => l.Id).ToList();
             foreach (var loc in db.ScanLocations.Where(l => scannedIds.Contains(l.Id)).ToList())
@@ -465,8 +1131,6 @@
     {
         editingId = null;
         showForm = true;
-        // No prefill: the old default was /music, the one path the page
-        // already flags as missing on a host install.
         newPath = "";
         newSchedule = ScanSchedule.Manual;
         liveMonitoring = true;
@@ -483,7 +1147,30 @@
         formError = null;
     }
 
-    // Remove flow: ask first, the files stay.
+    private void ShowEditFolder(LibraryFolder folder)
+    {
+        var loc = locations.FirstOrDefault(l => l.Id == folder.Id);
+        if (loc is not null) ShowEditLocation(loc);
+    }
+
+    private void AskRemoveFolder(LibraryFolder folder)
+    {
+        var loc = locations.FirstOrDefault(l => l.Id == folder.Id);
+        if (loc is not null) AskRemoveLocation(loc);
+    }
+
+    private void ShowEditLooseArchive(LibraryLooseArchive loose)
+    {
+        var loc = locations.FirstOrDefault(l => l.Id == loose.Id);
+        if (loc is not null) ShowEditLocation(loc);
+    }
+
+    private void AskRemoveLooseArchive(LibraryLooseArchive loose)
+    {
+        var loc = locations.FirstOrDefault(l => l.Id == loose.Id);
+        if (loc is not null) AskRemoveLocation(loc);
+    }
+
     private int? removeLocationId;
     private string removeLocationPath = "";
 
@@ -516,9 +1203,6 @@
         }
 
         await using var db = await DbFactory.CreateDbContextAsync();
-
-        // Duplicate check in memory: the location list is tiny, and SQL
-        // string comparison is case-sensitive on some providers.
         var others = await db.ScanLocations.Select(l => new { l.Id, l.Path }).ToListAsync();
         if (others.Any(o => o.Id != editingId
                             && string.Equals(o.Path, path, StringComparison.OrdinalIgnoreCase)))
@@ -544,8 +1228,6 @@
             }
             loc.Path = path;
             loc.ScheduleCron = newSchedule.ToString();
-            // Clear the legacy column so a manual choice is not overridden
-            // by the ScanIntervalHours fallback in LocationSchedule.Of.
             loc.ScanIntervalHours = null;
             loc.LiveMonitoring = liveMonitoring;
             await db.SaveChangesAsync();
@@ -580,9 +1262,9 @@
         await LoadDataAsync();
     }
 
-    /// <summary>True once the page is gone: the background measurement must
-    /// not touch a disposed component.</summary>
-    private bool disposed;
-
-    public void Dispose() => disposed = true;
+    public void Dispose()
+    {
+        disposed = true;
+        Backfill.Changed -= OnBackfillChanged;
+    }
 }

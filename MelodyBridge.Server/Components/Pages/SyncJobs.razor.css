@@ -108,32 +108,6 @@
     padding-left: 1.2rem;
 }
 
-/* One vertical rhythm for every step: the step body is a grid whose gap
-   spaces the form, hint boxes and child editors uniformly. */
-.wizard-step {
-    display: grid;
-    gap: 1.1rem;
-}
-
-/* Step form grids: one column in the narrow modal, two from 640px. */
-.wizard-step .form-grid {
-    display: grid;
-    grid-template-columns: 1fr;
-    gap: 1.1rem;
-}
-
-/* Zero the global .form-grid label margin-bottom: inside these grids it
-   would stack on top of the gap and make row spacing uneven. */
-.wizard-step .form-grid label {
-    margin-bottom: 0;
-}
-
-@media (min-width: 640px) {
-    .wizard-step .form-grid:not(.single) {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-}
-
 /* Step validation message: danger tint, own space under the step body. */
 .wizard-error {
     margin-top: .75rem;
@@ -148,58 +122,18 @@
     gap: .75rem;
 }
 
-/* Target picker: one tappable row card per place a job publishes to. */
-.target-picker { gap: .6rem; }
-.target-lead { margin: 0; color: var(--muted); font-size: .85rem; }
-/* The M3U path and compatibility fields use the same label rhythm as
-   the wizard's form grid, without wrapping them in a second grid. */
+/* A saved target from an older version: one row per destination inside the
+   collapsed "From an older version" block, with its convert action. */
 .target-path {
-    display: grid;
-    gap: .35rem;
-    color: var(--muted);
-    font-size: .82rem;
-    font-weight: 700;
-}
-/* Only the label is bold; the input and select keep normal text. */
-.target-path input,
-.target-path select { font-weight: 400; }
-.target-list { display: grid; gap: .5rem; }
-.target-option {
     display: flex;
-    align-items: flex-start;
-    gap: .7rem;
-    min-width: 0;
-    padding: .65rem .75rem;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    background: var(--surface-2);
-    cursor: pointer;
-}
-.target-option:hover { border-color: var(--border-strong); }
-.target-option.on { border-color: var(--accent-strong); background: var(--accent-soft); }
-.target-option input[type="checkbox"] {
-    flex: 0 0 auto;
-    inline-size: 1.05rem;
-    block-size: 1.05rem;
-    margin: .1rem 0 0;
-    accent-color: var(--accent-strong);
-}
-.target-option-body { flex: 1; display: grid; gap: .1rem; min-width: 0; }
-.target-option-title { display: flex; align-items: center; gap: .4rem; min-width: 0; font-weight: 600; }
-.target-option-note { color: var(--muted); font-size: .82rem; overflow-wrap: anywhere; }
-.target-url { color: var(--muted-2); }
-.target-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
-.target-summary {
-    display: flex;
-    align-items: flex-start;
-    gap: .45rem;
-    padding: .55rem .7rem;
-    border-radius: var(--radius);
-    background: var(--surface-3);
-    color: var(--muted);
+    align-items: center;
+    gap: .5rem;
+    flex-wrap: wrap;
+    padding: .4rem 0;
+    border-bottom: 1px solid var(--border);
     font-size: .85rem;
 }
-.target-summary ::deep .icon { flex: 0 0 auto; margin-top: .15rem; color: var(--accent-strong); }
+.target-path:last-of-type { border-bottom: 0; }
 
 /* ── Jobs and rule profiles tabs ─────────────────────────────── */
 .sync-tabs {
@@ -376,30 +310,6 @@
     .profile-editor-preview { position: static; }
 }
 
-/* Advanced fields stay collapsed for a first setup. */
-.quick-advanced {
-    margin-top: .9rem;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    background: var(--surface-2);
-}
-.quick-advanced > summary {
-    display: flex;
-    align-items: center;
-    gap: .4rem;
-    padding: .65rem .8rem;
-    cursor: pointer;
-    color: var(--muted);
-    font-size: .84rem;
-    font-weight: 600;
-}
-.quick-advanced[open] > summary { border-bottom: 1px solid var(--border); }
-.quick-advanced-body {
-    display: grid;
-    gap: .7rem;
-    padding: .8rem;
-}
-
 /* Card size: the same three steps as the playlist grid, with wider
    minimums because a job card carries targets and a run summary. */
 .sync-job-cards {
@@ -423,3 +333,71 @@
 @media (max-width: 720px) {
     .sync-job-cards { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* The target list: one row per publish profile, M3U and servers alike.
+   Sits in the job editor next to the source and the schedule. */
+.profile-targets { gap: .45rem; }
+.profile-targets .publish-option {
+    display: flex;
+    align-items: flex-start;
+    gap: .55rem;
+    padding: .5rem .6rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+    cursor: pointer;
+}
+.profile-targets .publish-option:hover { border-color: var(--border-strong); }
+.profile-targets .publish-option.on {
+    border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+    background: var(--accent-soft);
+}
+.profile-targets .publish-option input[type="checkbox"] {
+    flex: 0 0 auto;
+    inline-size: 1rem;
+    block-size: 1rem;
+    margin: .2rem 0 0;
+    accent-color: var(--accent-strong);
+}
+.profile-targets .publish-option-body {
+    flex: 1;
+    display: grid;
+    gap: .12rem;
+    min-width: 0;
+}
+.profile-targets .publish-option-body strong { overflow-wrap: anywhere; }
+.profile-targets .publish-option-body small { color: var(--muted); font-weight: 500; }
+.publish-option-note {
+    margin: 0;
+    color: var(--muted);
+    font-size: .78rem;
+    line-height: 1.45;
+}
+.legacy-targets { margin-top: .3rem; }
+.legacy-targets .target-path { margin-top: .35rem; }
+
+/* The job editor's preview column: one bordered block per ticked profile,
+   so two destinations read as two answers, not one long list. */
+.job-preview { align-content: start; }
+.preview-card {
+    display: grid;
+    gap: .35rem;
+    padding: .6rem .7rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface-2);
+}
+.preview-card > strong { font-size: .8rem; }
+.preview-card .rule-preview-list { margin: 0; }
+.job-preview > label { color: var(--muted); font-size: .8rem; font-weight: 700; }
+.job-preview .publish-option-note { margin-top: .1rem; }
+/* Two destinations already fill a column: the editor is a form, not a page. */
+.quick-section .target-detail { color: var(--muted); }
+
+/* The editor's three columns share one height. The preview and the target
+   list fill their section so the modal does not end in three different
+   lengths. */
+.job-quick-modal .job-quick-grid { align-items: stretch; }
+.job-quick-modal .quick-section { align-content: start; }
+.job-quick-modal .job-preview { gap: .5rem; }
+.job-quick-modal .profile-targets { align-content: start; }

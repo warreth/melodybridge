@@ -106,7 +106,7 @@ public class MountWarningTests
     public void Library_AddLocationModal_ShowsTheSharedWarning()
     {
         var cut = _ctx.Render<Library>();
-        cut.FindAll("button").First(b => b.TextContent.Trim() == "Add location").Click();
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "Add music folder").Click();
         cut.Render();
 
         AssertSharedWarning(cut.Markup);

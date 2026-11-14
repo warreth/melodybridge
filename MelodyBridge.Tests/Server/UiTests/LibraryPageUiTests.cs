@@ -62,10 +62,10 @@ public class LibraryPageUiTests
 
         Assert.That(cut.Find("h1").TextContent, Is.EqualTo("Library"),
             "the page keeps its title");
-        Assert.That(cut.Markup, Does.Contain("Point this at the folders"),
+        Assert.That(cut.Find(".page-title p").TextContent, Does.Contain("Folders that hold your music"),
             "the intro explains what the page does now");
-        Assert.That(cut.Markup, Does.Contain("MELODY_ID tag"),
-            "the intro mentions the ID-tag matching");
+        Assert.That(cut.Markup, Does.Contain("MELODY_ID"),
+            "the page mentions the ID tag that drives matching");
     }
 
     [Test]
@@ -75,7 +75,7 @@ public class LibraryPageUiTests
 
         var buttons = cut.FindAll("button").Select(b => b.TextContent.Trim()).ToList();
         Assert.That(buttons, Does.Contain("Run scan"));
-        Assert.That(buttons, Does.Contain("Add location"));
+        Assert.That(buttons, Does.Contain("Add music folder"));
     }
 
     [Test]
@@ -83,34 +83,39 @@ public class LibraryPageUiTests
     {
         var cut = _ctx.Render<Library>();
 
-        Assert.That(cut.Markup, Does.Contain("Music folders (1)"),
-            "the folders panel counts the configured location");
+        Assert.That(cut.Markup, Does.Contain("Music folders"),
+            "the folders panel names its section");
+        Assert.That(cut.FindAll(".location-card").Count, Is.GreaterThan(0),
+            "the configured location is listed");
         Assert.That(cut.Markup, Does.Contain("/music/rock"),
             "the location itself is listed");
     }
 
     [Test]
-    public void LibraryPage_HasNoTracksTable()
+    public void LibraryPage_ListsFoldersAndDestinations_ButNoTracks()
     {
         var cut = _ctx.Render<Library>();
 
-        Assert.That(cut.Markup, Does.Not.Contain("<table"),
-            "the library page no longer renders any table");
-        Assert.That(cut.Markup, Does.Not.Contain("modern-table"),
-            "and the table styling class is gone with it");
+        Assert.That(cut.FindAll("section.lib-section"), Has.Count.EqualTo(2),
+            "one section for the folders, one for the archive destinations");
+        Assert.That(cut.Find(".lib-section").TextContent, Does.Contain("/music/rock"),
+            "the configured folder is a row in the folders section");
         Assert.That(cut.FindAll("input.search-input"), Is.Empty,
-            "the tracks search box is gone with the table");
+            "track searching stays on the playlist pages");
+        Assert.That(cut.FindAll("tr.track-row"), Is.Empty,
+            "no track rows are rendered here");
     }
 
     [Test]
-    public void LibraryPage_MatchingPanelIsHonest()
+    public void LibraryPage_ExplainsMatchingInTheIntro_NotInAPanel()
     {
         var cut = _ctx.Render<Library>();
 
-        Assert.That(cut.Markup, Does.Contain("How matching works"));
-        Assert.That(cut.Markup, Does.Contain("Matched"),
-            "the old file-count line is replaced by what matching does");
-        Assert.That(cut.Markup, Does.Not.Contain("files in library"),
-            "no stale database file count");
+        Assert.That(cut.Find(".page-title p").TextContent, Does.Contain("MELODY_ID"),
+            "the intro names the tag that drives matching");
+        Assert.That(cut.FindAll(".help-tip"), Is.Not.Empty,
+            "the long explanation stays one click away");
+        Assert.That(cut.Markup, Does.Not.Contain("How matching works"),
+            "the page keeps no second copy of the docs");
     }
 }

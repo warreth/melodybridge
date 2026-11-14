@@ -1,16 +1,3 @@
-/* The path input and its browse button stay on one line; the label still
-   owns the text so screen readers and tests keep the same association. */
-.path-input-row {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: .35rem;
-    align-items: stretch;
-}
-
-.path-input-row > input {
-    min-width: 0;
-}
-
 .path-browse {
     min-width: 36px;
     height: auto;

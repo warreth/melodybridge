@@ -361,6 +361,112 @@ public class AttentionPageTests
     }
 
     [Test]
+    public void PlaylistRow_KeepsItsActionsOutOfThePillColumn()
+    {
+        var cut = _ctx.Render<Attention>();
+        ShowMetric(cut, "playlists");
+
+        cut.WaitForAssertion(() =>
+        {
+            var row = cut.Find("section[aria-labelledby='group-playlists'] .attention-row");
+            Assert.That(row.ClassList, Does.Contain("playlist-row"),
+                "a playlist row has no pill, so its actions span both right columns");
+            Assert.That(row.QuerySelectorAll(".attention-row-actions button, .attention-row-actions a"),
+                Has.Count.GreaterThan(0));
+        }, TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>
+    /// bUnit cannot compute layout, so the stylesheet is the witness: the
+    /// wide playlist-row span must be overridden inside the two-column
+    /// media query, or the row squeezes its buttons off a phone screen.
+    /// </summary>
+    private static string AttentionStyleSheet
+    {
+        get
+        {
+            var dir = new DirectoryInfo(AppContext.BaseDirectory);
+            while (dir is not null && !dir.EnumerateFileSystemInfos(".git").Any())
+                dir = dir.Parent!;
+            return File.ReadAllText(Path.Combine(
+                dir!.FullName, "MelodyBridge.Server", "Components", "Pages",
+                "Attention.razor.css"));
+        }
+    }
+
+    [Test]
+    public void PlaylistRowSpan_IsOverriddenInTheNarrowLayout()
+    {
+        var css = AttentionStyleSheet;
+        var wide = ".attention-row.playlist-row > .attention-row-actions";
+        var media = css.IndexOf("@media (max-width: 820px)", StringComparison.Ordinal);
+        Assert.That(media, Is.GreaterThanOrEqualTo(0), "the narrow layout must exist");
+
+        var wideStart = css.IndexOf(wide, StringComparison.Ordinal);
+        Assert.That(wideStart, Is.GreaterThanOrEqualTo(0),
+            "a playlist row spans both right columns in the wide layout");
+        Assert.That(wideStart, Is.LessThan(media),
+            "the wide rule comes before the media query");
+
+        var narrowStart = css.IndexOf(wide, media, StringComparison.Ordinal);
+        Assert.That(narrowStart, Is.GreaterThan(0),
+            "the narrow layout must override the playlist-row span");
+
+        var block = css[narrowStart..css.IndexOf('}', narrowStart)];
+        Assert.That(block, Does.Contain("grid-column: 2"),
+            "the narrow layout puts the actions back in the copy column");
+        Assert.That(block, Does.Not.Contain("span 2"));
+    }
+
+    [Test]
+    public void RowActions_AreDisabledWhileABackgroundRepairRuns()
+    {
+        // Keep the plan to the one slow retry: a playlist refresh in the
+        // same run would add its own wait and hide what this test checks.
+        using (var db = _factory.CreateDbContext())
+        {
+            var partial = db.Playlists.Single(p => p.Id == "p2");
+            partial.SyncWarning = null;
+            partial.LastSyncStatus = SyncStatus.Completed;
+            db.SaveChanges();
+        }
+        var actions = new SlowActions();
+        _ctx.Services.AddSingleton<IAttentionActions>(actions);
+        var cut = _ctx.Render<Attention>();
+        ShowMetric(cut, "failed");
+        cut.WaitForAssertion(() => Assert.That(cut.Markup, Does.Contain("No source found")),
+            TimeSpan.FromSeconds(5));
+
+        cut.Find(".attention-repair-actions button").Click();
+        Assert.That(actions.Started.Task.Wait(TimeSpan.FromSeconds(5)), Is.True,
+            "the fake action must be the one the repair invoked");
+
+        cut.WaitForAssertion(() =>
+        {
+            var retry = cut.FindAll("button").First(b => b.TextContent.Trim() == "Retry");
+            Assert.That(retry.HasAttribute("disabled"), Is.True,
+                "a running repair blocks the same track from being repaired twice");
+        }, TimeSpan.FromSeconds(5));
+
+        actions.Release.TrySetResult(true);
+        // The repair finishes on its own background task; wait for that
+        // before judging the buttons, so this checks the release rather
+        // than the speed of the runner.
+        var runner = _ctx.Services.GetRequiredService<IAttentionRepairRunner>();
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (runner.IsRunning && DateTime.UtcNow < deadline)
+            Thread.Sleep(50);
+        Assert.That(runner.IsRunning, Is.False, "the repair must finish once released");
+
+        cut.WaitForAssertion(() =>
+        {
+            var retry = cut.FindAll("button").First(b => b.TextContent.Trim() == "Retry");
+            Assert.That(retry.HasAttribute("disabled"), Is.False,
+                "the buttons come back once the repair has finished");
+        }, TimeSpan.FromSeconds(5));
+    }
+
+    [Test]
     public void SelectingAGroup_ShowsTheBulkBar()
     {
         var cut = _ctx.Render<Attention>();

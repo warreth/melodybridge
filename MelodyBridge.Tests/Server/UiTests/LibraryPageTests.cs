@@ -66,7 +66,7 @@ public class LibraryPageTests
     {
         var cut = _ctx.Render<Library>();
         var buttons = cut.FindAll("button");
-        Assert.That(buttons.Any(b => b.TextContent.Trim().Contains("Add location")), Is.True);
+        Assert.That(buttons.Any(b => b.TextContent.Trim().Contains("Add music folder")), Is.True);
     }
 
     [Test]
@@ -134,7 +134,7 @@ public class LibraryPageTests
         emptyCtx.Services.AddDownloadPages(emptyFactory);
 
         var cut = emptyCtx.Render<Library>();
-        Assert.That(cut.Markup, Does.Contain("No scan locations"));
+        Assert.That(cut.Markup, Does.Contain("No music folders yet"));
     }
 
     private class InMemFactory : IDbContextFactory<MelodyBridgeDbContext>

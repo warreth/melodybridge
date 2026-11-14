@@ -289,7 +289,7 @@ else
             <div class="panel-header">
                 <div>
                     <span class="eyebrow">Attention</span>
-                    <h2>@attentionTotal item@(attentionTotal == 1 ? "" : "s") need@(attentionTotal == 1 ? "s" : "") a look</h2>
+                    <h2>@(attentionTotal == 1 ? "1 item needs a look" : $"{attentionTotal} items need a look")</h2>
                 </div>
                 <a class="btn-modern ghost small" href="/attention">Review all</a>
             </div>
@@ -404,17 +404,6 @@ else
             }
         </section>
     }
-    else
-    {
-        <div class="dashboard-clear dashboard-clear-wide">
-            <span class="dashboard-clear-icon"><Icon Name="check-circle" Size="20" /></span>
-            <div>
-                <strong>Everything looks healthy</strong>
-                <span>@(errorCount == 0 ? "No errors, failed downloads, open reviews or login problems." : "No failed downloads, open reviews or login problems.")</span>
-            </div>
-            <a class="btn-modern ghost small" href="/attention">Open the review page</a>
-        </div>
-    }
 
     @if (!IsSimple && recentErrors.Count > 0)
     {
@@ -447,7 +436,10 @@ else
         <StatCard IconName="hard-drive" Label="Library size" Value="@librarySizeText"
                   Caption="@($"{libraryFileCount} file{(libraryFileCount == 1 ? "" : "s")}")"
                   Href="@(IsSimple ? null : "/library")" />
-        <StatCard IconName="alert" Label="Needs attention" Value="@attentionTotal.ToString()"
+        @* The icon follows the state: an alert triangle over zero issues
+           reads as a warning that is not there. *@
+        <StatCard IconName="@(attentionTotal > 0 ? "alert" : "check-circle")"
+                  Label="Needs attention" Value="@attentionTotal.ToString()"
                   Caption="@(attentionTotal == 0 ? "Nothing waiting" : "Open issues across the app")"
                   Href="/attention" Tone="@(attentionTotal > 0 ? "danger" : "success")" />
     </section>
@@ -500,7 +492,9 @@ else
             </div>
             @if (recentRuns.Count == 0)
             {
-                <EmptyState IconName="clock" Title="No sync runs yet">No sync job has run yet.</EmptyState>
+                <EmptyState IconName="clock" Title="No sync runs yet">
+                    A sync job appears here after its first run.
+                </EmptyState>
             }
             else
             {

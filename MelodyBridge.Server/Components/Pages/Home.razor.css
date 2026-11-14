@@ -161,27 +161,6 @@
     }
 }
 
-/* One compact all-clear instead of two empty panels. */
-.dashboard-clear {
-    display: flex;
-    align-items: center;
-    gap: .7rem;
-    padding: .8rem .9rem;
-}
-.dashboard-clear-icon {
-    flex: 0 0 auto;
-    display: grid;
-    place-items: center;
-    width: 34px;
-    height: 34px;
-    border-radius: 50%;
-    background: var(--accent-soft);
-    color: var(--accent-text);
-}
-.dashboard-clear div { display: grid; gap: .1rem; min-width: 0; }
-.dashboard-clear strong { font-size: .9rem; }
-.dashboard-clear span { color: var(--muted); font-size: .8rem; line-height: 1.4; }
-
 /* Phones: keep the four metrics visible as a 2x2 block instead of four
    full-width cards, and let Refresh and Add share the action row. */
 @media (max-width: 720px) {
@@ -268,18 +247,6 @@
 .attention-copy small { color: var(--muted); font-size: .75rem; line-height: 1.35; overflow-wrap: anywhere; }
 .attention-arrow { flex: 0 0 auto; margin-left: auto; color: var(--muted-2); }
 
-.dashboard-clear-wide {
-    margin-top: 1rem;
-    border: 1px solid color-mix(in srgb, var(--success) 26%, var(--border));
-    border-radius: var(--radius);
-    background: var(--success-soft);
-}
-.dashboard-clear-wide .dashboard-clear-icon {
-    background: var(--success-soft);
-    color: var(--success);
-}
-.dashboard-clear-wide .btn-modern { margin-left: auto; flex-shrink: 0; }
-
 .dashboard-grid { margin-top: 1rem; }
 .dashboard-activity,
 .dashboard-connections { min-width: 0; }
@@ -357,7 +324,7 @@
 }
 .connection-group-label {
     color: var(--muted-2);
-    font-size: .66rem;
+    font-size: .68rem;
     font-weight: 700;
     letter-spacing: .09em;
     text-transform: uppercase;
@@ -409,7 +376,7 @@
     border-radius: 8px;
     flex: 0 0 64px;
 }
-.dashboard-cover .cover-badge { font-size: .56rem; padding: .1rem .3rem; right: .2rem; bottom: .2rem; }
+.dashboard-cover .cover-badge { font-size: .68rem; padding: .1rem .3rem; right: .2rem; bottom: .2rem; }
 .dashboard-playlist-copy { display: grid; gap: .15rem; min-width: 0; }
 .dashboard-playlist-top {
     display: flex;
@@ -452,8 +419,6 @@
     .dashboard-actions { flex-wrap: wrap; }
     .dashboard-live { order: -1; }
     .attention-grid { grid-template-columns: minmax(0, 1fr); }
-    .dashboard-clear-wide { flex-wrap: wrap; }
-    .dashboard-clear-wide .btn-modern { margin-left: 0; }
     .dashboard-playlists { grid-template-columns: minmax(0, 1fr); }
     .dashboard-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .active-run-row { grid-template-columns: minmax(0, 1fr) auto; }

@@ -115,7 +115,6 @@
 }
 
 .route-skipped { margin: .6rem 0 0; color: var(--muted); font-size: .82rem; line-height: 1.45; }
-.route-note { margin: .35rem 0 0; color: var(--muted-2); font-size: .78rem; }
 
 .auth-alert-list {
     list-style: none;
@@ -488,26 +487,6 @@
     font-size: .76rem;
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
-}
-
-/* Try-order number on the icon: the card tail already carries arrows,
-   but a rank answers "where in the waterfall is this?" at a glance. */
-.plugin-rank {
-    position: absolute;
-    right: -4px;
-    bottom: -4px;
-    min-width: 18px;
-    height: 18px;
-    padding: 0 4px;
-    display: grid;
-    place-items: center;
-    border: 2px solid var(--surface);
-    border-radius: 9px;
-    background: var(--accent-soft);
-    color: var(--accent-text);
-    font-size: .66rem;
-    font-weight: 800;
-    line-height: 1;
 }
 
 @media (max-width: 600px) {

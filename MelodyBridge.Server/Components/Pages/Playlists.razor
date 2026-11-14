@@ -387,7 +387,7 @@ else
                     <span class="eyebrow">New source</span>
                     <h2>Add playlist</h2>
                 </div>
-                <button class="icon-button" @onclick="HideAddForm"><Icon Name="x" Size="18" /></button>
+                <button class="icon-button" title="Close" aria-label="Close" @onclick="HideAddForm"><Icon Name="x" Size="18" /></button>
             </div>
             <div class="wizard-body">
                 <div class="hint-box">
@@ -495,7 +495,7 @@ else
                         <HelpTip Path="accounts" Text="Spotify needs a developer app and Premium. The web sessions for Spotify and Apple Music are unofficial cookies. Public and shared links need neither." />
                     </div>
                 </div>
-                <button class="icon-button" @onclick="HideAccountPanel"><Icon Name="x" Size="18" /></button>
+                <button class="icon-button" title="Close" aria-label="Close" @onclick="HideAccountPanel"><Icon Name="x" Size="18" /></button>
             </div>
             <div class="wizard-body">
                 <TabStrip Tabs="ImportTabs" ActiveId="@importTab"
@@ -507,8 +507,7 @@ else
                         @foreach (var entry in accountPanels)
                         {
                             <div class="account-card">
-                                <div class="account-head">
-                                    <strong>@entry.Name</strong>
+                                <AccountCardHead Name="@entry.Name" Brand="@entry.Brand">
                                     @if (entry.Unofficial)
                                     {
                                         <span class="account-badges">
@@ -524,7 +523,7 @@ else
                                             @(entry.Connected ? "connected" : "not connected")
                                         </StatusPill>
                                     }
-                                </div>
+                                </AccountCardHead>
                                 @if (entry.Connected)
                                 {
                                     <div class="flex-actions">
@@ -605,11 +604,13 @@ else
                             <table class="modern-table account-playlist-table">
                                 <thead>
                                     <tr>
-                                        <th class="col-select"></th>
-                                        <th>Playlist</th>
-                                        <th class="col-owner">Owner</th>
-                                        <th class="col-tracks">Tracks</th>
-                                        <th>Status</th>
+                                        <th class="col-select">
+                                            <span class="visually-hidden">Select</span>
+                                        </th>
+                                        <th scope="col">Playlist</th>
+                                        <th scope="col" class="col-owner">Owner</th>
+                                        <th scope="col" class="col-tracks">Tracks</th>
+                                        <th scope="col">Status</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -731,7 +732,7 @@ else
                         for different rules or targets per playlist.
                     </p>
                 </div>
-                <button class="icon-button" title="Close" @onclick="ClosePublishPanel"><Icon Name="x" Size="18" /></button>
+                <button class="icon-button" aria-label="Close" title="Close" @onclick="ClosePublishPanel"><Icon Name="x" Size="18" /></button>
             </div>
             <div class="wizard-body">
                 @if (!string.IsNullOrEmpty(publishError))
@@ -972,7 +973,7 @@ else
     /// <summary>Advanced mode reveals the longer unofficial-cookie risk note.</summary>
     private bool advancedMode;
     private sealed record AccountPanel(
-        string Name, bool Connected, bool Unofficial, string LikedLabel);
+        string Name, string Brand, bool Connected, bool Unofficial, string LikedLabel);
 
     private List<AccountPanel> accountPanels = new();
     private HashSet<string> savedAccountIds = new();
@@ -1801,13 +1802,13 @@ else
     {
         accountPanels = new List<AccountPanel>
         {
-            new(SpotifyAccountProvider.ProviderName,
+            new(SpotifyAccountProvider.ProviderName, "spotify",
                 await SpotifyAccount.IsConnectedAsync(), false, "liked songs"),
-            new(YouTubeAccountProvider.ProviderName,
+            new(YouTubeAccountProvider.ProviderName, "youtube",
                 await YouTubeAccount.IsConnectedAsync(), false, "liked songs"),
-            new(SpotifyUnofficialAccountProvider.ProviderName,
+            new(SpotifyUnofficialAccountProvider.ProviderName, "spotify",
                 await SpotifyWeb.IsConnectedAsync(), true, "liked songs"),
-            new(AppleMusicAccountProvider.ProviderName,
+            new(AppleMusicAccountProvider.ProviderName, "applemusic",
                 await AppleMusic.IsConnectedAsync(), true, "library songs"),
         };
         // One lookup per platform: liked songs are saved under their own

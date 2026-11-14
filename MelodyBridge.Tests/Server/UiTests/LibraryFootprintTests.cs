@@ -93,20 +93,18 @@ public class LibraryFootprintTests
     public void Summary_ShowsFilesSizeAndArchiveCopies()
     {
         var cut = _ctx.Render<Library>();
-        var cards = cut.FindAll(".stat-card");
-        string Card(string label) => cards
-            .Single(c => c.QuerySelector("label")!.TextContent == label)
-            .TextContent;
+        string Card(string figure) => cut.Find($".lib-figure[data-figure='{figure}']").TextContent;
 
         Assert.Multiple(() =>
         {
-            Assert.That(Card("Library files"), Does.Contain("3"),
+            Assert.That(Card("files"), Does.Contain("3"),
                 "two main files plus one archive copy, the untagged file stays out");
-            Assert.That(Card("Library size"), Does.Contain("3.5 KB"));
-            Assert.That(Card("Archive copies"), Does.Contain("1"));
-            Assert.That(Card("Archive copies"), Does.Contain("0.5 KB in extra copies"));
-            Assert.That(Card("Scan folders"), Does.Contain("2"));
-            Assert.That(Card("Scan folders"), Does.Contain("1 archive folder"));
+            Assert.That(Card("size"), Does.Contain("3.5 KB"));
+            Assert.That(Card("archive"), Does.Contain("1"));
+            Assert.That(Card("archive"), Does.Contain("0.5 KB"));
+            Assert.That(Card("folders"), Does.Contain("1"),
+                "one folder holds tracks and one holds copies, and the tile splits them");
+            Assert.That(Card("folders"), Does.Contain("1 archive folder"));
         });
     }
 
@@ -114,12 +112,14 @@ public class LibraryFootprintTests
     public void ArchiveLocation_CountsItsCopiesInsteadOfZero()
     {
         var cut = _ctx.Render<Library>();
-        var card = cut.FindAll(".location-card")
-            .Single(c => c.QuerySelector(".path-tag")?.TextContent.Trim() == _archive);
+        var card = cut.FindAll(".archive-default-row").Single();
 
+        var meta = card.QuerySelector(".lib-row-main small")?.TextContent ?? "";
         Assert.Multiple(() =>
         {
-            Assert.That(card.TextContent, Does.Contain("1 file with MELODY_ID"),
+            Assert.That(card.TextContent, Does.Contain(_archive),
+                "the default archive row names its folder");
+            Assert.That(meta, Does.Contain("1 copy"),
                 "an archive copy belongs to the archive folder, not to zero");
             Assert.That(card.TextContent, Does.Contain("0.5 KB"),
                 "the copy is measured on disk, where it differs from the main file");
@@ -131,13 +131,15 @@ public class LibraryFootprintTests
     {
         var cut = _ctx.Render<Library>();
         var card = cut.FindAll(".location-card")
-            .Single(c => c.QuerySelector(".path-tag")?.TextContent.Trim() == _music);
+            .Single(c => c.QuerySelector(".library-row-path")?.TextContent.Trim() == _music);
 
+        var meta = card.QuerySelector(".lib-row-main small")?.TextContent ?? "";
         Assert.Multiple(() =>
         {
-            Assert.That(card.TextContent, Does.Contain("2 files with MELODY_ID"));
-            Assert.That(card.TextContent, Does.Contain("3 KB"));
-            Assert.That(card.TextContent, Does.Not.Contain("0.5 KB"),
+            Assert.That(meta, Does.Contain("2 files"),
+                "both of this folder's tagged files are counted");
+            Assert.That(meta, Does.Contain("3 KB"));
+            Assert.That(meta, Does.Not.Contain("0.5 KB"),
                 "the archive copy is not folded into the main folder");
         });
     }
@@ -177,10 +179,9 @@ public class LibraryFootprintTests
         Assert.That(stored, Is.EqualTo(512),
             "the measured size is kept for the next visit");
 
-        cut.WaitForAssertion(() => Assert.That(cut.FindAll(".stat-card")
-            .Single(c => c.QuerySelector("label")!.TextContent == "Archive copies")
+        cut.WaitForAssertion(() => Assert.That(cut.Find(".lib-figure[data-figure='archive']")
             .TextContent,
-            Does.Contain("KB in extra copies"),
+            Does.Contain("KB"),
             "the measured size shows up in the summary"), TimeSpan.FromSeconds(5));
     }
 
@@ -210,8 +211,7 @@ public class LibraryFootprintTests
         }
 
         var cut = _ctx.Render<Library>();
-        var card = cut.FindAll(".stat-card")
-            .Single(c => c.QuerySelector("label")!.TextContent == "Library size");
+        var card = cut.Find(".lib-figure[data-figure='size']");
 
         Assert.That(card.TextContent, Does.Contain("11.5 KB"),
             "1 KB + 2 KB + 0.5 KB + 8 KB, the shared file counted once with its known size");
@@ -249,8 +249,7 @@ public class LibraryFootprintTests
         Assert.That(stored, Is.EqualTo(3072),
             "the measured size is stored against the file it came from");
 
-        cut.WaitForAssertion(() => Assert.That(cut.FindAll(".stat-card")
-            .Single(c => c.QuerySelector("label")!.TextContent == "Library size")
+        cut.WaitForAssertion(() => Assert.That(cut.Find(".lib-figure[data-figure='size']")
             .TextContent,
             Does.Contain("6.5 KB"),
             "3.5 KB of known files plus the measured 3 KB"), TimeSpan.FromSeconds(5));

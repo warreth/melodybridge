@@ -128,7 +128,7 @@ else if (ArchiveBackfill.Progress is { Total: > 0, Failed: > 0 } lastPass)
             <div class="attention-simple-head">
                 <div>
                     <span class="eyebrow">Overview</span>
-                    <h2>@snapshot.Total item@(snapshot.Total == 1 ? "" : "s") need@(snapshot.Total == 1 ? "s" : "") a fix</h2>
+                    <h2>@(snapshot.Total == 1 ? "1 item needs a fix" : $"{snapshot.Total} items need a fix")</h2>
                 </div>
                 <span class="attention-simple-number">@snapshot.Total</span>
             </div>
@@ -152,20 +152,25 @@ else if (ArchiveBackfill.Progress is { Total: > 0, Failed: > 0 } lastPass)
 }
 else
 {
+    @* Colour only where the number is not zero: a red 0 tells a reader
+       the page is in trouble when nothing is wrong. *@
     <section class="attention-summary">
         <button class="attention-metric @(selectedFilter == "all" ? "active" : null)" @onclick='() => SetFilter("all")'>
             <strong>@snapshot.Total</strong>
             <span>all open</span>
         </button>
-        <button class="attention-metric bad @(selectedFilter == "failed" ? "active" : null)" @onclick='() => SetFilter("failed")'>
+        <button class="attention-metric @(snapshot.FailedCount > 0 ? "bad" : null) @(selectedFilter == "failed" ? "active" : null)"
+                @onclick='() => SetFilter("failed")'>
             <strong>@snapshot.FailedCount</strong>
             <span>failed</span>
         </button>
-        <button class="attention-metric warn @(selectedFilter == "review" ? "active" : null)" @onclick='() => SetFilter("review")'>
+        <button class="attention-metric @(snapshot.ReviewCount > 0 ? "warn" : null) @(selectedFilter == "review" ? "active" : null)"
+                @onclick='() => SetFilter("review")'>
             <strong>@snapshot.ReviewCount</strong>
             <span>reviews</span>
         </button>
-        <button class="attention-metric warn @(selectedFilter == "dedup" ? "active" : null)" @onclick='() => SetFilter("dedup")'>
+        <button class="attention-metric @(snapshot.DedupCount > 0 ? "warn" : null) @(selectedFilter == "dedup" ? "active" : null)"
+                @onclick='() => SetFilter("dedup")'>
             <strong>@snapshot.DedupCount</strong>
             <span>hardlinks</span>
         </button>
@@ -179,21 +184,26 @@ else
         </button>
     </section>
 
-    <section class="attention-repair" aria-labelledby="attention-fix-title">
-        <div class="attention-repair-copy">
-            <span class="eyebrow">Repair</span>
-            <h2 id="attention-fix-title">Fix what can be fixed</h2>
-            <p>@FixSummary</p>
-        </div>
-        <div class="attention-repair-actions">
-            @if (AutoFixTotal > 0)
-            {
-                <button class="btn-modern primary" disabled="@(Busy)" @onclick="RunFixAllAsync">
-                    <Icon Name="check" Size="15" /> Fix all @AutoFixTotal
-                </button>
-            }
-        </div>
-    </section>
+    @* At zero the card would hold a heading, the words "Nothing needs a
+       fix" and no button: the empty state below already says it. *@
+    @if (snapshot.Total > 0)
+    {
+        <section class="attention-repair" aria-labelledby="attention-fix-title">
+            <div class="attention-repair-copy">
+                <span class="eyebrow">Repair</span>
+                <h2 id="attention-fix-title">Fix what can be fixed</h2>
+                <p>@FixSummary</p>
+            </div>
+            <div class="attention-repair-actions">
+                @if (AutoFixTotal > 0)
+                {
+                    <button class="btn-modern primary" disabled="@(Busy)" @onclick="RunFixAllAsync">
+                        <Icon Name="check" Size="15" /> Fix all @AutoFixTotal
+                    </button>
+                }
+            </div>
+        </section>
+    }
 
     @if (_lastResult is not null)
     {
@@ -227,37 +237,37 @@ else
             <strong>@SelectedTracks.Count selected</strong>
             @if (HasRetrySelection)
             {
-                <button class="btn-modern small primary" disabled="@_busy" @onclick="() => RunSelectedAsync(SelectedAction.Retry)">
+                <button class="btn-modern small primary" disabled="@Busy" @onclick="() => RunSelectedAsync(SelectedAction.Retry)">
                     Retry downloads
                 </button>
-                <button class="btn-modern small secondary" disabled="@_busy" @onclick="() => RunSelectedAsync(SelectedAction.RetryElsewhere)">
+                <button class="btn-modern small secondary" disabled="@Busy" @onclick="() => RunSelectedAsync(SelectedAction.RetryElsewhere)">
                     Retry elsewhere
                 </button>
             }
             @if (HasHardlinkSelection)
             {
-                <button class="btn-modern small secondary" disabled="@_busy" @onclick="() => RunSelectedAsync(SelectedAction.Hardlink)">
+                <button class="btn-modern small secondary" disabled="@Busy" @onclick="() => RunSelectedAsync(SelectedAction.Hardlink)">
                     Find hardlinks
                 </button>
             }
             @if (HasDedupSelection)
             {
-                <button class="btn-modern small secondary" disabled="@_busy" @onclick="() => RunSelectedAsync(SelectedAction.DedupHardlink)">
+                <button class="btn-modern small secondary" disabled="@Busy" @onclick="() => RunSelectedAsync(SelectedAction.DedupHardlink)">
                     Hardlink existing
                 </button>
-                <button class="btn-modern small secondary" disabled="@_busy" @onclick="() => RunSelectedAsync(SelectedAction.DedupDownload)">
+                <button class="btn-modern small secondary" disabled="@Busy" @onclick="() => RunSelectedAsync(SelectedAction.DedupDownload)">
                     Download new
                 </button>
             }
             @if (HasReverifySelection)
             {
-                <button class="btn-modern small secondary" disabled="@_busy" @onclick="() => RunSelectedAsync(SelectedAction.Reverify)">
+                <button class="btn-modern small secondary" disabled="@Busy" @onclick="() => RunSelectedAsync(SelectedAction.Reverify)">
                     Recheck files
                 </button>
             }
             @if (HasArchiveSelection)
             {
-                <button class="btn-modern small secondary" disabled="@_busy" @onclick="() => RunSelectedAsync(SelectedAction.Archive)">
+                <button class="btn-modern small secondary" disabled="@Busy" @onclick="() => RunSelectedAsync(SelectedAction.Archive)">
                     Recreate archives
                 </button>
             }
@@ -303,7 +313,7 @@ else
                     <div class="attention-group-actions">
                         @if (ResyncablePlaylists.Count > 0)
                         {
-                            <button class="btn-modern small secondary" disabled="@_busy"
+                            <button class="btn-modern small secondary" disabled="@Busy"
                                     @onclick="RunFixPlaylistsAsync">
                                 Re-sync all @ResyncablePlaylists.Count
                             </button>
@@ -313,7 +323,7 @@ else
                 <div class="attention-rows">
                     @foreach (var playlist in snapshot.Playlists)
                     {
-                        <div class="attention-row">
+                        <div class="attention-row playlist-row">
                             <span class="attention-playlist-icon"><Icon Name="list-music" Size="15" /></span>
                             <div class="attention-row-copy">
                                 <div class="attention-row-title">
@@ -328,7 +338,7 @@ else
                                 @if (playlist.SourceUrl is { Length: > 0 } source
                                     && !source.StartsWith("spotify:import:", StringComparison.OrdinalIgnoreCase))
                                 {
-                                    <button class="btn-modern small secondary" disabled="@_busy"
+                                    <button class="btn-modern small secondary" disabled="@Busy"
                                             @onclick="() => ResyncPlaylistAsync(playlist)">
                                         Re-sync
                                     </button>
@@ -375,28 +385,28 @@ else
                         @if (AttentionKinds.IsFailure(group.Kind)
                             || group.Kind == AttentionKinds.FileMissing)
                         {
-                            <button class="btn-modern small secondary" disabled="@_busy"
+                            <button class="btn-modern small secondary" disabled="@Busy"
                                     @onclick="() => RunGroupAsync(group, SelectedAction.Retry)">
                                 Retry all
                             </button>
                         }
                         @if (group.Kind == AttentionKinds.Unverified)
                         {
-                            <button class="btn-modern small secondary" disabled="@_busy"
+                            <button class="btn-modern small secondary" disabled="@Busy"
                                     @onclick="() => RunGroupAsync(group, SelectedAction.Reverify)">
                                 Recheck all
                             </button>
                         }
                         @if (group.Kind == AttentionKinds.Dedup)
                         {
-                            <button class="btn-modern small secondary" disabled="@_busy"
+                            <button class="btn-modern small secondary" disabled="@Busy"
                                     @onclick="() => RunGroupAsync(group, SelectedAction.DedupHardlink)">
                                 Find hardlinks
                             </button>
                         }
                         @if (group.Kind == AttentionKinds.Archive)
                         {
-                            <button class="btn-modern small secondary" disabled="@_busy"
+                            <button class="btn-modern small secondary" disabled="@Busy"
                                     @onclick="() => RunGroupAsync(group, SelectedAction.Archive)">
                                 Recreate all
                             </button>
@@ -426,51 +436,51 @@ else
                             <div class="attention-row-actions">
                                 @if (AttentionKinds.IsFailure(track.Kind) || track.Kind == AttentionKinds.FileMissing)
                                 {
-                                    <button class="btn-modern small secondary" disabled="@_busy"
+                                    <button class="btn-modern small secondary" disabled="@Busy"
                                             @onclick="() => RunTrackAsync(track, SelectedAction.Retry)">
                                         Retry
                                     </button>
-                                    <button class="btn-modern small ghost" disabled="@_busy"
+                                    <button class="btn-modern small ghost" disabled="@Busy"
                                             @onclick="() => RunTrackAsync(track, SelectedAction.RetryElsewhere)">
                                         Elsewhere
                                     </button>
-                                    <button class="btn-modern small ghost" disabled="@_busy"
+                                    <button class="btn-modern small ghost" disabled="@Busy"
                                             @onclick="() => RunTrackAsync(track, SelectedAction.Hardlink)">
                                         Hardlink
                                     </button>
                                 }
                                 else if (track.Kind == AttentionKinds.Dedup)
                                 {
-                                    <button class="btn-modern small secondary" disabled="@_busy"
+                                    <button class="btn-modern small secondary" disabled="@Busy"
                                             @onclick="() => RunTrackAsync(track, SelectedAction.DedupHardlink)">
                                         Hardlink existing
                                     </button>
-                                    <button class="btn-modern small ghost" disabled="@_busy"
+                                    <button class="btn-modern small ghost" disabled="@Busy"
                                             @onclick="() => RunTrackAsync(track, SelectedAction.DedupDownload)">
                                         Download new
                                     </button>
                                 }
                                 else if (track.Kind.StartsWith("review-", StringComparison.Ordinal))
                                 {
-                                    <button class="btn-modern small secondary" disabled="@_busy"
+                                    <button class="btn-modern small secondary" disabled="@Busy"
                                             @onclick="() => RunTrackAsync(track, SelectedAction.Keep)">
                                         Keep file
                                     </button>
-                                    <button class="btn-modern small ghost" disabled="@_busy"
+                                    <button class="btn-modern small ghost" disabled="@Busy"
                                             @onclick="() => RunTrackAsync(track, SelectedAction.RetryReview)">
                                         Retry download
                                     </button>
                                 }
                                 else if (track.Kind == AttentionKinds.Archive)
                                 {
-                                    <button class="btn-modern small secondary" disabled="@_busy"
+                                    <button class="btn-modern small secondary" disabled="@Busy"
                                             @onclick="() => RunTrackAsync(track, SelectedAction.Archive)">
                                         Recreate
                                     </button>
                                 }
                                 else if (track.Kind == AttentionKinds.Unverified)
                                 {
-                                    <button class="btn-modern small secondary" disabled="@_busy"
+                                    <button class="btn-modern small secondary" disabled="@Busy"
                                             @onclick="() => RunTrackAsync(track, SelectedAction.Reverify)">
                                         Recheck
                                     </button>
@@ -798,7 +808,7 @@ else
     private async Task RunAsync(
         IReadOnlyList<AttentionTrack> tracks, SelectedAction action, AttentionGroup? group)
     {
-        if (tracks.Count == 0 || _busy) return;
+        if (tracks.Count == 0 || Busy) return;
         _busy = true;
         _lastResult = null;
         _busyLabel = BusyLabel(action);

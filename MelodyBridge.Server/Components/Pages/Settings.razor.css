@@ -130,7 +130,7 @@
 :root[data-theme="light"] .accent-blue { --swatch: #2563eb; }
 :root[data-theme="light"] .accent-green { --swatch: #15803d; }
 :root[data-theme="light"] .accent-violet { --swatch: #7c3aed; }
-:root[data-theme="light"] .accent-rose { --swatch: #e11d48; }
+:root[data-theme="light"] .accent-rose { --swatch: #d91440; }
 :root[data-theme="light"] .accent-orange { --swatch: #c2410c; }
 :root[data-theme="light"] .accent-amber { --swatch: #b45309; }
 :root[data-theme="light"] .accent-slate { --swatch: #475569; }
@@ -197,7 +197,7 @@
     background: var(--surface);
 }
 
-.settings-search:focus-within { border-color: var(--accent); }
+.settings-search:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .settings-search-icon { color: var(--muted); flex-shrink: 0; }
 .settings-search-input {
     flex: 1;
@@ -321,7 +321,6 @@
     line-height: 1.45;
     max-width: 72ch;
 }
-.archive-profile-list { display: grid; gap: .4rem; }
 .archive-profile-row {
     display: flex;
     align-items: center;
@@ -388,7 +387,7 @@
     border-radius: 999px;
     background: var(--accent-soft);
     color: var(--accent-text);
-    font-size: .62rem;
+    font-size: .68rem;
     font-weight: 700;
     letter-spacing: .04em;
     text-transform: uppercase;
@@ -401,3 +400,22 @@
     border-radius: 9px;
     background: var(--surface-2);
 }
+
+/* Accounts tab: a section label with one line explaining the group, then
+   the provider cards. The explanation is what tells a reader whether they
+   need an official login or can get away with a cookie. */
+.account-section-head {
+    display: flex;
+    align-items: baseline;
+    gap: .5rem;
+    flex-wrap: wrap;
+    margin-bottom: .5rem;
+}
+.account-section-head .eyebrow { margin: 0; }
+.account-section-head small { color: var(--muted-2); font-size: .74rem; }
+
+/* Cards keep their natural height: a connected card is shorter than one
+   asking for a client ID, and stretching it only adds empty space. */
+.account-grid { align-items: start; }
+.account-card { height: auto; }
+.account-card .account-note { margin: 0; }

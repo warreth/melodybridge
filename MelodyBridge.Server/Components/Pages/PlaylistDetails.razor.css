@@ -86,23 +86,6 @@
 .archive-state-card p { margin: 0; color: var(--muted); font-size: .88rem; overflow-wrap: anywhere; }
 .archive-warning { margin: .75rem 0 0; }
 
-/* One page of track rows at a time: the count and the two actions stay
-   together under the table, and stack once phone width is tight. */
-.track-pager {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: .75rem;
-    margin-top: .75rem;
-    padding-top: .75rem;
-    border-top: 1px solid var(--border);
-}
-
-@media (max-width: 640px) {
-    .track-pager { align-items: stretch; flex-direction: column; }
-    .track-pager .flex-actions { justify-content: stretch; }
-    .track-pager .flex-actions .btn-modern { flex: 1 1 auto; }
-}
 
 /* Compact playlist setup: status chips in the header, two-column fields,
    rare overrides behind one disclosure. */
@@ -136,41 +119,6 @@
 .status-chip.bad strong { color: var(--danger); }
 .status-chip.warn { border-color: color-mix(in srgb, var(--warning) 28%, var(--border)); background: var(--warning-soft); }
 .status-chip.warn strong { color: var(--warning); }
-
-.settings-details {
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    background: var(--surface-2);
-    padding: .1rem .65rem;
-}
-.settings-details summary {
-    cursor: pointer;
-    padding: .5rem 0;
-    color: var(--muted);
-    font-size: .82rem;
-    font-weight: 600;
-}
-.settings-details summary:hover { color: var(--text); }
-.settings-details[open] { padding-bottom: .65rem; }
-.settings-details[open] summary { border-bottom: 1px solid var(--border); margin-bottom: .6rem; }
-
-.archive-summary {
-    display: flex;
-    align-items: center;
-    gap: .45rem;
-    color: var(--muted);
-    font-size: .78rem;
-    line-height: 1.4;
-    flex-wrap: wrap;
-}
-.archive-summary .icon { flex-shrink: 0; color: var(--accent-strong); }
-.archive-summary-sep { color: var(--muted-2); }
-.archive-summary a {
-    color: var(--accent-text);
-    font-weight: 600;
-    text-decoration: none;
-}
-.archive-summary a:hover { text-decoration: underline; }
 
 .toggle-stack { display: grid; gap: .5rem; align-content: start; }
 .review-banner { margin-bottom: .75rem; }
