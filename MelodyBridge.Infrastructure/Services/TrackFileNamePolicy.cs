@@ -66,10 +66,16 @@ internal static class TrackFileNamePolicy
     {
         // A copy this row already has in the same folder stays its copy.
         // Without this, a row that once landed on "Song (2).opus" would
-        // pick a new variant on every pass and fill the folder.
+        // pick a new variant on every pass and fill the folder. It must
+        // carry the preferred name's extension: a copy from another
+        // archive (say the default archive's .flac) is not this
+        // profile's copy, and adopting it would publish the wrong
+        // container.
         if (track.ArchivePath is { Length: > 0 } own
             && File.Exists(own)
             && !PlaylistRules.PathEquals(own, preferredPath)
+            && string.Equals(Path.GetExtension(own), Path.GetExtension(preferredPath),
+                StringComparison.OrdinalIgnoreCase)
             && PlaylistRules.PathEquals(Path.GetDirectoryName(own) ?? "",
                 Path.GetDirectoryName(preferredPath) ?? ""))
         {

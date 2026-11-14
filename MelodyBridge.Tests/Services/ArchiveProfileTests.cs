@@ -400,6 +400,44 @@ public class ArchiveProfileTests
     }
 
     [Test]
+    public async Task ExtraCopies_ExistingCopyInAnotherFormat_IsNotAdopted()
+    {
+        // The default archive and a named profile share one folder but not
+        // one format. A leftover .flac from the default archive must not
+        // become the MP3 profile's copy.
+        var profile = await AddProfileAsync("MP3", "archive-mp3", "mp3:192");
+        var folder = Path.Combine(_root, "archive-mp3");
+        var stray = Path.Combine(folder, "song.flac");
+        await File.WriteAllTextAsync(stray, "flac bytes");
+
+        await using (var db = _factory.CreateDbContext())
+        {
+            var track = await db.Tracks.SingleAsync(t => t.Id == 1);
+            track.ArchivePath = stray;
+            await db.SaveChangesAsync();
+        }
+
+        await using (var db = _factory.CreateDbContext())
+        {
+            var track = await db.Tracks.SingleAsync(t => t.Id == 1);
+            await _copies.ArchiveExtraCopiesAsync(track, db);
+        }
+
+        await using (var db = _factory.CreateDbContext())
+        {
+            var copy = await db.TrackArchiveCopies.SingleAsync(c => c.ProfileId == profile.Id);
+            Assert.Multiple(() =>
+            {
+                Assert.That(copy.Path, Is.Not.EqualTo(stray),
+                    "a copy from another format is not this profile's copy");
+                Assert.That(Path.GetExtension(copy.Path!), Is.EqualTo(".mp3"));
+                Assert.That(File.ReadAllText(stray), Is.EqualTo("flac bytes"),
+                    "the other archive's file is untouched");
+            });
+        }
+    }
+
+    [Test]
     public async Task ExtraCopies_DifferentSongOnTheSameName_TakesANumberedVariant()
     {
         var profile = await AddProfileAsync("MP3", "archive-mp3", "auto");
