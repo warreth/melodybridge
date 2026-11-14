@@ -13,6 +13,12 @@ var builder = WebApplication.CreateBuilder(args);
 // Add services
 builder.Services.AddRazorPages();
 builder.Services.AddServerSideBlazor();
+builder.Services.AddResponseCompression(options =>
+{
+    options.EnableForHttps = true;
+    options.MimeTypes = Microsoft.AspNetCore.ResponseCompression.ResponseCompressionDefaults.MimeTypes
+        .Concat(new[] { "image/svg+xml", "application/octet-stream" });
+});
 builder.Services.AddControllers();
 // Nothing resolves a bare HttpClient: every caller uses named clients
 // (AddHttpClient) or builds its own for accounts. If something starts
@@ -32,9 +38,10 @@ var dbFile = Environment.GetEnvironmentVariable("MELODYBRIDGE_DB") ?? "melodybri
 var databaseExistedAtStartup = File.Exists(dbFile);
 builder.Services.AddSingleton(
     new MelodyBridge.Server.Services.InstallState(databaseExistedAtStartup));
-builder.Services.AddDbContextFactory<MelodyBridgeDbContext>(options =>
-    options.UseSqlite(
-        $"Data Source={dbFile};Default Timeout={SqliteDatabase.BusyTimeoutSeconds}"));
+builder.Services.AddPooledDbContextFactory<MelodyBridgeDbContext>(options =>
+    options
+        .UseSqlite($"Data Source={dbFile};Default Timeout={SqliteDatabase.BusyTimeoutSeconds}")
+        .AddInterceptors(new SqlitePragmaInterceptor()));
 builder.Services.AddScoped<MelodyBridgeDbContext>(sp =>
     sp.GetRequiredService<IDbContextFactory<MelodyBridgeDbContext>>().CreateDbContext());
 
@@ -192,6 +199,7 @@ if (!app.Environment.IsDevelopment())
     app.UseHsts();
 }
 
+app.UseResponseCompression();
 app.UseStatusCodePagesWithReExecute("/not-found");
 // HTTPS redirection only makes sense when the app itself has an HTTPS
 // listener (a direct certificate setup). Behind a reverse proxy the
@@ -202,7 +210,15 @@ if (HasHttpsEndpoint(app.Configuration))
 {
     app.UseHttpsRedirection();
 }
-app.UseStaticFiles();
+app.UseStaticFiles(new StaticFileOptions
+{
+    OnPrepareResponse = context =>
+    {
+        // A day is short enough that an upgrade is picked up without a hard
+        // refresh, and long enough that a visit does not refetch the sheet.
+        context.Context.Response.Headers.CacheControl = "public,max-age=86400";
+    },
+});
 
 app.MapBlazorHub();
 app.MapControllers();
