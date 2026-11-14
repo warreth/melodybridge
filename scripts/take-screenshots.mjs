@@ -64,8 +64,7 @@ const ROUTES = [
   ['/sync-jobs', 'sync-profiles', { clickText: 'Publish profiles', waitFor: '.sync-profiles' }],
   ['/settings', 'settings'],
   ['/settings', 'settings-appearance', { clickText: 'Appearance', waitFor: 'text=Theme and color' }],
-  ['/settings', 'settings-paths', { clickText: 'Default paths', waitFor: 'text=Archive profiles' }],
-  ['/settings', 'settings-archives', { clickText: 'Default paths', waitFor: 'text=Archive profiles', scrollTo: '.archive-profiles' }],
+  ['/settings', 'settings-paths', { clickText: 'Default paths', waitFor: 'text=Music path' }],
   ['/logs', 'logs'],
   ['/advanced', 'advanced'],
 ]

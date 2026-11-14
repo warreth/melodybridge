@@ -62,7 +62,7 @@ They sound alike, but each one answers a different question.
 | Profile | What it is | Where |
 |---|---|---|
 | Media server connection | One Jellyfin, Plex or Subsonic server: URL and credentials | Settings, Media servers |
-| Archive profile | One local second copy in its own folder and format | Settings, Default paths |
+| Archive profile | One local second copy in its own folder and format | Library |
 | Publish profile | One destination for a sync job: an M3U file or one media server, with its own playlist name, source copy and path rules | Sync jobs, Publish profiles |
 
 A sync job ticks one or more publish profiles. Tick one per destination: the

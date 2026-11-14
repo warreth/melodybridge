@@ -66,7 +66,7 @@ several jobs at once.
 
 ### Default paths
 
-<img src="/screens/settings-paths.webp" alt="Default paths tab with the music path, playlist folder and the default archive profile" width="800">
+<img src="/screens/settings-paths.webp" alt="Default paths tab with the music path and the playlist folder" width="800">
 
 - **Music path** (`/music` in the Docker image): the root for downloads. With
   **Sort downloads into a folder per playlist** on, the default, each playlist
@@ -79,43 +79,29 @@ several jobs at once.
   `<folder>/<job name>.m3u8`. Edit that profile, or create another one, when a
   job should land elsewhere. A publish profile can set the folder and file name
   for every job that ticks it.
-- **Default archive**: the first archive profile, marked **default**, edited
-  from its own row. Leave the path empty for no default archive. Playlists
-  choose archive destinations by profile. A playlist from before that checklist
-  keeps its old folder and format as an **Old playlist archive** row until you
-  save a new selection on the playlist page. The format picker offers Auto,
-  Opus, FLAC, MP3 and AAC, plus Custom for another container ffmpeg can write
-  (for example ogg, wav or m4a).
-  Add a bitrate after a colon for lossy presets (`mp3:160`, `opus:192`) or a
-  codec (`m4a:alac`). A format ffmpeg cannot write leaves a warning on the
-  track. Each playlist gets its own folder under the archive path while the
-  sort toggle is on. Saving a new default path moves the existing default
-  copies along with it.
+These two fields are the only path settings left here. The archive
+destinations, their folders and their formats moved to the Library page, where
+each one sits next to the folder it writes to.
 
-<img src="/screens/settings-archives.webp" alt="Archive profiles with the default row and two extra copies, each with its folder and format" width="800">
-
-- **Extra archive profiles** sit below the default row. Add as many as you
-  need, each with a name, folder, container and bitrate. A playlist selects
-  which destinations it writes, so one library can keep an Opus 128 copy and an
-  MP3 160 copy next to the default. Extra profiles have their own enable
-  toggle, **Build missing** button and delete action. **Build missing** scans
-  the existing library and creates the copies that profile does not have yet
-  for the playlists that select it; it runs in the background, shows its
-  progress and ETA here and on Needs attention, and only visits copies that are
-  actually missing. A copy that fails lands in the **Archive copies** group on
-  Needs attention. The default has no bulk backfill: recreate one copy at a
-  time from the track row or the Needs attention page. Disabling a profile
-  keeps its files on disk.
-  Deleting one removes the profile and its copy rows, not the files, and
-  drops the scan location it registered unless another profile still uses
-  that folder. The playlist page selects the default archive and any named
-  profiles as one checklist, so a playlist can write no copies or several.
-  A publish profile can use one of these profiles as its **Source**, so an M3U
-  file or a media server playlist publishes that copy instead of the primary
-  file.
+- **Archive destinations** on the [Library page](/reference#the-library-page):
+  the default archive plus any named ones, each with a folder, container and
+  bitrate. A playlist ticks the destinations it writes, so one library can keep
+  an Opus 128 copy and an MP3 160 copy next to the default. Every destination
+  has **Build missing**, an enable switch and, when named, a delete action.
+  **Build missing** scans the existing library and creates only the copies that
+  destination is missing for the playlists that select it; it runs in the
+  background, shows its progress and ETA here and on Needs attention. A copy
+  that fails lands in the **Archive copies** group on Needs attention.
+  Switching a destination off keeps its files on disk. Deleting a named one
+  removes the profile and its copy rows, not the files, and drops the scan
+  location it registered unless another destination still uses that folder.
+  The playlist page lists the default and every named destination as one
+  checklist, so a playlist can write no copies or several. A publish profile
+  can use one of them as its **Source**, so an M3U file or a media server
+  playlist publishes that copy instead of the primary file.
 
 The path fields have a folder button that opens a server-side picker with
-shortcuts to the music, playlist, archive and scan folders. You can still type a
+shortcuts to the music, playlist and scan folders. You can still type a
 path by hand. The fields show a grey `{playlist}` suffix when the folder rule
 appends a playlist name, so what a field resolves to is visible before you save.
 
@@ -237,11 +223,12 @@ discarded before the restart.
 
 ## The dashboard
 
-The dashboard is the at-a-glance page. A red **Needs attention** band lists
+The dashboard is the at-a-glance page. A **Needs attention** band lists
 everything that still wants a decision, with a count and a link per category:
 failed downloads, hardlink decisions, quality reviews, archive copies, plugin
-logins, failed sync jobs and partial playlists. When there is nothing to do, a
-short all-clear replaces the band. **Review all** opens the
+logins, failed sync jobs and partial playlists. When there is nothing to do the
+band stays away, and the **Needs attention** metric below reads zero with a
+check mark. **Review all** opens the
 [Needs attention page](/reference#the-needs-attention-page).
 
 Four metric tiles follow: playlists, downloaded tracks, library size and the
@@ -586,31 +573,44 @@ separately under **Third-party sources that search themselves**.
 
 ## The Library page
 
-<img src="/screens/library.webp" alt="Library page with scan folders and the track identity panel" width="800">
+<img src="/screens/library.webp" alt="Library page: a totals line, the music folders, then the archive destinations" width="800">
 
-The Library page covers music you already own. **Add location** points
+The Library page covers music you already own. **Add music folder** points
 MelodyBridge at a folder; new playlists register their download folder here
-automatically, and so does every archive root you save.
+automatically. It is also where the archive copies live: every destination, the
+default included, sits beside the folders it writes to, so a copy and its folder
+are one thing on one page.
 
-- Each location has its own schedule (manual, hourly, daily, weekly, monthly or
-  cron) and an optional **Live monitoring** toggle that rescans when files
-  change. **Run scan** does all folders immediately.
-- The cards at the top show how many files carry a `MELODY_ID`, the total size
-  of the main files and archive copies, the number and size of the archive
-  copies, and how many scan folders are archive folders.
-- The scanner reads tags, not filenames, and matches files to playlist tracks by
-  their `MELODY_ID` tag, so a song you already have is never downloaded again.
-  Location cards show their own file count and folder size, the schedule, the
-  last scan, and a **path missing** pill when the folder went away. A folder
-  that sits in a configured archive path is marked **archive folder**: its files
-  are copies and are never adopted as a track's main file.
+- The totals line at the top states four facts in one row: the files that carry
+  a `MELODY_ID`, their size, the archive copies and their size, and how many
+  music folders there are next to how many hold archive copies. The last-scan
+  time sits at the right.
+- A single warning line appears when a configured folder is not on disk. The
+  row for that folder carries the **not on disk** pill, so the line never has
+  to repeat which one it is.
+- **Music folders**: one row per folder with its file count, size, schedule,
+  last scan and two actions, **Edit** and **Remove**. **Add folder** opens the
+  editor with the path, a schedule and the live-monitoring switch. **Run scan**
+  scans every folder immediately.
+- **Archive copies**: the default archive plus one row per named destination,
+  with its folder, format, copy count and size on disk. Named rows have an
+  enable switch, **Edit** and delete; **Add destination** opens the editor. The
+  editor holds the folder, the container, the bitrate or codec, and **Build
+  missing**, which creates only the copies that destination is missing.
+- The **Default archive** row is the destination for playlists that pick no
+  named profile. **Edit** changes its folder and format; saving a new folder
+  moves the existing copies along with it, and clearing the folder turns the
+  default copy off.
+- **Other archive folders** appears when a folder holds copies that no
+  destination writes to, for example a playlist's own archive folder. A folder
+  listed here never counts as a music folder.
 - Sizes come from the database: the app knows how big a file is when it writes
   it, so the page does not measure the library again on every visit. A file
   from before that was known is measured once, in the background, and the
-  answer is kept. Archive copies are counted where they live, so an archive
-  folder reports the real number and size of its files.
-- The **Track identity** panel on the right repeats the short version of how
-  matching works. The long version is in [How it works](/concepts).
+  answer is kept.
+- The scanner reads tags, not filenames, and links a file to a playlist row by
+  its `MELODY_ID` tag. The short explanation sits in the help icon next to the
+  title; the long version is in [How it works](/concepts).
 
 ## The Advanced page <Badge type="warning" text="Advanced" />
 

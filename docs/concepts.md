@@ -10,8 +10,8 @@ moving parts.
 A first install asks how you want to use the app. **Simple** keeps the sidebar
 to the everyday path: playlists, downloads, attention, sources, sync jobs and
 settings. The setup checklist has two steps. The sync jobs page still shows
-publish profiles, but the editor keeps the path rules under a fold and the bulk
-selection bar out of the way. Its dashboard keeps the library counters and
+publish profiles, but the job editor stays short: the path rules live on the
+profile and the bulk selection bar stays out of the way. Its dashboard keeps the library counters and
 playlists, the attention page becomes one summary and one fix button, and the
 plugins page starts in compact rows. **Advanced** shows the library, diagnostics,
 logs and every setting, and starts the plugins page as cards. Both modes use the
@@ -29,7 +29,8 @@ different question:
 - A **media server connection** is one server: URL and credentials. It lives in
   Settings, Media servers.
 - An **archive profile** is one local second copy in its own folder and format.
-  Playlists choose which copies to build. It lives in Settings, Default paths.
+  Playlists choose which copies to build. The named profiles live on the
+  Library page; the default one is under Settings, Default paths.
 - A **publish profile** is one destination for a sync job: an M3U file or one
   media server. It picks the connection, playlist name, source copy and path
   rules. A job ticks one or more publish profiles, so each destination keeps its
@@ -467,7 +468,8 @@ AAC files. Or keep two archives, one Opus 128 and one MP3 160, so every player
 has a compatible copy.
 
 The first copy is the **default archive** you set under **Settings, Default
-paths**. Below it, **Archive profiles** add more destinations. Each profile has
+paths**. Below it, **Archive profiles** on the **Library page** add more
+destinations. Each profile has
 a name, folder, container and bitrate. The playlist page selects the default
 archive and any named profiles as one checklist, so a playlist can write no
 copies, one copy, or several. A playlist from an older version keeps its

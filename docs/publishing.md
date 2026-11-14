@@ -35,23 +35,31 @@ its own source, targets or advanced options.
 ## Create and edit a sync job
 
 **New sync job** opens one editor, not a step-by-step wizard. The form is one
-screen:
+screen in three columns:
 
-- **Basics**: name, source playlist or folder, the search folders, and the
-  schedule.
-- **Publish to**: tick the publish profiles this job should use. One job can
-  publish to several destinations at once, and each destination keeps its own
-  rules.
-- **Rules and preview**: the rules in use, a sample source path, the player path
-  and the exact M3U entry.
-- **Advanced options**, folded away at the bottom: a Jellyfin user, and the
-  path rules of a legacy target saved before publish profiles. New jobs keep
-  their rules on the profiles.
+- **Job**: the name, the source playlist or folder, the search folders, and
+  the schedule. The schedule uses the same picker as every other scheduled
+  task in the app.
+- **Send to**: every publish profile as one tick. Profile names are the
+  destinations, M3U files and media servers alike, so there is no separate M3U
+  switch to find. A ticked profile shows where it writes; a folded **From an
+  older version** block holds a target saved before profiles existed, with the
+  same **Convert to a profile** button.
+- **Preview**: a sample source path and, for every ticked profile, the file it
+  writes for this job and the entry or server path it produces.
+
+Path and extension rules live on the profile, never on the job. Open
+**Publish profiles** to change them once for every job that uses the profile.
 
 **Create sync job** saves it. Later, **Edit** in a job's menu opens the same
 screen with the current values. There is no second editor to hunt for.
 
-<img src="/screens/sync-quick.webp" alt="Sync job editor with basics, publish targets, rules and a live rule preview" width="800">
+<img src="/screens/sync-quick.webp" alt="Sync job editor with the job name, source playlist and schedule" width="800">
+
+::: info Screenshot pending
+The image above shows the earlier layout. The editor now adds the publish
+profile list and a live preview beside these fields.
+:::
 
 ### Publish profiles
 
@@ -107,7 +115,7 @@ leaves the job without a destination; add another profile before its next run.
 | Target | What it needs |
 |---|---|
 | M3U file | A publish profile with kind **M3U file**. **Player compatibility** writes UTF-8 with BOM, Windows line endings and forward slashes for `.m3u8`, uses backslashes for a Windows car or MP4 player, or keeps the plain/old format. **Relative paths** makes entries like `../music/song.flac`; putting the playlist in the same folder as the music gives bare file names and works on the most devices |
-| Jellyfin | A publish profile with kind **Jellyfin** and a Jellyfin connection from **Settings, Media servers**. Open **Advanced options** to pick the user whose favorites get marked; that user applies to every Jellyfin target of the job |
+| Jellyfin | A publish profile with kind **Jellyfin** and a Jellyfin connection from **Settings, Media servers**. Tick the profile and the editor shows the user picker; that user's favorites get marked on every Jellyfin target of the job |
 | Plex | A publish profile with kind **Plex** and a Plex connection. The token holder is the only account there is, so there is no user picker |
 | Subsonic | A publish profile with kind **Subsonic** and a Subsonic or Navidrome connection. Navidrome, gonic, Airsonic, Ampache, Funkwhale and Nextcloud Music all speak this API; there are no API keys |
 
@@ -115,8 +123,8 @@ The job stores the profiles you tick, not a copy of their credentials: edit a
 profile once and every job that uses it follows. If a profile is deleted, its
 target is removed from the jobs that used it and the editor asks for a
 replacement while the job's other targets stay. A job created before profiles
-existed keeps the connection it carries in **Advanced options**, where you can
-keep or replace it.
+existed keeps its connection inside **From an older version**, where you can
+keep it or replace it with a profile.
 
 Path and extension rules live on the publish profile. A media server usually
 matches tracks by metadata, so its profile can leave them empty. An M3U file
